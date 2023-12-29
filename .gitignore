@@ -1,0 +1,7 @@
+# MacOS creates these files
+.DS_Store
+
+# Never push environment variables
+.env
+
+node_modules

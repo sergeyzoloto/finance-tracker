@@ -7,3 +7,5 @@
 <https://github.com/testing-library/react-testing-library/pull/991>
 [01.01.24] Reworked the tests for the custom hook useFetch by adding the helper function waitFor instead of the similar waitForNextUpdate. The console warns about actions performed on the tested component outside act(...), although from my point of view the code causing changes is actually wrapped exactly in act(...).
 <https://www.toptal.com/react/testing-react-hooks-tutorial>
+[02.01.24] User model added
+[04.01.24] User router and controller added. mongodb-memory-server and supertest are used to mock db and test the server side

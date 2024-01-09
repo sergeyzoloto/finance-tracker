@@ -1,21 +1,17 @@
-// import { useState } from 'react';
 import './App.css';
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
+import Home from './pages/Home/Home';
 
 function App() {
-  // const [count, setCount] = useState(0);
-
   return (
     <>
       <h1 className="text-3xl font-bold underline">Vite + React</h1>
+      <Routes>
+        <Route path="/" element={<Home />} />
+      </Routes>
     </>
   );
-  /*
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-      </div>
-  */
 }
 
 export default App;

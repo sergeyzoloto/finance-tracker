@@ -5,9 +5,7 @@ import './index.css';
 import AppWrapper from './AppWrapper.jsx';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <AppWrapper>
-      <App />
-    </AppWrapper>
-  </React.StrictMode>,
+  <AppWrapper>
+    <App />
+  </AppWrapper>,
 );

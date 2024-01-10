@@ -9,3 +9,5 @@
 <https://www.toptal.com/react/testing-react-hooks-tutorial>
 [02.01.24] User model added
 [04.01.24] User router and controller added. mongodb-memory-server and supertest are used to mock db and test the server side
+[09.01.24] Simple home page added with tests template
+[10.01.24] User list and create user input added

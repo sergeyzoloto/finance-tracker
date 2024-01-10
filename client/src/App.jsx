@@ -2,13 +2,18 @@ import './App.css';
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Home from './pages/Home/Home';
+import CreateUser from './pages/User/CreateUser';
+import UserList from './pages/User/UserList';
+import Nav from './components/Nav';
 
 function App() {
   return (
     <>
-      <h1 className="text-3xl font-bold underline">Vite + React</h1>
+      <Nav />
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/user" element={<UserList />} />
+        <Route path="/user/create" element={<CreateUser />} />
       </Routes>
     </>
   );

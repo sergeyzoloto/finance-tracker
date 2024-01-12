@@ -11,3 +11,4 @@
 [04.01.24] User router and controller added. mongodb-memory-server and supertest are used to mock db and test the server side
 [09.01.24] Simple home page added with tests template
 [10.01.24] User list and create user input added
+[12.01.24] Reorganized the general layout, added styling to the user creation form, fixed tests for the frontend

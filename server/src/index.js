@@ -1,9 +1,9 @@
-// Load our .env variables
-import dotenv from 'dotenv';
 import app from './app.js';
 import connectDB from './db/connectDB.js';
 import { logInfo, logError } from './util/logging.js';
 
+// Load our .env variables
+import dotenv from 'dotenv';
 dotenv.config();
 
 // The environment should set the port

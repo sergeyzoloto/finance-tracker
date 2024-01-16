@@ -10,6 +10,9 @@ const app = express();
 app.use(express.json()); // Set the payload limit to 50 megabytes
 // Allow everyone to access our API. In a real application, we would need to restrict this!
 app.use(cors());
+// Cookies
+import cookieParser from 'cookie-parser';
+app.use(cookieParser());
 
 /****** Attach routes ******/
 /**

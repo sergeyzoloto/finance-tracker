@@ -12,3 +12,4 @@
 [09.01.24] Simple home page added with tests template
 [10.01.24] User list and create user input added
 [12.01.24] Reorganized the general layout, added styling to the user creation form, fixed tests for the frontend
+[16.01.24] Login and logout end points added and tested + Cookies management + Hashing passwords

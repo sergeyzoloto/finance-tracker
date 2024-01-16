@@ -6,7 +6,10 @@ import {
   clearMockDatabase,
 } from '../__testUtils__/dbMock.js';
 import app from '../app.js';
-import { findUserInMockDB } from '../__testUtils__/userMocks.js';
+import {
+  findUserInMockDB,
+  addUserToMockDB,
+} from '../__testUtils__/userMocks.js';
 
 // Hashing passwords
 import bcryptjs from 'bcryptjs';
@@ -27,10 +30,14 @@ afterAll(async () => {
 
 const testUserBase = { email: 'john@doe.com', password: 'qwerty123456' };
 
-describe('POST /api/user/register', () => {
+beforeEach(async () => {
+  await addUserToMockDB(testUserBase);
+});
+
+describe('POST /api/user/login', () => {
   it('Should return a bad request if no user object is given', (done) => {
     request
-      .post('/api/user/register')
+      .post('/api/user/login')
       .then((response) => {
         expect(response.status).toBe(400);
 
@@ -50,7 +57,7 @@ describe('POST /api/user/register', () => {
     const testUser = { email: testUserBase.email };
 
     request
-      .post('/api/user/register')
+      .post('/api/user/login')
       .send({ user: testUser })
       .then((response) => {
         expect(response.status).toBe(400);
@@ -71,7 +78,7 @@ describe('POST /api/user/register', () => {
     const testUser = { password: testUserBase.password };
 
     request
-      .post('/api/user/register')
+      .post('/api/user/login')
       .send({ user: testUser })
       .then((response) => {
         expect(response.status).toBe(400);
@@ -92,7 +99,52 @@ describe('POST /api/user/register', () => {
     const testUser = { ...testUserBase, foo: 'bar' };
 
     request
-      .post('/api/user/register')
+      .post('/api/user/login')
+      .send({ user: testUser })
+      .then((response) => {
+        expect(response.status).toBe(400);
+
+        const { body } = response;
+        expect(body.success).toBe(false);
+        // Check that there is an error message
+        expect(body.message.length).not.toBe(0);
+
+        done();
+      })
+      .catch((error) => {
+        done(error);
+      });
+  });
+
+  it('Should return a bad request if the user is not found', (done) => {
+    const testUser = {
+      password: testUserBase.password,
+      email: 'wrong@email.com',
+    };
+
+    request
+      .post('/api/user/login')
+      .send({ user: testUser })
+      .then((response) => {
+        expect(response.status).toBe(404);
+
+        const { body } = response;
+        expect(body.success).toBe(false);
+        // Check that there is an error message
+        expect(body.message.length).not.toBe(0);
+
+        done();
+      })
+      .catch((error) => {
+        done(error);
+      });
+  });
+
+  it('Should return a bad request if the password is wrong', (done) => {
+    const testUser = { password: 'wrong', email: testUserBase.email };
+
+    request
+      .post('/api/user/login')
       .send({ user: testUser })
       .then((response) => {
         expect(response.status).toBe(400);
@@ -113,33 +165,26 @@ describe('POST /api/user/register', () => {
     const testUser = { ...testUserBase };
 
     return request
-      .post('/api/user/register')
+      .post('/api/user/login')
       .send({ user: testUser })
       .then((response) => {
-        expect(response.status).toBe(201);
+        expect(response.status).toBe(200);
 
         const { body } = response;
+
         expect(body.success).toBe(true);
-
-        const passwordCheck = bcryptjs.compareSync(
-          testUser.password,
-          body.user.password,
-        );
-
-        expect(passwordCheck).toBe(true);
-
-        expect(body.user.email).toEqual(testUser.email);
+        expect(body).toHaveProperty('user');
+        expect(body.user).toHaveProperty('id');
 
         // Check that it was added to the DB
-        return findUserInMockDB(body.user._id);
+        return findUserInMockDB(body.user.id);
       })
-      .then((userInMockDb) => {
-        expect(userInMockDb.email).toEqual(testUser.email);
+      .then((userInDb) => {
+        expect(userInDb.email).toEqual(testUser.email);
 
-        const hashedPassword = userInMockDb.password;
         const passwordCheck = bcryptjs.compareSync(
           testUser.password,
-          hashedPassword,
+          userInDb.password,
         );
         expect(passwordCheck).toBe(true);
       });

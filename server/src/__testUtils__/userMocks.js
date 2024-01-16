@@ -1,5 +1,9 @@
 import User, { validateUser } from '../models/User';
 
+// Hashing passwords
+import bcryptjs from 'bcryptjs';
+const salt = bcryptjs.genSaltSync();
+
 export const addUserToMockDB = async (newUser) => {
   const validationResult = validateUser(newUser);
 
@@ -11,7 +15,12 @@ export const addUserToMockDB = async (newUser) => {
     );
   }
 
-  const user = new User(newUser);
+  const { email, password } = newUser;
+  const hashedPassword = bcryptjs.hashSync(password, salt);
+  const user = new User({
+    email,
+    password: hashedPassword,
+  });
   await user.save();
 };
 

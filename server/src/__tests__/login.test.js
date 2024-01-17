@@ -1,5 +1,7 @@
 import supertest from 'supertest';
 
+import jwt from 'jsonwebtoken';
+
 import {
   connectToMockDB,
   closeMockDatabase,
@@ -161,7 +163,7 @@ describe('POST /api/user/login', () => {
       });
   });
 
-  it('Should return a success state if a correct user is given', async () => {
+  it('Should return a success state if correct user credentials are given', async () => {
     const testUser = { ...testUserBase };
 
     return request
@@ -171,13 +173,21 @@ describe('POST /api/user/login', () => {
         expect(response.status).toBe(200);
 
         const { body } = response;
-
         expect(body.success).toBe(true);
-        expect(body).toHaveProperty('user');
-        expect(body.user).toHaveProperty('id');
 
-        // Check that it was added to the DB
-        return findUserInMockDB(body.user.id);
+        const cookies = response.headers['set-cookie'];
+        expect(cookies).toHaveLength(1); // Assuming only one cookie is set
+
+        const tokenCookie = cookies[0];
+        expect(tokenCookie).toContain('token=');
+
+        // Extract the token value from the cookie
+        const extractedToken = tokenCookie.split(';')[0].split('token=')[1];
+        const decodedUser = jwt.decode(extractedToken);
+        const { id } = decodedUser;
+
+        // Check that it matches added to the DB
+        return findUserInMockDB(id);
       })
       .then((userInDb) => {
         expect(userInDb.email).toEqual(testUser.email);
@@ -186,6 +196,7 @@ describe('POST /api/user/login', () => {
           testUser.password,
           userInDb.password,
         );
+
         expect(passwordCheck).toBe(true);
       });
   });

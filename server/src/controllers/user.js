@@ -1,5 +1,5 @@
 import User, { validateUser } from '../models/User.js';
-import { logError, logInfo } from '../util/logging.js';
+import { logError } from '../util/logging.js';
 import validationErrorMessage from '../util/validationErrorMessage.js';
 
 // Load our .env variables
@@ -79,6 +79,36 @@ export const createUser = async (request, response) => {
  * @route POST /api/user/login/
  * @desc Checks email and password and attaches token to cookies if valid
  */
+
+// Function to verify user credentials and return a boolean indicating success
+const verifyUserCredentials = async (user, password) => {
+  try {
+    const passwordCheck = bcryptjs.compareSync(user?.password, password);
+
+    if (passwordCheck) {
+      return true;
+    } else {
+      return false;
+    }
+  } catch (error) {
+    logError(error);
+    return false;
+  }
+};
+
+// Function to generate a token based on user ID
+const generateToken = (userId) => {
+  return new Promise((resolve, reject) => {
+    jwt.sign({ id: userId }, secret, {}, (error, token) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(token);
+      }
+    });
+  });
+};
+
 export const login = async (request, response) => {
   try {
     const { user } = request.body;
@@ -88,7 +118,6 @@ export const login = async (request, response) => {
         success: false,
         message: `Provide a 'user' object. Received: ${JSON.stringify(user)}`,
       });
-
       return;
     }
 
@@ -103,24 +132,19 @@ export const login = async (request, response) => {
       const userInDB = await User.findOne({ email: user?.email });
 
       if (userInDB) {
-        const passwordCheck = bcryptjs.compareSync(
-          user.password,
+        const verificationResult = await verifyUserCredentials(
+          user,
           userInDB.password,
         );
-
-        if (passwordCheck) {
-          // logged in
-          jwt.sign({ id: userInDB._id }, secret, {}, (error, token) => {
-            if (error) throw error;
-            response.status(200).cookie('token', token).json({
-              success: true,
-            });
+        if (verificationResult) {
+          const token = await generateToken(userInDB._id);
+          response.status(200).cookie('token', token).json({
+            success: true,
           });
         } else {
-          response.status(400).json({
-            success: false,
-            message: 'Wrong password',
-          });
+          response
+            .status(400)
+            .json({ success: false, message: 'Wrong password' });
         }
       } else {
         response

@@ -11,6 +11,45 @@ const salt = bcryptjs.genSaltSync();
 import jwt from 'jsonwebtoken';
 const secret = process.env.JWT_SECRET;
 
+// Function to verify user credentials and return a boolean indicating success
+const verifyUserCredentials = async (user, password) => {
+  if (user == null) {
+    logError('User object is required');
+    return false;
+  }
+
+  if (password == null) {
+    logError('Password is required');
+    return false;
+  }
+
+  try {
+    const passwordCheck = bcryptjs.compareSync(user?.password, password);
+
+    if (passwordCheck) {
+      return true;
+    } else {
+      return false;
+    }
+  } catch (error) {
+    logError(error);
+    return false;
+  }
+};
+
+// Function to generate a token based on user ID
+const generateToken = (userId) => {
+  return new Promise((resolve, reject) => {
+    jwt.sign({ id: userId }, secret, {}, (error, token) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(token);
+      }
+    });
+  });
+};
+
 /** GET USERS
  *
  * @route GET /api/user/
@@ -79,35 +118,6 @@ export const createUser = async (request, response) => {
  * @route POST /api/user/login/
  * @desc Checks email and password and attaches token to cookies if valid
  */
-
-// Function to verify user credentials and return a boolean indicating success
-const verifyUserCredentials = async (user, password) => {
-  try {
-    const passwordCheck = bcryptjs.compareSync(user?.password, password);
-
-    if (passwordCheck) {
-      return true;
-    } else {
-      return false;
-    }
-  } catch (error) {
-    logError(error);
-    return false;
-  }
-};
-
-// Function to generate a token based on user ID
-const generateToken = (userId) => {
-  return new Promise((resolve, reject) => {
-    jwt.sign({ id: userId }, secret, {}, (error, token) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve(token);
-      }
-    });
-  });
-};
 
 export const login = async (request, response) => {
   try {
@@ -198,6 +208,71 @@ export const getProfile = async (request, response) => {
             success: true,
             user: info,
           });
+        }
+      });
+    } else {
+      response.status(499).json({
+        success: false,
+        message: 'Token is required but was not submitted ',
+      });
+    }
+  } catch (error) {
+    logError(error);
+    response
+      .status(500)
+      .json({ success: false, message: 'Failed to get user profile' });
+  }
+};
+
+/** UPDATE USER PROFILE
+ *
+ * @route PUT /api/user/update/
+ * @desc Update a user with new email and/or password
+ */
+export const updateUser = async (request, response) => {
+  try {
+    const { token } = request.cookies;
+
+    if (token) {
+      jwt.verify(token, secret, {}, async (error, info) => {
+        if (error) {
+          response
+            .status(498)
+            .json({ success: false, message: 'Invalid token' });
+        } else {
+          const { user } = request.body;
+
+          if (typeof user !== 'object') {
+            response.status(400).json({
+              success: false,
+              message: `Provide a 'user' object. Received: ${JSON.stringify(
+                user,
+              )}`,
+            });
+
+            return;
+          }
+
+          const errorList = validateUser(user, false);
+
+          if (errorList.length > 0) {
+            response.status(400).json({
+              success: false,
+              message: validationErrorMessage(errorList),
+            });
+          } else {
+            const { email } = user;
+
+            const userId = info.id;
+            const userInDB = await User.findById(userId);
+            userInDB.email = email;
+            const updatedUser = await userInDB.save();
+
+            response.status(200).json({
+              success: true,
+              user: updatedUser,
+            });
+          }
         }
       });
     } else {

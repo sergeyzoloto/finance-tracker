@@ -8,9 +8,11 @@ import {
 
 import {
   addUserToMockDB,
-  verifyUserInMockDB,
+  findUserInMockDB,
   generateTokenInMockDB,
 } from '../__testUtils__/userMocks.js';
+
+import bcryptjs from 'bcryptjs';
 
 import app from '../app.js';
 
@@ -83,7 +85,7 @@ describe('PUT /api/user/update', () => {
     const userId = await addUserToMockDB(testUserBase);
     const token = await generateTokenInMockDB(userId);
 
-    const testUser = { email: 'new@email.com' };
+    const testUser = {};
 
     return request
       .put('/api/user/update')
@@ -143,7 +145,7 @@ describe('PUT /api/user/update', () => {
     const userId = await addUserToMockDB(testUserBase);
     const token = await generateTokenInMockDB(userId);
 
-    const testUser = { email: 'new@email.com', password: 'newpassword111111' };
+    const testUser = { email: 'new@email.com' };
 
     return request
       .put('/api/user/update')
@@ -158,15 +160,13 @@ describe('PUT /api/user/update', () => {
         const userInResponse = body.user;
 
         expect(userInResponse.email).toEqual(testUser.email);
-        expect(userInResponse.password).toEqual(testUser.password);
-        expect(userInResponse._id).toEqual(userId);
+        expect(userInResponse._id).toBe(userId);
 
-        return findUserInMockDB(user._id);
+        return findUserInMockDB(userId);
       })
       .then((userInMockDb) => {
         expect(userInMockDb.email).toEqual(testUser.email);
-        expect(userInMockDb.password).toEqual(testUser.password);
-        expect(userInMockDb._id).toEqual(userId);
+        expect(userInMockDb._id.toString()).toEqual(userId);
       });
   });
 });

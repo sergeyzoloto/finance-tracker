@@ -31,7 +31,7 @@ export const addUserToMockDB = async (newUser) => {
   await user.save();
 
   const userId = user._id;
-  return userId;
+  return userId.toString();
 };
 
 export const findUserInMockDB = async (userId) => {

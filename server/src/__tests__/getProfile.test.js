@@ -77,44 +77,49 @@ describe('GET /api/user/profile', () => {
   it('Should return a success state if a correct token is given', async () => {
     const testUser = { ...testUserBase };
 
-    return request
-      .post('/api/user/login')
-      .send({ user: testUser })
-      .then((responseWithToken) => {
-        expect(responseWithToken.status).toBe(200);
+    // First log in to request token
+    return (
+      request
+        .post('/api/user/login')
+        .send({ user: testUser })
+        .then((responseWithToken) => {
+          expect(responseWithToken.status).toBe(200);
 
-        const cookies = responseWithToken.headers['set-cookie'];
-        const tokenCookie = cookies[0];
+          const cookies = responseWithToken.headers['set-cookie'];
+          const tokenCookie = cookies[0];
 
-        // Extract the token value from the cookie
-        const extractedToken = tokenCookie.split(';')[0].split('token=')[1];
+          // Extract the token value from the cookie
+          const extractedToken = tokenCookie.split(';')[0].split('token=')[1];
 
-        return extractedToken;
-      })
-      .then((token) => {
-        return request
-          .get('/api/user/profile')
-          .set('Cookie', [`token=${token}`])
-          .send()
-          .then((response) => {
-            expect(response.status).toBe(200);
+          return extractedToken;
+        })
 
-            const { id } = response.body.user;
-            expect(response.body.user).toHaveProperty('id');
+        // Use token in our test
+        .then(async (token) => {
+          return request
+            .get('/api/user/profile')
+            .set('Cookie', [`token=${token}`])
+            .send()
+            .then((response) => {
+              expect(response.status).toBe(200);
 
-            const user = findUserInMockDB(id);
-            return user;
-          })
-          .then((userInDb) => {
-            expect(userInDb.email).toEqual(testUser.email);
+              const { id } = response.body.user;
+              expect(response.body.user).toHaveProperty('id');
 
-            const passwordCheck = bcryptjs.compareSync(
-              testUser.password,
-              userInDb.password,
-            );
+              const user = findUserInMockDB(id);
+              return user;
+            })
+            .then((userInDb) => {
+              expect(userInDb.email).toEqual(testUser.email);
 
-            expect(passwordCheck).toBe(true);
-          });
-      });
+              const passwordCheck = bcryptjs.compareSync(
+                testUser.password,
+                userInDb.password,
+              );
+
+              expect(passwordCheck).toBe(true);
+            });
+        })
+    );
   });
 });

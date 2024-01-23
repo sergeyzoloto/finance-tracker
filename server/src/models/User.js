@@ -9,9 +9,16 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('users', userSchema);
 
-export const validateUser = (userObject) => {
+export const validateUser = (userObject, passwordRequired = true) => {
   const errorList = [];
-  const allowedKeys = ['email', 'password'];
+
+  const allowedKeys = [];
+  if (passwordRequired) {
+    allowedKeys.push('email');
+    allowedKeys.push('password');
+  } else {
+    allowedKeys.push('email');
+  }
 
   const validatedKeysMessage = validateAllowedFields(userObject, allowedKeys);
 
@@ -21,7 +28,7 @@ export const validateUser = (userObject) => {
 
   const { email, password } = userObject;
 
-  if (password == null) {
+  if (password == null && passwordRequired) {
     errorList.push('password is a required field');
   }
 

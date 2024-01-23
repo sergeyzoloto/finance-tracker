@@ -14,3 +14,5 @@
 [12.01.24] Reorganized the general layout, added styling to the user creation form, fixed tests for the frontend
 [16.01.24] Login and logout end points added and tested + Cookies management + Hashing passwords
 [17.01.24] getProfile end point created and tested. login end point now response with cookies only
+[22.01.24] Refactored the code to separate password verification and token generation into separate functions for further use
+[23.01.24] User mockDB functions added for testing purposes. Draft tests for updateUser function prepared. Update user profile function ready with tests. validateUser function is slightly modified to allow validation without password. updateUser function doesn't check password (token is enough), and updating password should be performed with a separate one

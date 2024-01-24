@@ -227,7 +227,7 @@ export const getProfile = async (request, response) => {
 /** UPDATE USER PROFILE
  *
  * @route PUT /api/user/update/
- * @desc Update a user with new email and/or password
+ * @desc Update a user with new email
  */
 export const updateUser = async (request, response) => {
   try {
@@ -270,7 +270,7 @@ export const updateUser = async (request, response) => {
 
             response.status(200).json({
               success: true,
-              user: updatedUser,
+              user: { id: updatedUser._id },
             });
           }
         }
@@ -285,6 +285,102 @@ export const updateUser = async (request, response) => {
     logError(error);
     response
       .status(500)
-      .json({ success: false, message: 'Failed to get user profile' });
+      .json({ success: false, message: 'Failed to update user profile' });
+  }
+};
+
+/** UPDATE USER PASSWORD
+ *
+ * @route PUT /api/user/update/password
+ * @desc Update a user with new password
+ */
+export const updatePassword = async (request, response) => {
+  try {
+    const { token } = request.cookies;
+
+    if (token) {
+      jwt.verify(token, secret, {}, async (error, info) => {
+        if (error) {
+          response
+            .status(498)
+            .json({ success: false, message: 'Invalid token' });
+        } else {
+          const { user } = request.body;
+
+          if (typeof user !== 'object') {
+            response.status(400).json({
+              success: false,
+              message: `Provide a 'user' object. Received: ${JSON.stringify(
+                request.body,
+              )}`,
+            });
+
+            return;
+          }
+
+          const allowedFields = ['oldPassword', 'newPassword'];
+          const invalidFields = [];
+
+          Object.keys(user).forEach((field) => {
+            if (!allowedFields.includes(field)) {
+              invalidFields.push(field);
+            }
+          });
+
+          if (
+            !user?.oldPassword ||
+            !user?.newPassword ||
+            invalidFields.length > 0
+          ) {
+            response.status(400).json({
+              success: false,
+              message: `Provide a 'user' object containing oldPassword and newPassword. The following properties are not allowed to be set: ${invalidFields.join(
+                ', ',
+              )}`,
+            });
+          } else {
+            const { oldPassword, newPassword } = user;
+
+            const userId = info.id;
+            const userInDB = await User.findById(userId);
+
+            // Check if the old password matches the one in the database
+            const isPasswordMatch = await bcryptjs.compare(
+              oldPassword,
+              userInDB.password,
+            );
+
+            if (!isPasswordMatch) {
+              response.status(400).json({
+                success: false,
+                message: 'Old password is incorrect',
+              });
+              return;
+            }
+
+            // Hash the new password
+            const hashedPassword = await bcryptjs.hash(newPassword, salt);
+
+            userInDB.password = hashedPassword;
+            const updatedUser = await userInDB.save();
+
+            response.status(200).json({
+              success: true,
+              user: { id: updatedUser._id },
+            });
+          }
+        }
+      });
+    } else {
+      response.status(499).json({
+        success: false,
+        message: 'Token is required but was not submitted ',
+      });
+    }
+  } catch (error) {
+    logError(error);
+    response
+      .status(500)
+      .json({ success: false, message: 'Failed to update user password' });
   }
 };

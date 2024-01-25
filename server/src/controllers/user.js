@@ -384,3 +384,80 @@ export const updatePassword = async (request, response) => {
       .json({ success: false, message: 'Failed to update user password' });
   }
 };
+
+/** DELETE USER PROFILE
+ *
+ * @route DELETE /api/user/
+ * @desc Update a user with new password
+ */
+export const deleteUser = async (request, response) => {
+  try {
+    const { token } = request.cookies;
+
+    if (token) {
+      jwt.verify(token, secret, {}, async (error, info) => {
+        if (error) {
+          response
+            .status(498)
+            .json({ success: false, message: 'Invalid token' });
+        } else {
+          const { user } = request.body;
+
+          if (typeof user !== 'object') {
+            response.status(400).json({
+              success: false,
+              message: `Provide a 'user' object. Received: ${JSON.stringify(
+                user,
+              )}`,
+            });
+
+            return;
+          }
+
+          const errorList = validateUser(user);
+
+          if (errorList.length > 0) {
+            response.status(400).json({
+              success: false,
+              message: validationErrorMessage(errorList),
+            });
+          } else {
+            const userId = info.id;
+            const userInDB = await User.findById(userId);
+
+            // Check if the password matches the one in the database
+            const isPasswordMatch = await bcryptjs.compare(
+              user.password,
+              userInDB.password,
+            );
+
+            if (!isPasswordMatch) {
+              response.status(400).json({
+                success: false,
+                message: 'Password is incorrect',
+              });
+              return;
+            }
+
+            await User.findByIdAndDelete(userId);
+
+            response.status(200).json({
+              success: true,
+              user: { id: userId },
+            });
+          }
+        }
+      });
+    } else {
+      response.status(499).json({
+        success: false,
+        message: 'Token is required but was not submitted ',
+      });
+    }
+  } catch (error) {
+    logError(error);
+    response
+      .status(500)
+      .json({ success: false, message: 'Failed to update user password' });
+  }
+};

@@ -17,3 +17,4 @@
 [22.01.24] Refactored the code to split password verification and token generation into separate functions for further use
 [23.01.24] User mockDB functions added for testing purposes. Draft tests for updateUser function prepared. Update user profile function ready with tests. validateUser function is slightly modified to allow validation without password. updateUser function doesn't check password (token is enough), and updating password should be performed with a separate one
 [24.01.24] User password update function added with tests
+[25.01.24] Delete user function added with tests

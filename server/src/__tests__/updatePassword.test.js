@@ -30,13 +30,17 @@ afterAll(async () => {
 
 const testUserBase = { email: 'john@doe.com', password: 'qwerty123456' };
 
-describe('PUT /api/user/update', () => {
+describe('PUT /api/user/password/update', () => {
   it('Should return a bad request if no token is given', async () => {
     await addUserToMockDB(testUserBase);
+
+    const oldPassword = testUserBase.password;
+    const newPassword = 'new-password-123=)';
+
     return request
-      .put('/api/user/update')
+      .put('/api/user/password/update')
       .set('Cookie', [`token=`])
-      .send({ user: testUserBase }) // maintain the purity of the test
+      .send({ user: { oldPassword, newPassword } })
       .then((response) => {
         expect(response.status).toBe(499);
 
@@ -51,10 +55,13 @@ describe('PUT /api/user/update', () => {
     await addUserToMockDB(testUserBase);
     const invalidToken = 'foo bar';
 
+    const oldPassword = testUserBase.password;
+    const newPassword = 'new-password-123=)';
+
     return request
-      .put('/api/user/update')
+      .put('/api/user/password/update')
       .set('Cookie', [`token=${invalidToken}`])
-      .send({ user: testUserBase }) // maintain the purity of the test
+      .send({ user: { oldPassword, newPassword } })
       .then((response) => {
         expect(response.status).toBe(498);
 
@@ -70,7 +77,7 @@ describe('PUT /api/user/update', () => {
     const token = await generateTokenInMockDB(userId);
 
     return request
-      .put('/api/user/update')
+      .put('/api/user/password/update')
       .set('Cookie', [`token=${token}`])
       .send() // no user object
       .then((response) => {
@@ -90,7 +97,7 @@ describe('PUT /api/user/update', () => {
     const testUser = {};
 
     return request
-      .put('/api/user/update')
+      .put('/api/user/password/update')
       .set('Cookie', [`token=${token}`])
       .send({ user: testUser })
       .then((response) => {
@@ -107,10 +114,13 @@ describe('PUT /api/user/update', () => {
     const userId = await addUserToMockDB(testUserBase);
     const token = await generateTokenInMockDB(userId);
 
-    const testUser = { ...testUserBase, foo: 'bar' };
+    const oldPassword = testUserBase.password;
+    const newPassword = 'new-password-123=)';
+
+    const testUser = { oldPassword, newPassword, foo: 'bar' };
 
     return request
-      .put('/api/user/update')
+      .put('/api/user/password/update')
       .set('Cookie', [`token=${token}`])
       .send({ user: testUser })
       .then((response) => {
@@ -123,36 +133,17 @@ describe('PUT /api/user/update', () => {
       });
   });
 
-  it('Should return a bad request if the function is used to change the password', async () => {
+  it('Should return a bad request if the previous password in request is not valid', async () => {
     const userId = await addUserToMockDB(testUserBase);
     const token = await generateTokenInMockDB(userId);
 
-    const testUser = { email: 'new@email.com', password: 'new-password-123=)' };
+    const oldPassword = 'qwerty1234567';
+    const newPassword = 'new-password-123=)';
 
     return request
-      .put('/api/user/update')
+      .put('/api/user/password/update')
       .set('Cookie', [`token=${token}`])
-      .send({ user: testUser })
-      .then((response) => {
-        expect(response.status).toBe(400);
-
-        const { body } = response;
-        expect(body.success).toBe(false);
-        // Check that there is an error message
-        expect(body.message.length).not.toBe(0);
-      });
-  });
-
-  it('Should return a bad request in case of wrong fields in user object', async () => {
-    const userId = await addUserToMockDB(testUserBase);
-    const token = await generateTokenInMockDB(userId);
-
-    const testUser = { foo: 'bar' };
-
-    return request
-      .put('/api/user/update')
-      .set('Cookie', [`token=${token}`])
-      .send({ user: testUser })
+      .send({ user: { oldPassword, newPassword } })
       .then((response) => {
         expect(response.status).toBe(400);
 
@@ -167,12 +158,13 @@ describe('PUT /api/user/update', () => {
     const userId = await addUserToMockDB(testUserBase);
     const token = await generateTokenInMockDB(userId);
 
-    const testUser = { email: 'new@email.com' };
+    const oldPassword = testUserBase.password;
+    const newPassword = 'new-password-123=)';
 
     return request
-      .put('/api/user/update')
+      .put('/api/user/password/update')
       .set('Cookie', [`token=${token}`])
-      .send({ user: testUser })
+      .send({ user: { oldPassword, newPassword } })
       .then((response) => {
         expect(response.status).toBe(200);
 
@@ -180,12 +172,13 @@ describe('PUT /api/user/update', () => {
         expect(body.success).toBe(true);
 
         const userInResponse = body.user;
+
         expect(userInResponse.id).toBe(userId);
 
         return findUserInMockDB(userId);
       })
       .then((userInMockDb) => {
-        expect(userInMockDb.email).toEqual(testUser.email);
+        expect(userInMockDb.email).toEqual(testUserBase.email);
         expect(userInMockDb._id.toString()).toEqual(userId);
       });
   });

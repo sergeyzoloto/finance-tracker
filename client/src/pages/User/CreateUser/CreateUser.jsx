@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
-import Input from '../../components/Input';
-import useFetch from '../../hooks/useFetch';
+import Input from '../../../components/Input';
+import useFetch from '../../../hooks/useFetch';
 import TEST_ID from './CreateUser.testid';
 
 const CreateUser = () => {

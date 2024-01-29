@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import useFetch from '../../hooks/useFetch';
+import useFetch from '../../../hooks/useFetch';
 import TEST_ID from './UserList.testid';
 
 const UserList = () => {

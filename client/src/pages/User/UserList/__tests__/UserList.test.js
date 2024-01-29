@@ -7,13 +7,13 @@ import {
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-import UserList from '../UserList';
-import TEST_ID_USER_LIST from '../UserList.testid';
+import UserList from '../UserList.jsx';
+import TEST_ID_USER_LIST from '../UserList.testid.js';
 import {
   getUsersSuccessMock,
   getUsersFailedMock,
-} from '../../../__testUtils__/fetchUserMocks';
-import { asSlowResponse } from '../../../__testUtils__/fetchMocks';
+} from '../../../../__testUtils__/fetchUserMocks';
+import { asSlowResponse } from '../../../../__testUtils__/fetchMocks';
 
 beforeEach(() => {
   fetch.resetMocks();

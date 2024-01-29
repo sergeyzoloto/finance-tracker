@@ -8,11 +8,11 @@ import {
 } from '@testing-library/react';
 
 import CreateUser from '../CreateUser';
-import TEST_ID_CREATE_USER from '../CreateUser.testid';
+import TEST_ID_CREATE_USER from '../CreateUser.testid.js';
 import {
   createUserSuccessMock,
   createUserFailedMock,
-} from '../../../__testUtils__/fetchUserMocks';
+} from '../../../../__testUtils__/fetchUserMocks';
 
 beforeEach(() => {
   fetch.resetMocks();

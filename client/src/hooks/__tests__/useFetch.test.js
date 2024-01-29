@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { create, act } from 'react-test-renderer';
 
 import useFetch from '../useFetch';
 import {
@@ -11,82 +11,84 @@ beforeEach(() => {
   fetch.resetMocks();
 });
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// simple analogue of waitForNextUpdate
-async function waitFor(callback, timeout = 500) {
-  const step = 10;
-  let timeSpent = 0;
-  let timedOut = false;
-
-  while (true) {
-    try {
-      await sleep(step);
-      timeSpent += step;
-      callback();
-      break;
-    } catch {}
-    if (timeSpent >= timeout) {
-      timedOut = true;
-      break;
-    }
-  }
-
-  if (timedOut) {
-    throw new Error("time's out");
-  }
-}
-
 describe('useFetch', () => {
   it('Fetch process works as expected', async () => {
     fetch.mockResponseOnce(getUsersSuccessMock());
     const mockSuccessFn = jest.fn(() => {});
 
-    const { result } = renderHook(() => useFetch('/', mockSuccessFn));
+    let testProps;
+    const TestComponent = () => {
+      testProps = useFetch('/', mockSuccessFn);
+      return null;
+    };
+
+    let component;
+    act(() => {
+      component = create(<TestComponent />);
+    });
 
     // Nothing is performed yet
     expect(fetch.mock.calls.length).toEqual(0);
-    expect(result.current.isLoading).toBe(false);
+    expect(testProps.isLoading).toBe(false);
     expect(mockSuccessFn).not.toHaveBeenCalled();
 
+    // Call performFetch
     act(() => {
-      result.current.performFetch();
+      testProps.performFetch();
     });
 
-    // Should be loading
-    expect(result.current.isLoading).toBe(true);
+    // Should be loading now
+    expect(testProps.isLoading).toBe(true);
 
-    await waitFor(() => {
-      // Should not be loading anymore
-      expect(result.current.isLoading).toBe(false);
-
-      // Fetch should have been called and our success function should have been called
-      expect(fetch.mock.calls.length).toEqual(1);
-      expect(mockSuccessFn).toHaveBeenCalled();
+    // Resolve the fetch promise
+    await act(async () => {
+      await fetch.mockResolvedValueOnce();
     });
+
+    // Should not be loading anymore
+    expect(testProps.isLoading).toBe(false);
+
+    // Fetch should have been called and our success function should have been called
+    expect(fetch.mock.calls.length).toEqual(1);
+    expect(mockSuccessFn).toHaveBeenCalled();
   });
 
   it('Should set the error if something goes wrong on the server', async () => {
     fetch.mockResponseOnce(getUsersFailedMock());
+    const mockErrorFn = jest.fn(() => {});
 
-    const { result } = renderHook(() => useFetch('/', () => {}));
+    let testProps;
+    const TestComponent = () => {
+      testProps = useFetch('/', mockErrorFn);
+      return null;
+    };
 
+    let component;
     act(() => {
-      result.current.performFetch();
+      component = create(<TestComponent />);
     });
 
-    // Should be loading
-    expect(result.current.isLoading).toBe(true);
-    expect(result.current.error).toBe(null);
+    // Nothing is performed yet
+    expect(testProps.isLoading).toBe(false);
+    expect(testProps.error).toBe(null);
 
-    await waitFor(() => {
-      // Should not be loading anymore
-      expect(result.current.isLoading).toBe(false);
-
-      // Should have an error
-      expect(result.current.error).not.toBe(null);
+    // Call performFetch
+    act(() => {
+      testProps.performFetch();
     });
+
+    // Should be loading now
+    expect(testProps.isLoading).toBe(true);
+
+    // Resolve the fetch promise
+    await act(async () => {
+      await fetch.mockResolvedValueOnce();
+    });
+
+    // Should not be loading anymore
+    expect(testProps.isLoading).toBe(false);
+
+    // Should have an error
+    expect(testProps.error).not.toBe(null);
   });
 });

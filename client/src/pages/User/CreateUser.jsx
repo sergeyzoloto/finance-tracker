@@ -21,8 +21,8 @@ const CreateUser = () => {
     return cancelFetch;
   }, []);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const handleSubmit = (event) => {
+    event.preventDefault();
     performFetch({
       method: 'POST',
       headers: {

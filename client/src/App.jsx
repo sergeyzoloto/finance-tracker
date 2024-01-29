@@ -5,17 +5,20 @@ import Home from './pages/Home/Home';
 import CreateUser from './pages/User/CreateUser';
 import UserList from './pages/User/UserList';
 import Layout from './layout/Layout';
+import { UserContextProvider } from './context/UserContext';
 
 function App() {
   return (
     <>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Home />} />
-          <Route path="/user" element={<UserList />} />
-          <Route path="/user/create" element={<CreateUser />} />
-        </Route>
-      </Routes>
+      <UserContextProvider>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Home />} />
+            <Route path="/user" element={<UserList />} />
+            <Route path="/user/create" element={<CreateUser />} />
+          </Route>
+        </Routes>
+      </UserContextProvider>
     </>
   );
 }

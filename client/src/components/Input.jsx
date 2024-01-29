@@ -1,5 +1,5 @@
-import React from "react";
-import PropTypes from "prop-types";
+import React from 'react';
+import PropTypes from 'prop-types';
 
 const Input = ({ name, value, onChange, ...rest }) => {
   return (
@@ -7,7 +7,7 @@ const Input = ({ name, value, onChange, ...rest }) => {
       {...rest}
       name={name}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(event) => onChange(event.target.value)}
     />
   );
 };

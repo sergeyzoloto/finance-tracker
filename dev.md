@@ -20,3 +20,4 @@
 [25.01.24] Delete user function added with tests
 [28.01.24] Rewrote the client tests using react-test-renderer, which solved the problem of the test component changing state outside act() in the useFetch.test.test.js test that occurred before. @testing-library/react-hooks was more obvious solution for testing, but unfortunately it is not compatible with the latest version of react (18).
 [29.01.24] UserContext in client added. The tests check that userState is defined and setUserState modifies it.
+[30.01.24] Added a LoginPage. Used 'history' package in testing to check redirection after successful login

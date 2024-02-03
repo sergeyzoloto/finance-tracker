@@ -80,7 +80,6 @@ describe('LoginPage', () => {
   });
 
   it('render loading message when login is in progress', async () => {
-    const history = createMemoryHistory();
     const testEmail = 'test@mail.com';
     const testPassword = 'testPassword';
 
@@ -119,9 +118,6 @@ describe('LoginPage', () => {
     });
 
     expect(loadingContainer).toBeTruthy();
-
-    // Check if the current URL is the home page
-    expect(history.location.pathname).toBe('/');
   });
 
   it('renders error message when login fails', async () => {
@@ -169,7 +165,6 @@ describe('LoginPage', () => {
       'data-testid': TEST_ID.errorContainer,
     });
 
-    //console.log(`expect(errorContainer)`, expect(errorContainer));
     expect(errorContainer).toBeDefined();
   });
 });

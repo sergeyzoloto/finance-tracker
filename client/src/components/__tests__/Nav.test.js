@@ -9,6 +9,8 @@ import { MemoryRouter } from 'react-router-dom';
 import App from '../../App';
 import TEST_ID_HOME from '../../pages/Home/Home.testid';
 import TEST_ID_USER_LIST from '../../pages/User/UserList/UserList.testid.js';
+import TEST_ID_CREATE_USER from '../../pages/User/CreateUser/CreateUser.testid.js';
+import TEST_ID_LOGIN_PAGE from '../../pages/User/LoginPage/LoginPage.testid.js';
 import TEST_ID_NAV from '../Nav.testid';
 import { getUsersSuccessMock } from '../../__testUtils__/fetchUserMocks';
 
@@ -64,6 +66,46 @@ describe('Navigation', () => {
         'data-loaded',
         'true',
       ),
+    );
+  });
+
+  it('Clicking on the Create User link should go to Create User page', async () => {
+    fetch.mockResponseOnce(getUsersSuccessMock());
+
+    render(
+      <MemoryRouter history={history} initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId(TEST_ID_NAV.createUserLink)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId(TEST_ID_NAV.createUserLink));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(TEST_ID_CREATE_USER.container),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it('Clicking on the Login link should go to Login page', async () => {
+    fetch.mockResponseOnce(getUsersSuccessMock());
+
+    render(
+      <MemoryRouter history={history} initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId(TEST_ID_NAV.loginLink)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId(TEST_ID_NAV.loginLink));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(TEST_ID_LOGIN_PAGE.container),
+      ).toBeInTheDocument(),
     );
   });
 });

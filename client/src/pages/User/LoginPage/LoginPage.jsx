@@ -33,10 +33,6 @@ export default function LoginPage() {
     });
   }
 
-  if (redirect) {
-    // return <Navigate to={'/'} />;
-  }
-
   useEffect(() => {
     return cancelFetch;
   }, []);
@@ -57,15 +53,26 @@ export default function LoginPage() {
   let buttonComponent = null;
   if (!isLoading) {
     buttonComponent = (
-      <button data-testid={TEST_ID.loginButton} onClick={login}>
+      <button
+        data-testid={TEST_ID.loginButton}
+        onClick={login}
+        className="w-full block bg-slate-400 border-none text-white rounded py-2"
+      >
         Let me in!
       </button>
     );
   }
 
   return (
-    <div data-testid={TEST_ID.container}>
-      <form data-testid={TEST_ID.form}>
+    <div
+      className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2"
+      data-testid={TEST_ID.container}
+    >
+      {redirect && <Navigate to={'/'} />}
+      <form
+        data-testid={TEST_ID.form}
+        className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2 box-border"
+      >
         <h1>Login</h1>
         <input
           data-testid={TEST_ID.emailInput}
@@ -73,6 +80,7 @@ export default function LoginPage() {
           placeholder="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
+          className="flexbox border-2 border-solid block w-full p-2 bg-white border-neutral-100 hover:border-neutral-200 text-center rounded max-w-sm"
         />
         <input
           data-testid={TEST_ID.passwordInput}
@@ -80,6 +88,7 @@ export default function LoginPage() {
           placeholder="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
+          className="flexbox border-2 border-solid block w-full p-2 bg-white border-neutral-100 hover:border-neutral-200 text-center rounded max-w-sm"
         />
         {buttonComponent}
       </form>

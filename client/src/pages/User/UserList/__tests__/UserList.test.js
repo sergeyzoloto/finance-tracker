@@ -66,7 +66,8 @@ describe('UserList', () => {
       ),
     );
 
-    // Check the information is on the page. We only check that the name is somewhere on the page, so {exact: false}
+    // Check the information is on the page.
+    // We only check that the name is somewhere on the page, so {exact: false}
     expect(screen.getByText(testEmail, { exact: false })).toBeInTheDocument();
   });
 

@@ -10,6 +10,6 @@ test('renders a react page', () => {
       <App />
     </MemoryRouter>,
   );
-  const linkElement = screen.getByTestId(TEST_ID_HOME.container);
-  expect(linkElement).toBeInTheDocument();
+  const homeElement = screen.getByTestId(TEST_ID_HOME.container);
+  expect(homeElement).toBeInTheDocument();
 });

@@ -1,7 +1,7 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React from 'react';
+import { Link } from 'react-router-dom';
 
-import TEST_ID from "./Nav.testid";
+import TEST_ID from './Nav.testid';
 
 const Nav = () => {
   return (
@@ -11,6 +11,12 @@ const Nav = () => {
       </Link>
       <Link to="/user" data-testid={TEST_ID.linkToUsers}>
         <li>Users</li>
+      </Link>
+      <Link to="/user/create" data-testid={TEST_ID.createUserLink}>
+        <li>Create new user</li>
+      </Link>
+      <Link to="/user/login" data-testid={TEST_ID.loginLink}>
+        <li>Login</li>
       </Link>
     </ul>
   );

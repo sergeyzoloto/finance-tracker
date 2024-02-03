@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 
 import Input from '../../../components/Input';
 import useFetch from '../../../hooks/useFetch';
@@ -7,11 +8,14 @@ import TEST_ID from './CreateUser.testid';
 const CreateUser = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [redirect, setRedirect] = useState(false);
 
   const onSuccess = () => {
     setPassword('');
     setEmail('');
+    setRedirect(true);
   };
+
   const { isLoading, error, performFetch, cancelFetch } = useFetch(
     '/user/register',
     onSuccess,
@@ -50,6 +54,7 @@ const CreateUser = () => {
       data-testid={TEST_ID.container}
       className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2"
     >
+      {redirect && <Navigate to={'/user/list'} />}
       <h1>What should the user be?</h1>
       <form
         onSubmit={handleSubmit}

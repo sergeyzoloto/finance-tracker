@@ -23,7 +23,7 @@ describe('Navigation', () => {
     fetch.mockResponseOnce(getUsersSuccessMock());
 
     render(
-      <MemoryRouter history={history} initialEntries={['/user']}>
+      <MemoryRouter history={history} initialEntries={['/user/list']}>
         <App />
       </MemoryRouter>,
     );
@@ -39,7 +39,7 @@ describe('Navigation', () => {
     );
   });
 
-  it('Clicking on the User link should go to User List page ', async () => {
+  it('Clicking on the Users link should go to User List page ', async () => {
     fetch.mockResponseOnce(getUsersSuccessMock());
 
     render(

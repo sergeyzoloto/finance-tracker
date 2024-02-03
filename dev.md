@@ -21,5 +21,5 @@
 [28.01.24] Rewrote the client tests using react-test-renderer, which solved the problem of the test component changing state outside act() in the useFetch.test.test.js test that occurred before. @testing-library/react-hooks was more obvious solution for testing, but unfortunately it is not compatible with the latest version of react (18).
 [29.01.24] UserContext in client added. The tests check that userState is defined and setUserState modifies it.
 [30.01.24] Added a LoginPage. Used 'history' package in testing to check redirection after successful login
-[3.02.24] Some styling, small fixes.
-Now the server responds with the correct status and message when trying to create a user with an email that already exists in the database
+[3.02.24] Some styling, small fixes. Tests
+Now the server responds with the correct status and message when trying to create a user with an email that already exists in the database. The page CreateUser redirects to the UserList page in case of successful signup

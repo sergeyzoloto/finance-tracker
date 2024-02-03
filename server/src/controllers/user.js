@@ -94,6 +94,17 @@ export const createUser = async (request, response) => {
       });
     } else {
       const { email, password } = user;
+
+      // Check if a user with the same email already exists
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        response.status(409).json({
+          success: false,
+          message: 'A user with this email already exists',
+        });
+        return;
+      }
+
       const hashedPassword = bcryptjs.hashSync(password, salt);
 
       const newUser = await User.create({

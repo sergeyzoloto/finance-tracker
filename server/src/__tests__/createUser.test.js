@@ -144,4 +144,23 @@ describe('POST /api/user/register', () => {
         expect(passwordCheck).toBe(true);
       });
   });
+
+  it('Should return a conflict if a user with the same email already exists', async () => {
+    const testUser = { ...testUserBase };
+
+    // Create the first user
+    await request.post('/api/user/register').send({ user: testUser });
+
+    // Try to create a second user with the same email
+    return request
+      .post('/api/user/register')
+      .send({ user: testUser })
+      .then((response) => {
+        expect(response.status).toBe(409);
+
+        const { body } = response;
+        expect(body.success).toBe(false);
+        expect(body.message).toBe('A user with this email already exists');
+      });
+  });
 });

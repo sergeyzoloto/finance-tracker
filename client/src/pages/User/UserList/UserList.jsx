@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import useFetch from '../../hooks/useFetch';
+import useFetch from '../../../hooks/useFetch';
 import TEST_ID from './UserList.testid';
 
 const UserList = () => {
@@ -36,14 +36,11 @@ const UserList = () => {
             users.map((user) => {
               return (
                 <li key={user._id} data-elementid={user._id}>
-                  {user.name} ({user.email})
+                  {user.email}
                 </li>
               );
             })}
         </ul>
-        <Link to="/user/create" data-testid={TEST_ID.createUserButton}>
-          <button>Create new user</button>
-        </Link>
       </>
     );
   }

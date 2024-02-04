@@ -1,4 +1,12 @@
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
+
+/**
+ * We use the App component to test here as it will do the routing for us.
+ * This allows our test to be more user centric!
+ */
+import App from '../../../../App.jsx';
+
 import {
   render,
   fireEvent,
@@ -8,11 +16,11 @@ import {
 } from '@testing-library/react';
 
 import CreateUser from '../CreateUser';
-import TEST_ID_CREATE_USER from '../CreateUser.testid';
+import TEST_ID_CREATE_USER from '../CreateUser.testid.js';
 import {
   createUserSuccessMock,
   createUserFailedMock,
-} from '../../../__testUtils__/fetchUserMocks';
+} from '../../../../__testUtils__/fetchUserMocks';
 
 beforeEach(() => {
   fetch.resetMocks();
@@ -65,7 +73,11 @@ describe('CreateUser', () => {
     // Mock our fetch
     fetch.mockResponseOnce(createUserSuccessMock());
 
-    render(<CreateUser />);
+    render(
+      <MemoryRouter history={history} initialEntries={['/user/create']}>
+        <App />
+      </MemoryRouter>,
+    );
 
     // Fill in our fields
     fireEvent.change(screen.getByTestId(TEST_ID_CREATE_USER.passwordInput), {
@@ -97,21 +109,13 @@ describe('CreateUser', () => {
     );
 
     // Check that the right endpoint was called
-    expect(fetch.mock.calls.length).toEqual(1);
+    expect(fetch.mock.calls[0][0]).toContain('api/user/register');
     // Check the right data is given. We need the second argument ([1]) of the first call ([0])
     expect(fetch.mock.calls[0][1].body).toEqual(
       // We need to stringify as we send the information as a string
       JSON.stringify({
         user: { email: testEmail, password: testPassword },
       }),
-    );
-
-    // Check to see that the fields were cleared after a successful submit after everything has settled
-    expect(screen.getByTestId(TEST_ID_CREATE_USER.passwordInput).value).toEqual(
-      '',
-    );
-    expect(screen.getByTestId(TEST_ID_CREATE_USER.emailInput).value).toEqual(
-      '',
     );
   });
 

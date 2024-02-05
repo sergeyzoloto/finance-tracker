@@ -399,7 +399,7 @@ export const updatePassword = async (request, response) => {
 /** DELETE USER PROFILE
  *
  * @route DELETE /api/user/
- * @desc Update a user with new password
+ * @desc Update a user with password
  */
 export const deleteUser = async (request, response) => {
   try {

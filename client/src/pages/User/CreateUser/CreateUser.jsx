@@ -55,11 +55,11 @@ const CreateUser = () => {
       className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2"
     >
       {redirect && <Navigate to={'/user/list'} />}
-      <h1>What should the user be?</h1>
       <form
         onSubmit={handleSubmit}
         className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2 box-border"
       >
+        <h1>What should the user be?</h1>
         <Input
           name="email"
           placeholder="email"

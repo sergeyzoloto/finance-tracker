@@ -13,11 +13,11 @@ const TEST_ID = {
     'UserList',
   )}-errorContainer`,
   userList: `${createTestIdFilePath('pages', 'User', 'UserList')}-userList`,
-  createUserButton: `${createTestIdFilePath(
+  deleteUserButton: `${createTestIdFilePath(
     'pages',
     'User',
     'UserList',
-  )}-createUserButton`,
+  )}-deleteUserButton`,
 };
 
 export default TEST_ID;

@@ -43,13 +43,16 @@ describe('UserList', () => {
   });
 
   it('Renders the users given by the backend', async () => {
-    const testPassword = 'qwerty123456';
-    const testEmail = 'john@doe.com';
+    const testPassword1 = 'qwerty123456';
+    const testEmail1 = 'john@doe.com';
+    const testPassword2 = '123456qwerty';
+    const testEmail2 = 'johny@be.good';
 
     // Mock our fetch with a user
     fetch.mockResponseOnce(
       getUsersSuccessMock([
-        { _id: 'u---1', password: testPassword, email: testEmail },
+        { _id: 'u---1', password: testPassword1, email: testEmail1 },
+        { _id: 'u---2', password: testPassword2, email: testEmail2 },
       ]),
     );
     render(
@@ -68,7 +71,8 @@ describe('UserList', () => {
 
     // Check the information is on the page.
     // We only check that the name is somewhere on the page, so {exact: false}
-    expect(screen.getByText(testEmail, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(testEmail1, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(testEmail2, { exact: false })).toBeInTheDocument();
   });
 
   it('Shows loading when the data is still loading', async () => {
@@ -111,5 +115,43 @@ describe('UserList', () => {
         screen.getByTestId(TEST_ID_USER_LIST.errorContainer),
       ).toBeInTheDocument(),
     );
+  });
+
+  it('Delete button rendered and handles click', async () => {
+    const userId1 = 'u---1';
+    const testPassword1 = 'qwerty123456';
+    const testEmail1 = 'john@doe.com';
+    const userId2 = 'u---2';
+    const testPassword2 = '123456qwerty';
+    const testEmail2 = 'johny@be.good';
+
+    // Mock our fetch with a user
+    fetch.mockResponseOnce(
+      getUsersSuccessMock([
+        { _id: userId1, password: testPassword1, email: testEmail1 },
+        { _id: userId2, password: testPassword2, email: testEmail2 },
+      ]),
+    );
+    render(
+      <MemoryRouter>
+        <UserList />
+      </MemoryRouter>,
+    );
+
+    // Wait until data is loaded
+    await waitFor(() =>
+      expect(screen.getByTestId(TEST_ID_USER_LIST.userList)).toHaveAttribute(
+        'data-loaded',
+        'true',
+      ),
+    );
+
+    // Check the delete button are on the page
+    expect(
+      screen.getByTestId(`${TEST_ID_USER_LIST.deleteUserButton}-${userId1}`),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId(`${TEST_ID_USER_LIST.deleteUserButton}-${userId2}`),
+    ).toBeInTheDocument();
   });
 });

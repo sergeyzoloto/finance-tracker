@@ -43,3 +43,5 @@
 Now the server responds with the correct status and message when trying to create a user with an email that already exists in the database. The page CreateUser redirects to the UserList page in case of successful signup
 
 [5.02.24] Project description updated and small changes applied
+
+[7.02.24] Delete button and modal created with no tests (to-do)

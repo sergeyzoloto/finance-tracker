@@ -31,6 +31,7 @@ export default function LoginPage() {
         'content-type': 'application/json',
       },
       body: JSON.stringify({ user: { email, password } }),
+      credentials: 'include', // save cookies inside react app
     });
   }
 

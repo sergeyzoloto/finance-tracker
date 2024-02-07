@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import useFetch from '../../../hooks/useFetch';
+import Modal from '../../../components/Modal/Modal';
 import TEST_ID from './UserList.testid';
 
 const DeleteButton = ({ onDelete, userId }) => (
@@ -27,30 +28,64 @@ const DeleteButton = ({ onDelete, userId }) => (
 
 const UserList = () => {
   const [users, setUsers] = useState(null);
-  const { isLoading, error, performFetch, cancelFetch } = useFetch(
-    '/user',
-    (response) => {
-      setUsers(response.result);
-    },
-  );
+  const [showModal, setShowModal] = useState(false);
+  const [password, setPassword] = useState('');
+  const [deleteUserId, setDeleteUserId] = useState(null);
+
+  const {
+    isLoading: listIsLoading,
+    error: listError,
+    performFetch: listPerformFetch,
+    cancelFetch: listCancelFetch,
+  } = useFetch('/user', (response) => {
+    setUsers(response.result);
+  });
+
+  const {
+    isLoading: deletionIsLoading,
+    error: deletionError,
+    performFetch: deletionPerformFetch,
+    cancelFetch: deletionCancelFetch,
+  } = useFetch('/user', (response) => {
+    if (response.success) {
+      setTimeout(() => {
+        handleModalClose();
+      }, 4000);
+    }
+  });
+
+  const handleModalClose = () => {
+    setShowModal(false);
+    setPassword('');
+    setDeleteUserId(null);
+  };
+
+  const handleConfirmDelete = () => {
+    deletionPerformFetch({
+      method: 'DELETE',
+      body: JSON.stringify({ user: { userId: deleteUserId, password } }),
+    });
+  };
 
   useEffect(() => {
-    performFetch();
+    listPerformFetch();
 
-    return cancelFetch;
+    return listCancelFetch;
   }, []);
 
   const handleDelete = (userId) => {
     console.log(`Implement delete logic here: DELETE ${userId}`);
+    setDeleteUserId(userId);
+    setShowModal(true);
   };
 
   let content = null;
 
-  if (isLoading) {
+  if (listIsLoading) {
     content = <div data-testid={TEST_ID.loadingContainer}>loading...</div>;
-  } else if (error != null) {
+  } else if (listError != null) {
     content = (
-      <div data-testid={TEST_ID.errorContainer}>{error.toString()}</div>
+      <div data-testid={TEST_ID.errorContainer}>{listError.toString()}</div>
     );
   } else {
     content = (
@@ -78,6 +113,14 @@ const UserList = () => {
               );
             })}
         </ul>
+        {showModal && (
+          <Modal
+            password={password}
+            setPassword={setPassword}
+            handleConfirmDelete={handleConfirmDelete}
+            handleModalClose={handleModalClose}
+          />
+        )}
       </>
     );
   }

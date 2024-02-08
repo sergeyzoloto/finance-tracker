@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 
-import CredentialsInput from '../../../components/CredentialsInput';
+import CredentialsInput from '../../../components/CredentialsInput/CredentialsInput';
 import useFetch from '../../../hooks/useFetch';
 import TEST_ID from './CreateUser.testid';
 

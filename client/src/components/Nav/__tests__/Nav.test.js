@@ -6,13 +6,13 @@ import { MemoryRouter } from 'react-router-dom';
  * We use the App component to test here as it will do the routing for us.
  * This allows our test to be more user centric!
  */
-import App from '../../App';
-import TEST_ID_HOME from '../../pages/Home/Home.testid';
-import TEST_ID_USER_LIST from '../../pages/User/UserList/UserList.testid.js';
-import TEST_ID_CREATE_USER from '../../pages/User/CreateUser/CreateUser.testid.js';
-import TEST_ID_LOGIN_PAGE from '../../pages/User/LoginPage/LoginPage.testid.js';
+import App from '../../../App.jsx';
+import TEST_ID_HOME from '../../../pages/Home/Home.testid.js';
+import TEST_ID_USER_LIST from '../../../pages/User/UserList/UserList.testid.js';
+import TEST_ID_CREATE_USER from '../../../pages/User/CreateUser/CreateUser.testid.js';
+import TEST_ID_LOGIN_PAGE from '../../../pages/User/LoginPage/LoginPage.testid.js';
 import TEST_ID_NAV from '../Nav.testid';
-import { getUsersSuccessMock } from '../../__testUtils__/fetchUserMocks';
+import { getUsersSuccessMock } from '../../../__testUtils__/fetchUserMocks.js';
 
 beforeEach(() => {
   fetch.resetMocks();

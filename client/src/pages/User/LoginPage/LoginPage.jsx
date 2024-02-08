@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import useFetch from '../../../hooks/useFetch';
-import CredentialsInput from '../../../components/CredentialsInput';
+import CredentialsInput from '../../../components/CredentialsInput/CredentialsInput';
 
 import TEST_ID from './LoginPage.testid';
 

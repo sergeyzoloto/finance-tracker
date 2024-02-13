@@ -45,3 +45,7 @@ Now the server responds with the correct status and message when trying to creat
 [5.02.24] Project description updated and small changes applied
 
 [7.02.24] Delete button and modal created with no tests (to-do)
+
+[8.02.24] Prepared tests for the modal and credentials input components
+
+[9.02.24] Made changes to the server controller user. The delete user function now deletes a user from the database based on the id in the request user object, not on the token in cookies

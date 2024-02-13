@@ -149,15 +149,20 @@ describe('DELETE /api/user/delete', () => {
   });
 
   it('Should return a success state if a correct token and user object are given', async () => {
-    const userId = await addUserToMockDB(testUserBase);
-    const token = await generateTokenInMockDB(userId);
+    const actingUserId = await addUserToMockDB({
+      email: 'actor@test.com',
+      password: 'qwerty123456',
+    });
+    const token = await generateTokenInMockDB(actingUserId);
 
-    const testUser = { ...testUserBase };
+    const userId = await addUserToMockDB(testUserBase);
+
+    const deleteUser = { id: userId, password: testUserBase.password };
 
     return request
       .delete('/api/user/delete')
       .set('Cookie', [`token=${token}`])
-      .send({ user: testUser })
+      .send({ user: deleteUser })
       .then(async (response) => {
         expect(response.status).toBe(200);
 

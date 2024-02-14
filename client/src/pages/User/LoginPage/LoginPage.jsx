@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import useFetch from '../../../hooks/useFetch';
+import CredentialsInput from '../../../components/CredentialsInput/CredentialsInput';
 
 import TEST_ID from './LoginPage.testid';
 
@@ -74,21 +75,21 @@ export default function LoginPage() {
         className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2 box-border"
       >
         <h1>Login</h1>
-        <input
+        <CredentialsInput
           data-testid={TEST_ID.emailInput}
           type="text"
           placeholder="email"
+          name="email"
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          className="flexbox border-2 border-solid block w-full p-2 bg-white border-neutral-100 hover:border-neutral-200 text-center rounded max-w-sm"
+          onChange={setEmail}
         />
-        <input
+        <CredentialsInput
           data-testid={TEST_ID.passwordInput}
           type="password"
           placeholder="password"
+          name="password"
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          className="flexbox border-2 border-solid block w-full p-2 bg-white border-neutral-100 hover:border-neutral-200 text-center rounded max-w-sm"
+          onChange={setPassword}
         />
         {buttonComponent}
       </form>

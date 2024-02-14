@@ -399,7 +399,7 @@ export const updatePassword = async (request, response) => {
 /** DELETE USER PROFILE
  *
  * @route DELETE /api/user/
- * @desc Update a user with new password
+ * @desc Update a user with password
  */
 export const deleteUser = async (request, response) => {
   try {
@@ -425,38 +425,38 @@ export const deleteUser = async (request, response) => {
             return;
           }
 
-          const errorList = validateUser(user);
+          const userId = user.id;
 
-          if (errorList.length > 0) {
+          if (!userId) {
             response.status(400).json({
               success: false,
-              message: validationErrorMessage(errorList),
+              message: 'Provide a user ID',
             });
-          } else {
-            const userId = info.id;
-            const userInDB = await User.findById(userId);
-
-            // Check if the password matches the one in the database
-            const isPasswordMatch = await bcryptjs.compare(
-              user.password,
-              userInDB.password,
-            );
-
-            if (!isPasswordMatch) {
-              response.status(400).json({
-                success: false,
-                message: 'Password is incorrect',
-              });
-              return;
-            }
-
-            await User.findByIdAndDelete(userId);
-
-            response.status(200).json({
-              success: true,
-              user: { id: userId },
-            });
+            return;
           }
+
+          const userInDB = await User.findById(userId);
+
+          // Check if the password matches the one in the database
+          const isPasswordMatch = await bcryptjs.compare(
+            user.password,
+            userInDB.password,
+          );
+
+          if (!isPasswordMatch) {
+            response.status(400).json({
+              success: false,
+              message: 'Password is incorrect',
+            });
+            return;
+          }
+
+          await User.findByIdAndDelete(userId);
+
+          response.status(200).json({
+            success: true,
+            user: { id: userId },
+          });
         }
       });
     } else {

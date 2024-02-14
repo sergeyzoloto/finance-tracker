@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import useFetch from '../../../hooks/useFetch';
-import Modal from '../../../components/Modal/Modal';
+import Modal from './components/DeleteUserModal/DeleteUserModal';
 import TEST_ID from './UserList.testid';
 
 const DeleteButton = ({ onDelete, userId }) => (
@@ -42,11 +42,11 @@ const UserList = () => {
   });
 
   const {
-    isLoading: deletionIsLoading,
-    error: deletionError,
+    isLoading: deleteIsLoading,
+    error: deleteError,
     performFetch: deletionPerformFetch,
-    cancelFetch: deletionCancelFetch,
-  } = useFetch('/user', (response) => {
+    cancelFetch: cancelDeleteFetch,
+  } = useFetch('/user/delete', (response) => {
     if (response.success) {
       setTimeout(() => {
         handleModalClose();
@@ -61,10 +61,14 @@ const UserList = () => {
   };
 
   const handleConfirmDelete = () => {
+    console.log(`Implement delete logic here: DELETE ${deleteUserId}`);
     deletionPerformFetch({
       method: 'DELETE',
       body: JSON.stringify({ user: { userId: deleteUserId, password } }),
+      credentials: 'include', // save cookies inside react app
     });
+
+    return cancelDeleteFetch;
   };
 
   useEffect(() => {
@@ -74,7 +78,6 @@ const UserList = () => {
   }, []);
 
   const handleDelete = (userId) => {
-    console.log(`Implement delete logic here: DELETE ${userId}`);
     setDeleteUserId(userId);
     setShowModal(true);
   };
@@ -119,6 +122,8 @@ const UserList = () => {
             setPassword={setPassword}
             handleConfirmDelete={handleConfirmDelete}
             handleModalClose={handleModalClose}
+            isLoading={deleteIsLoading}
+            error={deleteError}
           />
         )}
       </>

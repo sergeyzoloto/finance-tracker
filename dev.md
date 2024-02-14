@@ -49,3 +49,22 @@ Now the server responds with the correct status and message when trying to creat
 [8.02.24] Prepared tests for the modal and credentials input components
 
 [9.02.24] Made changes to the server controller user. The delete user function now deletes a user from the database based on the id in the request user object, not on the token in cookies
+
+[14.02.24] Status rendering in the Modal component ready to test
+
+When trying to attach a cookie token to the request and send a request to remove the user from the client, I get an error:
+
+Access to fetch at '<http://localhost:5000/api/user/delete>' from origin '<http://localhost:5173>' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: The value of the 'Access-Control-Allow-Origin' header in the response must not be the wildcard '*' when the request's credentials mode is 'include'.
+
+This error is due to the CORS (Cross-Origin Resource Sharing) policy of the server. When making a fetch request with credentials: 'include', the server cannot respond with the Access-Control-Allow-Origin header set to *. It must be set to the exact origin of the request.
+
+I need to configure the server to respond with the correct Access-Control-Allow-Origin header, like this:
+
+const corsOptions = {
+  origin: '<http://localhost:5173>', // This should be the client's origin
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+
+Parameterization will need to be adjusted depending on the environment (development or production)

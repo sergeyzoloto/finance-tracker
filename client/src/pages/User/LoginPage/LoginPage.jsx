@@ -31,7 +31,6 @@ export default function LoginPage() {
         'content-type': 'application/json',
       },
       body: JSON.stringify({ user: { email, password } }),
-      credentials: 'include', // save cookies inside react app
     });
   }
 
@@ -82,7 +81,7 @@ export default function LoginPage() {
           placeholder="email"
           name="email"
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={setEmail}
         />
         <CredentialsInput
           data-testid={TEST_ID.passwordInput}
@@ -90,7 +89,7 @@ export default function LoginPage() {
           placeholder="password"
           name="password"
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
+          onChange={setPassword}
         />
         {buttonComponent}
       </form>

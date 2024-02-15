@@ -68,3 +68,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 Parameterization will need to be adjusted depending on the environment (development or production)
+
+[15.02.24] CORS options are configured on the server.
+User deletion is tested manually from a browser
+TO-DO: Prepare tests for user deletion

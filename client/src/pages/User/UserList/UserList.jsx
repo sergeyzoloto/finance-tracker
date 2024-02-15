@@ -29,6 +29,7 @@ const DeleteButton = ({ onDelete, userId }) => (
 const UserList = () => {
   const [users, setUsers] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const [successfullyDeleted, setSuccessfullyDeleted] = useState(false);
   const [password, setPassword] = useState('');
   const [deleteUserId, setDeleteUserId] = useState(null);
 
@@ -48,6 +49,7 @@ const UserList = () => {
     cancelFetch: cancelDeleteFetch,
   } = useFetch('/user/delete', (response) => {
     if (response.success) {
+      setSuccessfullyDeleted(true);
       setTimeout(() => {
         handleModalClose();
       }, 4000);
@@ -57,14 +59,14 @@ const UserList = () => {
   const handleModalClose = () => {
     setShowModal(false);
     setPassword('');
+    setSuccessfullyDeleted(false);
     setDeleteUserId(null);
   };
 
   const handleConfirmDelete = () => {
-    console.log(`Implement delete logic here: DELETE ${deleteUserId}`);
     deletionPerformFetch({
       method: 'DELETE',
-      body: JSON.stringify({ user: { userId: deleteUserId, password } }),
+      body: JSON.stringify({ user: { id: deleteUserId, password } }),
       credentials: 'include', // save cookies inside react app
     });
 
@@ -75,7 +77,7 @@ const UserList = () => {
     listPerformFetch();
 
     return listCancelFetch;
-  }, []);
+  }, [showModal]);
 
   const handleDelete = (userId) => {
     setDeleteUserId(userId);
@@ -124,6 +126,7 @@ const UserList = () => {
             handleModalClose={handleModalClose}
             isLoading={deleteIsLoading}
             error={deleteError}
+            success={successfullyDeleted}
           />
         )}
       </>

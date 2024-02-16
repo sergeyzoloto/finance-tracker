@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import useFetch from '../../../hooks/useFetch';
-import Modal from './components/DeleteUserModal/DeleteUserModal';
+import DeleteUserModal from './components/DeleteUserModal/DeleteUserModal';
 import TEST_ID from './UserList.testid';
 
 const DeleteButton = ({ onDelete, userId }) => (
@@ -52,6 +52,7 @@ const UserList = () => {
       setSuccessfullyDeleted(true);
       setTimeout(() => {
         handleModalClose();
+        listPerformFetch();
       }, 4000);
     }
   });
@@ -77,7 +78,7 @@ const UserList = () => {
     listPerformFetch();
 
     return listCancelFetch;
-  }, [showModal]);
+  }, []);
 
   const handleDelete = (userId) => {
     setDeleteUserId(userId);
@@ -119,7 +120,7 @@ const UserList = () => {
             })}
         </ul>
         {showModal && (
-          <Modal
+          <DeleteUserModal
             password={password}
             setPassword={setPassword}
             handleConfirmDelete={handleConfirmDelete}

@@ -1,7 +1,7 @@
 import React from 'react';
 import TEST_ID from './DeleteUserModal.testid';
 
-const Modal = ({
+const DeleteUserModal = ({
   password,
   setPassword,
   handleConfirmDelete,
@@ -77,4 +77,4 @@ const Modal = ({
   );
 };
 
-export default Modal;
+export default DeleteUserModal;

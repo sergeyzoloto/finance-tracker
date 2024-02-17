@@ -1,6 +1,7 @@
 import createTestIdFilePath from '../../utils/createTestIdFilePath';
 
 const TEST_ID = {
+  menuButton: `${createTestIdFilePath('components', 'Nav')}-menuButton`,
   linkToHome: `${createTestIdFilePath('components', 'Nav')}-linkToHome`,
   linkToUsers: `${createTestIdFilePath('components', 'Nav')}-linkToUser`,
   createUserLink: `${createTestIdFilePath('components', 'Nav')}-createUserLink`,

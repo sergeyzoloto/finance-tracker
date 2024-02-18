@@ -15,7 +15,7 @@ const Nav = () => {
     <nav className="bg-gray-200">
       <Disclosure>
         {({ open, setOpen }) => (
-          <div onMouseLeave={(e) => setOpen(false)}>
+          <div onMouseLeave={(event) => setOpen(false)}>
             <button
               className="md:hidden"
               onClick={() => setOpen(!open)}
@@ -23,7 +23,10 @@ const Nav = () => {
             >
               {open ? 'Close' : 'Menu'}
             </button>
-            <div className={`md:flex ${open ? 'block' : 'hidden'} md:block`}>
+            <div
+              data-testid={TEST_ID.linksContainer}
+              className={`md:flex ${open ? 'block' : 'hidden'} md:block`}
+            >
               <ul className="md:flex">
                 <Link to="/" data-testid={TEST_ID.linkToHome}>
                   <li>Home</li>

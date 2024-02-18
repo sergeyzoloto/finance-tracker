@@ -20,8 +20,6 @@ beforeEach(() => {
 
 describe('Navigation', () => {
   it('Clicking on the Home link should go to Home page ', async () => {
-    fetch.mockResponseOnce(getUsersSuccessMock());
-
     render(
       <MemoryRouter history={history} initialEntries={['/user/list']}>
         <App />
@@ -70,8 +68,6 @@ describe('Navigation', () => {
   });
 
   it('Clicking on the Create User link should go to Create User page', async () => {
-    fetch.mockResponseOnce(getUsersSuccessMock());
-
     render(
       <MemoryRouter history={history} initialEntries={['/']}>
         <App />
@@ -90,8 +86,6 @@ describe('Navigation', () => {
   });
 
   it('Clicking on the Login link should go to Login page', async () => {
-    fetch.mockResponseOnce(getUsersSuccessMock());
-
     render(
       <MemoryRouter history={history} initialEntries={['/']}>
         <App />
@@ -107,5 +101,52 @@ describe('Navigation', () => {
         screen.getByTestId(TEST_ID_LOGIN_PAGE.container),
       ).toBeInTheDocument(),
     );
+  });
+
+  it('toggles links container visibility on menu button click', () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const menuButton = screen.getByTestId(TEST_ID_NAV.menuButton);
+    const linksContainer = screen.getByTestId(TEST_ID_NAV.linksContainer);
+
+    fireEvent.click(menuButton);
+
+    expect(linksContainer).toHaveClass('block');
+
+    fireEvent.click(menuButton);
+
+    expect(linksContainer).toHaveClass('hidden');
+  });
+
+  it('hides links container on mouse leave', () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const menuButton = screen.getByTestId(TEST_ID_NAV.menuButton);
+    const linksContainer = screen.getByTestId(TEST_ID_NAV.linksContainer);
+
+    fireEvent.click(menuButton);
+    expect(linksContainer).toHaveClass('block');
+
+    fireEvent.mouseLeave(linksContainer);
+    expect(linksContainer).toHaveClass('hidden');
+  });
+
+  it('menu button is visible only on small screens', () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const menuButton = screen.getByTestId(TEST_ID_NAV.menuButton);
+    expect(menuButton).toHaveClass('md:hidden');
   });
 });

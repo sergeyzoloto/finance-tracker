@@ -23,7 +23,7 @@ export const createUserFailedMock = () => {
 };
 
 // Mock of a successful login
-export const loginSuccessMock = (user = {}) => {
+export const loginSuccessMock = () => {
   return JSON.stringify({ success: true });
 };
 

@@ -49,6 +49,14 @@ const CreateUser = () => {
     );
   }
 
+  const handleEmailChange = (event) => {
+    setEmail(event.target.value);
+  };
+
+  const handlePasswordChange = (event) => {
+    setPassword(event.target.value);
+  };
+
   return (
     <div
       data-testid={TEST_ID.container}
@@ -64,14 +72,14 @@ const CreateUser = () => {
           name="email"
           placeholder="email"
           value={email}
-          onChange={(value) => setEmail(value)}
+          onChange={handleEmailChange}
           data-testid={TEST_ID.emailInput}
         />
         <CredentialsInput
           name="password"
           placeholder="password"
           value={password}
-          onChange={(value) => setPassword(value)}
+          onChange={handlePasswordChange}
           data-testid={TEST_ID.passwordInput}
         />
         <button

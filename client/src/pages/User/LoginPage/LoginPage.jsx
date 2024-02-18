@@ -31,6 +31,7 @@ export default function LoginPage() {
         'content-type': 'application/json',
       },
       body: JSON.stringify({ user: { email, password } }),
+      credentials: 'include', // save cookies inside react app
     });
   }
 
@@ -64,6 +65,14 @@ export default function LoginPage() {
     );
   }
 
+  const handleEmailChange = (event) => {
+    setEmail(event.target.value);
+  };
+
+  const handlePasswordChange = (event) => {
+    setPassword(event.target.value);
+  };
+
   return (
     <div
       className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2"
@@ -81,7 +90,7 @@ export default function LoginPage() {
           placeholder="email"
           name="email"
           value={email}
-          onChange={setEmail}
+          onChange={handleEmailChange}
         />
         <CredentialsInput
           data-testid={TEST_ID.passwordInput}
@@ -89,7 +98,7 @@ export default function LoginPage() {
           placeholder="password"
           name="password"
           value={password}
-          onChange={setPassword}
+          onChange={handlePasswordChange}
         />
         {buttonComponent}
       </form>

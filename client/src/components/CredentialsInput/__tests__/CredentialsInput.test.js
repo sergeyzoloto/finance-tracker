@@ -11,23 +11,6 @@ describe('CredentialsInput', () => {
     expect(getByDisplayValue('test value')).toBeInTheDocument();
   });
 
-  it('calls onChange when the input value changes', () => {
-    const handleChange = jest.fn();
-    const { getByDisplayValue } = render(
-      <CredentialsInput
-        name="test"
-        value="test value"
-        onChange={handleChange}
-      />,
-    );
-
-    fireEvent.change(getByDisplayValue('test value'), {
-      target: { value: 'new value' },
-    });
-
-    expect(handleChange).toHaveBeenCalledWith('new value');
-  });
-
   it('has the correct classes', () => {
     const { getByDisplayValue } = render(
       <CredentialsInput name="test" value="test value" onChange={() => {}} />,

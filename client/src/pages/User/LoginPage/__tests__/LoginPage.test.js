@@ -6,7 +6,6 @@ import renderer, { act } from 'react-test-renderer';
 import { asSlowResponse } from '../../../../__testUtils__/fetchMocks';
 
 import TEST_ID from '../LoginPage.testid';
-import { createMemoryHistory } from 'history';
 
 import {
   loginFailedMock,

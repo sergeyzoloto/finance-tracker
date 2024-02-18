@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import useFetch from '../../../hooks/useFetch';
-import Modal from './components/DeleteUserModal/DeleteUserModal';
+import DeleteUserModal from './components/DeleteUserModal/DeleteUserModal';
 import TEST_ID from './UserList.testid';
 
 const DeleteButton = ({ onDelete, userId }) => (
@@ -29,6 +29,7 @@ const DeleteButton = ({ onDelete, userId }) => (
 const UserList = () => {
   const [users, setUsers] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const [successfullyDeleted, setSuccessfullyDeleted] = useState(false);
   const [password, setPassword] = useState('');
   const [deleteUserId, setDeleteUserId] = useState(null);
 
@@ -48,8 +49,10 @@ const UserList = () => {
     cancelFetch: cancelDeleteFetch,
   } = useFetch('/user/delete', (response) => {
     if (response.success) {
+      setSuccessfullyDeleted(true);
       setTimeout(() => {
         handleModalClose();
+        listPerformFetch();
       }, 4000);
     }
   });
@@ -57,14 +60,14 @@ const UserList = () => {
   const handleModalClose = () => {
     setShowModal(false);
     setPassword('');
+    setSuccessfullyDeleted(false);
     setDeleteUserId(null);
   };
 
   const handleConfirmDelete = () => {
-    console.log(`Implement delete logic here: DELETE ${deleteUserId}`);
     deletionPerformFetch({
       method: 'DELETE',
-      body: JSON.stringify({ user: { userId: deleteUserId, password } }),
+      body: JSON.stringify({ user: { id: deleteUserId, password } }),
       credentials: 'include', // save cookies inside react app
     });
 
@@ -117,13 +120,14 @@ const UserList = () => {
             })}
         </ul>
         {showModal && (
-          <Modal
+          <DeleteUserModal
             password={password}
             setPassword={setPassword}
             handleConfirmDelete={handleConfirmDelete}
             handleModalClose={handleModalClose}
             isLoading={deleteIsLoading}
             error={deleteError}
+            success={successfullyDeleted}
           />
         )}
       </>

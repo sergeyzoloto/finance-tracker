@@ -1,15 +1,26 @@
 import express from 'express';
 import cors from 'cors';
 
+// Load our .env variables
+import dotenv from 'dotenv';
+dotenv.config();
+
 import userRouter from './routes/user.js';
 
 // Create an express server
 const app = express();
 
 // Tell express to use the json middleware
-app.use(express.json()); // Set the payload limit to 50 megabytes
-// Allow everyone to access our API. In a real application, we would need to restrict this!
-app.use(cors());
+app.use(express.json());
+
+// CORS
+const corsOptions = {
+  origin: process.env.ORIGIN,
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+
 // Cookies
 import cookieParser from 'cookie-parser';
 app.use(cookieParser());

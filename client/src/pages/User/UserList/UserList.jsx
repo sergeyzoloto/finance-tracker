@@ -3,10 +3,24 @@ import React, { useEffect, useState } from 'react';
 import useFetch from '../../../hooks/useFetch';
 import DeleteUserModal from './components/DeleteUserModal/DeleteUserModal';
 import TEST_ID from './UserList.testid';
+import classNames from '../../../utils/classNames';
+
+/* Styles */
+const styles = {
+  CONTAINER: 'py-4',
+  DELETE_BUTTON_ANIMATION: 'hover:bg-white  transition-all duration-300',
+  DELETE_BUTTON_FORM: 'visible rounded-full font-bold size-8',
+  USER_LIST: 'max-w-screen-sm mx-auto py-2',
+  USER_LIST_ITEM_FORM: 'group flex justify-between items-center m-px py-2 px-4',
+  USER_LIST_ITEM_ANIMATION: 'hover:bg-gray-100 transition-all duration-300',
+};
 
 const DeleteButton = ({ onDelete, userId }) => (
   <button
-    className="visible hover:bg-white font-bold transition-all duration-200 rounded-full size-10 flex justify-center items-center"
+    className={classNames(
+      styles.DELETE_BUTTON_ANIMATION,
+      styles.DELETE_BUTTON_FORM,
+    )}
     onClick={onDelete}
     data-testid={`${TEST_ID.deleteUserButton}-${userId}`}
   >
@@ -100,7 +114,7 @@ const UserList = () => {
         <ul
           data-testid={TEST_ID.userList}
           data-loaded={users != null}
-          className="max-w-screen-sm mx-auto"
+          className={styles.USER_LIST}
         >
           {users &&
             users.map((user) => {
@@ -108,7 +122,10 @@ const UserList = () => {
                 <li
                   key={user._id}
                   data-elementid={user._id}
-                  className="group flex justify-between items-center m-px p-2 transition-all duration-200 hover:bg-gray-100"
+                  className={classNames(
+                    styles.USER_LIST_ITEM_ANIMATION,
+                    styles.USER_LIST_ITEM_FORM,
+                  )}
                 >
                   {user.email}
                   <DeleteButton
@@ -134,7 +151,11 @@ const UserList = () => {
     );
   }
 
-  return <div data-testid={TEST_ID.container}>{content}</div>;
+  return (
+    <div data-testid={TEST_ID.container} className={styles.CONTAINER}>
+      {content}
+    </div>
+  );
 };
 
 export default UserList;

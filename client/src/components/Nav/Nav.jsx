@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import classNames from '../../utils/classNames';
 
 import TEST_ID from './Nav.testid';
@@ -7,11 +7,11 @@ import TEST_ID from './Nav.testid';
 /* Styles */
 const styles = {
   DEFAULT_BUTTON: 'block rounded-md px-3 py-2 m-1',
-  CURRENT_BUTTON: 'bg-gray-700 text-white md:block',
+  CURRENT_BUTTON: 'bg-gray-700 text-white',
   INACTIVE_BUTTON:
     'text-gray-400 bg-gray-300 hover:bg-gray-800 hover:text-white',
   NAV: 'bg-gray-200 space-y-1 px-2 pb-3 pt-2',
-  MENU_BUTTON: 'md:hidden',
+  MENU_BUTTON: 'md:hidden rounded-md px-3 py-2',
 };
 
 /* Navigation data */
@@ -49,6 +49,18 @@ const Nav = () => {
   const [links, setLinks] = useState(navigation);
 
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const updatedLinks = links.map((link) => {
+      return {
+        ...link,
+        current: location.pathname === link.path,
+      };
+    });
+
+    setLinks(updatedLinks);
+  }, [location.pathname]);
 
   const handleClick = (link) => {
     navigate(link.path);

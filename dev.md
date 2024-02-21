@@ -78,3 +78,5 @@ TO-DO: Prepare tests for user deletion
 [19.02.24] Slightly refactored nav. Now content, styles and functionality are separated in code
 
 [20.02.24] Padding and margins. Styles separately in constants. Wrong active button bug fixed
+
+[21.02.24] classNames tested. deleteUserModal props and behavior tested. UserList rerendering after successful deletion tested

@@ -1,6 +1,17 @@
 import React from 'react';
 import TEST_ID from './DeleteUserModal.testid';
 
+/* Styles */
+const styles = {
+  CONTAINER:
+    'fixed inset-0 flex items-center justify-center bg-black bg-opacity-50',
+  MODAL: 'bg-white p-4 rounded',
+  PASSWORD_INPUT: 'mt-2 border rounded p-2',
+  BUTTONS_CONTAINER: 'mt-4 flex justify-end',
+  CONFIRM_BUTTON: 'mr-2 bg-gray-600 text-white rounded p-2',
+  CANCEL_BUTTON: 'bg-red-500 text-white rounded p-2',
+};
+
 const DeleteUserModal = ({
   password,
   setPassword,
@@ -33,25 +44,25 @@ const DeleteUserModal = ({
       type="password"
       value={password}
       onChange={(event) => setPassword(event.target.value)}
-      className="mt-2 border rounded p-2"
+      className={styles.PASSWORD_INPUT}
       placeholder="Enter password"
       data-testid={TEST_ID.passwordInput}
     />
   );
 
   let buttons = (
-    <div className="mt-4 flex justify-end">
+    <div className={styles.BUTTONS_CONTAINER}>
       <button
         onClick={handleConfirmDelete}
         data-testid={TEST_ID.confirmButton}
-        className="mr-2 bg-blue-500 text-white rounded p-2"
+        className={styles.CONFIRM_BUTTON}
       >
         Confirm
       </button>
       <button
         onClick={handleModalClose}
         data-testid={TEST_ID.cancelButton}
-        className="bg-red-500 text-white rounded p-2"
+        className={styles.CANCEL_BUTTON}
       >
         Cancel
       </button>
@@ -59,7 +70,7 @@ const DeleteUserModal = ({
   );
 
   let content = (
-    <div className="bg-white p-4 rounded">
+    <div className={styles.MODAL}>
       {!success && <h2>Confirm user deletion</h2>}
       {!success && input}
       {statusContent && statusContent}
@@ -68,10 +79,7 @@ const DeleteUserModal = ({
   );
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
-      data-testid={TEST_ID.container}
-    >
+    <div className={styles.CONTAINER} data-testid={TEST_ID.container}>
       {content}
     </div>
   );

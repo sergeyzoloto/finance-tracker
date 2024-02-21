@@ -19,6 +19,12 @@ const TEST_ID = {
     'UserList',
     'DeleteUserModal',
   )}-errorContainer`,
+  successContainer: `${createTestIdFilePath(
+    'pages',
+    'User',
+    'UserList',
+    'DeleteUserModal',
+  )}-successContainer`,
   userList: `${createTestIdFilePath('pages', 'User', 'UserList')}-userList`,
   cancelButton: `${createTestIdFilePath(
     'pages',

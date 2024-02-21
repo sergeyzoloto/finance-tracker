@@ -5,6 +5,14 @@ import CredentialsInput from '../../../components/CredentialsInput/CredentialsIn
 import useFetch from '../../../hooks/useFetch';
 import TEST_ID from './CreateUser.testid';
 
+/* Styles */
+const styles = {
+  CONTAINER: 'flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2',
+  FORM: 'flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2 box-border',
+  SUBMIT_BUTTON:
+    'w-full block bg-slate-400 border-none text-white rounded py-2',
+};
+
 const CreateUser = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -58,15 +66,9 @@ const CreateUser = () => {
   };
 
   return (
-    <div
-      data-testid={TEST_ID.container}
-      className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2"
-    >
+    <div data-testid={TEST_ID.container} className={styles.CONTAINER}>
       {redirect && <Navigate to={'/user/list'} />}
-      <form
-        onSubmit={handleSubmit}
-        className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2 box-border"
-      >
+      <form onSubmit={handleSubmit} className={styles.FORM}>
         <h1>What should the user be?</h1>
         <CredentialsInput
           name="email"
@@ -85,7 +87,7 @@ const CreateUser = () => {
         <button
           type="submit"
           data-testid={TEST_ID.submitButton}
-          className="w-full block bg-slate-400 border-none text-white rounded py-2"
+          className={styles.SUBMIT_BUTTON}
         >
           Submit
         </button>

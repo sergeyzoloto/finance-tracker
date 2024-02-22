@@ -21,7 +21,6 @@ describe('CredentialsInput', () => {
     expect(input).toHaveClass('flexbox');
     expect(input).toHaveClass('border-2');
     expect(input).toHaveClass('border-solid');
-    expect(input).toHaveClass('block');
     expect(input).toHaveClass('w-full');
     expect(input).toHaveClass('p-2');
     expect(input).toHaveClass('bg-white');

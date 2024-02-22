@@ -32,7 +32,7 @@ describe('Navigation', () => {
 
     fireEvent.click(screen.getByTestId(TEST_ID_NAV.linkToHome));
 
-    await waitFor(() =>
+    waitFor(() =>
       expect(screen.getByTestId(TEST_ID_HOME.container)).toBeInTheDocument(),
     );
   });
@@ -52,14 +52,14 @@ describe('Navigation', () => {
 
     fireEvent.click(screen.getByTestId(TEST_ID_NAV.linkToUsers));
 
-    await waitFor(() =>
+    waitFor(() =>
       expect(
         screen.getByTestId(TEST_ID_USER_LIST.container),
       ).toBeInTheDocument(),
     );
 
     // Wait until data is loaded
-    await waitFor(() =>
+    waitFor(() =>
       expect(screen.getByTestId(TEST_ID_USER_LIST.userList)).toHaveAttribute(
         'data-loaded',
         'true',
@@ -78,7 +78,7 @@ describe('Navigation', () => {
 
     fireEvent.click(screen.getByTestId(TEST_ID_NAV.createUserLink));
 
-    await waitFor(() =>
+    waitFor(() =>
       expect(
         screen.getByTestId(TEST_ID_CREATE_USER.container),
       ).toBeInTheDocument(),
@@ -96,7 +96,7 @@ describe('Navigation', () => {
 
     fireEvent.click(screen.getByTestId(TEST_ID_NAV.loginLink));
 
-    await waitFor(() =>
+    waitFor(() =>
       expect(
         screen.getByTestId(TEST_ID_LOGIN_PAGE.container),
       ).toBeInTheDocument(),

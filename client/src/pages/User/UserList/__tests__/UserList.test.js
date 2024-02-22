@@ -150,47 +150,6 @@ describe('UserList', () => {
     });
   });
 
-  it('Opens the delete modal when the delete button is clicked', async () => {
-    // Mock our fetch with users
-    const testEmail1 = 'john@doe.com';
-    const testEmail2 = 'johny@be.good';
-
-    const users = [
-      { _id: 'u---1', password: 'qwerty123456', email: testEmail1 },
-      { _id: 'u---2', password: '123456qwerty', email: testEmail2 },
-    ];
-
-    fetch.mockResponseOnce(getUsersSuccessMock(users));
-
-    render(
-      <MemoryRouter>
-        <UserList />
-      </MemoryRouter>,
-    );
-
-    // Wait until data is loaded
-    await waitFor(() =>
-      expect(screen.getByTestId(TEST_ID_USER_LIST.userList)).toHaveAttribute(
-        'data-loaded',
-        'true',
-      ),
-    );
-
-    // Click the delete button
-    fireEvent.click(
-      screen.getByTestId(
-        `${TEST_ID_USER_LIST.deleteUserButton}-${users[0]._id}`,
-      ),
-    );
-
-    // Check that the delete modal is opened
-    waitFor(() =>
-      expect(
-        screen.getByTestId(TEST_ID_DELETE_USER_MODAL.container),
-      ).toBeInTheDocument(),
-    );
-  });
-
   it('Closes the delete modal when the cancel button is clicked', async () => {
     // Mock our fetch with users
     const testEmail1 = 'john@doe.com';
@@ -247,5 +206,134 @@ describe('UserList', () => {
         screen.getByTestId(TEST_ID_DELETE_USER_MODAL.container),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it('Opens the delete modal when the delete button is clicked', async () => {
+    // Mock our fetch with users
+    const testEmail1 = 'john@doe.com';
+    const testEmail2 = 'johny@be.good';
+
+    const users = [
+      { _id: 'u---1', password: 'qwerty123456', email: testEmail1 },
+      { _id: 'u---2', password: '123456qwerty', email: testEmail2 },
+    ];
+
+    fetch.mockResponseOnce(getUsersSuccessMock(users));
+
+    render(
+      <MemoryRouter>
+        <UserList />
+      </MemoryRouter>,
+    );
+
+    // Wait until data is loaded
+    await waitFor(() =>
+      expect(screen.getByTestId(TEST_ID_USER_LIST.userList)).toHaveAttribute(
+        'data-loaded',
+        'true',
+      ),
+    );
+
+    // Click the delete button
+    fireEvent.click(
+      screen.getByTestId(
+        `${TEST_ID_USER_LIST.deleteUserButton}-${users[0]._id}`,
+      ),
+    );
+
+    // Check that the delete modal is opened
+    waitFor(() =>
+      expect(
+        screen.getByTestId(TEST_ID_DELETE_USER_MODAL.container),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it('Renders updated user list after successful deletion', async () => {
+    // Mock our fetch with users
+    const testEmail1 = 'john@doe.com';
+    const testEmail2 = 'johny@be.good';
+
+    const users = [
+      { _id: 'u---1', password: 'qwerty123456', email: testEmail1 },
+      { _id: 'u---2', password: '123456qwerty', email: testEmail2 },
+    ];
+
+    fetch.mockResponseOnce(getUsersSuccessMock(users));
+
+    render(
+      <MemoryRouter>
+        <UserList />
+      </MemoryRouter>,
+    );
+
+    // Wait until data is loaded
+    await waitFor(() =>
+      expect(screen.getByTestId(TEST_ID_USER_LIST.userList)).toHaveAttribute(
+        'data-loaded',
+        'true',
+      ),
+    );
+
+    // Click the delete button
+    fireEvent.click(
+      screen.getByTestId(
+        `${TEST_ID_USER_LIST.deleteUserButton}-${users[0]._id}`,
+      ),
+    );
+
+    // Check that the delete modal is opened
+    waitFor(() =>
+      expect(
+        screen.getByTestId(TEST_ID_DELETE_USER_MODAL.container),
+      ).toBeInTheDocument(),
+    );
+
+    // Mock our fetch with users
+    fetch.mockResponseOnce(getUsersSuccessMock([users[1]]));
+
+    // Enter the password
+    fireEvent.change(
+      screen.getByTestId(TEST_ID_DELETE_USER_MODAL.passwordInput),
+      {
+        target: { value: users[0].password },
+      },
+    );
+
+    // Click the confirm button
+    fireEvent.click(
+      screen.getByTestId(TEST_ID_DELETE_USER_MODAL.confirmButton),
+    );
+
+    // Check that the delete modal is closed
+    waitFor(() =>
+      expect(
+        screen.getByTestId(TEST_ID_DELETE_USER_MODAL.container),
+      ).not.toBeInTheDocument(),
+    );
+
+    // Wait until data is loaded
+    await waitFor(() =>
+      expect(screen.getByTestId(TEST_ID_USER_LIST.userList)).toHaveAttribute(
+        'data-loaded',
+        'true',
+      ),
+    );
+
+    // Check that the user was removed from the list
+    waitFor(() =>
+      expect(
+        screen.queryByTestId(
+          `${TEST_ID_USER_LIST.deleteUserButton}-${users[0]._id}`,
+        ),
+      ).not.toBeInTheDocument(),
+    );
+
+    // Check that the other user is still there
+    expect(
+      screen.queryByTestId(
+        `${TEST_ID_USER_LIST.deleteUserButton}-${users[1]._id}`,
+      ),
+    ).toBeInTheDocument();
   });
 });

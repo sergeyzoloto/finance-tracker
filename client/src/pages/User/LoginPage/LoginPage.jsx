@@ -5,6 +5,14 @@ import CredentialsInput from '../../../components/CredentialsInput/CredentialsIn
 
 import TEST_ID from './LoginPage.testid';
 
+/* Styles */
+const styles = {
+  CONTAINER: 'flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2',
+  SUBMIT_BUTTON:
+    'w-full block bg-slate-400 border-none text-white rounded py-2',
+  FORM: 'flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2 box-border',
+};
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -58,7 +66,7 @@ export default function LoginPage() {
       <button
         data-testid={TEST_ID.loginButton}
         onClick={login}
-        className="w-full block bg-slate-400 border-none text-white rounded py-2"
+        className={styles.SUBMIT_BUTTON}
       >
         Let me in!
       </button>
@@ -74,15 +82,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div
-      className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2"
-      data-testid={TEST_ID.container}
-    >
+    <div className={styles.CONTAINER} data-testid={TEST_ID.container}>
       {redirect && <Navigate to={'/'} />}
-      <form
-        data-testid={TEST_ID.form}
-        className="flex flex-col w-64 relative my-0 mx-auto gap-2 min-w-fit p-2 box-border"
-      >
+      <form data-testid={TEST_ID.form} className={styles.FORM}>
         <h1>Login</h1>
         <CredentialsInput
           data-testid={TEST_ID.emailInput}

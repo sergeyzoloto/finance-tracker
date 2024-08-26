@@ -1,20 +1,17 @@
-# Dockerfile in backend directory
-# First stage: Build the application
+# Stage 1: Build the application
 FROM alpine/java:21-jdk AS builder
-
 WORKDIR /app
-
-COPY . .
-
+COPY mvnw ./
+COPY .mvn .mvn
+COPY pom.xml ./
+RUN chmod +x ./mvnw && \
+./mvnw dependency:go-offline
+COPY src ./src
 RUN ./mvnw clean package -DskipTests
 
-# Second stage: Create the runtime image
+# Stage 2: Run the application
 FROM alpine/java:21-jdk
-
 WORKDIR /app
-
-COPY --from=builder /app/target/backend.jar /app/app.jar
-
+COPY --from=builder /app/target/*.jar /app/app.jar
 EXPOSE 8080
-
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

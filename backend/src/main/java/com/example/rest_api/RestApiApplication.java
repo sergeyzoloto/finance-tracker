@@ -1,13 +1,13 @@
-package com.example.domain.server;
+package com.example.rest_api;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class FinanceTrackerServer {
+public class RestApiApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(FinanceTrackerServer.class, args);
+		SpringApplication.run(RestApiApplication.class, args);
 	}
 
 }

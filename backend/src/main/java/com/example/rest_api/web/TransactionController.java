@@ -1,7 +1,10 @@
 package com.example.rest_api.web;
 
 import com.example.rest_api.model.Transaction; // Import the Transaction class
+import com.example.rest_api.service.TransactionsService; // Import the TransactionServer class
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,9 +14,6 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.UUID;
-import java.util.Map;
-import java.util.HashMap;
 import java.util.Collection;
 
 @RestController
@@ -21,22 +21,20 @@ public class TransactionController {
 
   private static final String TRANSACTION_NOT_FOUND = "Transaction not found with id ";
 
-  private Map<String, Transaction> db;
+  private final TransactionsService transactionsService;
 
-  public TransactionController() {
-    db = new HashMap<>();
-    db.put("1", new Transaction("1"));
-    db.put("2", new Transaction("2"));
+  public TransactionController(@Autowired TransactionsService transactionsService) {
+    this.transactionsService = transactionsService;
   }
 
   @GetMapping("/transactions")
-  public Collection<Transaction> getTransactions() {
-    return db.values();
+  public Collection<Transaction> getAll() {
+    return transactionsService.getAll();
   }
 
   @GetMapping("/transactions/{id}")
-  public Transaction getTransaction(@PathVariable String id) {
-    Transaction transaction = db.get(id);
+  public Transaction getOne(@PathVariable String id) {
+    Transaction transaction = transactionsService.get(id);
     if (transaction == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, 
       TRANSACTION_NOT_FOUND + id);
@@ -45,8 +43,8 @@ public class TransactionController {
   }
 
   @DeleteMapping("/transactions/{id}")
-  public void deleteTransaction(@PathVariable String id) {
-    Transaction transaction = db.remove(id);
+  public void deleteOne(@PathVariable String id) {
+    Transaction transaction = transactionsService.remove(id);
     if (transaction == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, 
       TRANSACTION_NOT_FOUND + id);
@@ -54,20 +52,18 @@ public class TransactionController {
   }
 
   @PostMapping("/transactions")
-  public Transaction addTransaction(Transaction transaction) {
-    transaction.setId(UUID.randomUUID().toString());
-    db.put(transaction.getId(), transaction);
-    return transaction;
+  public Transaction addOne(Transaction transaction) {
+    return transactionsService.save(transaction);
   }
 
-  @PutMapping("/transactions/{id}")
-  public Transaction updateTransaction(@PathVariable String id, Transaction transaction) {
-    if (!db.containsKey(id)) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, 
-      TRANSACTION_NOT_FOUND + id);
-    }
-    transaction.setId(id);
-    db.put(id, transaction);
-    return transaction;
-  }
+  // @PutMapping("/transactions/{id}")
+  // public Transaction updateOne(@PathVariable String id, Transaction transaction) {
+  //   if (!db.containsKey(id)) {
+  //     throw new ResponseStatusException(HttpStatus.NOT_FOUND, 
+  //     TRANSACTION_NOT_FOUND + id);
+  //   }
+  //   transaction.setId(id);
+  //   db.put(id, transaction);
+  //   return transaction;
+  // }
 }

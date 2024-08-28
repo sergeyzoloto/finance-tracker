@@ -4,32 +4,33 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.stereotype.Service;
+
 import com.example.rest_api.model.Transaction;
+import com.example.rest_api.repository.TransactionsRepository;
 
 @Service
 public class TransactionsService {
 
-  private Map<String, Transaction> db = new HashMap<>();
-  
-  public TransactionsService() {
-    db.put("1", new Transaction("1"));
-    db.put("2", new Transaction("2"));
+  private final TransactionsRepository transactionsRepository;
+
+  public TransactionsService(TransactionsRepository transactionsRepository) {
+    this.transactionsRepository = transactionsRepository;
   }
 
-  public Collection<Transaction> getAll() {
-    return db.values();
+  public Iterable<Transaction> getAll() {
+    return transactionsRepository.findAll();
   }
 
-  public Transaction get(String id) {
-    return db.get(id);
+  public Transaction get(Integer id) {
+    return transactionsRepository.findById(id).orElse(null);
+  }
+  public void remove(Integer id) {
+    transactionsRepository.deleteById(id); 
   }
 
   public Transaction save(Transaction transaction) {
-    db.put(transaction.getId(), transaction);
+    transactionsRepository.save(transaction);
     return transaction;
   }
 
-  public Transaction remove(String id) {
-    return db.remove(id);
-  }
 }

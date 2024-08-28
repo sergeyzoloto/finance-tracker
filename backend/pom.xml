@@ -24,6 +24,7 @@
     <spring-boot.version>3.0.0</spring-boot.version>
     <lombok.version>1.18.24</lombok.version>
     <postgresql.version>42.7.4</postgresql.version>
+    <jakarta.version>3.1.0</jakarta.version>
   </properties>
 
   <dependencies>
@@ -60,6 +61,12 @@
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <version>${postgresql.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>jakarta.persistence</groupId>
+      <artifactId>jakarta.persistence-api</artifactId>
+      <version>${jakarta.version}</version>
     </dependency>
 
     <!-- Spring Boot DevTools -->

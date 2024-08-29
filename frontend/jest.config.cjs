@@ -1,8 +1,8 @@
 module.exports = {
-  testEnvironment: 'jsdom',
-  setupFilesAfterEnv: ['./setupTests.js'],
+  testEnvironment: "jsdom",
+  setupFilesAfterEnv: ["./setupTests.ts"],
   moduleNameMapper: {
-    '^.+\\.svg$': 'jest-svg-transformer',
-    '^.+\\.(css|less|scss)$': 'identity-obj-proxy',
+    "^.+\\.svg$": "jest-svg-transformer",
+    "^.+\\.(css|less|scss)$": "identity-obj-proxy",
   },
 };

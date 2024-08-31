@@ -1,9 +1,9 @@
-package com.example.rest_api.auth;
+package com.example.auth_api.auth;
 
-import com.example.rest_api.auth.AuthRequest;
-import com.example.rest_api.auth.AuthResponse;
-import com.example.rest_api.auth.RegisterRequest;
-import com.example.rest_api.auth.AuthService;
+import com.example.auth_api.auth.AuthRequest;
+import com.example.auth_api.auth.AuthResponse;
+import com.example.auth_api.auth.RegisterRequest;
+import com.example.auth_api.auth.AuthService;
 
 import lombok.RequiredArgsConstructor;
 

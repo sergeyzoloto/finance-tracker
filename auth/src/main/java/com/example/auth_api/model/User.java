@@ -1,4 +1,4 @@
-package com.example.rest_api.model;
+package com.example.auth_api.model;
 
 import lombok.Data;
 import lombok.Builder;

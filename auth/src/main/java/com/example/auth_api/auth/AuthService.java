@@ -1,14 +1,14 @@
-package com.example.rest_api.auth;
+package com.example.auth_api.auth;
 
 import org.springframework.stereotype.Service;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import com.example.rest_api.model.User;
-import com.example.rest_api.model.Role;
-import com.example.rest_api.repository.UserRepository;
-import com.example.rest_api.config.JwtService;
+import com.example.auth_api.model.User;
+import com.example.auth_api.model.Role;
+import com.example.auth_api.repository.UserRepository;
+import com.example.auth_api.config.JwtService;
 
 import lombok.RequiredArgsConstructor;
 

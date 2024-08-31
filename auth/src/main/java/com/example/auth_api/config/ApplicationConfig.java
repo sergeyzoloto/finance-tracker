@@ -1,6 +1,6 @@
-package com.example.rest_api.config;
+package com.example.auth_api.config;
 
-import com.example.rest_api.repository.UserRepository;
+import com.example.auth_api.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 

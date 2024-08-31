@@ -27,6 +27,19 @@ services:
     depends_on:
       - frontend
 
+  auth:
+    build:
+      context: ./auth
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    env_file:
+      - .env
+    networks:
+      - app-network
+    depends_on:
+      - frontend
+
 networks:
   app-network:
     driver: bridge

@@ -1,4 +1,4 @@
-package com.example.rest_api.config;
+package com.example.auth_api.config;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

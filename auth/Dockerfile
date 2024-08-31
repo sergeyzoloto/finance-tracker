@@ -14,5 +14,5 @@ RUN ./mvnw clean package -DskipTests
 FROM alpine/java:21-jdk
 WORKDIR /app
 COPY --from=builder /app/target/*.jar /app/app.jar
-EXPOSE 8080
+EXPOSE 8081
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

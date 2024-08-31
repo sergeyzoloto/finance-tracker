@@ -1,4 +1,4 @@
-package com.example.auth_api.auth;
+package com.example.auth_api.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,8 +9,9 @@ import lombok.NoArgsConstructor;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class AuthResponse {
+public class AuthRequest {
 
-  private String token;
-
+  private String email;
+  private String password;
+  
 }

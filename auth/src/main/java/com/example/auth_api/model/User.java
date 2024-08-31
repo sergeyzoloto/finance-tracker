@@ -10,6 +10,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.UniqueConstraint;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import java.util.Collection;
@@ -22,7 +23,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 @AllArgsConstructor // Lombok annotation: constructor with all arguments
 @NoArgsConstructor // Lombok annotation: default constructor
 @Entity // JPA annotation to make this class ready for storage in a JPA-based data store
-@Table(name = "USERS") // JPA annotation to specify the table that this entity is mapped to
+@Table(name = "users", uniqueConstraints = @UniqueConstraint(columnNames = "email"))
 public class User implements UserDetails {
 
   @Id // JPA annotation to specify the primary key of an entity

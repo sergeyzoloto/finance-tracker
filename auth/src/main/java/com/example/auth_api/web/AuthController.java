@@ -15,6 +15,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.ResponseEntity;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import java.io.IOException;
+
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -32,5 +37,13 @@ public class AuthController {
   public ResponseEntity<AuthResponse> authenticate(@RequestBody AuthRequest request) {
     AuthResponse response = authService.authenticate(request);
     return ResponseEntity.ok(response);
+  }
+
+  @PostMapping("/refresh-token")
+  public void refreshToken(
+      HttpServletRequest request,
+      HttpServletResponse response
+  ) throws IOException {
+    authService.refreshToken(request, response);
   }
 }

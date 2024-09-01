@@ -1,9 +1,12 @@
 package com.example.auth_api.model;
 
+import com.example.auth_api.model.Token;
+
 import lombok.Data;
 import lombok.Builder;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
+
 import jakarta.persistence.Id;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Entity;
@@ -11,8 +14,11 @@ import jakarta.persistence.Table;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.OneToMany;
+
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+
 import java.util.Collection;
 import java.util.List;
 
@@ -40,6 +46,9 @@ public class User implements UserDetails {
 
   @Enumerated(EnumType.STRING) // JPA annotation to specify the enum type
   private Role role;
+
+  @OneToMany(mappedBy = "user")
+  private List<Token> tokens;
 
   @Override
   public Collection<? extends GrantedAuthority> getAuthorities() {

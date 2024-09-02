@@ -16,7 +16,7 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import com.example.auth_api.model.User;
 import com.example.auth_api.model.Role;
 import com.example.auth_api.repository.UserRepository;
-import com.example.auth_api.config.JwtService;
+import com.example.auth_api.service.JwtService;
 import com.example.auth_api.model.AuthRequest;
 import com.example.auth_api.model.AuthResponse;
 import com.example.auth_api.model.RegisterRequest;

@@ -14,7 +14,7 @@ import com.example.auth_api.model.AuthRequest;
 import com.example.auth_api.model.AuthResponse;
 import com.example.auth_api.model.RegisterRequest;
 
-import com.example.auth_api.config.JwtService;
+import com.example.auth_api.service.JwtService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;

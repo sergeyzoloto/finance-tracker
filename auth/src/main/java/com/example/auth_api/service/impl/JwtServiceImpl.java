@@ -1,4 +1,6 @@
-package com.example.auth_api.config;
+package com.example.auth_api.service.impl;
+
+import com.example.auth_api.service.JwtService;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -21,7 +23,7 @@ import org.springframework.stereotype.Service;
  * This class provides JWT (JSON Web Token) related functionalities.
  */
 @Service
-public class JwtService {
+public class JwtServiceImpl implements JwtService {
 
   @Value("${JSON_WEB_TOKEN_SECRET}")
   private String secretKey;

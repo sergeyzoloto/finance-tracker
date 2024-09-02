@@ -1,6 +1,7 @@
 package com.example.auth_api.config;
 
 import com.example.auth_api.repository.TokenRepository;
+import com.example.auth_api.service.JwtService;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

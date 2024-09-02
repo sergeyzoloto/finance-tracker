@@ -30,126 +30,14 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 
-@Service
-@RequiredArgsConstructor
-public class AuthService {
+public interface AuthService {
 
-  private final UserRepository userRepository;
-  private final TokenRepository tokenRepository;
-  private final PasswordEncoder passwordEncoder;
-  private final JwtService jwtService;
-  private final AuthenticationManager authenticationManager;
-  
+  public AuthResponse register(RegisterRequest request);
 
-  public AuthResponse register(RegisterRequest request) {
-
-    if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-      throw new IllegalArgumentException("User with this email already exists");
-    }
-
-    var user = User.builder()
-      .firstname(request.getFirstname())
-      .lastname(request.getLastname())
-      .email(request.getEmail())
-      .password(passwordEncoder.encode(request.getPassword()))
-      .role(Role.USER)
-      .build();
-
-    var savedUser = userRepository.save(user);
-    var token = jwtService.generateToken(user);
-    var refreshToken = jwtService.generateRefreshToken(user);
-
-    saveUserToken(savedUser, token);
-    
-    return AuthResponse.builder()
-      .accessToken(token)
-      .refreshToken(refreshToken)
-      .build();
-  }
-
-  public AuthResponse authenticate(AuthRequest request) {
-    
-    var authentication = new UsernamePasswordAuthenticationToken(
-      request.getEmail(),
-      request.getPassword()
-    );
-    
-    authenticationManager.authenticate(authentication);
-    
-    var user = userRepository.findByEmail(request.getEmail()).orElseThrow();
-    var token = jwtService.generateToken(user);
-    var refreshToken = jwtService.generateRefreshToken(user);
-    
-    revokeAllUserTokens(user);
-    saveUserToken(user, token);
-    
-    return AuthResponse.builder()
-    .accessToken(token)
-    .refreshToken(refreshToken)
-      .build();
-  }
-
-  private void saveUserToken(User user, String token) {
-  
-    var newToken = Token.builder()
-        .user(user)
-        .token(token)
-        .tokenType(TokenType.BEARER)
-        .expired(false)
-        .revoked(false)
-        .build();
-    
-    tokenRepository.save(newToken);
-  }
-
-  private void revokeAllUserTokens(User user) {
-  
-    var validUserTokens = tokenRepository.findAllValidTokenByUser(user.getId());
-  
-    if (validUserTokens.isEmpty())
-      return;
-    
-    validUserTokens.forEach(token -> {
-      token.setExpired(true);
-      token.setRevoked(true);
-    });
-    
-    tokenRepository.saveAll(validUserTokens);
-  }
+  public AuthResponse authenticate(AuthRequest request);
 
   public void refreshToken(
           HttpServletRequest request,
           HttpServletResponse response
-  ) throws IOException {
-
-    final String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
-    final String refreshToken;
-    final String userEmail;
-
-    if (authHeader == null ||!authHeader.startsWith("Bearer ")) {
-      return;
-    }
-
-    refreshToken = authHeader.substring(7);
-    userEmail = jwtService.extractUsername(refreshToken);
-
-    if (userEmail != null) {
-      var user = userRepository.findByEmail(userEmail)
-        .orElseThrow();
-      if (jwtService.validateToken(refreshToken, user)) {
-
-        var accessToken = jwtService.generateToken(user);
-
-        revokeAllUserTokens(user);
-        saveUserToken(user, accessToken);
-
-        var authenticationResponse = AuthResponse.builder()
-          .accessToken(accessToken)
-          .refreshToken(refreshToken)
-          .build();
-        new ObjectMapper().writeValue(response.getOutputStream(), authenticationResponse);
-      }
-    }
-  }
-  
+  ) throws IOException;
 }

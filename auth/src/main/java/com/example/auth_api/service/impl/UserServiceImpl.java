@@ -12,12 +12,22 @@ import org.springframework.stereotype.Service;
 
 import java.security.Principal;
 
+/**
+ * Service implementation for user operations.
+ */
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
   private final PasswordEncoder passwordEncoder;
   private final UserRepository repository;
+  
+  /**
+   * Changes the password for the connected user.
+   *
+   * @param request        the change password request containing the new password
+   * @param connectedUser  the principal representing the connected user
+   */
   public void changePassword(ChangePasswordRequest request, Principal connectedUser) {
 
     var user = (User) ((UsernamePasswordAuthenticationToken) connectedUser).getPrincipal();

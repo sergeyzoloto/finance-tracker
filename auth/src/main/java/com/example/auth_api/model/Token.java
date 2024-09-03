@@ -17,6 +17,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * The Token class represents a token entity.
+ */
 @Data
 @Builder
 @NoArgsConstructor

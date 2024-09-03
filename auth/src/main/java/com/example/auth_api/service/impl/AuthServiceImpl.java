@@ -34,6 +34,9 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 
+/**
+ * Service implementation for authentication operations.
+ */
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
@@ -45,6 +48,13 @@ public class AuthServiceImpl implements AuthService {
   private final AuthenticationManager authenticationManager;
   
 
+  /**
+   * Registers a new user with the provided registration request.
+   * 
+   * @param request The registration request containing user details.
+   * @return The authentication response containing access and refresh tokens.
+   * @throws IllegalArgumentException If a user with the same email already exists.
+   */
   public AuthResponse register(RegisterRequest request) {
 
     if (userRepository.findByEmail(request.getEmail()).isPresent()) {
@@ -71,6 +81,12 @@ public class AuthServiceImpl implements AuthService {
       .build();
   }
 
+  /**
+   * Authenticates the user with the provided credentials.
+   * 
+   * @param request the authentication request containing the user's email and password
+   * @return an AuthResponse object containing the access token and refresh token
+   */
   public AuthResponse authenticate(AuthRequest request) {
     
     var authentication = new UsernamePasswordAuthenticationToken(
@@ -93,6 +109,12 @@ public class AuthServiceImpl implements AuthService {
       .build();
   }
 
+  /**
+   * Saves the user token in the token repository.
+   *
+   * @param user The user for whom the token is being saved.
+   * @param token The token to be saved.
+   */
   private void saveUserToken(User user, String token) {
   
     var newToken = Token.builder()
@@ -106,6 +128,11 @@ public class AuthServiceImpl implements AuthService {
     tokenRepository.save(newToken);
   }
 
+  /**
+   * Revokes all tokens associated with the given user.
+   *
+   * @param user the user for whom to revoke tokens
+   */
   private void revokeAllUserTokens(User user) {
   
     var validUserTokens = tokenRepository.findAllValidTokenByUser(user.getId());
@@ -121,6 +148,13 @@ public class AuthServiceImpl implements AuthService {
     tokenRepository.saveAll(validUserTokens);
   }
 
+  /**
+   * Refreshes the access token using the provided refresh token.
+   * 
+   * @param request The HttpServletRequest object representing the incoming request.
+   * @param response The HttpServletResponse object representing the outgoing response.
+   * @throws IOException If an I/O error occurs while writing the response.
+   */
   public void refreshToken(
           HttpServletRequest request,
           HttpServletResponse response

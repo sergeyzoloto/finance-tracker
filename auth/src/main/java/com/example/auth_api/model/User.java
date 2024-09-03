@@ -24,6 +24,9 @@ import java.util.List;
 
 import org.springframework.security.core.userdetails.UserDetails;
 
+/**
+ * The User class represents a user entity.
+ */
 @Data // Lombok annotation to create all the getters, setters, equals, hash, and toString methods
 @Builder // Lombok annotation: builder pattern
 @AllArgsConstructor // Lombok annotation: constructor with all arguments

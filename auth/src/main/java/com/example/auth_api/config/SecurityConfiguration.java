@@ -13,6 +13,9 @@ import org.springframework.security.web.authentication.logout.LogoutHandler;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * The SecurityConfiguration class configures the security settings for the application.
+ */
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor

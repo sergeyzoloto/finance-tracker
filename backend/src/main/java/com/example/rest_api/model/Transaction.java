@@ -9,6 +9,9 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * The Transaction class represents a transaction entity.
+ */
 @Entity
 @Table(name = "TRANSACTIONS")
 public class Transaction {

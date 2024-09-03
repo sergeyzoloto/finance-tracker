@@ -13,12 +13,23 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.logout.LogoutHandler;
 import org.springframework.stereotype.Service;
 
+/**
+ * Implementation of the LogoutHandler and LogoutService interfaces.
+ * This class is responsible for handling the logout functionality.
+ */
 @Service
 @RequiredArgsConstructor
 public class LogoutServiceImpl implements LogoutHandler, LogoutService {
 
   private final TokenRepository tokenRepository;
 
+  /**
+   * Logs out the user by invalidating the token.
+   *
+   * @param request         the HTTP request
+   * @param response        the HTTP response
+   * @param authentication  the authentication object
+   */
   @Override
   public void logout(
       HttpServletRequest request,

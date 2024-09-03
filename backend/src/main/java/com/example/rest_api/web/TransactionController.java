@@ -12,6 +12,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+/**
+ * The TransactionController class handles HTTP requests related
+ * to transaction operations.
+ */
 @RestController
 public class TransactionController {
 
@@ -23,11 +27,22 @@ public class TransactionController {
     this.transactionsService = transactionsService;
   }
 
+  /**
+   * Returns all transactions.
+   *
+   * @return all transactions
+   */
   @GetMapping("/transactions")
   public Iterable<Transaction> getTransactions() {
     return transactionsService.getAll();
   }
 
+  /**
+   * Returns a transaction by its id.
+   *
+   * @param id  the id of the transaction
+   * @return    the transaction with the given id
+   */
   @GetMapping("/transactions/{id}")
   public Transaction getOne(@PathVariable Integer id) {
     Transaction transaction = transactionsService.get(id);
@@ -38,11 +53,22 @@ public class TransactionController {
     return transaction;
   }
 
+  /**
+   * Removes a transaction by its id.
+   *
+   * @param id  the id of the transaction
+   */
   @DeleteMapping("/transactions/{id}")
   public void deleteOne(@PathVariable Integer id) {
     transactionsService.remove(id);
   }
 
+  /**
+   * Adds a new transaction.
+   *
+   * @param transaction  the transaction to add
+   * @return             the added transaction
+   */
   @PostMapping("/transactions")
   public Transaction addOne(Transaction transaction) {
     return transactionsService.save(transaction);

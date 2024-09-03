@@ -24,7 +24,8 @@
     <spring-boot.version>3.3.3</spring-boot.version>
     <lombok.version>1.18.34</lombok.version>
     <postgresql.version>42.7.4</postgresql.version>
-    <jakarta.version>3.1.0</jakarta.version>
+    <jakarta.persistence.version>3.1.0</jakarta.persistence.version>
+    <jakarta.transactions.version>2.0.1</jakarta.transactions.version>
     <jsonwebtoken.version>0.12.6</jsonwebtoken.version>
   </properties>
 
@@ -72,10 +73,17 @@
       <version>${postgresql.version}</version>
     </dependency>
 
+    <!-- Jakarta Persistence API -->
     <dependency>
       <groupId>jakarta.persistence</groupId>
       <artifactId>jakarta.persistence-api</artifactId>
-      <version>${jakarta.version}</version>
+      <version>${jakarta.persistence.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>jakarta.transaction</groupId>
+      <artifactId>jakarta.transaction-api</artifactId>
+      <version>${jakarta.transactions.version}</version>
     </dependency>
 
     <!-- Spring Boot DevTools -->

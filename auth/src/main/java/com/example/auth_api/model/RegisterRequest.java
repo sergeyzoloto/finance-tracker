@@ -1,4 +1,4 @@
-package com.example.auth_api.auth;
+package com.example.auth_api.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

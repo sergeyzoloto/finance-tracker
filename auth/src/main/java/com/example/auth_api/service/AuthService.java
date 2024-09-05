@@ -11,20 +11,6 @@ import com.example.auth_api.repository.TokenRepository;
 import com.example.auth_api.repository.UserRepository;
 import com.example.auth_api.service.JwtService;
 
-import org.springframework.stereotype.Service;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.http.HttpHeaders;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
-
-
-import lombok.RequiredArgsConstructor;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 

@@ -1,8 +1,15 @@
 package com.example.auth_api.service;
 
 import com.example.auth_api.model.Token;
-import com.example.auth_api.repository.TokenRepository;
 import com.example.auth_api.model.TokenType;
+import com.example.auth_api.model.User;
+import com.example.auth_api.model.Role;
+import com.example.auth_api.model.request.RegisterRequest;
+import com.example.auth_api.model.request.AuthRequest;
+import com.example.auth_api.model.response.AuthResponse;
+import com.example.auth_api.repository.TokenRepository;
+import com.example.auth_api.repository.UserRepository;
+import com.example.auth_api.service.JwtService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -13,13 +20,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 
-import com.example.auth_api.model.User;
-import com.example.auth_api.model.Role;
-import com.example.auth_api.repository.UserRepository;
-import com.example.auth_api.service.JwtService;
-import com.example.auth_api.model.AuthRequest;
-import com.example.auth_api.model.AuthResponse;
-import com.example.auth_api.model.RegisterRequest;
 
 import lombok.RequiredArgsConstructor;
 

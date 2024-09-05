@@ -1,8 +1,8 @@
 package com.example.auth_api.web;
 
-import com.example.auth_api.model.AuthRequest;
-import com.example.auth_api.model.AuthResponse;
-import com.example.auth_api.model.RegisterRequest;
+import com.example.auth_api.model.request.AuthRequest;
+import com.example.auth_api.model.response.AuthResponse;
+import com.example.auth_api.model.request.RegisterRequest;
 import com.example.auth_api.service.AuthService;
 
 import lombok.RequiredArgsConstructor;

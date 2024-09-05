@@ -39,12 +39,6 @@
       <optional>true</optional>
     </dependency>
 
-    <!-- Spring Boot Starter Mail -->
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-mail</artifactId>
-    </dependency>
-
     <!-- Spring Boot Starter Validation -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

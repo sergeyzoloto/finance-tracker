@@ -28,7 +28,7 @@ public class SecurityConfiguration {
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http
-      .csrf().disable()
+      .csrf().disable() // in production, enable this and set it to strict-origin-when-cross-origin
       .authorizeHttpRequests()
       .requestMatchers("/api/v1/auth/**")
       .permitAll()

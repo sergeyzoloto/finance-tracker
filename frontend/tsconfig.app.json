@@ -24,7 +24,10 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+
+    /* Consistent casing */
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["src"]
 }

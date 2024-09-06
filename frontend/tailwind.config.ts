@@ -55,6 +55,28 @@ export default {
           "4": "hsl(var(--chart-4))",
           "5": "hsl(var(--chart-5))",
         },
+        expensePurple: {
+          primary: "#8C61FF",
+          light: "#BBAAFF",
+          dark: "#5A3EB5",
+          accentLight: "#D1C0FF",
+          accentDark: "#3D2C75",
+        },
+
+        expenseGray: {
+          primary: "#F4F4F6",
+          light: "#FFFFFF",
+          dark: "#2D2D2D",
+        },
+
+        expenseRed: { primary: "#FF5252" },
+        expenseBlue: { primary: "#3B82F6" },
+        expenseGreen: { primary: "#34D399" },
+
+        textPrimary: "#111827",
+        textSecondary: "#6B7280",
+        lightBg: "#F9FAFB",
+        cardBg: "#FFFFFF",
       },
     },
   },

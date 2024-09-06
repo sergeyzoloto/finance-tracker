@@ -1,16 +1,77 @@
 import { Meta } from "@storybook/blocks";
 import { ColorPalette, ColorItem } from "@storybook/blocks";
+import colors from "./colors";
 
 <Meta title="System/Colors" />
 
 <ColorPalette>
   <ColorItem
-    title="Apple"
-    subtitle="A brand color"
+    title="Expense Purple"
+    subtitle="Primary, Light, Dark, Accent Light, Accent Dark"
     colors={{
-      Apple: "#66bf3c",
-      Apple60: "rgba(102,191,60,.6)",
-      Apple30: "rgba(102,191,60,.3)",
+      Primary: colors.expensePurple.primary,
+      Light: colors.expensePurple.light,
+      Dark: colors.expensePurple.dark,
+      AccentLight: colors.expensePurple.accentLight,
+      AccentDark: colors.expensePurple.accentDark,
+    }}
+  />
+  <ColorItem
+    title="Expense Gray"
+    subtitle="Primary, Light, Dark"
+    colors={{
+      Primary: colors.expenseGray.primary,
+      Light: colors.expenseGray.light,
+      Dark: colors.expenseGray.dark,
+    }}
+  />
+  <ColorItem
+    title="Expense Red"
+    subtitle="Primary"
+    colors={{
+      Primary: colors.expenseRed.primary,
+    }}
+  />
+  <ColorItem
+    title="Expense Blue"
+    subtitle="Primary"
+    colors={{
+      Primary: colors.expenseBlue.primary,
+    }}
+  />
+  <ColorItem
+    title="Expense Green"
+    subtitle="Primary"
+    colors={{
+      Primary: colors.expenseGreen.primary,
+    }}
+  />
+  <ColorItem
+    title="Text Primary"
+    subtitle="Primary"
+    colors={{
+      Primary: colors.textPrimary,
+    }}
+  />
+  <ColorItem
+    title="Text Secondary"
+    subtitle="Primary"
+    colors={{
+      Primary: colors.textSecondary,
+    }}
+  />
+  <ColorItem
+    title="Light Background"
+    subtitle="Primary"
+    colors={{
+      Primary: colors.lightBg,
+    }}
+  />
+  <ColorItem
+    title="Card Background"
+    subtitle="Primary"
+    colors={{
+      Primary: colors.cardBg,
     }}
   />
 </ColorPalette>

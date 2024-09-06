@@ -7,9 +7,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -72,5 +75,33 @@ public class TransactionController {
   @PostMapping("/transactions")
   public Transaction addOne(Transaction transaction) {
     return transactionsService.save(transaction);
+  }
+
+  /**
+   * Add a new method to update a transaction by its id.
+   * The method should accept an HTTP PUT request at /transactions/{id}.
+   * The method should return the updated transaction.
+   * If the transaction with the given id does not exist, the method should return a 404 Not Found status.
+   * The method should use the TransactionsService to update the transaction.
+   * 
+   * The method signature should be:
+   * 
+   * @param id  the id of the transaction
+   * @param transaction  the updated transaction
+   */
+  @PutMapping("/transactions/{id}")
+  public Transaction updateOne(@PathVariable Integer id, @RequestBody Transaction transaction) {
+    Transaction existingTransaction = transactionsService.get(id);
+    if (existingTransaction == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, TRANSACTION_NOT_FOUND + id);
+    }
+
+    if (transaction.getAmount() != null) {
+      existingTransaction.setAmount(transaction.getAmount());
+    }
+    if (transaction.getTimestamp() != null) {
+      existingTransaction.setTimestamp(transaction.getTimestamp());
+    }
+    return transactionsService.save(existingTransaction);
   }
 }

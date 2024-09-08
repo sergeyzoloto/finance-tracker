@@ -1,7 +1,8 @@
 package com.example.rest_api.web;
 
-import com.example.rest_api.model.Transaction; // Import the Transaction class
-import com.example.rest_api.service.TransactionsService; // Import the TransactionServer class
+import com.example.rest_api.model.Transaction;
+import com.example.rest_api.service.TransactionsService;
+import com.example.rest_api.utils.PropertyUtils;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -93,15 +94,11 @@ public class TransactionController {
   public Transaction updateOne(@PathVariable Integer id, @RequestBody Transaction transaction) {
     Transaction existingTransaction = transactionsService.get(id);
     if (existingTransaction == null) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, TRANSACTION_NOT_FOUND + id);
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, TRANSACTION_NOT_FOUND + id);
     }
 
-    if (transaction.getAmount() != null) {
-      existingTransaction.setAmount(transaction.getAmount());
-    }
-    if (transaction.getTimestamp() != null) {
-      existingTransaction.setTimestamp(transaction.getTimestamp());
-    }
+    PropertyUtils.copyNonNullProperties(transaction, existingTransaction);
+
     return transactionsService.save(existingTransaction);
   }
 }

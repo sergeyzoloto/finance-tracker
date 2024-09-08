@@ -1,5 +1,5 @@
 import { useContext, useEffect } from "react";
-import { UserContext } from "./userContext";
+import { UserContext } from "./UserContext";
 import { useNavigate } from "react-router-dom";
 
 const AuthChecker = ({ children }: { children: React.ReactNode }) => {

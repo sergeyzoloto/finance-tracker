@@ -8,7 +8,7 @@ import {
   useEffect,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import userReducer, { UserState, Action } from "./userReducer";
+import userReducer, { UserState, Action } from "./UserReducer";
 
 // Define the initial state
 const initialState: UserState = {

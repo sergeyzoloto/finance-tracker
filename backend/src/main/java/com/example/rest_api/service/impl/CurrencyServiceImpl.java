@@ -18,9 +18,9 @@ public class CurrencyServiceImpl implements CurrencyService {
   }
 
   /**
-   * Returns all currency.
+   * Returns all currencies.
    *
-   * @return all currency
+   * @return all currencies
    */
   @Override
   public Iterable<Currency> getAll() {

@@ -2,7 +2,7 @@ package com.example.rest_api.service;
 
 import com.example.rest_api.model.Transaction;
 
-public interface TransactionsService {
+public interface TransactionService {
 
   Iterable<Transaction> getAll();
 

@@ -1,20 +1,20 @@
 package com.example.rest_api.service.impl;
 
 import com.example.rest_api.model.Transaction;
-import com.example.rest_api.repository.TransactionsRepository;
-import com.example.rest_api.service.TransactionsService;
+import com.example.rest_api.repository.TransactionRepository;
+import com.example.rest_api.service.TransactionService;
 import org.springframework.stereotype.Service;
 
 /**
  * Service implementation for transaction operations.
  */
 @Service
-public class TransactionsServiceImpl implements TransactionsService {
+public class TransactionServiceImpl implements TransactionService {
 
-  private final TransactionsRepository transactionsRepository;
+  private final TransactionRepository transactionRepository;
 
-  public TransactionsServiceImpl(TransactionsRepository transactionsRepository) {
-    this.transactionsRepository = transactionsRepository;
+  public TransactionServiceImpl(TransactionRepository transactionRepository) {
+    this.transactionRepository = transactionRepository;
   }
 
   /**
@@ -24,7 +24,7 @@ public class TransactionsServiceImpl implements TransactionsService {
    */
   @Override
   public Iterable<Transaction> getAll() {
-    return transactionsRepository.findAll();
+    return transactionRepository.findAll();
   }
 
   /**
@@ -35,7 +35,7 @@ public class TransactionsServiceImpl implements TransactionsService {
    */
   @Override
   public Transaction get(Integer id) {
-    return transactionsRepository.findById(id).orElse(null);
+    return transactionRepository.findById(id).orElse(null);
   }
 
   /**
@@ -45,7 +45,7 @@ public class TransactionsServiceImpl implements TransactionsService {
    */
   @Override
   public void remove(Integer id) {
-    transactionsRepository.deleteById(id);
+    transactionRepository.deleteById(id);
   }
 
   /**
@@ -56,6 +56,6 @@ public class TransactionsServiceImpl implements TransactionsService {
    */
   @Override
   public Transaction save(Transaction transaction) {
-    return transactionsRepository.save(transaction);
+    return transactionRepository.save(transaction);
   }
 }

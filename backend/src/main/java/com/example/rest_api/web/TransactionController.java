@@ -1,7 +1,7 @@
 package com.example.rest_api.web;
 
 import com.example.rest_api.model.Transaction;
-import com.example.rest_api.service.TransactionsService;
+import com.example.rest_api.service.TransactionService;
 import com.example.rest_api.utils.PropertyUtils;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,10 +25,10 @@ public class TransactionController {
 
   private static final String TRANSACTION_NOT_FOUND = "Transaction not found with id ";
 
-  private final TransactionsService transactionsService;
+  private final TransactionService transactionService;
 
-  public TransactionController(@Autowired TransactionsService transactionsService) {
-    this.transactionsService = transactionsService;
+  public TransactionController(@Autowired TransactionService transactionService) {
+    this.transactionService = transactionService;
   }
 
   /**
@@ -36,9 +36,9 @@ public class TransactionController {
    *
    * @return all transactions
    */
-  @GetMapping("/transactions")
+  @GetMapping("/transaction")
   public Iterable<Transaction> getTransactions() {
-    return transactionsService.getAll();
+    return transactionService.getAll();
   }
 
   /**
@@ -47,9 +47,9 @@ public class TransactionController {
    * @param id  the id of the transaction
    * @return    the transaction with the given id
    */
-  @GetMapping("/transactions/{id}")
+  @GetMapping("/transaction/{id}")
   public Transaction getOne(@PathVariable Integer id) {
-    Transaction transaction = transactionsService.get(id);
+    Transaction transaction = transactionService.get(id);
     if (transaction == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, 
       TRANSACTION_NOT_FOUND + id);
@@ -62,9 +62,9 @@ public class TransactionController {
    *
    * @param id  the id of the transaction
    */
-  @DeleteMapping("/transactions/{id}")
+  @DeleteMapping("/transaction/{id}")
   public void deleteOne(@PathVariable Integer id) {
-    transactionsService.remove(id);
+    transactionService.remove(id);
   }
 
   /**
@@ -73,32 +73,32 @@ public class TransactionController {
    * @param transaction  the transaction to add
    * @return             the added transaction
    */
-  @PostMapping("/transactions")
+  @PostMapping("/transaction")
   public Transaction addOne(Transaction transaction) {
-    return transactionsService.save(transaction);
+    return transactionService.save(transaction);
   }
 
   /**
    * Add a new method to update a transaction by its id.
-   * The method should accept an HTTP PUT request at /transactions/{id}.
+   * The method should accept an HTTP PUT request at /transaction/{id}.
    * The method should return the updated transaction.
    * If the transaction with the given id does not exist, the method should return a 404 Not Found status.
-   * The method should use the TransactionsService to update the transaction.
+   * The method should use the TransactionService to update the transaction.
    * 
    * The method signature should be:
    * 
    * @param id  the id of the transaction
    * @param transaction  the updated transaction
    */
-  @PutMapping("/transactions/{id}")
+  @PutMapping("/transaction/{id}")
   public Transaction updateOne(@PathVariable Integer id, @RequestBody Transaction transaction) {
-    Transaction existingTransaction = transactionsService.get(id);
+    Transaction existingTransaction = transactionService.get(id);
     if (existingTransaction == null) {
         throw new ResponseStatusException(HttpStatus.NOT_FOUND, TRANSACTION_NOT_FOUND + id);
     }
 
     PropertyUtils.copyNonNullProperties(transaction, existingTransaction);
 
-    return transactionsService.save(existingTransaction);
+    return transactionService.save(existingTransaction);
   }
 }

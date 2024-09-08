@@ -33,7 +33,7 @@ export function LoginForm() {
         </div>
       </CardContent>
       <CardFooter>
-        <Button className="w-full">Sign in</Button>
+        <Button className="w-full" label="Sign in"></Button>
       </CardFooter>
     </Card>
   );

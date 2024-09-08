@@ -190,4 +190,13 @@ public class AuthServiceImpl implements AuthService {
     }
   }
   
+  /**
+   * Checks if an email exists in the database.
+   *
+   * @param email the email to check
+   * @return a boolean indicating if the email exists
+   */
+  public boolean checkIfEmailExists(String email) {
+    return userRepository.existsByEmail(email);
+  }
 }

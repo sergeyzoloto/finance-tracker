@@ -26,4 +26,6 @@ public interface AuthService {
           HttpServletRequest request,
           HttpServletResponse response
   ) throws IOException;
+
+  public boolean checkIfEmailExists(String email);
 }

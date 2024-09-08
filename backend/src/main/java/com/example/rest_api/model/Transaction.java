@@ -25,6 +25,21 @@ public class Transaction {
   @GeneratedValue(strategy = GenerationType.AUTO)
   private Integer id;
 
+  @Column(name = "AMOUNT", nullable = false)
+  private BigDecimal amount;
+
+  @Column(
+    name = "TIMESTAMP", 
+    nullable = false, 
+    columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+  private LocalDateTime timestamp;
+
+  @Column(name = "USER_ID", nullable = false)
+  private Integer userId;
+
+  @Column(name = "CURRENCY_CODE", nullable = false)
+  private Integer currencyCode;
+
   @Column(name = "CURRENCY_GROUP")
   private Integer currencyGroup;
 

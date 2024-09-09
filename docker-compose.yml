@@ -14,9 +14,9 @@ services:
     networks:
       - app-network
 
-  backend:
+  transactions:
     build:
-      context: ./backend
+      context: ./transactions
       dockerfile: Dockerfile
     ports:
       - "8080:8080"

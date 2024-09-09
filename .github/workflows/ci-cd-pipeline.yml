@@ -32,11 +32,11 @@ jobs:
 
       - name: Build with Maven
         run: ./mvnw clean package -DskipTests
-        working-directory: ./backend
+        working-directory: ./transactions
 
       - name: Build Docker image
         run: docker build -t sergeyzoloto/finance-tracker:latest .
-        working-directory: ./backend
+        working-directory: ./transactions
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v2

@@ -10,9 +10,9 @@ import com.example.auth_api.model.User;
 import com.example.auth_api.repository.UserRepository;
 import com.example.auth_api.model.Role;
 
-import com.example.auth_api.model.AuthRequest;
-import com.example.auth_api.model.AuthResponse;
-import com.example.auth_api.model.RegisterRequest;
+import com.example.auth_api.model.request.AuthRequest;
+import com.example.auth_api.model.response.AuthResponse;
+import com.example.auth_api.model.request.RegisterRequest;
 
 import com.example.auth_api.service.JwtService;
 
@@ -190,4 +190,13 @@ public class AuthServiceImpl implements AuthService {
     }
   }
   
+  /**
+   * Checks if an email exists in the database.
+   *
+   * @param email the email to check
+   * @return a boolean indicating if the email exists
+   */
+  public boolean checkIfEmailExists(String email) {
+    return userRepository.existsByEmail(email);
+  }
 }

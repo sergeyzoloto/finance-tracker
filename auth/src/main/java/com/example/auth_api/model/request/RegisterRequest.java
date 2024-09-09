@@ -1,4 +1,4 @@
-package com.example.auth_api.model;
+package com.example.auth_api.model.request;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,11 +12,8 @@ import lombok.NoArgsConstructor;
 public class RegisterRequest {
 
   private String firstname;
-
   private String lastname;
-
   private String email;
-
   private String password;
   
 }

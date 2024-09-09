@@ -1,6 +1,6 @@
 package com.example.auth_api.service.impl;
 
-import com.example.auth_api.model.ChangePasswordRequest;
+import com.example.auth_api.model.request.ChangePasswordRequest;
 import com.example.auth_api.model.User;
 import com.example.auth_api.repository.UserRepository;
 import com.example.auth_api.service.UserService;

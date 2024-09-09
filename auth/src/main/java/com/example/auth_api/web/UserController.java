@@ -1,6 +1,6 @@
 package com.example.auth_api.web;
 
-import com.example.auth_api.model.ChangePasswordRequest;
+import com.example.auth_api.model.request.ChangePasswordRequest;
 import com.example.auth_api.service.UserService;
 
 import lombok.RequiredArgsConstructor;

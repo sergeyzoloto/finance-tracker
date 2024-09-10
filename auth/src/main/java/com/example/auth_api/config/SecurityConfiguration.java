@@ -30,7 +30,7 @@ public class SecurityConfiguration {
     http
       .csrf().disable() // in production, enable this and set it to strict-origin-when-cross-origin
       .authorizeHttpRequests()
-      .requestMatchers("/api/v1/auth/**")
+      .requestMatchers("/**")
       .permitAll()
       .anyRequest()
       .authenticated()
@@ -41,7 +41,7 @@ public class SecurityConfiguration {
       .authenticationProvider(authenticationProvider)
       .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
       .logout()
-      .logoutUrl("/api/v1/auth/logout")
+      .logoutUrl("/logout")
       .addLogoutHandler(logoutHandler)
       .logoutSuccessHandler((request, response, authentication) -> SecurityContextHolder.clearContext())
     ;

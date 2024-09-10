@@ -18,27 +18,39 @@ services:
     build:
       context: ./transactions
       dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
+    expose: # Only expose internally to the Docker network
+      - "8080"
     env_file:
       - .env
     networks:
       - app-network
-    depends_on:
-      - frontend
 
   auth:
     build:
       context: ./auth
       dockerfile: Dockerfile
+    expose: # Only expose internally to the Docker network
+      - "8081"
+    env_file:
+      - .env
+    networks:
+      - app-network
+
+  reverse-proxy:
+    build:
+      context: ./reverse-proxy
+      dockerfile: Dockerfile
     ports:
-      - "8081:8081"
+      - "5000:5000" # Nginx handles external traffic
+    volumes:
+      - ./reverse-proxy/nginx.conf:/etc/nginx/conf.d/default.conf
     env_file:
       - .env
     networks:
       - app-network
     depends_on:
-      - frontend
+      - transactions
+      - auth
 
 networks:
   app-network:

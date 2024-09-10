@@ -16,7 +16,7 @@ import java.security.Principal;
  * The UserController class handles HTTP requests related to user operations.
  */
 @RestController
-@RequestMapping("/api/v1/users")
+@RequestMapping("/users")
 @RequiredArgsConstructor
 public class UserController {
 
@@ -29,7 +29,7 @@ public class UserController {
    * @param connectedUser  the principal representing the connected user
    * @return               a ResponseEntity indicating the success of the password change
    */
-  @PatchMapping
+  @PatchMapping("/password")
   public ResponseEntity<?> changePassword(
     @RequestBody ChangePasswordRequest request,
     Principal connectedUser

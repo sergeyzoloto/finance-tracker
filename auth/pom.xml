@@ -27,6 +27,8 @@
     <jakarta.persistence.version>3.1.0</jakarta.persistence.version>
     <jakarta.transactions.version>2.0.1</jakarta.transactions.version>
     <jsonwebtoken.version>0.12.6</jsonwebtoken.version>
+    <junit-jupiter.version>5.11.0</junit-jupiter.version>
+    <assertj.version>3.26.3</assertj.version>
   </properties>
 
   <dependencies>
@@ -37,6 +39,22 @@
       <version>${spring-boot.version}</version>
       <scope>runtime</scope>
       <optional>true</optional>
+    </dependency>
+
+    <!-- JUnit Jupiter -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <version>${junit-jupiter.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- AssertJ -->
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>${assertj.version}</version>
+      <scope>test</scope>
     </dependency>
 
     <!-- Spring Boot Starter Validation -->

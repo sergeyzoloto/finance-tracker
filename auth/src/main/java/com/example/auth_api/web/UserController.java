@@ -34,6 +34,10 @@ public class UserController {
     @RequestBody ChangePasswordRequest request,
     Principal connectedUser
   ) {
+    if (connectedUser == null) {
+      System.out.println("Unauthorized: Principal is null");
+      return ResponseEntity.status(401).body("Unauthorized");
+    }
     service.changePassword(request, connectedUser);
     return ResponseEntity.ok().build();
   }

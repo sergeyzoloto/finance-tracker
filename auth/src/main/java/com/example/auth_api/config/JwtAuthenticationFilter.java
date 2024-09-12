@@ -49,48 +49,42 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
    * @throws IOException If an I/O error occurs during the filter operation.
    */
   @Override
-  protected void doFilterInternal(
-      @NonNull HttpServletRequest request,
-      @NonNull HttpServletResponse response,
-      @NonNull FilterChain filterChain
-  ) throws ServletException, IOException {
+protected void doFilterInternal(
+    @NonNull HttpServletRequest request,
+    @NonNull HttpServletResponse response,
+    @NonNull FilterChain filterChain
+) throws ServletException, IOException {
 
-    if (request.getServletPath().contains("/auth")) {
-      filterChain.doFilter(request, response);
-      return;
-    }
     final String authorizationHeader = request.getHeader("Authorization");
     final String jwt;
-    final String username;
+    final String userEmail;
 
     if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
-      filterChain.doFilter(request, response);
-      return;
+        System.out.println("Missing or invalid Authorization header");
+        filterChain.doFilter(request, response);
+        return;
     }
 
     jwt = authorizationHeader.substring(7);
-    username = jwtService.extractUsername(jwt);
+    userEmail = jwtService.extractUsername(jwt);
+    System.out.println("Extracted userEmail from token: " + userEmail);
 
-    if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-
-      UserDetails userDetails = this.userDetailsService.loadUserByUsername(username);
+    if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+      UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
 
       var checkTokenValid = tokenRepository.findByToken(jwt)
           .map(t -> !t.isExpired() && !t.isRevoked())
           .orElse(false);
-      
+
       if (jwtService.validateToken(jwt, userDetails) && checkTokenValid) {
-
+        System.out.println("Token is valid for user: " + userEmail);
         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-            userDetails,
-            null,
-            userDetails.getAuthorities()
+            userDetails, null, userDetails.getAuthorities()
         );
-
         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
         SecurityContextHolder.getContext().setAuthentication(authToken);
-        
+      } else {
+        System.out.println("Token is invalid or expired for user: " + userEmail);
       }
     }
     filterChain.doFilter(request, response);

@@ -29,6 +29,9 @@ public class UserServiceImpl implements UserService {
    * @param connectedUser  the principal representing the connected user
    */
   public void changePassword(ChangePasswordRequest request, Principal connectedUser) {
+    if (!(connectedUser instanceof UsernamePasswordAuthenticationToken)) {
+      throw new IllegalArgumentException("Invalid user");
+    }
 
     var user = (User) ((UsernamePasswordAuthenticationToken) connectedUser).getPrincipal();
 

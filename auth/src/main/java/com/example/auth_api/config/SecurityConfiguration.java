@@ -30,10 +30,8 @@ public class SecurityConfiguration {
     http
       .csrf().disable() // in production, enable this and set it to strict-origin-when-cross-origin
       .authorizeHttpRequests()
-      .requestMatchers("/**")
-      .permitAll()
-      .anyRequest()
-      .authenticated()
+      .requestMatchers("/**").permitAll()
+      .requestMatchers("/users/**").authenticated()  // Protect user routes
       .and()
       .sessionManagement()
       .sessionCreationPolicy(SessionCreationPolicy.STATELESS)

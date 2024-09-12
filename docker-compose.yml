@@ -36,6 +36,26 @@ services:
     networks:
       - app-network
 
+  redis:
+    image: "redis:alpine"
+    networks:
+      - app-network
+
+  auth-proxy:
+    build:
+      context: ./auth-proxy
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    env_file:
+      - .env
+    networks:
+      - app-network
+    depends_on:
+      - transactions
+      - auth
+      - redis
+
   reverse-proxy:
     build:
       context: ./reverse-proxy

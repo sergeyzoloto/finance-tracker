@@ -29,6 +29,7 @@
     <jsonwebtoken.version>0.12.6</jsonwebtoken.version>
     <junit-jupiter.version>5.11.0</junit-jupiter.version>
     <assertj.version>3.26.3</assertj.version>
+    <h2.version>2.3.232</h2.version>
   </properties>
 
   <dependencies>
@@ -126,6 +127,14 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
       <version>${spring-boot.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- H2 Database -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>${h2.version}</version>
       <scope>test</scope>
     </dependency>
 

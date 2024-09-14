@@ -53,6 +53,28 @@ public class User implements UserDetails {
   @OneToMany(mappedBy = "user")
   private List<Token> tokens;
 
+  public User(String email, String password) {
+    this.email = email;
+    this.password = password;
+  }
+
+  public User(String firstname, String lastname, String email, String password) {
+    this.firstname = firstname;
+    this.lastname = lastname;
+    this.email = email;
+    this.password = password;
+  }
+
+  public User(String firstname, String email, String password) {
+    this.firstname = firstname;
+    this.email = email;
+    this.password = password;
+  }
+
+  public String getName() {
+    return this.firstname + " " + this.lastname;
+  }
+
   @Override
   public Collection<? extends GrantedAuthority> getAuthorities() {
     return List.of(new SimpleGrantedAuthority(role.name()));

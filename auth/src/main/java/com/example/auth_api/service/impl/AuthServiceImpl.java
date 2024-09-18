@@ -9,11 +9,9 @@ import com.example.auth_api.service.AuthService;
 import com.example.auth_api.model.User;
 import com.example.auth_api.repository.UserRepository;
 import com.example.auth_api.model.Role;
-
 import com.example.auth_api.model.request.AuthRequest;
 import com.example.auth_api.model.response.AuthResponse;
 import com.example.auth_api.model.request.RegisterRequest;
-
 import com.example.auth_api.service.JwtService;
 
 import org.springframework.stereotype.Service;
@@ -23,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 
 import lombok.RequiredArgsConstructor;
@@ -32,6 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import io.jsonwebtoken.ExpiredJwtException;
 import java.io.IOException;
 
 /**
@@ -46,6 +46,7 @@ public class AuthServiceImpl implements AuthService {
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final AuthenticationManager authenticationManager;
+  private final UserDetailsService userDetailsService;
   
 
   /**
@@ -151,42 +152,31 @@ public class AuthServiceImpl implements AuthService {
   /**
    * Refreshes the access token using the provided refresh token.
    * 
-   * @param request The HttpServletRequest object representing the incoming request.
-   * @param response The HttpServletResponse object representing the outgoing response.
-   * @throws IOException If an I/O error occurs while writing the response.
+   * @param refreshToken The refresh token to use for generating a new access token.
+   * @return The authentication response containing the new access token and refresh token.
+   * @throws IllegalArgumentException If the refresh token is invalid or expired.
+   * @throws IllegalArgumentException If the user is not found.
    */
-  public void refreshToken(
-          HttpServletRequest request,
-          HttpServletResponse response
-  ) throws IOException {
-
-    final String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
-    final String refreshToken;
-    final String userEmail;
-
-    if (authHeader == null ||!authHeader.startsWith("Bearer ")) {
-      return;
+  @Override
+  public AuthResponse refreshToken(String refreshToken) {
+    if (refreshToken == null || refreshToken.trim().isEmpty()) {
+      throw new IllegalArgumentException("Refresh token cannot be null or empty.");
     }
 
-    refreshToken = authHeader.substring(7);
-    userEmail = jwtService.extractUsername(refreshToken);
-
-    if (userEmail != null) {
-      var user = userRepository.findByEmail(userEmail)
-        .orElseThrow();
-      if (jwtService.validateToken(refreshToken, user)) {
-
-        var accessToken = jwtService.generateToken(user);
-
-        revokeAllUserTokens(user);
-        saveUserToken(user, accessToken);
-
-        var authenticationResponse = AuthResponse.builder()
-          .accessToken(accessToken)
-          .refreshToken(refreshToken)
-          .build();
-        new ObjectMapper().writeValue(response.getOutputStream(), authenticationResponse);
+    try {
+      String username = jwtService.extractUsername(refreshToken);
+      UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+      if (jwtService.isTokenExpired(refreshToken)) {
+        throw new ExpiredJwtException(null, null, "Refresh token is expired.");
       }
+      String newAccessToken = jwtService.generateToken(userDetails);
+      String newRefreshToken = jwtService.generateRefreshToken(userDetails);
+      return AuthResponse.builder()
+        .accessToken(newAccessToken)
+        .refreshToken(newRefreshToken)
+        .build();
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to refresh token", e);
     }
   }
   

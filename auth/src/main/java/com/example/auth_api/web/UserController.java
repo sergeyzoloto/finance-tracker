@@ -1,6 +1,7 @@
 package com.example.auth_api.web;
 
 import com.example.auth_api.model.request.ChangePasswordRequest;
+import com.example.auth_api.model.response.StandardResponse;
 import com.example.auth_api.service.UserService;
 
 import lombok.RequiredArgsConstructor;
@@ -30,15 +31,24 @@ public class UserController {
    * @return               a ResponseEntity indicating the success of the password change
    */
   @PatchMapping("/password")
-  public ResponseEntity<?> changePassword(
+  public ResponseEntity<StandardResponse<Void>> changePassword(
     @RequestBody ChangePasswordRequest request,
     Principal connectedUser
   ) {
     if (connectedUser == null) {
-      System.out.println("Unauthorized: Principal is null");
-      return ResponseEntity.status(401).body("Unauthorized");
+      return ResponseEntity.status(401).body(
+        StandardResponse.<Void>builder()
+          .success(false)
+          .msg("Unauthorized: Principal is null")
+          .build()
+      );
     }
     service.changePassword(request, connectedUser);
-    return ResponseEntity.ok().build();
+    return ResponseEntity.ok(
+      StandardResponse.<Void>builder()
+        .success(true)
+        .msg("Password changed successfully.")
+        .build()
+    );
   }
 }

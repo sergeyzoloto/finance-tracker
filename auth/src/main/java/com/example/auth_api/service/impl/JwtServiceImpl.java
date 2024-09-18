@@ -7,6 +7,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.ExpiredJwtException;
 
 import java.util.Date;
 import java.util.HashMap;
@@ -136,8 +137,13 @@ public class JwtServiceImpl implements JwtService {
    * @param token the JWT token to check
    * @return true if the token is expired, false otherwise
    */
-  private Boolean isTokenExpired(String token) {
-    return extractExpiration(token).before(new Date());
+  public Boolean isTokenExpired(String token) {
+    try {
+      Date expirationDate = extractExpiration(token);
+      return expirationDate.before(new Date());
+    } catch (ExpiredJwtException e) {
+      return true;  // The token has expired
+    }
   }
 
   /**
@@ -157,11 +163,15 @@ public class JwtServiceImpl implements JwtService {
    * @return the claims extracted from the token
    */
   private Claims extractAllClaims(String token) {
-    return Jwts.parser()
+    try {
+      return Jwts.parser()
         .setSigningKey(getSignInKey())
         .build()
         .parseSignedClaims(token)
         .getPayload();
+    } catch (ExpiredJwtException e) {
+      return e.getClaims();
+    }
    }
   
   /**

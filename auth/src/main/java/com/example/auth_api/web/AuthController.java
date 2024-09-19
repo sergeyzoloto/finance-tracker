@@ -90,31 +90,25 @@ public class AuthController {
    */
   @PostMapping("/refresh-token")
   public ResponseEntity<StandardResponse<AuthResponse>> refreshToken(@RequestBody Map<String, String> request) {
-    try {
-      AuthResponse response = authService.refreshToken(request.get("refreshToken"));
-      return ResponseEntity.ok(
-        StandardResponse.<AuthResponse>builder()
-          .success(true)
-          .msg("Token refreshed successfully.")
-          .payload(response)
-          .build()
-      );
-    } catch (ExpiredJwtException e) {
+    String refreshToken = request.get("refreshToken");
+    if (refreshToken == null || refreshToken.isEmpty()) {
       return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
         StandardResponse.<AuthResponse>builder()
           .success(false)
-          .msg("Token has expired.")
+          .msg("Refresh token cannot be null or empty.")
           .payload(null)
           .build()
       );
-    } catch (IllegalArgumentException e) {
-      return ResponseEntity.badRequest().body(
-        StandardResponse.<AuthResponse>builder()
-          .success(false)
-          .msg(e.getMessage())  // Capture the specific error message here
-          .build()
-      );
     }
+
+    AuthResponse response = authService.refreshToken(refreshToken);
+    return ResponseEntity.ok(
+      StandardResponse.<AuthResponse>builder()
+        .success(true)
+        .msg("Token refreshed successfully.")
+        .payload(response)
+        .build()
+    );
   }
 
   /**

@@ -2,16 +2,14 @@ package com.example.auth_api.config;
 
 import com.example.auth_api.repository.TokenRepository;
 import com.example.auth_api.service.JwtService;
+import com.example.auth_api.model.response.StandardResponse;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.transaction.TransactionScoped;
-import jakarta.transaction.Transactional;
 
 import java.io.IOException;
-import java.security.Security;
 
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.lang.NonNull;
@@ -24,13 +22,8 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 
 import lombok.RequiredArgsConstructor;
 
-/**
- * This class is responsible for filtering and authenticating JWT tokens in the request.
- * It extends the OncePerRequestFilter class from the Spring Security framework.
- * 
- * The doFilterInternal method is overridden to perform the actual filtering logic.
- * It passes the request and response objects along with the filter chain to the next filter in the chain.
- */
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -38,55 +31,87 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private final JwtService jwtService;
   private final UserDetailsService userDetailsService;
   private final TokenRepository tokenRepository;
+  private final ObjectMapper objectMapper = new ObjectMapper();  // To convert StandardResponse to JSON
 
-  /**
-   * Filters the incoming HTTP request and authenticates the JWT token.
-   * 
-   * @param request The HTTP request object.
-   * @param response The HTTP response object.
-   * @param filterChain The filter chain object.
-   * @throws ServletException If an error occurs during the filter operation.
-   * @throws IOException If an I/O error occurs during the filter operation.
-   */
   @Override
-protected void doFilterInternal(
-    @NonNull HttpServletRequest request,
-    @NonNull HttpServletResponse response,
-    @NonNull FilterChain filterChain
-) throws ServletException, IOException {
+  protected void doFilterInternal(
+      @NonNull HttpServletRequest request,
+      @NonNull HttpServletResponse response,
+      @NonNull FilterChain filterChain
+  ) throws ServletException, IOException {
 
     final String authorizationHeader = request.getHeader("Authorization");
     final String jwt;
     final String userEmail;
 
+    // Check if the Authorization header contains a valid Bearer token
     if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
-        System.out.println("Missing or invalid Authorization header");
         filterChain.doFilter(request, response);
         return;
     }
 
-    jwt = authorizationHeader.substring(7);
+    // Extract the JWT and email from the token
+    jwt = authorizationHeader.substring(7);  // Remove "Bearer " prefix
+    if (jwt == null || jwt.isEmpty()) {
+      writeErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST, "JWT cannot be null or empty");
+      return;
+  }
     userEmail = jwtService.extractUsername(jwt);
-    System.out.println("Extracted userEmail from token: " + userEmail);
 
+    // Proceed if the token contains a username and there is no authenticated user in the context
     if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
       UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
 
-      var checkTokenValid = tokenRepository.findByToken(jwt)
-          .map(t -> !t.isExpired() && !t.isRevoked())
-          .orElse(false);
+      // Find the token in the database
+      var token = tokenRepository.findByToken(jwt).orElse(null);
 
-      if (jwtService.validateToken(jwt, userDetails) && checkTokenValid) {
-        System.out.println("Token is valid for user: " + userEmail);
-        UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-            userDetails, null, userDetails.getAuthorities()
-        );
-        authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-        SecurityContextHolder.getContext().setAuthentication(authToken);
-      } else {
-        System.out.println("Token is invalid or expired for user: " + userEmail);
+      if (token == null) {
+        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Token not found in the database");
+        return;
       }
+
+      // Validate if the JWT is valid
+      boolean isJwtValid = jwtService.validateToken(jwt, userDetails);
+      if (!isJwtValid) {
+        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid JWT token");
+        return;
+      }
+
+      // Check if the JWT is expired
+      boolean isJwtExpired = jwtService.isTokenExpired(jwt);
+      if (isJwtExpired) {
+        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "JWT token is expired");
+        return;
+      }
+
+      // Check if the token is revoked
+      boolean isTokenRevoked = token.isRevoked();
+      if (isTokenRevoked) {
+        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "JWT token is revoked");
+        return;
+      }
+
+      // If all checks pass (JWT is valid, not expired, and not revoked), set up authentication
+      UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+          userDetails, null, userDetails.getAuthorities()
+      );
+      authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+      SecurityContextHolder.getContext().setAuthentication(authToken);
     }
+
+    // Continue with the filter chain
     filterChain.doFilter(request, response);
+  }
+
+  // Helper method to write JSON error responses
+  private void writeErrorResponse(HttpServletResponse response, int status, String message) throws IOException {
+    response.setStatus(status);
+    response.setContentType("application/json");
+    StandardResponse<Void> errorResponse = StandardResponse.<Void>builder()
+      .success(false)
+      .msg(message)
+      .payload(null)
+      .build();
+    response.getWriter().write(objectMapper.writeValueAsString(errorResponse));
   }
 }

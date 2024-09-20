@@ -3,7 +3,7 @@ package com.example.auth_api.service.impl;
 import com.example.auth_api.model.Token;
 import com.example.auth_api.repository.TokenRepository;
 import com.example.auth_api.model.TokenType;
-
+import com.example.auth_api.util.ValidateEmail;
 import com.example.auth_api.service.AuthService;
 
 import com.example.auth_api.model.User;
@@ -23,6 +23,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
 
@@ -56,7 +57,12 @@ public class AuthServiceImpl implements AuthService {
    * @return The authentication response containing access and refresh tokens.
    * @throws IllegalArgumentException If a user with the same email already exists.
    */
+  @Transactional
   public AuthResponse register(RegisterRequest request) {
+
+    if (!ValidateEmail.isValid(request.getEmail())) {
+      throw new IllegalArgumentException("Invalid email address");
+    }
 
     if (userRepository.findByEmail(request.getEmail()).isPresent()) {
       throw new IllegalArgumentException("User with this email already exists");
@@ -88,6 +94,7 @@ public class AuthServiceImpl implements AuthService {
    * @param request the authentication request containing the user's email and password
    * @return an AuthResponse object containing the access token and refresh token
    */
+  @Transactional
   public AuthResponse authenticate(AuthRequest request) {
     
     var authentication = new UsernamePasswordAuthenticationToken(
@@ -158,6 +165,7 @@ public class AuthServiceImpl implements AuthService {
    * @throws IllegalArgumentException If the user is not found.
    */
   @Override
+  @Transactional
   public AuthResponse refreshToken(String refreshToken) {
     if (refreshToken == null || refreshToken.trim().isEmpty()) {
       throw new IllegalArgumentException("Refresh token cannot be null or empty.");

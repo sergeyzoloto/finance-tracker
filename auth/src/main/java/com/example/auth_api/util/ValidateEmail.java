@@ -1,4 +1,4 @@
-package com.example.auth_api.utils;
+package com.example.auth_api.util;
 
 public class ValidateEmail {
 

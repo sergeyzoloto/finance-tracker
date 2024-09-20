@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.authentication.BadCredentialsException;
 
 import io.jsonwebtoken.ExpiredJwtException;
 
@@ -72,14 +73,48 @@ public class AuthController {
    */
   @PostMapping("/authenticate")
   public ResponseEntity<StandardResponse<AuthResponse>> authenticate(@RequestBody AuthRequest request) {
-    AuthResponse response = authService.authenticate(request);
-    return ResponseEntity.ok(
-      StandardResponse.<AuthResponse>builder()
-        .success(true)
-        .msg("Authentication successful.")
-        .payload(response)
-        .build()
-    );
+    try {
+      AuthResponse response = authService.authenticate(request);
+      return ResponseEntity.ok(
+        StandardResponse.<AuthResponse>builder()
+          .success(true)
+          .msg("Authentication successful.")
+          .payload(response)
+          .build()
+      );
+    } catch (UsernameNotFoundException e) {
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+        StandardResponse.<AuthResponse>builder()
+          .success(false)
+          .msg("Invalid credentials.")
+          .payload(null)
+          .build()
+      );
+    } catch (ExpiredJwtException e) {
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+        StandardResponse.<AuthResponse>builder()
+          .success(false)
+          .msg("Token has expired.")
+          .payload(null)
+          .build()
+      );
+    } catch (BadCredentialsException e) {
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+        StandardResponse.<AuthResponse>builder()
+          .success(false)
+          .msg("Invalid credentials.")
+          .payload(null)
+          .build()
+      );
+    } catch (Exception e) {
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+        StandardResponse.<AuthResponse>builder()
+          .success(false)
+          .msg("An error occurred.")
+          .payload(null)
+          .build()
+      );
+    }
   }
 
   /**

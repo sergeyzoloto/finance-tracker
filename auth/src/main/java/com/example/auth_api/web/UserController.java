@@ -35,6 +35,7 @@ public class UserController {
     @RequestBody ChangePasswordRequest request,
     Principal connectedUser
   ) {
+    try {
     if (connectedUser == null) {
       return ResponseEntity.status(401).body(
         StandardResponse.<Void>builder()
@@ -50,5 +51,13 @@ public class UserController {
         .msg("Password changed successfully.")
         .build()
     );
+    } catch (Exception e) {
+      return ResponseEntity.badRequest().body(
+        StandardResponse.<Void>builder()
+          .success(false)
+          .msg("An error occurred: " + e.getMessage())
+          .build()
+      );
+    }
   }
 }

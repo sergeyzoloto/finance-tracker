@@ -43,6 +43,10 @@ public class UserServiceImpl implements UserService {
     if (!request.getNewPassword().equals(request.getConfirmationPassword())) {
         throw new IllegalStateException("Passwords are not the same");
     }
+    // check if the new password is the same as the current password
+    if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+        throw new IllegalStateException("New password is the same as the current password");
+    }
 
     // update the password
     user.setPassword(passwordEncoder.encode(request.getNewPassword()));

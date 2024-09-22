@@ -15,6 +15,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.CascadeType;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -50,7 +51,7 @@ public class User implements UserDetails {
   @Enumerated(EnumType.STRING) // JPA annotation to specify the enum type
   private Role role;
 
-  @OneToMany(mappedBy = "user")
+  @OneToMany(mappedBy = "user", cascade = CascadeType.REMOVE, orphanRemoval = true)
   private List<Token> tokens;
 
   public User(String email, String password) {

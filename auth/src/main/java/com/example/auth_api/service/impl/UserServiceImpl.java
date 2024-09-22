@@ -1,6 +1,7 @@
 package com.example.auth_api.service.impl;
 
 import com.example.auth_api.model.request.ChangePasswordRequest;
+import com.example.auth_api.model.request.DeleteUserRequest;
 import com.example.auth_api.model.User;
 import com.example.auth_api.repository.UserRepository;
 import com.example.auth_api.service.UserService;
@@ -53,5 +54,28 @@ public class UserServiceImpl implements UserService {
 
     // save the new password
     repository.save(user);
+  }
+
+  /**
+   * Deletes the user with the given ID.
+   *
+   * @param request        the delete user request containing the user ID
+   * @param connectedUser  the principal representing the connected user
+   */
+  public void deleteUser(DeleteUserRequest request, Principal connectedUser) {
+    if (!(connectedUser instanceof UsernamePasswordAuthenticationToken)) {
+      throw new IllegalArgumentException("Invalid user");
+    }
+
+    var user = (User) ((UsernamePasswordAuthenticationToken) connectedUser).getPrincipal();
+
+    var userId = Integer.valueOf(request.getUserId());
+
+    if (!user.getId().equals(userId)) {
+      throw new IllegalArgumentException("Unauthorized: User ID does not match connected user ID");
+    }
+
+    repository.deleteById(userId);
+
   }
 }

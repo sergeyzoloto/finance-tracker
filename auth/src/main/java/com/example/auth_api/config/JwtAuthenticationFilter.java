@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 
@@ -55,48 +56,63 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     if (jwt == null || jwt.isEmpty()) {
       writeErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST, "JWT cannot be null or empty");
       return;
-  }
-    userEmail = jwtService.extractUsername(jwt);
+    }
 
-    // Proceed if the token contains a username and there is no authenticated user in the context
-    if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-      UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
+    try {
+      userEmail = jwtService.extractUsername(jwt);
 
-      // Find the token in the database
-      var token = tokenRepository.findByToken(jwt).orElse(null);
+      // Proceed if the token contains a username and there is no authenticated user in the context
+      if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+        UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
 
-      if (token == null) {
-        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Token not found in the database");
-        return;
+        // Find the token in the database
+        var token = tokenRepository.findByToken(jwt).orElse(null);
+
+        if (token == null) {
+          writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Token not found in the database");
+          return;
+        }
+
+        // Validate if the JWT is valid
+        boolean isJwtValid = jwtService.validateToken(jwt, userDetails);
+        if (!isJwtValid) {
+          writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid JWT token");
+          return;
+        }
+
+        // Check if the JWT is expired
+        boolean isJwtExpired = jwtService.isTokenExpired(jwt);
+        if (isJwtExpired) {
+          writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "JWT token is expired");
+          return;
+        }
+
+        // Check if the token is revoked
+        boolean isTokenRevoked = token.isRevoked();
+        if (isTokenRevoked) {
+          writeErrorResponse(
+            response, 
+            HttpServletResponse.SC_UNAUTHORIZED, 
+            "JWT token is revoked"
+            );
+          return;
+        }
+
+        // If all checks pass (JWT is valid, not expired, and not revoked), set up authentication
+        UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+            userDetails, null, userDetails.getAuthorities()
+        );
+        authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authToken);
       }
-
-      // Validate if the JWT is valid
-      boolean isJwtValid = jwtService.validateToken(jwt, userDetails);
-      if (!isJwtValid) {
-        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid JWT token");
-        return;
-      }
-
-      // Check if the JWT is expired
-      boolean isJwtExpired = jwtService.isTokenExpired(jwt);
-      if (isJwtExpired) {
-        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "JWT token is expired");
-        return;
-      }
-
-      // Check if the token is revoked
-      boolean isTokenRevoked = token.isRevoked();
-      if (isTokenRevoked) {
-        writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "JWT token is revoked");
-        return;
-      }
-
-      // If all checks pass (JWT is valid, not expired, and not revoked), set up authentication
-      UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-          userDetails, null, userDetails.getAuthorities()
-      );
-      authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-      SecurityContextHolder.getContext().setAuthentication(authToken);
+    } catch (UsernameNotFoundException e) {
+      // Handle the case where the user has been deleted or not found
+      writeErrorResponse(
+        response, 
+        HttpServletResponse.SC_UNAUTHORIZED, 
+        "User not found: " + e.getMessage()
+        );
+      return;
     }
 
     // Continue with the filter chain

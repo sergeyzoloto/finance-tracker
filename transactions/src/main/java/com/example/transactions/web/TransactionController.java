@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.web.server.ResponseStatusException;
 
@@ -36,6 +37,7 @@ public class TransactionController {
    *
    * @return all transactions
    */
+  @Transactional(readOnly = true)
   @GetMapping("/transaction")
   public Iterable<Transaction> getTransactions() {
     return transactionService.getAll();
@@ -47,6 +49,7 @@ public class TransactionController {
    * @param id  the id of the transaction
    * @return    the transaction with the given id
    */
+  @Transactional(readOnly = true)
   @GetMapping("/transaction/{id}")
   public Transaction getOne(@PathVariable Integer id) {
     Transaction transaction = transactionService.get(id);
@@ -62,6 +65,7 @@ public class TransactionController {
    *
    * @param id  the id of the transaction
    */
+  @Transactional
   @DeleteMapping("/transaction/{id}")
   public void deleteOne(@PathVariable Integer id) {
     transactionService.remove(id);
@@ -73,6 +77,7 @@ public class TransactionController {
    * @param transaction  the transaction to add
    * @return             the added transaction
    */
+  @Transactional
   @PostMapping("/transaction")
   public Transaction addOne(Transaction transaction) {
     return transactionService.save(transaction);
@@ -90,6 +95,7 @@ public class TransactionController {
    * @param id  the id of the transaction
    * @param transaction  the updated transaction
    */
+  @Transactional
   @PutMapping("/transaction/{id}")
   public Transaction updateOne(@PathVariable Integer id, @RequestBody Transaction transaction) {
     Transaction existingTransaction = transactionService.get(id);

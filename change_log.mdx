@@ -1,0 +1,15 @@
+# Change Log
+
+## Current Status (September 2024)
+
+The Finance Tracker project is currently in early development stage with the following components implemented:
+
+- **Authentication Service**: Basic implementation with JWT token support, user registration and login functionality. Unit tests are passing.
+- **Transaction Service**: Initial structure created but database connectivity issues exist. Tests are failing due to PostgreSQL connection problems.
+- **Frontend**: Basic React/TypeScript application with login page and routing structure. Missing comprehensive financial tracking features.
+- **Infrastructure**: Docker Compose setup with services defined but may need refinement for development and production environments.
+- **Auth Proxy**: Basic structure implemented for authentication proxying.
+- **Reverse Proxy**: Nginx configuration for routing requests to appropriate services.
+
+The project requires significant work to reach a minimum viable product state. Database connectivity issues need to be resolved, and the transaction service needs to be completed. The frontend requires implementation of core financial tracking features.
+Initially Node was used as the server solution, but later the choice was made in favour of Spring Boot in Java. In the process of work it was decided to switch from a monolithic to a microservice structure, separating authentication functions and adding a simple reverse proxy. Since authentication and authorisation are huge topics bordering on security, it does not seem reasonable to rely entirely on third-party services.

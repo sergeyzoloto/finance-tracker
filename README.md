@@ -7,8 +7,6 @@ Finance Tracker is a personal project of a web application for accounting financ
 > [!NOTE]
 > The project is currently in active development.
 
-Initially Node was used as the server solution, but later the choice was made in favour of Spring Boot in Java. In the process of work it was decided to switch from a monolithic to a microservice structure, separating authentication functions and adding a simple reverse proxy. Since authentication and authorisation are huge topics bordering on security, it does not seem reasonable to rely entirely on third-party services.
-
 ## Features/Roadmap
 
 ### Authentication

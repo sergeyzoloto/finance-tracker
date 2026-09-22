@@ -1,0 +1,18 @@
+# Local development against the auth server's dev stack, whose Keycloak listens on localhost:8080
+# (docker compose up -d in the auth server repository). Enabled by COMPOSE_FILE in .env.
+#
+# Tokens carry the issuer the browser used, http://localhost:8080/realms/myapps, and the backend has to reach
+# Keycloak at that same address: for discovery, keys, the code exchange and refreshes. So both containers share the
+# host's network. nginx listens on FRONTEND_PORT, the backend on BACKEND_PORT, since 8080 is Keycloak's.
+services:
+  backend:
+    network_mode: host
+    environment:
+      SERVER_PORT: ${BACKEND_PORT:?set BACKEND_PORT in .env}
+
+  frontend:
+    network_mode: host
+    ports: !reset []
+    environment:
+      NGINX_PORT: ${FRONTEND_PORT}
+      BACKEND_URL: http://127.0.0.1:${BACKEND_PORT}

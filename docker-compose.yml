@@ -1,44 +1,10 @@
-# Production-like stack. For frontend hot reload see docker-compose.dev.yml.
-# Postgres is hosted on Supabase; Keycloak and the backend share it via the Session Pooler, whose
-# per-user client limit is the project's pool size, hence the small connection pools below.
+# Production-like stack: nginx serves the frontend and proxies the API and the login endpoints to the backend.
+# Users log in through the shared Keycloak, realm myapps, client finance-tracker (docs/auth.md).
+# Locally, docker-compose.local.yml goes on top (COMPOSE_FILE in .env) to reach the auth server's dev stack;
+# for frontend hot reload see docker-compose.dev.yml.
+# Postgres is hosted on Supabase; the backend connects through the Session Pooler, whose per-user client limit is the
+# project's pool size, hence the small connection pool.
 services:
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.7.4
-    command: start --import-realm
-    environment:
-      KC_DB: postgres
-      KC_DB_URL: ${SUPABASE_JDBC_URL}
-      # Keycloak won't create it; once per database: CREATE SCHEMA IF NOT EXISTS keycloak;
-      KC_DB_SCHEMA: keycloak
-      KC_DB_USERNAME: ${SUPABASE_DB_USER}
-      KC_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
-      KC_DB_POOL_MAX_SIZE: 5
-      KC_HOSTNAME: ${KEYCLOAK_URL}
-      # TLS is expected to terminate at a reverse proxy in front of Keycloak.
-      KC_HTTP_ENABLED: "true"
-      KC_HEALTH_ENABLED: "true"
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      # Substituted into realm-export.json during import.
-      FRONTEND_URL: ${FRONTEND_URL}
-      FRONTEND_DEV_URL: ${FRONTEND_DEV_URL}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
-      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
-    volumes:
-      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-    ports:
-      - "${KEYCLOAK_PORT}:8080"
-    healthcheck:
-      # The image ships without curl/wget, so probe the management port via bash's /dev/tcp.
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      # First boot runs the schema migrations and realm import over the network (~3.5 min at 30 ms RTT).
-      start_period: 10m
-
   backend:
     build: ./backend
     environment:
@@ -46,18 +12,12 @@ services:
       SPRING_DATASOURCE_USERNAME: ${SUPABASE_DB_USER}
       SPRING_DATASOURCE_PASSWORD: ${SUPABASE_DB_PASSWORD}
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 5
-      # Tokens carry the public issuer; signing keys are fetched over the compose network.
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: ${JWT_ISSUER_URL}
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/finance-tracker/protocol/openid-connect/certs
-    depends_on:
-      keycloak:
-        condition: service_healthy
+      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:?set KEYCLOAK_ISSUER_URL in .env}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:?set KEYCLOAK_CLIENT_ID in .env}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_KEYCLOAK_URL: ${KEYCLOAK_URL}
+    build: ./frontend
     ports:
       - "${FRONTEND_PORT}:80"
     depends_on:

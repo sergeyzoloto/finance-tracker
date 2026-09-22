@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,9 +40,12 @@ class ApiTests extends IntegrationTest {
         Map<String, String> invalidTokens = new LinkedHashMap<>();
         invalidTokens.put("none", null);
         invalidTokens.put("malformed", "not-a-jwt");
-        invalidTokens.put("expired", token(subject, SIGNING_KEY, ISSUER, Instant.now().minusSeconds(120)));
-        invalidTokens.put("other issuer", token(subject, SIGNING_KEY, "https://evil.test/realms/finance-tracker", Instant.now().plusSeconds(300)));
-        invalidTokens.put("unknown key", token(subject, newRsaKey(SIGNING_KEY.getKeyID()), ISSUER, Instant.now().plusSeconds(300)));
+        invalidTokens.put("expired", sign(claims(subject)
+                .issueTime(Date.from(Instant.now().minusSeconds(420)))
+                .expirationTime(Date.from(Instant.now().minusSeconds(120)))));
+        invalidTokens.put("other issuer", sign(claims(subject).issuer("https://evil.test/realms/myapps")));
+        // Same key ID as the realm's key, so only the signature itself gives it away.
+        invalidTokens.put("bad signature", FakeKeycloak.sign(claims(subject).build(), FakeKeycloak.newRsaKey("test-key")));
         String category = """
                 {"name": "Rent", "type": "EXPENSE"}""";
         String transaction = """

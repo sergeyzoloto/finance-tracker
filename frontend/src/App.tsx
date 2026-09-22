@@ -1,10 +1,11 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router'
-import { keycloak } from './auth'
+import type { Me } from './api'
+import { logOut } from './auth'
 import Categories from './Categories'
 import Dashboard from './Dashboard'
 import Transactions from './Transactions'
 
-export default function App() {
+export default function App({ me }: { me: Me }) {
   return (
     <>
       <header>
@@ -13,8 +14,8 @@ export default function App() {
           <NavLink to="/transactions">Transactions</NavLink>
           <NavLink to="/categories">Categories</NavLink>
         </nav>
-        <span>{keycloak.tokenParsed?.name}</span>
-        <button onClick={() => keycloak.logout({ redirectUri: `${window.location.origin}/` })}>Log out</button>
+        <span>{me.name}</span>
+        <button onClick={logOut}>Log out</button>
       </header>
       <main>
         <Routes>

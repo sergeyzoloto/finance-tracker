@@ -1,4 +1,10 @@
-# Datasource and JWT issuer come from SPRING_* environment variables (see docker-compose.yml).
+# The datasource comes from SPRING_* environment variables, login from KEYCLOAK_* (see docker-compose.yml, docs/auth.md).
+app:
+  keycloak:
+    # Realm URL exactly as in the tokens' "iss" claim. Production: https://auth.finance-nl.com/realms/myapps
+    issuer-url: ${KEYCLOAK_ISSUER_URL:http://localhost:8080/realms/myapps}
+    client-id: ${KEYCLOAK_CLIENT_ID:finance-tracker}
+    client-secret: ${KEYCLOAK_CLIENT_SECRET}
 spring:
   application:
     name: finance-tracker
@@ -13,3 +19,22 @@ spring:
       date: iso
     problemdetails:
       enabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Discovery and signing keys are fetched on the first token, not at startup; keys are cached and
+          # refetched when a token names an unknown key.
+          issuer-uri: ${app.keycloak.issuer-url}
+          # Members only. Keycloak names this client in "aud" when the user or service holds one of its roles, and in
+          # every token this client requests itself (an audience mapper on the client); the "user" role is checked too.
+          audiences: ${app.keycloak.client-id}
+server:
+  # Behind nginx. A TLS proxy in front of it must send X-Forwarded-Proto: https, so login redirects use https.
+  forward-headers-strategy: native
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: true
+        same-site: lax

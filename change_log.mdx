@@ -3,6 +3,62 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-22 · Login moved to the shared auth server (realm `myapps`)
+
+Not committed yet. Auth server repository: branch `finance-tracker-client`, commit `ebe48ee` (not pushed).
+
+**Changes**
+- Users sign in through the shared Keycloak, realm `myapps`, as client `finance-tracker`. The
+  bundled Keycloak service, `infra/` (realm file and reuse guide) and Google/GitHub sign-in are
+  gone, together with their `.env` variables. The details are in `docs/auth.md`.
+- The backend is now the browser's backend-for-frontend. It runs the authorization code flow with
+  PKCE as a confidential client, and keeps the tokens in its session. The browser gets only an
+  `HttpOnly; Secure; SameSite=Lax` cookie.
+- Every API request is authorized by an access token: the session's token, refreshed when it has
+  under a minute left, or a bearer token from a service.
+  - A token must have a valid signature, `iss`, `exp`/`nbf` (60 s skew) and `aud` containing
+    `finance-tracker`, otherwise 401.
+  - It must hold the client role `user`, otherwise 403. Realm roles and other clients' roles
+    grant nothing.
+  - Only members get a `users` row.
+- Keycloak is contacted lazily. The app starts while Keycloak is down: the API answers 401, not
+  500, and a login lands on `/?login=failed`. Both recover on their own.
+- Writes from the browser need the CSRF token (cookie plus `X-XSRF-TOKEN` header). *Log out* ends
+  the Keycloak session too, through the end-session endpoint.
+- Frontend:
+  - keycloak-js removed; the app asks `GET /api/me` who is signed in.
+  - Non-members see "no access" with *Sign out*.
+  - A 401 right after a login shows a message instead of looping.
+- Local development: `docker-compose.local.yml`, enabled through `COMPOSE_FILE` in `.env`, puts
+  the backend (8081) and nginx (3000) on the host network, next to the auth server's Keycloak on
+  8080. nginx's config became a template for that. Vite serves on 5173.
+- Auth server repository:
+  - The client, its `user`/`admin` roles and `testuser`'s role in `realm-export.json`.
+  - The production client in `realm-prod.json`, replacing the three example clients.
+  - In both files, an audience mapper: Keycloak leaves the requesting client out of `aud`.
+    Without the mapper, the app's own tokens would fail the `aud` check.
+
+**Verified**
+- 31 backend tests against a `FakeKeycloak` (no live Keycloak). Five planted bugs were each caught:
+  no `aud` check, realm roles mapped, no PKCE, 500 during an outage, and no refresh margin.
+- Against the auth server's dev Keycloak:
+  - A `testuser` token got 200; a `shop-api` client-credentials token got 401.
+  - A scripted Chrome session worked through nginx (3000) and through Vite (5173): a deep link to
+    the login page and back, a write through the UI, a reload, and a logout that also ended the
+    Keycloak session. No token was in browser storage.
+  - A non-member was shown "no access" and got no `users` row.
+  - A session was still open 255 s after login, when the token had under a minute left: the
+    backend refreshed it (the Keycloak session's `lastAccess` moved), and calls kept working after
+    the first token expired.
+  - A backend started with Keycloak unreachable answered 401.
+- The live runs found two bugs, both fixed:
+  - The loop guard treated an abandoned login as a completed one. It now relies on `/?login=done`.
+  - Vite's proxy shorthand rewrote the `Host` header, so the callback URL pointed at the backend.
+
+**Open**
+- The production steps in the auth server's admin console, and the production deployment itself.
+- Still no Supabase credentials: the stack runs used a stand-in Postgres.
+
 ## 2026-09-22 · Integration pass: full walkthrough, restart resilience, reuse guide
 
 Commit `e1cb35d`

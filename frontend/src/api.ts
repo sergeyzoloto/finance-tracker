@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { keycloak } from './auth'
+import { csrfToken, logIn } from './auth'
 
+export interface Me { name: string }
 export type CategoryType = 'INCOME' | 'EXPENSE'
 export interface Category { id: number; name: string; type: CategoryType }
 export interface Transaction { id: number; categoryId: number; amount: number; occurredOn: string; note: string | null }
@@ -11,42 +12,27 @@ export interface Summary {
   spendByCategory: { categoryId: number; name: string; total: number }[]
 }
 
-/** Calls the backend with the current access token; an expired session ends at the Keycloak login, not in an error. */
+/**
+ * Calls the backend with the session cookie, which refreshes the tokens behind it. An ended session goes back through
+ * the Keycloak login and returns to this page, rather than ending in an error.
+ */
 export async function api<T = void>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  const send = () => fetch(`/api${path}`, {
+  const response = await fetch(`/api${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${keycloak.token}`,
+      ...(method === 'GET' ? {} : { 'X-XSRF-TOKEN': csrfToken() }),
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  await refreshToken(30)
-  let response = await send()
-  if (response.status === 401) {
-    // Rejected: force a new token from the Keycloak session and retry once.
-    await refreshToken(-1)
-    response = await send()
-  }
-  // A fresh token rejected is a server-side problem; logging in again would only loop.
-  if (response.status === 401) throw new Error('The server did not accept your session.')
+  if (response.status === 401) return logIn()
+  if (response.status === 403) throw new Error('Access denied. Please reload the page.')
   if ([502, 503, 504].includes(response.status)) throw new ServerUnavailable()
   if (!response.ok) {
     const problem = await response.json().catch(() => null)
     throw new Error(problem?.detail ?? problem?.title ?? `${response.status} ${response.statusText}`)
   }
   return (response.status === 204 ? undefined : await response.json()) as T
-}
-
-async function refreshToken(minValidity: number) {
-  try {
-    await keycloak.updateToken(minValidity)
-  } catch {
-    // Refresh refused: the session is gone, keycloak-js cleared the token and is already redirecting
-    // to the login page. Wait for the navigation rather than flash an error.
-    if (!keycloak.token) return new Promise<never>(() => {})
-    throw new Error('Could not reach the login service to renew your session.')
-  }
 }
 
 /** The backend is down or restarting; the session itself is fine. */

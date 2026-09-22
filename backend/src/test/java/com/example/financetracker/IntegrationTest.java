@@ -3,24 +3,10 @@ package com.example.financetracker;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.Date;
 import java.util.TimeZone;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.crypto.RSASSASigner;
-import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.SignedJWT;
-import com.sun.net.httpserver.HttpServer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,19 +22,17 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * Full stack against real Postgres. Tokens are real RS256 JWTs whose key is served from a local JWK
- * Set endpoint, so validation runs exactly as configured in production (issuer + JWK Set URI).
+ * Full stack against real Postgres and a {@link FakeKeycloak}. The app finds the realm through discovery, exactly as
+ * configured in production, and tokens are real RS256 JWTs.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 public abstract class IntegrationTest {
 
-    protected static final String ISSUER = "https://keycloak.test/realms/finance-tracker";
-    protected static final RSAKey SIGNING_KEY = newRsaKey("test-key");
+    protected static final FakeKeycloak KEYCLOAK = FakeKeycloak.start();
 
     @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
-    static final HttpServer JWKS = startJwksServer();
 
     static {
         // Far from UTC, so a date shifted by a time zone conversion shows up as an off-by-one.
@@ -57,10 +41,10 @@ public abstract class IntegrationTest {
     }
 
     @DynamicPropertySource
-    static void jwtProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", () -> ISSUER);
-        registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
-                () -> "http://localhost:" + JWKS.getAddress().getPort() + "/certs");
+    static void keycloakProperties(DynamicPropertyRegistry registry) {
+        registry.add("app.keycloak.issuer-url", KEYCLOAK::issuer);
+        registry.add("app.keycloak.client-id", () -> FakeKeycloak.CLIENT_ID);
+        registry.add("app.keycloak.client-secret", () -> FakeKeycloak.CLIENT_SECRET);
     }
 
     @Autowired
@@ -69,25 +53,18 @@ public abstract class IntegrationTest {
     @Autowired
     protected ObjectMapper json;
 
+    /** A member's access token. */
     protected static String token(String subject) {
-        return token(subject, SIGNING_KEY, ISSUER, Instant.now().plusSeconds(300));
+        return sign(claims(subject));
     }
 
-    protected static String token(String subject, RSAKey key, String issuer, Instant expiresAt) {
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject(subject)
-                .issuer(issuer)
-                .expirationTime(Date.from(expiresAt))
-                .claim("email", subject + "@example.com")
-                .claim("name", "User " + subject)
-                .build();
-        SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(), claims);
-        try {
-            jwt.sign(new RSASSASigner(key));
-        } catch (JOSEException e) {
-            throw new IllegalStateException(e);
-        }
-        return jwt.serialize();
+    /** A member's access token claims, to adjust before {@link #sign}. */
+    protected static JWTClaimsSet.Builder claims(String subject) {
+        return KEYCLOAK.accessTokenClaims(subject);
+    }
+
+    protected static String sign(JWTClaimsSet.Builder claims) {
+        return KEYCLOAK.sign(claims.build());
     }
 
     protected MvcTestResult request(HttpMethod method, String uri, String token, String body) {
@@ -114,31 +91,5 @@ public abstract class IntegrationTest {
                 {"categoryId": %d, "amount": %s, "occurredOn": "%s"}""".formatted(categoryId, amount, occurredOn));
         assertThat(result).hasStatus(HttpStatus.CREATED);
         return json.readTree(result.getResponse().getContentAsString()).get("id").asLong();
-    }
-
-    protected static RSAKey newRsaKey(String keyId) {
-        try {
-            return new RSAKeyGenerator(2048).keyID(keyId).generate();
-        } catch (JOSEException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static HttpServer startJwksServer() {
-        HttpServer server;
-        try {
-            server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-        byte[] body = new JWKSet(SIGNING_KEY.toPublicJWK()).toString().getBytes(StandardCharsets.UTF_8);
-        server.createContext("/certs", exchange -> {
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
-        });
-        server.start();
-        return server;
     }
 }

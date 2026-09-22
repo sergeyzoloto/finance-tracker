@@ -54,7 +54,10 @@ services:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_KEYCLOAK_URL: ${KEYCLOAK_URL}
     ports:
       - "${FRONTEND_PORT}:80"
     depends_on:

@@ -1,0 +1,36 @@
+{
+  "realm": "finance-tracker",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "finance-tracker-frontend",
+      "publicClient": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["${FRONTEND_URL}/*"],
+      "webOrigins": ["${FRONTEND_URL}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "google",
+      "providerId": "google",
+      "enabled": true,
+      "config": {
+        "clientId": "${GOOGLE_CLIENT_ID}",
+        "clientSecret": "${GOOGLE_CLIENT_SECRET}"
+      }
+    },
+    {
+      "alias": "github",
+      "providerId": "github",
+      "enabled": true,
+      "config": {
+        "clientId": "${GITHUB_CLIENT_ID}",
+        "clientSecret": "${GITHUB_CLIENT_SECRET}"
+      }
+    }
+  ]
+}

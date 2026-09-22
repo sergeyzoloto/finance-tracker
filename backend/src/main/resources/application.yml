@@ -1,0 +1,6 @@
+# Datasource and JWT issuer come from SPRING_* environment variables (see docker-compose.yml).
+spring:
+  application:
+    name: finance-tracker
+  jpa:
+    open-in-view: false

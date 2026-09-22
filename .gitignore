@@ -34,3 +34,7 @@ build/
 
 ### Environments ###
 .env
+
+### Node ###
+node_modules/
+dist/

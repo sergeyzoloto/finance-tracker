@@ -1,0 +1,15 @@
+# Frontend on the Vite dev server with hot reload:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# After changing dependencies add -V so node_modules is refreshed from the image.
+services:
+  frontend:
+    image: finance-tracker-frontend:dev # keep the dev image from replacing the nginx one
+    build:
+      target: dev
+    environment:
+      API_PROXY_TARGET: http://backend:8080
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports: !override
+      - "${FRONTEND_PORT}:5173"

@@ -3,13 +3,15 @@
   "enabled": true,
   "clients": [
     {
-      "clientId": "finance-tracker-frontend",
+      "clientId": "finance-frontend",
       "publicClient": true,
+      "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["${FRONTEND_URL}/*"],
-      "webOrigins": ["${FRONTEND_URL}"],
+      "redirectUris": ["${FRONTEND_URL}/*", "${FRONTEND_DEV_URL}/*"],
+      "webOrigins": ["+"],
       "attributes": {
-        "pkce.code.challenge.method": "S256"
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
       }
     }
   ],

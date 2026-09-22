@@ -49,6 +49,4 @@ A Google client can list several redirect URIs, but separate clients per environ
 
 ## Reusing in another project
 
-Rename `realm` and the client's `clientId` (also in `frontend/src/auth.ts`), update the realm name in `docker-compose.yml` (JWK Set
-URI) and `JWT_ISSUER_URL`, then set `FRONTEND_URL` / `FRONTEND_DEV_URL` and register new callback
-URLs with the providers.
+See [`../README.md`](../README.md).

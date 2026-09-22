@@ -30,6 +30,7 @@ export async function api<T = void>(path: string, method = 'GET', body?: unknown
   }
   // A fresh token rejected is a server-side problem; logging in again would only loop.
   if (response.status === 401) throw new Error('The server did not accept your session.')
+  if ([502, 503, 504].includes(response.status)) throw new ServerUnavailable()
   if (!response.ok) {
     const problem = await response.json().catch(() => null)
     throw new Error(problem?.detail ?? problem?.title ?? `${response.status} ${response.statusText}`)
@@ -48,7 +49,17 @@ async function refreshToken(minValidity: number) {
   }
 }
 
-/** Loads `path` and reloads whenever it changes; responses to superseded requests are dropped. */
+/** The backend is down or restarting; the session itself is fine. */
+class ServerUnavailable extends Error {
+  constructor() {
+    super('The server is unavailable right now. Please try again in a moment.')
+  }
+}
+
+/**
+ * Loads `path` and reloads whenever it changes; responses to superseded requests are dropped. While the
+ * backend is unavailable it keeps retrying, so the screen recovers on its own once the backend is back.
+ */
 export function useApi<T>(path: string) {
   const [data, setData] = useState<T>()
   const [error, setError] = useState<string>()
@@ -57,10 +68,17 @@ export function useApi<T>(path: string) {
     const request = ++latest.current
     api<T>(path).then(
       (result) => { if (request === latest.current) { setData(result); setError(undefined) } },
-      (e) => { if (request === latest.current) setError(errorMessage(e)) },
+      (e) => {
+        if (request !== latest.current) return
+        setError(errorMessage(e))
+        if (e instanceof ServerUnavailable) setTimeout(() => request === latest.current && reload(), 3000)
+      },
     )
   }, [path])
-  useEffect(reload, [reload])
+  useEffect(() => {
+    reload()
+    return () => { latest.current++ } // unmounted or path changed: drop pending responses and retries
+  }, [reload])
   return { data, error, reload }
 }
 

@@ -1,0 +1,197 @@
+# Change Log
+
+Newest first, one entry per completed task, each with the commit it landed in. The earlier
+multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
+
+## 2026-09-22 · Integration pass: full walkthrough, restart resilience, reuse guide
+
+Commit `e1cb35d`
+
+Walked the whole loop in a scripted Chrome session against the real stack: Keycloak, the backend,
+and the frontend served by nginx. Two parts ran on stand-ins. Postgres was a local stand-in, because
+no Supabase credentials are configured. Google and GitHub sign-in used two temporary OpenID Connect
+providers going through the same Keycloak broker path: no OAuth apps are registered yet, and a real
+sign-in needs a person's own accounts. None of the stand-ins are in the repo.
+
+**Results**
+- Signing in through the two providers created two separate Keycloak users and two backend `users`
+  rows, owning 5/8 and 2/2 categories and transactions. The second user saw none of the first
+  user's data, even with categories of the same name.
+- Dashboard totals matched a hand calculation to the cent. First user: balance 5,260.96; this
+  month's income 3,650.50 and expenses 1,359.54; by category, Rent 1,200.00, Food 109.55 and
+  Transport 49.99. Second user: balance 1,249.75; income 2,000.00 and expenses 750.25; Rent 750.25.
+- Killing and restarting the backend mid-session: a message appeared within 0.1 s, the open screen
+  recovered by itself 5.8 s after the restart, and the user was never sent back to Keycloak.
+
+**Fixed**
+- `frontend/nginx.conf`: nginx looked up `backend` once at startup. After the backend container was
+  recreated with a new IP, every API call returned 502 until the frontend container was restarted.
+  Right after a kill, requests also hung for up to 60 s. It now looks up `backend` through Docker's
+  DNS on each request (`resolver 127.0.0.11`), with a 5 s connect timeout.
+- `frontend/src/api.ts`: a 502, 503 or 504 shows "The server is unavailable right now…", and the
+  screen's data reloads every 3 s until the backend answers. Writes are never retried automatically.
+
+**Added**
+- `infra/README.md`: step-by-step guide to reusing the Keycloak service and realm file in another
+  project. A dry run in a scratch project ("acme") followed it literally: a two-line rename, a 42 s
+  first start, a matching issuer, a PKCE login through the renamed client, correct provider
+  callback URLs, and "Import skipped" on restart.
+- Documented Keycloak behaviour, tested with the mock providers. The same email arriving through
+  Google and GitHub gets "Account already exists… Add to existing account", so it becomes one user.
+  A provider that sends no name gets a first-and-last-name form on first sign-in.
+
+**Open**
+- Register the Google and GitHub OAuth apps (`infra/keycloak/README.md`), then sign in with real
+  accounts.
+- Add the Supabase connection details to `.env`, and run `CREATE SCHEMA IF NOT EXISTS keycloak;`
+  in Supabase.
+
+## 2026-09-22 · Frontend: Keycloak login and the three screens
+
+Commit `8b21e61`
+
+**Changes**
+- Login uses keycloak-js 26.2 with Authorization Code + PKCE (S256) on client `finance-frontend`,
+  in `login-required` mode. There is no login form of our own: an unauthenticated visit goes to
+  Keycloak and comes back to the requested page.
+- Tokens are kept in memory only. After a page reload, the Keycloak session restores them without
+  asking for the password. keycloak-js only puts short-lived redirect state (state, nonce, PKCE
+  verifier) in `localStorage`, and removes it when Keycloak redirects back.
+- `frontend/src/api.ts` attaches the Bearer token to every call, and refreshes it first if it
+  expires within 30 s. On a 401 it forces a refresh and retries once.
+  - If the Keycloak session is gone, keycloak-js sends the browser to the login page.
+  - If the backend rejects even a freshly refreshed token, the app shows "The server did not accept
+    your session." instead of redirecting, which would loop.
+- Screens, using react-router 8:
+  - Dashboard: all-time balance, this month's income and expenses, and spending by category.
+  - Transactions: add, edit and delete, filtered by date range (default: current month) and category.
+  - Categories: add, edit and delete, each marked income or expense. Deleting one that still has
+    transactions shows the API's reason.
+- The Keycloak URL is baked in at build time from `KEYCLOAK_URL` (the `VITE_KEYCLOAK_URL` build
+  argument). The realm and client ID are constants in `frontend/src/auth.ts`.
+
+**Verified** in a 19-check scripted browser run against the real stack, on both the nginx build and
+the Vite dev override, stable over repeated runs:
+- the PKCE redirect, no tokens in storage, and silent restore on reload
+- add, edit and delete on every screen, and both filters
+- exact dashboard figures
+- 401 → refresh → retry, no redirect loop
+- logout, and a session ended on the Keycloak side
+
+A double redirect when the session expires was found and fixed during these runs.
+
+**Notes**
+- After a dependency change, start dev mode with `-V` so the container's `node_modules` is refreshed.
+- The browser test script is not in the repo.
+
+## 2026-09-22 · Backend: resource server, domain model, REST API
+
+Commit `81f9779`
+
+**Changes**
+- Stateless OAuth2 resource server: it checks the token's issuer and signature using the realm's
+  JWK Set URI. There are no sessions and no login page. CSRF protection is off, since only bearer
+  tokens are used; with it on, a write without a token got 403 instead of 401. Every endpoint
+  returns 401 without a valid token.
+- The first request from a new token subject creates the `users` row (keycloak_id, email,
+  display_name), safely under concurrent first requests. Controllers receive the local user id.
+- Flyway migration `V1` creates users, categories and transactions: amounts are `NUMERIC(12,2)` and
+  must be above zero. A composite foreign key means a transaction can only reference its own user's
+  category. The tables live in their own `app` schema, because Supabase publishes `public` through
+  its REST API.
+- Spring Data JDBC instead of JPA: entities are records, the SQL is explicit, and there is no
+  `ddl-auto`.
+- Endpoints:
+  - CRUD for `/api/categories` and `/api/transactions`; the transaction list filters on `from` and
+    `to` (both inclusive) and `categoryId`.
+  - `GET /api/dashboard/summary`, computed with SQL aggregates in a single snapshot. Balance is
+    all-time; the other figures cover the requested range.
+- Error rules: another user's row returns 404; another user's category returns 400; deleting a
+  category that still has transactions returns 409; an amount with more than two decimals returns
+  400 and is not rounded.
+
+**Verified**
+- 14 integration tests on Postgres 17 (Testcontainers), with real RS256 tokens. The test JVM runs
+  at UTC+14 to catch dates shifting.
+- Four planted bugs were all caught: a half-open date range, a floating-point sum, zero without two
+  decimals, and a missing user filter.
+- End to end with a real Keycloak token through nginx.
+
+**Open**
+- The transaction list has no pagination.
+- Email and display name are captured on first sight only.
+- The recommended audience (`aud`) check has not been added.
+
+## 2026-09-22 · Keycloak realm: Google and GitHub sign-in, SPA client, API as resource server
+
+Commit `d753031`
+
+**Changes**
+- `infra/keycloak/realm-export.json`, realm `finance-tracker`:
+  - public client `finance-frontend`: Authorization Code only, PKCE (S256) required, no secret;
+    redirects allowed to `FRONTEND_URL` and `FRONTEND_DEV_URL`
+  - Google and GitHub identity providers, with credentials from environment placeholders
+  - deliberately no client for the backend
+- JSON import chosen over a kcadm script: declarative, easy to diff, holds no secrets, and loaded
+  natively by `--import-realm`.
+- `infra/keycloak/README.md`: the manual steps in Google Cloud Console and GitHub OAuth Apps, and
+  the callback URLs to register.
+- `FRONTEND_DEV_URL` added to `.env.example` and to what compose passes into Keycloak.
+
+**Verified** on a throwaway Keycloak 26.7.4:
+- a PKCE login with no secret, from both allowed origins
+- rejected as expected: a missing PKCE challenge, a missing code verifier, a foreign redirect URI,
+  the password grant, a foreign CORS origin and a foreign logout redirect
+- the provider buttons send the client IDs from the environment, and the secrets are filled in too
+  (confirmed by an offline export)
+
+**Note:** the realm is imported only when it doesn't exist yet. Later changes go through the admin
+console.
+
+## 2026-09-22 · Database moved to Supabase Postgres
+
+Commit `16727b7` (committed together with the scaffold)
+
+**Changes**
+- Removed the local `postgres` service, its volume and its init script. Keycloak and the backend
+  connect to Supabase through the Session Pooler, using `SUPABASE_JDBC_URL`, `SUPABASE_DB_USER` and
+  `SUPABASE_DB_PASSWORD`.
+- Keycloak uses its own schema, `keycloak` (`KC_DB_SCHEMA`). It has to be created once before the
+  first start, because Keycloak exits instead of creating it.
+- The Keycloak health check's `start_period` is 10 minutes: the first boot against a database 30 ms
+  away took 206 s.
+- Both connection pools are capped at 5, because they share Supabase's session-mode limit.
+- No app migrations needed re-running: the old app database had 0 tables. Keycloak re-applies its
+  own schema changes on first start.
+
+**Verified** against a stand-in Postgres, because no Supabase credentials were available: only
+three containers start, Keycloak creates its tables in the `keycloak` schema, and the backend
+connects. Not yet verified against Supabase itself.
+
+## 2026-09-22 · Repo scaffold and Docker Compose
+
+Commit `16727b7`
+
+**Changes**
+- Monorepo with three folders:
+  - `frontend`: React 19, Vite 8, TypeScript
+  - `backend`: Spring Boot 3.5, Java 21, Maven
+  - `infra`: Keycloak realm
+- `docker-compose.yml`:
+  - Postgres, reachable only inside the compose network (later replaced by Supabase, see above)
+  - Keycloak 26.7 in production mode (`start --import-realm`), with a health check
+  - the backend
+  - the frontend: nginx serving the Vite build, with `/api` proxied to the backend
+- `docker-compose.dev.yml` runs the frontend on the Vite dev server with hot reload.
+- `.env.example` documents every variable.
+- Tokens carry the public issuer (`localhost:8180`), while the backend fetches signing keys from
+  `keycloak:8080` over the compose network.
+- Host ports are configurable, defaulting to 8180 (Keycloak) and 3000 (frontend).
+
+**Verified**
+- All four containers came up healthy, and the Keycloak admin console was reachable.
+- A realm token was accepted and a token from the wrong realm was rejected.
+- Hot reload worked in dev mode. A bug where dev mode overwrote the nginx image was found and fixed.
+
+**Follow-up:** the stale CI pipeline, which still built the deleted `transactions` service, was
+removed in `675e916`.

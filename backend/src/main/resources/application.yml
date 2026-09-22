@@ -2,5 +2,14 @@
 spring:
   application:
     name: finance-tracker
-  jpa:
-    open-in-view: false
+  datasource:
+    hikari:
+      # Own schema: Supabase publishes "public" through its Data API.
+      schema: app
+  flyway:
+    schemas: app
+  mvc:
+    format:
+      date: iso
+    problemdetails:
+      enabled: true

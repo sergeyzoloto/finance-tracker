@@ -79,6 +79,7 @@ frontend/                     React SPA
   src/auth.ts                 login and logout redirects
   nginx.conf                  nginx config template: static files and the proxy
 docs/auth.md                  authentication and authorization in depth
+docs/database-hosting.md      where the database runs at launch and later, and why
 change_log.mdx                every completed task: what changed, how it was verified, what is open
 docker-compose.yml            production-like stack: backend and nginx
 docker-compose.local.yml      local overlay: host network, next to the dev Keycloak
@@ -259,7 +260,9 @@ Validation and domain errors come back as problem details (RFC 9457).
 ## Production
 
 Not deployed yet. The target is `https://app.finance-nl.com`, signing in through
-`https://auth.finance-nl.com/realms/myapps`. It needs:
+`https://auth.finance-nl.com/realms/myapps`. At launch the database runs next to the app on the
+Hetzner host, not on Supabase. The move to Supabase comes later; see
+[docs/database-hosting.md](docs/database-hosting.md). It needs:
 
 - **HTTPS**, since the session and CSRF cookies are `Secure`. The TLS proxy in front of nginx must
   send `X-Forwarded-Proto: https`, so that the backend builds `https://` redirect URIs.

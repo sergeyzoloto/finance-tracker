@@ -63,7 +63,22 @@ public class EntryService {
     @Transactional
     public EntryView create(String userId, EntryCommand command) {
         EntryDraft draft = validDraft(userId, command);
-        return EntryView.of(entries.save(JournalEntry.create(userId, draft, Instant.now())));
+        return EntryView.of(entries.save(JournalEntry.create(userId, draft, null, null, Instant.now())));
+    }
+
+    /**
+     * Creates an entry read from a file, like {@link #create}. The entry keeps its import batch and its identity in
+     * the file, which the database holds unique per user.
+     *
+     * @param externalRef the entry's identity in the file, as the importer builds it
+     * @throws InvalidEntryException naming every problem with the entry
+     * @throws org.springframework.dao.DuplicateKeyException if the user already has an entry with this external ref
+     */
+    @Transactional
+    public EntryView createImported(String userId, EntryCommand command, long importBatchId, String externalRef) {
+        EntryDraft draft = validDraft(userId, command);
+        return EntryView.of(entries.save(JournalEntry.create(userId, draft, importBatchId, externalRef,
+                Instant.now())));
     }
 
     /**

@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -18,9 +19,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * Maps a validated access token to this client's roles and, for members, to their local user, creating the row on
- * first sight of the subject.
+ * first sight of the subject. Part of {@link SecurityConfig}, and like it only in a web application.
  */
 @Component
+@ConditionalOnWebApplication
 class CurrentUserConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
     static final GrantedAuthority MEMBER = new SimpleGrantedAuthority("ROLE_USER");

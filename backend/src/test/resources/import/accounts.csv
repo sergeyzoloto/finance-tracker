@@ -1,0 +1,12 @@
+﻿Balance sheet items,Актив/пассив,Line
+"Кошелёк","ASSET","CASH"
+Карта «Северная»,ASSET,NORTH_CARD
+"Счёт «Южный», накопительный",ASSET,SOUTH_SAVINGS
+Займы друзьям,ASSET,LOANS_ASSET
+"Долг перед банком","LIABILITIES","CREDITOR_DEBT"
+Общий семейный бюджет,LIABILITIES,FAMILY_DEBT
+Отложено,LIABILITIES,RESERVE
+Свободный остаток,LIABILITIES,UNALLOCATED
+"Кредитка «Восток»","LIABILITIES","EAST_CREDIT"
+Фонд общины,ASSET,GEMENTE_FUND
+Евро-счёт,ASSET,EURO_ACCOUNT

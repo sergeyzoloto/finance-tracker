@@ -9,7 +9,8 @@ import java.util.List;
  * its builder can't work with: the constructor throws {@link InvalidEntryException} naming every such field.
  */
 public sealed interface EntryCommand permits ExpenseCommand, IncomeCommand, TransferCommand, SharedExpenseCommand,
-        LoanGivenCommand, LoanRepaidCommand, CurrencyExchangeCommand, OpeningBalanceCommand, ManualCommand {
+        LoanGivenCommand, LoanRepaidCommand, CurrencyExchangeCommand, OpeningBalanceCommand, ManualCommand,
+        ImportedCommand {
 
     LocalDate entryDate();
 

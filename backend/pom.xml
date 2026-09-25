@@ -45,6 +45,12 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
+        <!-- Reads the Excel ledger's CSV exports (ledger.importer). Not managed by Boot. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.14.1</version>
+        </dependency>
         <!-- Compile scope: ledger.Json maps JSONB columns through the driver's PGobject. -->
         <dependency>
             <groupId>org.postgresql</groupId>

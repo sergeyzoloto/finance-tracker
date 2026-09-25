@@ -18,7 +18,7 @@
 
 ## Project map
 
-State on 2026-09-25. The code still has the single-entry model and conflicts with the rules above; see [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md). The ledger's schema (V2, V3), its domain and service layer (`ledger/`) and its reports (`ledger/report/`) exist, but no API uses them yet.
+State on 2026-09-25. The code still has the single-entry model and conflicts with the rules above; see [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md). The ledger's schema (V2, V3), its domain and service layer (`ledger/`), its reports (`ledger/report/`) and the Excel importer (`ledger/importer/`) exist, but no API uses them yet.
 
 - **Deployment:** not deployed, and no production database exists.
   - `docker-compose.yml` runs backend and nginx only, with no DB service, and reads `SUPABASE_*` from `.env`.
@@ -36,13 +36,21 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
     - `CurrentUserConverter` maps the JWT `sub` to a `users` row, creating it if missing. `MeController` serves GET `/api/me`.
   - `ledger/domain/`: the ledger's rules in plain Java, with no Spring and no database.
     - One command record per entry kind: expense, income, transfer, shared expense, loan given, loan repaid, currency exchange, opening balance, and manual (raw postings). A command's `postings(LedgerContext)` builds its postings. Its constructor rejects fields the builder can't work with.
+    - `ImportedCommand` carries postings an importer built, with the kind it inferred.
     - `LedgerValidator` checks an entry against every rule the triggers enforce, and throws one `InvalidEntryException` that lists every violation.
   - `ledger/`: Spring Data JDBC records and repositories for every ledger table. Owned rows carry `String userId`, the Keycloak `sub`.
     - `JournalEntry` is one aggregate with its `List<Posting>`, ordered by `line_no` and guarded by `@Version`. Saving it replaces all its postings.
     - `EntryService` offers create, update, delete and get, and takes the user id as a parameter. It builds the entry from a command and validates it, holding the rows it refers to under FOR SHARE locks. It returns `EntryView`, never an entity.
+    - `EntryService.createImported` also records the import batch and `external_ref`.
   - `ledger/report/`: `ReportService` computes every report from postings on each call, one native SQL statement per report through `JdbcClient`, into records. It takes the user id as a parameter.
     - Reports: balances per account and currency, balances per counterparty, monthly cash flow per category, net worth, the shared-account settlement, and an integrity check.
     - Amounts come back `Money.normalize`d. There are no stored balance tables (rule 13).
+  - `ledger/importer/`: imports the owner's Excel ledger (see "How to run the importer" below).
+    - `ImportService.run(ImportRequest)` takes the files as bytes and returns an `ImportReport`, so a REST endpoint can reuse it. `ImportReportMarkdown` renders the report.
+    - `Workbook` reads the CSV files with Commons CSV. `EntryMapper` turns a row into an entry, in plain Java without a database.
+    - The whole run is one transaction, with a savepoint per row. A dry run always rolls back. A commit rolls back if any row has an error.
+    - A row's `external_ref` is `xls:` + SHA-256 of its business columns + `:` + its occurrence among identical rows. A row whose ref the user already has is skipped, so re-running is safe.
+    - `ImportRunner` is the command line. It runs only with the Spring profile `import` (`application-import.yml`: no web server, so `SecurityConfig` and `CurrentUserConverter` don't load).
   - `JdbcConfiguration` takes over Spring Data JDBC setup from Boot, to register the converters for JSONB (`ledger.Json`).
 - **Database** (schema `app`, Flyway, `backend/src/main/resources/db/migration/`). Add `V<n>__*.sql`; never edit an applied one.
   - `V1__users_categories_transactions.sql`, the single-entry model the code uses today:
@@ -62,9 +70,43 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
   - Backend: JUnit 5 with MockMvcTester, Testcontainers `postgres:17-alpine` and an in-process `FakeKeycloak` that signs RS256 tokens. The JVM runs in time zone Pacific/Kiritimati. `LedgerSchemaTests` checks the ledger's triggers with plain JDBC on a freshly migrated database.
     - `EntryBuilderTests` and `LedgerValidatorTests` are plain unit tests of `ledger/domain/`.
     - `EntryServiceTests`, `LedgerRepositoryTests` and `ReportServiceTests` run against the database. `ReportServiceTests` writes its ledger through `EntryService`.
+    - The importer: `ExcelValuesTests`, `WorkbookTests` and `EntryMapperTests` are unit tests. `ImportServiceTests` and `ImportRunnerTests` run against the database.
+    - `src/test/resources/import/` is a synthetic workbook with invented names and the real exports' formatting quirks. Its row 10 names an unknown account on purpose.
   - Frontend: no tests.
   - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify` and `npm ci && npm run build`.
 - **Private data:** `data/private/` holds the owner's real Excel ledger as CSV and is git-ignored. Never commit it, print whole files from it, or copy names or amounts from it into the repository.
+
+## How to run the importer
+
+The importer reads the owner's Excel ledger, exported as CSV: accounts, categories, transactions, and optionally opening balances. It imports them for one user.
+
+- It is a dry run unless `--commit` is given. A dry run writes everything, reports, and rolls back.
+- `--commit` saves everything, or nothing if any row has an error.
+- The Markdown report goes next to the transactions file as `import-report.md`, so for `data/private/` it is `data/private/import-report.md`. `--report=<file>` writes it elsewhere.
+- Exit codes: 0 means no row errors, 1 means wrong arguments or an unreadable file, and 2 means row errors (nothing saved).
+
+Flyway migrates the target database on startup. Until the production database exists, point the importer at a throwaway PostgreSQL rather than at Supabase, where V2 and V3 have not been applied:
+
+```bash
+docker run -d --rm --name finance-tracker-import-db -e POSTGRES_PASSWORD=import -p 127.0.0.1:5433:5432 postgres:17-alpine
+
+cd backend
+SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5433/postgres \
+SPRING_DATASOURCE_USERNAME=postgres SPRING_DATASOURCE_PASSWORD=import \
+./mvnw -q spring-boot:run -Dspring-boot.run.profiles=import -Dspring-boot.run.arguments="\
+--user-sub=<Keycloak sub> \
+--accounts=../data/private/BalanceSheetItems.csv \
+--categories=../data/private/CashFlowItems.csv \
+--transactions=../data/private/Transactions_example.csv"
+# add --opening-balances=<file> (columns line,currency,amount,date) and --commit as needed
+
+docker stop finance-tracker-import-db   # --rm deletes it with its data
+```
+
+`--user-sub` is the owner's Keycloak user id, the `sub` claim that every ledger row is keyed by (rule 11). Import with the production sub. The dev Keycloak's users have different ids. To find it:
+
+- **Admin console:** open realm `myapps`, go to Users, open the owner's user, and copy the **ID** field. For production, that is `https://auth.finance-nl.com`, reachable only from allowlisted IPs, with OTP.
+- **The app's database,** once the owner has signed in to the app: `SELECT keycloak_id FROM app.users WHERE email = '<owner email>';`. Sign-in creates this row and stores the `sub` as `keycloak_id`.
 
 ## How to run tests
 

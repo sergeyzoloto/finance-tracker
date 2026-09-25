@@ -1,0 +1,10 @@
+﻿Статьи движения средств,Доходы/расходы,Line
+Оклад,INCOME,PAYCHECK
+Проценты по вкладу,INCOME,DEPOSIT_INTEREST
+Прибыль от курсовой разницы,INCOME,FX_GAIN
+Продукты,EXPENSE,FOOD
+Кафе и рестораны,EXPENSE,CAFE
+Комиссия банка,EXPENSE,COMMISION
+Транспорт,EXPENSE,TRANSPORT
+-,CASHFLOW,NULL
+Подарки,EXPENSE,PRESENTS

@@ -1,0 +1,9 @@
+# The command-line importer of the Excel ledger (ledger.importer.ImportRunner; CLAUDE.md shows the command).
+# No web server and no login: only the database, from the SPRING_DATASOURCE_* environment variables.
+spring:
+  main:
+    web-application-type: none
+    banner-mode: off
+logging:
+  level:
+    root: WARN

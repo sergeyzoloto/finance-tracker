@@ -22,9 +22,13 @@ public record JournalEntry(@Id Long id, String userId, LocalDate entryDate, Entr
         Long importBatchId, String externalRef, @Version Integer version, @ReadOnlyProperty Instant createdAt,
         Instant updatedAt, @MappedCollection(idColumn = "entry_id", keyColumn = "line_no") List<Posting> postings) {
 
-    static JournalEntry create(String userId, EntryDraft draft, Instant now) {
-        return new JournalEntry(null, userId, draft.entryDate(), draft.kind(), draft.payeeId(), draft.memo(), null,
-                null, null, null, now, postings(draft));
+    /**
+     * @param importBatchId the import that read the entry from a file, or null
+     * @param externalRef the entry's identity in that file, unique per user; null if not imported
+     */
+    static JournalEntry create(String userId, EntryDraft draft, Long importBatchId, String externalRef, Instant now) {
+        return new JournalEntry(null, userId, draft.entryDate(), draft.kind(), draft.payeeId(), draft.memo(),
+                importBatchId, externalRef, null, null, now, postings(draft));
     }
 
     /** This entry with the draft's fields and postings. Its id, owner, import origin and version stay. */

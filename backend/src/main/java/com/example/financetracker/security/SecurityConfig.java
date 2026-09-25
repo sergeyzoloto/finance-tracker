@@ -3,6 +3,7 @@ package com.example.financetracker.security;
 import jakarta.servlet.DispatcherType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -43,8 +44,11 @@ import org.springframework.util.function.SingletonSupplier;
  * client's {@code user} role.
  * </ul>
  * Keycloak is contacted lazily, so the app starts while it's down; API requests then get 401.
+ * <p>
+ * Only in a web application: the command-line importer (profile "import") serves no requests.
  */
 @Configuration
+@ConditionalOnWebApplication
 @EnableConfigurationProperties(KeycloakProperties.class)
 class SecurityConfig {
 

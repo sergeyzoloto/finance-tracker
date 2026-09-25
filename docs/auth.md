@@ -48,7 +48,7 @@ would reject the tokens it gets through its own login.
 
 | Role | Kind | What it allows |
 | --- | --- | --- |
-| `user` | client role of `finance-tracker` | Using Finance Tracker: your own categories, transactions and dashboard. Required for every `/api` endpoint. |
+| `user` | client role of `finance-tracker` | Using Finance Tracker: your own ledger, its accounts, entries and reports. Required for every `/api` endpoint. |
 | `admin` | client role of `finance-tracker` | Nothing yet; reserved for future admin features. Give admins `user` too. |
 | `user` | realm role, held by every `myapps` user | Nothing here. Not mapped (see below). |
 | any role of another client | e.g. `shop-api`'s `admin` | Nothing here. |
@@ -61,8 +61,10 @@ An administrator grants access by assigning `finance-tracker` → `user` to each
 - A token from another client or service without this client's roles has no `finance-tracker` in
   `aud`. It gets **401**. Example: `shop-api`'s client credentials.
 - No `users` row is created. Rows (`app.users`) are keyed on the token's `sub`, the stable
-  Keycloak user ID, and created on the first request of a member. Email and name are stored for
-  display only. Passwords and roles are never stored.
+  Keycloak user ID, and created on a member's first request for data (any `/api` endpoint but
+  `/api/me`), together with their settings and starter accounts and categories. Email and name
+  are stored for display only. Passwords and roles are never stored. A token without a `sub` gets
+  **401**, since all of a user's data is keyed by it.
 
 ## How a browser session works
 

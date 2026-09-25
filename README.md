@@ -8,6 +8,8 @@ through a shared Keycloak server.
 > **Status: early development.** The whole stack runs end to end locally against the auth server's
 > dev Keycloak. It has not been deployed to production yet, and so far it has only run against a
 > stand-in Postgres, not the real Supabase database. See [Status and roadmap](#status-and-roadmap).
+> The backend's API now serves the double-entry ledger (docs/adr/0001-double-entry-ledger.md). The
+> frontend still calls the old single-entry endpoints and has to be ported.
 
 ## Features
 
@@ -67,13 +69,17 @@ Key decisions:
 ```
 backend/                      Spring Boot app
   src/main/java/com/example/financetracker/
-    category/                 categories: record, repository, REST controller
-    transaction/              transactions
-    dashboard/                summary endpoint (SQL aggregates)
+    api/                      what all endpoints share: problem details, JSON, OpenAPI
+    ledger/                   the double-entry ledger: records, repositories, services
+      api/                    its REST controllers
+      domain/                 its rules, in plain Java
+      report/                 reports computed from postings
+      importer/               the Excel ledger importer
     security/                 login (BFF), token checks, role mapping, current user
   src/main/resources/
     application.yml
     db/migration/             Flyway migrations
+    seed/starter-ledger.json  a new user's accounts and categories
   src/test/                   integration tests
 frontend/                     React SPA
   src/api.ts                  fetch wrapper: CSRF header, errors, reload while the backend is down
@@ -229,34 +235,52 @@ how it was verified, and what is still open, with the commit it landed in.
 
 Every endpoint under `/api` requires a member's access token: the session cookie from the browser,
 or `Authorization: Bearer <token>`. Writes from a browser session also need the CSRF token in the
-`X-XSRF-TOKEN` header. Dates are ISO `YYYY-MM-DD`, and date ranges include both ends.
+`X-XSRF-TOKEN` header. Dates are ISO `YYYY-MM-DD`, and date ranges include both ends. Amounts are
+decimal strings such as `"-12.50"`: debit positive, credit negative. The OpenAPI description is at
+`GET /api/openapi`.
 
-| Method   | Path                                           | Description                                                            |
-| -------- | ---------------------------------------------- | ---------------------------------------------------------------------- |
-| `GET`    | `/api/me`                                      | The signed-in user's display name                                      |
-| `GET`    | `/api/categories`                              | The user's categories, by name                                         |
-| `GET`    | `/api/categories/{id}`                         | One category                                                           |
-| `POST`   | `/api/categories`                              | Create: `{"name", "type": "INCOME" \| "EXPENSE"}` → 201                |
-| `PUT`    | `/api/categories/{id}`                         | Rename. `type` must match the stored one; it can't be changed          |
-| `DELETE` | `/api/categories/{id}`                         | Delete → 204                                                           |
-| `GET`    | `/api/transactions?from=&to=&categoryId=`      | The user's transactions; every filter is optional                      |
-| `GET`    | `/api/transactions/{id}`                       | One transaction                                                        |
-| `POST`   | `/api/transactions`                            | Create: `{"categoryId", "amount", "occurredOn", "note"?}` → 201        |
-| `PUT`    | `/api/transactions/{id}`                       | Update                                                                 |
-| `DELETE` | `/api/transactions/{id}`                       | Delete → 204                                                           |
-| `GET`    | `/api/dashboard/summary?from=&to=`             | `balance` (all-time), plus `income`, `expense` and `spendByCategory` for the range |
+A user's first request for data gives them settings (base currency EUR) and a starter set of
+accounts and categories.
 
-Error responses:
+| Method   | Path                                  | Description                                                                 |
+| -------- | ------------------------------------- | --------------------------------------------------------------------------- |
+| `GET`    | `/api/me`                             | The signed-in user's display name                                           |
+| `GET`    | `/api/accounts`                       | The user's accounts, archived ones included, by code                        |
+| `POST`   | `/api/accounts`                       | Create: `{"code", "name", "type", "defaultCurrency"?, "requiresCounterparty"?}` → 201 |
+| `PATCH`  | `/api/accounts/{id}`                  | Rename, archive or restore, set or clear the default currency. Not for system accounts |
+| `GET`    | `/api/categories`                     | The user's categories, by name                                              |
+| `POST`   | `/api/categories`                     | Create: `{"code", "name", "type": "INCOME" \| "EXPENSE"}` → 201             |
+| `PATCH`  | `/api/categories/{id}`                | Rename, archive or restore. The type can't change                           |
+| `GET`    | `/api/counterparties`                 | The user's counterparties, each with `lastCategoryId`                       |
+| `POST`   | `/api/counterparties`                 | Create: `{"name", "kind"?}` → 201                                           |
+| `PATCH`  | `/api/counterparties/{id}`            | Rename, classify, archive or restore                                        |
+| `GET`    | `/api/entries`                        | Entries, newest first; filters `from`, `to`, `accountId`, `categoryId`, `counterpartyId`, `q`; `page`, `size` |
+| `GET`    | `/api/entries/{id}`                   | One entry with its postings                                                 |
+| `POST`   | `/api/entries`                        | Create from a command whose `kind` is `EXPENSE`, `INCOME`, `TRANSFER`, `SHARED_EXPENSE`, `LOAN_GIVEN`, `LOAN_REPAID`, `CURRENCY_EXCHANGE`, `OPENING_BALANCE` or `MANUAL` → 201 |
+| `PUT`    | `/api/entries/{id}?version=`          | Replace with a new command, if the entry is still at `version`              |
+| `DELETE` | `/api/entries/{id}?version=`          | Delete, if the entry is still at `version` → 204                            |
+| `GET`    | `/api/reports/balances?asOf=`         | Balance per account and currency                                            |
+| `GET`    | `/api/reports/cash-flow?from=&to=`    | Income and expenses per month, category and currency                        |
+| `GET`    | `/api/reports/counterparty-balances?accountCode=&asOf=` | Balance per counterparty of an account such as `LOANS_ASSET` |
+| `GET`    | `/api/reports/net-worth?asOf=`        | Assets minus liabilities per currency                                       |
+| `GET`    | `/api/reports/shared-settlement?asOf=` | What is open with the shared budget                                        |
+| `GET`    | `/api/reports/integrity`              | Currencies in which the ledger doesn't add up; empty when sound             |
+| `POST`   | `/api/import`                         | Multipart `accounts`, `categories`, `transactions`, `openingBalances`?; `dryRun` (default true). Returns the import report |
+| `GET`    | `/api/settings`                       | Base currency, shared account, default share ratio                          |
+| `PUT`    | `/api/settings`                       | Replace the settings                                                        |
+
+`asOf` defaults to today in the server's time zone.
+
+Errors are problem details (RFC 9457):
 
 | Status | When                                                                                  |
 | ------ | ------------------------------------------------------------------------------------- |
-| 400    | Validation failed (for example an amount ≤ 0 or with more than two decimals), or the category doesn't belong to the user |
+| 400    | A malformed request. `errors` lists each invalid field or parameter                   |
 | 401    | No valid access token                                                                 |
 | 403    | The token lacks the `finance-tracker` → `user` role, or a browser write has no CSRF token |
-| 404    | The row doesn't exist or belongs to another user                                      |
-| 409    | Deleting a category that still has transactions, or changing a category's type        |
-
-Validation and domain errors come back as problem details (RFC 9457).
+| 404    | The object doesn't exist or belongs to another user                                   |
+| 409    | A stale `version`, a duplicate code or name, renaming or archiving a system account, or changing a category's type |
+| 422    | The entry or settings break the ledger's rules. `violations` lists every broken rule |
 
 ## Production
 

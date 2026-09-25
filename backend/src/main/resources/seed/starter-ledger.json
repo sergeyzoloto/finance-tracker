@@ -1,0 +1,31 @@
+{
+  "accounts": [
+    {"code": "CASH", "name": "Cash", "type": "ASSET", "defaultCurrency": "EUR"},
+    {"code": "CURRENT_ACCOUNT", "name": "Current account", "type": "ASSET", "defaultCurrency": "EUR"},
+    {"code": "SAVINGS_ACCOUNT", "name": "Savings account", "type": "ASSET", "defaultCurrency": "EUR"},
+    {"code": "LOANS_ASSET", "name": "Loans given", "type": "ASSET", "defaultCurrency": "EUR", "requiresCounterparty": true},
+    {"code": "CREDITOR_DEBT", "name": "Debts to creditors", "type": "LIABILITY", "defaultCurrency": "EUR", "requiresCounterparty": true},
+    {"code": "FAMILY_DEBT", "name": "Family budget", "type": "LIABILITY", "defaultCurrency": "EUR"},
+    {"code": "UNALLOCATED", "name": "Unallocated", "type": "EQUITY", "defaultCurrency": "EUR"},
+    {"code": "RESERVE", "name": "Reserve", "type": "EQUITY", "defaultCurrency": "EUR"},
+    {"code": "OPENING_BALANCE", "name": "Opening balance", "type": "EQUITY", "system": true},
+    {"code": "FX_EXCHANGE", "name": "Currency exchange", "type": "EQUITY", "system": true}
+  ],
+  "categories": [
+    {"code": "SALARY", "name": "Salary", "type": "INCOME"},
+    {"code": "INTEREST", "name": "Interest", "type": "INCOME"},
+    {"code": "GIFTS_RECEIVED", "name": "Gifts received", "type": "INCOME"},
+    {"code": "OTHER_INCOME", "name": "Other income", "type": "INCOME"},
+    {"code": "GROCERIES", "name": "Groceries", "type": "EXPENSE"},
+    {"code": "EATING_OUT", "name": "Eating out", "type": "EXPENSE"},
+    {"code": "HOUSING", "name": "Housing", "type": "EXPENSE"},
+    {"code": "UTILITIES", "name": "Utilities", "type": "EXPENSE"},
+    {"code": "TRANSPORT", "name": "Transport", "type": "EXPENSE"},
+    {"code": "HEALTH", "name": "Health", "type": "EXPENSE"},
+    {"code": "CLOTHING", "name": "Clothing", "type": "EXPENSE"},
+    {"code": "LEISURE", "name": "Leisure", "type": "EXPENSE"},
+    {"code": "GIFTS", "name": "Gifts", "type": "EXPENSE"},
+    {"code": "BANK_FEES", "name": "Bank fees", "type": "EXPENSE"},
+    {"code": "OTHER_EXPENSES", "name": "Other expenses", "type": "EXPENSE"}
+  ]
+}

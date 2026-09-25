@@ -3,6 +3,37 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-25 · REST API for the double-entry ledger
+
+Not committed yet.
+
+**Changes**
+- The API serves the ledger of ADR 0001: accounts, categories, counterparties, entries (paginated,
+  filtered, with optimistic locking), reports, the Excel import as a multipart upload, and
+  settings. The README lists every endpoint; springdoc describes them at `GET /api/openapi`.
+- An entry's body is a domain command; its `kind` picks the command record through a Jackson
+  mix-in. Amounts are JSON strings both ways.
+- Errors are RFC 7807 problem details from one `@RestControllerAdvice`: 400 lists the invalid
+  fields, 404 covers other users' objects, 409 a stale version or a conflicting change, 422 the
+  ledger rules an entry breaks.
+- A user's first request for data gives them settings (EUR) and a generic starter ledger from
+  `seed/starter-ledger.json`, once, even for parallel first requests. OPENING_BALANCE and
+  FX_EXCHANGE are system accounts, which can't be renamed or archived.
+- The user id is the token's `sub`, resolved in `CurrentUserResolver` and passed to services.
+  Tokens without a `sub` get 401.
+- V1's API (categories, transactions, dashboard) is removed: `/api/categories` now serves the
+  ledger's categories. V1's tables stay.
+
+**Verified**
+- 177 backend tests (`./mvnw -B verify`), 34 of them new, with MockMvc and spring-security-test's
+  `jwt()`: 404 across users, reports without other users' data, 422 for an unbalanced manual entry,
+  409 for a stale version, pagination and every filter, and the starter ledger seeded once under
+  eight parallel first requests.
+
+**Open**
+- The frontend still calls V1's endpoints and has to be ported to the new API.
+- No live run against the dev Keycloak or Supabase; V2 and V3 still aren't applied there.
+
 ## 2026-09-22 · Login moved to the shared auth server (realm `myapps`)
 
 Not committed yet. Auth server repository: branch `finance-tracker-client`, commit `ebe48ee` (not pushed).

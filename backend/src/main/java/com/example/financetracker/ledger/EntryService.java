@@ -1,10 +1,16 @@
 package com.example.financetracker.ledger;
 
 import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -16,22 +22,26 @@ import java.util.stream.Collectors;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.EntryCommand;
 import com.example.financetracker.ledger.domain.EntryDraft;
+import com.example.financetracker.ledger.domain.EntryKind;
 import com.example.financetracker.ledger.domain.InvalidEntryException;
 import com.example.financetracker.ledger.domain.LedgerContext;
 import com.example.financetracker.ledger.domain.LedgerReferences;
 import com.example.financetracker.ledger.domain.LedgerReferences.AccountInfo;
 import com.example.financetracker.ledger.domain.LedgerReferences.CategoryInfo;
 import com.example.financetracker.ledger.domain.LedgerValidator;
+import com.example.financetracker.ledger.domain.Money;
+import com.example.financetracker.ledger.domain.PostingLine;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Writes and reads journal entries. Callers pass the user id, the Keycloak "sub" claim (rule 11); nothing here reads
- * the security context. A command builds the entry, {@link LedgerValidator} checks it, and the entry is written with
- * its postings in one transaction. The rows the entry refers to stay locked until then, so the database's own checks
- * are a backstop that users don't meet.
+ * Writes, reads and searches journal entries. Callers pass the user id, the Keycloak "sub" claim (rule 11); nothing
+ * here reads the security context. A command builds the entry, {@link LedgerValidator} checks it, and the entry is
+ * written with its postings in one transaction. The rows the entry refers to stay locked until then, so the
+ * database's own checks are a backstop that users don't meet.
  */
 @Service
 public class EntryService {
@@ -48,15 +58,17 @@ public class EntryService {
     private final LedgerCategoryRepository categories;
     private final CounterpartyRepository counterparties;
     private final UserSettingsRepository settings;
+    private final JdbcClient jdbc;
     private final LedgerValidator validator = new LedgerValidator();
 
     EntryService(JournalEntryRepository entries, AccountRepository accounts, LedgerCategoryRepository categories,
-            CounterpartyRepository counterparties, UserSettingsRepository settings) {
+            CounterpartyRepository counterparties, UserSettingsRepository settings, JdbcClient jdbc) {
         this.entries = entries;
         this.accounts = accounts;
         this.categories = categories;
         this.counterparties = counterparties;
         this.settings = settings;
+        this.jdbc = jdbc;
     }
 
     /** @throws InvalidEntryException naming every problem with the entry */
@@ -125,6 +137,93 @@ public class EntryService {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public EntryView get(String userId, long entryId) {
         return EntryView.of(find(userId, entryId));
+    }
+
+    /**
+     * One page of the user's entries that match the filter, newest first: by entry date, then by id, both
+     * descending.
+     *
+     * @param page the page's number, from 0
+     * @param size the most entries a page holds
+     */
+    // The count, the page and its postings are read by separate queries; one snapshot keeps them consistent.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public EntryPage search(String userId, EntryFilter filter, int page, int size) {
+        // Only fixed fragments go into the SQL; every value is a parameter.
+        StringBuilder where = new StringBuilder("e.user_id = :userId");
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        if (filter.from() != null) {
+            where.append(" AND e.entry_date >= :from");
+            params.put("from", filter.from());
+        }
+        if (filter.to() != null) {
+            where.append(" AND e.entry_date <= :to");
+            params.put("to", filter.to());
+        }
+        if (filter.accountId() != null) {
+            where.append(" AND EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.account_id = :accountId)");
+            params.put("accountId", filter.accountId());
+        }
+        if (filter.categoryId() != null) {
+            where.append(" AND EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.category_id = :categoryId)");
+            params.put("categoryId", filter.categoryId());
+        }
+        if (filter.counterpartyId() != null) {
+            where.append(" AND (e.payee_id = :counterpartyId OR EXISTS"
+                    + " (SELECT FROM posting p WHERE p.entry_id = e.id AND p.counterparty_id = :counterpartyId))");
+            params.put("counterpartyId", filter.counterpartyId());
+        }
+        if (filter.text() != null) {
+            where.append(" AND (e.memo ILIKE :text OR payee.name ILIKE :text)");
+            params.put("text", "%" + likeLiteral(filter.text()) + "%");
+        }
+        String from = " FROM journal_entry e LEFT JOIN counterparty payee ON payee.id = e.payee_id WHERE " + where;
+
+        long total = jdbc.sql("SELECT count(*)" + from).params(params).query(Long.class).single();
+        params.put("limit", size);
+        params.put("offset", (long) page * size);
+        List<EntryView> headers = jdbc.sql("SELECT e.id, e.version, e.entry_date, e.kind, e.payee_id, e.memo" + from
+                        + " ORDER BY e.entry_date DESC, e.id DESC LIMIT :limit OFFSET :offset")
+                .params(params)
+                .query(EntryService::header)
+                .list();
+        return new EntryPage(withPostings(headers), page, size, total, Math.toIntExact((total + size - 1) / size));
+    }
+
+    /** The text with LIKE's wildcards escaped by backslash, which is PostgreSQL's default escape character. */
+    private static String likeLiteral(String text) {
+        return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    /** An entry's own columns, without its postings; {@link #withPostings} adds them. */
+    private static EntryView header(ResultSet row, int rowNum) throws SQLException {
+        String kind = row.getString("kind");
+        return new EntryView(row.getLong("id"), row.getInt("version"), row.getObject("entry_date", LocalDate.class),
+                kind == null ? null : EntryKind.valueOf(kind), row.getObject("payee_id", Long.class),
+                row.getString("memo"), List.of());
+    }
+
+    /** The entries with their postings in order, which are read in one query for all of them. */
+    private List<EntryView> withPostings(List<EntryView> headers) {
+        if (headers.isEmpty()) {
+            return headers;
+        }
+        Map<Long, List<PostingLine>> postings = new LinkedHashMap<>();
+        headers.forEach(entry -> postings.put(entry.id(), new ArrayList<>()));
+        jdbc.sql("""
+                SELECT entry_id, account_id, currency, amount, category_id, counterparty_id
+                FROM posting WHERE entry_id IN (:entryIds) ORDER BY entry_id, line_no""")
+                .param("entryIds", postings.keySet())
+                .query(row -> {
+                    postings.get(row.getLong("entry_id")).add(new PostingLine(row.getLong("account_id"),
+                            row.getString("currency"), Money.normalize(row.getBigDecimal("amount")),
+                            row.getObject("category_id", Long.class), row.getObject("counterparty_id", Long.class)));
+                });
+        return headers.stream()
+                .map(e -> new EntryView(e.id(), e.version(), e.entryDate(), e.kind(), e.payeeId(), e.memo(),
+                        List.copyOf(postings.get(e.id()))))
+                .toList();
     }
 
     private JournalEntry find(String userId, long entryId) {

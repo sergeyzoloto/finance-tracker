@@ -51,6 +51,12 @@
             <artifactId>commons-csv</artifactId>
             <version>1.14.1</version>
         </dependency>
+        <!-- The OpenAPI description of the REST API, at /api/openapi (api.OpenApiConfiguration). No Swagger UI. -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+            <version>2.9.1</version>
+        </dependency>
         <!-- Compile scope: ledger.Json maps JSONB columns through the driver's PGobject. -->
         <dependency>
             <groupId>org.postgresql</groupId>

@@ -45,6 +45,6 @@ class RoleMappingTests {
     }
 
     private static List<String> authorities(Jwt jwt) {
-        return CurrentUserConverter.authorities(jwt, CLIENT_ID).stream().map(GrantedAuthority::getAuthority).toList();
+        return ClientRoles.authorities(jwt, CLIENT_ID).stream().map(GrantedAuthority::getAuthority).toList();
     }
 }

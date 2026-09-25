@@ -55,6 +55,13 @@ class AccessTokenTests extends IntegrationTest {
     }
 
     @Test
+    void requiresASubject() {
+        // Every row a user owns is keyed by it (rule 11).
+        assertThat(me(sign(claims(subject).subject(null)))).hasStatus(HttpStatus.UNAUTHORIZED);
+        assertThat(me(sign(claims(subject).subject(" ")))).hasStatus(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
     void requiresThisClientsUserRole() {
         Map<String, Map<String, Object>> withoutUserRole = new LinkedHashMap<>();
         withoutUserRole.put("no roles", Map.of());
@@ -87,7 +94,7 @@ class AccessTokenTests extends IntegrationTest {
     @Test
     void bearerRequestsAreStatelessAndNeedNoCsrfToken() {
         MvcTestResult write = request(POST, "/api/categories", token(subject), """
-                {"name": "Rent", "type": "EXPENSE"}""");
+                {"code": "RENT", "name": "Rent", "type": "EXPENSE"}""");
 
         assertThat(write).hasStatus(HttpStatus.CREATED);
         assertThat(write.getRequest().getSession(false)).isNull();

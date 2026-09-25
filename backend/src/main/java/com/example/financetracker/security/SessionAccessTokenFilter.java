@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.OAuth2AuthorizeRequest;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProviderBuilder;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
@@ -62,8 +63,11 @@ final class SessionAccessTokenFilter extends OncePerRequestFilter implements Bea
                     }
                 }
             }
-            // Without a token the request is anonymous (401), even if the session still remembers a login.
-            SecurityContextHolder.clearContext();
+            // Without a token the request is anonymous (401), even if the session still remembers a login: the
+            // login's own authentication grants nothing.
+            if (SecurityContextHolder.getContext().getAuthentication() instanceof OAuth2AuthenticationToken) {
+                SecurityContextHolder.clearContext();
+            }
         }
         chain.doFilter(request, response);
     }

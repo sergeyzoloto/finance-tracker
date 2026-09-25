@@ -14,6 +14,6 @@ class MeController {
 
     @GetMapping("/api/me")
     Me me(Authentication authentication) {
-        return new Me(CurrentUserConverter.displayName((Jwt) authentication.getCredentials()));
+        return new Me(CurrentUserResolver.displayName((Jwt) authentication.getCredentials()));
     }
 }

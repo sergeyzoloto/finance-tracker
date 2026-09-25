@@ -1,5 +1,7 @@
 package com.example.financetracker.security;
 
+import java.util.List;
+
 import jakarta.servlet.DispatcherType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,10 +21,15 @@ import org.springframework.security.oauth2.client.registration.InMemoryClientReg
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.BadJwtException;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtDecoderInitializationException;
 import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
@@ -32,6 +39,8 @@ import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.util.function.SingletonSupplier;
+import org.springframework.web.method.support.HandlerMethodArgumentResolver;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
  * Login and access control through the shared Keycloak, realm "myapps", client {@code app.keycloak.client-id}
@@ -40,8 +49,10 @@ import org.springframework.util.function.SingletonSupplier;
  * <li>Browsers use this backend as their backend-for-frontend: it runs the authorization code flow with PKCE as a
  * confidential client and keeps the tokens in the server-side session; the browser only gets the session cookie.
  * <li>Every API request, from a browser session or with a bearer token, is authorized by an access token checked
- * locally against the realm's keys: signature, issuer, expiry and audience ({@code application.yml}), then this
- * client's {@code user} role.
+ * locally against the realm's keys: signature, issuer, expiry, audience ({@code application.yml}) and subject, then
+ * this client's {@code user} role ({@link ClientRoles}).
+ * <li>The token's subject is the user id that all data is keyed by. Controllers get it as a {@link CurrentUser}
+ * parameter ({@link CurrentUserResolver}).
  * </ul>
  * Keycloak is contacted lazily, so the app starts while it's down; API requests then get 401.
  * <p>
@@ -61,9 +72,9 @@ class SecurityConfig {
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, CurrentUserConverter currentUserConverter,
-            JwtDecoder jwtDecoder, ClientRegistrationRepository clientRegistrations,
-            OAuth2AuthorizedClientRepository authorizedClients) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, KeycloakProperties keycloak, JwtDecoder jwtDecoder,
+            ClientRegistrationRepository clientRegistrations, OAuth2AuthorizedClientRepository authorizedClients)
+            throws Exception {
         SessionAccessTokenFilter sessionAccessTokens = new SessionAccessTokenFilter(clientRegistrations, authorizedClients);
         AuthenticationFailureHandler loginFailed = loginFailedHandler();
         return http
@@ -74,7 +85,7 @@ class SecurityConfig {
                         .bearerTokenResolver(sessionAccessTokens)
                         .jwt(jwt -> jwt
                                 .decoder(unauthorizedWhileKeycloakIsDown(jwtDecoder))
-                                .jwtAuthenticationConverter(currentUserConverter)))
+                                .jwtAuthenticationConverter(members(keycloak))))
                 .addFilterBefore(sessionAccessTokens, BearerTokenAuthenticationFilter.class)
                 .oauth2Login(login -> login
                         // Also switches off Spring's generated login and logout pages.
@@ -104,6 +115,26 @@ class SecurityConfig {
     }
 
     /**
+     * Every row a user owns is keyed by the token's subject (rule 11), so a token without one is refused like any
+     * invalid token (401). Spring Boot adds this check to the decoder's own.
+     */
+    @Bean
+    OAuth2TokenValidator<Jwt> subjectRequired() {
+        return new JwtClaimValidator<String>(JwtClaimNames.SUB, subject -> subject != null && !subject.isBlank());
+    }
+
+    /** Controllers take the user as a {@link CurrentUser} parameter. */
+    @Bean
+    WebMvcConfigurer currentUserParameter(CurrentUserResolver currentUser) {
+        return new WebMvcConfigurer() {
+            @Override
+            public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
+                resolvers.add(currentUser);
+            }
+        };
+    }
+
+    /**
      * The client registration, from the realm's discovery document on first use rather than at startup, so the app
      * starts while Keycloak is unreachable. A failed lookup is retried on the next login.
      */
@@ -125,6 +156,13 @@ class SecurityConfig {
     @Bean
     OAuth2AuthorizedClientRepository authorizedClientRepository() {
         return new HttpSessionOAuth2AuthorizedClientRepository();
+    }
+
+    /** A token's authorities are this client's roles; its name is its subject. */
+    private static JwtAuthenticationConverter members(KeycloakProperties keycloak) {
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(new ClientRoles(keycloak.clientId()));
+        return converter;
     }
 
     /** Ends the Keycloak session too (end-session endpoint with id_token_hint), then returns to the app. */

@@ -52,7 +52,7 @@ class BrowserLoginTests extends IntegrationTest {
         assertThat(json.readTree(get("/api/me", session).getResponse().getContentAsString()).get("name").asText())
                 .isEqualTo("User " + subject);
         assertThat(write("/api/categories", session, """
-                {"name": "Rent", "type": "EXPENSE"}""", csrfToken(session))).hasStatus(HttpStatus.CREATED);
+                {"code": "RENT", "name": "Rent", "type": "EXPENSE"}""", csrfToken(session))).hasStatus(HttpStatus.CREATED);
         assertThat(get("/api/categories", session).getResponse().getContentAsString()).contains("Rent");
     }
 
@@ -60,7 +60,7 @@ class BrowserLoginTests extends IntegrationTest {
     void writesFromTheBrowserNeedTheCsrfToken() {
         MockHttpSession session = login(claims(subject), LONG_LIVED);
         String body = """
-                {"name": "Rent", "type": "EXPENSE"}""";
+                {"code": "RENT", "name": "Rent", "type": "EXPENSE"}""";
 
         String csrfToken = csrfToken(session);
 

@@ -18,7 +18,7 @@
 
 ## Project map
 
-State on 2026-09-25. The code still has the single-entry model and conflicts with the rules above; see [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md). The ledger's schema (V2, V3), its domain and service layer (`ledger/`), its reports (`ledger/report/`) and the Excel importer (`ledger/importer/`) exist, but no API uses them yet.
+State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md) (`ledger/api/`). The single-entry API of V1 (categories, transactions, dashboard) is gone, but the frontend still calls it and needs porting. V1's tables are still there, unused apart from `users`.
 
 - **Deployment:** not deployed, and no production database exists.
   - `docker-compose.yml` runs backend and nginx only, with no DB service, and reads `SUPABASE_*` from `.env`.
@@ -27,33 +27,42 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
 - **Backend** (`backend/`):
   - Stack: Java 21, Spring Boot 3.5, Maven wrapper, Spring Data **JDBC** (records, no JPA/Hibernate), Flyway, PostgreSQL.
   - Code lives in package `com.example.financetracker`. Every repository query is scoped by user id; another user's row returns 404.
-  - `category/`: `Category(id, userId, name, type)` → `categories`. `/api/categories`: GET, GET/PUT/DELETE `/{id}`, POST. PUT renames only; a type change is 409. DELETE is 409 while the category is in use.
-  - `transaction/`: `Transaction(id, userId, categoryId, amount, occurredOn, note)` → `transactions`. `/api/transactions`: GET `?from&to&categoryId`, GET/PUT/DELETE `/{id}`, POST.
-  - `dashboard/`: GET `/api/dashboard/summary?from&to`. It runs SQL through `JdbcClient` and returns all-time balance plus income, expense and spendByCategory for the range.
-  - `security/`: `SecurityConfig` makes the backend a BFF. It runs oauth2Login with PKCE and keeps tokens in the session.
-    - Every request's JWT is checked: issuer, `aud` = finance-tracker, and client role `user` → ROLE_USER. Writes need the CSRF cookie and header.
-    - `SessionAccessTokenFilter` turns the session token into a bearer token and refreshes it.
-    - `CurrentUserConverter` maps the JWT `sub` to a `users` row, creating it if missing. `MeController` serves GET `/api/me`.
+  - `security/`: `SecurityConfig` makes the backend a BFF and an OAuth2 resource server. It runs oauth2Login with PKCE and keeps tokens in the session.
+    - Every request's JWT is checked: issuer, `aud` = finance-tracker, a non-blank `sub`, and client role `user` → ROLE_USER (`ClientRoles`). Writes need the CSRF cookie and header.
+    - `SessionAccessTokenFilter` turns the session token into a bearer token and refreshes it. It drops the session's login authentication, which grants nothing by itself.
+    - `CurrentUserResolver` is the one place that works out the user: it fills the `CurrentUser(id)` parameter of controller methods with the JWT `sub`, and controllers pass `id` to services. On first sight of a user it inserts the `users` row (email and name) and calls `StarterLedger.seedIfNew`.
+    - `MeController` serves GET `/api/me`.
+  - `api/`: what all endpoints share.
+    - `ApiExceptionHandler` is the one `@RestControllerAdvice`. Every error is an RFC 7807 problem detail: 400 with `errors` (field, message), 404 for another user's object, 409 for a stale version or a conflicting change, 422 with `violations` for broken ledger rules, 500 without details.
+    - `JsonConfiguration` writes every `BigDecimal` as a JSON string. `@CurrencyCode` validates ISO 4217 codes.
+    - `OpenApiConfiguration`: springdoc serves the OpenAPI 3.1 description at `/api/openapi`, behind login like the rest of `/api`.
+  - `ledger/api/`: the REST controllers of the ledger. Request DTOs are nested records, or classes with setters for a PATCH whose field may be set to null.
+    - `/api/accounts`, `/api/categories`, `/api/counterparties`: GET, POST, PATCH `/{id}`. System accounts can't be renamed or archived (409); a category's type can't change (409).
+    - `/api/entries`: GET with `from`, `to`, `accountId`, `categoryId`, `counterpartyId`, `q`, `page`, `size`; GET `/{id}`; POST; PUT `/{id}?version=`; DELETE `/{id}?version=`. The body is a domain command; `EntryCommandJson` is the Jackson mix-in that maps its `kind` to the command record.
+    - `/api/reports/{balances,cash-flow,counterparty-balances,net-worth,shared-settlement,integrity}`, `/api/import` (multipart, `dryRun` defaults to true), `/api/settings` (GET, PUT).
   - `ledger/domain/`: the ledger's rules in plain Java, with no Spring and no database.
     - One command record per entry kind: expense, income, transfer, shared expense, loan given, loan repaid, currency exchange, opening balance, and manual (raw postings). A command's `postings(LedgerContext)` builds its postings. Its constructor rejects fields the builder can't work with.
     - `ImportedCommand` carries postings an importer built, with the kind it inferred.
     - `LedgerValidator` checks an entry against every rule the triggers enforce, and throws one `InvalidEntryException` that lists every violation.
-  - `ledger/`: Spring Data JDBC records and repositories for every ledger table. Owned rows carry `String userId`, the Keycloak `sub`.
+  - `ledger/`: Spring Data JDBC records and repositories for every ledger table, and the services. Owned rows carry `String userId`, the Keycloak `sub`. Every service takes the user id as a parameter and returns `*View` records, never entities.
+    - `AccountService`, `CategoryService`, `CounterpartyService` and `SettingsService` serve the reference data. A counterparty's `lastCategoryId` is computed on each read.
+    - `StarterLedger` gives a user without `user_settings` their settings (base currency EUR) and the generic accounts and categories of `src/main/resources/seed/starter-ledger.json`. The settings row's key serializes concurrent first requests. OPENING_BALANCE and FX_EXCHANGE are the system accounts.
+    - Exceptions for the API: `NotFoundException` (404), `ConflictException` (409), `RuleViolationException` (422).
     - `JournalEntry` is one aggregate with its `List<Posting>`, ordered by `line_no` and guarded by `@Version`. Saving it replaces all its postings.
-    - `EntryService` offers create, update, delete and get, and takes the user id as a parameter. It builds the entry from a command and validates it, holding the rows it refers to under FOR SHARE locks. It returns `EntryView`, never an entity.
+    - `EntryService` offers create, update, delete, get and search (paginated, newest first). It builds the entry from a command and validates it, holding the rows it refers to under FOR SHARE locks. It returns `EntryView`, never an entity.
     - `EntryService.createImported` also records the import batch and `external_ref`.
   - `ledger/report/`: `ReportService` computes every report from postings on each call, one native SQL statement per report through `JdbcClient`, into records. It takes the user id as a parameter.
     - Reports: balances per account and currency, balances per counterparty, monthly cash flow per category, net worth, the shared-account settlement, and an integrity check.
     - Amounts come back `Money.normalize`d. There are no stored balance tables (rule 13).
   - `ledger/importer/`: imports the owner's Excel ledger (see "How to run the importer" below).
-    - `ImportService.run(ImportRequest)` takes the files as bytes and returns an `ImportReport`, so a REST endpoint can reuse it. `ImportReportMarkdown` renders the report.
+    - `ImportService.run(ImportRequest)` takes the files as bytes and returns an `ImportReport`, which POST `/api/import` returns as JSON. `ImportReportMarkdown` renders the report for the command line.
     - `Workbook` reads the CSV files with Commons CSV. `EntryMapper` turns a row into an entry, in plain Java without a database.
     - The whole run is one transaction, with a savepoint per row. A dry run always rolls back. A commit rolls back if any row has an error.
     - A row's `external_ref` is `xls:` + SHA-256 of its business columns + `:` + its occurrence among identical rows. A row whose ref the user already has is skipped, so re-running is safe.
-    - `ImportRunner` is the command line. It runs only with the Spring profile `import` (`application-import.yml`: no web server, so `SecurityConfig` and `CurrentUserConverter` don't load).
+    - `ImportRunner` is the command line. It runs only with the Spring profile `import` (`application-import.yml`: no web server, so `SecurityConfig` and `CurrentUserResolver` don't load).
   - `JdbcConfiguration` takes over Spring Data JDBC setup from Boot, to register the converters for JSONB (`ledger.Json`).
 - **Database** (schema `app`, Flyway, `backend/src/main/resources/db/migration/`). Add `V<n>__*.sql`; never edit an applied one.
-  - `V1__users_categories_transactions.sql`, the single-entry model the code uses today:
+  - `V1__users_categories_transactions.sql`, the single-entry model. Only `users` is still used:
     - `users(id BIGINT, keycloak_id UNIQUE, email, display_name)`.
     - `categories(user_id → users.id, name, type INCOME|EXPENSE)`.
     - `transactions(user_id, category_id NOT NULL, amount NUMERIC(12,2) > 0, occurred_on DATE, note)`.
@@ -63,7 +72,7 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
   - `V3__posting_line_no.sql`, not applied anywhere yet: `posting.line_no`, a posting's position in its entry, unique per entry.
 - **Frontend** (`frontend/`): React 19, react-router 7, Vite 8, TypeScript.
   - `api.ts` calls `/api/*` with the session cookie and `X-XSRF-TOKEN`. A 401 sends the browser to `/oauth2/authorization/keycloak`.
-  - Pages: `/` Dashboard, `/transactions`, `/categories`. Amounts are JS `number`.
+  - Pages: `/` Dashboard, `/transactions`, `/categories`. Amounts are JS `number`. They still call V1's endpoints (`/api/transactions`, `/api/dashboard/summary`, PUT/DELETE `/api/categories/{id}`), which no longer exist.
   - nginx (prod image) and the Vite dev server proxy `/api`, `/oauth2`, `/login/oauth2` and `/logout` to the backend.
 - **Auth:** shared Keycloak, realm `myapps`, client `finance-tracker`. The prod issuer is `https://auth.finance-nl.com/realms/myapps`. See `docs/auth.md`.
 - **Tests:**
@@ -71,6 +80,7 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
     - `EntryBuilderTests` and `LedgerValidatorTests` are plain unit tests of `ledger/domain/`.
     - `EntryServiceTests`, `LedgerRepositoryTests` and `ReportServiceTests` run against the database. `ReportServiceTests` writes its ledger through `EntryService`.
     - The importer: `ExcelValuesTests`, `WorkbookTests` and `EntryMapperTests` are unit tests. `ImportServiceTests` and `ImportRunnerTests` run against the database.
+    - The API: `ApiTests` (401 on every endpoint, starter data seeded once under parallel first requests, 404 across users, the OpenAPI paths) and `ledger/api/*ApiTests` use MockMvc with spring-security-test's `jwt()` (`IntegrationTest.member`). `AccessTokenTests` and `BrowserLoginTests` use real signed tokens and sessions.
     - `src/test/resources/import/` is a synthetic workbook with invented names and the real exports' formatting quirks. Its row 10 names an unknown account on purpose.
   - Frontend: no tests.
   - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify` and `npm ci && npm run build`.

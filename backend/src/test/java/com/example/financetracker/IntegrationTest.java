@@ -1,6 +1,6 @@
 package com.example.financetracker;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 import java.io.IOException;
 import java.util.TimeZone;
@@ -13,12 +13,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
@@ -79,17 +80,14 @@ public abstract class IntegrationTest {
         return json.readValue(result.getResponse().getContentAsString(), type);
     }
 
-    protected long createCategory(String token, String name, String type) throws IOException {
-        var result = request(HttpMethod.POST, "/api/categories", token, """
-                {"name": "%s", "type": "%s"}""".formatted(name, type));
-        assertThat(result).hasStatus(HttpStatus.CREATED);
-        return json.readTree(result.getResponse().getContentAsString()).get("id").asLong();
-    }
-
-    protected long createTransaction(String token, long categoryId, String amount, String occurredOn) throws IOException {
-        var result = request(HttpMethod.POST, "/api/transactions", token, """
-                {"categoryId": %d, "amount": %s, "occurredOn": "%s"}""".formatted(categoryId, amount, occurredOn));
-        assertThat(result).hasStatus(HttpStatus.CREATED);
-        return json.readTree(result.getResponse().getContentAsString()).get("id").asLong();
+    /**
+     * A member's request as spring-security-test's jwt() makes it: authenticated as the subject with the client role
+     * user, without a signed token. The tests of AccessTokenTests and BrowserLoginTests check how real tokens get
+     * there.
+     */
+    protected static RequestPostProcessor member(String subject) {
+        return jwt()
+                .jwt(token -> token.subject(subject).claim("email", subject + "@example.com").claim("name", "User " + subject))
+                .authorities(new SimpleGrantedAuthority("ROLE_USER"));
     }
 }

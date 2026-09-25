@@ -14,11 +14,18 @@ spring:
       schema: app
   flyway:
     schemas: app
+  jackson:
+    generator:
+      # Money goes out as JSON strings (api.ApiJsonConfiguration), and never in exponent notation.
+      write-bigdecimal-as-plain: true
   mvc:
     format:
       date: iso
-    problemdetails:
-      enabled: true
+  servlet:
+    multipart:
+      # POST /api/import: the Excel ledger's CSV exports. nginx allows the same (frontend/nginx.conf).
+      max-file-size: 10MB
+      max-request-size: 20MB
   security:
     oauth2:
       resourceserver:
@@ -38,3 +45,9 @@ server:
         http-only: true
         secure: true
         same-site: lax
+springdoc:
+  # Under /api, so that nginx and the Vite dev server pass it on, and only members can read it.
+  api-docs:
+    path: /api/openapi
+  default-produces-media-type: application/json
+  writer-with-order-by-keys: true

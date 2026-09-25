@@ -18,7 +18,7 @@
 
 ## Project map
 
-State on 2026-09-25. The code still has the single-entry model and conflicts with the rules above; see [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md). The ledger's schema (V2, V3) and its domain and service layer (`ledger/`) exist, but no API uses them yet.
+State on 2026-09-25. The code still has the single-entry model and conflicts with the rules above; see [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md). The ledger's schema (V2, V3), its domain and service layer (`ledger/`) and its reports (`ledger/report/`) exist, but no API uses them yet.
 
 - **Deployment:** not deployed, and no production database exists.
   - `docker-compose.yml` runs backend and nginx only, with no DB service, and reads `SUPABASE_*` from `.env`.
@@ -40,6 +40,9 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
   - `ledger/`: Spring Data JDBC records and repositories for every ledger table. Owned rows carry `String userId`, the Keycloak `sub`.
     - `JournalEntry` is one aggregate with its `List<Posting>`, ordered by `line_no` and guarded by `@Version`. Saving it replaces all its postings.
     - `EntryService` offers create, update, delete and get, and takes the user id as a parameter. It builds the entry from a command and validates it, holding the rows it refers to under FOR SHARE locks. It returns `EntryView`, never an entity.
+  - `ledger/report/`: `ReportService` computes every report from postings on each call, one native SQL statement per report through `JdbcClient`, into records. It takes the user id as a parameter.
+    - Reports: balances per account and currency, balances per counterparty, monthly cash flow per category, net worth, the shared-account settlement, and an integrity check.
+    - Amounts come back `Money.normalize`d. There are no stored balance tables (rule 13).
   - `JdbcConfiguration` takes over Spring Data JDBC setup from Boot, to register the converters for JSONB (`ledger.Json`).
 - **Database** (schema `app`, Flyway, `backend/src/main/resources/db/migration/`). Add `V<n>__*.sql`; never edit an applied one.
   - `V1__users_categories_transactions.sql`, the single-entry model the code uses today:
@@ -58,7 +61,7 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
 - **Tests:**
   - Backend: JUnit 5 with MockMvcTester, Testcontainers `postgres:17-alpine` and an in-process `FakeKeycloak` that signs RS256 tokens. The JVM runs in time zone Pacific/Kiritimati. `LedgerSchemaTests` checks the ledger's triggers with plain JDBC on a freshly migrated database.
     - `EntryBuilderTests` and `LedgerValidatorTests` are plain unit tests of `ledger/domain/`.
-    - `EntryServiceTests` and `LedgerRepositoryTests` run against the database.
+    - `EntryServiceTests`, `LedgerRepositoryTests` and `ReportServiceTests` run against the database. `ReportServiceTests` writes its ledger through `EntryService`.
   - Frontend: no tests.
   - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify` and `npm ci && npm run build`.
 - **Private data:** `data/private/` holds the owner's real Excel ledger as CSV and is git-ignored. Never commit it, print whole files from it, or copy names or amounts from it into the repository.

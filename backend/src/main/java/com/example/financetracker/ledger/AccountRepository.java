@@ -13,6 +13,8 @@ public interface AccountRepository extends CrudRepository<Account, Long> {
 
     Optional<Account> findByIdAndUserId(long id, String userId);
 
+    Optional<Account> findByUserIdAndCode(String userId, String code);
+
     List<Account> findAllByUserIdOrderByCode(String userId);
 
     List<Account> findAllByUserIdAndCodeIn(String userId, Collection<String> codes);

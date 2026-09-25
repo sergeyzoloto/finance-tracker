@@ -38,3 +38,6 @@ build/
 ### Node ###
 node_modules/
 dist/
+
+### Private data (personal financial records, never commit) ###
+data/private/

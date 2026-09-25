@@ -18,7 +18,7 @@
 
 ## Project map
 
-State on 2026-09-25. The code still has the single-entry model and conflicts with the rules above; see [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md). The ledger's schema exists (V2), but no code uses it yet.
+State on 2026-09-25. The code still has the single-entry model and conflicts with the rules above; see [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md). The ledger's schema (V2, V3) and its domain and service layer (`ledger/`) exist, but no API uses them yet.
 
 - **Deployment:** not deployed, and no production database exists.
   - `docker-compose.yml` runs backend and nginx only, with no DB service, and reads `SUPABASE_*` from `.env`.
@@ -34,6 +34,13 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
     - Every request's JWT is checked: issuer, `aud` = finance-tracker, and client role `user` → ROLE_USER. Writes need the CSRF cookie and header.
     - `SessionAccessTokenFilter` turns the session token into a bearer token and refreshes it.
     - `CurrentUserConverter` maps the JWT `sub` to a `users` row, creating it if missing. `MeController` serves GET `/api/me`.
+  - `ledger/domain/`: the ledger's rules in plain Java, with no Spring and no database.
+    - One command record per entry kind: expense, income, transfer, shared expense, loan given, loan repaid, currency exchange, opening balance, and manual (raw postings). A command's `postings(LedgerContext)` builds its postings. Its constructor rejects fields the builder can't work with.
+    - `LedgerValidator` checks an entry against every rule the triggers enforce, and throws one `InvalidEntryException` that lists every violation.
+  - `ledger/`: Spring Data JDBC records and repositories for every ledger table. Owned rows carry `String userId`, the Keycloak `sub`.
+    - `JournalEntry` is one aggregate with its `List<Posting>`, ordered by `line_no` and guarded by `@Version`. Saving it replaces all its postings.
+    - `EntryService` offers create, update, delete and get, and takes the user id as a parameter. It builds the entry from a command and validates it, holding the rows it refers to under FOR SHARE locks. It returns `EntryView`, never an entity.
+  - `JdbcConfiguration` takes over Spring Data JDBC setup from Boot, to register the converters for JSONB (`ledger.Json`).
 - **Database** (schema `app`, Flyway, `backend/src/main/resources/db/migration/`). Add `V<n>__*.sql`; never edit an applied one.
   - `V1__users_categories_transactions.sql`, the single-entry model the code uses today:
     - `users(id BIGINT, keycloak_id UNIQUE, email, display_name)`.
@@ -42,13 +49,17 @@ State on 2026-09-25. The code still has the single-entry model and conflicts wit
   - `V2__double_entry_ledger.sql`, the ledger of ADR 0001, not applied anywhere yet:
     - `account`, `category`, `counterparty`, `journal_entry`, `posting`, `import_batch` and `user_settings` are keyed by `user_id TEXT`, the Keycloak `sub`. `exchange_rate` is shared by all users.
     - Triggers enforce the cross-row rules. At commit, every entry the transaction touched needs at least 2 postings that sum to zero per currency. A posting's entry, account, category and counterparty belong to one user, only EQUITY postings carry a category, and `requires_counterparty` accounts get a counterparty on every posting. `user_id` never changes, and an account can't change so that its postings break these rules.
+  - `V3__posting_line_no.sql`, not applied anywhere yet: `posting.line_no`, a posting's position in its entry, unique per entry.
 - **Frontend** (`frontend/`): React 19, react-router 7, Vite 8, TypeScript.
   - `api.ts` calls `/api/*` with the session cookie and `X-XSRF-TOKEN`. A 401 sends the browser to `/oauth2/authorization/keycloak`.
   - Pages: `/` Dashboard, `/transactions`, `/categories`. Amounts are JS `number`.
   - nginx (prod image) and the Vite dev server proxy `/api`, `/oauth2`, `/login/oauth2` and `/logout` to the backend.
 - **Auth:** shared Keycloak, realm `myapps`, client `finance-tracker`. The prod issuer is `https://auth.finance-nl.com/realms/myapps`. See `docs/auth.md`.
 - **Tests:**
-  - Backend: JUnit 5 with MockMvcTester, Testcontainers `postgres:17-alpine` and an in-process `FakeKeycloak` that signs RS256 tokens. The JVM runs in time zone Pacific/Kiritimati. `LedgerSchemaTests` checks the ledger's triggers with plain JDBC on a freshly migrated database. Frontend: no tests.
+  - Backend: JUnit 5 with MockMvcTester, Testcontainers `postgres:17-alpine` and an in-process `FakeKeycloak` that signs RS256 tokens. The JVM runs in time zone Pacific/Kiritimati. `LedgerSchemaTests` checks the ledger's triggers with plain JDBC on a freshly migrated database.
+    - `EntryBuilderTests` and `LedgerValidatorTests` are plain unit tests of `ledger/domain/`.
+    - `EntryServiceTests` and `LedgerRepositoryTests` run against the database.
+  - Frontend: no tests.
   - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify` and `npm ci && npm run build`.
 - **Private data:** `data/private/` holds the owner's real Excel ledger as CSV and is git-ignored. Never commit it, print whole files from it, or copy names or amounts from it into the repository.
 

@@ -30,6 +30,7 @@ class LedgerSchemaTests {
 
     private static final String CHECK_VIOLATION = "23514";
     private static final String FOREIGN_KEY_VIOLATION = "23503";
+    private static final String UNIQUE_VIOLATION = "23505";
 
     private static final PostgreSQLContainer<?> POSTGRES = IntegrationTest.POSTGRES;
     private static final String URL = "jdbc:postgresql://%s:%d/ledger_schema_tests"
@@ -40,6 +41,8 @@ class LedgerSchemaTests {
     private final String user = UUID.randomUUID().toString();
     private Connection db;
     private long cash, card, loans, unallocated, familyDebt, fxExchange, groceries, borrower;
+    /** Unique across all entries, so that a posting moved to another entry keeps a free line number. */
+    private int lineNo;
 
     @BeforeAll
     static void migrateEmptyDatabase() throws SQLException {
@@ -158,6 +161,18 @@ class LedgerSchemaTests {
         assertFails(db::commit, CHECK_VIOLATION, "journal entry %d needs at least 2 postings, has 1".formatted(from));
     }
 
+    /** Two postings of one entry at the same position would make the order of its postings ambiguous (V3). */
+    @Test
+    void postingsOfAnEntryHaveDistinctLineNumbers() throws SQLException {
+        long entry = expense("7.50");
+
+        assertFails(() -> insert("""
+                INSERT INTO posting (entry_id, line_no, account_id, currency, amount)
+                SELECT entry_id, line_no, account_id, currency, amount
+                FROM posting WHERE entry_id = ? AND account_id = ?""",
+                entry, cash), UNIQUE_VIOLATION, "posting_entry_id_line_no_key");
+    }
+
     @Test
     void categoryOnAssetPostingFails() throws SQLException {
         long entry = entry();
@@ -250,8 +265,9 @@ class LedgerSchemaTests {
     private void post(long entry, long account, String currency, String amount, Long category, Long counterparty)
             throws SQLException {
         insert("""
-                INSERT INTO posting (entry_id, account_id, currency, amount, category_id, counterparty_id)
-                VALUES (?, ?, ?, ?, ?, ?)""", entry, account, currency, new BigDecimal(amount), category, counterparty);
+                INSERT INTO posting (entry_id, line_no, account_id, currency, amount, category_id, counterparty_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""", entry, lineNo++, account, currency, new BigDecimal(amount), category,
+                counterparty);
     }
 
     private long insert(String sql, Object... params) throws SQLException {

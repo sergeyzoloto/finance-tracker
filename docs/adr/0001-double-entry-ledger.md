@@ -1,7 +1,7 @@
 # ADR 0001: Double-entry ledger
 
-**Status:** Accepted, 2026-09-25. Not implemented yet: the code still has the single-entry model of
-`V1__users_categories_transactions.sql`.
+**Status:** Accepted, 2026-09-25. The schema is in `V2__double_entry_ledger.sql`; the code still uses the
+single-entry model of `V1__users_categories_transactions.sql`.
 
 ## Context
 

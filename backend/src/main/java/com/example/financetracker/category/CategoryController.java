@@ -51,11 +51,19 @@ class CategoryController {
         return categories.save(new Category(null, user.id(), request.name(), request.type()));
     }
 
+    /**
+     * Renames a category. The type is fixed once set: it decides the sign of every transaction already
+     * filed under it, so changing it would silently rewrite history. A category created with the wrong
+     * type can be deleted while it still has no transactions, then created again.
+     */
     @PutMapping("/{id}")
     Category update(@AuthenticationPrincipal CurrentUser user, @PathVariable long id,
             @Valid @RequestBody CategoryRequest request) {
-        get(user, id);
-        return categories.save(new Category(id, user.id(), request.name(), request.type()));
+        Category existing = get(user, id);
+        if (request.type() != existing.type()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "A category's type cannot be changed");
+        }
+        return categories.save(new Category(id, user.id(), request.name(), existing.type()));
     }
 
     @DeleteMapping("/{id}")

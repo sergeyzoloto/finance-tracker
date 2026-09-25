@@ -157,6 +157,26 @@ class ApiTests extends IntegrationTest {
         assertThat(request(GET, "/api/categories/" + salary, alice, null)).hasStatus(HttpStatus.NOT_FOUND);
     }
 
+    @Test
+    void aCategorysTypeIsFixedAfterCreation() throws IOException {
+        long rent = createCategory(alice, "Rent", "EXPENSE");
+        String uri = "/api/categories/" + rent;
+        long transaction = createTransaction(alice, rent, "12.00", "2026-01-15");
+
+        assertThat(request(PUT, uri, alice, """
+                {"name": "Rent", "type": "INCOME"}""")).hasStatus(HttpStatus.CONFLICT);
+        // Renaming, with the type left as it stands, still works.
+        assertThat(request(PUT, uri, alice, """
+                {"name": "Mortgage", "type": "EXPENSE"}""")).hasStatusOk();
+
+        JsonNode category = body(request(GET, uri, alice, null));
+        assertThat(category.get("name").asText()).isEqualTo("Mortgage");
+        assertThat(category.get("type").asText()).isEqualTo("EXPENSE");
+        // The transaction filed under it keeps its meaning.
+        assertThat(body(request(GET, "/api/transactions/" + transaction, alice, null)).get("categoryId").asLong())
+                .isEqualTo(rent);
+    }
+
     private JsonNode body(MvcTestResult result) throws IOException {
         assertThat(result).hasStatusOk();
         return read(result, JsonNode.class);

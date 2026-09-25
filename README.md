@@ -14,8 +14,9 @@ through a shared Keycloak server.
 - **Dashboard:** all-time balance, this month's income and expenses, and spending by category.
 - **Transactions:** add, edit and delete. Filter by date range (the current month by default) and by
   category.
-- **Categories:** each one is marked income or expense. A category that still has transactions
-  can't be deleted.
+- **Categories:** each one is marked income or expense, and that type is fixed once the category
+  exists — it decides the sign of every transaction filed under it. Categories can be renamed, and a
+  category that still has transactions can't be deleted.
 - **Sign-in:** single sign-on through the shared Keycloak (realm `myapps`), for members only. The
   app has no passwords of its own, and no token ever reaches the browser.
 - **Per-user data:** users only ever see their own categories and transactions.
@@ -236,7 +237,7 @@ or `Authorization: Bearer <token>`. Writes from a browser session also need the 
 | `GET`    | `/api/categories`                              | The user's categories, by name                                         |
 | `GET`    | `/api/categories/{id}`                         | One category                                                           |
 | `POST`   | `/api/categories`                              | Create: `{"name", "type": "INCOME" \| "EXPENSE"}` → 201                |
-| `PUT`    | `/api/categories/{id}`                         | Update                                                                 |
+| `PUT`    | `/api/categories/{id}`                         | Rename. `type` must match the stored one; it can't be changed          |
 | `DELETE` | `/api/categories/{id}`                         | Delete → 204                                                           |
 | `GET`    | `/api/transactions?from=&to=&categoryId=`      | The user's transactions; every filter is optional                      |
 | `GET`    | `/api/transactions/{id}`                       | One transaction                                                        |
@@ -253,7 +254,7 @@ Error responses:
 | 401    | No valid access token                                                                 |
 | 403    | The token lacks the `finance-tracker` → `user` role, or a browser write has no CSRF token |
 | 404    | The row doesn't exist or belongs to another user                                      |
-| 409    | Deleting a category that still has transactions                                       |
+| 409    | Deleting a category that still has transactions, or changing a category's type        |
 
 Validation and domain errors come back as problem details (RFC 9457).
 

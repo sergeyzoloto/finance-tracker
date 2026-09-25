@@ -10,7 +10,8 @@ export default function Categories() {
     event.preventDefault()
     const form = event.currentTarget
     const data = new FormData(form)
-    const body = { name: data.get('name'), type: data.get('type') }
+    // The type is fixed after creation, so an edit resends the one the category already has.
+    const body = { name: data.get('name'), type: editing?.type ?? data.get('type') }
     const saved = await run(() => editing
       ? api(`/categories/${editing.id}`, 'PUT', body)
       : api('/categories', 'POST', body))
@@ -34,11 +35,12 @@ export default function Categories() {
         <label>Name <input name="name" required maxLength={100} defaultValue={editing?.name} /></label>
         <label>
           Type{' '}
-          <select name="type" defaultValue={editing?.type ?? 'EXPENSE'}>
+          <select name="type" defaultValue={editing?.type ?? 'EXPENSE'} disabled={editing !== undefined}>
             <option value="EXPENSE">Expense</option>
             <option value="INCOME">Income</option>
           </select>
         </label>
+        {editing && <small>The type can't be changed. Delete the category and add it again if it's wrong.</small>}
         <button>{editing ? 'Save' : 'Add'}</button>
         {editing && <button type="button" onClick={() => setEditing(undefined)}>Cancel</button>}
       </form>

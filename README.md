@@ -8,20 +8,25 @@ through a shared Keycloak server.
 > **Status: early development.** The whole stack runs end to end locally against the auth server's
 > dev Keycloak. It has not been deployed to production yet, and so far it has only run against a
 > stand-in Postgres, not the real Supabase database. See [Status and roadmap](#status-and-roadmap).
-> The backend's API now serves the double-entry ledger (docs/adr/0001-double-entry-ledger.md). The
-> frontend still calls the old single-entry endpoints and has to be ported.
+> The backend's API and the frontend serve the double-entry ledger
+> (docs/adr/0001-double-entry-ledger.md).
 
 ## Features
 
-- **Dashboard:** all-time balance, this month's income and expenses, and spending by category.
-- **Transactions:** add, edit and delete. Filter by date range (the current month by default) and by
-  category.
-- **Categories:** each one is marked income or expense, and that type is fixed once the category
-  exists — it decides the sign of every transaction filed under it. Categories can be renamed, and a
-  category that still has transactions can't be deleted.
+- **Dashboard:** net worth per currency, this month's income and expenses, and spending by category.
+- **Entries:** newest first, 50 per page, filtered by period, account, category, payee or person,
+  and text. Each row reads like "Current account → Groceries".
+- **Entry form:** tabs for expense (optionally split with the family, showing your own share
+  live), income, transfer, loan given or repaid, currency exchange, and Advanced for raw postings,
+  which saves only when every currency adds up to zero. Nobody needs to know debit and credit.
+- **Accounts:** by type, with balances per currency, and per person for loans; rename, archive and
+  restore.
+- **Categories:** income or expense, fixed once created; add, rename, archive and restore.
+- **Import:** upload the Excel ledger's CSV export, check it in a dry run, then commit it if no
+  row has an error.
 - **Sign-in:** single sign-on through the shared Keycloak (realm `myapps`), for members only. The
   app has no passwords of its own, and no token ever reaches the browser.
-- **Per-user data:** users only ever see their own categories and transactions.
+- **Per-user data:** users only ever see their own ledger.
 
 ## Architecture
 
@@ -213,12 +218,13 @@ docker run --rm --network host \
 ```bash
 cd frontend
 npm ci
+npm test         # Vitest: money, the entry form's logic, and the form components in jsdom
 npm run build    # type-check (tsc), then the production build
 npm run dev      # Vite on :5173, proxying to the backend at localhost:8081
 ```
 
 `npm run dev` needs the backend running on the host, as in the local stack. Set
-`API_PROXY_TARGET` to proxy somewhere else. There are no frontend tests or linter yet.
+`API_PROXY_TARGET` to proxy somewhere else. There is no linter yet.
 
 ### Database migrations
 
@@ -302,7 +308,7 @@ Hetzner host, not on Supabase. The move to Supabase comes later; see
 
 ## Status and roadmap
 
-Done: the domain model and REST API, the three screens, sign-in through the shared Keycloak, and a
+Done: the double-entry ledger with its REST API and screens, sign-in through the shared Keycloak, and a
 local stack that recovers from backend restarts and Keycloak outages. The history is in
 [change_log.mdx](change_log.mdx).
 
@@ -311,8 +317,10 @@ Open:
 - [ ] Run against the real Supabase database.
 - [ ] Set up the client in the production realm and deploy.
 - [x] CI: build and test on every push, in [.github/workflows/ci.yml](.github/workflows/ci.yml).
-- [ ] Frontend tests, and the scripted browser checks, in the repository.
-- [ ] Pagination for the transaction list.
+- [x] Frontend unit and component tests (Vitest).
+- [ ] The scripted browser checks in the repository.
+- [x] Pagination for the entry list.
+- [ ] Screens to create accounts and to change the settings (shared account, default share).
 - [ ] Update the user's email and display name after the first sign-in; today they are captured
       once.
 - [ ] Back-channel logout. For now, a sign-out in another `myapps` app is noticed here within 5

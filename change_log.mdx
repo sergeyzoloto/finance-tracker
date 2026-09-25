@@ -3,6 +3,40 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-25 · Frontend: screens for daily work with the ledger
+
+Not committed yet.
+
+**Changes**
+- New screens on the ledger's API: Entries (`/entries`), the entry form (`/entries/new`,
+  `/entries/:id`), Accounts (`/accounts`) and Import (`/import`). Categories is rewritten, and the
+  Dashboard reads the net-worth and cash-flow reports. Transactions (V1) is gone; `/transactions`
+  redirects to `/entries`.
+- The entry form has tabs: Expense (with "Split with family" and a live own share), Income,
+  Transfer, Loan (given or repaid), Currency exchange and Advanced (raw postings with a balance per
+  currency; Save waits until every currency adds up to zero). Users pick accounts, categories and a
+  direction; no screen says debit or credit. A known payee preselects its `lastCategoryId`; a new
+  payee or borrower becomes a counterparty on save.
+- A saved entry opens in the tab of its kind if its postings have that tab's shape, and otherwise
+  in Advanced.
+- Server messages (400 `errors`, 422 `violations`) are shown at the fields they are about.
+- Amounts stay decimal strings; arithmetic goes through big.js in strict mode (`money.ts`), and
+  display through `Intl.NumberFormat` in the currency.
+- New libraries: big.js (decimal arithmetic); Vitest, jsdom and Testing Library (the frontend had
+  no test runner). `npm test` runs in CI.
+
+**Verified**
+- 45 frontend tests (`npm test`), `npm run build`.
+- Every screen in headless Chrome against the backend on a throwaway PostgreSQL 17 and the dev
+  Keycloak: one entry per tab, editing each kind, a server message at its field, a stale version,
+  delete, filters and pagination (60 entries), rename, archive and restore, and an import of the
+  synthetic workbook (commit blocked by its bad row, then committed without it, then re-run with
+  nothing new). All 29 imported entries open in their own tab.
+
+**Open**
+- The scripted browser checks aren't in the repository.
+- Accounts can't be created in the UI, and settings (shared account, default ratio) have no screen.
+
 ## 2026-09-25 · REST API for the double-entry ledger
 
 Not committed yet.

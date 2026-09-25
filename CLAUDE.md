@@ -18,7 +18,7 @@
 
 ## Project map
 
-State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md) (`ledger/api/`). The single-entry API of V1 (categories, transactions, dashboard) is gone, but the frontend still calls it and needs porting. V1's tables are still there, unused apart from `users`.
+State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md) (`ledger/api/`), and the frontend uses it. The single-entry API of V1 (categories, transactions, dashboard) is gone. V1's tables are still there, unused apart from `users`.
 
 - **Deployment:** not deployed, and no production database exists.
   - `docker-compose.yml` runs backend and nginx only, with no DB service, and reads `SUPABASE_*` from `.env`.
@@ -70,9 +70,13 @@ State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/00
     - `account`, `category`, `counterparty`, `journal_entry`, `posting`, `import_batch` and `user_settings` are keyed by `user_id TEXT`, the Keycloak `sub`. `exchange_rate` is shared by all users.
     - Triggers enforce the cross-row rules. At commit, every entry the transaction touched needs at least 2 postings that sum to zero per currency. A posting's entry, account, category and counterparty belong to one user, only EQUITY postings carry a category, and `requires_counterparty` accounts get a counterparty on every posting. `user_id` never changes, and an account can't change so that its postings break these rules.
   - `V3__posting_line_no.sql`, not applied anywhere yet: `posting.line_no`, a posting's position in its entry, unique per entry.
-- **Frontend** (`frontend/`): React 19, react-router 7, Vite 8, TypeScript.
-  - `api.ts` calls `/api/*` with the session cookie and `X-XSRF-TOKEN`. A 401 sends the browser to `/oauth2/authorization/keycloak`.
-  - Pages: `/` Dashboard, `/transactions`, `/categories`. Amounts are JS `number`. They still call V1's endpoints (`/api/transactions`, `/api/dashboard/summary`, PUT/DELETE `/api/categories/{id}`), which no longer exist.
+- **Frontend** (`frontend/`): React 19, react-router 7, Vite 8, TypeScript. No state library: pages load with `useApi` and write with `useMutation`.
+  - `api.ts` calls `/api/*` with the session cookie and `X-XSRF-TOKEN`; a 401 sends the browser to `/oauth2/authorization/keycloak`. It holds the API's types. A failed call throws `ApiError`, which carries the problem's `errors` (400) and `violations` (422).
+  - `money.ts`: amounts are decimal strings, as the API sends them. All arithmetic goes through big.js in strict mode, never JS numbers, rounding HALF_UP. `formatMoney` formats the string with `Intl.NumberFormat` in the currency.
+  - `ledger.ts`: `useLedger` loads accounts, categories, counterparties and settings. `describeEntry` reads an entry from its postings for the list, such as "Current account → Groceries".
+  - `entryForm.ts` is the entry form without React. It holds one `EntryForm` state for all tabs. `formFromEntry` opens an entry in its kind's tab if its postings have that tab's shape, or else in Advanced. `validate` checks the form, `toCommand` builds the command, and `serverErrors` maps the server's messages to fields. `EntryForms.tsx` renders it; `components.tsx` holds the shared controls.
+  - Routes: `/` Dashboard, `/entries` (filters and page in the URL), `/entries/new?tab=`, `/entries/:id`, `/accounts`, `/categories`, `/import`. `/transactions` redirects to `/entries`.
+  - The screens never say debit or credit. Users pick a direction instead (refund, lent or got back), and only Advanced shows signed amounts.
   - nginx (prod image) and the Vite dev server proxy `/api`, `/oauth2`, `/login/oauth2` and `/logout` to the backend.
 - **Auth:** shared Keycloak, realm `myapps`, client `finance-tracker`. The prod issuer is `https://auth.finance-nl.com/realms/myapps`. See `docs/auth.md`.
 - **Tests:**
@@ -82,8 +86,8 @@ State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/00
     - The importer: `ExcelValuesTests`, `WorkbookTests` and `EntryMapperTests` are unit tests. `ImportServiceTests` and `ImportRunnerTests` run against the database.
     - The API: `ApiTests` (401 on every endpoint, starter data seeded once under parallel first requests, 404 across users, the OpenAPI paths) and `ledger/api/*ApiTests` use MockMvc with spring-security-test's `jwt()` (`IntegrationTest.member`). `AccessTokenTests` and `BrowserLoginTests` use real signed tokens and sessions.
     - `src/test/resources/import/` is a synthetic workbook with invented names and the real exports' formatting quirks. Its row 10 names an unknown account on purpose.
-  - Frontend: no tests.
-  - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify` and `npm ci && npm run build`.
+  - Frontend: Vitest (`vite.config.ts`, jsdom) with Testing Library. `money.test.ts` and `entryForm.test.ts` test the logic; `EntryForms.test.tsx` renders the form (the split's own share, the Advanced balance indicator). `testLedger.ts` is their reference data.
+  - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify` and `npm ci && npm test && npm run build`.
 - **Private data:** `data/private/` holds the owner's real Excel ledger as CSV and is git-ignored. Never commit it, print whole files from it, or copy names or amounts from it into the repository.
 
 ## How to run the importer
@@ -143,10 +147,13 @@ docker run --rm --network host \
   maven:3.9-eclipse-temurin-21 mvn -B test -Dmaven.repo.local=/var/maven/.m2/repository
 ```
 
-The frontend has no tests. Type-checking and building it is the check:
+Frontend tests need no backend:
 
 ```bash
 cd frontend
 npm ci
+npm test        # vitest run
 npm run build   # tsc, then vite build
 ```
+
+To try the screens against a local backend, don't use `./dev.sh` until V2 and V3 are applied to Supabase: the backend's Flyway would migrate it. Run the backend on the host against a throwaway PostgreSQL instead, like the importer above, with `SERVER_PORT=8081` and the `KEYCLOAK_*` values of `.env`. Then run `npx vite` in `frontend/` and sign in at http://localhost:5173 as testuser / test1234.

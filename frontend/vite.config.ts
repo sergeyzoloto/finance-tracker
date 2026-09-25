@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -12,5 +13,9 @@ export default defineConfig({
     // localhost:5173 (the string shorthand would rewrite it), so the backend builds its redirect URIs for this server.
     proxy: Object.fromEntries(['/api', '/oauth2', '/login/oauth2', '/logout']
       .map((path) => [path, { target: backend, changeOrigin: false }])),
+  },
+  test: {
+    // Component tests render into a simulated DOM; the rest are plain functions.
+    environment: 'jsdom',
   },
 })

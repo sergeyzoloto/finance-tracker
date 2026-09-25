@@ -50,6 +50,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
       # "build" runs tsc first, so this type-checks as well as bundles.
       - name: Type-check and build
         working-directory: frontend

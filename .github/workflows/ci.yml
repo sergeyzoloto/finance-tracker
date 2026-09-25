@@ -1,0 +1,97 @@
+# Build and test on every push. The backend tests need Docker for Testcontainers (PostgreSQL 17);
+# GitHub's ubuntu runners provide it. They don't need Keycloak: FakeKeycloak stands in for it.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to the same branch supersedes a run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build and test
+        working-directory: backend
+        run: ./mvnw -B verify
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      # "build" runs tsc first, so this type-checks as well as bundles.
+      - name: Type-check and build
+        working-directory: frontend
+        run: npm run build
+
+  dependencies:
+    name: Dependency updates
+    runs-on: ubuntu-latest
+    # Advisory only: newer versions are reported, never enforced, and never fail the build.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # processDependencyManagement=false keeps the Boot BOM's hundreds of managed artifacts out of
+      # the report, leaving only what this project declares. Pre-release versions are filtered out.
+      - name: Check for newer dependency versions
+        working-directory: backend
+        run: |
+          ./mvnw -B org.codehaus.mojo:versions-maven-plugin:2.18.0:display-dependency-updates \
+            -DprocessDependencyManagement=false \
+            -Dmaven.version.ignore='.*-M\d+,.*-RC\d+,.*-rc\d+,.*-beta.*,.*-alpha.*' \
+            | tee updates.txt
+
+      # Surfaced on the run's summary page, so it is not buried in the log.
+      - name: Report
+        if: always()
+        working-directory: backend
+        run: |
+          {
+            echo '## Maven dependency updates'
+            echo
+            if grep -q 'newer versions' updates.txt; then
+              echo '```'
+              sed -n '/newer versions/,/^\[INFO\] *$/p' updates.txt | sed 's/^\[INFO\] \{0,2\}//'
+              echo '```'
+            else
+              echo 'All declared dependencies are up to date.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

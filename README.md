@@ -173,11 +173,11 @@ The tests need Docker, because Testcontainers starts PostgreSQL 17. They don't n
 `FakeKeycloak` serves discovery, signing keys and a token endpoint, and signs real RS256 tokens. The
 test JVM runs in UTC+14, so that a date shifted by a time zone conversion shows up.
 
-With JDK 21 and Maven installed:
+With JDK 21 installed — the Maven wrapper fetches Maven 3.9.16 itself, so no local Maven is needed:
 
 ```bash
 cd backend
-mvn test
+./mvnw test
 ```
 
 Without a local JDK, run Maven in Docker (Linux):
@@ -285,7 +285,7 @@ Open:
 
 - [ ] Run against the real Supabase database.
 - [ ] Set up the client in the production realm and deploy.
-- [ ] CI: build and test on every push. There is no pipeline at the moment.
+- [x] CI: build and test on every push, in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - [ ] Frontend tests, and the scripted browser checks, in the repository.
 - [ ] Pagination for the transaction list.
 - [ ] Update the user's email and display name after the first sign-in; today they are captured

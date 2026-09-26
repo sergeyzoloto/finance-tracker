@@ -7,6 +7,7 @@ import Dashboard from './Dashboard'
 import Entries from './Entries'
 import EntryEditor from './EntryEditor'
 import Import from './Import'
+import Rates from './Rates'
 
 export default function App({ me }: { me: Me }) {
   return (
@@ -17,6 +18,7 @@ export default function App({ me }: { me: Me }) {
           <NavLink to="/entries">Entries</NavLink>
           <NavLink to="/accounts">Accounts</NavLink>
           <NavLink to="/categories">Categories</NavLink>
+          <NavLink to="/rates">Rates</NavLink>
           <NavLink to="/import">Import</NavLink>
         </nav>
         <Link className="button primary" to="/entries/new">New entry</Link>
@@ -31,6 +33,7 @@ export default function App({ me }: { me: Me }) {
           <Route path="/entries/:id" element={<EntryEditor />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/categories" element={<Categories />} />
+          <Route path="/rates" element={<Rates />} />
           <Route path="/import" element={<Import />} />
           <Route path="/transactions" element={<Navigate to="/entries" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

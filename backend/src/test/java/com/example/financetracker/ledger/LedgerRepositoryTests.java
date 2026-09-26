@@ -92,11 +92,17 @@ class LedgerRepositoryTests extends IntegrationTest {
     void exchangeRateIsInsertedThenReplaced() {
         LocalDate day = LocalDate.of(2026, 9, 25);
 
-        exchangeRates.save(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.00000000"), "manual"));
-        exchangeRates.save(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.50000000"), "ecb"));
+        exchangeRates.save(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.00000000"), "ECB", null));
+        exchangeRates.save(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.50000000"), "ECB", null));
+        // The user's own rate for the same day is a row of its own.
+        exchangeRates.save(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("80.00000000"), "MANUAL", user));
 
-        assertThat(exchangeRates.find(day, "EUR", "RUB"))
-                .contains(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.50000000"), "ecb"));
-        assertThat(exchangeRates.find(day, "RUB", "EUR")).isEmpty();
+        assertThat(exchangeRates.find(day, "EUR", "RUB", null))
+                .contains(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.50000000"), "ECB", null));
+        assertThat(exchangeRates.find(day, "EUR", "RUB", user))
+                .contains(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("80.00000000"), "MANUAL", user));
+        assertThat(exchangeRates.find(day, "EUR", "RUB", other)).isEmpty();
+        assertThat(exchangeRates.findManual(user)).hasSize(1);
+        assertThat(exchangeRates.findManual(other)).isEmpty();
     }
 }

@@ -89,6 +89,43 @@ class ReportApiTests extends LedgerApiTest {
         assertThat(ok(get(bob, "/api/reports/integrity"))).isEmpty();
     }
 
+    /** Alice's ledger is in euros, her base currency, so the figures are the same and nothing needs a rate. */
+    @Test
+    void reportsInTheBaseCurrency() throws IOException {
+        JsonNode balances = ok(get(alice, "/api/reports/balances" + AS_OF + "&currency=BASE"));
+        assertThat(rows(balances, "accountCode", "currency", "balance")).containsExactly(
+                "CASH EUR 160.00", "CREDITOR_DEBT EUR 0.00", "CURRENT_ACCOUNT EUR 840.00", "FAMILY_DEBT EUR -30.00",
+                "LOANS_ASSET EUR 100.00", "OPENING_BALANCE EUR 200.00", "RESERVE EUR 0.00", "SAVINGS_ACCOUNT EUR 0.00",
+                "UNALLOCATED EUR 930.00");
+        assertThat(balances.get(0).get("missingRates")).isEmpty();
+
+        assertThat(ok(get(alice, "/api/reports/net-worth" + AS_OF + "&currency=BASE")).toString()).isEqualTo("""
+                {"currency":"EUR","assets":"1100.00","liabilities":"-30.00","netWorth":"1130.00",\
+                "unrealizedRevaluation":"0.00","realizedExchangeResult":"0.00","rates":[],"missingRates":[]}""");
+
+        JsonNode cashFlow = ok(get(alice, "/api/reports/cash-flow" + AUGUST + "&currency=BASE"));
+        assertThat(cashFlow.get("currency").asText()).isEqualTo("EUR");
+        assertThat(rows(cashFlow.get("rows"), "month", "categoryCode", "total"))
+                .containsExactly("2026-08 GROCERIES 70.00", "2026-08 SALARY 1000.00");
+        assertThat(rows(cashFlow.get("exchangeResults"), "month", "realized", "unrealized"))
+                .containsExactly("2026-08 0.00 0.00");
+    }
+
+    /** Alice has no rate for USD: the balance is missing, and says why. */
+    @Test
+    void aFigureWithoutARateIsNullInTheBaseCurrency() throws IOException {
+        newEntry(alice, """
+                {"kind": "EXPENSE", "entryDate": "2026-08-06", "accountId": %d, "currency": "USD", "amount": "10",
+                 "categoryId": %d}""".formatted(accountId(alice, "CASH"), categoryId(alice, "GROCERIES")));
+
+        JsonNode cash = find(ok(get(alice, "/api/reports/balances" + AS_OF + "&currency=BASE")), "accountCode", "CASH");
+        assertThat(cash.get("balance").isNull()).isTrue();
+        assertThat(cash.get("missingRates").toString()).isEqualTo("""
+                [{"currency":"USD","from":"2026-08-31","to":"2026-08-31","days":1}]""");
+        assertThat(ok(get(alice, "/api/reports/net-worth" + AS_OF + "&currency=BASE")).get("netWorth").isNull())
+                .isTrue();
+    }
+
     @Test
     void reportParametersAreChecked() throws IOException {
         assertThat(body(get(alice, "/api/reports/cash-flow?from=2026-08-01"), HttpStatus.BAD_REQUEST)
@@ -100,6 +137,11 @@ class ReportApiTests extends LedgerApiTest {
         assertThat(body(get(alice, "/api/reports/counterparty-balances?accountCode=CASH"), HttpStatus.BAD_REQUEST)
                 .get("detail").asText()).isEqualTo("Account CASH has no balances per counterparty: it doesn't "
                         + "require one.");
+        for (String report : new String[] {"balances?", "net-worth?", "cash-flow" + AUGUST + "&"}) {
+            assertThat(body(get(alice, "/api/reports/" + report + "currency=USD"), HttpStatus.BAD_REQUEST)
+                    .get("errors").toString()).as(report).isEqualTo("""
+                    [{"field":"currency","message":"must be BASE, or left out"}]""");
+        }
     }
 
     /** Each element of the array as the fields' values, separated by spaces. */

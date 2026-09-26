@@ -36,6 +36,8 @@ class KeycloakOutageTests {
         registry.add("app.keycloak.issuer-url", KEYCLOAK::issuer);
         registry.add("app.keycloak.client-id", () -> FakeKeycloak.CLIENT_ID);
         registry.add("app.keycloak.client-secret", () -> FakeKeycloak.CLIENT_SECRET);
+        // No downloads from the ECB: EcbRateLoaderTests load from a stand-in.
+        registry.add("app.rates.ecb.enabled", () -> "false");
     }
 
     @Autowired

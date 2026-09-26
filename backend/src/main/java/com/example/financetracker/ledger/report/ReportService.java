@@ -1,21 +1,38 @@
 package com.example.financetracker.ledger.report;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.example.financetracker.ledger.Account;
 import com.example.financetracker.ledger.AccountNotFoundException;
 import com.example.financetracker.ledger.AccountRepository;
+import com.example.financetracker.ledger.SettingsService;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.CategoryType;
+import com.example.financetracker.ledger.rates.MissingRate;
+import com.example.financetracker.ledger.rates.RateBook;
+import com.example.financetracker.ledger.rates.RateService;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Reports over the ledger, computed from postings on every call (rule 13). Callers pass the user id, the Keycloak
@@ -23,18 +40,30 @@ import org.springframework.stereotype.Service;
  * they are read from one snapshot and add up without a surrounding transaction.
  * <p>
  * Dates are inclusive. A balance "as of" a day includes every entry dated that day.
+ * <p>
+ * Balances, net worth and cash flow also come in the user's base currency ({@code *InBase}), converted with the rates
+ * of {@link RateService}: an amount on a day at the latest rate on or before that day. A figure that needs a rate that
+ * doesn't exist is null, and says which rate is missing. Those reports read the postings and the rates in two
+ * statements, in one transaction with a snapshot that both see.
  */
 @Service
 public class ReportService {
 
+    private static final String FX_EXCHANGE = AccountRole.FX_EXCHANGE.defaultCode();
+
     private final JdbcClient jdbc;
     private final AccountRepository accounts;
     private final UserSettingsRepository settings;
+    private final SettingsService settingsService;
+    private final RateService rates;
 
-    ReportService(JdbcClient jdbc, AccountRepository accounts, UserSettingsRepository settings) {
+    ReportService(JdbcClient jdbc, AccountRepository accounts, UserSettingsRepository settings,
+            SettingsService settingsService, RateService rates) {
         this.jdbc = jdbc;
         this.accounts = accounts;
         this.settings = settings;
+        this.settingsService = settingsService;
+        this.rates = rates;
     }
 
     /**
@@ -157,6 +186,193 @@ public class ReportService {
     }
 
     /**
+     * {@link #balances} in the user's base currency: one row per account, each of its currencies converted at the rate
+     * on {@code asOf}. Ordered by account code.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public List<ConvertedBalance> balancesInBase(String userId, LocalDate asOf) {
+        String base = settingsService.get(userId).baseCurrency();
+        List<AccountBalance> balances = balances(userId, asOf);
+        RateBook book = rates.rateBook(userId, currencies(balances.stream().map(AccountBalance::currency), base),
+                asOf, asOf);
+        Map<Long, List<AccountBalance>> byAccount = balances.stream()
+                .collect(Collectors.groupingBy(AccountBalance::accountId, LinkedHashMap::new, Collectors.toList()));
+        return byAccount.values().stream().map(rows -> {
+            ConvertedSum balance = new ConvertedSum(book, base);
+            rows.forEach(row -> balance.add(row.balance(), row.currency(), asOf));
+            AccountBalance account = rows.getFirst();
+            return new ConvertedBalance(account.accountId(), account.accountCode(), account.accountName(),
+                    account.accountType(), base, balance.total(), balance.missing().toList());
+        }).toList();
+    }
+
+    /**
+     * {@link #netWorth} in the user's base currency as of {@code asOf}, with the unrealized revaluation of what is held
+     * or owed and the realized result of exchanges (see {@link ConvertedNetWorth}).
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ConvertedNetWorth netWorthInBase(String userId, LocalDate asOf) {
+        String base = settingsService.get(userId).baseCurrency();
+        // Per day and currency: the postings to ASSET and to LIABILITY accounts, archived ones included, and those to
+        // FX_EXCHANGE.
+        List<DaySum> sums = jdbc.sql("""
+                SELECT CASE a.type WHEN 'EQUITY' THEN 'EXCHANGE' ELSE a.type END AS part, e.entry_date AS day,
+                       p.currency, sum(p.amount) AS amount
+                FROM journal_entry e
+                JOIN posting p ON p.entry_id = e.id
+                JOIN account a ON a.id = p.account_id
+                WHERE e.user_id = :userId AND a.user_id = :userId AND e.entry_date <= :asOf
+                  AND (a.type IN ('ASSET', 'LIABILITY') OR (a.type = 'EQUITY' AND a.code = :fxExchange))
+                GROUP BY 1, 2, 3
+                ORDER BY 2, 1, 3""")
+                .param("userId", userId)
+                .param("asOf", asOf)
+                .param("fxExchange", FX_EXCHANGE)
+                .query(DaySum.class)
+                .list();
+        LocalDate first = sums.isEmpty() ? asOf : sums.getFirst().day();
+        RateBook book = rates.rateBook(userId, currencies(sums.stream().map(DaySum::currency), base), first, asOf);
+
+        ConvertedSum assets = new ConvertedSum(book, base);
+        ConvertedSum liabilities = new ConvertedSum(book, base);
+        ConvertedSum revaluation = new ConvertedSum(book, base);
+        ConvertedSum realized = new ConvertedSum(book, base);
+        Map<String, BigDecimal> assetBalances = new TreeMap<>();
+        Map<String, BigDecimal> liabilityBalances = new TreeMap<>();
+        for (DaySum sum : sums) {
+            switch (sum.part()) {
+                case "ASSET" -> assetBalances.merge(sum.currency(), sum.amount(), BigDecimal::add);
+                case "LIABILITY" -> liabilityBalances.merge(sum.currency(), sum.amount(), BigDecimal::add);
+                default -> realized.add(sum.amount().negate(), sum.currency(), sum.day());
+            }
+            if (!sum.part().equals("EXCHANGE")) {
+                // Each posting at the rate on its own day, taken off the balance at the rate on asOf below.
+                revaluation.add(sum.amount().negate(), sum.currency(), sum.day());
+            }
+        }
+        assetBalances.forEach((currency, balance) -> {
+            assets.add(balance, currency, asOf);
+            revaluation.add(balance, currency, asOf);
+        });
+        liabilityBalances.forEach((currency, balance) -> {
+            liabilities.add(balance.negate(), currency, asOf);
+            revaluation.add(balance, currency, asOf);
+        });
+
+        Set<String> held = new TreeSet<>();
+        Stream.of(assetBalances, liabilityBalances).forEach(balances -> balances.forEach((currency, balance) -> {
+            if (balance.signum() != 0 && !currency.equals(base)) {
+                held.add(currency);
+            }
+        }));
+        if (!held.isEmpty()) {
+            held.add(base);
+        }
+        List<RateBook.Rate> used = held.stream()
+                .filter(currency -> !currency.equals(RateBook.EURO))
+                .flatMap(currency -> book.rate(currency, asOf).stream())
+                .toList();
+        return new ConvertedNetWorth(base, assets.total(), liabilities.total(),
+                ConvertedSum.difference(assets.total(), liabilities.total()), revaluation.total(), realized.total(),
+                used, missing(assets, liabilities, revaluation, realized));
+    }
+
+    /**
+     * {@link #cashFlow} in the user's base currency, each posting converted at the rate on its own day, and per month
+     * the realized result of exchanges and the change of the unrealized revaluation (see
+     * {@link ConvertedCashFlow.ExchangeResult}).
+     *
+     * @throws IllegalArgumentException if {@code from} is after {@code to}
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ConvertedCashFlow cashFlowInBase(String userId, LocalDate from, LocalDate to) {
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("'from' must not be after 'to'");
+        }
+        String base = settingsService.get(userId).baseCurrency();
+        // Per day and currency: categorized postings (CATEGORY) as cashFlow adds them up, postings to FX_EXCHANGE
+        // (EXCHANGE), and postings in other currencies than the base currency to ASSET and LIABILITY accounts
+        // (HOLDING), which are what is revalued. HOLDING before the period is one sum per currency, without a day.
+        List<FlowSum> sums = jdbc.sql("""
+                SELECT 'CATEGORY' AS part, e.entry_date AS day, p.currency, c.code AS category_code,
+                       c.name AS category_name, c.type AS category_type,
+                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS amount
+                FROM journal_entry e
+                JOIN posting p ON p.entry_id = e.id
+                JOIN category c ON c.id = p.category_id
+                WHERE e.user_id = :userId AND e.entry_date BETWEEN :from AND :to
+                GROUP BY e.entry_date, p.currency, c.id
+                UNION ALL
+                SELECT CASE a.type WHEN 'EQUITY' THEN 'EXCHANGE' ELSE 'HOLDING' END,
+                       CASE WHEN e.entry_date < :from THEN NULL ELSE e.entry_date END, p.currency, NULL, NULL, NULL,
+                       sum(p.amount)
+                FROM journal_entry e
+                JOIN posting p ON p.entry_id = e.id
+                JOIN account a ON a.id = p.account_id
+                WHERE e.user_id = :userId AND a.user_id = :userId AND e.entry_date <= :to
+                  AND ((a.type IN ('ASSET', 'LIABILITY') AND p.currency <> :base)
+                       OR (a.type = 'EQUITY' AND a.code = :fxExchange AND e.entry_date >= :from))
+                GROUP BY 1, 2, 3""")
+                .param("userId", userId)
+                .param("from", from)
+                .param("to", to)
+                .param("base", base)
+                .param("fxExchange", FX_EXCHANGE)
+                .query(FlowSum.class)
+                .list();
+        // The day before the period: where the first month's revaluation starts from.
+        RateBook book = rates.rateBook(userId, currencies(sums.stream().map(FlowSum::currency), base),
+                from.minusDays(1), to);
+
+        record Category(YearMonth month, CategoryType type, String code) {
+        }
+        Map<Category, ConvertedSum> totals = new TreeMap<>(Comparator.comparing(Category::month)
+                .thenComparing(category -> category.type().name()).thenComparing(Category::code));
+        Map<String, String> names = new LinkedHashMap<>();
+        Map<String, BigDecimal> held = new TreeMap<>();
+        Map<YearMonth, List<FlowSum>> byMonth = new TreeMap<>();
+        for (FlowSum sum : sums) {
+            if (sum.part().equals("CATEGORY")) {
+                CategoryType type = CategoryType.valueOf(sum.categoryType());
+                totals.computeIfAbsent(new Category(YearMonth.from(sum.day()), type, sum.categoryCode()),
+                        category -> new ConvertedSum(book, base)).add(sum.amount(), sum.currency(), sum.day());
+                names.put(sum.categoryCode(), sum.categoryName());
+            } else if (sum.day() == null) {
+                held.merge(sum.currency(), sum.amount(), BigDecimal::add);
+            } else {
+                byMonth.computeIfAbsent(YearMonth.from(sum.day()), month -> new ArrayList<>()).add(sum);
+            }
+        }
+        List<ConvertedCashFlow.Row> rows = totals.entrySet().stream()
+                .map(e -> new ConvertedCashFlow.Row(e.getKey().month(), e.getKey().code(), names.get(e.getKey().code()),
+                        e.getKey().type(), e.getValue().total(), e.getValue().missing().toList()))
+                .toList();
+
+        List<ConvertedCashFlow.ExchangeResult> results = new ArrayList<>();
+        for (YearMonth month = YearMonth.from(from); !month.isAfter(YearMonth.from(to)); month = month.plusMonths(1)) {
+            LocalDate start = month.atDay(1).isBefore(from) ? from : month.atDay(1);
+            LocalDate end = month.atEndOfMonth().isAfter(to) ? to : month.atEndOfMonth();
+            ConvertedSum realized = new ConvertedSum(book, base);
+            ConvertedSum unrealized = new ConvertedSum(book, base);
+            // The revaluation at the end less the one at the start: the balances at the end at the rates at the end,
+            // less the balances at the start at the rates at the start, less the month's postings at their days' rates.
+            held.forEach((currency, balance) -> unrealized.add(balance.negate(), currency, start.minusDays(1)));
+            for (FlowSum sum : byMonth.getOrDefault(month, List.of())) {
+                if (sum.part().equals("EXCHANGE")) {
+                    realized.add(sum.amount().negate(), sum.currency(), sum.day());
+                } else {
+                    unrealized.add(sum.amount().negate(), sum.currency(), sum.day());
+                    held.merge(sum.currency(), sum.amount(), BigDecimal::add);
+                }
+            }
+            held.forEach((currency, balance) -> unrealized.add(balance, currency, end));
+            results.add(new ConvertedCashFlow.ExchangeResult(month, realized.total(), unrealized.total(),
+                    missing(realized, unrealized)));
+        }
+        return new ConvertedCashFlow(base, rows, results);
+    }
+
+    /**
      * The displayed balance of the user's shared account per currency, as of {@code asOf}. That is the account the
      * user's settings name, or else FAMILY_DEBT, as for shared expenses (rule 7). Currencies that are settled, with a
      * balance of zero, are left out, and so is everything when the user has no shared account. Ordered by currency.
@@ -220,6 +436,30 @@ public class ReportService {
                 .param("userId", userId)
                 .query(IntegrityViolation.class)
                 .list();
+    }
+
+    /** The currencies of the amounts, and the one they are converted to. */
+    private static Set<String> currencies(Stream<String> amounts, String base) {
+        Set<String> currencies = amounts.collect(Collectors.toCollection(HashSet::new));
+        currencies.add(base);
+        return currencies;
+    }
+
+    private static List<MissingRate> missing(ConvertedSum... figures) {
+        MissingRate.Days days = new MissingRate.Days();
+        for (ConvertedSum figure : figures) {
+            days.addAll(figure.missing());
+        }
+        return days.toList();
+    }
+
+    /** The sum of postings on one day in one currency, for a part of a report. */
+    private record DaySum(String part, LocalDate day, String currency, BigDecimal amount) {
+    }
+
+    /** As {@link DaySum}, with the category of a categorized posting; {@code day} is null for "before the period". */
+    private record FlowSum(String part, LocalDate day, String currency, String categoryCode, String categoryName,
+            String categoryType, BigDecimal amount) {
     }
 
     private static CashFlowRow cashFlowRow(ResultSet row, int rowNum) throws SQLException {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { amountProblem, formatMoney, parseAmount, percentProblem, sharePercentOf, splitShared, sum } from './money'
+import {
+  amountProblem, formatMoney, formatRate, parseAmount, percentProblem, rateProblem, sharePercentOf, splitShared, sum,
+} from './money'
 
 describe('parseAmount', () => {
   it.each([
@@ -70,4 +72,33 @@ it('formats every digit of large amounts', () => {
   // 2^53 + 1 isn't a double; formatted from the string, the last digit survives.
   expect(formatMoney('9007199254740993.25', 'EUR').replace(/\D/g, '')).toBe('900719925474099325')
   expect(formatMoney('0.005', 'EUR').replace(/\D/g, '')).toBe('0005')
+})
+
+describe('exchange rates', () => {
+  it.each([
+    ['95.50', undefined],
+    ['0,00001234', undefined],
+    ['', 'Enter a rate.'],
+    ['abc', 'Enter a number, such as 95.50.'],
+    ['0', 'The rate must be more than 0.'],
+    ['-1', 'The rate must be more than 0.'],
+    ['0.123456789', 'Use at most 8 decimal places.'],
+    ['123456789012', 'The rate is too large.'],
+  ])('checks %j', (text, problem) => expect(rateProblem(text)).toBe(problem))
+
+  it('shows every decimal a rate has', () => {
+    expect(formatRate('0.86045')).toBe(new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(0.86045))
+    expect(formatRate('117.20100000')).toBe(new Intl.NumberFormat().format(117.201))
+  })
+})
+
+describe('converted amounts', () => {
+  it('show the currency’s usual decimals, rounding half away from zero', () => {
+    const cents = (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR' }).format(n)
+    expect(formatMoney('853.8511', 'EUR', { rounded: true })).toBe(cents(853.85))
+    expect(formatMoney('2.505', 'EUR', { rounded: true })).toBe(cents(2.51))
+    expect(formatMoney('-2.505', 'EUR', { rounded: true })).toBe(cents(-2.51))
+    expect(formatMoney('853.8511', 'EUR')).toBe(new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR',
+      maximumFractionDigits: 4 }).format(853.8511))
+  })
 })

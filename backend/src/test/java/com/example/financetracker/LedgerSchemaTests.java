@@ -220,6 +220,35 @@ class LedgerSchemaTests {
                 CHECK_VIOLATION, "account CASH has postings without a counterparty and cannot require one");
     }
 
+    /**
+     * Rates are units of a currency for one euro. The ECB's are shared, one per day and currency; a manual rate
+     * belongs to a user, who can have one of their own for the same day.
+     */
+    @Test
+    void exchangeRatesAreAgainstTheEuroAndManualOnesBelongToAUser() throws SQLException {
+        String rate = "INSERT INTO exchange_rate (rate_date, base_currency, quote_currency, rate, source, user_id) "
+                + "VALUES (DATE '1999-01-04', ?, ?, 1.5, ?, ?)";
+        update(rate, "EUR", "XAU", "ECB", null);
+        update(rate, "EUR", "XAU", "MANUAL", user);
+        update(rate, "EUR", "XAU", "MANUAL", UUID.randomUUID().toString());
+        db.commit();
+
+        assertFails(() -> update(rate, "EUR", "XAU", "ECB", null), UNIQUE_VIOLATION, "exchange_rate_key");
+        db.rollback();
+        assertFails(() -> update(rate, "EUR", "XAU", "MANUAL", user), UNIQUE_VIOLATION, "exchange_rate_key");
+        db.rollback();
+        assertFails(() -> update(rate, "EUR", "XAG", "MANUAL", null), CHECK_VIOLATION, "exchange_rate_owner_check");
+        db.rollback();
+        assertFails(() -> update(rate, "EUR", "XAG", "ECB", user), CHECK_VIOLATION, "exchange_rate_owner_check");
+        db.rollback();
+        assertFails(() -> update(rate, "XAG", "EUR", "ECB", null), CHECK_VIOLATION, "exchange_rate_euro_check");
+        db.rollback();
+        assertFails(() -> update(rate, "EUR", "XAG", "BANK", null), CHECK_VIOLATION, "exchange_rate_source_check");
+        db.rollback();
+        update("DELETE FROM exchange_rate WHERE quote_currency = 'XAU'");
+        db.commit();
+    }
+
     @Test
     void rowsNeverChangeOwner() {
         assertFails(() -> update("UPDATE account SET user_id = ? WHERE id = ?", UUID.randomUUID().toString(), cash),

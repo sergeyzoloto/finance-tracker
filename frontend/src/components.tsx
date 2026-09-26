@@ -109,6 +109,7 @@ export function CurrencyInput({ currencies, value, onChange, ...rest }: {
   onChange: (code: string) => void
   'aria-label'?: string
   name?: string
+  required?: boolean
 }) {
   const list = useId()
   return (

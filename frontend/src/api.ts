@@ -67,7 +67,63 @@ export interface CashFlowRow {
   currency: string
   total: string
 }
+export interface SharedSettlement {
+  accountId: number
+  accountCode: string
+  currency: string
+  /** The shared account's displayed balance (rule 4). */
+  balance: string
+  /** Who owes whom, from the side the account's postings add up to: USER_OWES for a credit. */
+  direction: 'USER_OWES' | 'USER_IS_OWED'
+}
 export interface IntegrityViolation { currency: string; postingSum: string; balanceSheetGap: string }
+
+// Reports with currency=BASE: every amount converted to the user's base currency at the latest rate on or before its
+// day. A figure that needs a rate that doesn't exist is null, and `missingRates` says which.
+
+/** No rate for `currency` on `days` days from `from` to `to`. */
+export interface MissingRate { currency: string; from: string; to: string; days: number }
+export type RateSource = 'ECB' | 'MANUAL'
+/** Units of `currency` for one euro, from `date` on. */
+export interface Rate { currency: string; date: string; perEuro: string; source: RateSource }
+export interface ConvertedBalance {
+  accountId: number
+  accountCode: string
+  accountName: string
+  accountType: AccountType
+  currency: string
+  balance: string | null
+  missingRates: MissingRate[]
+}
+export interface ConvertedNetWorth {
+  currency: string
+  assets: string | null
+  liabilities: string | null
+  netWorth: string | null
+  /** What rate changes did to money still held or owed; positive for a gain. */
+  unrealizedRevaluation: string | null
+  /** What currency exchanges gained: FX_EXCHANGE's displayed balance; positive for a gain. */
+  realizedExchangeResult: string | null
+  /** The rate used for each currency with a balance, possibly from long before the day. */
+  rates: Rate[]
+  missingRates: MissingRate[]
+}
+export interface ConvertedCashFlowRow {
+  month: string
+  categoryCode: string
+  categoryName: string
+  categoryType: CategoryType
+  total: string | null
+  missingRates: MissingRate[]
+}
+export interface ExchangeResult { month: string; realized: string | null; unrealized: string | null; missingRates: MissingRate[] }
+export interface ConvertedCashFlow { currency: string; rows: ConvertedCashFlowRow[]; exchangeResults: ExchangeResult[] }
+
+/** A currency's latest rate as the user sees it; `date` is null for a currency without any. */
+export interface LatestRate { currency: string; date: string | null; perEuro: string | null; source: RateSource | null; inLedger: boolean }
+export interface RatesOverview { baseCurrency: string; latest: LatestRate[]; missing: MissingRate[] }
+/** A manual rate as stored: `rate` units of `quote` for one `base`, which is EUR. */
+export interface ManualRate { date: string; base: string; quote: string; rate: string }
 
 export interface ImportProblem { file: string; row: number | null; message: string }
 export interface ImportReport {
@@ -208,14 +264,6 @@ export const sentence = (text: string) => text.charAt(0).toUpperCase() + text.sl
 // Local calendar dates; toISOString() would convert to UTC and shift the day near midnight.
 export const isoDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-
-export function currentMonth() {
-  const now = new Date()
-  return {
-    from: isoDate(new Date(now.getFullYear(), now.getMonth(), 1)),
-    to: isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
-  }
-}
 
 /** "2026-09-25" in the user's locale, without shifting the day by the time zone. */
 export function formatDate(iso: string, options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' }) {

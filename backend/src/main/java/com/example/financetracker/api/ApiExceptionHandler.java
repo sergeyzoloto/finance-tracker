@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import com.example.financetracker.ledger.ConflictException;
@@ -35,6 +37,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.validation.method.ParameterErrors;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.bind.UnsatisfiedServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -74,7 +78,7 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(RuleViolationException.class)
     @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
     ProblemDetail ruleViolation(RuleViolationException e) {
-        return ledgerRules(List.of(e.getMessage()));
+        return ledgerRules(e.violations());
     }
 
     @ExceptionHandler(NotFoundException.class)
@@ -165,6 +169,31 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleMissingServletRequestParameter(MissingServletRequestParameterException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         return invalid(ex, List.of(new InvalidField(ex.getParameterName(), "is required")), headers, request);
+    }
+
+    /**
+     * A parameter value that no handler takes, where handlers on one path are told apart by it, such as a report's
+     * {@code currency}: each parameter that a handler wants a value of, with the values that one would take.
+     */
+    @Override
+    protected ResponseEntity<Object> handleServletRequestBindingException(ServletRequestBindingException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        if (!(ex instanceof UnsatisfiedServletRequestParameterException unsatisfied)) {
+            return super.handleServletRequestBindingException(ex, headers, status, request);
+        }
+        Map<String, List<String>> values = new TreeMap<>();
+        unsatisfied.getParamConditionGroups().forEach(group -> Arrays.stream(group)
+                .filter(condition -> condition.contains("=") && !condition.contains("!="))
+                .forEach(condition -> values.computeIfAbsent(condition.substring(0, condition.indexOf('=')),
+                        name -> new ArrayList<>()).add(condition.substring(condition.indexOf('=') + 1))));
+        if (values.isEmpty()) {
+            return super.handleServletRequestBindingException(ex, headers, status, request);
+        }
+        List<InvalidField> errors = values.entrySet().stream()
+                .map(e -> new InvalidField(e.getKey(), "must be " + String.join(" or ", e.getValue())
+                        + ", or left out"))
+                .toList();
+        return invalid(ex, errors, headers, request);
     }
 
     /**

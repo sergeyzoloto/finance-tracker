@@ -18,10 +18,11 @@
 
 ## Project map
 
-State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md) (`ledger/api/`), and the frontend uses it. The single-entry API of V1 (categories, transactions, dashboard) is gone. V1's tables are still there, unused apart from `users`.
+State on 2026-09-26. The REST API serves the double-entry ledger of [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md) (`ledger/api/`), and the frontend uses it. The single-entry API of V1 (categories, transactions, dashboard) is gone. V1's tables are still there, unused apart from `users`.
 
 - **Deployment:** not deployed, and no production database exists.
   - `docker-compose.yml` runs backend and nginx only, with no DB service, and reads `SUPABASE_*` from `.env`.
+  - The backend downloads the ECB's rates from `www.ecb.europa.eu` over HTTPS at startup and on working days; `ECB_RATES_ENABLED=false` turns that off.
   - The launch plan, PostgreSQL 17 on the Hetzner host (`docs/database-hosting.md`), isn't built yet.
   - Local dev uses a Supabase project (eu-west-1, schema `app`, Flyway V1 applied 2026-09-23).
 - **Backend** (`backend/`):
@@ -33,13 +34,15 @@ State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/00
     - `CurrentUserResolver` is the one place that works out the user: it fills the `CurrentUser(id)` parameter of controller methods with the JWT `sub`, and controllers pass `id` to services. On first sight of a user it inserts the `users` row (email and name) and calls `StarterLedger.seedIfNew`.
     - `MeController` serves GET `/api/me`.
   - `api/`: what all endpoints share.
-    - `ApiExceptionHandler` is the one `@RestControllerAdvice`. Every error is an RFC 7807 problem detail: 400 with `errors` (field, message), 404 for another user's object, 409 for a stale version or a conflicting change, 422 with `violations` for broken ledger rules, 500 without details.
+    - `ApiExceptionHandler` is the one `@RestControllerAdvice`. Every error is an RFC 7807 problem detail: 400 with `errors` (field, message), also for a parameter value that no handler takes (a report's `currency`), 404 for another user's object, 409 for a stale version or a conflicting change, 422 with `violations` for broken ledger rules, 500 without details.
     - `JsonConfiguration` writes every `BigDecimal` as a JSON string. `@CurrencyCode` validates ISO 4217 codes.
     - `OpenApiConfiguration`: springdoc serves the OpenAPI 3.1 description at `/api/openapi`, behind login like the rest of `/api`.
   - `ledger/api/`: the REST controllers of the ledger. Request DTOs are nested records, or classes with setters for a PATCH whose field may be set to null.
     - `/api/accounts`, `/api/categories`, `/api/counterparties`: GET, POST, PATCH `/{id}`. System accounts can't be renamed or archived (409); a category's type can't change (409).
     - `/api/entries`: GET with `from`, `to`, `accountId`, `categoryId`, `counterpartyId`, `q`, `page`, `size`; GET `/{id}`; POST; PUT `/{id}?version=`; DELETE `/{id}?version=`. The body is a domain command; `EntryCommandJson` is the Jackson mix-in that maps its `kind` to the command record.
     - `/api/reports/{balances,cash-flow,counterparty-balances,net-worth,shared-settlement,integrity}`, `/api/import` (multipart, `dryRun` defaults to true), `/api/settings` (GET, PUT).
+    - `currency=BASE` on balances, net worth and cash flow: the report in the user's base currency, from a second handler on the same path (`params`), and a different response shape. Springdoc merges the two into one operation whose response is `oneOf` both.
+    - `/api/rates` (GET: the latest rate per currency and the days the user's postings lack a rate), `/api/rates/manual` (GET, POST one rate, DELETE `?date=&currency=`), `/api/rates/manual/csv` (multipart `file` with the columns date,base,quote,rate; all or nothing, 422 lists the bad rows).
   - `ledger/domain/`: the ledger's rules in plain Java, with no Spring and no database.
     - One command record per entry kind: expense, income, transfer, shared expense, loan given, loan repaid, currency exchange, opening balance, and manual (raw postings). A command's `postings(LedgerContext)` builds its postings. Its constructor rejects fields the builder can't work with.
     - `ImportedCommand` carries postings an importer built, with the kind it inferred.
@@ -47,13 +50,19 @@ State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/00
   - `ledger/`: Spring Data JDBC records and repositories for every ledger table, and the services. Owned rows carry `String userId`, the Keycloak `sub`. Every service takes the user id as a parameter and returns `*View` records, never entities.
     - `AccountService`, `CategoryService`, `CounterpartyService` and `SettingsService` serve the reference data. A counterparty's `lastCategoryId` is computed on each read.
     - `StarterLedger` gives a user without `user_settings` their settings (base currency EUR) and the generic accounts and categories of `src/main/resources/seed/starter-ledger.json`. The settings row's key serializes concurrent first requests. OPENING_BALANCE and FX_EXCHANGE are the system accounts.
-    - Exceptions for the API: `NotFoundException` (404), `ConflictException` (409), `RuleViolationException` (422).
+    - Exceptions for the API: `NotFoundException` (404), `ConflictException` (409), `RuleViolationException` (422, one or more violations).
     - `JournalEntry` is one aggregate with its `List<Posting>`, ordered by `line_no` and guarded by `@Version`. Saving it replaces all its postings.
     - `EntryService` offers create, update, delete, get and search (paginated, newest first). It builds the entry from a command and validates it, holding the rows it refers to under FOR SHARE locks. It returns `EntryView`, never an entity.
     - `EntryService.createImported` also records the import batch and `external_ref`.
   - `ledger/report/`: `ReportService` computes every report from postings on each call, one native SQL statement per report through `JdbcClient`, into records. It takes the user id as a parameter.
+    - `*InBase` convert balances, net worth and cash flow to the base currency (`Converted*` records). Each reads postings and rates in two statements inside one REPEATABLE READ read-only transaction. `ConvertedSum` adds up one figure: null if any amount lacks a rate (with `missingRates`), never added up as if it were 0, and rounded HALF_UP to 4 decimals once.
+    - FX results, never stored: net worth's `unrealizedRevaluation` (ASSET and LIABILITY balances at the rate on asOf, less each posting at its own day's rate) and `realizedExchangeResult` (FX_EXCHANGE's displayed balance, each posting at its own day's rate). Both are positive for a gain. Cash flow has both per month, with the unrealized one as the change over the month. See [docs/adr/0002-exchange-rates.md](docs/adr/0002-exchange-rates.md).
     - Reports: balances per account and currency, balances per counterparty, monthly cash flow per category, net worth, the shared-account settlement, and an integrity check.
     - Amounts come back `Money.normalize`d. There are no stored balance tables (rule 13).
+  - `ledger/rates/`: exchange rates, all stored as units of a currency per 1 EUR.
+    - `RateBook` is plain Java: an amount on day D uses the latest rate on or before D (no age limit), EUR is 1, and cross rates go through EUR. On the same day, the user's manual rate beats the ECB's. `RateService.rateBook` loads what a report needs.
+    - `EcbClient` reads the ECB's daily XML and history ZIP, which were checked on 2026-09-26; XML is parsed without DTDs. `EcbRateLoader` writes rates with source ECB and `user_id` NULL. It reads the history on the first load and whenever a weekday between the latest stored day and the daily file's day has no rates. `EcbSchedule` runs it at startup and at 16:30 and 18:30 Europe/Berlin on weekdays (`app.rates.ecb.*`). It is off in tests and in the `import` profile.
+    - `RateService` also handles manual rates (source MANUAL, keyed by the user's sub): `ManualRate` checks one rate, and one side must be EUR; a rate given as EUR per unit is inverted to 8 decimals. `ManualRateCsv` reads the upload.
   - `ledger/importer/`: imports the owner's Excel ledger (see "How to run the importer" below).
     - `ImportService.run(ImportRequest)` takes the files as bytes and returns an `ImportReport`, which POST `/api/import` returns as JSON. `ImportReportMarkdown` renders the report for the command line.
     - `Workbook` reads the CSV files with Commons CSV. `EntryMapper` turns a row into an entry, in plain Java without a database.
@@ -70,12 +79,15 @@ State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/00
     - `account`, `category`, `counterparty`, `journal_entry`, `posting`, `import_batch` and `user_settings` are keyed by `user_id TEXT`, the Keycloak `sub`. `exchange_rate` is shared by all users.
     - Triggers enforce the cross-row rules. At commit, every entry the transaction touched needs at least 2 postings that sum to zero per currency. A posting's entry, account, category and counterparty belong to one user, only EQUITY postings carry a category, and `requires_counterparty` accounts get a counterparty on every posting. `user_id` never changes, and an account can't change so that its postings break these rules.
   - `V3__posting_line_no.sql`, not applied anywhere yet: `posting.line_no`, a posting's position in its entry, unique per entry.
+  - `V4__exchange_rate_sources.sql`, not applied anywhere yet: `exchange_rate.user_id`, NULL for the ECB's shared rates and the sub for a MANUAL one. It checks `base_currency = 'EUR'`, and `exchange_rate_key` is UNIQUE NULLS NOT DISTINCT (base, quote, date, user_id) in place of the primary key.
 - **Frontend** (`frontend/`): React 19, react-router 7, Vite 8, TypeScript. No state library: pages load with `useApi` and write with `useMutation`.
   - `api.ts` calls `/api/*` with the session cookie and `X-XSRF-TOKEN`; a 401 sends the browser to `/oauth2/authorization/keycloak`. It holds the API's types. A failed call throws `ApiError`, which carries the problem's `errors` (400) and `violations` (422).
-  - `money.ts`: amounts are decimal strings, as the API sends them. All arithmetic goes through big.js in strict mode, never JS numbers, rounding HALF_UP. `formatMoney` formats the string with `Intl.NumberFormat` in the currency.
+  - `money.ts`: amounts are decimal strings, as the API sends them. All arithmetic goes through big.js in strict mode, never JS numbers, rounding HALF_UP. `formatMoney` formats the string with `Intl.NumberFormat` in the currency. `toChartNumber` is the one conversion to a JS number, for bar heights only.
   - `ledger.ts`: `useLedger` loads accounts, categories, counterparties and settings. `describeEntry` reads an entry from its postings for the list, such as "Current account → Groceries".
   - `entryForm.ts` is the entry form without React. It holds one `EntryForm` state for all tabs. `formFromEntry` opens an entry in its kind's tab if its postings have that tab's shape, or else in Advanced. `validate` checks the form, `toCommand` builds the command, and `serverErrors` maps the server's messages to fields. `EntryForms.tsx` renders it; `components.tsx` holds the shared controls.
-  - Routes: `/` Dashboard, `/entries` (filters and page in the URL), `/entries/new?tab=`, `/entries/:id`, `/accounts`, `/categories`, `/import`. `/transactions` redirects to `/entries`.
+  - `dashboard.ts` is the dashboard without React: the period from the URL (`period=` a preset, or `from` and `to`; `asOf` for balances, by default the period's end or today) and the cash flow report as a pivot per currency. With `currency=base` in the URL it shows balances, net worth and cash flow in the base currency: one pivot, with exchange-result lines after the net. A figure the backend couldn't convert is the `MISSING` cell, and every sum it is part of is MISSING too. `Dashboard.tsx` calls only `/api/reports/*` and never adds amounts in different currencies itself. Converted amounts are shown with the currency's usual decimals (`formatMoney(..., { rounded: true })`), and rates older than 7 days are flagged.
+  - `Rates.tsx` (`/rates`): the latest rate per currency (the user's currencies first), the days whose entries lack a rate, a form for one rate as "1 EUR = …", the CSV upload, and the user's manual rates with delete. `CashFlowTable.tsx` renders the pivot; `IncomeExpenseChart.tsx` is the Recharts bar chart, loaded lazily.
+  - Routes: `/` Dashboard (period in the URL), `/entries` (filters and page in the URL), `/entries/new?tab=`, `/entries/:id`, `/accounts`, `/categories`, `/rates`, `/import`. `/transactions` redirects to `/entries`.
   - The screens never say debit or credit. Users pick a direction instead (refund, lent or got back), and only Advanced shows signed amounts.
   - nginx (prod image) and the Vite dev server proxy `/api`, `/oauth2`, `/login/oauth2` and `/logout` to the backend.
 - **Auth:** shared Keycloak, realm `myapps`, client `finance-tracker`. The prod issuer is `https://auth.finance-nl.com/realms/myapps`. See `docs/auth.md`.
@@ -83,10 +95,11 @@ State on 2026-09-25. The REST API serves the double-entry ledger of [docs/adr/00
   - Backend: JUnit 5 with MockMvcTester, Testcontainers `postgres:17-alpine` and an in-process `FakeKeycloak` that signs RS256 tokens. The JVM runs in time zone Pacific/Kiritimati. `LedgerSchemaTests` checks the ledger's triggers with plain JDBC on a freshly migrated database.
     - `EntryBuilderTests` and `LedgerValidatorTests` are plain unit tests of `ledger/domain/`.
     - `EntryServiceTests`, `LedgerRepositoryTests` and `ReportServiceTests` run against the database. `ReportServiceTests` writes its ledger through `EntryService`.
+    - Rates: `RateBookTests` and `EcbClientTests` are unit tests. `BaseCurrencyReportTests` covers a missing rate, a cross rate through EUR, revaluation of a 100.00 EUR balance, an exchange's realized result, and posting-day rates, all with the test user's own manual rates. `EcbRateLoaderTests` serves the ECB's files from a local stand-in. It deletes all ECB rates before and after, so no other test may rely on them.
     - The importer: `ExcelValuesTests`, `WorkbookTests` and `EntryMapperTests` are unit tests. `ImportServiceTests` and `ImportRunnerTests` run against the database.
     - The API: `ApiTests` (401 on every endpoint, starter data seeded once under parallel first requests, 404 across users, the OpenAPI paths) and `ledger/api/*ApiTests` use MockMvc with spring-security-test's `jwt()` (`IntegrationTest.member`). `AccessTokenTests` and `BrowserLoginTests` use real signed tokens and sessions.
     - `src/test/resources/import/` is a synthetic workbook with invented names and the real exports' formatting quirks. Its row 10 names an unknown account on purpose.
-  - Frontend: Vitest (`vite.config.ts`, jsdom) with Testing Library. `money.test.ts` and `entryForm.test.ts` test the logic; `EntryForms.test.tsx` renders the form (the split's own share, the Advanced balance indicator). `testLedger.ts` is their reference data.
+  - Frontend: Vitest (`vite.config.ts`, jsdom) with Testing Library. `money.test.ts`, `entryForm.test.ts` and `dashboard.test.ts` test the logic; `EntryForms.test.tsx` renders the form (the split's own share, the Advanced balance indicator), and `CashFlowTable.test.tsx` the cash flow table's totals, missing figures in the base currency included. `testLedger.ts` is their reference data.
   - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify` and `npm ci && npm test && npm run build`.
 - **Private data:** `data/private/` holds the owner's real Excel ledger as CSV and is git-ignored. Never commit it, print whole files from it, or copy names or amounts from it into the repository.
 

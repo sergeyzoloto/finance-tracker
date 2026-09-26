@@ -94,23 +94,53 @@ export function sharePercentOf(total: string, other: string): string | undefined
   return undefined
 }
 
+/**
+ * The amount as a JavaScript number, only to size a mark in a chart, where a float's last digits make no visible
+ * difference. Never calculate with it or show it: labels and tooltips format the decimal string.
+ */
+export const toChartNumber = (amount: string) => Number(amount)
+
 /** How many units of `to` one unit of `from` bought, for showing an exchange rate; 6 significant digits. */
 export const rate = (fromAmount: string, toAmount: string) =>
   new Decimal(toAmount).div(fromAmount).prec(6).toFixed()
 
+/**
+ * An exchange rate, such as "95.5" or "0.86045", in the user's locale with every decimal it has (up to 8, as the
+ * backend stores them).
+ */
+export const formatRate = (rate: string) =>
+  new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(rate as Intl.StringNumericLiteral)
+
+/**
+ * What is wrong with a typed exchange rate, or undefined: more than 0, at most 8 decimal places and 11 digits before
+ * the point, as the backend stores rates (NUMERIC(19,8)).
+ */
+export function rateProblem(text: string): string | undefined {
+  if (text.trim() === '') return 'Enter a rate.'
+  const rate = parseAmount(text)
+  if (rate === undefined) return 'Enter a number, such as 95.50.'
+  if (new Decimal(rate).lte('0')) return 'The rate must be more than 0.'
+  const [integer, fraction = ''] = new Decimal(rate).toFixed().split('.')
+  if (fraction.length > 8) return 'Use at most 8 decimal places.'
+  if (integer.length > 11) return 'The rate is too large.'
+  return undefined
+}
+
 const formats = new Map<string, Intl.NumberFormat>()
 
-function currencyFormat(currency: string, signed: boolean) {
-  const key = `${currency}:${signed}`
+function currencyFormat(currency: string, signed: boolean, rounded: boolean) {
+  const key = `${currency}:${signed}:${rounded}`
   let format = formats.get(key)
   if (!format) {
     const sign = signed ? 'exceptZero' : 'auto'
+    // Amounts have up to 4 decimals (NUMERIC(19,4)); none is hidden unless `rounded`, and the currency's own minimum
+    // is kept.
+    const decimals = rounded ? {} : { maximumFractionDigits: 4 }
     try {
-      // Amounts have up to 4 decimals (NUMERIC(19,4)); none is hidden, and the currency's own minimum is kept.
-      format = new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 4, signDisplay: sign })
+      format = new Intl.NumberFormat(undefined, { style: 'currency', currency, ...decimals, signDisplay: sign })
     } catch {
       // Not a currency Intl knows: the plain number, followed by the code.
-      format = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4, signDisplay: sign })
+      format = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: rounded ? 2 : 4, signDisplay: sign })
     }
     formats.set(key, format)
   }
@@ -119,10 +149,12 @@ function currencyFormat(currency: string, signed: boolean) {
 
 /**
  * The amount in the user's locale and the currency's format, such as "€1,234.50". Intl formats the decimal string
- * itself, so no digit is lost to a float on the way. `signed` shows "+" for amounts above zero.
+ * itself, so no digit is lost to a float on the way. `signed` shows "+" for amounts above zero. `rounded` shows the
+ * currency's usual decimals, rounding half away from zero (HALF_UP), for an amount converted from other currencies,
+ * whose further decimals come from exchange rates and mean nothing.
  */
-export function formatMoney(amount: string, currency: string, { signed = false } = {}) {
-  const format = currencyFormat(currency, signed)
+export function formatMoney(amount: string, currency: string, { signed = false, rounded = false } = {}) {
+  const format = currencyFormat(currency, signed, rounded)
   const text = format.format(amount as Intl.StringNumericLiteral)
   return format.resolvedOptions().style === 'currency' ? text : `${text} ${currency}`
 }

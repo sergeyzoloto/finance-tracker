@@ -7,6 +7,7 @@
   --notice-bg: #fff8e1;
   --success-bg: #e8f5e9;
   --error-bg: #fdecea;
+  --stale: #9a5b00;
 }
 body { font-family: system-ui, sans-serif; max-width: 72rem; margin: 0 auto; padding: 1rem; }
 header { display: flex; gap: 1rem; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
@@ -78,7 +79,7 @@ fieldset.choice legend { font-size: 0.85em; color: var(--muted); padding: 0; mar
 .filters legend { color: var(--muted); }
 table.entries tr.clickable { cursor: pointer; }
 table.entries tr.clickable:hover { background: #f6f8fa; }
-table.stale { opacity: 0.6; }
+.stale { opacity: 0.6; }
 .pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1rem 0; }
 table.nested { margin: 0 0 0 1.5rem; width: calc(100% - 1.5rem); }
 tr.details > td { background: #fafbfc; }
@@ -89,3 +90,45 @@ form.add { align-items: end; }
 td.actions { width: 1%; }
 td button, td .button { padding: 0.1rem 0.5rem; font-size: 0.9em; }
 table.accounts td, table.accounts th { vertical-align: middle; }
+
+/* Dashboard */
+.dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1rem; align-items: start; }
+.card { border: 1px solid var(--border); border-radius: 6px; padding: 0 1rem 1rem; min-width: 0; }
+.card h3 { font-size: 1rem; margin: 0.75rem 0; }
+.tiles { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; }
+.tile .label { font-size: 0.85em; color: var(--muted); }
+.tile .value { font-size: 2rem; font-weight: 600; margin: 0.1rem 0 0.2rem; }
+.settlement p { margin: 0.2rem 0; }
+.settlement + .settlement { margin-top: 0.75rem; }
+.settlement .sentence { font-size: 1.15rem; }
+.scroll-x { overflow-x: auto; }
+.scroll-x + .scroll-x, figure.chart + figure.chart { margin-top: 1.25rem; }
+table.cash-flow th[scope='row'], table.cash-flow thead th:first-child { position: sticky; left: 0; background: white; }
+table.cash-flow th[scope='row'] { font-weight: normal; min-width: 10rem; }
+table.cash-flow td.total { background: #fafbfc; }
+tr.section th { padding-top: 0.75rem; }
+tr.net th, tr.net td { border-top: 2px solid var(--border); }
+tr.subtotal th[scope='row'], tr.subtotal td, tr.net th[scope='row'], tr.net td { font-weight: 600; }
+table.by-type + table.by-type { margin-top: 1rem; }
+figure.chart { margin: 0; }
+figure.chart figcaption { font-weight: 600; color: var(--muted); }
+.chart-tooltip { background: white; border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.9em;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 8%); }
+.chart-tooltip .key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 0.4rem; vertical-align: middle; }
+.chart-placeholder { height: 260px; }
+/* Amounts in the base currency */
+.missing { color: var(--expense); font-style: italic; font-size: 0.9em; }
+.stale-rate { color: var(--stale); }
+.badge.stale-rate { border-color: var(--stale); }
+.notice ul { margin: 0.25rem 0; }
+.notice p { margin: 0.25rem 0; }
+table.fx { width: auto; margin-top: 0.5rem; }
+table.fx th, table.fx td { border: none; padding: 0.1rem 1rem 0.1rem 0; font-weight: normal; }
+table.rates { width: auto; min-width: min(100%, 30rem); }
+section details { margin: 0.75rem 0; }
+section summary { cursor: pointer; }
+@media (max-width: 30rem) {
+  .card { padding: 0 0.75rem 0.75rem; }
+  .card table { font-size: 0.9em; }
+  .card th, .card td { padding: 0.3rem; }
+}

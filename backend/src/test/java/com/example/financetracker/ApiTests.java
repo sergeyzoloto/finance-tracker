@@ -83,6 +83,15 @@ class ApiTests extends IntegrationTest {
                 new Object[] {GET, "/api/reports/net-worth", null},
                 new Object[] {GET, "/api/reports/shared-settlement", null},
                 new Object[] {GET, "/api/reports/integrity", null},
+                new Object[] {GET, "/api/reports/balances?currency=BASE", null},
+                new Object[] {GET, "/api/reports/cash-flow?from=2026-01-01&to=2026-01-31&currency=BASE", null},
+                new Object[] {GET, "/api/reports/net-worth?currency=BASE", null},
+                new Object[] {GET, "/api/rates", null},
+                new Object[] {GET, "/api/rates/manual", null},
+                new Object[] {POST, "/api/rates/manual", """
+                        {"date": "2026-01-01", "base": "EUR", "quote": "RUB", "rate": "95"}"""},
+                new Object[] {POST, "/api/rates/manual/csv", ""},
+                new Object[] {DELETE, "/api/rates/manual?date=2026-01-01&currency=RUB", null},
                 new Object[] {POST, "/api/import", ""},
                 new Object[] {GET, "/api/settings", null},
                 new Object[] {PUT, "/api/settings", """
@@ -207,6 +216,9 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/reports/shared-settlement", List.of("get")),
                 Map.entry("/api/reports/integrity", List.of("get")),
                 Map.entry("/api/import", List.of("post")),
+                Map.entry("/api/rates", List.of("get")),
+                Map.entry("/api/rates/manual", List.of("delete", "get", "post")),
+                Map.entry("/api/rates/manual/csv", List.of("post")),
                 Map.entry("/api/settings", List.of("get", "put"))));
 
         // The user comes from the token, not from a parameter.

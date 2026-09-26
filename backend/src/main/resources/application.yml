@@ -5,6 +5,14 @@ app:
     issuer-url: ${KEYCLOAK_ISSUER_URL:http://localhost:8080/realms/myapps}
     client-id: ${KEYCLOAK_CLIENT_ID:finance-tracker}
     client-secret: ${KEYCLOAK_CLIENT_SECRET}
+  rates:
+    # The ECB's euro reference rates (ledger.rates.EcbRateLoader): loaded at startup and after the ECB publishes.
+    ecb:
+      enabled: ${ECB_RATES_ENABLED:true}
+      daily-url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml
+      history-url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+      # Europe/Berlin. The ECB publishes at about 16:00 CET on TARGET working days; 18:30 catches a late one.
+      cron: "0 30 16,18 * * MON-FRI"
 spring:
   application:
     name: finance-tracker

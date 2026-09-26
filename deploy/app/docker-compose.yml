@@ -1,0 +1,88 @@
+# Finance Tracker in production at https://app.finance-nl.com, on the Hetzner host next to the auth server's stack
+# (/opt/auth). deploy/RUNBOOK.md is the procedure; run every command from this directory.
+#
+# - postgres: the app's own PostgreSQL 17, never shared with Keycloak's. Reachable only inside this stack.
+# - backend: Spring Boot. The auth stack's Caddy reaches it over the network finance-tracker-proxy.
+# - frontend: copies the static build into the volume finance-tracker-www, which Caddy serves, then exits.
+#
+# The network and the volume are shared with /opt/auth, so neither stack owns them: create them once
+# (RUNBOOK.md, step 5). Secrets come from .env (see .env.example), which is never committed.
+name: finance-tracker-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      # The superuser, for maintenance only. The app logs in as "finance" (postgres-init.sh).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-finance.sh:ro
+    healthcheck:
+      # Over TCP: while the first start initializes the database, the server listens only on its socket.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "finance", "-d", "finance"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 384m
+    logging: *logging
+
+  backend:
+    build: ../../backend
+    image: finance-tracker-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/finance
+      SPRING_DATASOURCE_USERNAME: finance
+      SPRING_DATASOURCE_PASSWORD: ${APP_DB_PASSWORD}
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 5
+      # Must equal the tokens' "iss" claim. The backend reaches it through the host's public address.
+      KEYCLOAK_ISSUER_URL: https://auth.finance-nl.com/realms/myapps
+      KEYCLOAK_CLIENT_ID: finance-tracker
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}
+    networks:
+      default:
+      proxy:
+        # The name Caddy proxies to (deploy/caddy/app.finance-nl.com.caddy).
+        aliases: [finance-tracker-backend]
+    # The heap is 60% of this (backend/Dockerfile).
+    mem_limit: 768m
+    logging: *logging
+
+  frontend:
+    build:
+      context: ../../frontend
+      target: static
+    image: finance-tracker-frontend-static
+    # Runs once per "up" and exits with 0.
+    restart: "no"
+    volumes:
+      - www:/www
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    mem_limit: 64m
+    logging: *logging
+
+networks:
+  proxy:
+    name: finance-tracker-proxy
+    external: true
+
+volumes:
+  # The database. "docker compose down -v" deletes it: never use -v here.
+  postgres-data:
+  www:
+    name: finance-tracker-www
+    external: true

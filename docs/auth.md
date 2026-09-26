@@ -117,8 +117,10 @@ relative paths.
 
 Production also needs:
 - **HTTPS at `https://app.finance-nl.com`:** the session and CSRF cookies are `Secure`.
-- **A TLS proxy that sends `X-Forwarded-Proto: https`:** nginx passes it on, so the backend
-  builds `https://` redirect URIs.
+- **A TLS proxy that sends `X-Forwarded-Proto: https`,** so the backend builds `https://`
+  redirect URIs. In production that is the auth server's Caddy, which proxies straight to the
+  backend (`deploy/caddy/app.finance-nl.com.caddy`); locally nginx passes on what a proxy in front
+  of it sends.
 - **One backend instance:** sessions are in memory. More than one would need sticky sessions or a
   shared session store.
 

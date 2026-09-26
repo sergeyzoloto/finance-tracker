@@ -290,16 +290,23 @@ Errors are problem details (RFC 9457):
 
 ## Production
 
-Not deployed yet. The target is `https://app.finance-nl.com`, signing in through
-`https://auth.finance-nl.com/realms/myapps`. At launch the database runs next to the app on the
-Hetzner host, not on Supabase. The move to Supabase comes later; see
-[docs/database-hosting.md](docs/database-hosting.md). It needs:
+Not deployed yet. [deploy/RUNBOOK.md](deploy/RUNBOOK.md) is the procedure, step by step: the app at
+`https://app.finance-nl.com`, on the Hetzner host that runs the auth server, signing in through
+`https://auth.finance-nl.com/realms/myapps`.
 
-- **HTTPS**, since the session and CSRF cookies are `Secure`. The TLS proxy in front of nginx must
-  send `X-Forwarded-Proto: https`, so that the backend builds `https://` redirect URIs.
-- **A production `.env`:** delete the `COMPOSE_FILE` line, set the production issuer, and take the
-  client secret from Keycloak (*Clients → finance-tracker → Credentials*). Keep secrets in a
-  secret store, not in git.
+- `deploy/app/docker-compose.yml`: the app's own PostgreSQL 17, never shared with Keycloak's; the
+  backend; and a one-shot container that copies the static frontend into a volume. The secrets go
+  in `deploy/app/.env` (see `.env.example` there), which stays on the server.
+- The auth server's Caddy serves both sites. `deploy/caddy/app.finance-nl.com.caddy` serves the
+  frontend's files and proxies `/api`, `/oauth2`, `/login/oauth2` and `/logout` to the backend.
+- `deploy/backup/`: a nightly `pg_dump`, kept 14 days on the host and copied to a Hetzner Storage
+  Box, and a restore test.
+- The move to Supabase comes later; see [docs/database-hosting.md](docs/database-hosting.md).
+
+What production relies on:
+
+- **HTTPS**, since the session and CSRF cookies are `Secure`. Caddy sends
+  `X-Forwarded-Proto: https`, so the backend builds `https://` redirect URIs.
 - **One backend instance.** Sessions live in the backend's memory. A restart signs everyone out,
   usually without a password prompt, since the Keycloak session survives. More than one instance
   would need sticky sessions or a shared session store.
@@ -315,7 +322,7 @@ local stack that recovers from backend restarts and Keycloak outages. The histor
 Open:
 
 - [ ] Run against the real Supabase database.
-- [ ] Set up the client in the production realm and deploy.
+- [ ] Set up the client in the production realm and deploy ([deploy/RUNBOOK.md](deploy/RUNBOOK.md)).
 - [x] CI: build and test on every push, in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - [x] Frontend unit and component tests (Vitest).
 - [ ] The scripted browser checks in the repository.

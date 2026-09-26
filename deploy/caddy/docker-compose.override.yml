@@ -1,0 +1,34 @@
+# Copied to /opt/auth/docker-compose.override.yml by finance-tracker's deploy/RUNBOOK.md (step 7). Docker Compose
+# merges it into /opt/auth/docker-compose.yml for every command run in /opt/auth; that file stays as it is.
+#
+# - caddy also serves https://app.finance-nl.com (deploy/caddy/app.finance-nl.com.caddy, appended to the
+#   Caddyfile). It joins the network finance-tracker-proxy, where Finance Tracker's backend listens, and reads the
+#   frontend's files from the volume finance-tracker-www.
+# - Every container gets a memory limit (RUNBOOK.md, "Memory budget").
+services:
+  caddy:
+    networks:
+      # The stack's own network must be listed too, or Caddy loses Keycloak.
+      default:
+      finance-tracker-proxy:
+        # Finance Tracker's backend reaches Keycloak at https://auth.finance-nl.com, the tokens' issuer, through this
+        # Caddy on the shared network rather than out and back in through the server's public address.
+        aliases: [auth.finance-nl.com]
+    volumes:
+      - finance-tracker-www:/srv/finance-tracker:ro
+    mem_limit: 128m
+
+  keycloak:
+    # Keycloak's heap is 70% of this (kc.sh). Without a limit it is 70% of the whole server's memory.
+    mem_limit: 1280m
+
+  postgres:
+    mem_limit: 384m
+
+networks:
+  finance-tracker-proxy:
+    external: true
+
+volumes:
+  finance-tracker-www:
+    external: true

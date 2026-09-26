@@ -1,0 +1,44 @@
+
+# BEGIN finance-tracker
+# Finance Tracker (its repository's deploy/caddy/app.finance-nl.com.caddy), appended by its deploy/RUNBOOK.md, which
+# replaces everything from BEGIN to END on updates. The frontend's files are in the volume finance-tracker-www, mounted
+# at /srv/finance-tracker; the backend is finance-tracker-backend on the network finance-tracker-proxy
+# (/opt/auth/docker-compose.override.yml).
+app.finance-nl.com {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Logout posts a form to /logout, which redirects to Keycloak: hence form-action.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://auth.finance-nl.com"
+		-Server
+	}
+
+	# The API, and the backend's login (its start and Keycloak's callback) and logout.
+	@backend path /api/* /oauth2/* /login/oauth2/* /logout
+	handle @backend {
+		# POST /api/import uploads the Excel ledger's CSV files; the backend allows 20 MB too.
+		request_body {
+			max_size 20MiB
+		}
+		reverse_proxy finance-tracker-backend:8080
+	}
+
+	# Build files have hashed names, so they never change: cached for a year. A missing one is a 404.
+	handle /assets/* {
+		root * /srv/finance-tracker
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Every other path is a page of the single-page app. Checked on every load, so an update shows at once.
+	handle {
+		root * /srv/finance-tracker
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
+# END finance-tracker

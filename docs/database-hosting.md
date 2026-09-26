@@ -100,3 +100,12 @@ These must be in place before launch, not after:
 - Nothing implements this decision yet. The auth server's `PRODUCTION.md` and
   `docker-compose.prod.yml`, and this repository's README and `docker-compose.yml`, still describe
   Supabase.
+
+## State on 2026-09-26
+
+- finance-tracker's side is ready to deploy ([deploy/RUNBOOK.md](../deploy/RUNBOOK.md)):
+  `postgres:17` in `deploy/app/docker-compose.yml`, database `finance` owned by the login
+  `finance`, which is no superuser, and schema `app`. A nightly `pg_dump` is kept 14 days on the
+  host and copied to a Hetzner Storage Box, and `deploy/backup/restore-test.sh` tests a restore.
+- The auth server's production stack in `/opt/auth` already runs its own PostgreSQL, `postgres:16`
+  (its `deploy/docker-compose.yml`), with no backup yet.

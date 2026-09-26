@@ -1,0 +1,11 @@
+# Installed to /etc/systemd/system by deploy/RUNBOOK.md (step 9). Started by finance-tracker-backup.timer.
+[Unit]
+Description=Back up Finance Tracker's database
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# OFFSITE: the Hetzner Storage Box the dumps are copied to.
+EnvironmentFile=-/etc/finance-tracker/backup.env
+ExecStart=/opt/finance-tracker/deploy/backup/backup.sh

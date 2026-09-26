@@ -5,6 +5,8 @@ import java.util.List;
 import jakarta.servlet.DispatcherType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
+import org.springframework.boot.actuate.health.HealthEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -53,6 +55,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * this client's {@code user} role ({@link ClientRoles}).
  * <li>The token's subject is the user id that all data is keyed by. Controllers get it as a {@link CurrentUser}
  * parameter ({@link CurrentUserResolver}).
+ * <li>Only {@code /actuator/health} is open to everyone.
  * </ul>
  * Keycloak is contacted lazily, so the app starts while it's down; API requests then get 401.
  * <p>
@@ -80,6 +83,8 @@ class SecurityConfig {
         return http
                 .authorizeHttpRequests(requests -> requests
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        // For the container's health check: UP or DOWN, without details.
+                        .requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
                         .anyRequest().hasRole("USER"))
                 .oauth2ResourceServer(server -> server
                         .bearerTokenResolver(sessionAccessTokens)

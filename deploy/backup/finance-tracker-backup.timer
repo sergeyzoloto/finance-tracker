@@ -1,0 +1,12 @@
+# Installed to /etc/systemd/system by deploy/RUNBOOK.md (step 9).
+[Unit]
+Description=Back up Finance Tracker's database every night
+
+[Timer]
+# Server time. A run missed while the server was off happens at the next boot.
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

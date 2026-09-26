@@ -44,8 +44,15 @@ spring:
           # Members only. Keycloak names this client in "aud" when the user or service holds one of its roles, and in
           # every token this client requests itself (an audience mapper on the client); the "user" role is checked too.
           audiences: ${app.keycloak.client-id}
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only /actuator/health, open without login (security.SecurityConfig) and saying only UP or DOWN. The container's
+        # health check calls it; production's Caddy doesn't route /actuator (deploy/caddy/app.finance-nl.com.caddy).
+        include: health
 server:
-  # Behind nginx. A TLS proxy in front of it must send X-Forwarded-Proto: https, so login redirects use https.
+  # Behind nginx or Caddy. A TLS proxy in front of it must send X-Forwarded-Proto: https, so login redirects use https.
   forward-headers-strategy: native
   servlet:
     session:

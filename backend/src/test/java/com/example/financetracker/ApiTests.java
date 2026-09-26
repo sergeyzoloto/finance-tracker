@@ -109,6 +109,14 @@ class ApiTests extends IntegrationTest {
     }
 
     @Test
+    void onlyTheHealthEndpointIsOpenAndItTellsNothingButTheStatus() throws IOException {
+        assertThat(body(request(GET, "/actuator/health", null, null))).isEqualTo(json.readTree("""
+                {"status": "UP"}"""));
+        assertThat(request(GET, "/actuator/env", null, null)).hasStatus(HttpStatus.UNAUTHORIZED);
+        assertThat(mvc.get().uri("/actuator/env").with(member(alice)).exchange()).hasStatus(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
     void aNewUsersFirstRequestsSeedTheStarterLedgerExactlyOnceEvenInParallel() throws Exception {
         String subject = UUID.randomUUID().toString();
         JsonNode seed = json.readTree(new ClassPathResource("seed/starter-ledger.json").getInputStream());

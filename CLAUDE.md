@@ -20,8 +20,12 @@
 
 State on 2026-09-26. The REST API serves the double-entry ledger of [docs/adr/0001-double-entry-ledger.md](docs/adr/0001-double-entry-ledger.md) (`ledger/api/`), and the frontend uses it. The single-entry API of V1 (categories, transactions, dashboard) is gone. V1's tables are still there, unused apart from `users`.
 
-- **Deployment:** not deployed, and no production database exists.
-  - `docker-compose.yml` runs backend and nginx only, with no DB service, and reads `SUPABASE_*` from `.env`.
+- **Deployment:** not deployed, and no production database exists. [deploy/RUNBOOK.md](deploy/RUNBOOK.md) is the procedure for https://app.finance-nl.com on the auth server's Hetzner host (2.28.108.199), rehearsed locally on 2026-09-26.
+  - `deploy/app/docker-compose.yml`, project `finance-tracker-prod`: `postgres:17` with database `finance` owned by the login `finance`, no superuser (`postgres-init.sh`); `backend`; and `frontend` (Dockerfile target `static`), which copies the build into the volume `finance-tracker-www` and exits. Every container has a `mem_limit`. Secrets are in `deploy/app/.env` on the server.
+  - The auth server's Caddy in `/opt/auth` serves both sites. `deploy/caddy/app.finance-nl.com.caddy` is appended to its Caddyfile between `# BEGIN finance-tracker` and `# END finance-tracker`. `deploy/caddy/docker-compose.override.yml` becomes `/opt/auth/docker-compose.override.yml`: Caddy joins the internal network `finance-tracker-proxy` with the alias `auth.finance-nl.com`, so the backend reaches Keycloak without leaving the host, and the auth stack's containers get memory limits. The network and the volume are external to both stacks.
+  - `deploy/backup/`: `backup.sh` runs from a systemd timer every night: `pg_dump`, 14 days in `/var/backups/finance-tracker`, and rsync to a Hetzner Storage Box. `restore-test.sh` restores a dump into a throwaway container.
+  - The production import runs in the browser (`/import`), as the signed-in user.
+  - The root `docker-compose.yml` runs backend and nginx only, for local runs, with no DB service, and reads `SUPABASE_*` from `.env`.
   - The backend downloads the ECB's rates from `www.ecb.europa.eu` over HTTPS at startup and on working days; `ECB_RATES_ENABLED=false` turns that off.
   - The launch plan, PostgreSQL 17 on the Hetzner host (`docs/database-hosting.md`), isn't built yet.
   - Local dev uses a Supabase project (eu-west-1, schema `app`, Flyway V1 applied 2026-09-23).
@@ -30,6 +34,7 @@ State on 2026-09-26. The REST API serves the double-entry ledger of [docs/adr/00
   - Code lives in package `com.example.financetracker`. Every repository query is scoped by user id; another user's row returns 404.
   - `security/`: `SecurityConfig` makes the backend a BFF and an OAuth2 resource server. It runs oauth2Login with PKCE and keeps tokens in the session.
     - Every request's JWT is checked: issuer, `aud` = finance-tracker, a non-blank `sub`, and client role `user` → ROLE_USER (`ClientRoles`). Writes need the CSRF cookie and header.
+    - `/actuator/health` (the only Actuator endpoint exposed) is open to everyone and says only UP or DOWN. The images' health checks call it; production's Caddy doesn't route `/actuator`.
     - `SessionAccessTokenFilter` turns the session token into a bearer token and refreshes it. It drops the session's login authentication, which grants nothing by itself.
     - `CurrentUserResolver` is the one place that works out the user: it fills the `CurrentUser(id)` parameter of controller methods with the JWT `sub`, and controllers pass `id` to services. On first sight of a user it inserts the `users` row (email and name) and calls `StarterLedger.seedIfNew`.
     - `MeController` serves GET `/api/me`.
@@ -97,7 +102,7 @@ State on 2026-09-26. The REST API serves the double-entry ledger of [docs/adr/00
     - `EntryServiceTests`, `LedgerRepositoryTests` and `ReportServiceTests` run against the database. `ReportServiceTests` writes its ledger through `EntryService`.
     - Rates: `RateBookTests` and `EcbClientTests` are unit tests. `BaseCurrencyReportTests` covers a missing rate, a cross rate through EUR, revaluation of a 100.00 EUR balance, an exchange's realized result, and posting-day rates, all with the test user's own manual rates. `EcbRateLoaderTests` serves the ECB's files from a local stand-in. It deletes all ECB rates before and after, so no other test may rely on them.
     - The importer: `ExcelValuesTests`, `WorkbookTests` and `EntryMapperTests` are unit tests. `ImportServiceTests` and `ImportRunnerTests` run against the database.
-    - The API: `ApiTests` (401 on every endpoint, starter data seeded once under parallel first requests, 404 across users, the OpenAPI paths) and `ledger/api/*ApiTests` use MockMvc with spring-security-test's `jwt()` (`IntegrationTest.member`). `AccessTokenTests` and `BrowserLoginTests` use real signed tokens and sessions.
+    - The API: `ApiTests` (401 on every endpoint, the open health endpoint, starter data seeded once under parallel first requests, 404 across users, the OpenAPI paths) and `ledger/api/*ApiTests` use MockMvc with spring-security-test's `jwt()` (`IntegrationTest.member`). `AccessTokenTests` and `BrowserLoginTests` use real signed tokens and sessions.
     - `src/test/resources/import/` is a synthetic workbook with invented names and the real exports' formatting quirks. Its row 10 names an unknown account on purpose.
   - Frontend: Vitest (`vite.config.ts`, jsdom) with Testing Library. `money.test.ts`, `entryForm.test.ts` and `dashboard.test.ts` test the logic; `EntryForms.test.tsx` renders the form (the split's own share, the Advanced balance indicator), and `CashFlowTable.test.tsx` the cash flow table's totals, missing figures in the base currency included. `testLedger.ts` is their reference data.
   - CI (`.github/workflows/ci.yml`) runs `./mvnw -B verify` and `npm ci && npm test && npm run build`.

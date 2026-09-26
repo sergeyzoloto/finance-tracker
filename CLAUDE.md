@@ -1,5 +1,15 @@
 # Finance Tracker
 
+## Definition of done
+
+1. Every task that changes files ends with a new entry at the top of [change_log.mdx](change_log.mdx), in its existing format: what changed, how it was verified, and what is still open, with the commit it landed in ("Not committed yet." until then).
+   - The heading is `## YYYY-MM-DD · Title`, followed by the commit line and the sections **Changes**, **Verified** and **Open**. Newest first; never edit an older entry.
+   - It is MDX: a bare `{` or `<` breaks it. Put code, paths, endpoints, class names and generics in backticks.
+2. The "Done when" part of a task prompt adds conditions to this rule and never replaces it.
+3. The final report of every task quotes the new change log entry.
+
+A Stop hook (`.claude/hooks/require-changelog.sh`, registered in `.claude/settings.json`) keeps Claude from finishing while files in the working tree changed but `change_log.mdx` did not.
+
 ## Domain rules
 
 1. The core model is a double-entry journal. A journal_entry has entry_date (DATE, no time zone), an optional payee (a counterparty), memo and kind. A posting belongs to one entry and has account, currency (ISO 4217 code), amount, optional category and optional counterparty.

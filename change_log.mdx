@@ -3,6 +3,204 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-26 · Change log: ledger work backfilled, definition of done, Stop hook
+
+Not committed yet.
+
+**Changes**
+- Why entries were missing: CLAUDE.md never had a change log rule.
+  `git log -S "change_log" -- CLAUDE.md` finds no commit, and no version of the file mentions the
+  log. The rule is only in the README's "Change log" section, there since `3b9b1d8`. Of the ten
+  steps of the ledger work, the REST API (`be2f8e7`) and the entry screens (`b63ced0`) added
+  entries, and the other eight didn't.
+- Eight entries backfilled from `git show`, each with its commit:
+  - ADR 0001 (`1c7b624`), schema and triggers (`5fefb15`), domain layer (`6315cb3`), reports
+    (`ccf4bf5`) and the importer (`95ac98e`);
+  - the dashboard and the reports in the base currency, both in `2e08797`;
+  - deployment (`307e059`).
+  - Each one says it was backfilled, lists the tests its commit adds, and says that no test run was
+    recorded.
+- CLAUDE.md starts with a "Definition of done":
+  - every task that changes files ends with an entry here;
+  - a prompt's "Done when" adds to that rule and never replaces it;
+  - the final report quotes the entry.
+- `.claude/hooks/require-changelog.sh`, registered as a Stop hook in the new `.claude/settings.json`,
+  keeps Claude from finishing while files in the working tree changed but `change_log.mdx` did not.
+  When Claude is already continuing because of the hook (`stop_hook_active`), it lets Claude stop.
+
+**Verified**
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1, run from a scratch directory, since the
+  repository has no MDX build. No `{`, `<` or `>` is left outside backticks, and the diff only adds
+  lines.
+- The hook, run by hand in a throwaway git repository with JSON on stdin:
+  - no changes: exit 0;
+  - a changed file without `change_log.mdx`: exit 2, and also for an untracked file alone;
+  - a changed file together with `change_log.mdx`: exit 0;
+  - `"stop_hook_active": true`: exit 0 in each of those cases.
+
+**Open**
+- Five earlier commits outside the ledger work have no entry either: `3b9b1d8`, `a4cad13`,
+  `11eecf9`, `e313323` and `20829c6` (2026-09-23 to 2026-09-25).
+- Three older entries still say "Not committed yet.", although their work has landed: the REST API
+  (`be2f8e7`), the entry screens (`b63ced0`), and the login move of 2026-09-22 (`43f6f3b`). They
+  weren't edited.
+- The hook sees only the working tree.
+  - A task that commits its changes without an entry passes it, and an uncommitted entry from an
+    earlier task satisfies it.
+  - It also stops a session that finds changes made outside it; its message then asks Claude to
+    tell the user.
+- The hook hasn't run inside a Claude Code session yet. Claude Code reads hooks when a session
+  starts.
+
+## 2026-09-26 · Production deployment files and runbook
+
+Commit `307e059`. Backfilled on 2026-09-26 from the commit's diff.
+
+**Changes**
+- `deploy/RUNBOOK.md` sets up `https://app.finance-nl.com` on the auth server's Hetzner host in 12
+  steps: check the server, DNS, the Keycloak client, the code, the shared network and volume, the
+  secrets, build and start, Caddy, a check from outside, backups, a restore test, and the Excel
+  import in the browser. Then updates and rollback, a restore from backup, regular checks,
+  troubleshooting, and what it doesn't cover. A memory budget gives every container a limit.
+- `deploy/app/docker-compose.yml`, project `finance-tracker-prod`: `postgres:17` (384 MiB), the
+  backend (768 MiB), and a one-shot `frontend` container (64 MiB) that copies the static build into
+  the external volume `finance-tracker-www` and exits. `postgres-init.sh` gives the database
+  `finance` to the login `finance`, which is no superuser. Secrets go in `deploy/app/.env` on the
+  server; `.env.example` lists them.
+- `deploy/caddy/`: the site block for the auth server's Caddy, kept between `# BEGIN finance-tracker`
+  and `# END finance-tracker`.
+  - It proxies `/api`, `/oauth2`, `/login/oauth2` and `/logout` to the backend (uploads up to
+    20 MiB), serves `/assets` cached for a year and every other path as the single-page app, and
+    sets HSTS, a Content-Security-Policy and other security headers.
+  - The Compose override puts Caddy on the network `finance-tracker-proxy` with the alias
+    `auth.finance-nl.com`, and gives the auth stack's containers memory limits.
+- `deploy/backup/`: `backup.sh` runs from a systemd timer at 03:30 every night. It writes a
+  `pg_dump` in custom format, checks it with `pg_restore --list`, keeps 14 days in
+  `/var/backups/finance-tracker`, and copies new dumps to a Hetzner Storage Box with rsync.
+  `restore-test.sh` restores a dump into a throwaway container.
+- Backend image: built without tests and with at most 512 MB of Maven heap; runs as its own user
+  with `-XX:MaxRAMPercentage=60` and `-XX:+ExitOnOutOfMemoryError`; a health check calls
+  `/actuator/health`.
+- Actuator is new and exposes only `/actuator/health`, open without login and saying only UP or
+  DOWN. Caddy doesn't route `/actuator`.
+- Frontend image: a new target `static` publishes the hashed assets first and `index.html` last, and
+  deletes assets older than 7 days.
+- README, `docs/auth.md` and `docs/database-hosting.md` point at the runbook.
+
+**Verified**
+- Nothing recorded in the commit. It adds 1 backend test in `ApiTests`: only the health endpoint is
+  open, it says nothing but the status, and `/actuator/env` is 401 without login and 404 with it.
+- CLAUDE.md says the runbook was rehearsed locally on 2026-09-26, and the runbook's memory table
+  has the rehearsal's figures. The rehearsal's scripts aren't in the repository.
+
+**Open**
+- Not deployed: none of the runbook's steps has been run on the server.
+- Keycloak's own database on the host isn't backed up, and failed backups raise no alert (the
+  runbook's "Not covered").
+- `backup.sh`, `finance-tracker-backup.service` and `finance-tracker-backup.timer` say they belong
+  to the runbook's step 9, and `restore-test.sh` to step 10. The runbook numbers those steps 10
+  and 11.
+
+## 2026-09-26 · Reports in the base currency and exchange rates
+
+Commit `2e08797`. Backfilled on 2026-09-26 from the commit's diff.
+
+**Changes**
+- ADR 0002 (`docs/adr/0002-exchange-rates.md`):
+  - Rates come from the ECB, shared by all users, and from each user's own manual rates.
+  - Every rate is stored as units of a currency per 1 EUR, and cross rates go through the euro.
+  - An amount on day D uses the latest rate on or before D, with no age limit.
+  - A figure without a rate is missing, never 0.
+  - FX results are computed on each call, never posted.
+- `V4__exchange_rate_sources.sql`: `exchange_rate.user_id`, NULL for the ECB's rates and the sub
+  for a manual one. The source is ECB or MANUAL, `base_currency` must be EUR, and a unique key on
+  currency, day and user replaces the primary key.
+- `ledger/rates/`:
+  - `EcbClient` reads the ECB's daily XML (without DTDs) and its history ZIP.
+  - `EcbRateLoader` stores the rates. It reads the history on the first load and whenever a weekday
+    is missing.
+  - `EcbSchedule` runs it at startup and at 16:30 and 18:30 Europe/Berlin on weekdays.
+    `ECB_RATES_ENABLED=false` turns it off; it is off in tests and in the `import` profile.
+  - `RateBook` picks the rate for a day. On the same day, the user's manual rate beats the ECB's.
+- Balances, net worth and cash flow take `currency=BASE`. A second handler on the same path returns
+  the report in the user's base currency (`Converted*` records).
+  - A figure is null, with `missingRates`, if any of its amounts lacks a rate. It is rounded HALF_UP
+    to 4 decimals once.
+  - Net worth adds `unrealizedRevaluation` and `realizedExchangeResult`, both positive for a gain.
+    Cash flow has both per month.
+  - Any other value of `currency` is a 400.
+- Rates API:
+  - `/api/rates`: the latest rate per currency, and the days on which the user's postings lack a
+    rate.
+  - `/api/rates/manual`: list, add one rate, delete.
+  - `/api/rates/manual/csv`: an upload with the columns date,base,quote,rate, saved all or nothing.
+    A 422 lists the bad rows.
+  - A manual rate needs EUR on one side. One given as EUR per unit is inverted to 8 decimals.
+- Frontend:
+  - A Rates page (`/rates`): the latest rates, the days without a rate, a form for one rate as
+    "1 EUR = …", the CSV upload, and the user's own rates with delete.
+  - The dashboard's `currency=base` view shows net worth, balances and cash flow in the base
+    currency, with the exchange results as lines after the net.
+  - A figure without a rate reads "rate missing", and so does every sum it is part of. The rates
+    used are shown with their dates, and rates more than 7 days old are flagged.
+  - `formatMoney(..., { rounded: true })` shows converted amounts with the currency's usual
+    decimals.
+
+**Verified**
+- Nothing recorded in the commit. It adds 28 backend tests:
+  - new classes: `RateBookTests` (5), `EcbClientTests` (4), `EcbRateLoaderTests` (5, against a local
+    stand-in for the ECB), `BaseCurrencyReportTests` (6) and `RateApiTests` (5);
+  - one more in `LedgerSchemaTests` and two in `ReportApiTests`.
+- `ApiTests` adds the new endpoints to its 401 list and its OpenAPI paths.
+- Frontend: 8 new tests of the base currency in `dashboard.test.ts` (6) and `CashFlowTable.test.tsx`
+  (2). `money.test.ts` gains checks of typed rates (8 cases), rate formatting, and rounded converted
+  amounts.
+
+**Open**
+- The base currency (EUR for every new user) can be changed only through `PUT /api/settings`; no
+  screen has it.
+- RUB after 2022-03-01 is converted at the ECB's last RUB rate until manual rates exist, as ADR 0002
+  says.
+- V4 isn't applied anywhere yet.
+
+## 2026-09-26 · Dashboard: period, balances, cash flow table and chart
+
+Commit `2e08797`, together with the reports in the base currency above; this step has no commit of
+its own. Backfilled on 2026-09-26 from the commit's diff.
+
+**Changes**
+- The period is in the URL: a preset (`period=` this month, last 3 months, this year or last year,
+  kept by name so a bookmark stays current) or a custom `from` and `to`. Balances are shown as of
+  `asOf`: by default the period's last day, or today while the period runs. A period that ends
+  before it starts is an error.
+- Widgets, each loaded from `/api/reports/*` and dimmed while it reloads:
+  - net worth per currency;
+  - the shared budget as a sentence, such as "You owe … to …";
+  - income and expenses by month as a bar chart;
+  - cash flow by category;
+  - balances by account type;
+  - open loans per counterparty (`LOANS_ASSET` and `CREDITOR_DEBT`), split by who owes whom.
+- Cash flow is a pivot per currency, like the owner's Excel pivot (`CashFlowTable.tsx`).
+  - Rows: categories in alphabetical order, with subtotals for income and for expenses, and the net
+    last.
+  - Columns: the period's months, empty ones included.
+  - Amounts in different currencies are never added together.
+- `IncomeExpenseChart.tsx` is a Recharts bar chart, loaded lazily, in colour-blind-safe colours.
+  `toChartNumber` in `money.ts` is the only conversion of an amount to a JS number, for bar heights;
+  tooltips show the decimal strings.
+- `dashboard.ts` holds the dashboard's logic without React. New libraries: recharts and react-is.
+
+**Verified**
+- Nothing recorded in the commit. It adds 13 frontend tests:
+  - 8 in `dashboard.test.ts`: the period from the URL, the months of a period across a new year,
+    and who owes whom;
+  - 5 in `CashFlowTable.test.tsx`: month columns, order, totals, one table per currency, and an
+    empty section.
+
+**Open**
+- The table's subtotals and net are added up in the browser, with big.js. ADR 0001 says that all
+  totals come from the backend.
+
 ## 2026-09-25 · Frontend: screens for daily work with the ledger
 
 Not committed yet.
@@ -67,6 +265,193 @@ Not committed yet.
 **Open**
 - The frontend still calls V1's endpoints and has to be ported to the new API.
 - No live run against the dev Keycloak or Supabase; V2 and V3 still aren't applied there.
+
+## 2026-09-25 · Importer for the Excel ledger
+
+Commit `95ac98e`. Backfilled on 2026-09-26 from the commit's diff.
+
+**Changes**
+- `ledger/importer/` imports the owner's Excel ledger, exported as CSV, for one user, in this
+  order:
+  - accounts and categories, created or updated by the code in their `Line` column;
+  - one entry per journal row;
+  - the optional opening balances (columns line, currency, amount, date), one entry per date
+    against `OPENING_BALANCE`.
+- `EntryMapper` turns a row into postings, in plain Java:
+  - The debit account gets +Sum and the credit account −Sum. The sign of Sum decides the direction.
+  - If the two sides' currencies differ, the row becomes an exchange through `FX_EXCHANGE`.
+  - The category goes on the `UNALLOCATED` posting, and the borrower (`LOAN_CA`) becomes the
+    counterparty on `LOANS_ASSET`.
+  - A Family row keeps the workbook's own split: the family's part is minus `FAMILY_EXP` and goes
+    to `FAMILY_DEBT`. A warning names rows where the workbook's own part differs by a cent.
+  - Entries are written through `EntryService`, so `LedgerValidator` checks them.
+- The open points of ADR 0001:
+  - FX-gain rows with Sum 0 are skipped. Those with a Sum are imported as income and listed for
+    review.
+  - A row with shared income (`FAMILY_INC`) is an error.
+  - A loan row without a borrower gets the counterparty "Unassigned" and a warning.
+- A run is one transaction, with a savepoint per row. A dry run always rolls back, and a commit
+  rolls back if any row has an error.
+- A row's `external_ref` is `xls:`, the SHA-256 of its business columns, and its occurrence among
+  identical rows. A row the user already has is skipped, so running the import again is safe.
+- `ImportRunner` is the command line, under the Spring profile `import`, with no web server.
+  - `SecurityConfig` and `CurrentUserConverter` now load only in a web application.
+  - It writes the `ImportReport` as Markdown next to the transactions file, and exits with 0, 1
+    (arguments or files) or 2 (row errors, nothing saved).
+  - CLAUDE.md shows the command.
+- `EntryService.createImported` also records the import batch and the `external_ref`. New library:
+  Commons CSV 1.14.1.
+- `src/test/resources/import/` is a synthetic workbook with invented names.
+
+**Verified**
+- Nothing recorded in the commit. It adds 31 backend tests:
+  - without a database: `ExcelValuesTests` (5), `WorkbookTests` (7) and `EntryMapperTests` (8);
+  - against the database: `ImportServiceTests` (8: a dry run and a commit with a bad row save
+    nothing, a second run skips what the first imported) and `ImportRunnerTests` (3: the report
+    file and the exit codes).
+
+**Open**
+- The importer runs only from the command line. The commit message leaves a REST endpoint for
+  later.
+- V2 and V3 aren't applied to Supabase, so CLAUDE.md points the importer at a throwaway
+  PostgreSQL.
+
+## 2026-09-25 · Ledger reports
+
+Commit `ccf4bf5`. Backfilled on 2026-09-26 from the commit's diff.
+
+**Changes**
+- `ReportService` (`ledger/report/`) computes every report from postings on each call: one SQL
+  statement per report through `JdbcClient`, scoped by the user id. Nothing is stored (rule 13).
+  Dates are inclusive.
+- Reports:
+  - balances per account and currency as of a day. Archived accounts are left out, and an
+    account's default currency shows at zero before it has postings;
+  - balances per counterparty of an account that requires one (rule 8), without the settled ones;
+  - income and expenses per month, category and currency, positive for both; refunds reduce them;
+  - net worth per currency: assets minus liabilities, archived accounts included;
+  - the shared-account settlement per currency, saying who owes whom. The account is the one the
+    user's settings name, or else `FAMILY_DEBT`;
+  - an integrity check: the currencies in which the postings don't sum to zero, or in which
+    assets − liabilities − equity isn't zero.
+- Amounts come back `Money.normalize`d. Also new: `AccountNotFoundException` and
+  `AccountRepository.findByUserIdAndCode`.
+
+**Verified**
+- Nothing recorded in the commit. It adds `ReportServiceTests`, 15 tests, which writes its ledger
+  through `EntryService`. They cover each report; the integrity check on a sound ledger, on postings
+  that don't sum to zero, and on a posting on another user's account; and another user seeing only
+  their own ledger.
+
+**Open**
+- No API serves the reports yet.
+
+## 2026-09-25 · Ledger domain layer and entry templates
+
+Commit `6315cb3`. Backfilled on 2026-09-26 from the commit's diff.
+
+**Changes**
+- `ledger/domain/`, plain Java without Spring or a database:
+  - One command record per entry kind builds the entry's postings: expense, income, transfer,
+    shared expense, loan given, loan repaid, currency exchange, opening balance, and manual (raw
+    postings). A command's constructor names every field it can't build with.
+  - A shared expense splits by rule 7: `other = round(T × r, 2)` HALF_UP, and `own = T − other`.
+    The ratio comes from the command or the user's settings (0.50 without settings), and the
+    shared account from the settings or else `FAMILY_DEBT`.
+  - A currency exchange has four postings through `FX_EXCHANGE` (rule 9).
+  - `LedgerValidator` checks an entry against every rule the V2 triggers enforce, as well as ISO
+    4217 codes and category types that fit the entry's kind. It throws one `InvalidEntryException`
+    that lists every violation.
+- `ledger/`: Spring Data JDBC records and repositories for every ledger table, scoped by user id.
+  `JournalEntry` is one aggregate with its postings, ordered by `line_no` and guarded by
+  `@Version`. Saving it replaces all its postings.
+- `EntryService`: create; update and delete, both given the version the caller read; and get.
+  - It takes the user id as a parameter, and validates an entry before writing it.
+  - It holds the rows the entry refers to under FOR SHARE locks, and returns `EntryView`.
+- `V3__posting_line_no.sql`: `posting.line_no`, unique per entry.
+- `JdbcConfiguration` registers converters for JSONB (`ledger.Json`), so the PostgreSQL driver moves
+  to compile scope.
+
+**Verified**
+- Nothing recorded in the commit. It adds 47 backend tests:
+  - without a database: `EntryBuilderTests` (16) and `LedgerValidatorTests` (16);
+  - against the database: `EntryServiceTests` (9: postings in order, the split from the settings,
+    stale versions, another user's entry) and `LedgerRepositoryTests` (5);
+  - one more in `LedgerSchemaTests`, for distinct line numbers.
+
+**Open**
+- No API uses this layer; the app still serves V1's single-entry model.
+- `EntryService` can't list or search entries yet.
+
+## 2026-09-25 · Ledger schema and integrity triggers
+
+Commit `5fefb15`. Backfilled on 2026-09-26 from the commit's diff.
+
+**Changes**
+- `V2__double_entry_ledger.sql` creates the ledger of ADR 0001 next to V1's tables.
+  - Tables: `account`, `category`, `counterparty`, `journal_entry`, `posting`, `import_batch`,
+    `exchange_rate` (shared by all users) and `user_settings`.
+  - Owned rows are keyed by `user_id TEXT`, the Keycloak `sub`, and don't reference `users`.
+- Amounts are `NUMERIC(19,4)` and never zero, and a currency is three capital letters.
+- Accounts, categories and counterparties have `archived_at`, and postings refer to them with
+  `ON DELETE RESTRICT`.
+- `journal_entry` has a `version` for optimistic locking, and an `external_ref` for imports, unique
+  per user.
+- Triggers enforce what constraints can't:
+  - At commit (deferred), every entry the transaction touched has at least 2 postings, which sum to
+    zero per currency.
+  - A posting's entry, account, category and counterparty belong to one user.
+  - Only postings to EQUITY accounts have a category.
+  - An account with `requires_counterparty` gets a counterparty on every posting.
+  - An account can't change its type or `requires_counterparty` so that its postings break these
+    rules.
+  - `user_id` never changes.
+- ADR 0001's status and CLAUDE.md name the new schema.
+
+**Verified**
+- Nothing recorded in the commit. It adds `LedgerSchemaTests`, 13 tests with plain JDBC on a freshly
+  migrated database.
+  - These entries fail at commit: an unbalanced one, one balanced in RUB but not in EUR, one without
+    postings, and one that lost a posting. A balanced entry commits, and a moved posting checks both
+    entries.
+  - These fail: a category on an ASSET posting, a `LOANS_ASSET` posting without a counterparty, a
+    reference to another user's row, an account change that would break its postings, and a change
+    of owner.
+
+**Open**
+- No code uses the schema yet, and V2 isn't applied anywhere.
+- V2 creates no rows. Nothing gives a user the system accounts `OPENING_BALANCE` and `FX_EXCHANGE`
+  yet.
+- V1's tables stay, although ADR 0001 says a new migration can drop them.
+
+## 2026-09-25 · ADR 0001: the double-entry ledger
+
+Commit `1c7b624`. Backfilled on 2026-09-26 from the commit's diff.
+
+**Changes**
+- `docs/adr/0001-double-entry-ledger.md` analyses the owner's Excel ledger and decides that its
+  double-entry journal becomes the app's core model.
+  - Context: the workbook's three tables, and how a journal row and a Family (shared) row work.
+    Also what a check of the sample exports confirmed, and why V1's single-entry model can't hold
+    transfers, loans or the family split.
+  - Decision: the 13 domain rules, and how a workbook row maps onto an entry and its postings.
+  - Consequences:
+    - a new schema, and ownership by the Keycloak `sub`;
+    - the balance rule enforced twice, by the service and by a deferred trigger;
+    - `NUMERIC(19,4)`, reports computed on each request, entry templates, no conversion between
+      currencies, and archiving;
+    - the points the import still has to settle.
+  - Rejected: V1's single-entry table, and one account per category.
+- `CLAUDE.md`, new: the 13 domain rules, a project map as of 2026-09-25, when the code still had the
+  single-entry model, and how to run the tests.
+- `.gitignore`: `data/private/`, where the private exports live.
+
+**Verified**
+- Nothing recorded in the commit, which has no code. The ADR's figures come from a script run over
+  the private exports. The script isn't in the repository.
+
+**Open**
+- None of the ledger is built yet: the code still has V1's single-entry model.
 
 ## 2026-09-22 · Login moved to the shared auth server (realm `myapps`)
 

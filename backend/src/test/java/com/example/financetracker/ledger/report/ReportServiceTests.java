@@ -296,6 +296,27 @@ class ReportServiceTests extends IntegrationTest {
                 new IntegrityViolation("RUB", money("0.00"), money("300.00")));
     }
 
+    /**
+     * Postings changed past the triggers to name the other user's category and counterparty: the reports that show
+     * names leave them out rather than show the other user's.
+     */
+    @Test
+    void reportsNeverShowAnotherUsersCategoryOrCounterpartyEvenPastTheTriggers() {
+        long othersCategory = categories.save(new LedgerCategory(null, other, "SECRET", "Other's secret", EXPENSE,
+                null)).id();
+        long othersCounterparty = counterparties.save(new Counterparty(null, other, "Other's friend", null, null)).id();
+        pastTheTriggers("UPDATE posting SET category_id = ? WHERE category_id = ?", othersCategory, restaurants);
+        pastTheTriggers("UPDATE posting SET counterparty_id = ? WHERE counterparty_id = ?", othersCounterparty,
+                friendB);
+
+        assertThat(reports.cashFlow(user, AUG_1, SEP_30)).extracting(CashFlowRow::categoryCode)
+                .contains("GROCERIES").doesNotContain("SECRET");
+        assertThat(reports.cashFlowInBase(user, AUG_1, SEP_30).rows()).extracting(ConvertedCashFlow.Row::categoryCode)
+                .contains("GROCERIES").doesNotContain("SECRET");
+        assertThat(reports.counterpartyBalances(user, "LOANS_ASSET", SEP_6)).containsExactly(
+                new CounterpartyBalance(friendA, "Friend A", "RUB", money("3000.00")));
+    }
+
     @Test
     void anotherUserSeesOnlyTheirOwnLedger() {
         assertThat(reports.balances(other, SEP_30)).containsExactly(

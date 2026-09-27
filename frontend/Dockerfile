@@ -8,31 +8,15 @@ CMD ["npm", "run", "dev", "--", "--host"]
 FROM dev AS build
 RUN npm run build
 
-# Production (deploy/app/docker-compose.yml): the static build alone. The server's Caddy serves it from the volume
-# finance-tracker-www; this image copies it there, then exits.
-FROM busybox:1.37 AS static
-COPY --from=build /app/dist /dist
-# Hashed assets first, then index.html in one rename, so a browser never gets an index.html whose assets aren't there
-# yet. Every current asset is rewritten, so an asset older than 7 days belongs only to older builds; until then, a
-# page opened before the update can still load its lazy chunks.
-COPY --chmod=755 <<'EOF' /publish
-#!/bin/sh
-set -eu
-touch /www/.writable 2>/dev/null || { echo "Cannot write to /www, the finance-tracker-www volume" >&2; exit 1; }
-rm /www/.writable
-mkdir -p /www/assets
-cp -R /dist/assets/. /www/assets/
-for f in /dist/*; do
-  case "${f##*/}" in assets | index.html) ;; *) cp -R "$f" /www/ ;; esac
-done
-cp /dist/index.html /www/.index.html.new
-mv /www/.index.html.new /www/index.html
-find /www/assets -type f -mtime +7 -delete
-echo "Published $(ls /dist/assets | wc -l) assets and index.html"
-EOF
-RUN mkdir /www && chown 65534:65534 /www
-USER 65534:65534
-CMD ["/publish"]
+# Production (deploy/app/docker-compose.yml): the container finance-tracker-web, which serves the static build behind
+# the auth server's Caddy. nginx runs as its unprivileged user (uid 101) on port 8080; the image holds nothing else.
+FROM nginxinc/nginx-unprivileged:1.30.5-alpine-slim@sha256:307ca0bded4dda86dade6f5bd2a2551601bec9bac3fd73a21613fabcd9eca66a AS web
+COPY web.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+# nginx alone, without the image's entrypoint scripts, which try to rewrite the configuration.
+ENTRYPOINT ["nginx", "-g", "daemon off;"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
 
 # The default target: nginx serves the build and proxies the backend (docker-compose.yml, for local runs).
 FROM nginx:1.30-alpine

@@ -36,8 +36,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Reports over the ledger, computed from postings on every call (rule 13). Callers pass the user id, the Keycloak
- * "sub" claim (rule 11), and every query is scoped by it. The figures of each report come from one SQL statement, so
- * they are read from one snapshot and add up without a surrounding transaction.
+ * "sub" claim (rule 11), and every query is scoped by it: each table with a user_id that a query reads is filtered by
+ * it, even where V2's triggers already guarantee that the rows reached through the user's entries are the user's. The
+ * figures of each report come from one SQL statement, so they are read from one snapshot and add up without a
+ * surrounding transaction.
  * <p>
  * Dates are inclusive. A balance "as of" a day includes every entry dated that day.
  * <p>
@@ -118,7 +120,8 @@ public class ReportService {
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
                 JOIN counterparty c ON c.id = p.counterparty_id
-                WHERE e.user_id = :userId AND a.user_id = :userId AND a.id = :accountId AND e.entry_date <= :asOf
+                WHERE e.user_id = :userId AND a.user_id = :userId AND c.user_id = :userId AND a.id = :accountId
+                  AND e.entry_date <= :asOf
                 GROUP BY a.id, c.id, p.currency
                 HAVING sum(p.amount) <> 0
                 ORDER BY c.name, p.currency""")
@@ -149,7 +152,7 @@ public class ReportService {
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN category c ON c.id = p.category_id
-                WHERE e.user_id = :userId AND e.entry_date BETWEEN :from AND :to
+                WHERE e.user_id = :userId AND c.user_id = :userId AND e.entry_date BETWEEN :from AND :to
                 GROUP BY month, c.id, p.currency
                 ORDER BY month, c.type, c.code, p.currency""")
                 .param("userId", userId)
@@ -300,7 +303,7 @@ public class ReportService {
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN category c ON c.id = p.category_id
-                WHERE e.user_id = :userId AND e.entry_date BETWEEN :from AND :to
+                WHERE e.user_id = :userId AND c.user_id = :userId AND e.entry_date BETWEEN :from AND :to
                 GROUP BY e.entry_date, p.currency, c.id
                 UNION ALL
                 SELECT CASE a.type WHEN 'EQUITY' THEN 'EXCHANGE' ELSE 'HOLDING' END,

@@ -2,10 +2,8 @@ package com.example.financetracker.ledger;
 
 import java.util.Optional;
 
-import org.springframework.data.repository.CrudRepository;
-
-/** Every lookup is scoped by user id; callers never load a batch by id alone. */
-public interface ImportBatchRepository extends CrudRepository<ImportBatch, Long> {
+/** Every lookup is scoped by user id; there is none by id alone ({@link OwnedRepository}). */
+public interface ImportBatchRepository extends OwnedRepository<ImportBatch, Long> {
 
     Optional<ImportBatch> findByIdAndUserId(long id, String userId);
 }

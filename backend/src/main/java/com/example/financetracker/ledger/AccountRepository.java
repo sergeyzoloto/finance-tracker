@@ -6,10 +6,9 @@ import java.util.Optional;
 
 import org.springframework.data.relational.core.sql.LockMode;
 import org.springframework.data.relational.repository.Lock;
-import org.springframework.data.repository.CrudRepository;
 
-/** Every lookup is scoped by user id; callers never load an account by id alone. */
-public interface AccountRepository extends CrudRepository<Account, Long> {
+/** Every lookup is scoped by user id; there is none by id alone ({@link OwnedRepository}). */
+public interface AccountRepository extends OwnedRepository<Account, Long> {
 
     Optional<Account> findByIdAndUserId(long id, String userId);
 

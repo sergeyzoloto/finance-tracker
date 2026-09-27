@@ -3,14 +3,19 @@ package com.example.financetracker.ledger.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 
 import com.example.financetracker.IntegrationTest;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
@@ -86,6 +91,36 @@ abstract class LedgerApiTest extends IntegrationTest {
                 {"kind": "EXPENSE", "entryDate": "%s", "payeeId": %s, "memo": %s, "accountId": %d, "currency": "EUR",
                  "amount": "%s", "categoryId": %d}""".formatted(date, payeeId, memo == null ? null : '"' + memo + '"',
                 accountId(user, "CASH"), amount, categoryId(user, "GROCERIES")));
+    }
+
+    /**
+     * POST /api/import of the synthetic workbook in {@code src/test/resources/import/}: its accounts and categories,
+     * and these transactions.
+     *
+     * @param dryRun the parameter's value, or null to leave it out
+     */
+    protected MvcTestResult importWorkbook(String user, byte[] transactions, String dryRun) throws IOException {
+        var request = mvc.post().uri("/api/import").multipart()
+                .file(new MockMultipartFile("accounts", "accounts.csv", "text/csv", fixture("accounts.csv")))
+                .file(new MockMultipartFile("categories", "categories.csv", "text/csv", fixture("categories.csv")))
+                .file(new MockMultipartFile("transactions", "transactions.csv", "text/csv", transactions))
+                .with(member(user));
+        if (dryRun != null) {
+            request.param("dryRun", dryRun);
+        }
+        return request.exchange();
+    }
+
+    /** A file of the synthetic workbook. */
+    protected static byte[] fixture(String name) throws IOException {
+        return new ClassPathResource("import/" + name).getContentAsByteArray();
+    }
+
+    /** The file without one spreadsheet row; the header is row 1. No field of the fixture spans lines. */
+    protected static byte[] withoutRow(byte[] csv, int row) {
+        List<String> lines = new ArrayList<>(List.of(new String(csv, StandardCharsets.UTF_8).split("\r\n")));
+        lines.remove(row - 1);
+        return (String.join("\r\n", lines) + "\r\n").getBytes(StandardCharsets.UTF_8);
     }
 
     /** The element of the array whose field has the value. */

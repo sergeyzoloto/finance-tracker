@@ -6,10 +6,9 @@ import java.util.Optional;
 
 import org.springframework.data.relational.core.sql.LockMode;
 import org.springframework.data.relational.repository.Lock;
-import org.springframework.data.repository.CrudRepository;
 
-/** Every lookup is scoped by user id; callers never load a category by id alone. */
-public interface LedgerCategoryRepository extends CrudRepository<LedgerCategory, Long> {
+/** Every lookup is scoped by user id; there is none by id alone ({@link OwnedRepository}). */
+public interface LedgerCategoryRepository extends OwnedRepository<LedgerCategory, Long> {
 
     Optional<LedgerCategory> findByIdAndUserId(long id, String userId);
 

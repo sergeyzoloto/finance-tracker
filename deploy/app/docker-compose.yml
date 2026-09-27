@@ -1,12 +1,13 @@
-# Finance Tracker in production at https://app.finance-nl.com, on the Hetzner host next to the auth server's stack
-# (/opt/auth). deploy/RUNBOOK.md is the procedure; run every command from this directory.
+# Finance Tracker in production at https://app.finance-nl.com, on the Hetzner server that runs the auth server
+# (deploy/RUNBOOK.md). On the server this directory is /opt/finance-tracker/deploy/app: run docker compose from here.
 #
-# - postgres: the app's own PostgreSQL 17, never shared with Keycloak's. Reachable only inside this stack.
-# - backend: Spring Boot. The auth stack's Caddy reaches it over the network finance-tracker-proxy.
-# - frontend: copies the static build into the volume finance-tracker-www, which Caddy serves, then exits.
+# - postgres: the app's own PostgreSQL 17 (container finance-tracker-postgres), on this stack's network only.
+# - api: the Spring backend (container finance-tracker-api).
+# - web: the built frontend, served by nginx as an unprivileged user (container finance-tracker-web).
 #
-# The network and the volume are shared with /opt/auth, so neither stack owns them: create them once
-# (RUNBOOK.md, step 5). Secrets come from .env (see .env.example), which is never committed.
+# The auth server's Caddy serves the site (deploy/finance.caddy, installed with caddy-site install) and reaches api and
+# web over the Docker network edge. Only these two containers of this stack join edge. Secrets come from .env next to
+# this file (see .env.example), which exists only on the server.
 name: finance-tracker-prod
 
 x-logging: &logging
@@ -17,13 +18,19 @@ x-logging: &logging
 
 services:
   postgres:
-    image: postgres:17
+    # An exact version and build: the nightly backup and its restore test (deploy/pg-backup/finance.conf) use the
+    # image this container runs, and a new major version needs a dump and a restore.
+    image: postgres:17.11@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    # The api's name for the database. Not "postgres": the api is also on edge, where a container of another project
+    # could take that name. The prefix finance- is this project's on edge.
+    container_name: finance-tracker-postgres
     restart: unless-stopped
     environment:
       # The superuser, for maintenance only. The app logs in as "finance" (postgres-init.sh).
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
     volumes:
+      # The database. "docker compose down -v" deletes it: never use -v here.
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-finance.sh:ro
     healthcheck:
@@ -32,57 +39,66 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    # Time for a clean shutdown, so that a restart never has to recover the database.
+    stop_grace_period: 60s
     mem_limit: 384m
     logging: *logging
 
-  backend:
+  api:
     build: ../../backend
-    image: finance-tracker-backend
+    image: finance-tracker-api
+    container_name: finance-tracker-api
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/finance
+      SPRING_DATASOURCE_URL: jdbc:postgresql://finance-tracker-postgres:5432/finance
       SPRING_DATASOURCE_USERNAME: finance
       SPRING_DATASOURCE_PASSWORD: ${APP_DB_PASSWORD}
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 5
-      # Must equal the tokens' "iss" claim. The backend reaches it through the host's public address.
+      # Must equal the tokens' "iss" claim. The api reaches Keycloak like any other client, through the server's public
+      # address and Caddy.
       KEYCLOAK_ISSUER_URL: https://auth.finance-nl.com/realms/myapps
       KEYCLOAK_CLIENT_ID: finance-tracker
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}
     networks:
-      default:
-      proxy:
-        # The name Caddy proxies to (deploy/caddy/app.finance-nl.com.caddy).
-        aliases: [finance-tracker-backend]
+      # default: the database, and the way out to Keycloak and the ECB. edge: Caddy.
+      - default
+      - edge
+    read_only: true
+    tmpfs:
+      # Tomcat's work files and uploads (POST /api/import, up to 20 MB) and the JVM's; they count toward mem_limit.
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     # The heap is 60% of this (backend/Dockerfile).
     mem_limit: 768m
     logging: *logging
 
-  frontend:
+  web:
     build:
       context: ../../frontend
-      target: static
-    image: finance-tracker-frontend-static
-    # Runs once per "up" and exits with 0.
-    restart: "no"
-    volumes:
-      - www:/www
-    network_mode: none
+      target: web
+    image: finance-tracker-web
+    container_name: finance-tracker-web
+    restart: unless-stopped
+    # Only Caddy talks to it, and it talks to no one.
+    networks: [edge]
     read_only: true
+    tmpfs:
+      # nginx's pid file and temporary files.
+      - /tmp:size=8m
     cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     mem_limit: 64m
     logging: *logging
 
 networks:
-  proxy:
-    name: finance-tracker-proxy
+  # The network of the server's Caddy (the auth server's PRODUCTION.md, "Hosting another project behind this Caddy").
+  # The auth stack's sync.sh creates it and no stack owns it, so "docker compose down" here leaves it alone.
+  edge:
     external: true
 
 volumes:
-  # The database. "docker compose down -v" deletes it: never use -v here.
   postgres-data:
-  www:
-    name: finance-tracker-www
-    external: true

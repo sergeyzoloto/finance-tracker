@@ -3,6 +3,163 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-27 · Data isolation, auth docs, deployment behind the shared Caddy (D2a)
+
+Not committed yet.
+
+**Changes**
+- Data isolation audit: every endpoint and service, every repository and native query (reports and
+  aggregates included), the importer, and every id taken from a path, a parameter or a body. The
+  user comes only from the access token's `sub` (`CurrentUserResolver`); no request could read,
+  change or use another user's rows, and another user's object already answered 404. Three
+  hardening fixes:
+  - Repositories: `AccountRepository`, `LedgerCategoryRepository`, `CounterpartyRepository`,
+    `JournalEntryRepository` and `ImportBatchRepository` extended `CrudRepository`, whose
+    `findById`, `findAll`, `existsById`, `count` and `deleteById` reach every user's rows. Nothing
+    called them; only a convention kept it so. They now extend the new `ledger.OwnedRepository`,
+    which offers `save` alone (entries also `delete` of a loaded entry), so an unscoped lookup no
+    longer compiles.
+  - Reports: the cash flow, per currency and in the base currency, and the balances per
+    counterparty joined `category` and `counterparty` by id without a `user_id` filter of their
+    own, relying on V2's trigger. A posting changed past the triggers to another user's category
+    showed that user's category in the cash flow. Every table with a `user_id` that these queries
+    read is now filtered by it.
+  - Deployment: the api joins the shared network `edge`, where another project's container named
+    `postgres` could have taken the database connection and its password. The database is now
+    `finance-tracker-postgres`, a name of this project's prefix.
+- New `DataIsolationApiTests`, 7 tests with two users over every endpoint. Alice's ledger has
+  accounts, categories and counterparties of her own, an entry of every kind, settings, manual
+  rates (one by CSV), a committed import, and a posting changed past the triggers; Bob's has a few
+  entries on the same days and in the same currencies.
+  - Every read of Bob's (18, lists, reports, aggregates, rates and settings) answers the same
+    before and after Alice writes hers, contains none of her names, and differs from her answer.
+    Her dollar rates don't convert his dollars, her pound rate doesn't replace his, and his
+    integrity check stays empty while hers reports her broken posting.
+  - For each of her entries, accounts, categories, counterparties and manual rates, Bob's GET, PUT,
+    PATCH and DELETE get 404, word for word the answer for an id that doesn't exist, also with a
+    stale version, for her system accounts and with a changed category type. Her ledger is
+    unchanged afterwards.
+  - Her ids in his writes (14 references across every entry kind, in a new entry and in place of
+    one of his) and as his shared account get 422 like missing ids; as filters they find nothing.
+    Codes and names are unique per user, so taking hers succeeds.
+  - Importing the same workbook as Alice imports every row for Bob; none is skipped as imported
+    before.
+  - A `userId`, `user_id` or `sub` parameter, an `X-User-Id` header and body fields naming Alice
+    change nothing, with `jwt()` and with a signed token.
+  - Every API answer carries `Cache-Control: no-store`.
+  - The test lists the operations it checks and fails when the OpenAPI description has one more.
+- New `ReportServiceTests` test: postings changed past the triggers to name the other user's
+  category and counterparty don't bring them into the cash flows or the balances per
+  counterparty. `LedgerApiTest` gets the workbook upload helpers of `ImportApiTests`.
+- `docs/auth.md`: no more `realm-prod.json`; the production client as created in the auth
+  server's stage 5, with full scope and front-channel logout off; production has sign-up with
+  email verification, password reset, and Google and GitHub login; `user` is a default role, so
+  nobody assigns it; `admin` exists only in the dev realm. New section "One person, several users":
+  Google or GitHub with another email address is a separate user with a ledger of its own, unless
+  linked in the account console (`https://auth.finance-nl.com/realms/myapps/account/` → Account
+  security → Linked accounts). Known limits: `admin-cli` and `security-admin-console` keep full
+  scope, `shop-api` exists only in dev.
+- Deployment, reworked to the auth server's rules for projects behind its Caddy:
+  - `deploy/app/docker-compose.yml`: `postgres` pinned to `postgres:17.11` by digest, on the
+    stack's network only; `api` as `finance-tracker-api` on that network and on the external
+    `edge`; `web` as `finance-tracker-web` on `edge` only. `api` and `web` run with a read-only
+    root, a tmpfs `/tmp`, no capabilities and `no-new-privileges`. Memory limits 384, 768 and 64
+    MiB, for this stack's containers only.
+  - `frontend/Dockerfile`: target `web` in place of `static`, from
+    `nginxinc/nginx-unprivileged:1.30.5-alpine-slim` pinned by digest (13.5 MB), uid 101, port
+    8080. `frontend/web.conf`: SPA fallback to `index.html` with `no-cache`, `/assets/` cached a
+    year as `immutable`, a missing asset is a 404.
+  - `deploy/finance.caddy`: the site block for `app.finance-nl.com`, to install with
+    `caddy-site install`. `/api`, `/api/*`, `/oauth2/*`, `/login/oauth2/*` and `/logout` go to
+    `finance-tracker-api:8080` (uploads up to 20 MiB), everything else to
+    `finance-tracker-web:8080`, with the app's HSTS, CSP, `nosniff` and `Referrer-Policy`; `Server`
+    and `Via` removed.
+    `deploy/check-site.sh` validates it on the laptop with the auth server's Caddyfile and the
+    Caddy image it pins.
+  - `deploy/pg-backup/finance.conf`: the backup instance `finance` for the auth server's
+    `pg-backup` and `pg-restore-test`, with restore checks on the migration, users, ledgers,
+    accounts, categories, counterparties, entries, postings, the sum of posted amounts, unbalanced
+    entries and manual rates.
+  - Removed: `deploy/caddy/` (the block appended to `/opt/auth/Caddyfile`, and a
+    `docker-compose.override.yml` for `/opt/auth` with memory limits for Caddy, Keycloak and its
+    Postgres), the network `finance-tracker-proxy`, the volume `finance-tracker-www` with the
+    frontend target that filled it, and `deploy/backup/` (its own backup script, timer, Storage Box
+    copy and restore test).
+- `deploy/RUNBOOK.md` rewritten for the deploy in D3. Every block says where it runs and needs no
+  editing. Steps: check the server, the DNS A record in Squarespace, Keycloak (3.1 to 3.3 now only
+  check the client, the default role and the mapper with kcadm; the old 3.4 and everything about
+  `testuser` are gone), the clone in `/opt/finance-tracker`, secrets typed in with `read -rs` and
+  written with `printf` (database passwords generated on the server, the client secret from the
+  admin console), build and start, `caddy-site install`, checks from outside, backups (conf, timer,
+  first run, restore test, laptop pull), and the Excel import. Then updates with `:previous`
+  images, rollback, changing the site file, a restore from a dump, regular checks and
+  troubleshooting. New tables: routing, and the memory budget of the whole server.
+- README, `docs/database-hosting.md`, CLAUDE.md's project map and a comment in `application.yml`
+  describe the new setup.
+
+**Verified**
+- Backend: `./mvnw -B verify`, what CI runs: 214 tests in 27 classes, 0 failures, 0 errors, 0
+  skipped, BUILD SUCCESS. 8 of them are new (7 in `DataIsolationApiTests`, 1 in
+  `ReportServiceTests`); `ImportApiTests` passes with its moved helpers.
+- The isolation tests catch leaks: with the user filter removed from the rates overview and from
+  net worth, 5 of the 7 failed; with the queries restored, all passed. The new
+  `ReportServiceTests` test fails with the old report queries (the other user's `SECRET` category
+  in the cash flow) and passes with the new ones.
+- Frontend: `npm test` 76 of 76 passed in 5 files; `npm run build` succeeded.
+- `deploy/check-site.sh`: `Valid configuration` for the auth server's Caddyfile with
+  `deploy/finance.caddy`, in `caddy:2.11.4` with the auth stack's digest, and formatted as
+  `caddy fmt` formats it. A copy with a misspelt directive was rejected with its file and line.
+- End to end on the laptop, then removed completely: a local `edge` network; the production
+  compose file with throwaway secrets; the pinned Caddy with `local_certs` and the site file
+  imported from a sites directory, as on the server; requests from a curl container on `edge`,
+  TLS checked against Caddy's local CA.
+  - All three containers healthy; Flyway applied V1 to V4 and the ECB history loaded. `web` runs as
+    uid 101 and `api` as `app`, both on a read-only root. On `edge` only Caddy,
+    `finance-tracker-api` and `finance-tracker-web`, one address each; `finance-tracker-postgres`
+    doesn't resolve from Caddy.
+  - Port 80 answered 308 to https. `/` gave `index.html` over HTTP/2 with `no-cache`, HSTS, CSP,
+    `nosniff` and `Referrer-Policy`, and without `Server`. A hashed asset came zstd-compressed with
+    `public, max-age=31536000, immutable`. Four deep links gave the same `index.html`, and a
+    missing asset 404.
+  - `/api`, `/api/me`, `/api/openapi` and `/api/reports/balances` gave the backend's 401 with
+    `WWW-Authenticate: Bearer` and `no-store`. `/actuator/health` gave the app's `index.html`, not
+    the backend's status.
+  - `/oauth2/authorization/keycloak` gave 302 to
+    `https://auth.finance-nl.com/realms/myapps/protocol/openid-connect/auth` with
+    `client_id=finance-tracker`,
+    `redirect_uri=https://app.finance-nl.com/login/oauth2/code/keycloak`,
+    `code_challenge_method=S256` and a challenge, and `Secure` cookies. The backend read the
+    discovery document of the production issuer for this, and nothing followed the redirect.
+    Keycloak's callback with an unknown state ended at `/?login=failed`, and a POST to `/logout`
+    at `/`, both from the backend.
+  - Memory after start: api 323 MiB, postgres 64 MiB, web 10 MiB.
+- Backups: copies of the auth server's `pg-backup.sh` and `restore-test.sh`, changed only in their
+  config directory, ran against that stack with `finance.conf`. The dump passed their archive
+  check, and after a small ledger was written through SQL the restore test gave `PASS` with every
+  check equal (12 tables, migration 4, 2 postings, 24.6800 posted, 0 unbalanced).
+- The runbook's restore, in a throwaway container of the production image with the same logins:
+  as `finance`, which is no superuser, `pg_restore --single-transaction` restored a dump of V1 to
+  V4 with a ledger, and the balance trigger refused an unbalanced entry afterwards.
+- The runbook's kcadm reads of step 3 ran against the dev Keycloak and printed the fields,
+  mappers and token claims it describes (the dev realm's own values).
+
+**Open**
+- Not deployed: D3 runs the runbook. Only there get checked: the api reaching Keycloak through the
+  server's public address, the certificate from Let's Encrypt, and the laptop pull of the new
+  directory.
+- Caddy's 20 MiB limit was not exercised: an unauthenticated upload gets the backend's 401 before
+  its body is read, and there was no real token locally.
+- Compose also registers the service names `api` and `web` on `edge`. The auth server's rules
+  allow that, since site files use only prefixed names.
+- Ids come from sequences shared by all users, so a user can estimate how many rows everyone
+  created. No other user's data shows.
+- After an update, a tab opened before it can't load lazy chunks of the old build until it reloads.
+- The auth server's `PRODUCTION.md` still shows the old names (`finance-tracker-backend`,
+  `deploy/caddy/app.finance-nl.com.caddy`) and puts `finance.conf` into its own `deploy/backup/`;
+  that repository was not changed here.
+- The entry "Production deployment files and runbook" below describes the removed files; older
+  entries aren't edited.
+
 ## 2026-09-26 · Change log: ledger work backfilled, definition of done, Stop hook
 
 Not committed yet.

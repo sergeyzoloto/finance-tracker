@@ -6,10 +6,9 @@ import java.util.Optional;
 
 import org.springframework.data.relational.core.sql.LockMode;
 import org.springframework.data.relational.repository.Lock;
-import org.springframework.data.repository.CrudRepository;
 
-/** Every lookup is scoped by user id; callers never load a counterparty by id alone. */
-public interface CounterpartyRepository extends CrudRepository<Counterparty, Long> {
+/** Every lookup is scoped by user id; there is none by id alone ({@link OwnedRepository}). */
+public interface CounterpartyRepository extends OwnedRepository<Counterparty, Long> {
 
     Optional<Counterparty> findByIdAndUserId(long id, String userId);
 

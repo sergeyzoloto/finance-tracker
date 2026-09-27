@@ -89,7 +89,13 @@ backend/                      Spring Boot app
 frontend/                     React SPA
   src/api.ts                  fetch wrapper: CSRF header, errors, reload while the backend is down
   src/auth.ts                 login and logout redirects
-  nginx.conf                  nginx config template: static files and the proxy
+  nginx.conf                  nginx config template: static files and the proxy (local runs)
+  web.conf                    nginx config of production's finance-tracker-web: static files only
+deploy/                       production (RUNBOOK.md)
+  app/docker-compose.yml      the stack: PostgreSQL, finance-tracker-api, finance-tracker-web
+  finance.caddy               the site file for the auth server's Caddy
+  check-site.sh               validates it the way the server will
+  pg-backup/finance.conf      settings of the nightly backup and its restore test
 docs/auth.md                  authentication and authorization in depth
 docs/database-hosting.md      where the database runs at launch and later, and why
 change_log.mdx                every completed task: what changed, how it was verified, what is open
@@ -295,12 +301,15 @@ Not deployed yet. [deploy/RUNBOOK.md](deploy/RUNBOOK.md) is the procedure, step 
 `https://auth.finance-nl.com/realms/myapps`.
 
 - `deploy/app/docker-compose.yml`: the app's own PostgreSQL 17, never shared with Keycloak's; the
-  backend; and a one-shot container that copies the static frontend into a volume. The secrets go
-  in `deploy/app/.env` (see `.env.example` there), which stays on the server.
-- The auth server's Caddy serves both sites. `deploy/caddy/app.finance-nl.com.caddy` serves the
-  frontend's files and proxies `/api`, `/oauth2`, `/login/oauth2` and `/logout` to the backend.
-- `deploy/backup/`: a nightly `pg_dump`, kept 14 days on the host and copied to a Hetzner Storage
-  Box, and a restore test.
+  backend as the container `finance-tracker-api`; and `finance-tracker-web`, an unprivileged nginx
+  that serves the built frontend. The secrets go in `deploy/app/.env` (see `.env.example` there),
+  which stays on the server.
+- The auth server's Caddy serves both sites. `deploy/finance.caddy`, its site file for
+  `app.finance-nl.com`, proxies `/api`, `/oauth2`, `/login/oauth2` and `/logout` to
+  `finance-tracker-api`, and every other path to `finance-tracker-web`, over the shared Docker
+  network `edge`. The database is not on `edge`.
+- `deploy/pg-backup/finance.conf`: the nightly `pg_dump` and restore test, with the auth server's
+  backup scripts. Dumps are kept 14 days on the host and pulled to the owner's laptop.
 - The move to Supabase comes later; see [docs/database-hosting.md](docs/database-hosting.md).
 
 What production relies on:
@@ -310,8 +319,9 @@ What production relies on:
 - **One backend instance.** Sessions live in the backend's memory. A restart signs everyone out,
   usually without a password prompt, since the Keycloak session survives. More than one instance
   would need sticky sessions or a shared session store.
-- **Access for users:** an administrator assigns the `finance-tracker` → `user` client role to
-  each user in the production realm.
+- **Access for users:** anyone can sign up in the production realm, or sign in with Google or
+  GitHub. The `finance-tracker` → `user` client role is a default role there, so every user has it,
+  and each user sees only their own ledger ([docs/auth.md](docs/auth.md)).
 
 ## Status and roadmap
 
@@ -322,7 +332,8 @@ local stack that recovers from backend restarts and Keycloak outages. The histor
 Open:
 
 - [ ] Run against the real Supabase database.
-- [ ] Set up the client in the production realm and deploy ([deploy/RUNBOOK.md](deploy/RUNBOOK.md)).
+- [x] Set up the client in the production realm (the auth server's stage 5, 2026-09-27).
+- [ ] Deploy ([deploy/RUNBOOK.md](deploy/RUNBOOK.md)).
 - [x] CI: build and test on every push, in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - [x] Frontend unit and component tests (Vitest).
 - [ ] The scripted browser checks in the repository.

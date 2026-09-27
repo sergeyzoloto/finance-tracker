@@ -3,14 +3,10 @@ package com.example.financetracker.ledger.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.stream.StreamSupport;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -92,25 +88,6 @@ class ImportApiTests extends LedgerApiTest {
 
     /** @param dryRun the parameter's value, or null to leave it out */
     private MvcTestResult upload(byte[] transactions, String dryRun) throws IOException {
-        var request = mvc.post().uri("/api/import").multipart()
-                .file(new MockMultipartFile("accounts", "accounts.csv", "text/csv", fixture("accounts.csv")))
-                .file(new MockMultipartFile("categories", "categories.csv", "text/csv", fixture("categories.csv")))
-                .file(new MockMultipartFile("transactions", "transactions.csv", "text/csv", transactions))
-                .with(member(user));
-        if (dryRun != null) {
-            request.param("dryRun", dryRun);
-        }
-        return request.exchange();
-    }
-
-    private static byte[] fixture(String name) throws IOException {
-        return new ClassPathResource("import/" + name).getContentAsByteArray();
-    }
-
-    /** The file without one spreadsheet row; the header is row 1. No field of the fixture spans lines. */
-    private static byte[] withoutRow(byte[] csv, int row) {
-        List<String> lines = new ArrayList<>(List.of(new String(csv, StandardCharsets.UTF_8).split("\r\n")));
-        lines.remove(row - 1);
-        return (String.join("\r\n", lines) + "\r\n").getBytes(StandardCharsets.UTF_8);
+        return importWorkbook(user, transactions, dryRun);
     }
 }

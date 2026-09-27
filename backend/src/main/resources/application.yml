@@ -49,7 +49,7 @@ management:
     web:
       exposure:
         # Only /actuator/health, open without login (security.SecurityConfig) and saying only UP or DOWN. The container's
-        # health check calls it; production's Caddy doesn't route /actuator (deploy/caddy/app.finance-nl.com.caddy).
+        # health check calls it; production's Caddy doesn't route /actuator (deploy/finance.caddy).
         include: health
 server:
   # Behind nginx or Caddy. A TLS proxy in front of it must send X-Forwarded-Proto: https, so login redirects use https.

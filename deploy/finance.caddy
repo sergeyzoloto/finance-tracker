@@ -1,0 +1,34 @@
+# Finance Tracker: https://app.finance-nl.com
+# The site file of the auth server's Caddy, installed on the server as /opt/caddy-sites/finance.caddy with caddy-site
+# install (deploy/RUNBOOK.md). Caddy reaches the app's containers over the Docker network edge:
+# finance-tracker-api, the Spring backend, and finance-tracker-web, the built frontend (deploy/app/docker-compose.yml).
+app.finance-nl.com {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Logout posts a form to /logout, which redirects to Keycloak: hence form-action.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://auth.finance-nl.com"
+		-Server
+		-Via
+	}
+
+	# Everything the backend serves to browsers: the API (with /api/me and /api/openapi), the login's start
+	# (/oauth2/authorization/keycloak), Keycloak's callback (/login/oauth2/code/keycloak) and logout. Its
+	# /actuator/health is for the container's health check only and stays inside the server.
+	@api path /api /api/* /oauth2/* /login/oauth2/* /logout
+	handle @api {
+		# POST /api/import uploads the Excel ledger's CSV files; the backend allows 20 MB too.
+		request_body {
+			max_size 20MiB
+		}
+		reverse_proxy finance-tracker-api:8080
+	}
+
+	# Every other path: the single-page app and its files. finance-tracker-web says how long browsers keep them.
+	handle {
+		reverse_proxy finance-tracker-web:8080
+	}
+}

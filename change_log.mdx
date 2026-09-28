@@ -5,7 +5,7 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-09-28 · One token refresh per session, late login callback (D3a)
 
-Commit `385cd2a`.
+Commit `385cd2a`; the deploy's records: not committed yet.
 
 **Changes**
 - `SessionAccessTokenFilter`: one request of a session refreshes the access token at a time, which
@@ -48,6 +48,13 @@ Commit `385cd2a`.
 - Docs: `docs/auth.md` (refresh, the lock, one instance, the late callback, the tests), the
   runbook's troubleshooting rows for the refresh bug (fixed) and `authorization_request_not_found`,
   step 8's note on the registration tab, and CLAUDE.md's project map.
+- Deployed to production with the runbook's "Update the app", from `9287f0e` (Change log: D3a's
+  commit), after the owner pushed and CI was green. Nothing else on the server changed; the realm
+  and the auth repository are untouched (Keycloak was only read with `automation-cli`).
+- After the deploy: a row in the runbook's "Deployed revisions". "Update the app" now says that
+  `finance-tracker-web` keeps running when the frontend didn't change. The refresh bug's
+  troubleshooting row says where refreshes can be counted, since the realm doesn't store
+  `REFRESH_TOKEN` events. CLAUDE.md names the running commit.
 
 **Verified**
 - Before the fix, with the new `FakeKeycloak` and tests: `parallelRequestsWithAnExpiredAccessTokenKeepTheSession`
@@ -59,9 +66,43 @@ Commit `385cd2a`.
   parallel tests passed 5 runs out of 5.
 - `./mvnw -B verify`: 235 tests, 0 failures, BUILD SUCCESS. Frontend: `npm ci`, `npm test` (84
   tests) and `npm run build` pass.
+- CI for `9287f0e` (run 36426599780): Backend, Frontend and Dependency updates green, read from
+  GitHub's API (`gh` isn't installed on the laptop).
+- The deploy, on 2026-09-28 from 13:12 UTC:
+  - Before: the server ran `070fab2` with all three containers healthy. Backup
+    `finance-2026-09-28T1312Z.dump`, `Result=success`, `OK: 4 dumps`.
+  - `git pull` went from `070fab2` to `9287f0e`; `deploy/finance.caddy` and `deploy/pg-backup`
+    were unchanged. The running images were tagged `:previous`. The build and restart took 33 s:
+    `api: healthy`, and all three containers `Up … (healthy)`.
+  - The api runs the new image. The web container kept the old one, whose layers, config and
+    creation time equal the rebuilt image's; only the ID differs (containerd image store). The
+    api's log showed no warning but springdoc's usual one.
+  - Step 8's checks from the laptop all as the runbook says, and the auth smoke test
+    `11 ok, 0 fail`.
+- The production check with the owner: sign-in, the dashboard, idle, then the dashboard, a report
+  and a new entry.
+  - First attempt: sign-in at 13:16:44, an entry saved at 13:18:05, then 48 minutes without a
+    request. The app session and Keycloak's SSO session had both ended after 30 minutes idle, so
+    the owner signed in again with a password. No refresh was attempted, and nothing was refused.
+    That is the configured idle timeout, not the bug.
+  - Second attempt: sign-in at 14:06:49. At 14:13:48, with the access token expired, exactly one
+    refresh reached Keycloak (the api's only token call between the sign-in's code exchange and
+    the save, answered 200). The entry was saved at 14:14:26.
+  - Keycloak logged no `REFRESH_TOKEN_ERROR` since the deploy. The realm doesn't store
+    `REFRESH_TOKEN` events, so the refresh was counted in Caddy's access log of the token
+    endpoint; D3's incident shows there as 200, 400, 200 at 11:16:51.
+  - The api logged no ended session (`Keycloak refused …`), no error and no warning since
+    startup.
+  - Both test entries (139 and 140, expenses of 2 balanced postings each) were in the database.
+    The owner then deleted them in the app: 0 entries and 0 postings remain.
+- Not seen in production: the late second callback, which only the test covers. The app's site
+  block has no access log, so the dashboard's individual API requests aren't visible; the proof
+  of the fix there is the one refresh, without a refusal, for that expiry.
 
 **Open**
-- Deploy to production, and the check there with the owner: this task's next steps.
+- The Excel import (runbook step 10) is still to do.
+- The lock assumes one api instance. More instances would need a shared session store and a shared
+  lock, or sticky sessions.
 
 ## 2026-09-28 · First production deploy (D3)
 

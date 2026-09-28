@@ -3,6 +3,66 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-28 · One token refresh per session, late login callback (D3a)
+
+Not committed yet.
+
+**Changes**
+- `SessionAccessTokenFilter`: one request of a session refreshes the access token at a time, which
+  fixes the bug D3 found: parallel requests each refreshed an expiring token with the same refresh
+  token, Keycloak refused the second with "Maximum allowed refresh token reuse exceeded", and the
+  api ended the session.
+  - A request whose token expires within the minute takes a `ReentrantLock` kept in the session,
+    reads the session's authorized client again under it, and refreshes only if that token is
+    still expiring. Otherwise it uses the token that the request before it got.
+  - A refused refresh (`invalid_grant`) ends the session only while the refused refresh token is
+    still the session's; tokens stored meanwhile by a sign-in in the same session stay. The
+    manager's default failure handler, which removed the stored client on `invalid_grant`, is
+    replaced by a no-op, so the filter decides alone. The end of a session is logged:
+    `Keycloak refused to refresh the session's access token (…), so the session ends`.
+  - The lock is in the JVM, which assumes the single api instance; the Javadoc and
+    `docs/auth.md` say so.
+  - Found on the way: Keycloak 26 (`TokenManager.validateTokenReuseForRefresh`) also detaches the
+    client session when a refresh token is reused. The token the first refresh brought would then
+    fail at its own refresh, so avoiding the second use matters, not only tolerating its error.
+- `SecurityConfig`: a callback that fails with `authorization_request_not_found` in a session that
+  already holds tokens goes to `/?login=done`, like a successful login, and logs
+  `A late callback of a finished sign-in`. Otherwise the login-failed notice stays. The task said
+  to redirect to `/`. `/?login=done` also lands on `/`, and when the browser dropped the first
+  callback's response, the frontend reopens the page the user was on.
+- Tests:
+  - `FakeKeycloak` models Keycloak's client session: one valid refresh token per sign-in, a reuse
+    refused with "Maximum allowed refresh token reuse exceeded" that also detaches the client
+    session, and refreshes counted as granted and refused (`refreshCount`,
+    `refusedRefreshCount`). It answers requests in parallel (virtual threads), can delay a
+    subject's refreshes, and can give refreshed access tokens another lifetime than the first.
+    It did already refuse a used refresh token, with another message; no test had sent parallel
+    requests.
+  - `BrowserLoginTests`: `parallelRequestsWithAnExpiredAccessTokenKeepTheSession` and
+    `parallelRequestsRefreshTheAccessTokenOnce` (6 requests at once, refreshes delayed 300 ms),
+    `aLateSecondCallbackOfAFinishedLoginLandsInTheApp`, and
+    `aCallbackWithoutAnAuthorizationRequestFailsInASessionThatIsNotSignedIn`. Sessions are a
+    `MockHttpSession` with synchronized attributes, as parallel requests share Tomcat's.
+  - `security/SessionAccessTokenFilterTests`, with a stub refresher: a refusal ends the session
+    while the refused token is the session's, and keeps it when a sign-in replaced the token.
+- Docs: `docs/auth.md` (refresh, the lock, one instance, the late callback, the tests), the
+  runbook's troubleshooting rows for the refresh bug (fixed) and `authorization_request_not_found`,
+  step 8's note on the registration tab, and CLAUDE.md's project map.
+
+**Verified**
+- Before the fix, with the new `FakeKeycloak` and tests: `parallelRequestsWithAnExpiredAccessTokenKeepTheSession`
+  failed with 5 of the 6 requests at 401 and the session invalidated, and
+  `parallelRequestsRefreshTheAccessTokenOnce` counted 6 refresh calls instead of 1. The other 7
+  tests of the class passed. The late callback test against the old `SecurityConfig` got
+  `/?login=failed` after `Login failed: [authorization_request_not_found]`.
+- After the fix: `BrowserLoginTests` 11 of 11 and `SessionAccessTokenFilterTests` 2 of 2. The two
+  parallel tests passed 5 runs out of 5.
+- `./mvnw -B verify`: 235 tests, 0 failures, BUILD SUCCESS. Frontend: `npm ci`, `npm test` (84
+  tests) and `npm run build` pass.
+
+**Open**
+- Deploy to production, and the check there with the owner: this task's next steps.
+
 ## 2026-09-28 · First production deploy (D3)
 
 Commit `5032112`.

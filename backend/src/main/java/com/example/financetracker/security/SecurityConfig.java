@@ -23,6 +23,7 @@ import org.springframework.security.oauth2.client.registration.InMemoryClientReg
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -34,6 +35,8 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import org.springframework.security.web.DefaultRedirectStrategy;
+import org.springframework.security.web.RedirectStrategy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
@@ -71,6 +74,8 @@ class SecurityConfig {
     private static final String LOGIN_DONE_URL = "/?login=done";
     /** Where the browser lands when a login can't be completed; the frontend explains and offers a retry. */
     private static final String LOGIN_FAILED_URL = "/?login=failed";
+    /** Spring Security's error for a callback whose authorization request isn't (or no longer) in the session. */
+    private static final String AUTHORIZATION_REQUEST_NOT_FOUND = "authorization_request_not_found";
 
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
@@ -79,7 +84,7 @@ class SecurityConfig {
             ClientRegistrationRepository clientRegistrations, OAuth2AuthorizedClientRepository authorizedClients)
             throws Exception {
         SessionAccessTokenFilter sessionAccessTokens = new SessionAccessTokenFilter(clientRegistrations, authorizedClients);
-        AuthenticationFailureHandler loginFailed = loginFailedHandler();
+        AuthenticationFailureHandler loginFailed = loginFailedHandler(authorizedClients);
         return http
                 .authorizeHttpRequests(requests -> requests
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
@@ -177,11 +182,24 @@ class SecurityConfig {
         return handler;
     }
 
-    private static AuthenticationFailureHandler loginFailedHandler() {
-        SimpleUrlAuthenticationFailureHandler redirect = new SimpleUrlAuthenticationFailureHandler(LOGIN_FAILED_URL);
+    /**
+     * Sends the browser to the login-failed notice, except for a late second callback of a sign-in that the first one
+     * already finished (a second tab of the sign-in, a double submit on Keycloak's page): the session holds its tokens,
+     * so that browser lands where a successful login does.
+     */
+    private static AuthenticationFailureHandler loginFailedHandler(OAuth2AuthorizedClientRepository authorizedClients) {
+        SimpleUrlAuthenticationFailureHandler failed = new SimpleUrlAuthenticationFailureHandler(LOGIN_FAILED_URL);
+        RedirectStrategy redirect = new DefaultRedirectStrategy();
         return (request, response, exception) -> {
+            if (exception instanceof OAuth2AuthenticationException oauth2
+                    && AUTHORIZATION_REQUEST_NOT_FOUND.equals(oauth2.getError().getErrorCode())
+                    && authorizedClients.loadAuthorizedClient(REGISTRATION_ID, null, request) != null) {
+                log.info("A late callback of a finished sign-in; the session is signed in");
+                redirect.sendRedirect(request, response, LOGIN_DONE_URL);
+                return;
+            }
             log.warn("Login failed: {}", NestedExceptionUtils.getMostSpecificCause(exception).getMessage());
-            redirect.onAuthenticationFailure(request, response, exception);
+            failed.onAuthenticationFailure(request, response, exception);
         };
     }
 

@@ -115,11 +115,27 @@ different ways can end up as different users, each with a ledger of its own:
 3. Keycloak redirects to `/login/oauth2/code/keycloak`. The backend exchanges the code, using the
    client secret and the PKCE verifier, and validates the ID token. It keeps the tokens in the
    session and sends the browser to `/?login=done`. The app reopens the remembered page.
+   - A second callback of a sign-in that is already finished (a second tab of the same sign-in, as
+     after a registration's verification link, or a double submit) finds no authorization request
+     in the session: `authorization_request_not_found`. If the session is signed in, the backend
+     logs `A late callback of a finished sign-in` and sends that browser to `/?login=done` too;
+     otherwise to `/?login=failed`.
 4. On each API call, the backend takes the session's access token. It refreshes the token first
    if it expires within 60 s, then validates it like any bearer token.
-   - If Keycloak refuses the refresh, the Keycloak session is over: logged out elsewhere, expired,
-     or the user was disabled. The backend then ends its own session and answers 401, and the app
-     goes back to the login page.
+   - One request of a session refreshes at a time. The realm accepts each refresh token once
+     (*Revoke Refresh Token* on, maximum reuse 0). Keycloak 26 refuses a second use with
+     `invalid_grant` "Maximum allowed refresh token reuse exceeded", and it also detaches the
+     client session, so the token that the first use brought stops working too. The requests of a
+     page that arrive together therefore wait on a per-session lock. Each one reads the session's
+     tokens again once it holds the lock, and uses the new token if another request has already
+     refreshed it.
+   - The lock is in the backend's memory, like the sessions, which is enough for one instance.
+     Several instances that share sessions would need a shared lock too.
+   - If Keycloak refuses the refresh and the refused refresh token is still the session's, the
+     Keycloak session is over: logged out elsewhere, expired, or the user was disabled. The backend
+     logs `Keycloak refused to refresh the session's access token (…), so the session ends`, ends
+     its own session and answers 401, and the app goes back to the login page. If a sign-in in the
+     same session stored new tokens meanwhile, the session keeps those.
 5. Writes need the CSRF token. The backend sets a readable `XSRF-TOKEN` cookie, and the app echoes
    it in the `X-XSRF-TOKEN` header, or in the `_csrf` form field for logout. Bearer-token and
    session-less requests are exempt, since only the session cookie is sent automatically.
@@ -161,8 +177,9 @@ Production also needs:
   redirect URIs. In production that is the auth server's Caddy, which proxies straight to the
   container `finance-tracker-api` ([deploy/finance.caddy](../deploy/finance.caddy)); locally nginx
   passes on what a proxy in front of it sends.
-- **One backend instance:** sessions are in memory. More than one would need sticky sessions or a
-  shared session store.
+- **One backend instance:** sessions, and the lock that lets one request of a session refresh at a
+  time, are in memory. More than one instance would need sticky sessions, or a shared session store
+  and a shared lock.
 
 ## Running against the dev stack
 
@@ -213,10 +230,15 @@ curl -i -H "Authorization: Bearer $SHOP" http://localhost:3000/api/me           
 
 The backend tests need Docker (Testcontainers Postgres), but no Keycloak. `FakeKeycloak` serves
 discovery, keys and a token endpoint that checks the client secret and the PKCE verifier. It signs
-RS256 tokens with a key generated per run.
+RS256 tokens with a key generated per run. It rotates refresh tokens like the realm: each one works
+once, and a reuse is refused with Keycloak's message and detaches the client session.
 
 - `AccessTokenTests`: 401 and 403 rules for bearer tokens.
-- `BrowserLoginTests`: the code flow, refresh, CSRF and logout.
+- `BrowserLoginTests`: the code flow, refresh, CSRF and logout. Parallel requests with an expiring
+  access token keep the session, and exactly one refresh reaches Keycloak. A late second callback
+  of a finished sign-in lands in the app.
+- `security/SessionAccessTokenFilterTests`: a refused refresh ends the session only while the
+  refused token is still the session's.
 - `KeycloakOutageTests`: start and recovery while Keycloak is down.
 - `security/RoleMappingTests`: the role mapping.
 

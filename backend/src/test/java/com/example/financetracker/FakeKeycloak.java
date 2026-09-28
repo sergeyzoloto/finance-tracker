@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.nimbusds.jose.JOSEException;
@@ -36,7 +37,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 /**
  * Stand-in for the auth server's realm "myapps" on a local port: discovery, signing keys, and the token endpoint for
  * the authorization code grant with PKCE and for refreshes. Its tokens are RS256 JWTs signed with a key generated per
- * run and carry Keycloak's claims, so the app checks them exactly as it checks Keycloak's.
+ * run and carry Keycloak's claims, so the app checks them exactly as it checks Keycloak's. Like Keycloak, it answers
+ * requests in parallel, and it rotates refresh tokens as the realm does (see {@link #refresh}).
  */
 public final class FakeKeycloak {
 
@@ -47,13 +49,30 @@ public final class FakeKeycloak {
     private final HttpServer server;
     private final String issuer;
     private final Map<String, Login> codes = new ConcurrentHashMap<>();
-    private final Map<String, Login> refreshTokens = new ConcurrentHashMap<>();
+    /** Every refresh token issued, current or used, and the client session it belongs to. */
+    private final Map<String, ClientSession> refreshTokens = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> refreshes = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> refusedRefreshes = new ConcurrentHashMap<>();
+    private final Map<String, Duration> refreshDelays = new ConcurrentHashMap<>();
     private final Set<String> endedSessions = ConcurrentHashMap.newKeySet();
     private volatile boolean down;
 
-    /** A user's login: what their access tokens carry and how long each lasts. */
-    private record Login(JWTClaimsSet accessClaims, Duration accessTokenLifetime, String nonce, String codeChallenge) {
+    /**
+     * A user's login: what their access tokens carry, and how long the first one lasts and each one after a refresh.
+     */
+    private record Login(JWTClaimsSet accessClaims, Duration firstLifetime, Duration refreshedLifetime, String nonce,
+            String codeChallenge) {
+    }
+
+    /** What Keycloak keeps for one login of this client: the one refresh token still valid, until detached. */
+    private static final class ClientSession {
+        private final Login login;
+        private String refreshToken;
+        private boolean detached;
+
+        private ClientSession(Login login) {
+            this.login = login;
+        }
     }
 
     private FakeKeycloak() {
@@ -68,6 +87,7 @@ public final class FakeKeycloak {
         server.createContext(path + "/protocol/openid-connect/certs",
                 exchange -> respond(exchange, 200, new JWKSet(signingKey.toPublicJWK()).toJSONObject()));
         server.createContext(path + "/protocol/openid-connect/token", this::token);
+        server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.start();
     }
 
@@ -121,6 +141,15 @@ public final class FakeKeycloak {
      * the browser to), and returns the code that Keycloak would send back to the app's callback.
      */
     public String approve(String authorizationRequestUrl, JWTClaimsSet accessClaims, Duration accessTokenLifetime) {
+        return approve(authorizationRequestUrl, accessClaims, accessTokenLifetime, accessTokenLifetime);
+    }
+
+    /**
+     * {@link #approve(String, JWTClaimsSet, Duration)}, with a first access token that lasts {@code firstLifetime} and
+     * later ones, from refreshes, that last {@code refreshedLifetime}.
+     */
+    public String approve(String authorizationRequestUrl, JWTClaimsSet accessClaims, Duration firstLifetime,
+            Duration refreshedLifetime) {
         Map<String, String> params = new LinkedHashMap<>();
         UriComponentsBuilder.fromUriString(authorizationRequestUrl).build().getQueryParams()
                 .forEach((name, values) -> params.put(name, URLDecoder.decode(values.getFirst(), StandardCharsets.UTF_8)));
@@ -130,7 +159,8 @@ public final class FakeKeycloak {
             throw new IllegalArgumentException("Not an authorization code request with PKCE S256: " + authorizationRequestUrl);
         }
         String code = UUID.randomUUID().toString();
-        codes.put(code, new Login(accessClaims, accessTokenLifetime, params.get("nonce"), params.get("code_challenge")));
+        codes.put(code, new Login(accessClaims, firstLifetime, refreshedLifetime, params.get("nonce"),
+                params.get("code_challenge")));
         return code;
     }
 
@@ -139,8 +169,22 @@ public final class FakeKeycloak {
         endedSessions.add(subject);
     }
 
+    /** Makes the token endpoint take this long to answer the subject's refreshes, so parallel requests overlap. */
+    public void delayRefreshes(String subject, Duration delay) {
+        refreshDelays.put(subject, delay);
+    }
+
+    /**
+     * The refresh requests that reached the token endpoint with one of the subject's refresh tokens, granted or
+     * refused: Keycloak's events {@code REFRESH_TOKEN} and {@code REFRESH_TOKEN_ERROR} together.
+     */
     public int refreshCount(String subject) {
         return refreshes.getOrDefault(subject, new AtomicInteger()).get();
+    }
+
+    /** The refused ones among {@link #refreshCount}: Keycloak's {@code REFRESH_TOKEN_ERROR}. */
+    public int refusedRefreshCount(String subject) {
+        return refusedRefreshes.getOrDefault(subject, new AtomicInteger()).get();
     }
 
     private Map<String, Object> discovery() {
@@ -176,35 +220,66 @@ public final class FakeKeycloak {
             form.put(URLDecoder.decode(nameValue[0], StandardCharsets.UTF_8),
                     nameValue.length > 1 ? URLDecoder.decode(nameValue[1], StandardCharsets.UTF_8) : "");
         }
-        Login login = switch (form.getOrDefault("grant_type", "")) {
+        Map<String, Object> answer = switch (form.getOrDefault("grant_type", "")) {
             case "authorization_code" -> {
                 Login pending = codes.remove(form.getOrDefault("code", ""));
                 yield pending != null && s256(form.getOrDefault("code_verifier", "")).equals(pending.codeChallenge())
-                        ? pending : null;
+                        ? tokenResponse(new ClientSession(pending), pending.firstLifetime())
+                        : invalidGrant("Code not valid");
             }
-            case "refresh_token" -> {
-                Login refreshed = refreshTokens.remove(form.getOrDefault("refresh_token", ""));
-                if (refreshed == null || endedSessions.contains(refreshed.accessClaims().getSubject())) {
-                    yield null;
-                }
-                refreshes.computeIfAbsent(refreshed.accessClaims().getSubject(), s -> new AtomicInteger()).incrementAndGet();
-                yield refreshed;
-            }
-            default -> null;
+            case "refresh_token" -> refresh(form.getOrDefault("refresh_token", ""));
+            default -> invalidGrant("Unsupported grant type");
         };
-        if (login == null) {
-            respond(exchange, 400, Map.of("error", "invalid_grant", "error_description", "Session not active"));
-            return;
-        }
-        respond(exchange, 200, tokenResponse(login));
+        respond(exchange, answer.containsKey("error") ? 400 : 200, answer);
     }
 
-    private Map<String, Object> tokenResponse(Login login) {
+    /**
+     * A refresh as the realm answers it (revokeRefreshToken on, refreshTokenMaxReuse 0): each refresh token works
+     * once, and the answer brings the next one. Using a refresh token again is refused with Keycloak's message, and,
+     * as Keycloak 26 does, it also detaches the client session, so the token that replaced it is refused from then on.
+     */
+    private Map<String, Object> refresh(String refreshToken) {
+        ClientSession clientSession = refreshTokens.get(refreshToken);
+        if (clientSession == null) {
+            return invalidGrant("Invalid refresh token");
+        }
+        String subject = clientSession.login.accessClaims().getSubject();
+        refreshes.computeIfAbsent(subject, s -> new AtomicInteger()).incrementAndGet();
+        pause(refreshDelays.getOrDefault(subject, Duration.ZERO));
+        synchronized (clientSession) {
+            String refused = endedSessions.contains(subject) ? "Session not active"
+                    : clientSession.detached ? "Client session not active"
+                    : !refreshToken.equals(clientSession.refreshToken) ? "Maximum allowed refresh token reuse exceeded"
+                    : null;
+            if (refused != null) {
+                clientSession.detached = true;
+                refusedRefreshes.computeIfAbsent(subject, s -> new AtomicInteger()).incrementAndGet();
+                return invalidGrant(refused);
+            }
+            return tokenResponse(clientSession, clientSession.login.refreshedLifetime());
+        }
+    }
+
+    private static Map<String, Object> invalidGrant(String description) {
+        return Map.of("error", "invalid_grant", "error_description", description);
+    }
+
+    private static void pause(Duration delay) {
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** New tokens for the client session; the new refresh token replaces the session's current one. */
+    private Map<String, Object> tokenResponse(ClientSession clientSession, Duration accessTokenLifetime) {
         Instant now = Instant.now();
+        Login login = clientSession.login;
         String subject = login.accessClaims().getSubject();
         String accessToken = sign(new JWTClaimsSet.Builder(login.accessClaims())
                 .issueTime(Date.from(now))
-                .expirationTime(Date.from(now.plus(login.accessTokenLifetime())))
+                .expirationTime(Date.from(now.plus(accessTokenLifetime)))
                 .build());
         String idToken = sign(new JWTClaimsSet.Builder()
                 .issuer(issuer)
@@ -217,11 +292,12 @@ public final class FakeKeycloak {
                 .claim("name", login.accessClaims().getClaim("name"))
                 .build());
         String refreshToken = UUID.randomUUID().toString();
-        refreshTokens.put(refreshToken, login);
+        clientSession.refreshToken = refreshToken;
+        refreshTokens.put(refreshToken, clientSession);
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("access_token", accessToken);
         response.put("token_type", "Bearer");
-        response.put("expires_in", login.accessTokenLifetime().toSeconds());
+        response.put("expires_in", accessTokenLifetime.toSeconds());
         response.put("refresh_token", refreshToken);
         response.put("id_token", idToken);
         response.put("scope", "openid profile email");

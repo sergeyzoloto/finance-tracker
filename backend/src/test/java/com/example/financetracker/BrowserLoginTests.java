@@ -5,9 +5,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import com.nimbusds.jwt.JWTClaimsSet;
 import jakarta.servlet.http.Cookie;
@@ -29,6 +37,8 @@ class BrowserLoginTests extends IntegrationTest {
     private static final Duration LONG_LIVED = Duration.ofMinutes(5);
     /** Inside the one-minute margin, so every request refreshes it first. */
     private static final Duration EXPIRING = Duration.ofSeconds(30);
+    /** The requests of one page that reach the backend together, like the dashboard's reports. */
+    private static final int PARALLEL = 6;
 
     private final String subject = UUID.randomUUID().toString();
 
@@ -85,6 +95,31 @@ class BrowserLoginTests extends IntegrationTest {
     }
 
     @Test
+    void parallelRequestsWithAnExpiredAccessTokenKeepTheSession() throws Exception {
+        // As in D3: the access token expires within the minute, and a page sends several requests at once.
+        MockHttpSession session = login(claims(subject), EXPIRING, LONG_LIVED);
+        KEYCLOAK.delayRefreshes(subject, Duration.ofMillis(300));
+
+        List<MvcTestResult> results = inParallel(() -> get("/api/me", session));
+
+        assertThat(results).allSatisfy(result -> assertThat(result).hasStatusOk());
+        assertThat(session.isInvalid()).isFalse();
+        assertThat(get("/api/me", session)).hasStatusOk();
+        assertThat(KEYCLOAK.refusedRefreshCount(subject)).isZero();
+    }
+
+    @Test
+    void parallelRequestsRefreshTheAccessTokenOnce() throws Exception {
+        MockHttpSession session = login(claims(subject), EXPIRING, LONG_LIVED);
+        KEYCLOAK.delayRefreshes(subject, Duration.ofMillis(300));
+
+        inParallel(() -> get("/api/me", session));
+
+        // One went to Keycloak; the others waited for it and used its token.
+        assertThat(KEYCLOAK.refreshCount(subject)).isEqualTo(1);
+    }
+
+    @Test
     void endingTheKeycloakSessionEndsTheAppSession() {
         MockHttpSession session = login(claims(subject), EXPIRING);
         assertThat(get("/api/me", session)).hasStatusOk();
@@ -132,12 +167,37 @@ class BrowserLoginTests extends IntegrationTest {
                 .session(session)).hasRedirectedUrl("/?login=failed");
     }
 
-    /** Signs in through the whole code flow and returns the browser's session. */
-    private MockHttpSession login(JWTClaimsSet.Builder accessClaims, Duration accessTokenLifetime) {
+    @Test
+    void aLateSecondCallbackOfAFinishedLoginLandsInTheApp() {
         MockHttpSession session = new MockHttpSession();
         String authorizationUrl = mvc.get().uri("/oauth2/authorization/keycloak").session(session).exchange()
                 .getResponse().getRedirectedUrl();
-        String code = KEYCLOAK.approve(authorizationUrl, accessClaims.build(), accessTokenLifetime);
+        String code = KEYCLOAK.approve(authorizationUrl, claims(subject).build(), LONG_LIVED);
+        String callback = "/login/oauth2/code/keycloak?code=" + code + "&state=" + param(authorizationUrl, "state");
+        assertThat(mvc.get().uri(callback).session(session)).hasRedirectedUrl("/?login=done");
+
+        // The first callback used up the session's authorization request: authorization_request_not_found.
+        assertThat(mvc.get().uri(callback).session(session)).hasRedirectedUrl("/?login=done");
+        assertThat(get("/api/me", session)).hasStatusOk();
+    }
+
+    @Test
+    void aCallbackWithoutAnAuthorizationRequestFailsInASessionThatIsNotSignedIn() {
+        assertThat(mvc.get().uri("/login/oauth2/code/keycloak?code=some-code&state=some-state").session(new MockHttpSession()))
+                .hasRedirectedUrl("/?login=failed");
+    }
+
+    /** Signs in through the whole code flow and returns the browser's session. */
+    private MockHttpSession login(JWTClaimsSet.Builder accessClaims, Duration accessTokenLifetime) {
+        return login(accessClaims, accessTokenLifetime, accessTokenLifetime);
+    }
+
+    /** {@link #login(JWTClaimsSet.Builder, Duration)} with a first access token that lasts less than later ones. */
+    private MockHttpSession login(JWTClaimsSet.Builder accessClaims, Duration firstLifetime, Duration refreshedLifetime) {
+        MockHttpSession session = new SharedSession();
+        String authorizationUrl = mvc.get().uri("/oauth2/authorization/keycloak").session(session).exchange()
+                .getResponse().getRedirectedUrl();
+        String code = KEYCLOAK.approve(authorizationUrl, accessClaims.build(), firstLifetime, refreshedLifetime);
         assertThat(mvc.get().uri("/login/oauth2/code/keycloak?code={code}&state={state}", code, param(authorizationUrl, "state"))
                 .session(session)).hasRedirectedUrl("/?login=done");
         return session;
@@ -145,6 +205,25 @@ class BrowserLoginTests extends IntegrationTest {
 
     private MvcTestResult get(String uri, MockHttpSession session) {
         return mvc.get().uri(uri).session(session).exchange();
+    }
+
+    /** Sends {@value #PARALLEL} requests at the same moment and returns their results. */
+    private static List<MvcTestResult> inParallel(Callable<MvcTestResult> request) throws Exception {
+        CyclicBarrier start = new CyclicBarrier(PARALLEL);
+        List<Future<MvcTestResult>> pending = new ArrayList<>();
+        try (ExecutorService threads = Executors.newFixedThreadPool(PARALLEL)) {
+            for (int i = 0; i < PARALLEL; i++) {
+                pending.add(threads.submit(() -> {
+                    start.await();
+                    return request.call();
+                }));
+            }
+            List<MvcTestResult> results = new ArrayList<>();
+            for (Future<MvcTestResult> result : pending) {
+                results.add(result.get(30, TimeUnit.SECONDS));
+            }
+            return results;
+        }
     }
 
     /** A JSON write with the session cookie, and the CSRF token in cookie and header as the frontend sends it. */
@@ -166,5 +245,39 @@ class BrowserLoginTests extends IntegrationTest {
     private static String param(String url, String name) {
         String value = UriComponentsBuilder.fromUriString(url).build().getQueryParams().getFirst(name);
         return value == null ? null : URLDecoder.decode(value, StandardCharsets.UTF_8);
+    }
+
+    /** A session that parallel requests can share, as they share Tomcat's: MockHttpSession's attributes are not. */
+    private static final class SharedSession extends MockHttpSession {
+
+        @Override
+        public synchronized Object getAttribute(String name) {
+            return super.getAttribute(name);
+        }
+
+        @Override
+        public synchronized Enumeration<String> getAttributeNames() {
+            return super.getAttributeNames();
+        }
+
+        @Override
+        public synchronized void setAttribute(String name, Object value) {
+            super.setAttribute(name, value);
+        }
+
+        @Override
+        public synchronized void removeAttribute(String name) {
+            super.removeAttribute(name);
+        }
+
+        @Override
+        public synchronized void invalidate() {
+            super.invalidate();
+        }
+
+        @Override
+        public synchronized boolean isInvalid() {
+            return super.isInvalid();
+        }
     }
 }

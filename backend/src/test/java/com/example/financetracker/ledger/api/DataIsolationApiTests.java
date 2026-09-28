@@ -20,7 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -32,7 +31,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Alice's ledger has every kind of row a user owns: accounts, categories and counterparties of her own, entries of
  * every kind, settings, manual rates and an import, on the same days and in the same currencies as Bob's. Bob can't
  * list, read, change, delete or refer to any of it; for each of her objects he gets the answer he gets for an object
- * that doesn't exist; and every read of his answers the same before and after she writes her ledger.
+ * that doesn't exist; every read of his answers the same before and after she writes her ledger; and his demo data
+ * and the deletion of all his data leave hers as they were.
  * {@link #everyOperationOfTheApiIsCheckedHere} fails for a new endpoint until it is checked here too.
  */
 class DataIsolationApiTests extends LedgerApiTest {
@@ -76,10 +76,8 @@ class DataIsolationApiTests extends LedgerApiTest {
             "post /api/import",
             "get /api/rates", "get /api/rates/manual", "post /api/rates/manual", "delete /api/rates/manual",
             "post /api/rates/manual/csv",
-            "get /api/settings", "put /api/settings");
-
-    @Autowired
-    private JdbcClient jdbc;
+            "get /api/settings", "put /api/settings",
+            "post /api/demo-data", "delete /api/me/data");
 
     @Autowired
     private TransactionTemplate transactions;
@@ -333,6 +331,36 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .hasStatus(HttpStatus.NOT_FOUND);
         assertThat(read(request(HttpMethod.GET, "/api/counterparties?userId=" + alice, token(bob), null),
                 JsonNode.class).findValuesAsText("name")).containsExactly("Bob's friend", "Planted");
+    }
+
+    @Test
+    void bobsDemoDataAndDeletingAllOfHisDataLeaveAlicesAsTheyWere() throws IOException {
+        Map<String, JsonNode> alicesView = view(alice);
+        Map<String, Long> alicesRows = rowsOf(alice);
+
+        // He has entries, so the demo is refused until he deletes his data.
+        assertThat(post(bob, "/api/demo-data", null)).hasStatus(HttpStatus.CONFLICT);
+        assertThat(delete(bob, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(rowsOf(bob)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+        assertThat(rowsOf(alice)).isEqualTo(alicesRows);
+        assertThat(view(alice)).isEqualTo(alicesView);
+
+        ok(post(bob, "/api/demo-data", null));
+        assertThat(rowsOf(alice)).isEqualTo(alicesRows);
+        assertThat(view(alice)).isEqualTo(alicesView);
+        // His demo ledger holds nothing of hers, and her broken posting doesn't show in his integrity check.
+        Map<String, JsonNode> bobsView = view(bob);
+        SoftAssertions softly = new SoftAssertions();
+        for (String uri : READS) {
+            softly.assertThat(bobsView.get(uri).toString()).as("Bob's %s", uri).doesNotContain("Alice", "ALICE", alice);
+        }
+        softly.assertAll();
+        assertThat(bobsView.get("/api/reports/integrity")).isEmpty();
+
+        assertThat(delete(bob, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(rowsOf(bob)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+        assertThat(rowsOf(alice)).isEqualTo(alicesRows);
+        assertThat(view(alice)).isEqualTo(alicesView);
     }
 
     @Test

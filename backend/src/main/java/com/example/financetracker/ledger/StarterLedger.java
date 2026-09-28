@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
@@ -54,11 +56,45 @@ public class StarterLedger {
         if (inserted == 0) {
             return false;
         }
+        insertSeed(userId, false);
+        return true;
+    }
+
+    /**
+     * Puts the starter accounts and categories back as the seed defines them: missing ones are created, and renamed,
+     * retyped or archived ones are reset. Only for a ledger without entries, whose accounts and categories nothing
+     * refers to yet; the caller checks that.
+     */
+    @Transactional
+    public void restore(String userId) {
+        insertSeed(userId, true);
+    }
+
+    /** The codes of the starter accounts. */
+    public Set<String> accountCodes() {
+        return seed.accounts().stream().map(SeedAccount::code).collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** The codes of the starter categories. */
+    public Set<String> categoryCodes() {
+        return seed.categories().stream().map(SeedCategory::code).collect(Collectors.toUnmodifiableSet());
+    }
+
+    Seed seed() {
+        return seed;
+    }
+
+    /** @param reset whether a row whose code the user has already is set back to the seed's values */
+    private void insertSeed(String userId, boolean reset) {
+        String onAccountConflict = reset ? """
+                DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, default_currency = EXCLUDED.default_currency,
+                    requires_counterparty = EXCLUDED.requires_counterparty, is_system = EXCLUDED.is_system,
+                    archived_at = NULL""" : "DO NOTHING";
         for (SeedAccount account : seed.accounts()) {
             jdbc.sql("""
                     INSERT INTO account (user_id, code, name, type, default_currency, requires_counterparty, is_system)
                     VALUES (:userId, :code, :name, :type, :defaultCurrency, :requiresCounterparty, :system)
-                    ON CONFLICT (user_id, code) DO NOTHING""")
+                    ON CONFLICT (user_id, code) """ + onAccountConflict)
                     .param("userId", userId)
                     .param("code", account.code())
                     .param("name", account.name())
@@ -68,21 +104,19 @@ public class StarterLedger {
                     .param("system", account.system())
                     .update();
         }
+        String onCategoryConflict = reset
+                ? "DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, archived_at = NULL"
+                : "DO NOTHING";
         for (SeedCategory category : seed.categories()) {
             jdbc.sql("""
                     INSERT INTO category (user_id, code, name, type) VALUES (:userId, :code, :name, :type)
-                    ON CONFLICT (user_id, code) DO NOTHING""")
+                    ON CONFLICT (user_id, code) """ + onCategoryConflict)
                     .param("userId", userId)
                     .param("code", category.code())
                     .param("name", category.name())
                     .param("type", category.type().name())
                     .update();
         }
-        return true;
-    }
-
-    Seed seed() {
-        return seed;
     }
 
     private static Seed read(ObjectMapper json) {

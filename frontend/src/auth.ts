@@ -1,6 +1,8 @@
 // Login runs on the backend (backend-for-frontend): it holds the tokens, and this page only ever has the
 // HttpOnly session cookie. See docs/auth.md.
 
+import { LOGIN_URL } from './links'
+
 const RETURN_TO = 'returnTo' // sessionStorage: the page to reopen after the round trip through Keycloak
 
 /** How the backend sent the browser back from Keycloak: `/?login=done` or `/?login=failed`; null on other visits. */
@@ -9,7 +11,7 @@ export const loginResult = new URLSearchParams(location.search).get('login')
 /** Sends the browser to the Keycloak login page, which returns it to the current page. Never resolves. */
 export function logIn(): Promise<never> {
   sessionStorage.setItem(RETURN_TO, location.pathname + location.search)
-  location.assign('/oauth2/authorization/keycloak')
+  location.assign(LOGIN_URL)
   return new Promise<never>(() => {})
 }
 

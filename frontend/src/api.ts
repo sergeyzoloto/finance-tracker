@@ -146,6 +146,18 @@ export interface ImportReport {
   integrityViolations: IntegrityViolation[]
 }
 
+/** What POST /api/demo-data created in an empty ledger. */
+export interface DemoLedger {
+  entriesByKind: Partial<Record<EntryKind, number>>
+  accounts: number
+  categories: number
+  counterparties: number
+  /** The day of the opening balances, about six months ago. */
+  from: string
+  /** The day of the last entries: the day it was loaded. */
+  to: string
+}
+
 /** One invalid field of a request (400), such as `amount` or `postings[1].amount`. */
 export interface InvalidField { field: string; message: string }
 

@@ -3,6 +3,143 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-28 · Landing page, privacy policy, demo data, delete my data (D2b)
+
+Not committed yet.
+
+**Changes**
+- Demo data: `POST /api/demo-data` (`DemoController`) fills the user's empty ledger in one
+  transaction (`ledger/demo/DemoLedgerService`).
+  - It locks the user's settings row, then refuses with 409 if the user has any entries or
+    counterparties, or accounts or categories whose code isn't one of the starter ledger's.
+  - It sets the starter accounts and categories back to the seed (`StarterLedger.restore`: created,
+    renamed back, unarchived), adds the accounts `CREDIT_CARD` and `USD_ACCOUNT`, the categories
+    `FREELANCE`, `SUBSCRIPTIONS` and `TRAVEL` and ten counterparties, and sets base currency EUR,
+    `FAMILY_DEBT` for shared expenses and a share of 0.50. Every entry goes through
+    `EntryService.create`, so the ledger's rules and triggers apply as to any other.
+  - `DemoLedger` generates it in plain Java, invented from scratch: descriptions as payees
+    ("Landlord", "Supermarket"), one friend called Robin, no real people, companies or brands,
+    nothing from `data/private/`. 138 entries: 5 opening balances, 12 income, 80 expenses (one of
+    them a refund), 12 shared expenses, 23 transfers, 1 loan given, 2 repayments, 2 currency
+    exchanges and 1 manual entry (one payment split over two categories). Salary and rent in euros, a
+    credit card paid off every month, groceries shared with a partner who pays back their share
+    the month after, freelance income in US dollars exchanged into euros twice, a trip paid in
+    dollars, and a loan to Robin with 50.00 still open.
+  - Dates are relative to the day it is loaded and everything else is fixed. Each monthly entry is
+    0 to 27 days before the same day of an earlier month, so every full month has each monthly
+    entry once, whatever day it is. The opening balances are on the first day of the first month,
+    about six months back, and the last entries are today. At the end: current account 6,054.12,
+    savings 9,829.55, cash 253.25, US dollar account US$1,247.00, credit card owing 94.69, and the
+    family budget owing the user 88.60.
+  - `SharedExpenseCommand.otherShare`: rule 7's rounding in one place, for the generator and the
+    command.
+- Delete all my data: `DELETE /api/me/data` (`UserDataController`) → 204.
+  `UserDataService.deleteAll` deletes, in one transaction and each filtered by the user: settings,
+  entries (their postings cascade), import batches, accounts, categories, counterparties, manual
+  rates, V1's `transactions` and `categories`, and the `users` row. The ECB's rates stay. After the
+  commit, `UserDataDeleted` makes `CurrentUserResolver` forget the user, so their next request
+  provisions them again as on a first sign-in, with the starter ledger. The Keycloak account is not
+  touched.
+- Frontend:
+  - `main.tsx`: without a session, `/` shows the landing page and every other path still goes to
+    the login. With the backend down, or silent for 8 seconds, `/` shows the landing page too.
+    After logout the browser lands on it.
+  - `Landing.tsx`: what the app is, how to try it (sign in or register, then "Load demo data"),
+    "How it's built", links to the login start `/oauth2/authorization/keycloak`, the GitHub
+    repository and `/privacy`, and the portfolio line. Two WebP screenshots of the demo
+    (`src/assets/demo-dashboard.webp`, 27 kB; `demo-entries.webp`, 42 kB) with alt text, taken
+    from a local instance and cropped below the app's header. `index.html` has a description and a
+    `noscript` note.
+  - `EmptyLedger.tsx`: a dashboard without entries offers "Load demo data", with one sentence on
+    what it creates, or a start from scratch (new entry, accounts, import). After loading, the
+    dashboard shows the demo's whole period. `Dashboard.tsx` asks `/api/entries?size=1` for that.
+  - `Settings.tsx` at `/settings`, in the navigation: "Delete all my data", enabled only once
+    `DELETE` is typed exactly. Next to it: the login account lives on auth.finance-nl.com and is
+    deleted on request by email, with the address and a link to the privacy policy. Afterwards the
+    empty dashboard says the data was deleted.
+  - A footer with the privacy policy and the source code on every page of the app.
+  - `chunkReload.ts`: the lazily loaded chart goes through `lazyWithReload`. A chunk that fails to
+    load reloads the page once, and not again within a minute (`sessionStorage`); without session
+    storage it doesn't reload. An `ErrorBoundary` shows a message if it still fails.
+- Privacy policy: `frontend/public/privacy.html` with `privacy.css`, static HTML without script,
+  from the facts in the task and what the code does: what an import keeps (the files aren't kept;
+  the entries, reference data and a record with the file name, checksum, times and counts are),
+  the users row, the cookies `JSESSIONID` and `XSRF-TOKEN`, the 30-minute session, and session
+  storage. Two visible TODOs for facts the task didn't give. `web.conf` and `nginx.conf` serve a
+  path's `.html` file before the SPA fallback (`try_files $uri $uri.html /index.html`), so
+  `/privacy` is the page; the `staticPages` plugin in `vite.config.ts` does the same for the Vite
+  servers.
+- Tests: `DemoLedgerTests` (6), `DemoDataApiTests` (5, with a spied `EntryService` for the
+  all-or-nothing test), `UserDataApiTests` (3), and in `DataIsolationApiTests` Bob's demo data and
+  his deletion of all his data against Alice's rows and answers. Both new operations are in
+  `DataIsolationApiTests`' and `ApiTests`' lists. `LedgerApiTest.rowsOf` counts a user's rows in
+  every owned table. Frontend: `StartPages.test.tsx` (5) and `chunkReload.test.ts` (3).
+- README: "Try the demo", the new features, the two endpoints and the new 409.
+  `deploy/RUNBOOK.md` step 8 checks `/privacy`, walks through the landing page and the demo, and
+  names the two URLs for Google's consent screen. `docs/auth.md`: the landing page in the session
+  flow. CLAUDE.md's project map.
+
+**Verified**
+- Backend: `./mvnw -B verify`, what CI runs: 229 tests in 30 classes, 0 failures, 0 errors, 0
+  skipped, BUILD SUCCESS; 15 of them new. Afterwards `DemoLedgerTests` got its exact counts by
+  kind and passed 6 of 6 again.
+- The isolation test catches a leaking deletion: with the manual-rate delete not filtered by the
+  user, Bob's deletion took one of Alice's rates and the new test failed; with the filter back, it
+  passed.
+- `DemoLedgerTests` loads the demo for every day from 2026-01-01 to 2027-12-31: every entry passes
+  `LedgerValidator`, no money account goes below zero at the end of any day, and the content apart
+  from the dates is the same for any day.
+- Frontend: `npm test` 84 of 84 passed in 7 files; `npm run build` succeeded, with `privacy.html`
+  and `privacy.css` next to `index.html`.
+- `deploy/check-site.sh`: `Valid configuration`, formatted as `caddy fmt` formats it.
+  `deploy/finance.caddy` is unchanged.
+- Local UI run, then removed: the backend on the host against a throwaway `postgres:17-alpine`,
+  the dev Keycloak and Vite, with the ECB history loaded; headless Chrome as the dev realm's
+  `testuser`.
+  - The landing page; sign-in through Keycloak; the empty dashboard; "Load demo data" to
+    `/?from=2026-04-01&to=2026-09-28`, and in the base currency every figure converted, without a
+    missing-rate notice.
+  - A second load got 409 with the message. The delete button stayed disabled for `delete`, and
+    deleting led to the empty dashboard with its notice. The demo loaded again.
+  - The footer's privacy link opened the page. Logging out ended on the landing page. A deep link
+    while signed out went to Keycloak.
+  - The screenshots come from this run.
+- End to end with the production compose file and the pinned Caddy, as in D2a, then removed
+  completely (containers, volume, the local `edge` network and both images): throwaway secrets,
+  `caddy:2.11.4` with the auth stack's digest, `local_certs` and the site file imported from a
+  sites directory; curl on `edge` with TLS checked against Caddy's local CA.
+  - `/`, `/privacy`, `/privacy.css` and `/entries` gave 200 with `no-cache`, HSTS, CSP, `nosniff`
+    and `Referrer-Policy`, and no `Server`. `/api/me` gave the backend's 401 with `no-store`. A
+    hashed script and a screenshot came with `immutable`, the screenshot as `image/webp`.
+  - Headless Chrome through Caddy: the landing page rendered with its sign-in link and both images
+    with alt text, and the privacy page rendered with its own stylesheet and its 2 TODOs, with
+    JavaScript on and off. No page caused a CSP violation. As a control, an inline script added to
+    `/privacy` was blocked and reported (`script-src-elem`).
+  - With `finance-tracker-api` stopped, `/api/me` gave 502, and the landing page and the privacy
+    page rendered the same, without CSP violations.
+  - The privacy page's wording on the account console changed after this run; the web image was
+    rebuilt and the page checks repeated with the same results.
+  - Memory after start: api 277 MiB, postgres 94 MiB, web 10 MiB.
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1, run from a scratch directory, and its diff only
+  adds lines.
+
+**Open**
+- The privacy policy is a draft for the owner's review. Its TODOs: whether anything is processed
+  outside the EU (such as Brevo's email delivery) and on what basis, and how long the login
+  server's logs are kept.
+- Not deployed: D3 runs the runbook. Google login leaves test mode only after the consent screen
+  names `https://app.finance-nl.com/` and `https://app.finance-nl.com/privacy`.
+- The demo in the base currency needs the ECB's dollar rates. Without them, as in the tests unless
+  the user adds a rate, its dollar figures show "rate missing".
+- Loading the demo sets the base currency to EUR and resets the shared-expense settings. Manual
+  rates and import batches without entries don't block it.
+- "Delete all my data" deletes the `users` row too, but a user who is still signed in gets it back
+  with their next request, as on a first sign-in.
+- The stale-tab reload covers the one lazily loaded chunk, the chart. It doesn't listen for Vite's
+  `vite:preloadError` separately.
+- One request got 404 in the local UI run, most likely the browser's `favicon.ico`: the app has
+  none. Not looked into further.
+
 ## 2026-09-27 · Data isolation, auth docs, deployment behind the shared Caddy (D2a)
 
 Commit `84aa3e9`.

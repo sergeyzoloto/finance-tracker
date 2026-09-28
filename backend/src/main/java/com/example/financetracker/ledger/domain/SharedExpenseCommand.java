@@ -37,12 +37,16 @@ public record SharedExpenseCommand(LocalDate entryDate, Long payeeId, String mem
 
     @Override
     public List<PostingLine> postings(LedgerContext context) {
-        BigDecimal ratio = shareRatio != null ? shareRatio : context.defaultShareRatio();
-        BigDecimal other = total.multiply(ratio).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal other = otherShare(shareRatio != null ? shareRatio : context.defaultShareRatio());
         BigDecimal own = total.subtract(other);
         return List.of(
                 PostingLine.of(accountId, currency, total.negate()),
                 new PostingLine(context.account(UNALLOCATED), currency, own, categoryId, null),
                 PostingLine.of(context.account(SHARED), currency, other));
+    }
+
+    /** The other side's part of the total at the share ratio: round(T × r, 2), HALF_UP. */
+    public BigDecimal otherShare(BigDecimal ratio) {
+        return total.multiply(ratio).setScale(2, RoundingMode.HALF_UP);
     }
 }

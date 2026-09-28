@@ -7,7 +7,9 @@ import Dashboard from './Dashboard'
 import Entries from './Entries'
 import EntryEditor from './EntryEditor'
 import Import from './Import'
+import { PRIVACY_URL, SOURCE_URL } from './links'
 import Rates from './Rates'
+import Settings from './Settings'
 
 export default function App({ me }: { me: Me }) {
   return (
@@ -20,6 +22,7 @@ export default function App({ me }: { me: Me }) {
           <NavLink to="/categories">Categories</NavLink>
           <NavLink to="/rates">Rates</NavLink>
           <NavLink to="/import">Import</NavLink>
+          <NavLink to="/settings">Settings</NavLink>
         </nav>
         <Link className="button primary" to="/entries/new">New entry</Link>
         <span>{me.name}</span>
@@ -35,10 +38,14 @@ export default function App({ me }: { me: Me }) {
           <Route path="/categories" element={<Categories />} />
           <Route path="/rates" element={<Rates />} />
           <Route path="/import" element={<Import />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/transactions" element={<Navigate to="/entries" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+      <footer className="app-footer">
+        <a href={PRIVACY_URL}>Privacy policy</a> · <a href={SOURCE_URL}>Source code</a>
+      </footer>
     </>
   )
 }

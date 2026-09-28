@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react'
+import { Component, useId, type ReactNode } from 'react'
 import type { Account, Category, CategoryType, Counterparty } from './api'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
 import { formatMoney } from './money'
@@ -26,6 +26,19 @@ export function Errors({ messages }: { messages?: (string | undefined)[] }) {
   const shown = messages?.filter((m): m is string => !!m) ?? []
   if (shown.length === 0) return null
   return <div className="error-box" role="alert">{shown.map((m) => <p key={m}>{m}</p>)}</div>
+}
+
+/** Shows `fallback` in place of children that failed to render, such as a lazily loaded chunk that failed to load. */
+export class ErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
 }
 
 export const Loading = ({ what = '' }: { what?: string }) => <p className="muted" aria-busy="true">Loading{what && ` ${what}`}…</p>

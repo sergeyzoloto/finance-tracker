@@ -5,6 +5,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.example.financetracker.ledger.StarterLedger;
+import com.example.financetracker.ledger.UserDataDeleted;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.core.MethodParameter;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -13,6 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.bind.support.WebDataBinderFactory;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
@@ -26,7 +28,7 @@ import org.springframework.web.method.support.ModelAndViewContainer;
  * The first time it sees a user, it provisions them: a {@code users} row with their email and name, for display and
  * for finding a user's sub by email, and their settings and starter accounts and categories ({@link StarterLedger}).
  * Both are idempotent and safe when a user's first requests run in parallel. Users already provisioned are
- * remembered, so their later requests don't touch the database for it.
+ * remembered, so their later requests don't touch the database for it, until they delete all their data.
  */
 @Component
 @ConditionalOnWebApplication
@@ -59,6 +61,12 @@ class CurrentUserResolver implements HandlerMethodArgumentResolver {
             provisioned.add(jwt.getSubject());
         }
         return new CurrentUser(jwt.getSubject());
+    }
+
+    /** The user deleted all their data: their next request provisions them again, as on their first. */
+    @TransactionalEventListener
+    public void forget(UserDataDeleted event) {
+        provisioned.remove(event.userId());
     }
 
     /** For display only: names can change, data is keyed on the subject. */

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy policy · Finance Tracker</title>
+    <meta name="description" content="How Finance Tracker at app.finance-nl.com handles your personal data." />
+    <!-- Static on purpose: readable without JavaScript and without the backend (frontend/web.conf serves it at
+         /privacy). The site's Content-Security-Policy allows only this site's own styles and no inline script. -->
+    <link rel="stylesheet" href="/privacy.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">Finance Tracker</a>
+    </header>
+    <main>
+      <h1>Privacy policy</h1>
+      <p class="updated">Last updated: 28 September 2026</p>
+
+      <p>
+        Finance Tracker, at app.finance-nl.com, is a personal, non-commercial portfolio project. This page explains
+        what personal data it processes, why, for how long, and what your rights are. It is written for the app and for
+        the login service auth.finance-nl.com that the app uses.
+      </p>
+
+      <h2 id="controller">Who is responsible</h2>
+      <p>
+        The controller of your personal data under the General Data Protection Regulation (GDPR) is Sergey Zolotko,
+        Rotterdam, the Netherlands. For any question or request about your data, email
+        <a href="mailto:serge@finance-nl.com">serge@finance-nl.com</a>.
+      </p>
+
+      <h2 id="data">What data is processed</h2>
+      <h3>Your login account</h3>
+      <p>
+        Your account is held by the login service, auth.finance-nl.com. It stores your email address, your name, a
+        hash of your password if you set one, and whether your email address is verified. If you sign in with Google
+        or GitHub, it also stores your user id at that provider (for GitHub, your username) and the name and email
+        address the provider shares.
+      </p>
+      <p>
+        When you sign in, the app receives your user id at the login service, your email address and your name, and
+        stores them, so that it knows which data is yours.
+      </p>
+
+      <h3>What you put into the app</h3>
+      <p>
+        Everything you enter in the app, import into it or load as demo data: accounts, categories, counterparties
+        (such as the shops you pay or a friend you lend money to), entries with their dates, amounts and notes,
+        exchange rates you enter, and your settings. Only you can see it. If you write down other people’s names, for
+        example as someone you lent money to, they are part of your data and visible only to you.
+      </p>
+      <p>
+        When you import a spreadsheet, the app reads the uploaded files while it handles the upload and does not keep
+        them. It keeps what the import created (entries, accounts, categories and counterparties) and a record of the
+        import: the name of the transactions file, a checksum of its content, when the import ran, and how many
+        entries, errors and warnings it had. A trial run (“dry run”) and a failed import keep nothing.
+      </p>
+      <p>The demo data is invented and is not about any real person.</p>
+
+      <h3>Technical data</h3>
+      <p>
+        When you use the app or the login service, the web server and the login server log your IP address and the
+        details of your requests. The login service also records login and account events, such as signing in or
+        changing a password, and administrative events.
+      </p>
+
+      <h2 id="purposes">Why, and on what legal basis</h2>
+      <ul>
+        <li>
+          <strong>To provide the service</strong> — your account, signing you in, and storing and showing your data:
+          this is necessary to provide the service you asked for (Article 6(1)(b) GDPR).
+        </li>
+        <li>
+          <strong>Security and abuse prevention</strong>, through the logs: this is my legitimate interest in keeping
+          the service and your data safe (Article 6(1)(f) GDPR).
+        </li>
+      </ul>
+      <p>
+        Your data is not used for anything else. There is no analytics, no advertising and no tracking, and nothing is
+        sold or shared for marketing.
+      </p>
+
+      <h2 id="cookies">Cookies</h2>
+      <p>Only cookies that are strictly necessary for the service are used:</p>
+      <ul>
+        <li>
+          the app’s session cookie (<code>JSESSIONID</code>), which keeps you signed in, and its
+          <code>XSRF-TOKEN</code> cookie, which protects your changes against forged requests from other sites. Both
+          end when you close your browser; on the server, the session ends when you sign out or after 30 minutes
+          without activity;
+        </li>
+        <li>the login service’s session cookies, which keep you signed in there.</li>
+      </ul>
+      <p>
+        While you sign in, the app also remembers in your browser’s session storage which page to take you back to,
+        and after an update of the app it notes there when it reloaded the page, so that it reloads only once.
+        Because all of this is strictly necessary, the app doesn’t ask for your consent.
+      </p>
+
+      <h2 id="recipients">Who else processes your data</h2>
+      <ul>
+        <li>
+          <strong>Hetzner Online GmbH</strong> hosts the app, the login service and their databases, in its data centre
+          in Falkenstein, Germany.
+        </li>
+        <li>
+          <strong>Brevo</strong> sends the login service’s account emails, such as email verification and password
+          reset.
+        </li>
+        <li>
+          <strong>Google</strong> or <strong>GitHub</strong>, only if you choose to sign in with them. Their own
+          privacy policies apply to what they process.
+        </li>
+      </ul>
+      <p>All app data is stored in the EU.</p>
+      <p class="todo">
+        TODO: say whether any of this is processed outside the EU (for example Brevo’s email delivery), and on what
+        basis, or state that nothing is.
+      </p>
+
+      <h2 id="retention">How long it is kept</h2>
+      <ul>
+        <li>
+          Your account and your data are kept until you delete them or ask for your account to be deleted.
+          <strong>Delete all my data</strong>, in the app’s Settings, deletes everything you have in the app
+          immediately. Your login account stays until you ask for it to be deleted by email.
+        </li>
+        <li>Login and account events are kept for 30 days, administrative events for 90 days.</li>
+        <li>
+          The web server’s logs are rotated by size, not by time, so on this small server they can be kept for several
+          months.
+        </li>
+        <li class="todo">TODO: how long the login server’s logs are kept.</li>
+        <li>
+          Nightly database backups are kept for 14 days on the server and for up to 60 days on my own computer, so
+          deleted data disappears from the backups within 60 days.
+        </li>
+      </ul>
+
+      <h2 id="rights">Your rights</h2>
+      <p>Under the GDPR you have the right to:</p>
+      <ul>
+        <li><strong>access</strong> the personal data held about you;</li>
+        <li>
+          have it <strong>corrected</strong>: you can change your profile data yourself in the login service’s
+          <a href="https://auth.finance-nl.com/realms/myapps/account/">account console</a>, and everything in your
+          ledger in the app;
+        </li>
+        <li>
+          have it <strong>erased</strong>: “Delete all my data” erases your data in the app at once, and your login
+          account is deleted on request;
+        </li>
+        <li><strong>restrict</strong> its processing;</li>
+        <li>receive it in a portable, machine-readable form (<strong>data portability</strong>);</li>
+        <li><strong>object</strong> to processing based on legitimate interest.</li>
+      </ul>
+      <p>
+        To use any of these rights, email <a href="mailto:serge@finance-nl.com">serge@finance-nl.com</a>. You will get
+        an answer within one month.
+      </p>
+      <p>
+        You also have the right to complain to the Dutch data protection authority, the
+        <a href="https://autoriteitpersoonsgegevens.nl">Autoriteit Persoonsgegevens</a>.
+      </p>
+
+      <h2 id="children">Children</h2>
+      <p>The service is not directed at children under 16.</p>
+
+      <h2 id="security">Security</h2>
+      <p>
+        The app and the login service are served only over HTTPS. Passwords are stored only as hashes, and only I have
+        access to the server.
+      </p>
+
+      <h2 id="changes">Changes</h2>
+      <p>When this policy changes, the new version is published on this page with a new date.</p>
+    </main>
+    <footer>
+      <a href="/">Finance Tracker</a> · a personal portfolio project, provided as is.
+    </footer>
+  </body>
+</html>

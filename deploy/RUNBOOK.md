@@ -421,6 +421,7 @@ You should see `certificate obtained successfully` for `app.finance-nl.com`, and
 # On the laptop
 curl -sI https://app.finance-nl.com/ | grep -iE '^(HTTP|cache-control|content-security-policy|strict-transport-security|server|via):'
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://app.finance-nl.com/entries/new
+curl -s https://app.finance-nl.com/privacy | grep -o '<h1>.*</h1>\|Last updated: [^<]*'
 curl -s -o /dev/null -w '%{http_code}\n' https://app.finance-nl.com/assets/missing.js
 curl -s -o /dev/null -w '%{http_code}\n' https://app.finance-nl.com/api/me
 curl -s https://app.finance-nl.com/actuator/health | head -c 15; echo
@@ -433,6 +434,8 @@ You should see:
 - `HTTP/2 200`, `cache-control: no-cache`, the `content-security-policy` and
   `strict-transport-security` lines, and no `server` or `via` line.
 - `200 text/html`: a deep link of the single-page app gets `index.html`.
+- `<h1>Privacy policy</h1>` and its `Last updated` date: the static policy, which needs neither
+  JavaScript nor the backend.
 - `404`: a missing build file is not the app.
 - `401`: the API answers, and wants a login.
 - `<!doctype html>`: `/actuator/health` is the app's page, not the backend's status.
@@ -441,11 +444,18 @@ You should see:
   and `code_challenge_method=S256`.
 - `== Summary: 11 ok, 0 fail ==`: the auth server is as before.
 
-In a private browser window, open <https://app.finance-nl.com>. It sends you to Keycloak's login
-page, which offers **Register**, **Forgot password?**, **Google** and **GitHub**. Sign in as
-yourself. You land on the dashboard of an empty ledger, and **Accounts** lists the starter
-accounts, such as Cash and Current account. In the admin console, realm `myapps` →
-**Events → User events** shows `LOGIN` and `CODE_TO_TOKEN` with client `finance-tracker`.
+In a private browser window, open <https://app.finance-nl.com>. It shows the landing page, whose
+**Sign in or create an account** leads to Keycloak's login page, which offers **Register**,
+**Forgot password?**, **Google** and **GitHub**. Sign in as yourself. You land on the dashboard of
+an empty ledger, which offers **Load demo data**, and **Accounts** lists the starter accounts, such
+as Cash and Current account. In the admin console, realm `myapps` → **Events → User events** shows
+`LOGIN` and `CODE_TO_TOKEN` with client `finance-tracker`. Don't load the demo into the ledger you
+will import your own data into: the import would add to the demo's entries. To try it, load it,
+then **Settings → Delete all my data**.
+
+Google's OAuth consent screen needs a public home page and privacy policy before Google login can
+leave test mode: they are <https://app.finance-nl.com/> and <https://app.finance-nl.com/privacy>.
+Resolve the policy's TODOs first.
 
 ## 9. Backups
 

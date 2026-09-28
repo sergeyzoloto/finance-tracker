@@ -5,16 +5,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 
 import com.example.financetracker.IntegrationTest;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
@@ -23,6 +27,22 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * fresh, so each starts with the starter ledger and nothing else.
  */
 abstract class LedgerApiTest extends IntegrationTest {
+
+    /** Every table with rows that a user owns, with how to count the user's rows in it. */
+    private static final Map<String, String> OWNED_ROWS = new LinkedHashMap<>();
+
+    static {
+        for (String table : List.of("user_settings", "account", "category", "counterparty", "journal_entry",
+                "import_batch", "exchange_rate")) {
+            OWNED_ROWS.put(table, "SELECT count(*) FROM " + table + " WHERE user_id = ?");
+        }
+        OWNED_ROWS.put("posting",
+                "SELECT count(*) FROM posting JOIN journal_entry e ON e.id = entry_id WHERE e.user_id = ?");
+        OWNED_ROWS.put("users", "SELECT count(*) FROM users WHERE keycloak_id = ?");
+    }
+
+    @Autowired
+    protected JdbcClient jdbc;
 
     protected static String newUser() {
         return UUID.randomUUID().toString();
@@ -121,6 +141,13 @@ abstract class LedgerApiTest extends IntegrationTest {
         List<String> lines = new ArrayList<>(List.of(new String(csv, StandardCharsets.UTF_8).split("\r\n")));
         lines.remove(row - 1);
         return (String.join("\r\n", lines) + "\r\n").getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** How many rows the user has in each table of owned rows, by table. */
+    protected Map<String, Long> rowsOf(String user) {
+        Map<String, Long> rows = new LinkedHashMap<>();
+        OWNED_ROWS.forEach((table, sql) -> rows.put(table, jdbc.sql(sql).param(user).query(Long.class).single()));
+        return rows;
     }
 
     /** The element of the array whose field has the value. */

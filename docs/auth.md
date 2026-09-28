@@ -105,8 +105,10 @@ different ways can end up as different users, each with a ledger of its own:
 
 ## How a browser session works
 
-1. The page calls `GET /api/me`. Without a session this returns 401. The app remembers the current
-   page and sends the browser to `/oauth2/authorization/keycloak`.
+1. The page calls `GET /api/me`. Without a session this returns 401. On `/` the app shows its
+   landing page, whose sign-in link is `/oauth2/authorization/keycloak`; on any other page it
+   remembers the page and sends the browser there itself. The landing page also shows while the
+   backend is down, and `/privacy` is static HTML that never calls the backend.
 2. The backend redirects to Keycloak with a PKCE challenge, `state` and `nonce`. The user signs in
    on Keycloak's page. In production the page also offers registration, "Forgot password?", and
    Google and GitHub; the dev realm offers none of those.
@@ -123,7 +125,7 @@ different ways can end up as different users, each with a ledger of its own:
    session-less requests are exempt, since only the session cookie is sent automatically.
 6. *Log out* posts to `/logout`. The backend ends its session and redirects to Keycloak's
    end-session endpoint with `id_token_hint` and `post_logout_redirect_uri`, which ends the
-   Keycloak session too.
+   Keycloak session too. The browser comes back to `/`, the landing page.
 
 Sessions live in the backend's memory and end after 30 minutes idle, or on a backend restart.
 After a restart, the next request goes through the login again. If the Keycloak session is still

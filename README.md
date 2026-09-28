@@ -27,6 +27,30 @@ through a shared Keycloak server.
 - **Sign-in:** single sign-on through the shared Keycloak (realm `myapps`), for members only. The
   app has no passwords of its own, and no token ever reaches the browser.
 - **Per-user data:** users only ever see their own ledger.
+- **Demo data:** an empty ledger offers six months of invented entries in one click (see
+  [Try the demo](#try-the-demo)).
+- **Delete all my data:** in Settings, after typing `DELETE`; the login account itself stays on the
+  auth server.
+- **Landing page and privacy policy:** `/` introduces the app to visitors who aren't signed in,
+  also while the backend is down, and `/privacy` is a static page that needs neither JavaScript
+  nor the backend.
+
+## Try the demo
+
+1. Open https://app.finance-nl.com once it is deployed, or a local stack (see
+   [Getting started](#getting-started)), and choose **Sign in or create an account**. Keycloak's
+   sign-in page has a **Register** link; production also offers Google and GitHub.
+2. A new ledger starts empty. On the dashboard, press **Load demo data**: six months of entries in
+   euros and US dollars up to today, with every kind of entry the app has — salary and rent,
+   groceries shared with a partner, a credit card paid off every month, freelance income in dollars
+   exchanged into euros, and a loan to a friend who pays part of it back.
+3. Look around: the dashboard in each currency or in euros at the ECB's rates, the entries, the
+   accounts. Change anything.
+4. **Settings → Delete all my data** empties the ledger again, and the demo can be loaded again.
+
+The demo is invented from scratch in
+[`DemoLedger`](backend/src/main/java/com/example/financetracker/ledger/demo/DemoLedger.java): no
+real people, companies or brands. Apart from its dates it is the same every time.
 
 ## Architecture
 
@@ -280,6 +304,8 @@ accounts and categories.
 | `POST`   | `/api/import`                         | Multipart `accounts`, `categories`, `transactions`, `openingBalances`?; `dryRun` (default true). Returns the import report |
 | `GET`    | `/api/settings`                       | Base currency, shared account, default share ratio                          |
 | `PUT`    | `/api/settings`                       | Replace the settings                                                        |
+| `POST`   | `/api/demo-data`                      | Fill an empty ledger with the demo ledger, in one transaction. Returns what it created |
+| `DELETE` | `/api/me/data`                        | Delete everything the user has in the app, in one transaction → 204. The login account stays |
 
 `asOf` defaults to today in the server's time zone.
 
@@ -291,7 +317,7 @@ Errors are problem details (RFC 9457):
 | 401    | No valid access token                                                                 |
 | 403    | The token lacks the `finance-tracker` → `user` role, or a browser write has no CSRF token |
 | 404    | The object doesn't exist or belongs to another user                                   |
-| 409    | A stale `version`, a duplicate code or name, renaming or archiving a system account, or changing a category's type |
+| 409    | A stale `version`, a duplicate code or name, renaming or archiving a system account, changing a category's type, or demo data for a ledger with entries, counterparties, or accounts or categories of the user's own |
 | 422    | The entry or settings break the ledger's rules. `violations` lists every broken rule |
 
 ## Production
@@ -302,7 +328,8 @@ Not deployed yet. [deploy/RUNBOOK.md](deploy/RUNBOOK.md) is the procedure, step 
 
 - `deploy/app/docker-compose.yml`: the app's own PostgreSQL 17, never shared with Keycloak's; the
   backend as the container `finance-tracker-api`; and `finance-tracker-web`, an unprivileged nginx
-  that serves the built frontend. The secrets go in `deploy/app/.env` (see `.env.example` there),
+  that serves the built frontend, with the landing page and the static privacy policy (`/privacy`),
+  so both show while the backend is down. The secrets go in `deploy/app/.env` (see `.env.example` there),
   which stays on the server.
 - The auth server's Caddy serves both sites. `deploy/finance.caddy`, its site file for
   `app.finance-nl.com`, proxies `/api`, `/oauth2`, `/login/oauth2` and `/logout` to

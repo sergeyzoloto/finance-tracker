@@ -1,29 +1,51 @@
-import { lazy, Suspense, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Suspense, useState, type ReactNode } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
   formatDate, sentence, useApi, type AccountBalance, type CashFlowRow, type ConvertedBalance, type ConvertedCashFlow,
-  type ConvertedNetWorth, type CounterpartyBalance, type NetWorth, type Rate, type SharedSettlement,
+  type ConvertedNetWorth, type CounterpartyBalance, type EntryPage, type NetWorth, type Rate, type SharedSettlement,
 } from './api'
 import CashFlowTable from './CashFlowTable'
-import { Amounts, Errors, Loading } from './components'
+import { lazyWithReload } from './chunkReload'
+import { Amounts, ErrorBoundary, Errors, Loading } from './components'
 import {
   cashFlowTables, convertedCashFlowTable, daysBetween, DEFAULT_PRESET, inBaseFromQuery, LOAN_ACCOUNTS, loanSides,
   mergeMissing, MISSING, missingDays, monthsBetween, PERIOD_LABELS, periodFromQuery, PRESETS, settlementSentence,
   STALE_AFTER_DAYS, total, type CashFlowTable as Table, type Cell, type PeriodChoice,
 } from './dashboard'
+import EmptyLedger from './EmptyLedger'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
 import { formatMoney, formatRate, signOf, sum } from './money'
 
 // Recharts is most of the app's code; loading it with the chart keeps it off every other page.
-const IncomeExpenseChart = lazy(() => import('./IncomeExpenseChart'))
+const IncomeExpenseChart = lazyWithReload(() => import('./IncomeExpenseChart'))
 
 /**
- * The home page: what the user has and owes on a day, and what came in and went out in a period, from the report
- * endpoints alone. The period, the day and the currency switch are kept in the URL. Each currency is shown on its
- * own, or everything in the base currency (`currency=base`) with what exchange rates did. The shared budget and open
- * loans stay in their own currencies.
+ * The home page. A ledger without any entry gets the choice of the demo data or a start from scratch; once the demo
+ * is loaded, the dashboard shows its whole period.
  */
 export default function Dashboard() {
+  const navigate = useNavigate()
+  const deleted = (useLocation().state as { dataDeleted?: boolean } | null)?.dataDeleted ?? false
+  const entries = useApi<EntryPage>('/entries?size=1')
+  const [demoLoaded, setDemoLoaded] = useState(false)
+  if (entries.data?.totalElements === 0 && !demoLoaded) {
+    return (
+      <EmptyLedger deleted={deleted} onLoaded={(demo) => {
+        setDemoLoaded(true)
+        navigate(`/?from=${demo.from}&to=${demo.to}`)
+      }} />
+    )
+  }
+  return <LedgerDashboard />
+}
+
+/**
+ * What the user has and owes on a day, and what came in and went out in a period, from the report endpoints alone.
+ * The period, the day and the currency switch are kept in the URL. Each currency is shown on its own, or everything
+ * in the base currency (`currency=base`) with what exchange rates did. The shared budget and open loans stay in their
+ * own currencies.
+ */
+function LedgerDashboard() {
   const [params, setParams] = useSearchParams()
   const period = periodFromQuery(params, new Date())
   const inBase = inBaseFromQuery(params)
@@ -121,9 +143,11 @@ export default function Dashboard() {
           {(all) => all.length === 0 ? <NoCashFlow /> : all.map((table) => (
             <figure key={table.currency} className="chart" aria-label={`Income and expenses in ${table.currency}`}>
               {all.length > 1 && <figcaption>{table.currency}</figcaption>}
-              <Suspense fallback={<div className="chart-placeholder"><Loading what="chart" /></div>}>
-                <IncomeExpenseChart table={table} />
-              </Suspense>
+              <ErrorBoundary fallback={<p className="error">The chart couldn’t load. Reload the page to try again.</p>}>
+                <Suspense fallback={<div className="chart-placeholder"><Loading what="chart" /></div>}>
+                  <IncomeExpenseChart table={table} />
+                </Suspense>
+              </ErrorBoundary>
             </figure>
           ))}
         </Card>

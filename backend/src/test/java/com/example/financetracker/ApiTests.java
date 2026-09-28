@@ -95,7 +95,9 @@ class ApiTests extends IntegrationTest {
                 new Object[] {POST, "/api/import", ""},
                 new Object[] {GET, "/api/settings", null},
                 new Object[] {PUT, "/api/settings", """
-                        {"baseCurrency": "EUR", "defaultShareRatio": "0.5"}"""});
+                        {"baseCurrency": "EUR", "defaultShareRatio": "0.5"}"""},
+                new Object[] {POST, "/api/demo-data", null},
+                new Object[] {DELETE, "/api/me/data", null});
 
         SoftAssertions softly = new SoftAssertions();
         invalidTokens.forEach((kind, token) -> endpoints.forEach(e -> softly
@@ -227,7 +229,9 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/rates", List.of("get")),
                 Map.entry("/api/rates/manual", List.of("delete", "get", "post")),
                 Map.entry("/api/rates/manual/csv", List.of("post")),
-                Map.entry("/api/settings", List.of("get", "put"))));
+                Map.entry("/api/settings", List.of("get", "put")),
+                Map.entry("/api/demo-data", List.of("post")),
+                Map.entry("/api/me/data", List.of("delete"))));
 
         // The user comes from the token, not from a parameter.
         assertThat(openApi.get("paths").get("/api/accounts").get("get").has("parameters")).isFalse();

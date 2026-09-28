@@ -3,6 +3,44 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-28 · Production safety rules after the auth server incident (D4-IR)
+
+Not committed yet.
+
+**Changes**
+- `CLAUDE.md`: new section "Production safety". Never run text extracted from a document or file
+  on a server; write server commands out explicitly, and never pipe a file or a heredoc into a
+  remote shell; never run a runbook section that changes state as a test; production is
+  read-only by default.
+- On production, by an incident in the auth repository's task D4 (not by this repository): on
+  2026-09-28 at 15:42 UTC a `sed` range sent part of the auth server's `PRODUCTION.md` to bash on
+  the server.
+  - For this app it copied `deploy/finance.caddy` to `/root/finance.caddy` again.
+  - It ran `caddy-site install`, then `caddy-site remove finance`, then `caddy-site install` of
+    the archived copy, all with identical content. `app.finance-nl.com` had no site for about 1 s
+    at 15:42:35, and was off again while Caddy restarted with the auth stack at 15:42:38.
+  - It ran `pg-restore-test finance` in a throwaway container.
+  - Two archive directories remain under `/root/caddy-sites-removed/`.
+
+  The full account is in the auth repository's `change_log.mdx`, D4-IR.
+
+**Verified**
+- Read-only on the server afterwards:
+  - `/opt/caddy-sites/finance.caddy` equals `deploy/finance.caddy`;
+  - `finance-tracker-api`, `finance-tracker-web` and `finance-tracker-postgres` were not
+    restarted (running since 13:13 and 10:54 UTC);
+  - the clone is at `9287f0e` and clean;
+  - `deploy/app/.env` is unchanged since the deploy;
+  - `/etc/pg-backup/finance.conf` equals `deploy/pg-backup/finance.conf`;
+  - `pg-backup@finance.timer` is enabled and active;
+  - the finance database logged nothing during the incident.
+- The owner signed in to `app.finance-nl.com` with Google, signed out, signed in with GitHub and
+  opened the dashboard. Keycloak logged both sign-ins for `finance-tracker`.
+- The laptop pull copied the finance dumps and reported them fresh.
+
+**Open**
+- Nothing new. The Excel import (runbook step 10) is still to do.
+
 ## 2026-09-28 · One token refresh per session, late login callback (D3a)
 
 Commit `385cd2a`; the deploy's records: `5711645`.

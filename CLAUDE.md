@@ -10,6 +10,15 @@
 
 A Stop hook (`.claude/hooks/require-changelog.sh`, registered in `.claude/settings.json`) keeps Claude from finishing while files in the working tree changed but `change_log.mdx` did not.
 
+## Production safety
+
+Production is the auth server's host, which this app shares. On 2026-09-28 a `sed` range in an auth repository task ran part of that repository's `PRODUCTION.md` as bash on the server, prose included, since the backticks of inline code turn prose into command substitutions. Among other things it reinstalled, removed and reinstalled this app's site file (see [change_log.mdx](change_log.mdx) and the auth repository's `change_log.mdx`, D4-IR). Rules for every task:
+
+- Never run text extracted from a document or file on a server: no `sed`, `awk` or `grep` output, and no variable filled from a file. Check a documented command by reading it, or by running it in a throwaway local container.
+- Write every server command out explicitly on the command line. Never pipe a file or a heredoc into a remote shell (`ssh host bash -s < file`, `ssh host 'bash -s' <<'EOF'`, `… | ssh host bash`).
+- Never run a runbook section that changes state (restore, rotate, delete, update) as a test. It runs only when the task is to do exactly that.
+- Production is read-only by default, unless the task says otherwise.
+
 ## Domain rules
 
 1. The core model is a double-entry journal. A journal_entry has entry_date (DATE, no time zone), an optional payee (a counterparty), memo and kind. A posting belongs to one entry and has account, currency (ISO 4217 code), amount, optional category and optional counterparty.

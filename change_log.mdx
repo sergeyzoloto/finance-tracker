@@ -3,6 +3,138 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-28 · First production deploy (D3)
+
+Not committed yet.
+
+**Changes**
+- On the server `2.28.108.199`, with the owner: steps 1 to 9 of `deploy/RUNBOOK.md`. Step 10, the
+  Excel import, is a separate task.
+  - `/opt/finance-tracker`, cloned from GitHub at `070fab2`. `deploy/app/.env` (root, 600) holds
+    two database passwords generated on the server and the client secret, which the owner typed in
+    at the `read -rs` prompt in their own SSH session. No secret was printed or copied.
+  - The images `finance-tracker-api` and `finance-tracker-web`, built on the server one after the
+    other. Stack `finance-tracker-prod` started; it created the volume
+    `finance-tracker-prod_postgres-data`.
+  - `/opt/caddy-sites/finance.caddy`, installed with `caddy-site install` from
+    `/root/finance.caddy`.
+  - `/etc/pg-backup/finance.conf`, installed from `deploy/pg-backup/finance.conf`, and
+    `pg-backup@finance.timer`, enabled.
+  - `/opt/auth`, the auth containers and Keycloak's configuration are unchanged. Keycloak was only
+    read with `automation-cli`, apart from deleting the test account's user (below).
+- `deploy/RUNBOOK.md`, where it didn't match reality:
+  - Step 5: a Keycloak 26 client secret has 86 characters, not 32. New: a check of the secret at
+    the token endpoint, with a wrong secret as the control. Keycloak 26.7.4 answers both with 401
+    `unauthorized_client`; only `error_description` tells them apart.
+  - Step 6: the first build took 51 seconds, not 5 to 15 minutes.
+  - Step 8: the header checks' `grep` required a colon right after `HTTP`, so the `HTTP/2 200` line
+    they promise could never show.
+  - `docker compose exec -T` passes its input on to the container. It swallowed the rest of step
+    6's block when that was fed to `bash` through SSH. It gets `</dev/null` wherever a command
+    follows it (step 6, the end of step 3.3, the restore's `psql` lines), and so does
+    `pg-restore-test`, which runs it (the restore's first step, the monthly check). "How to read
+    this" explains why.
+  - Step 8's browser part: a new account sets its password after the verification link; "Delete all
+    my data" leaves the user signed in, and their next request gives them a new starter ledger.
+  - Memory budget: the server's measurements, in place of the local runs'.
+  - Troubleshooting: Keycloak 26's text for a wrong client secret, and rows for
+    `authorization_request_not_found`, `cookie_not_found` and the refresh token bug (Open).
+  - New sections: "Deployed revisions", whose first row is `070fab2` (and "Update the app" now adds
+    a row), and "Delete a user", for a deletion on request or a test account.
+- CLAUDE.md's project map: deployed, and the importer's note no longer waits for a production
+  database.
+
+**Verified**
+- Before: after the owner pushed, local `main` equaled `origin/main` at `070fab2`, and CI was green
+  for it (Backend, Frontend, Dependency updates). `app.finance-nl.com` resolved to `2.28.108.199`
+  on the laptop and at 1.1.1.1 and 8.8.8.8, with no AAAA record. The server had 3.7 GiB of RAM with
+  2.6 GiB available, 30 GB of free disk, Docker 29.8.1 and Compose v5.5.1. The auth stack was
+  healthy, `edge` held only `auth-caddy-1`, and `pg-backup@auth.timer` was enabled and active. A
+  safety backup, `auth-2026-09-28T0938Z.dump`, was taken.
+- The auth smoke test: 11 ok, 0 fail before the start, after `caddy-site install` and in step 8.
+- Step 3, read only: every value in the runbook's table, the role `user` in
+  `default-roles-myapps`, the audience mapper, and an example token with `aud` and `azp`
+  `finance-tracker` and the role `user`. The authorization endpoint answered 200 for the app's
+  redirect URI and 400 for another.
+- Step 5: `.env` is `-rw------- root root`, with 48, 48 and 86 characters. The token check gave
+  `Client not enabled to retrieve service account` for the secret and `Invalid client or Invalid
+  client credentials` for a wrong one. Keycloak logged `CLIENT_LOGIN_ERROR` for both, with
+  `invalid_client` and `invalid_client_credentials`.
+- Step 6: both images built in 51 seconds. Used memory rose from 1155 to at most 1515 MiB, with no
+  swap. All three containers were healthy, the api after about 20 seconds. Flyway applied 4
+  migrations (v4), and 220977 ECB rates for 7101 days were loaded. `edge` held `auth-caddy-1`,
+  `finance-tracker-api` and `finance-tracker-web`, one address each and none for the database. The
+  api reached Keycloak with `200 2.28.108.199`. `finance` is no superuser and owns the database
+  `finance`, and no container publishes a port.
+- Step 7: `caddy-site install` validated and reloaded, and Caddy got the certificate within seconds
+  (TLS-ALPN challenge), with no error lines. The certificate: `CN=app.finance-nl.com`, issuer Let's
+  Encrypt `YE2`, valid from 2026-09-28 09:57:08 to 2026-12-27 09:57:07 UTC.
+- Step 8: every expected result, with the corrected `grep` (`HTTP/2 200` for `/` and
+  `/favicon.ico`). HTTP redirects to HTTPS with 308, and a file in `/assets/` has `immutable`.
+- Step 9: both timers were listed. The first dump, `finance-2026-09-28T1057Z.dump`, had 1328414
+  bytes and 93 archive entries, and `pg-restore-test finance` printed ok on every line and `PASS`.
+  The laptop's pull copied the dump with the same SHA-256 and said `OK: all backups are fresh`.
+- End to end, by the owner in a private window:
+  - The landing page, the favicon and `/privacy` loaded.
+  - A throwaway account registered, verified its address, set its password and landed on the
+    empty dashboard. It loaded the demo and looked around: the ID sequences reached 138 entries,
+    293 postings and 10 counterparties. It deleted all its data and got the empty state back.
+  - Signing out led to the landing page, with a `LOGOUT` event and no Keycloak session left.
+  - The owner signed in with Google (`LOGIN` with `identity_provider` `google`) and got an empty
+    dashboard. Their ledger holds settings (EUR), 10 accounts, 15 categories and no entries.
+- Logs during the test: the api logged only the `authorization_request_not_found` WARN (Open).
+  nginx, PostgreSQL and Caddy logged no errors, and nginx served no 5xx. Keycloak logged
+  `RESTART_AUTHENTICATION_ERROR` (`already_logged_in`) and `IDENTITY_PROVIDER_LOGIN_ERROR`
+  (`cookie_not_found`), both harmless second callbacks, and `REFRESH_TOKEN_ERROR` (Open). A
+  master-realm `LOGIN_ERROR` (`user_not_found`) at 11:42, and one at 10:42 before the test, came
+  from the owner's own address; `/admin*` and `/realms/master*` are behind the admin allowlist.
+- The test account was deleted with the owner's consent. First came a backup. Then its 27 rows in
+  the app (settings 1, accounts 10, categories 15, users 1) went in one transaction, with the
+  statements of `UserDataService.deleteAll`, and then its Keycloak user, with `automation-cli`.
+  Afterwards no row had its `sub`, the realm had one user, and the owner's rows were unchanged. A
+  new dump, `finance-2026-09-28T1155Z.dump`, passed the restore test with users 1, ledgers 1,
+  accounts 10 and categories 15.
+- Memory after the test, from `docker stats`: api 350.7 MiB of 768, postgres 76.7 of 384, web 4.7
+  of 64, Keycloak 559.1 of 1280, Keycloak's PostgreSQL 59.0 and Caddy 15.9, 1066 MiB in all.
+  `free -h` showed 1.7 GiB used, 2.0 GiB available and 64 KiB of swap.
+- The new "Delete a user" blocks, as written, for an address and a `sub` nobody has: the lookup
+  printed `user: none`, and the deletion ran its ten `DELETE 0`, then rolled back on a failing
+  statement added at the end.
+- `change_log.mdx` compiles with `@mdx-js/mdx`. The diff holds no secret, no IP address but the
+  server's, and no personal email address.
+
+**Open**
+- Bug: parallel requests refresh an expiring access token with the same refresh token. The realm
+  accepts each refresh token once (`revokeRefreshToken` true, `refreshTokenMaxReuse` 0), so the
+  second refresh fails. `SessionAccessTokenFilter` takes that `invalid_grant` for the end of the
+  Keycloak session and invalidates the app's session, and the user goes through Keycloak again.
+  This was seen at 11:16:51 UTC, with `Maximum allowed refresh token reuse exceeded`. A save at
+  that moment fails, and the form's content is lost. The fix belongs in the app: one refresh per
+  session at a time, with the stored client read again inside the lock. `FakeKeycloak` doesn't
+  rotate refresh tokens, so no test caught it.
+- A late second callback of the same sign-in shows the app's login-failed notice in its tab
+  (`authorization_request_not_found`), even though the session is signed in. The app could send it
+  to `/` in that case.
+- "Delete all my data" leaves the user signed in, and the empty dashboard's next request
+  provisions them again, with their email address and name in `users`. The privacy policy says it
+  "deletes everything you have in the app immediately", which is true at that moment. A deletion
+  on request needs the runbook's "Delete a user".
+- `finance-2026-09-28T1154Z.dump`, taken right before the test account's deletion, holds its email
+  address and name until it ages out: 14 days on the server, 60 on the laptop, as the policy says.
+- For the auth repository (D4): `restore-test.sh`'s `q_prod` runs `docker compose exec -T` without
+  `</dev/null`. `deploy/smoke-test.sh`'s comment `Wrong client secret -> 401 invalid_client` is
+  out of date for Keycloak 26.7.4, which answers `unauthorized_client` with `Invalid client or
+  Invalid client credentials`. Its password-grant check accepts `unauthorized_client`, so it would
+  pass with a wrong secret too; the token check proves the secret. No other place in either
+  repository expects a 32-character secret.
+- Google login leaves test mode once the consent screen names `https://app.finance-nl.com/` and
+  `https://app.finance-nl.com/privacy` (D4).
+- Step 10, the import of the owner's ledger, is a separate task.
+- Bots began to probe the site within minutes of the certificate (certificate transparency):
+  `/info.php`, `/graphql` and the like get `index.html`, or 405 for a POST.
+- The server's clone stays at `070fab2`. This commit changes only documentation and reaches the
+  server with the next update.
+
 ## 2026-09-28 · Privacy policy finalized, favicon (D2c)
 
 Commit `88f8cf2`.

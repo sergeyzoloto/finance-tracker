@@ -28,6 +28,11 @@ The auth server's rules for projects behind its Caddy apply throughout (its `PRO
 
 - "On the laptop" means a shell in `~/dev/finance-tracker`, unless the block changes directory.
 - No block needs editing. Where a value must be looked up, the block prints it or asks for it.
+- `docker compose exec -T` passes its input on to the container, so without `</dev/null` it can
+  swallow the commands that follow it in the same block, and they never run. That happened in
+  step 6 on 2026-09-28, with the block fed to `bash` through SSH. Every such line here whose
+  input isn't a file or a pipe ends with `</dev/null`, and so does `pg-restore-test` wherever
+  another command follows it, since it runs `docker compose exec -T` itself.
 - **Secrets never appear on screen, in the shell history or in a chat.** You paste them at a
   `read -rs` prompt, which shows nothing, and `printf`, a shell builtin, writes them to the file, so
   they don't show up in the process list either. Paste a secret only at such a prompt.
@@ -88,21 +93,26 @@ The server has 3.7 GiB of RAM (`free -h`) and 2 GB of swap. Only the app's conta
 from this repository; Keycloak's limit, and whether the auth stack's other containers get one,
 belong to the auth repository.
 
-| Container | Stack | Limit | Measured |
-| --- | --- | ---: | --- |
-| `keycloak` (`auth-keycloak`) | `/opt/auth` | 1280 MiB, set in the auth repo; heap up to 70%, 896 MiB | 465 MiB right after its restart on 2026-09-27, 540–620 MiB before (the auth server's `PRODUCTION.md`) |
-| `postgres` (Keycloak's) | `/opt/auth` | none | 46 MiB (local rehearsal, 2026-09-26) |
-| `caddy` | `/opt/auth` | none | 39 MiB (local rehearsal, 2026-09-26) |
-| `finance-tracker-api` | `finance-tracker-prod` | 768 MiB; heap up to 60%, 460 MiB | 323 MiB after start and loading the ECB's history (local run, 2026-09-27); 285–354 MiB in use (rehearsal, 2026-09-26) |
-| `finance-tracker-postgres` | `finance-tracker-prod` | 384 MiB | 64 MiB (local run, 2026-09-27) |
-| `finance-tracker-web` | `finance-tracker-prod` | 64 MiB | 10 MiB (local run, 2026-09-27, with more nginx workers than the server's 2) |
-| **Always running** | | **2496 MiB of limits, plus the two without one** | **about 1.1 GiB** |
+| Container | Stack | Limit | Measured on the server, 2026-09-28 |
+| --- | --- | ---: | ---: |
+| `keycloak` (`auth-keycloak`) | `/opt/auth` | 1280 MiB, set in the auth repo; heap up to 70%, 896 MiB | 559 MiB |
+| `postgres` (Keycloak's) | `/opt/auth` | none | 59 MiB |
+| `caddy` | `/opt/auth` | none | 16 MiB |
+| `finance-tracker-api` | `finance-tracker-prod` | 768 MiB; heap up to 60%, 460 MiB | 351 MiB |
+| `finance-tracker-postgres` | `finance-tracker-prod` | 384 MiB | 77 MiB |
+| `finance-tracker-web` | `finance-tracker-prod` | 64 MiB | 5 MiB |
+| **Always running** | | **2496 MiB of limits, plus the two without one** | **1066 MiB** |
+
+The measurements are `docker stats` about an hour after the first deploy, after the ECB's history
+was loaded, two users signed in and the demo was loaded and deleted once.
 
 - **With every limit reached**, the containers take about 2.5 GiB, and about 1.1 GiB is left for
-  the system, Docker and the page cache. In normal use about 2.5 GiB is free.
-- **Building the images on the server** needs about 0.8 GiB more for a while: Maven's heap is at
-  most 512 MiB (`backend/Dockerfile`), and Vite's build is smaller. The runbook builds one image
-  after the other, and the swap covers a peak.
+  the system, Docker and the page cache. After the first deploy, `free -h` showed 1.7 GiB used and
+  2.0 GiB available, and 64 KiB of swap in use.
+- **Building the images on the server** needs more for a while: Maven's heap is at most 512 MiB
+  (`backend/Dockerfile`), and Vite's build is smaller. On 2026-09-28 the used memory rose from
+  1155 MiB to at most 1515 MiB (sampled every 5 seconds), and no swap was used. The runbook builds
+  one image after the other, and the swap covers a peak.
 - **The restore test** starts a throwaway PostgreSQL container without a limit for a minute, and
   the nightly `pg_dump` runs inside `finance-tracker-postgres`, within its 384 MiB.
 - Tmpfs files count toward a container's limit: the api's `/tmp` (at most 64 MiB, for uploads) and
@@ -253,7 +263,7 @@ You should see `"name" : "user"` twice: the client has the role, and the realm's
 # On the server, in the shell of step 3
 kc get clients/$cid/protocol-mappers/models -r myapps --fields 'name,protocolMapper,config(*)'
 kc get clients/$cid/evaluate-scopes/generate-example-access-token -r myapps -q 'scope=openid profile email' -q userId=7df2283a-b1c7-4959-a9ac-e88f71859ba6 | python3 -c 'import json, sys; t = json.load(sys.stdin); print(json.dumps({k: t.get(k) for k in ("iss", "aud", "azp", "resource_access")}, indent=1)); print("sub:", "present" if t.get("sub") else "MISSING")'
-docker compose -f /opt/auth/docker-compose.yml exec -T keycloak rm -f /tmp/kcadm.config
+docker compose -f /opt/auth/docker-compose.yml exec -T keycloak rm -f /tmp/kcadm.config </dev/null
 ```
 
 The second command prints only the claims the backend checks, not the user's name or email.
@@ -324,8 +334,36 @@ awk -F= '{ print $1, length($2), "characters" }' .env
 ```
 
 You should see `-rw------- 1 root root`, then `POSTGRES_PASSWORD 48 characters`,
-`APP_DB_PASSWORD 48 characters` and `KEYCLOAK_CLIENT_SECRET 32 characters`. Afterwards, copy
-something harmless on the laptop, so the secret leaves its clipboard.
+`APP_DB_PASSWORD 48 characters` and `KEYCLOAK_CLIENT_SECRET 86 characters`: Keycloak 26 generates
+client secrets of 86 letters and digits, 512 bits. Afterwards, copy something harmless on the
+laptop, so the secret leaves its clipboard.
+
+Then let Keycloak check the secret. The block asks its token endpoint for a service-account token,
+once with the secret from `.env` and once with a wrong one. The secret reaches curl through a pipe,
+so it shows up neither on the screen nor in the process list, and only the error is printed:
+
+```bash
+# On the server
+cd /opt/finance-tracker/deploy/app
+token=https://auth.finance-nl.com/realms/myapps/protocol/openid-connect/token
+check() { curl -s -w '\n%{http_code}' "$token" -d grant_type=client_credentials -d client_id=finance-tracker --data-urlencode client_secret@- | python3 -c 'import json, sys; *body, code = sys.stdin.read().split("\n"); r = json.loads("\n".join(body) or "{}"); print(code, r.get("error"), "-", r.get("error_description"))'; }
+sed -n 's/^KEYCLOAK_CLIENT_SECRET=//p' .env | tr -d '\n' | check
+printf '%s' wrong-secret | check
+unset -f check; unset token
+```
+
+You should see:
+
+- `401 unauthorized_client - Client not enabled to retrieve service account`: Keycloak accepted the
+  secret, then refused the grant, since the client has no service account.
+- `401 unauthorized_client - Invalid client or Invalid client credentials`: what a wrong secret
+  gets.
+
+Keycloak 26 answers both with 401 and the same `error`; only the description tells them apart. If
+the first line reads like the second, the secret in `.env` is wrong: run the `read -rs` block
+above again. Each check leaves a `CLIENT_LOGIN_ERROR` in Keycloak's log, which is expected: with
+`error="invalid_client"` and the reason `Client not enabled to retrieve service account` for the
+right secret, and with `error="invalid_client_credentials"` for the wrong one.
 
 Nothing in `.env` has to be kept anywhere else. A restore creates the database logins anew from
 `.env`, and the client secret can be copied from the admin console again, or regenerated there.
@@ -338,7 +376,8 @@ cd /opt/finance-tracker/deploy/app
 docker compose build api && docker compose build web
 ```
 
-The first build takes 5 to 15 minutes: Maven and npm download everything once. One image after the
+Maven and npm download everything once. On 2026-09-28 the first build took 51 seconds for both
+images, Maven's `package` 25 of them; allow a few minutes on a slower day. One image after the
 other, so the two builds never need memory at the same time. It should end with
 `Image finance-tracker-api Built`, then `Image finance-tracker-web Built`.
 
@@ -365,7 +404,7 @@ Check the networks and the way to Keycloak:
 ```bash
 # On the server
 docker network inspect edge -f 'edge: {{range .Containers}}{{.Name}} {{end}}'
-cd /opt/auth && for n in finance-tracker-api finance-tracker-web finance-tracker-postgres; do echo "$n: $(docker compose exec -T caddy getent ahostsv4 $n | awk '{print $1}' | sort -u | tr '\n' ' ')"; done
+cd /opt/auth && for n in finance-tracker-api finance-tracker-web finance-tracker-postgres; do echo "$n: $(docker compose exec -T caddy getent ahostsv4 $n </dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')"; done
 docker exec finance-tracker-api curl -s -o /dev/null -w '%{http_code} %{remote_ip}\n' https://auth.finance-nl.com/realms/myapps
 ```
 
@@ -419,10 +458,10 @@ You should see `certificate obtained successfully` for `app.finance-nl.com`, and
 
 ```bash
 # On the laptop
-curl -sI https://app.finance-nl.com/ | grep -iE '^(HTTP|cache-control|content-security-policy|strict-transport-security|server|via):'
+curl -sI https://app.finance-nl.com/ | grep -iE '^(HTTP/|(cache-control|content-security-policy|strict-transport-security|server|via):)'
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://app.finance-nl.com/entries/new
 curl -s https://app.finance-nl.com/privacy | grep -o '<h1>.*</h1>\|Last updated: [^<]*'
-curl -sI https://app.finance-nl.com/favicon.ico | grep -iE '^(HTTP|content-type|cache-control):'
+curl -sI https://app.finance-nl.com/favicon.ico | grep -iE '^(HTTP/|(content-type|cache-control):)'
 curl -s -o /dev/null -w '%{http_code}\n' https://app.finance-nl.com/assets/missing.js
 curl -s -o /dev/null -w '%{http_code}\n' https://app.finance-nl.com/api/me
 curl -s https://app.finance-nl.com/actuator/health | head -c 15; echo
@@ -455,6 +494,14 @@ as Cash and Current account. In the admin console, realm `myapps` → **Events �
 `LOGIN` and `CODE_TO_TOKEN` with client `finance-tracker`. Don't load the demo into the ledger you
 will import your own data into: the import would add to the demo's entries. To try it, load it,
 then **Settings → Delete all my data**.
+
+- **A new account** registers with its email address only. The password is set after the link in
+  the verification email, in the tab the link opens. The tab of the registration then carries on
+  by itself and fails harmlessly: `authorization_request_not_found` under
+  [Troubleshooting](#troubleshooting).
+- **Delete all my data** leaves the user signed in, and the app's next request, from the empty
+  dashboard it shows, gives them a new starter ledger, with their email address and name in
+  `users`. To remove a test account completely, [delete the user](#delete-a-user).
 
 Google's OAuth consent screen needs a public home page and privacy policy before Google login can
 leave test mode: they are <https://app.finance-nl.com/> and <https://app.finance-nl.com/privacy>.
@@ -568,6 +615,15 @@ before are skipped.
 
 ---
 
+## Deployed revisions
+
+What runs on the server, newest first. The server's clone may be newer when only documentation
+changed since: `git -C /opt/finance-tracker log -1 --oneline` on the server.
+
+| Date | Commit the images were built from | What |
+| --- | --- | --- |
+| 2026-09-28 | `070fab2` (Change log: D2c's commit) | First deploy, steps 1 to 9 of this runbook (D3). Step 10, the import, is still to do. Certificate from Let's Encrypt (YE2), valid until 2026-12-27; Caddy renews it. |
+
 ## Update the app
 
 Push, and wait until CI is green (<https://github.com/sergeyzoloto/finance-tracker/actions>):
@@ -607,6 +663,9 @@ You should see `api: healthy` and all three containers `Up … (healthy)`. Every
 after an update, since sessions live in the api's memory; while the Keycloak session lasts, that
 is a redirect without a password prompt. A tab that was open during the update and loads a page it
 hasn't loaded yet may need a reload: the old build's files are gone.
+
+Add a row to [Deployed revisions](#deployed-revisions), with the commit `git log -1 --oneline`
+printed on the server.
 
 **If `deploy/finance.caddy` changed:**
 
@@ -670,14 +729,14 @@ Then, **on the server** in the same shell:
 ```bash
 # On the server, in the same shell
 # 1. Check that the dump restores, without touching production
-pg-restore-test finance "$dump"
+pg-restore-test finance "$dump" </dev/null
 # 2. Dump the current state too, and pause the nightly backup until step 6
 systemctl start pg-backup@finance.service
 systemctl stop pg-backup@finance.timer
 # 3. Stop the api (the site answers 502 meanwhile)
 cd /opt/finance-tracker/deploy/app && docker compose stop api
 # 4. Keep the current database under another name, and create an empty one
-docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'ALTER DATABASE finance RENAME TO finance_before_restore' -c 'CREATE DATABASE finance OWNER finance' -c 'REVOKE ALL ON DATABASE finance FROM PUBLIC'
+docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'ALTER DATABASE finance RENAME TO finance_before_restore' -c 'CREATE DATABASE finance OWNER finance' -c 'REVOKE ALL ON DATABASE finance FROM PUBLIC' </dev/null
 # 5. Restore in one transaction, as the app's own login, stopping at the first error
 docker compose exec -T postgres pg_restore -U finance -d finance --exit-on-error --single-transaction < "$dump" && echo restored
 # 6. Start the api, and resume the nightly backup
@@ -700,7 +759,7 @@ If step 5 or 6 fails, go back to the previous database:
 ```bash
 # On the server
 cd /opt/finance-tracker/deploy/app && docker compose stop api
-docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'DROP DATABASE IF EXISTS finance' -c 'ALTER DATABASE finance_before_restore RENAME TO finance'
+docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'DROP DATABASE IF EXISTS finance' -c 'ALTER DATABASE finance_before_restore RENAME TO finance' </dev/null
 docker compose start api
 systemctl start pg-backup@finance.timer
 ```
@@ -709,7 +768,7 @@ Once the restored state has worked for a few days:
 
 ```bash
 # On the server
-cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -U postgres -d postgres -c 'DROP DATABASE finance_before_restore'
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -U postgres -d postgres -c 'DROP DATABASE finance_before_restore' </dev/null
 ```
 
 **If the server or the volume is lost**, the dump comes from the laptop. Set up the auth server
@@ -744,6 +803,63 @@ fails there, because the live database is new and empty. Then steps 7 and 9.
 To take the site offline, **on the server**: `caddy-site remove finance`. It keeps the file in
 `/root/caddy-sites-removed/`; the auth server's `PRODUCTION.md`, "Remove a site", has the rest.
 
+## Delete a user
+
+For someone who asks for their account to be deleted (the privacy policy: "your login account is
+deleted on request"), or a test account. This deletes the user in Keycloak and every row the app
+keeps for them. It can't be undone, except by restoring a backup. The first block only looks: it
+asks for the email address and prints the user's id, linked providers, Keycloak sessions and the
+app's rows.
+
+```bash
+# On the server
+kc() { docker compose -f /opt/auth/docker-compose.yml exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config </dev/null; }
+kc config credentials --server http://localhost:8080 --realm myapps --client automation-cli --secret "$(cat /root/automation-cli.secret)"
+IFS= read -r -p 'Email address of the user: ' email
+sub=$(kc get users -r myapps -q email="$email" -q exact=true --fields id --format csv --noquotes); echo "user: ${sub:-none}"
+[ -n "$sub" ] && kc get users/$sub/federated-identity -r myapps --fields identityProvider && echo "sessions: $(kc get users/$sub/sessions -r myapps --fields id --format csv --noquotes | grep -c .)"
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -U finance -d finance -v sub="$sub" <<'SQL'
+SELECT 'users ' || count(*) FROM app.users WHERE keycloak_id = :'sub';
+SELECT 'accounts ' || count(*) || ', categories ' || (SELECT count(*) FROM app.category WHERE user_id = :'sub') || ', entries ' || (SELECT count(*) FROM app.journal_entry WHERE user_id = :'sub') FROM app.account WHERE user_id = :'sub';
+SQL
+```
+
+You should see the user's id (36 characters), then their linked providers (`[ ]` for none),
+`sessions: 0`, and the numbers of rows. If `sessions` isn't 0, sign them out in the admin console
+(realm `myapps` → **Users** → the user → **Sessions** → **Sign out**), wait 5 minutes, the
+lifetime of an access token, and run the block again.
+
+Then, in the same shell: a backup, the app's rows in one transaction, as the app's own "Delete all
+my data" deletes them (`UserDataService.deleteAll`), and the Keycloak user:
+
+```bash
+# On the server, in the shell of the block above
+systemctl start pg-backup@finance.service
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -1 -v ON_ERROR_STOP=1 -U finance -d finance -v sub="$sub" <<'SQL'
+DELETE FROM app.user_settings WHERE user_id = :'sub';
+DELETE FROM app.journal_entry WHERE user_id = :'sub';
+DELETE FROM app.import_batch WHERE user_id = :'sub';
+DELETE FROM app.account WHERE user_id = :'sub';
+DELETE FROM app.category WHERE user_id = :'sub';
+DELETE FROM app.counterparty WHERE user_id = :'sub';
+DELETE FROM app.exchange_rate WHERE user_id = :'sub';
+DELETE FROM app.transactions WHERE user_id IN (SELECT id FROM app.users WHERE keycloak_id = :'sub');
+DELETE FROM app.categories WHERE user_id IN (SELECT id FROM app.users WHERE keycloak_id = :'sub');
+DELETE FROM app.users WHERE keycloak_id = :'sub';
+SQL
+kc delete users/$sub -r myapps && echo "deleted in Keycloak"
+docker compose -f /opt/auth/docker-compose.yml exec -T keycloak rm -f /tmp/kcadm.config </dev/null
+```
+
+You should see one `DELETE n` per table, with the numbers of the first block, and `deleted in
+Keycloak`. The dump taken first holds the user until it ages out, 14 days on the server and 60 on
+the laptop, as the privacy policy says. On 2026-09-28 the test account of the first deploy was
+deleted with these statements, run in a `DO` block that also checked the total: 27 rows (settings
+1, accounts 10, categories 15, users 1), then the Keycloak user. Afterwards both blocks were tried
+as they are written here, for an address and a `sub` nobody has: the first printed `user: none`,
+and the second's `psql`, with a failing statement added at the end, ran its ten `DELETE 0` and
+rolled back.
+
 ## Regular checks
 
 Weekly:
@@ -766,7 +882,7 @@ packages:
 
 ```bash
 # On the server
-systemctl start pg-backup@finance.service && pg-restore-test finance
+systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
 cd /opt/finance-tracker/deploy/app && docker compose build --pull api && docker compose build web && docker compose up -d
 ```
 
@@ -789,7 +905,10 @@ major version needs a dump and a restore, which this runbook doesn't cover.
 | `502 Bad Gateway` | The api (for `/api` and the login) or the web container (for pages) is down, or not on `edge`. On the server: `cd /opt/finance-tracker/deploy/app && docker compose ps -a && docker compose logs --tail 50 api`, and the network checks of step 6. |
 | Keycloak says `Invalid parameter: redirect_uri` | Step 3.1: the client's redirect URI. |
 | The app says "Your account has no access to Finance Tracker" | The user lacks `finance-tracker` → `user`: step 3.2, the default role. Sign out and in again after fixing it in the auth server. |
-| After signing in, the app says the login failed | On the server, `cd /opt/finance-tracker/deploy/app && docker compose logs api \| grep 'Login failed'`. `401 Unauthorized` or `invalid_client`: the client secret in `.env` is wrong; repeat the second block of step 5, then `docker compose up -d api`. `Connect timed out` or `UnknownHost`: the api can't reach Keycloak; see the last check of step 6. |
+| After signing in, the app says the login failed | On the server, `cd /opt/finance-tracker/deploy/app && docker compose logs api \| grep 'Login failed'`. `401 Unauthorized`, `invalid_client` or `Invalid client or Invalid client credentials` (Keycloak 26 sends that one as `unauthorized_client`): the client secret in `.env` is wrong. Check it with step 5's token check, write it again with the `read -rs` block of step 5, then `docker compose up -d api`. `Connect timed out` or `UnknownHost`: the api can't reach Keycloak; see the last check of step 6. `authorization_request_not_found`: the next row. |
+| The api logs `Login failed: [authorization_request_not_found]`, and Keycloak, in the same second, `RESTART_AUTHENTICATION_ERROR` with `already_logged_in` | A second tab of the same sign-in came back after the first had finished it: typically the tab of a registration, after the verification link signed the user in, in a new tab. That tab gets the app's login-failed notice; the other one is signed in. Harmless; seen on 2026-09-28. |
+| Keycloak logs `IDENTITY_PROVIDER_LOGIN_ERROR` with `cookie_not_found` seconds after a successful Google or GitHub sign-in | A second callback of the same sign-in reached Keycloak after the first had finished it, for example after a double click in the provider's account chooser. Harmless; seen on 2026-09-28. |
+| Users are sent through Keycloak again while they work, and Keycloak logs `REFRESH_TOKEN_ERROR` with `Maximum allowed refresh token reuse exceeded` | A known bug of the app, not fixed yet (the change log, 2026-09-28, D3). When the access token is about to expire, parallel requests each refresh it with the same refresh token; the realm accepts each refresh token once, so the second refresh fails, and the api then ends its session. Keycloak's session stays, so the new sign-in needs no password, but a change saved at that moment fails, and the form's content is lost. To see it: `cd /opt/auth && docker compose logs --since 24h keycloak \| grep REFRESH_TOKEN_ERROR`. |
 | Someone signed in with Google or GitHub and sees an empty ledger | They used an address that differs from their account's: Keycloak made a separate user. [docs/auth.md](../docs/auth.md), "One person, several users". |
 | `finance-tracker-api` is `unhealthy`, and its log says `password authentication failed for user "finance"` | `APP_DB_PASSWORD` in `.env` changed after the database was created. On the server: `cd /opt/finance-tracker/deploy/app && printf "ALTER ROLE finance PASSWORD '%s';\n" "$(sed -n 's/^APP_DB_PASSWORD=//p' .env)" \| docker compose exec -T postgres psql -X -q -U postgres -d postgres && docker compose up -d api`. `printf` and the pipe keep the password out of the process list. |
 | `caddy-site install` says `is not valid: nothing was changed` | Caddy's error above it names the line. Fix it on the laptop with `deploy/check-site.sh` ([Change the site file](#change-the-site-file)). |

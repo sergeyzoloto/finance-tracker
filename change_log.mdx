@@ -3,6 +3,67 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-28 · Family budget: requirements, current state and ADR 0003 (F1)
+
+Committed locally on the new branch `feature/family-budget` as "docs(family-budget): F1
+requirements, current state and ADR", not pushed; its hash belongs here with the next change log
+commit.
+
+**Changes**
+- Analysis and documentation only. No application code, test, migration, build file, dependency,
+  frontend or deployment file changed, and nothing ran against the server.
+- `docs/family-budget/requirements.md`: the task's "Background", "Decisions already taken" (D-1 to
+  D-23), "MVP user stories" and "Planned stages", verbatim, agreed in stage F0.
+- `docs/family-budget/current-state.md`: the code as the family budget finds it, in 14 sections
+  with paths and classes: owner columns and every query that bypasses `OwnedRepository`, the
+  missing ledger table, the owner rules of V2's triggers and constraints, how
+  `DataIsolationApiTests` works, SharedExpense end to end, categories and accounts, money and rates,
+  reports, delete-all, versioning, the frontend, what survives the Keycloak round trip, rate
+  limiting and Flyway. It ends with the contradictions between the task and the code.
+- `docs/adr/0003-family-budget-membership-and-cross-ledger-posting.md`, status Proposed, topics A
+  to L:
+  - `ledger_id` on `account`, `category`, `counterparty`, `journal_entry` and `import_batch`,
+    backfilled from a personal ledger per sub, with `user_id` kept and checked until a cleanup
+    migration after F7;
+  - `ledger` and `ledger_member` with D-4 in partial unique indexes and triggers;
+  - a `LedgerScope` that only `LedgerAccess` makes, repositories and native SQL scoped by
+    `ledger_id`, and the posting trigger's exception for family categories;
+  - dedicated `family_record` and `family_share` tables, balances computed from them;
+  - posted rows as ordinary personal entries with a `family_entry_link`, re-posted idempotently by
+    one `FamilyPostingService`, whose `CrossLedgerWriter` is whitelisted, guarded by a trigger and
+    tested on its own;
+  - family categories as single rows of the family ledger;
+  - invite links with the token in the URL fragment and in `localStorage` across the login,
+    without changes to Keycloak or Caddy, and an in-memory rate limit;
+  - an application-written change journal;
+  - family endpoints under `/api/family-ledgers/…`, personal ones unchanged;
+  - the rollout: F2 split into F2a (migration V5 only, no code change) and F2b (scoping by ledger),
+    F4 split into F4a and F4b, and D-20's membership part moved to F3;
+  - three-user isolation tests with invariant checks after every family test, risks, and 11 open
+    questions.
+
+**Verified**
+- Baseline before any change, on `main` at `d0656b9` with a clean tree: `./mvnw -B test` 235
+  tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS in 50 s. Frontend: `npm ci` and `npm test`,
+  7 files and 84 tests passed, 2.2 s.
+- Every statement of `current-state.md` was read from the code, the migrations, the tests, the
+  runbook and `docs/auth.md`; the lists of native SQL come from searching `backend/src/main/java`
+  for `jdbc.sql` and `@Query`. The auth repository was only read, for the Caddy image it pins.
+- Contradictions found: there is no `ledgers` table (the restore test's "ledgers" counts
+  `user_settings`); `OwnedRepository` lacks unscoped methods but refuses nothing, and ten classes
+  use native SQL; `DataIsolationApiTests` fails for an endpoint missing from its list `CHECKED`, not
+  for a missing check; `FAMILY_DEBT` is named "Family budget" in the seed; share entries must post
+  to the member's own `UNALLOCATED` (rule 5), which D-8's list doesn't name; D-21 postpones the
+  Excel import that the runbook lists as next.
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1, run from a scratch directory. The commit holds
+  only the three documents and this file.
+
+**Open**
+- The owner answers the ADR's open questions and accepts or changes it; then F2a.
+- Read-only SQL for production, for the owner to run: the counts of SharedExpense entries
+  (`current-state.md`, section 5) and the subs the V5 backfill will meet (the F1 report).
+- The Excel import (runbook step 10) now waits for family posting (D-21).
+
 ## 2026-09-28 · Production safety rules after the auth server incident (D4-IR)
 
 Commit `c5aa2ba`.

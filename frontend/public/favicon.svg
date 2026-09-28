@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Finance Tracker's icon, drawn for this project: three rising bars in the app's accent colour (index.css).
+       Even coordinates keep the edges sharp at 16 px. favicon.ico holds the same icon as PNGs of 16 and 32 px. -->
+  <rect width="32" height="32" rx="6" fill="#0b5cad"/>
+  <path fill="#fff" d="M6 18h4v8H6zM14 12h4v14h-4zM22 6h4v20h-4z"/>
+</svg>

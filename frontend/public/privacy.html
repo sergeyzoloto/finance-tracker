@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Privacy policy · Finance Tracker</title>
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta name="description" content="How Finance Tracker at app.finance-nl.com handles your personal data." />
     <!-- Static on purpose: readable without JavaScript and without the backend (frontend/web.conf serves it at
          /privacy). The site's Content-Security-Policy allows only this site's own styles and no inline script. -->
@@ -47,8 +49,10 @@
       <p>
         Everything you enter in the app, import into it or load as demo data: accounts, categories, counterparties
         (such as the shops you pay or a friend you lend money to), entries with their dates, amounts and notes,
-        exchange rates you enter, and your settings. Only you can see it. If you write down other people’s names, for
-        example as someone you lent money to, they are part of your data and visible only to you.
+        exchange rates you enter, and your settings. No other user of the app can see it. As the operator, I have
+        technical access to the database and its backups, and I use it only to run the service, to fix a problem you
+        report, or when the law requires it. If you write down other people’s names, for example as someone you lent
+        money to, they are part of your data and not visible to other users.
       </p>
       <p>
         When you import a spreadsheet, the app reads the uploaded files while it handles the upload and does not keep
@@ -113,10 +117,15 @@
           privacy policies apply to what they process.
         </li>
       </ul>
-      <p>All app data is stored in the EU.</p>
-      <p class="todo">
-        TODO: say whether any of this is processed outside the EU (for example Brevo’s email delivery), and on what
-        basis, or state that nothing is.
+
+      <h2 id="transfers">Transfers outside the EU</h2>
+      <p>
+        The app, the login service, their databases and all backups are stored in the EU. Brevo stores its data in the
+        EU, but states that companies of its group and its sub-processors may access it from outside the EU, in
+        particular from the United States and India; Brevo protects such transfers with the safeguards the GDPR
+        requires, as described in its own privacy policy. If you choose to sign in with Google or GitHub, these
+        companies are based in the United States and process your data under their own privacy policies. Nothing else
+        is transferred outside the EU.
       </p>
 
       <h2 id="retention">How long it is kept</h2>
@@ -128,10 +137,9 @@
         </li>
         <li>Login and account events are kept for 30 days, administrative events for 90 days.</li>
         <li>
-          The web server’s logs are rotated by size, not by time, so on this small server they can be kept for several
-          months.
+          The logs of the web server and of the login server are rotated by size, not by time, so on this small server
+          they can be kept for several months.
         </li>
-        <li class="todo">TODO: how long the login server’s logs are kept.</li>
         <li>
           Nightly database backups are kept for 14 days on the server and for up to 60 days on my own computer, so
           deleted data disappears from the backups within 60 days.
@@ -162,6 +170,15 @@
       <p>
         You also have the right to complain to the Dutch data protection authority, the
         <a href="https://autoriteitpersoonsgegevens.nl">Autoriteit Persoonsgegevens</a>.
+      </p>
+
+      <h2 id="automated-decisions">Automated decisions</h2>
+      <p>The service makes no automated decisions about you and does no profiling.</p>
+
+      <h2 id="requirement">What you need to provide</h2>
+      <p>
+        To use the app you need an account: an email address and a password, or a Google or GitHub account. Without
+        one, the app can’t be used. The landing page and this policy can be read without an account.
       </p>
 
       <h2 id="children">Children</h2>

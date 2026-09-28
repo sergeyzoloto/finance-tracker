@@ -4,8 +4,6 @@
   --muted: #59636e;
   --border: #d0d7de;
   --accent: #0b5cad;
-  --todo-bg: #fff3cd;
-  --todo-border: #9a5b00;
 }
 body { font-family: system-ui, sans-serif; color: var(--text); background: #fff; max-width: 46rem; margin: 0 auto;
   padding: 1rem; line-height: 1.55; }
@@ -18,6 +16,4 @@ h3 { margin-top: 1.25rem; font-size: 1.05rem; }
 .updated { color: var(--muted); }
 li { margin-bottom: 0.4rem; }
 code { font-size: 0.9em; }
-.todo { background: var(--todo-bg); border-left: 4px solid var(--todo-border); padding: 0.4rem 0.75rem; font-weight: 600; }
-li.todo { list-style: none; margin-left: -1.25rem; }
 footer { margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9em; }

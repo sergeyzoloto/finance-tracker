@@ -3,6 +3,75 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-28 · Privacy policy finalized, favicon (D2c)
+
+Not committed yet.
+
+**Changes**
+- Privacy policy (`frontend/public/privacy.html`): the owner's changes, applied as given; nothing
+  else in its wording changed.
+  - "What you put into the app": no other user of the app can see your data, and the operator has
+    technical access to the database and its backups, used only to run the service, to fix a
+    reported problem, or when the law requires it. Other people's names in your data are "not
+    visible to other users".
+  - The sentence "All app data is stored in the EU." and the first TODO are replaced by a new
+    section, "Transfers outside the EU": the app, the login service, their databases and all
+    backups are in the EU; Brevo's group companies and sub-processors may access its data from the
+    United States and India, under the GDPR's safeguards; Google and GitHub are in the United
+    States, only for users who sign in with them; nothing else leaves the EU.
+  - "How long it is kept": the web server's line and the second TODO are replaced by one line: the
+    logs of the web server and of the login server are rotated by size, so they can be kept for
+    several months. That matches the auth stack, whose containers log with `json-file`, 10m × 5,
+    as this project's do.
+  - New sections "Automated decisions" and "What you need to provide", before "Children".
+  - "Last updated" stays 28 September 2026, which is today. No TODO is left, and `privacy.css` no
+    longer has its `.todo` styles. The new text uses typographic apostrophes (’), as the rest of the
+    page does.
+- Favicon, for D2b's open 404: `frontend/public/favicon.svg`, drawn for this project, with three
+  rising white bars on the app's accent blue `#0b5cad`. It uses a 32-unit grid with even
+  coordinates and presentation attributes only, no `style`. `favicon.ico` (614 bytes) holds the
+  same icon as PNGs of 16 and 32 px that Chrome rendered from the SVG. `index.html` and
+  `privacy.html` link both, the ICO with `sizes="16x16 32x32"`, so a browser that can use the SVG
+  picks it. Vite copies them into `dist/` without a hash.
+- `web.conf`: `/favicon.svg` and `/favicon.ico` get `Cache-Control: public, max-age=86400` (a day),
+  and a missing one gets 404. `nginx.conf` sets no cache headers and is unchanged, and so is
+  `deploy/finance.caddy`: the icons go to `finance-tracker-web` like every other path.
+- `deploy/RUNBOOK.md` step 8 checks `/favicon.ico` and no longer asks to resolve the policy's
+  TODOs. CLAUDE.md's project map.
+
+**Verified**
+- Frontend: `npm test` 84 of 84 passed in 7 files; `npm run build` succeeded, with `favicon.svg` and
+  `favicon.ico` next to `index.html`, byte for byte the sources, and both pages' icon links in
+  `dist/`.
+- `deploy/check-site.sh`: `Valid configuration`, formatted as `caddy fmt` formats it.
+- End to end with the production compose file and the pinned Caddy, as in D2b, then removed
+  completely (containers, volume, the local `edge` network and both images): throwaway secrets,
+  `caddy:2.11.4` with the auth stack's digest, `local_certs` and the site file imported from a
+  sites directory; curl on `edge` with TLS checked against Caddy's local CA.
+  - `/favicon.svg` (`image/svg+xml`, 420 bytes) and `/favicon.ico` (`image/x-icon`, 614 bytes)
+    gave 200 with `public, max-age=86400`, HSTS, CSP, `nosniff` and `Referrer-Policy`, and the same
+    bytes as the sources. `/`, `/privacy` and `/privacy.css` gave 200 with `no-cache` as before,
+    and `/assets/favicon.svg` 404.
+  - Headless Chrome through Caddy, with JavaScript on and off: the landing page and the privacy
+    page rendered. The privacy page had its stylesheet, its 13 sections in order, "Last updated: 28
+    September 2026" and no TODO. On both pages Chrome fetched `/favicon.svg`, and its own requests
+    for `/favicon.ico` got 200 as well (nginx's access log). Both icons also loaded as images under
+    the page's CSP.
+  - No page caused a CSP violation. As a control, an inline script added to `/privacy` was blocked
+    and reported (`script-src-elem`).
+  - Memory after the checks: api 414 MiB, postgres 94 MiB, web 11 MiB.
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1, run from a scratch directory, and its diff only
+  adds lines.
+
+**Open**
+- Not deployed: D3 runs the runbook. Google login leaves test mode only after the consent screen
+  names `https://app.finance-nl.com/` and `https://app.finance-nl.com/privacy`.
+- The policy's statements about Brevo (group companies and sub-processors in the United States and
+  India) are the owner's and weren't checked against Brevo's current terms in this task.
+- No `apple-touch-icon` and no web app manifest, so a phone's home screen doesn't show the icon.
+- Any other missing file outside `/assets/`, such as `/favicon.png`, still gets `index.html` with
+  200 (the single-page app's fallback), as before.
+
 ## 2026-09-28 · Landing page, privacy policy, demo data, delete my data (D2b)
 
 Commit `0cd098a`.

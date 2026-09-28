@@ -422,6 +422,7 @@ You should see `certificate obtained successfully` for `app.finance-nl.com`, and
 curl -sI https://app.finance-nl.com/ | grep -iE '^(HTTP|cache-control|content-security-policy|strict-transport-security|server|via):'
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://app.finance-nl.com/entries/new
 curl -s https://app.finance-nl.com/privacy | grep -o '<h1>.*</h1>\|Last updated: [^<]*'
+curl -sI https://app.finance-nl.com/favicon.ico | grep -iE '^(HTTP|content-type|cache-control):'
 curl -s -o /dev/null -w '%{http_code}\n' https://app.finance-nl.com/assets/missing.js
 curl -s -o /dev/null -w '%{http_code}\n' https://app.finance-nl.com/api/me
 curl -s https://app.finance-nl.com/actuator/health | head -c 15; echo
@@ -436,6 +437,8 @@ You should see:
 - `200 text/html`: a deep link of the single-page app gets `index.html`.
 - `<h1>Privacy policy</h1>` and its `Last updated` date: the static policy, which needs neither
   JavaScript nor the backend.
+- `HTTP/2 200`, `content-type: image/x-icon` and `cache-control: public, max-age=86400`: the
+  icon, which browsers keep for a day.
 - `404`: a missing build file is not the app.
 - `401`: the API answers, and wants a login.
 - `<!doctype html>`: `/actuator/health` is the app's page, not the backend's status.
@@ -455,7 +458,6 @@ then **Settings → Delete all my data**.
 
 Google's OAuth consent screen needs a public home page and privacy policy before Google login can
 leave test mode: they are <https://app.finance-nl.com/> and <https://app.finance-nl.com/privacy>.
-Resolve the policy's TODOs first.
 
 ## 9. Backups
 

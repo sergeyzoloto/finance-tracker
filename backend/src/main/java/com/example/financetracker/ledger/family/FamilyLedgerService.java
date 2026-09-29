@@ -170,6 +170,24 @@ public class FamilyLedgerService {
     }
 
     /**
+     * Changes the name the other members see for the member the scope stands for: an ACTIVE member with an account,
+     * which is what {@code LedgerAccess.member} lets in (D-3). The same checks as for any display name.
+     *
+     * @param self the ledger, as the member who renames themselves
+     * @throws ConflictException if another member who isn't FORMER has the name, whatever its case
+     */
+    @Transactional
+    public FamilyMemberView renameSelf(LedgerScope self, String displayName) {
+        lock(self);
+        requireFreeName(self, displayName, self.memberId());
+        jdbc.sql("UPDATE ledger_member SET display_name = :displayName WHERE id = :memberId AND ledger_id = :ledgerId")
+                .param("displayName", displayName).param("memberId", self.memberId())
+                .param("ledgerId", self.ledgerId())
+                .update();
+        return member(self, self.memberId());
+    }
+
+    /**
      * Removes a member without an account. Allowed while the member has no shares, which F4a checks once records
      * exist; under a CUSTOM split rule the member's share must be 0 first, so that the others' still sum to 10000.
      *

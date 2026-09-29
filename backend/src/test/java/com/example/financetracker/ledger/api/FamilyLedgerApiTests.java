@@ -158,6 +158,46 @@ class FamilyLedgerApiTests extends LedgerApiTest {
                 .containsExactly("Anna", "Neighbour");
     }
 
+    /** Any ACTIVE member with an account changes the name the others see, and only their own (D-3). */
+    @Test
+    void aMemberWithAnAccountChangesTheirOwnDisplayName() throws IOException {
+        long bobsMembership = join(family, bob, "Ben", "MEMBER", LocalDate.now());
+        long kid = memberId(post(alice, uri + "/members", """
+                {"displayName": "Kid"}"""));
+        String me = uri + "/members/me";
+
+        JsonNode renamed = ok(patch(bob, me, """
+                {"displayName": " Dad "}"""));
+        assertThat(renamed.get("id").asLong()).isEqualTo(bobsMembership);
+        assertThat(renamed.get("displayName").asText()).isEqualTo("Dad");
+        assertThat(renamed.get("role").asText()).isEqualTo("MEMBER");
+        assertThat(renamed.get("hasAccount").asBoolean()).isTrue();
+        // An owner too, and a change of case of one's own name is no clash.
+        assertThat(ok(patch(alice, me, """
+                {"displayName": "ANNA"}""")).get("id").asLong()).isEqualTo(alicesMembership);
+        assertThat(ok(get(alice, uri + "/members")).findValuesAsText("displayName")).containsExactly("ANNA", "Dad", "Kid");
+
+        // The same rules as for any display name: not blank, and one per person, whatever the case.
+        assertThat(body(patch(bob, me, """
+                {"displayName": "  "}"""), HttpStatus.BAD_REQUEST).get("errors").findValuesAsText("field"))
+                .containsExactly("displayName");
+        assertThat(detail(patch(bob, me, """
+                {"displayName": "kid"}"""), HttpStatus.CONFLICT)).isEqualTo("The family ledger has a member named kid already.");
+        assertThat(detail(patch(bob, me, """
+                {"displayName": "anna"}"""), HttpStatus.CONFLICT)).isEqualTo("The family ledger has a member named anna already.");
+        assertThat(ok(get(bob, uri + "/members")).findValuesAsText("displayName")).containsExactly("ANNA", "Dad", "Kid");
+        assertThat(jdbc.sql("SELECT display_name FROM ledger_member WHERE id = ?").param(kid).query(String.class)
+                .single()).isEqualTo("Kid");
+
+        // A member who left has no way in.
+        jdbc.sql("UPDATE ledger_member SET status = 'LEFT', left_date = current_date WHERE id = ?")
+                .param(bobsMembership).update();
+        assertThat(detail(patch(bob, me, """
+                {"displayName": "Dad again"}"""), HttpStatus.NOT_FOUND)).isEqualTo("Ledger %d not found.".formatted(family));
+        assertThat(jdbc.sql("SELECT display_name FROM ledger_member WHERE id = ?").param(bobsMembership)
+                .query(String.class).single()).isEqualTo("Dad");
+    }
+
     @Test
     void theCustomSplitRuleCoversTheActiveMembersAndSumsTo10000() throws IOException {
         long kid = memberId(post(alice, uri + "/members", """

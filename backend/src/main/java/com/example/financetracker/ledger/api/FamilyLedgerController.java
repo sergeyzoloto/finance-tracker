@@ -74,7 +74,7 @@ class FamilyLedgerController {
     record Share(@NotNull Long memberId, @NotNull @Min(0) @Max(10_000) Integer share) {
     }
 
-    /** A member without an account (B1), or a new name for one. */
+    /** A member without an account (B1), or a new name for one or for oneself. */
     record MemberName(@NotBlank @Size(max = 100) String displayName) {
     }
 
@@ -143,6 +143,12 @@ class FamilyLedgerController {
     FamilyMemberView addMember(CurrentUser user, @PathVariable long ledgerId,
             @Valid @RequestBody MemberName member) {
         return families.addMember(access.owner(user.id(), ledgerId), member.displayName().strip());
+    }
+
+    /** Any member with an account, for their own name: the path names no other member (D-3). */
+    @PatchMapping("/{ledgerId}/members/me")
+    FamilyMemberView renameSelf(CurrentUser user, @PathVariable long ledgerId, @Valid @RequestBody MemberName member) {
+        return families.renameSelf(access.member(user.id(), ledgerId), member.displayName().strip());
     }
 
     /** Owners only, for a member without an account. */

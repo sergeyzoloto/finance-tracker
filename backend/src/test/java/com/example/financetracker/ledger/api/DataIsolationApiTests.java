@@ -526,6 +526,60 @@ class DataIsolationApiTests extends LedgerApiTest {
     }
 
     /**
+     * A member's own display name (F3b; D-3), whose path names no member. Bob on Alice's family ledger B and on either
+     * personal ledger, and Carol, who is in no family ledger, on A and B, get the answer for a family ledger that
+     * doesn't exist, and change nothing. In A, which Alice and Bob share, Bob changes his own membership and nothing
+     * else, and a name another member has is refused without a change.
+     */
+    @Test
+    void aMemberReachesOnlyTheirOwnMembershipThroughMe() throws IOException {
+        String carol = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum"}""").get("id").asLong();
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 9, 1));
+        body(post(alice, "/api/family-ledgers/" + familyA + "/members", """
+                {"displayName": "Grandma"}"""), HttpStatus.CREATED);
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "USD", "displayName": "Alice"}""").get("id").asLong();
+        String me = "/api/family-ledgers/%d/members/me";
+        String intruder = """
+                {"displayName": "Intruder"}""";
+
+        SoftAssertions softly = new SoftAssertions();
+        for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+            answersAsIfMissing(softly, HttpMethod.PATCH, me, ledger, intruder);
+        }
+        for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
+            answersAsIfMissingTo(softly, carol, HttpMethod.PATCH, me.formatted(ledger), me.formatted(MISSING),
+                    intruder);
+        }
+        softly.assertAll();
+
+        String theOthers = membershipsBut(bobInA);
+        JsonNode renamed = ok(call(bob, HttpMethod.PATCH, me.formatted(familyA), """
+                {"displayName": "Papa"}"""));
+        assertThat(renamed.get("id").asLong()).isEqualTo(bobInA);
+        assertThat(membershipsBut(bobInA)).isEqualTo(theOthers);
+        assertThat(ok(get(alice, "/api/family-ledgers/" + familyA + "/members")).findValuesAsText("displayName"))
+                .containsExactly("Papa", "Mum", "Grandma");
+
+        String everyone = membershipsBut(-1);
+        assertThat(call(bob, HttpMethod.PATCH, me.formatted(familyA), """
+                {"displayName": "MUM"}""")).hasStatus(HttpStatus.CONFLICT);
+        assertThat(membershipsBut(-1)).isEqualTo(everyone);
+
+        assertThat(bobsView()).isEqualTo(bobsViewBefore);
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+    }
+
+    /** Every membership of every ledger but one, as text, to compare before and after. */
+    private String membershipsBut(long memberId) {
+        return jdbc.sql("SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m WHERE m.id <> ?")
+                .param(memberId).query(String.class).single();
+    }
+
+    /**
      * A user's request for another's object, sent by the user: 404, word for word the answer for an object that
      * doesn't exist, and Alice's rows the same afterwards. For users other than Bob, whose requests go through
      * {@link #answersAsIfMissing}.

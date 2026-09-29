@@ -108,6 +108,8 @@ class ApiTests extends IntegrationTest {
                 new Object[] {GET, "/api/family-ledgers/1/members", null},
                 new Object[] {POST, "/api/family-ledgers/1/members", """
                         {"displayName": "Kid"}"""},
+                new Object[] {PATCH, "/api/family-ledgers/1/members/me", """
+                        {"displayName": "Me"}"""},
                 new Object[] {PATCH, "/api/family-ledgers/1/members/1", """
                         {"displayName": "Kid"}"""},
                 new Object[] {DELETE, "/api/family-ledgers/1/members/1", null},
@@ -263,6 +265,7 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/family-ledgers/{ledgerId}", List.of("get", "patch")),
                 Map.entry("/api/family-ledgers/{ledgerId}/split-rule", List.of("put")),
                 Map.entry("/api/family-ledgers/{ledgerId}/members", List.of("get", "post")),
+                Map.entry("/api/family-ledgers/{ledgerId}/members/me", List.of("patch")),
                 Map.entry("/api/family-ledgers/{ledgerId}/members/{memberId}", List.of("delete", "patch")),
                 Map.entry("/api/family-ledgers/{ledgerId}/categories", List.of("get", "post")),
                 Map.entry("/api/family-ledgers/{ledgerId}/categories/{categoryId}", List.of("delete", "patch"))));

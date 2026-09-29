@@ -1,7 +1,9 @@
 # ADR 0003: Family budget: membership-based access and cross-ledger posting
 
-**Status:** Proposed, 2026-09-28 (stage F1). Nothing of it is implemented yet. The requirements and
-decisions D-1 to D-23 are in [docs/family-budget/requirements.md](../family-budget/requirements.md);
+**Status:** Accepted, 2026-09-29, after the F1 review (proposed 2026-09-28 in stage F1). The owner's
+answers to the open questions are under [Resolved questions](#resolved-questions), and the topics
+below include them. Implementation starts with F2a (topic J). The requirements and decisions D-1 to
+D-26 are in [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
 ## Context
@@ -145,23 +147,29 @@ CREATE UNIQUE INDEX ON ledger_member (user_sub) WHERE ledger_type = 'PERSONAL';
 CREATE UNIQUE INDEX ON ledger_member (ledger_id) WHERE ledger_type = 'PERSONAL';
 ```
 
+V5 (F2a) creates both tables without `split_rule` and `share_percent`, which F3's V6 adds with the
+split rule.
+
 Triggers complete it:
 
 - `ledger_type` can't change (the composite foreign key already refuses it while members exist).
 - A deferred constraint trigger: at commit, a PERSONAL ledger has its member ("exactly one").
 - `user_sub` goes from NULL to a sub (claiming a seat) or from a sub to NULL (FORMER), never from one
-  sub to another; `join_date` can't change once `user_sub` is set (D-18).
+  sub to another; FORMER is final. `join_date` changes only while the membership has no sub, up to
+  and including the claim of the seat (D-18), and when a LEFT member becomes ACTIVE again (D-26).
 - The function `personal_ledger_id(sub)` returns the sub's personal ledger, creating it with its
-  OWNER member if needed, under `pg_advisory_xact_lock` on the sub, so parallel first requests create
-  one. Provisioning, the backfill and the fill trigger of topic A all use it.
+  OWNER member if needed: it inserts the ledger, then the member with `ON CONFLICT DO NOTHING` on the
+  partial unique index, and if another transaction's member won, it deletes its own new ledger and
+  selects the other. So parallel first requests create one, without a lock. Provisioning, the
+  backfill and the fill trigger of topic A all use it.
 - `ledger_invite` (topic G) refers to `(ledger_id, ledger_type)` with `CHECK (ledger_type =
   'SHARED')`, so a personal ledger can't get an invite.
 
 **Consequences.** Every D-4 invariant holds in the database, and the service checks them first to
 answer with a clear 409 or 422. "At least one personal ledger per user" is the provisioning's job,
 since a user without rows has no database presence to check; `CurrentUserResolver` already provisions
-on first sight. The same sub can't come back to a ledger it left through a new membership row; see
-open question 2.
+on first sight. A sub that left a ledger comes back through the same membership row, reactivated with
+the acceptance date as its join date (D-26).
 
 **Satisfies** D-2, D-3, D-4, D-15 (roles), D-18 (join date fixed, no second seat), D-19 and D-20
 (statuses, nulled sub).
@@ -201,12 +209,16 @@ request and scope every query by the resolved `ledger_id`.
   counterparty must be in the entry's ledger. Balance-sheet accounts are never shared (D-11), so this
   stays strict.
 - The category rule gets the family case (D-11): the category is in the entry's ledger, or it is in
-  a SHARED ledger in which the entry's personal ledger's member (the same sub) has a membership that
-  is ACTIVE or LEFT. LEFT is allowed so that a member who left can still edit their own old entries
-  without recategorizing them; the service lets only ACTIVE members pick a family category for a new
-  posting.
+  a SHARED ledger in which the entry's personal ledger's member (the same sub) has an ACTIVE
+  membership. LEFT members need no exception: leaving detaches them (D-19, topic E), so none of their
+  postings references a family category any more.
 - `forbid_ledger_id_change` joins `forbid_user_id_change`.
 - In F2 the trigger checks both columns; the user checks come first, so today's error messages stay.
+
+**An architecture test (F2b).** It allows `JdbcClient` and `@Query` only in methods that take a
+`LedgerScope`, with a named list of exceptions for what is about the person or shared by all users
+(provisioning, settings, manual and ECB rates, delete-all), each with its reason. A new native query
+that forgets the scope then fails the build instead of relying on review.
 
 **Consequences.** The membership check is one indexed lookup per request. Mistakes in a single query
 are caught by the triggers for writes and by the isolation tests for reads. Row level security can
@@ -277,8 +289,8 @@ CREATE TABLE family_share (
   amount, the balances of all members, with or without an account, add up to zero by construction
   (D-1).
 - Shares are split by `split_method` when written and stored (D-6, D-12). EQUAL and PERCENT: every
-  member but the payer gets round(T × p, 2) HALF_UP, and the payer gets the rest, as
-  `SharedExpenseCommand` does today. AMOUNT: as entered, and they must add up. ONE_MEMBER: one share
+  share is T × p rounded HALF_UP to the currency's minor unit, and the remainder goes to the member
+  with the largest share; on a tie to the payer (the recipient for income), then by join order. AMOUNT: as entered, and they must add up. ONE_MEMBER: one share
   of T. The default rule (`ledger.split_rule`, `ledger_member.share_percent`) applies to new records
   only; the participants are the members that are ACTIVE with `join_date` on or before the record's
   date.
@@ -315,9 +327,11 @@ D-19 (frozen), and D-1's future joint account.
 | `SHARE` of an income | posting service | UNALLOCATED −s with the family category; Debt(L) +s | no |
 | `PAYMENT` (expense) | the payer, as their own entry | account −T; Debt(L) +T | yes, the private side (which account) |
 | `PAYMENT` (income) | the recipient, as their own entry | account +T; Debt(L) −T | yes, as above |
-| `PAYMENT` on the placeholder | posting service, for a claimed seat's earlier payments (D-18), and for the payee of a settlement | "Payments without a specified account" ∓T; Debt(L) ±T | the member reassigns it to an account, which makes it their own |
-| `SETTLEMENT` | each side | account ∓x; Debt(L) ±x | yes |
+| `PAYMENT` on the placeholder | posting service, for a claimed seat's earlier payments (D-18), and for a payer who chose "Specify later" (D-14) | "Payments without a specified account" ∓T; Debt(L) ±T | the member reassigns it to an account, which makes it their own |
+| `SETTLEMENT` | the side whose paying account is known, as their own entry (D-24) | account ∓x; Debt(L) ±x | yes |
+| `SETTLEMENT` on the placeholder | posting service, for the other side of that settlement (D-24) | "Payments without a specified account" ∓x; Debt(L) ±x | the member reassigns it, as above |
 | `OPENING_BALANCE` | posting service, at the join date (D-18) | Debt(L) −B; OPENING_BALANCE +B, where B is the balance before the join date | no |
+| `CORRECTION` | posting service, when a LEFT member returns (D-26) | Debt(L) −d; OPENING_BALANCE +d, dated on the new join date, where d is the family balance less the displayed personal debt balance | no |
 
 A share of zero posts nothing. A payment in another currency than the base currency goes through
 `FX_EXCHANGE` (rule 9): account −T in X, FX_EXCHANGE +T in X, FX_EXCHANGE −base in the base
@@ -331,9 +345,10 @@ currency, Debt(L) +base (D-13).
   "Debt to family budget: <family's name>". The legacy `FAMILY_DEBT` stays as it is (D-21).
 - "Payments without a specified account": one system ASSET per personal ledger, code
   `UNSPECIFIED_PAYMENTS`, created when first needed.
-- `UNALLOCATED` and `OPENING_BALANCE` are found by code as today (`AccountRole`). `UNALLOCATED` is the
-  member's own EQUITY account, not a system account, but rule 5 puts every categorized posting on it,
-  so D-8's "share entries" can't avoid it (current-state, contradiction 5).
+- `UNALLOCATED` and `OPENING_BALANCE` are found by code as today (`AccountRole`). Rule 5 puts every
+  categorized posting on `UNALLOCATED`, so share entries post there, and D-8 (amended) names it. From
+  F4a it is a system account: it can be renamed but not archived or deleted, so the posting service
+  always finds it.
 
 **How a posted row is represented.** An ordinary `journal_entry` with its postings, so that every
 personal report counts it without change, plus a link row (D-9):
@@ -345,16 +360,17 @@ CREATE TABLE family_entry_link (
     member_id        BIGINT NOT NULL REFERENCES ledger_member,
     record_id        BIGINT REFERENCES family_record,     -- NULL for OPENING_BALANCE
     link_type        VARCHAR(15) NOT NULL
-        CHECK (link_type IN ('SHARE', 'PAYMENT', 'SETTLEMENT', 'OPENING_BALANCE')),
+        CHECK (link_type IN ('SHARE', 'PAYMENT', 'SETTLEMENT', 'OPENING_BALANCE', 'CORRECTION')),
     system_owned     BOOLEAN NOT NULL,                     -- written by the posting service
+    detached_at      TIMESTAMPTZ,                          -- the member left (D-19)
     UNIQUE (record_id, member_id, link_type)
 );
 CREATE UNIQUE INDEX ON family_entry_link (family_ledger_id, member_id) WHERE link_type = 'OPENING_BALANCE';
 ```
 
-The entry's `kind` gets `FAMILY_SHARE`, `FAMILY_PAYMENT`, `FAMILY_SETTLEMENT` and
-`FAMILY_OPENING` as hints for the UI (rule 6). A contribution to a joint account becomes a fifth link
-type later.
+The entry's `kind` gets `FAMILY_SHARE`, `FAMILY_PAYMENT`, `FAMILY_SETTLEMENT`,
+`FAMILY_OPENING` and `FAMILY_CORRECTION` as hints for the UI (rule 6). A contribution to a joint
+account becomes another link type later.
 
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted
@@ -366,15 +382,44 @@ currency or date in the personal entry (D-14), the same transaction updates the 
 shares by the stored method (AMOUNT needs new shares from the user), writes the change journal, and
 re-posts. Deleting the payment entry deletes the record after the UI's warning.
 
+**Settlements (D-24).** The member who records a settlement and knows their paying account records
+it with that account, as their own entry. The posting service posts the other side's part to that
+member's "Payments without a specified account" at once, so D-10 holds for both sides immediately;
+they reassign it to an account later. After one side has left, each side records their part in their
+own ledger (D-19).
+
+**Detach (D-19).** Leaving or being removed runs one transaction through `CrossLedgerWriter`, also
+when an owner removes a member (the one case in which it writes into another user's ledger for
+something other than a record):
+
+1. Every category of L that the member's postings use is copied into their personal ledger (the
+   personal category that merged into it at joining, if any, is unarchived and takes the family
+   name), and those postings are re-pointed to the copies.
+2. Their links to records of L get `detached_at`, and `system_owned` becomes false: the posted
+   entries are ordinary personal entries, which the member may edit or delete.
+3. `Debt(L)` stays with its balance and loses its `family_ledger_id`: an ordinary LIABILITY named
+   after the family.
+
+Afterwards no row of the member's personal ledger references L. The link rows, marked detached, stay
+as the family side's record of what was posted; they are deleted with the entries they point to.
+
+**Returning members (D-26).** Reactivation (topic G) links the same `Debt(L)` again (found by its
+code), matches categories by code as at the first join, and posts every record from the new join
+date. If the displayed balance of `Debt(L)` then differs from the member's family balance B(m), one
+`CORRECTION` entry dated on the join date posts the difference d, which the acceptance screen shows
+beforehand.
+
 **Isolating the cross-ledger write path (D-8).**
 
 - `ledger/family/posting/FamilyPostingService` is the only user of a package-private
   `CrossLedgerWriter`, the only code that writes a journal entry into a ledger it has no
   `LedgerScope` for. It takes only `PostedEntry` values built by the service's own factories (share,
-  opening balance, placeholder payment), and before writing it checks every posting: the account is
-  the member's `Debt(L)`, their "Payments without a specified account", their `OPENING_BALANCE` (for
-  an opening balance only) or their `UNALLOCATED` (for a share only, with a category of L); no
-  counterparty and no payee. It writes the link row in the same statement batch.
+  opening balance, correction, placeholder payment or settlement), and before writing it checks every
+  posting: the account is the member's `Debt(L)`, their "Payments without a specified account", their
+  `OPENING_BALANCE` (for an opening balance or a correction only) or their `UNALLOCATED` (for a share
+  only, with a category of L); no counterparty and no payee. It writes the link row in the same
+  statement batch. The detach is its one other operation, with the three steps above and nothing
+  else.
 - A database backstop: a trigger on `journal_entry`, `posting` and `family_entry_link` refuses to
   change or delete an entry whose link is `system_owned`, unless the transaction has set
   `app.writer` to `family-posting` or `delete-all` (`SET LOCAL` in `CrossLedgerWriter` and in
@@ -388,7 +433,8 @@ The price is that a family edit touches up to one entry per member, all in one t
 holds as long as every change to records, shares, members or join dates goes through `repost`;
 topic K's invariant check verifies it after every test.
 
-**Satisfies** D-7, D-8, D-9, D-10, D-13's FX routing, D-14's linked payment, D-18.
+**Satisfies** D-7, D-8, D-9, D-10, D-13's FX routing, D-14's linked payment and "Specify later",
+D-18, D-19's detach, D-24, D-26.
 
 ### F. Family categories
 
@@ -416,12 +462,12 @@ topic K's invariant check verifies it after every test.
   otherwise archived (the foreign keys are `ON DELETE RESTRICT` already).
 - Reports: `cashFlow` and `cashFlowInBase` accept the categories that the ledger's own postings
   reference, instead of `c.user_id = :userId`; the triggers guarantee that those are the ledger's or a
-  family's it belongs or belonged to.
+  family's it is an ACTIVE member of.
 
 **Consequences.** A rename by an owner shows in every member's personal reports at once. A member
-who leaves keeps the family category on their old postings; whether they can keep using it is open
-question 4. Option 2 would drift and double every rename; option 3 needs two ids per posting or a
-second lookup in every report.
+who leaves gets personal copies of the family categories their postings use (the detach, topic E), and
+a member who returns has them matched by code again (D-26). Option 2 would drift and double every
+rename; option 3 needs two ids per posting or a second lookup in every report.
 
 **Satisfies** D-11 in full, and C4 (members see family categories, never personal ones).
 
@@ -435,7 +481,7 @@ CREATE TABLE ledger_invite (
     ledger_id           BIGINT NOT NULL,
     ledger_type         VARCHAR(8) NOT NULL CHECK (ledger_type = 'SHARED'),
     token_hash          BYTEA NOT NULL UNIQUE,          -- SHA-256 of the token
-    join_date           DATE NOT NULL,
+    join_date           DATE,                           -- a seat's; a new member joins on acceptance (D-18)
     seat_member_id      BIGINT,                         -- the seat to claim, or NULL for a new member
     created_by_member_id BIGINT NOT NULL,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -443,9 +489,11 @@ CREATE TABLE ledger_invite (
     revoked_at          TIMESTAMPTZ,
     used_at             TIMESTAMPTZ,
     used_by_member_id   BIGINT,
+    declined_at         TIMESTAMPTZ,                    -- declining consumes the token (D-17)
     FOREIGN KEY (ledger_id, ledger_type) REFERENCES ledger (id, type),
     FOREIGN KEY (ledger_id, seat_member_id) REFERENCES ledger_member (ledger_id, id),
-    CHECK (expires_at <= created_at + interval '7 days')
+    CHECK (expires_at <= created_at + interval '7 days'),
+    CHECK ((seat_member_id IS NULL) = (join_date IS NULL))
 );
 ```
 
@@ -455,7 +503,7 @@ CREATE TABLE ledger_invite (
   so the token stays out of Caddy's and nginx's logs and out of `Referer`.
 
 **Keeping the token across sign-in and registration.** The frontend's `/invite` page reads the
-fragment, removes it from the address bar, and keeps the token in `localStorage` with its time. It
+fragment, removes it from the address bar, and keeps the token in `localStorage` with its expiry. It
 then calls `/api/me`; without a session it starts the login as any page does. After sign-in, in any
 tab of that browser, the app sees the pending token and opens `/invite`.
 
@@ -466,7 +514,10 @@ tab of that browser, the app sees the pending token and opens `/invite`.
 - Keycloak isn't touched: the redirect URI and the realm stay as they are.
 - A verification link opened in another browser lands there without the token; the original tab
   still carries on and has it, and opening the invite link again works as long as it's valid.
-- The token is removed after acceptance or decline, at logout, and after 7 days.
+- The SPA erases the token after any outcome: accepted, declined, invalid or expired (one answer for
+  both, as D-17 requires). It also erases it at logout and at its expiry.
+- The token goes to the API only in request bodies (`lookup`, `accept`, `decline`), never in a URL,
+  so it stays out of the api's logs too.
 
 The alternative, a public backend endpoint that stores the token in the HTTP session before the
 login, survives the verification link in the same browser too, but not an api restart. It needs a
@@ -476,16 +527,21 @@ lands in logs. Rejected.
 **Acceptance.**
 
 1. `POST /api/invites/lookup` with the token, behind sign-in (D-17): the ledger's name and base
-   currency, the join date, the seat's name if any, the members' display names, and the category
-   matching (the user's categories whose codes the family has, and names that differ). Invalid,
-   expired, revoked and used tokens, and a user already in the ledger, get the same 404 body.
+   currency, the join date (the seat's; the acceptance date otherwise), the seat's name if any, the
+   members' display names, the category matching (the user's categories whose codes the family has,
+   and names that differ), and for a returning member the corrective amount (D-26). Invalid,
+   expired, revoked, used and declined tokens, and a user who is an ACTIVE member of the ledger, get
+   the same 404 body.
 2. `POST /api/invites/accept` with the token and the category choices, in one transaction: lock the
-   invite by its hash (`FOR UPDATE`) and check it again; claim the seat (set `user_sub`) or add a
-   member (MEMBER, ACTIVE, the invite's join date); create `Debt(L)`; merge categories (topic F);
+   invite by its hash (`FOR UPDATE`) and check it again; claim the seat (set `user_sub`, the seat's
+   join date, which may be in the past), add a member (MEMBER, ACTIVE, the acceptance date), or
+   reactivate the LEFT membership of the same sub (the acceptance date, D-26); create or relink
+   `Debt(L)`; merge categories (topic F);
    post the records from the join date and the opening balance, and the claimed seat's payments to
-   the placeholder (topic E); mark the invite used. No owner confirmation (D-17); the members page
-   shows who accepted and when.
-3. Decline removes the token from the browser; see open question 9.
+   the placeholder (topic E), and a returning member's correction; mark the invite used. No owner
+   confirmation (D-17); the members page shows who accepted and when.
+3. `POST /api/invites/decline` with the token consumes it (`declined_at`), and owners see the invite
+   as declined. The browser erases the token either way.
 
 **Rate limiting.** The pinned Caddy has no rate-limit directive, and its image belongs to the auth
 repository (current-state, section 13). The api counts lookups and acceptances in memory: at most 10
@@ -521,9 +577,10 @@ CREATE TABLE family_record_change (
   of a payment (the account) is never written here (D-16).
 - Every member reads the journal of every record (D-16); a share shows its last editor and time from
   `family_share`.
-- D-20's erasure: when a member becomes FORMER, the comment values they wrote are replaced with
-  null in the record and in the journal (their own changes' new values, and the old value of the
-  change that replaced one of theirs).
+- D-20's erasure (as amended): when a member becomes FORMER, the comment text they wrote is replaced
+  with null in the record and wherever the journal holds it: the new value of each of their own
+  changes of the comment, and the old value of the change that replaced one of theirs. A comment
+  value's author is the member of the change that wrote it, so the journal alone finds every copy.
 
 Triggers are rejected: they don't know the member without a per-transaction setting, they would log
 the private columns too, and a record's change would be several row events. An event store is more
@@ -561,6 +618,14 @@ Every migration is additive (D-22). F2 has no visible change and ships as its ow
 recommendation is to **split it into F2a and F2b, each its own deploy**, so that the backfill meets
 production data with no code change in the same release.
 
+**Production sizing.** On 2026-09-29 production holds one sub, in `users` and `user_settings`, with
+10 accounts, 15 categories, no counterparties, no journal entries and no import batches, so no
+SharedExpense entry either ([current-state](../family-budget/current-state.md), section 15). V5's
+backfill there creates one ledger and one member and fills `ledger_id` on 25 rows.
+
+**F2a and F2b are deployed separately** (question 11): F2a's backfill meets production data with no
+code change in the same release, and F2b's refactor of every query ships with no migration.
+
 **F2a, the schema (V5), with no change to the application code.**
 
 `V5__ledgers_and_membership.sql`:
@@ -577,6 +642,12 @@ production data with no code change in the same release.
    `journal_entry (ledger_id, entry_date DESC)`; the composite foreign keys `journal_entry
    (ledger_id, payee_id) → counterparty (ledger_id, id)` and `(ledger_id, import_batch_id) →
    import_batch (ledger_id, id)`.
+
+   The composite foreign keys of V5 are these two and topic B's `ledger_member (ledger_id,
+   ledger_type) → ledger (id, type)`. None of them covers a posting: `posting` has no `ledger_id`,
+   and its account, category and counterparty are checked by `posting_check_references` (item 6). In
+   particular no foreign key covers a posting's category, so F4's family-category exception (topic C)
+   stays a trigger rule.
 5. The transition triggers: fill a missing `ledger_id` from `user_id`; check that `user_id` is the
    personal ledger's member; `forbid_ledger_id_change` on the five tables; and, on `DELETE FROM
    users`, delete the sub's personal ledger and its member, so that today's `deleteAll` and the
@@ -592,6 +663,10 @@ prints the ledgers too), CLAUDE.md's project map.
 
 Tests:
 
+- `DataIsolationApiTests` gets stronger: it records which endpoint handled each of the second user's
+  requests, from the application's handler mapping, and fails for every mapped endpoint without such
+  a request, instead of comparing the OpenAPI paths with the hand-kept list `CHECKED`
+  (current-state, contradiction 3).
 - `LedgerSchemaTests`: each D-4 constraint (a second personal ledger for a sub, a second member in a
   personal ledger, a sub twice in one ledger, a type change); an insert without `ledger_id` gets the
   personal ledger, and a new sub gets one with one OWNER member; a `user_id` that doesn't match the
@@ -637,19 +712,25 @@ back").
 **F3 to F7.** The plan holds with these changes:
 
 - **F3** (V6: the `ledger` split columns, `category.user_id` nullable, `account.family_ledger_id`,
-  the family category rule in the trigger). It also takes D-20's membership part (FORMER, the owner
+  the family category rule in the trigger) and the feature switch (D-25). It also takes D-20's
+  membership part (FORMER, the owner
   passed on, a family ledger without members deleted), because from F3 a membership holds a sub that
   "Delete all my data" must remove. The confirmation screen's list of family ledgers can stay in F6.
 - **F4 split into F4a and F4b.** F4a: records, shares, the posting service, family expenses in the
   base currency (C1), the members' balances (D1), read-only posted rows (C6), the change journal
-  (C3), and the members without an account as payers. F4b: marking a personal entry as family (C2),
-  incomes (C5), other currencies (C7), settlements (D2), and the payment edits of D-14.
-- **F5** as planned. It is the first stage in which another real person's data meets the owner's, so
-  the privacy policy's new text (H2) should be written by then, even if F6 finishes the rest.
-- **F6** as planned, minus D-20's membership part.
-- **F7** as planned. Until then, F3 to F6 stay off production: either on the feature branch, merged
-  at F7, or on `main` behind a switch that hides family pages, so that a fix to production doesn't
-  ship half a feature.
+  (C3), and the members without an account as payers; `UNALLOCATED` becomes a system account (D-8).
+  F4b: marking a personal entry as family (C2), incomes (C5), other currencies (C7), settlements (D2,
+  D-24), and the payment edits of D-14.
+- **F5**: invites, seat claiming and returning members (D-26). It is the first stage in which
+  another real person's data meets the owner's, so the privacy policy's new text (H2) is ready before
+  F5 starts, even if F6 publishes it.
+- **F6**: leaving, removal and the detach (D-19), and the rest as planned, minus D-20's membership
+  part.
+- **F7**: the switch goes on in production, then the check with two real accounts.
+- **The feature switch (D-25).** Stages merge into `main` as they are ready. Family features sit
+  behind a configuration switch that is off in production until F7: the family endpoints answer 404
+  and the family pages are hidden. Tests run with it on. Their migrations may reach production
+  early; each is additive (D-22), so a fix to production never ships half a feature.
 - **The Excel import into a family ledger** (D-21) is its own stage after F7.
 
 ### K. Test strategy
@@ -675,8 +756,10 @@ stays for personal ledgers:
   postings touch only `Debt(A)`, `UNALLOCATED` with a category of A, `OPENING_BALANCE` or the
   placeholder account. His cards, other accounts and personal categories are unchanged. PUT and
   DELETE of a posted entry answer 409, and changing it past the service fails at the trigger.
-- Invites: tokens of B used by Carol, of a personal ledger, expired, revoked, used and random all
-  get one answer; Bob can't claim a second seat in A; the rate limit answers 429.
+- Invites: tokens of B used by Carol, of a personal ledger, expired, revoked, used, declined and
+  random all get one answer; Bob can't claim a second seat in A; the rate limit answers 429.
+- Detach and return: after Bob leaves A, or Alice removes him, no row of his personal ledger
+  references A; after he returns, D-10 holds, with the corrective entry if one was needed.
 - `UserDataApiTests` and the isolation tests: Alice's delete-all leaves Bob's personal rows
   unchanged, turns her into FORMER in A, and deletes B (no member with an account left).
 
@@ -696,7 +779,7 @@ an architecture test for `CrossLedgerWriter`; frontend tests for the switcher, t
 the invite page's token handling (fragment removed, `localStorage` kept and cleared), and the
 split preview.
 
-### L. Risks and open questions
+### L. Risks and questions
 
 **Risks.**
 
@@ -710,42 +793,36 @@ split preview.
   it. The invariant helper runs after every test; the integrity report could check it in production
   too.
 - **The category merge on joining** rewrites the joining member's own postings. It is consented on
-  the acceptance screen, but it can't be undone by leaving (open question 4).
+  the acceptance screen. Leaving copies the categories back as personal ones (D-19), but doesn't undo
+  a rename chosen at joining.
 - **In-memory state** (sessions, the refresh lock, now the rate limiter) assumes one api instance.
-- **Long-lived work.** F3 to F6 before one production deploy is a large change to verify at once;
-  F7's check with two real accounts is the first time two real people meet in the data.
+- **Long-lived work.** F3 to F6 reach production only as migrations and as code behind the switch
+  (D-25), which is off until F7; F7's check with two real accounts is the first time two real people
+  meet in the data.
 - **Personal base currencies differ from the family's.** `Debt(L)` is in the family's currency, so a
   member with another base currency sees it revalued in their reports (ADR 0002). That is correct,
   but it will surprise.
 
-**Open questions for the owner.**
+**Open questions.** None: the owner answered all eleven on 2026-09-29 (below).
 
-1. A new member invited with a join date in the past: do existing records dated on or after it get
-   re-split to include them, or does the join date only limit which records can include them (new
-   records only, as D-12 suggests)? The ADR assumes the latter.
-2. A member who left and is invited again: reactivate the old membership (same member, the history
-   continues), or refuse? A new row for the same sub is impossible by D-4.
-3. D-19 and D-20 say a family ledger with no members with an account left is archived or deleted.
-   Does a LEFT member count as a member with an account? And if the ledger is deleted, its categories
-   are still on the old postings of members who left: keep the ledger archived instead, or copy the
-   categories into their personal ledgers?
-4. After leaving, may a member keep using a family category on personal entries? If not, should
-   leaving copy the family categories they used into their personal ledger and repoint their
-   postings (an "unmerge")?
-5. D-8 lists what the posting service may write; share entries have to post to the member's own
-   `UNALLOCATED` (rule 5). Is that accepted as part of "share entries"?
-6. The payee of a settlement: the posting service can't touch their accounts, so the ADR posts their
-   side to "Payments without a specified account" for them to reassign. Or should the payee record
-   their side themselves, as after leaving?
-7. The owner's existing `FAMILY_DEBT` and its history (none yet in production; the Excel import is
-   postponed): stay separate from the first family ledger's `Debt(L)`, as D-21 implies?
-8. A payer with 0 % of a custom split still gets the rounding remainder (D-12), so a share of a cent
-   or two. Acceptable, or should the remainder go to the largest share then?
-9. Declining an invite: does it use up the token (the owner sees "declined"), or only forget it in
-   the browser?
-10. A member with an account who adds a family expense in the family ledger (C1) without picking an
-    account: allowed, with the payment on the placeholder account, or must they pick one?
-11. F2 as two deploys (F2a, F2b), and F3 to F6 kept off production until F7: agreed?
+### Resolved questions
+
+The F1 review's answers, as amended decisions in
+[requirements.md](../family-budget/requirements.md). The topics above include them.
+
+| # | Question | Decision | Decision in requirements |
+| --- | --- | --- | --- |
+| 1 | A new member with a join date in the past: re-split existing records? | No. A past join date only when claiming a seat; a new member joins on the acceptance date; existing records are never re-split. | D-18 |
+| 2 | A member who left is invited again? | The same membership is reactivated, with the acceptance date as join date, and one corrective entry if the balances differ. | D-26 |
+| 3 | Does a LEFT member count as a member with an account, and what happens to a deleted ledger's categories on their postings? | LEFT members never count. Leaving detaches them, so their postings no longer use the family's categories. | D-19 |
+| 4 | May a member keep using family categories after leaving? | No: the detach copies them into the personal ledger and re-points the postings. | D-19 |
+| 5 | May share entries post to the member's own `UNALLOCATED`? | Yes; the service finds it by code, and from F4a it is a system account. | D-8 |
+| 6 | Who records the payee's side of a settlement? | The side whose paying account is known records with it; the other side's part goes to their placeholder account. | D-24 |
+| 7 | The owner's existing `FAMILY_DEBT`? | Stays separate from every family ledger's debt account; no transfer, since production holds no real entries. | D-21 |
+| 8 | Who gets the rounding remainder? | The member with the largest share; on a tie the payer (the recipient for income), then by join order. | D-12 |
+| 9 | Does declining use up the token? | Yes. | D-17 |
+| 10 | A family expense in the family ledger without a paying account? | The payer chooses one, the last used preselected, or "Specify later", which posts to the placeholder account. | D-14 |
+| 11 | F2 as two deploys, and F3 to F6 off production until F7? | Yes, F2a and F2b deploy separately; F3 to F6 merge into `main` behind a switch that stays off until F7. | D-22, D-25 |
 
 ## Consequences
 
@@ -755,11 +832,12 @@ split preview.
   get ordinary entries with a link (E), so personal reports, delete-all and the integrity check keep
   working as they are.
 - One package may write into another user's ledger, under a whitelist, a trigger and its own tests
-  (E, K).
+  (E, K). It also detaches a member who leaves (E).
 - Family categories are shared rows, and the posting trigger learns one exception for them (C, F).
 - The invite token lives in the browser's `localStorage` across the login, and Keycloak is not
   changed (G).
-- The plan gains F2a/F2b and F4a/F4b, and D-20's membership part moves to F3 (J).
+- The plan gains F2a/F2b and F4a/F4b, D-20's membership part moves to F3, and family features wait
+  behind a switch until F7 (J).
 
 ## Rejected alternatives
 

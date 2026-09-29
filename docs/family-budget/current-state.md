@@ -459,6 +459,18 @@ confirmation ("type DELETE") is in `frontend/src/Settings.tsx`, tested in `Start
   container and migrates it with plain `Flyway.configure()…migrate()`, then tests the triggers with
   JDBC. No test migrates to an intermediate version or checks a data migration.
 
+## 15. Production as of 2026-09-29
+
+What the owner read from production on 2026-09-29 with the read-only queries of the F1 report and of
+[section 5](#5-sharedexpense), after the F1 review:
+
+- 1 sub, present in both `users` and `user_settings`;
+- 10 accounts, 15 categories, 0 counterparties, 0 journal entries, 0 import batches;
+- therefore no SharedExpense entries.
+
+These are the starter ledger's rows of the owner and nothing else. V5's backfill (ADR 0003, topic J)
+meets exactly this: one personal ledger with one member, and `ledger_id` on 25 rows.
+
 ## Contradictions with the task
 
 Where the task's background or decisions assume something the code doesn't do:

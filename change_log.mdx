@@ -3,11 +3,40 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-29 · Family budget: F1 review decisions, stronger isolation tests, migration V5 (F2a)
+
+Not committed yet.
+
+**Changes**
+- Documents after the owner's F1 review (commit "docs(family-budget): apply F1 review decisions"):
+  - `docs/family-budget/requirements.md`: amended Background (no `ledgers` table today;
+    `OwnedRepository` doesn't stop native SQL), D-7, D-8 (`UNALLOCATED` for shares, a system
+    account from F4a; the writer also detaches and corrects), D-12 (remainder to the largest share),
+    D-14 ("Specify later"), D-17 (token in the fragment and `localStorage`; declining consumes it),
+    D-18, D-19 (detach on leaving), D-20, D-21, D-22; new D-24 (settlements), D-25 (feature switch)
+    and D-26 (returning members); story D2; the new stages F1 to F7.
+  - ADR 0003: status Accepted, 2026-09-29; a section "Resolved questions" mapping the 11 questions
+    to D-numbers; topics B (reactivation, `personal_ledger_id` without an advisory lock), C (family
+    categories only for ACTIVE members; F2b's architecture test), E (settlements, detach,
+    `CORRECTION` entries), F, G (invite storage and decline), H, J (production sizing, separate F2a
+    and F2b deploys, D-25, V5's composite foreign keys, none of which covers a posting's category)
+    and K.
+  - `docs/family-budget/current-state.md`: section 15, production as of 2026-09-29.
+  - Stale statements: ADR 0001's status and CLAUDE.md's "not applied anywhere yet" (production runs
+    V1 to V4 since D3); CLAUDE.md and the runbook's step 10 now say the Excel import waits for
+    family posting (D-21) and the next step is F2a. The F1 entry below got its commit.
+
+**Verified**
+- Baseline on `feature/family-budget` at `6a0ad0e`, clean tree: `./mvnw -B verify` 244 tests, 0
+  failures, 0 errors, 0 skipped. Frontend: `npm ci`, `npm test` 7 files and 84 tests passed, and
+  `npm run build` succeeded.
+
+**Open**
+- The isolation tests and V5 follow in this task.
+
 ## 2026-09-28 · Family budget: requirements, current state and ADR 0003 (F1)
 
-Committed locally on the new branch `feature/family-budget` as "docs(family-budget): F1
-requirements, current state and ADR", not pushed; its hash belongs here with the next change log
-commit.
+Commit `6a0ad0e`, on the branch `feature/family-budget`.
 
 **Changes**
 - Analysis and documentation only. No application code, test, migration, build file, dependency,

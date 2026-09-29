@@ -568,6 +568,10 @@ now on the daily pull also warns when the finance database's newest dump is olde
 
 ## 10. Import the Excel ledger
 
+**Not yet.** The import waits for family posting: its Family rows will go straight into a family
+ledger (D-21 in [docs/family-budget/requirements.md](../docs/family-budget/requirements.md)). The next
+step is stage F2a of the family budget. The steps below stay for when the import is due.
+
 Do this only once step 9 has passed. The import runs in the browser, as the signed-in user, so it
 lands in your ledger. Nothing is copied onto the server's disk.
 

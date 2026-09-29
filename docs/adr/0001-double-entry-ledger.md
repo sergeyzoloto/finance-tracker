@@ -1,7 +1,8 @@
 # ADR 0001: Double-entry ledger
 
-**Status:** Accepted, 2026-09-25. The schema is in `V2__double_entry_ledger.sql`; the code still uses the
-single-entry model of `V1__users_categories_transactions.sql`.
+**Status:** Accepted, 2026-09-25. Implemented: the schema is in `V2__double_entry_ledger.sql` to
+`V4__exchange_rate_sources.sql`, applied in production since D3 (2026-09-28), and the code uses it.
+V1's single-entry tables remain, unused apart from `users`.
 
 ## Context
 

@@ -5,7 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-09-29 · Family budget: F1 review decisions, stronger isolation tests, migration V5 (F2a)
 
-Not committed yet.
+Committed locally on `feature/family-budget` in three commits: `c6a16cd` (documents), `43d2c4f`
+(isolation tests) and "feat(db): V5 ledgers and membership", whose hash belongs here with the next
+change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - Documents after the owner's F1 review (commit "docs(family-budget): apply F1 review decisions"):
@@ -45,6 +47,45 @@ Not committed yet.
   - `LedgerApiTest.digestOf`: an MD5 per owned table over the user's rows, from the same table list
     as `rowsOf`.
   - CLAUDE.md and ADR 0003 (topics I and K) describe the new check.
+- Migration V5 (commit "feat(db): V5 ledgers and membership"), `V5__ledgers_and_membership.sql`;
+  no application code changed:
+  - `ledger` and `ledger_member` as in ADR 0003, topic B, without the split columns (F3's V6).
+    D-4 in the partial unique indexes `ledger_member_personal_sub_key` and
+    `ledger_member_personal_ledger_key` on the copied `ledger_type`, `UNIQUE (ledger_id, user_sub)`
+    and the check `ledger_member_personal_owner_check`. Triggers: a ledger's type never changes; at
+    commit a personal ledger has its member; a membership keeps its ledger, never passes from one sub
+    to another, keeps its join date once joined except when a LEFT member returns (D-26), and a
+    FORMER member stays so.
+  - `personal_ledger_id(sub)`: returns or creates the personal ledger with its OWNER member; the
+    member's insert does nothing on conflict, and the loser removes its own new ledger and selects
+    the winner's. The backfill runs it for every sub of `users`, `user_settings`, the five tables and
+    the manual rates.
+  - `ledger_id` on `account`, `category`, `counterparty`, `journal_entry` and `import_batch`, filled
+    and then NOT NULL, with `UNIQUE (ledger_id, code)`, `UNIQUE (ledger_id, id)`, the unique indexes
+    per ledger of V2's per-user ones, and the composite foreign keys `journal_entry (ledger_id,
+    payee_id)` and `(ledger_id, import_batch_id)`. None covers a posting's category.
+  - `fill_and_check_ledger_id` (BEFORE INSERT, and on updates of `user_id` or `ledger_id`) fills a
+    missing `ledger_id` from `user_id` and refuses a row outside its user's personal ledger;
+    `forbid_ledger_id_change`; `posting_check_references` also compares ledgers, after the users.
+  - Deleting a `users` row deletes the sub's personal ledger and member (`users_delete_personal_ledger`),
+    so `UserDataService.deleteAll` and the runbook's "Delete a user" leave nothing of the sub,
+    unchanged. `user_id` stays everywhere; nothing is dropped or renamed.
+  - Tests: `LedgerSchemaTests` (10 new: each D-4 rule, type and membership changes, rows written
+    without `ledger_id`, a row outside its user's ledger, `ledger_id` changes, postings across
+    ledgers, two concurrent `personal_ledger_id` calls, the `users` row's trigger);
+    `LedgerBackfillMigrationTests` (V4, then rows of five subs, among them one with only settings,
+    one with only a manual rate, one with only a `users` row and one without a `users` row, then
+    V5); `LedgerApiTest.OWNED_ROWS` counts `ledger` and `ledger_member`, so every delete-all
+    assertion covers them; `ApiTests`' parallel first requests end in one personal ledger;
+    `UserDataApiTests` runs the runbook's "Delete a user" statements.
+  - `deploy/pg-backup/finance.conf`: `CHECK_LEDGERS` counts `app.ledger`, new `CHECK_MEMBERS`, and
+    the `user_settings` count stays as `CHECK_SETTINGS`.
+  - `deploy/RUNBOOK.md`: a section "Deploy a release whose only change is a migration" with F2a's
+    read-only verification queries, a smoke test with a test account and the rollback; the restore
+    test's expected `tables` 14 and `migration` 5; a backup before the restore test when the
+    settings file changes; "Delete a user" prints the ledgers and explains the trigger.
+  - CLAUDE.md: V5, the family budget's documents, the tests and the backup checks. ADR 0003's
+    status says V5 is implemented.
 
 **Verified**
 - Baseline on `feature/family-budget` at `6a0ad0e`, clean tree: `./mvnw -B verify` 235 tests, 0
@@ -55,9 +96,24 @@ Not committed yet.
   failures, 0 errors, BUILD SUCCESS. With the new CSV check taken out, `everyEndpointIsCheckedHere`
   failed with `Expecting empty but was: ["POST /api/rates/manual/csv"]`; run alone, it failed with
   "Expecting actual not to be empty". No isolation gap in the application: every request passed.
+- V5, after the commit of the migration and its tests: `./mvnw -B verify` 247 tests (235 and 12
+  new), 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Before the new tests, the existing suite ran
+  on V5 with one failure only, the list of tables in `LedgerSchemaTests`, which now names `ledger`
+  and `ledger_member`. That the code of `9287f0e` runs unchanged on V5 is what a rollback to the
+  previous image relies on. Frontend: 84 tests passed and the build succeeded (unchanged).
+- The runbook's new queries ran in a throwaway local `postgres:17-alpine` with V1 to V4, the
+  owner's 10 accounts and 15 categories, then V5: `PERSONAL|1|1|1`, `subs_without_ledger` 0,
+  `10|15|0|0|0`, and 0 rows without or outside their ledger. The smoke test's block and the
+  "Delete a user" statements behaved as described there, including a re-provisioned test account
+  getting a new ledger. `restore-test.sh` of the auth repository reads any `CHECK_*` key.
 
 **Open**
-- V5 follows in this task.
+- The owner's deploy: merge `feature/family-budget` into `main`, push, and follow the runbook's
+  "Deploy a release whose only change is a migration" (the task's report has the checklist).
+- A sub whose rows were written without a `users` row (only `ImportRunner` does that) keeps its
+  ledger after "Delete a user", whose statements delete by `user_id`; the users row's trigger
+  never fires for it. The browser import always has a `users` row.
+- F2b: scoping by `ledger_id`, and the architecture test of ADR 0003, topic C.
 
 ## 2026-09-28 · Family budget: requirements, current state and ADR 0003 (F1)
 

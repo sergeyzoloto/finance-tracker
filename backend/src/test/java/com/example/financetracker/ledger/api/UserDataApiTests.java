@@ -3,18 +3,24 @@ package com.example.financetracker.ledger.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * DELETE /api/me/data: everything the user has in the app, in one transaction, whatever the ledger came from. The
  * next request starts the user again as a new one. {@link DataIsolationApiTests} checks that other users keep theirs.
  */
 class UserDataApiTests extends LedgerApiTest {
+
+    @Autowired
+    private TransactionTemplate inTransaction;
 
     @Test
     void deletesADemoLedgerAndTheUserCanLoadTheDemoAgain() throws IOException {
@@ -65,6 +71,40 @@ class UserDataApiTests extends LedgerApiTest {
         startsAgainAsANewUser(user);
     }
 
+    /**
+     * The runbook's "Delete a user" (deploy/RUNBOOK.md) deletes a user by hand with the statements of
+     * {@link com.example.financetracker.ledger.UserDataService#deleteAll}, in one transaction. Since V5 the users row's
+     * trigger takes the personal ledger and its member with it, so the statements stay as they were.
+     */
+    @Test
+    void theRunbooksDeleteAUserLeavesNothingOfTheUserAndChangesNobodyElses() throws IOException {
+        String user = newUser();
+        String other = newUser();
+        ok(post(user, "/api/demo-data", null));
+        ok(post(other, "/api/demo-data", null));
+        assertThat(rowsOf(user)).containsEntry("ledger", 1L).containsEntry("ledger_member", 1L);
+        Map<String, String> othersRows = digestOf(other);
+
+        inTransaction.executeWithoutResult(status -> {
+            for (String statement : List.of(
+                    "DELETE FROM user_settings WHERE user_id = ?",
+                    "DELETE FROM journal_entry WHERE user_id = ?",
+                    "DELETE FROM import_batch WHERE user_id = ?",
+                    "DELETE FROM account WHERE user_id = ?",
+                    "DELETE FROM category WHERE user_id = ?",
+                    "DELETE FROM counterparty WHERE user_id = ?",
+                    "DELETE FROM exchange_rate WHERE user_id = ?",
+                    "DELETE FROM transactions WHERE user_id IN (SELECT id FROM users WHERE keycloak_id = ?)",
+                    "DELETE FROM categories WHERE user_id IN (SELECT id FROM users WHERE keycloak_id = ?)",
+                    "DELETE FROM users WHERE keycloak_id = ?")) {
+                jdbc.sql(statement).param(user).update();
+            }
+        });
+
+        assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+        assertThat(digestOf(other)).isEqualTo(othersRows);
+    }
+
     /** The user's next requests find the starter ledger and nothing else, as on a first sign-in. */
     private void startsAgainAsANewUser(String user) throws IOException {
         JsonNode seed = json.readTree(new ClassPathResource("seed/starter-ledger.json").getInputStream());
@@ -77,6 +117,6 @@ class UserDataApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/rates/manual"))).isEmpty();
         assertThat(ok(get(user, "/api/settings")).get("baseCurrency").asText()).isEqualTo("EUR");
         assertThat(rowsOf(user)).containsAllEntriesOf(Map.of("users", 1L, "user_settings", 1L, "journal_entry", 0L,
-                "counterparty", 0L, "import_batch", 0L, "exchange_rate", 0L));
+                "counterparty", 0L, "import_batch", 0L, "exchange_rate", 0L, "ledger", 1L, "ledger_member", 1L));
     }
 }

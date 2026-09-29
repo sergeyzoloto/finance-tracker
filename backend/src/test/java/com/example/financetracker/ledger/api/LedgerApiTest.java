@@ -38,6 +38,9 @@ abstract class LedgerApiTest extends IntegrationTest {
         }
         OWNED_ROWS.put("posting", "FROM posting t JOIN journal_entry e ON e.id = t.entry_id WHERE e.user_id = ?");
         OWNED_ROWS.put("users", "FROM users t WHERE t.keycloak_id = ?");
+        // The personal ledger and its member (V5), by the member's sub.
+        OWNED_ROWS.put("ledger", "FROM ledger t JOIN ledger_member m ON m.ledger_id = t.id WHERE m.user_sub = ?");
+        OWNED_ROWS.put("ledger_member", "FROM ledger_member t WHERE t.user_sub = ?");
     }
 
     @Autowired

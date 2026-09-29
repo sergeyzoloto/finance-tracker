@@ -548,9 +548,10 @@ the image production runs, and compares it with the live database:
 pg-restore-test finance
 ```
 
-You should see `Restored in …s`, then a table in which every line ends with `ok`: `tables` 12,
-`migration` 4, and the numbers of users, ledgers, accounts, categories, counterparties, entries
-and postings, the sum of all posted amounts, `unbalanced` 0 and the manual rates. Then
+You should see `Restored in …s`, then a table in which every line ends with `ok`: `tables` 14 and
+`migration` 5 (since V5; 12 and 4 before), and the numbers of users, settings, ledgers, members,
+accounts, categories, counterparties, entries and postings, the sum of all posted amounts,
+`unbalanced` 0 and the manual rates. Then
 `No test container left` and `PASS`. A `MISMATCH` right after a sign-in or a new entry means the
 database changed after the dump: run both blocks again.
 
@@ -690,10 +691,117 @@ as /root/caddy-sites-removed/…/finance.caddy`. Then do the checks of step 8.
 ```bash
 # On the server
 install -o root -g root -m 600 /opt/finance-tracker/deploy/pg-backup/finance.conf /etc/pg-backup/finance.conf
-pg-restore-test finance
+systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
 ```
 
-You should see `PASS`.
+You should see `PASS`. The new backup comes first: the dump taken before the update has the old
+schema, which the new checks may not fit (V5's ledgers, for one).
+
+## Deploy a release whose only change is a migration
+
+For a release that changes the database and nothing the app does, such as F2a's V5 (ADR 0003,
+topic J): [Update the app](#update-the-app), with checks before and after. The code is the same as
+before, so the previous image runs on the new schema, and a rollback needs no restore.
+
+**1. On the laptop:** check that the release changes no application code but the migration. Take
+the running commit from [Deployed revisions](#deployed-revisions); for F2a it is `9287f0e`:
+
+```bash
+# On the laptop
+git diff --stat 9287f0e origin/main -- backend/src/main frontend/src
+```
+
+You should see only the new `backend/src/main/resources/db/migration/V….sql`.
+
+**2. On the server:** the numbers before, read only, to compare afterwards:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -U finance -d finance -c 'SET default_transaction_read_only = on' -c "SELECT version, description, success FROM app.flyway_schema_history ORDER BY installed_rank DESC LIMIT 1" -c "SELECT (SELECT count(*) FROM app.users) AS users, (SELECT count(*) FROM app.user_settings) AS settings, (SELECT count(*) FROM app.account) AS accounts, (SELECT count(*) FROM app.category) AS categories, (SELECT count(*) FROM app.counterparty) AS counterparties, (SELECT count(*) FROM app.journal_entry) AS entries, (SELECT count(*) FROM app.import_batch) AS import_batches" </dev/null
+```
+
+Before F2a, on 2026-09-29: version `4`, and `1|1|10|15|0|0|0`.
+
+**3. On the server:** a backup, and a restore test of it with the settings file still installed:
+
+```bash
+# On the server
+systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
+```
+
+You should see `PASS`, with the migration before the release (`4` before F2a).
+
+**4.** [Update the app](#update-the-app), all of it. Then, **on the server**, Flyway's lines:
+
+```bash
+# On the server
+cd /opt/finance-tracker/deploy/app && docker compose logs api | grep -E 'Migrating schema|Successfully applied|Started FinanceTrackerApplication'
+```
+
+For F2a: `Migrating schema "app" to version "5 - ledgers and membership"`,
+`Successfully applied 1 migration to schema "app", now at version v5`, and
+`Started FinanceTrackerApplication`.
+
+**5. On the server:** the migration's own checks, read only. For F2a:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -U finance -d finance -c 'SET default_transaction_read_only = on' -c "SELECT version, description, success FROM app.flyway_schema_history ORDER BY installed_rank DESC LIMIT 1" -c "SELECT l.type, count(DISTINCT l.id) AS ledgers, count(m.id) AS members, count(m.id) FILTER (WHERE m.role = 'OWNER' AND m.status = 'ACTIVE') AS active_owners FROM app.ledger l LEFT JOIN app.ledger_member m ON m.ledger_id = l.id GROUP BY l.type" -c "SELECT count(*) AS subs_without_ledger FROM (SELECT keycloak_id FROM app.users UNION SELECT user_id FROM app.user_settings UNION SELECT user_id FROM app.account UNION SELECT user_id FROM app.category UNION SELECT user_id FROM app.counterparty UNION SELECT user_id FROM app.journal_entry UNION SELECT user_id FROM app.import_batch UNION SELECT user_id FROM app.exchange_rate WHERE user_id IS NOT NULL) AS s (sub) WHERE NOT EXISTS (SELECT FROM app.ledger_member m WHERE m.user_sub = s.sub AND m.ledger_type = 'PERSONAL')" -c "SELECT (SELECT count(*) FROM app.account) AS accounts, (SELECT count(*) FROM app.category) AS categories, (SELECT count(*) FROM app.counterparty) AS counterparties, (SELECT count(*) FROM app.journal_entry) AS entries, (SELECT count(*) FROM app.import_batch) AS import_batches" -c "SELECT (SELECT count(*) FROM app.account WHERE ledger_id IS NULL) + (SELECT count(*) FROM app.category WHERE ledger_id IS NULL) + (SELECT count(*) FROM app.counterparty WHERE ledger_id IS NULL) + (SELECT count(*) FROM app.journal_entry WHERE ledger_id IS NULL) + (SELECT count(*) FROM app.import_batch WHERE ledger_id IS NULL) AS rows_without_ledger" -c "SELECT count(*) AS rows_outside_their_users_ledger FROM (SELECT ledger_id, user_id FROM app.account UNION ALL SELECT ledger_id, user_id FROM app.category UNION ALL SELECT ledger_id, user_id FROM app.counterparty UNION ALL SELECT ledger_id, user_id FROM app.journal_entry UNION ALL SELECT ledger_id, user_id FROM app.import_batch) AS r WHERE NOT EXISTS (SELECT FROM app.ledger_member m WHERE m.ledger_id = r.ledger_id AND m.user_sub = r.user_id AND m.ledger_type = 'PERSONAL')" </dev/null
+```
+
+You should see, for production as on 2026-09-29:
+
+- `5|ledgers and membership|t`;
+- `PERSONAL|1|1|1`: one ledger per sub, each with its one member, an active owner;
+- `subs_without_ledger` 0;
+- the counts of step 2 (`10|15|0|0|0`);
+- `rows_without_ledger` 0 and `rows_outside_their_users_ledger` 0.
+
+The queries were tried on 2026-09-29 against V1 to V5 in a throwaway local container, with the
+owner's 10 accounts and 15 categories written before V5.
+
+**6. On the server:** if the release changed `deploy/pg-backup/finance.conf`, as F2a does, install
+it now, after the migration (the block "If `deploy/pg-backup/finance.conf` changed" above). You
+should see `PASS`, with `tables` 14, `migration` 5, `ledgers` 1 and `members` 1 for F2a.
+
+**7. A smoke test with a test account**, never your own: sign in with it in a private window, and on
+its empty dashboard click **Load demo data**. Then, **on the server**, read only, with the test
+account's email address:
+
+```bash
+# On the server (read only)
+IFS= read -r -p 'Email address of the test account: ' email
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -v ON_ERROR_STOP=1 -U finance -d finance -v email="$email" <<'SQL'
+SET default_transaction_read_only = on;
+SELECT keycloak_id AS sub FROM app.users WHERE email = :'email' \gset
+SELECT 'its ledger ' || ledger_id || ', ' || role || ' ' || status FROM app.ledger_member WHERE user_sub = :'sub';
+SELECT 'its rows: ' || string_agg(t || ' ' || n || ' (' || in_ledger || ' in its ledger)', ', ' ORDER BY t) FROM (SELECT t, count(*) AS n, count(*) FILTER (WHERE r.ledger_id = m.ledger_id) AS in_ledger FROM (SELECT 'accounts' AS t, ledger_id FROM app.account WHERE user_id = :'sub' UNION ALL SELECT 'categories', ledger_id FROM app.category WHERE user_id = :'sub' UNION ALL SELECT 'counterparties', ledger_id FROM app.counterparty WHERE user_id = :'sub' UNION ALL SELECT 'entries', ledger_id FROM app.journal_entry WHERE user_id = :'sub') AS r JOIN app.ledger_member m ON m.user_sub = :'sub' AND m.ledger_type = 'PERSONAL' GROUP BY t) AS counts;
+SELECT 'everyone else: ledgers ' || (SELECT count(*) FROM app.ledger_member WHERE user_sub <> :'sub') || ', accounts ' || (SELECT count(*) FROM app.account WHERE user_id <> :'sub') || ', categories ' || (SELECT count(*) FROM app.category WHERE user_id <> :'sub') || ', counterparties ' || (SELECT count(*) FROM app.counterparty WHERE user_id <> :'sub') || ', entries ' || (SELECT count(*) FROM app.journal_entry WHERE user_id <> :'sub');
+SELECT 'ledgers in all ' || count(*) || ', without a member ' || count(*) FILTER (WHERE NOT EXISTS (SELECT FROM app.ledger_member m WHERE m.ledger_id = l.id)) FROM app.ledger l;
+SQL
+```
+
+You should see `its ledger N, OWNER ACTIVE`; each of its tables with all its rows in its ledger
+(`accounts 12 (12 in its ledger)`, `categories 18 (18 …)`, `counterparties 10 (10 …)` and the
+demo's entries); `everyone else: ledgers 1, accounts 10, categories 15, counterparties 0,
+entries 0`, which are your rows; and `ledgers in all 2, without a member 0`. Note N.
+
+Then, in the test account's window, **Settings → Delete all my data**. The empty dashboard it shows
+provisions the account again. Run the block again (the `read` asks again). You should see
+`its ledger M` with M greater than N: ledger N and its member are gone, and the new ledger holds
+only the starter rows (`accounts 10`, `categories 15`; tables without rows are left out). The
+`everyone else` line is unchanged, and `ledgers in all 2, without a member 0`. To remove the test
+account too, [delete the user](#delete-a-user); afterwards `ledgers in all 1`.
+
+**8.** Add the row to [Deployed revisions](#deployed-revisions).
+
+**Rolling back** is [Roll an update back](#roll-an-update-back) without a restore: the previous
+image runs on the new schema, and Flyway in it ignores the migration it doesn't know. For V5 the
+whole test suite of the code before it passed on V5, which is the evidence. A restore of the dump
+from step 3 is needed only if the migration damaged data, or left the database in a state that
+neither image can work with; it loses everything written since the dump. A migration that fails
+leaves nothing behind: Flyway runs it in one transaction, the api doesn't start, and the previous
+image runs on the schema as it was.
 
 ## Roll an update back
 
@@ -828,6 +936,7 @@ sub=$(kc get users -r myapps -q email="$email" -q exact=true --fields id --forma
 cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -U finance -d finance -v sub="$sub" <<'SQL'
 SELECT 'users ' || count(*) FROM app.users WHERE keycloak_id = :'sub';
 SELECT 'accounts ' || count(*) || ', categories ' || (SELECT count(*) FROM app.category WHERE user_id = :'sub') || ', entries ' || (SELECT count(*) FROM app.journal_entry WHERE user_id = :'sub') FROM app.account WHERE user_id = :'sub';
+SELECT 'ledgers ' || count(*) FROM app.ledger_member WHERE user_sub = :'sub';
 SQL
 ```
 
@@ -859,7 +968,9 @@ docker compose -f /opt/auth/docker-compose.yml exec -T keycloak rm -f /tmp/kcadm
 ```
 
 You should see one `DELETE n` per table, with the numbers of the first block, and `deleted in
-Keycloak`. The dump taken first holds the user until it ages out, 14 days on the server and 60 on
+Keycloak`. Since V5, deleting the `users` row also deletes the user's personal ledger and its
+member (a trigger); it fails, and the transaction with it, if a row of theirs is left in the
+ledger. The dump taken first holds the user until it ages out, 14 days on the server and 60 on
 the laptop, as the privacy policy says. On 2026-09-28 the test account of the first deploy was
 deleted with these statements, run in a `DO` block that also checked the total: 27 rows (settings
 1, accounts 10, categories 15, users 1), then the Keycloak user. Afterwards both blocks were tried

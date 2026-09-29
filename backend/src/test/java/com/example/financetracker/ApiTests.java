@@ -153,6 +153,15 @@ class ApiTests extends IntegrationTest {
         assertThat(codes("category", subject)).containsExactlyInAnyOrderElementsOf(codes(seed.get("categories")));
         assertThat(jdbc.sql("SELECT code FROM account WHERE user_id = ? AND is_system ORDER BY code").param(subject)
                 .query(String.class).list()).containsExactly("FX_EXCHANGE", "OPENING_BALANCE");
+        // One personal ledger, whose one member is the user, holds all of it (V5).
+        assertThat(jdbc.sql("""
+                SELECT l.type || ' ' || m.role || ' ' || m.status FROM ledger l JOIN ledger_member m ON m.ledger_id = l.id
+                WHERE m.user_sub = ?""").param(subject).query(String.class).list())
+                .containsExactly("PERSONAL OWNER ACTIVE");
+        assertThat(jdbc.sql("""
+                SELECT ledger_id FROM account WHERE user_id = :sub UNION SELECT ledger_id FROM category WHERE user_id = :sub
+                """).param("sub", subject).query(Long.class).list()).containsExactly(jdbc.sql(
+                "SELECT ledger_id FROM ledger_member WHERE user_sub = ?").param(subject).query(Long.class).single());
         assertThat(jdbc.sql("SELECT email, display_name FROM users WHERE keycloak_id = ?").param(subject).query()
                 .listOfRows()).containsExactly(Map.of("email", subject + "@example.com", "display_name", "User " + subject));
     }

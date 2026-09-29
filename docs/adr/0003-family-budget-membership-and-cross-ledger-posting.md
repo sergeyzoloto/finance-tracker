@@ -2,7 +2,8 @@
 
 **Status:** Accepted, 2026-09-29, after the F1 review (proposed 2026-09-28 in stage F1). The owner's
 answers to the open questions are under [Resolved questions](#resolved-questions), and the topics
-below include them. Implementation starts with F2a (topic J). The requirements and decisions D-1 to
+below include them. F2a's migration V5 (topic J) is implemented on the branch
+`feature/family-budget`, not yet deployed. The requirements and decisions D-1 to
 D-26 are in [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 

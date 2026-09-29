@@ -10,7 +10,13 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.flywaydb.core.Flyway;
@@ -57,7 +63,7 @@ class LedgerSchemaTests {
 
     @BeforeEach
     void createAccounts() throws SQLException {
-        db = DriverManager.getConnection(URL + "?currentSchema=app", POSTGRES.getUsername(), POSTGRES.getPassword());
+        db = connect();
         cash = account(user, "CASH", "ASSET", false);
         card = account(user, "CARD", "ASSET", false);
         loans = account(user, "LOANS_ASSET", "ASSET", true);
@@ -74,6 +80,10 @@ class LedgerSchemaTests {
         db.close();
     }
 
+    private static Connection connect() throws SQLException {
+        return DriverManager.getConnection(URL + "?currentSchema=app", POSTGRES.getUsername(), POSTGRES.getPassword());
+    }
+
     @Test
     void migrationsApplyToAnEmptyDatabase() throws SQLException {
         assertThat(migration.success).isTrue();
@@ -82,7 +92,8 @@ class LedgerSchemaTests {
                 .containsExactlyInAnyOrder("flyway_schema_history",
                         "users", "categories", "transactions", // V1
                         "account", "category", "counterparty", "journal_entry", "posting", "exchange_rate",
-                        "import_batch", "user_settings");
+                        "import_batch", "user_settings", // V2 to V4
+                        "ledger", "ledger_member"); // V5
     }
 
     /** A shared expense (rule 7): 10.01 paid in cash, 5.00 of it the user's groceries and 5.01 the family's. */
@@ -255,6 +266,239 @@ class LedgerSchemaTests {
                 CHECK_VIOLATION, "account %d: user_id cannot change".formatted(cash));
     }
 
+    /** Rows written without a ledger, as the code before V5 writes them, go to their user's personal ledger (V5). */
+    @Test
+    void rowsWrittenWithoutALedgerGoToTheirUsersPersonalLedger() throws SQLException {
+        long entry = expense("1.00");
+        long batch = importBatch(user);
+        db.commit();
+
+        long ledger = personalLedger(user);
+        Map<String, Long> rows = Map.of("account", cash, "category", groceries, "counterparty", borrower,
+                "journal_entry", entry, "import_batch", batch);
+        for (var row : rows.entrySet()) {
+            assertThat(number("SELECT ledger_id FROM " + row.getKey() + " WHERE id = ?", row.getValue()))
+                    .as(row.getKey()).isEqualTo(ledger);
+        }
+        assertThat(strings("SELECT type FROM ledger WHERE id = ?", ledger)).containsExactly("PERSONAL");
+        // Its one member is the user, who owns it. The user has no users row here, so no name.
+        assertThat(strings("""
+                SELECT concat_ws(' ', user_sub, role, status, '"' || display_name || '"') FROM ledger_member
+                WHERE ledger_id = ?""", ledger)).containsExactly(user + " OWNER ACTIVE \"\"");
+        assertThat(number("SELECT count(*) FROM ledger_member WHERE user_sub = ?", user)).isOne();
+    }
+
+    @Test
+    void aNewUsersPersonalLedgerIsNamedAfterThemAndGoesWithTheirUsersRow() throws SQLException {
+        String carol = UUID.randomUUID().toString();
+        update("INSERT INTO users (keycloak_id, display_name) VALUES (?, 'Carol')", carol);
+        long carolsCash = account(carol, "CASH", "ASSET", false);
+        db.commit();
+        long ledger = personalLedger(carol);
+        assertThat(strings("SELECT display_name FROM ledger_member WHERE ledger_id = ?", ledger))
+                .containsExactly("Carol");
+
+        // While the ledger has rows, the users row can't go: "Delete all my data" deletes it last.
+        assertFails(() -> update("DELETE FROM users WHERE keycloak_id = ?", carol), FOREIGN_KEY_VIOLATION,
+                "account_ledger_id_fkey");
+        db.rollback();
+        update("DELETE FROM account WHERE id = ?", carolsCash);
+        update("DELETE FROM users WHERE keycloak_id = ?", carol);
+        db.commit();
+
+        assertThat(number("SELECT count(*) FROM ledger WHERE id = ?", ledger)).isZero();
+        assertThat(number("SELECT count(*) FROM ledger_member WHERE user_sub = ?", carol)).isZero();
+        assertThat(number("SELECT count(*) FROM ledger_member WHERE user_sub = ?", user)).isOne();
+    }
+
+    /** D-4: each user has one personal ledger, and a personal ledger has one member, its owner. */
+    @Test
+    void eachUserHasOnePersonalLedgerWithOneMember() throws SQLException {
+        long ledger = personalLedger(user);
+
+        long second = insert("INSERT INTO ledger (type) VALUES ('PERSONAL')");
+        assertFails(() -> member(second, "PERSONAL", user, "OWNER"), UNIQUE_VIOLATION,
+                "ledger_member_personal_sub_key");
+        db.rollback();
+        assertFails(() -> member(ledger, "PERSONAL", UUID.randomUUID().toString(), "OWNER"), UNIQUE_VIOLATION,
+                "ledger_member_personal_ledger_key");
+        db.rollback();
+        long withoutOwner = insert("INSERT INTO ledger (type) VALUES ('PERSONAL')");
+        assertFails(() -> member(withoutOwner, "PERSONAL", UUID.randomUUID().toString(), "MEMBER"), CHECK_VIOLATION,
+                "ledger_member_personal_owner_check");
+        db.rollback();
+        // Without a member, a personal ledger doesn't commit, and its member can't leave it.
+        long empty = insert("INSERT INTO ledger (type) VALUES ('PERSONAL')");
+        assertFails(db::commit, CHECK_VIOLATION, "personal ledger %d has no member".formatted(empty));
+        update("DELETE FROM ledger_member WHERE ledger_id = ?", ledger);
+        assertFails(db::commit, CHECK_VIOLATION, "personal ledger %d has no member".formatted(ledger));
+        // Nor can it move to another ledger.
+        long family = sharedLedger();
+        assertFails(() -> update("UPDATE ledger_member SET ledger_id = ?, ledger_type = 'SHARED' WHERE ledger_id = ?",
+                family, ledger), CHECK_VIOLATION, "the ledger cannot change");
+    }
+
+    /** D-4: a sub is at most once in a ledger. Members without an account are members of their own. */
+    @Test
+    void aSubIsInALedgerAtMostOnce() throws SQLException {
+        long family = sharedLedger();
+        member(family, "SHARED", user, "OWNER");
+        seat(family);
+        seat(family);
+        db.commit();
+
+        assertFails(() -> member(family, "SHARED", user, "MEMBER"), UNIQUE_VIOLATION,
+                "ledger_member_ledger_id_user_sub_key");
+    }
+
+    /** D-22: a personal ledger never becomes shared, nor the other way round. */
+    @Test
+    void aLedgersTypeNeverChanges() throws SQLException {
+        long family = sharedLedger();
+        db.commit();
+        long ledger = personalLedger(user);
+
+        assertFails(() -> update("UPDATE ledger SET type = 'PERSONAL' WHERE id = ?", family), CHECK_VIOLATION,
+                "ledger %d: type cannot change".formatted(family));
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger SET type = 'SHARED', name = 'Family', base_currency = 'EUR' "
+                + "WHERE id = ?", ledger), CHECK_VIOLATION, "ledger %d: type cannot change".formatted(ledger));
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger_member SET ledger_type = 'SHARED' WHERE ledger_id = ?", ledger),
+                CHECK_VIOLATION, "the ledger cannot change");
+    }
+
+    /**
+     * A seat gets its sub, and may get an earlier join date, when it is claimed (D-18); after that the sub and the
+     * join date stay, but for a member who left and returns (D-26). A former member stays as they are (D-20).
+     */
+    @Test
+    void aMembershipKeepsItsUserAndItsJoinDate() throws SQLException {
+        long family = sharedLedger();
+        long seat = seat(family);
+        db.commit();
+
+        update("UPDATE ledger_member SET user_sub = ?, join_date = DATE '2025-12-01' WHERE id = ?", user, seat);
+        db.commit();
+        assertFails(() -> update("UPDATE ledger_member SET user_sub = ? WHERE id = ?", UUID.randomUUID().toString(),
+                seat), CHECK_VIOLATION, "ledger member %d: user_sub cannot pass to another user".formatted(seat));
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger_member SET join_date = DATE '2026-02-01' WHERE id = ?", seat),
+                CHECK_VIOLATION, "ledger member %d: join_date cannot change once the member has joined"
+                        .formatted(seat));
+        db.rollback();
+
+        update("UPDATE ledger_member SET status = 'LEFT', left_date = DATE '2026-03-01' WHERE id = ?", seat);
+        db.commit();
+        update("UPDATE ledger_member SET status = 'ACTIVE', left_date = NULL, join_date = DATE '2026-04-01' "
+                + "WHERE id = ?", seat);
+        db.commit();
+        update("UPDATE ledger_member SET status = 'FORMER', user_sub = NULL, display_name = 'Former member', "
+                + "left_date = DATE '2026-05-01' WHERE id = ?", seat);
+        db.commit();
+        assertFails(() -> update("UPDATE ledger_member SET status = 'ACTIVE', left_date = NULL WHERE id = ?", seat),
+                CHECK_VIOLATION, "ledger member %d: a former member stays as they are".formatted(seat));
+    }
+
+    /** In F2a every row is in its user's personal ledger, and in no other. */
+    @Test
+    void aRowIsInThePersonalLedgerOfItsUser() throws SQLException {
+        String other = UUID.randomUUID().toString();
+        account(other, "CASH", "ASSET", false);
+        long family = sharedLedger();
+        long batch = importBatch(user);
+        db.commit();
+
+        for (long ledger : new long[] {personalLedger(other), family}) {
+            assertFails(() -> insert("INSERT INTO account (user_id, ledger_id, code, name, type) "
+                    + "VALUES (?, ?, 'BANK', 'Bank', 'ASSET')", user, ledger), FOREIGN_KEY_VIOLATION,
+                    "ledger %d is not the personal ledger of its user".formatted(ledger));
+            db.rollback();
+        }
+        // An import batch's user_id was never fixed, but it can't take the batch into another user's ledger.
+        long ledger = personalLedger(user);
+        assertFails(() -> update("UPDATE import_batch SET user_id = ? WHERE id = ?", other, batch),
+                FOREIGN_KEY_VIOLATION, "import_batch %d: ledger %d is not the personal ledger of its user"
+                        .formatted(batch, ledger));
+        db.rollback();
+        insert("INSERT INTO account (user_id, ledger_id, code, name, type) VALUES (?, ?, 'BANK', 'Bank', 'ASSET')",
+                user, ledger);
+        db.commit();
+    }
+
+    @Test
+    void rowsNeverChangeLedger() throws SQLException {
+        long entry = expense("1.00");
+        long batch = importBatch(user);
+        long elsewhere = number("SELECT personal_ledger_id(?)", UUID.randomUUID().toString());
+        db.commit();
+
+        Map<String, Long> rows = Map.of("account", cash, "category", groceries, "counterparty", borrower,
+                "journal_entry", entry, "import_batch", batch);
+        for (var row : rows.entrySet()) {
+            assertFails(() -> update("UPDATE " + row.getKey() + " SET ledger_id = ? WHERE id = ?", elsewhere,
+                    row.getValue()), CHECK_VIOLATION, "%s %d: ledger_id cannot change".formatted(row.getKey(),
+                    row.getValue()));
+            db.rollback();
+        }
+    }
+
+    /**
+     * A posting's account, category and counterparty are in its entry's ledger. While each ledger is its user's, the
+     * check of the users fails first (postingThatReferencesAnotherUsersRowFails), so rows written past the triggers
+     * stand in for rows of another ledger.
+     */
+    @Test
+    void postingThatReferencesAnotherLedgersRowFails() throws SQLException {
+        long elsewhere = number("SELECT personal_ledger_id(?)", UUID.randomUUID().toString());
+        db.commit();
+        update("SET LOCAL session_replication_role = replica");
+        long strayAccount = insert("INSERT INTO account (user_id, ledger_id, code, name, type) "
+                + "VALUES (?, ?, 'STRAY', 'Stray', 'ASSET')", user, elsewhere);
+        long strayCategory = insert("INSERT INTO category (user_id, ledger_id, code, name, type) "
+                + "VALUES (?, ?, 'STRAY', 'Stray', 'EXPENSE')", user, elsewhere);
+        long strayCounterparty = insert("INSERT INTO counterparty (user_id, ledger_id, name) VALUES (?, ?, 'Stray')",
+                user, elsewhere);
+        db.commit();
+
+        assertFails(() -> post(entry(), strayAccount, "EUR", "5.00"), FOREIGN_KEY_VIOLATION,
+                "account %d belongs to another ledger".formatted(strayAccount));
+        db.rollback();
+        assertFails(() -> post(entry(), unallocated, "EUR", "5.00", strayCategory, null), FOREIGN_KEY_VIOLATION,
+                "category %d belongs to another ledger".formatted(strayCategory));
+        db.rollback();
+        assertFails(() -> post(entry(), loans, "EUR", "5.00", null, strayCounterparty), FOREIGN_KEY_VIOLATION,
+                "counterparty %d belongs to another ledger".formatted(strayCounterparty));
+    }
+
+    /**
+     * A new user's first requests may all ask for the personal ledger at once. The second call waits on the unique
+     * index for the first transaction's member, finds it when that commits, and leaves no ledger of its own behind.
+     */
+    @Test
+    void concurrentCallsGetOnePersonalLedger() throws Exception {
+        String dave = UUID.randomUUID().toString();
+        long ledgersBefore = number("SELECT count(*) FROM ledger");
+        ExecutorService thread = Executors.newSingleThreadExecutor();
+        try (Connection second = connect()) {
+            second.setAutoCommit(false);
+            long first = number("SELECT personal_ledger_id(?)", dave);
+            Future<Long> secondCall = thread.submit(() -> {
+                long id = number(second, "SELECT personal_ledger_id(?)", dave);
+                second.commit();
+                return id;
+            });
+            assertThatThrownBy(() -> secondCall.get(500, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            db.commit();
+
+            assertThat(secondCall.get(10, TimeUnit.SECONDS)).isEqualTo(first);
+        } finally {
+            thread.shutdownNow();
+        }
+        assertThat(number("SELECT count(*) FROM ledger_member WHERE user_sub = ?", dave)).isOne();
+        assertThat(number("SELECT count(*) FROM ledger")).isEqualTo(ledgersBefore + 1);
+    }
+
     private static void assertFails(ThrowingCallable call, String sqlState, String message) {
         assertThatThrownBy(call)
                 .isInstanceOfSatisfying(SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo(sqlState))
@@ -273,6 +517,30 @@ class LedgerSchemaTests {
 
     private long counterparty(String owner) throws SQLException {
         return insert("INSERT INTO counterparty (user_id, name, kind) VALUES (?, 'Borrower', 'PERSON')", owner);
+    }
+
+    private long importBatch(String owner) throws SQLException {
+        return insert("INSERT INTO import_batch (user_id, file_name, file_sha256, dry_run) "
+                + "VALUES (?, 'transactions.csv', repeat('0', 64), TRUE)", owner);
+    }
+
+    private long personalLedger(String owner) throws SQLException {
+        return number("SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'", owner);
+    }
+
+    private long sharedLedger() throws SQLException {
+        return insert("INSERT INTO ledger (type, name, base_currency) VALUES ('SHARED', 'Family', 'EUR')");
+    }
+
+    private long member(long ledger, String ledgerType, String sub, String role) throws SQLException {
+        return insert("""
+                INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date)
+                VALUES (?, ?, ?, 'Member', ?, 'ACTIVE', DATE '2026-01-01')""", ledger, ledgerType, sub, role);
+    }
+
+    /** A member without an account. */
+    private long seat(long family) throws SQLException {
+        return member(family, "SHARED", null, "MEMBER");
     }
 
     private long entry() throws SQLException {
@@ -310,14 +578,18 @@ class LedgerSchemaTests {
     }
 
     private long number(String sql, Object... params) throws SQLException {
-        try (PreparedStatement statement = prepare(sql, params); var rows = statement.executeQuery()) {
+        return number(db, sql, params);
+    }
+
+    private static long number(Connection connection, String sql, Object... params) throws SQLException {
+        try (PreparedStatement statement = prepare(connection, sql, params); var rows = statement.executeQuery()) {
             rows.next();
             return rows.getLong(1);
         }
     }
 
-    private List<String> strings(String sql) throws SQLException {
-        try (PreparedStatement statement = prepare(sql); var rows = statement.executeQuery()) {
+    private List<String> strings(String sql, Object... params) throws SQLException {
+        try (PreparedStatement statement = prepare(sql, params); var rows = statement.executeQuery()) {
             List<String> values = new ArrayList<>();
             while (rows.next()) {
                 values.add(rows.getString(1));
@@ -327,7 +599,12 @@ class LedgerSchemaTests {
     }
 
     private PreparedStatement prepare(String sql, Object... params) throws SQLException {
-        PreparedStatement statement = db.prepareStatement(sql);
+        return prepare(db, sql, params);
+    }
+
+    private static PreparedStatement prepare(Connection connection, String sql, Object... params)
+            throws SQLException {
+        PreparedStatement statement = connection.prepareStatement(sql);
         for (int i = 0; i < params.length; i++) {
             statement.setObject(i + 1, params[i]);
         }

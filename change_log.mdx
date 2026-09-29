@@ -5,7 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-09-29 · Family budget: F2b's deploy, the F3 split, raw ledger ids only through a scope (F3a, parts 1 and 2)
 
-Not committed yet.
+Committed locally on `feature/family-budget` in two commits: `0151b08` (documents) and
+"refactor(ledger): call raw ledger id methods only through a scope", whose hash belongs here with
+the next change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - F2b's deploy and the decisions after the F2b review (commit "docs(family-budget): F2b deploy and
@@ -26,6 +28,27 @@ Not committed yet.
     personal ledger behind, which the runbook's "Delete a user" removes, and the importer is
     reworked after F7.
 
+- Raw ledger ids only through a scope (commit "refactor(ledger): call raw ledger id methods only
+  through a scope"), ADR 0003 topic C:
+  - `AccountRepository`, `LedgerCategoryRepository`, `CounterpartyRepository`,
+    `JournalEntryRepository` and `ImportBatchRepository` get default methods that take a
+    `LedgerScope`: `find(ledger, id)` on all five; `findAll(ledger)` (accounts by code, categories
+    and counterparties by name); `findByCode` and `findAllByCode` on accounts; and `lockAll(ledger,
+    ids)`, the FOR SHARE lookups of `EntryService`. The derived queries with a raw ledger id stay,
+    called only from those.
+  - Every caller moved: `AccountService`, `CategoryService`, `CounterpartyService`,
+    `SettingsService`, `EntryService` (its `lookup` takes the scope), `ReportService` and
+    `ImportService`, and the tests `EntryServiceTests`, `LedgerRepositoryTests` (by the two users'
+    scopes), `ImportServiceTests` and `ReportServiceTests`.
+  - `ArchitectureTests.rawLedgerIdsStayInsideTheirRepository`: a method of a `LedgerScopedRepository`
+    whose name has `LedgerId` is called or referenced (method references compile to
+    `invokedynamic`, so both count) only by a non-abstract method of the same repository that
+    takes a `LedgerScope`. The name identifies them: bytecode keeps no parameter names, and a
+    Spring Data derived query filters by the ledger exactly when its name has `LedgerId`.
+    `everyOtherQueryMethodTakesALedgerScope` keeps that complete: every other abstract method of
+    such a repository takes a `LedgerScope`, apart from `save` and `delete`, which take an entity.
+  - ADR 0003 (topic C) and CLAUDE.md describe it.
+
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`: `feature/family-budget`
   checked out with a clean tree; it, `main` and `origin/main` all at `ee9e498`.
@@ -35,9 +58,28 @@ Not committed yet.
     lambdas are named `lambda$N` and which ArchUnit doesn't attribute to their method), not from
     Maven. `./mvnw -B clean verify`: 255 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
   - Frontend: `npm ci`, `npm test` 7 files and 84 tests passed, `npm run build` succeeded.
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1, run from a scratch directory.
+- The raw ledger id rule against temporary violations, not committed: a service method that calls
+  `findByIdAndLedgerId`, one that takes `accounts::findAllByLedgerIdAndIdIn` as a method
+  reference, a default method of `AccountRepository` that passes a raw ledger id without a scope,
+  and a derived `findAllByName(String)`. Both rules failed and named each one, for example:
+  - `…AccountRepository.findByIdAndLedgerId(long, long) takes a raw ledger id, but …AccountService.sneaky(long, long) uses it; call a default method of AccountRepository that takes a LedgerScope instead: Method <…AccountService.sneaky(long, long)> calls method <…AccountRepository.findByIdAndLedgerId(long, long)> in (AccountService.java:87)`;
+  - the same with `references method <…AccountRepository.findAllByLedgerIdAndIdIn(long, java.util.Collection)>` for the method reference, and with `…AccountRepository.byRawLedger(long, long) uses it` for the default method;
+  - `…AccountRepository.findAllByName(java.lang.String) is a query method with neither a LedgerScope nor "LedgerId" in its name`.
+
+  Without them both pass.
+- After the refactor: `./mvnw -B clean verify` 257 tests (255 and 2), 0 failures, 0 errors, 0
+  skipped, BUILD SUCCESS. `git diff ee9e498 -- …/DataIsolationApiTests.java` prints nothing.
 
 **Open**
-- F3a's part 3 (V6 and the family ledger backend) is not started: see the report of this task.
+- Build from clean (`./mvnw -B clean verify`) while VS Code is open: its Java extension writes
+  Eclipse-compiled classes into `target/classes`, and `ArchitectureTests` then misreads their
+  lambdas (`lambda$N`). CI builds from scratch and isn't affected.
+- F3a's part 3 (V6 and the family ledger backend) is not started. It stopped, as the task asks, at
+  a contradiction between the task and ADR 0003: the task's custom split in basis points summing to
+  10000 against the ADR's `ledger_member.share_percent NUMERIC(7, 4)` and `split_rule` EQUAL or
+  PERCENT (topic B), which V6 would fix in production. The owner decides, with the other questions
+  in this task's report.
 
 ## 2026-09-29 · Family budget: F2a's deploy, runbook fixes, scoping by `ledger_id` (F2b)
 

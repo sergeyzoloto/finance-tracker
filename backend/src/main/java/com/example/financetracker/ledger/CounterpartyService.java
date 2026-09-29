@@ -49,7 +49,7 @@ public class CounterpartyService {
      */
     @Transactional
     public CounterpartyView update(LedgerScope ledger, long counterpartyId, CounterpartyChanges changes) {
-        Counterparty counterparty = counterparties.findByIdAndLedgerId(counterpartyId, ledger.ledgerId())
+        Counterparty counterparty = counterparties.find(ledger, counterpartyId)
                 .orElseThrow(() -> new NotFoundException("Counterparty " + counterpartyId + " not found"));
         save(new Counterparty(counterparty.id(), counterparty.userId(), counterparty.ledgerId(),
                 changes.name() != null ? changes.name() : counterparty.name(),

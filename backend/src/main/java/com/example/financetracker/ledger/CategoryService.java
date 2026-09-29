@@ -26,7 +26,7 @@ public class CategoryService {
     /** All the ledger's categories, archived ones included, by name. */
     @Transactional(readOnly = true)
     public List<CategoryView> list(LedgerScope ledger) {
-        return categories.findAllByLedgerIdOrderByName(ledger.ledgerId()).stream().map(CategoryView::of).toList();
+        return categories.findAll(ledger).stream().map(CategoryView::of).toList();
     }
 
     /** @throws ConflictException if the ledger has a category with this code already */
@@ -52,7 +52,7 @@ public class CategoryService {
      */
     @Transactional
     public CategoryView update(LedgerScope ledger, long categoryId, String name, Boolean archived, CategoryType type) {
-        LedgerCategory category = categories.findByIdAndLedgerId(categoryId, ledger.ledgerId())
+        LedgerCategory category = categories.find(ledger, categoryId)
                 .orElseThrow(() -> new NotFoundException("Category " + categoryId + " not found"));
         if (type != null && type != category.type()) {
             throw new ConflictException("The category %s is %s, and a category's type can't be changed"

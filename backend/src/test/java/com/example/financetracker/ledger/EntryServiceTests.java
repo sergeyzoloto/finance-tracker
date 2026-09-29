@@ -123,7 +123,7 @@ class EntryServiceTests extends IntegrationTest {
     @Test
     void updateWithAStaleVersionIsAConflictAndChangesNothing() {
         EntryView created = service.create(ledger, expense("190.00"));
-        JournalEntry readBeforeUpdate = entries.findByIdAndLedgerId(created.id(), ledger.ledgerId()).orElseThrow();
+        JournalEntry readBeforeUpdate = entries.find(ledger, created.id()).orElseThrow();
         EntryView updated = service.update(ledger, created.id(), 0, expense("200.00"));
 
         assertThatThrownBy(() -> service.update(ledger, created.id(), 0, expense("300.00")))

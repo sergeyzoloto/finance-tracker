@@ -364,7 +364,7 @@ class ReportServiceTests extends IntegrationTest {
     }
 
     private void archive(long accountId) {
-        Account account = accounts.findByIdAndLedgerId(accountId, ledger.ledgerId()).orElseThrow();
+        Account account = accounts.find(ledger, accountId).orElseThrow();
         accounts.save(new Account(account.id(), account.userId(), account.ledgerId(), account.code(), account.name(),
                 account.type(), account.defaultCurrency(), account.requiresCounterparty(), account.isSystem(),
                 Instant.now(), account.createdAt()));

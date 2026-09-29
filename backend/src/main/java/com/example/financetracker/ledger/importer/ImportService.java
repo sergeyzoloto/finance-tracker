@@ -169,7 +169,7 @@ public class ImportService {
 
             Chart chart = chart(accountRows, categoryRows);
             EntryMapper mapper = new EntryMapper(chart);
-            counterpartyIds = counterparties.findAllByLedgerIdOrderByName(ledger.ledgerId()).stream()
+            counterpartyIds = counterparties.findAll(ledger).stream()
                     .collect(Collectors.toMap(c -> key(c.name()), Counterparty::id, (first, second) -> first));
             externalRefs = new HashSet<>(journal.findExternalRefs(ledger));
             ImportFile transactionsFile = transactionRows.file();
@@ -207,7 +207,7 @@ public class ImportService {
          * exist (rules 4, 8, 9 and 10).
          */
         private Chart chart(Sheet<AccountRow> accountRows, Sheet<CategoryRow> categoryRows) {
-            Map<String, Account> accountsByCode = accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId()).stream()
+            Map<String, Account> accountsByCode = accounts.findAll(ledger).stream()
                     .collect(Collectors.toMap(Account::code, Function.identity()));
             Map<String, AccountRef> accountsByName = new HashMap<>();
             for (AccountRow row : accountRows.rows()) {
@@ -236,7 +236,7 @@ public class ImportService {
             systemAccount(AccountRole.OPENING_BALANCE, "Opening balance", accountsByCode);
             systemAccount(AccountRole.FX_EXCHANGE, "Currency exchange", accountsByCode);
 
-            Map<String, LedgerCategory> categoriesByCode = categories.findAllByLedgerIdOrderByName(ledger.ledgerId())
+            Map<String, LedgerCategory> categoriesByCode = categories.findAll(ledger)
                     .stream()
                     .collect(Collectors.toMap(LedgerCategory::code, Function.identity()));
             Map<String, CategoryRef> categoriesByName = new HashMap<>();

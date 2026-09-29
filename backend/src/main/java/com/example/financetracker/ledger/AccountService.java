@@ -27,7 +27,7 @@ public class AccountService {
     /** All the ledger's accounts, archived ones included, by code. */
     @Transactional(readOnly = true)
     public List<AccountView> list(LedgerScope ledger) {
-        return accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId()).stream().map(AccountView::of).toList();
+        return accounts.findAll(ledger).stream().map(AccountView::of).toList();
     }
 
     /**
@@ -55,7 +55,7 @@ public class AccountService {
      */
     @Transactional
     public AccountView update(LedgerScope ledger, long accountId, AccountChanges changes) {
-        Account account = accounts.findByIdAndLedgerId(accountId, ledger.ledgerId())
+        Account account = accounts.find(ledger, accountId)
                 .orElseThrow(() -> new AccountNotFoundException(accountId));
         if (account.isSystem()) {
             if (changes.name() != null && !changes.name().equals(account.name())) {

@@ -42,7 +42,7 @@ public class SettingsService {
     public SettingsView update(LedgerScope personalLedger, String baseCurrency, Long sharedAccountId,
             BigDecimal defaultShareRatio) {
         if (sharedAccountId != null
-                && accounts.findByIdAndLedgerId(sharedAccountId, personalLedger.ledgerId()).isEmpty()) {
+                && accounts.find(personalLedger, sharedAccountId).isEmpty()) {
             throw new RuleViolationException("account %d does not exist".formatted(sharedAccountId));
         }
         UserSettings updated = new UserSettings(personalLedger.userId(), baseCurrency, sharedAccountId,

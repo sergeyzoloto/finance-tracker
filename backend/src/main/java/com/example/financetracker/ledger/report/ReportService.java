@@ -108,7 +108,7 @@ public class ReportService {
      * @throws IllegalArgumentException if the account doesn't require a counterparty
      */
     public List<CounterpartyBalance> counterpartyBalances(LedgerScope ledger, String accountCode, LocalDate asOf) {
-        Account account = accounts.findByLedgerIdAndCode(ledger.ledgerId(), accountCode)
+        Account account = accounts.findByCode(ledger, accountCode)
                 .orElseThrow(() -> new AccountNotFoundException(accountCode));
         if (!account.requiresCounterparty()) {
             throw new IllegalArgumentException(
@@ -386,8 +386,7 @@ public class ReportService {
     public List<SharedSettlement> sharedSettlement(LedgerScope ledger, LocalDate asOf) {
         Optional<Long> sharedAccountId = settings.findById(ledger.userId())
                 .map(UserSettings::sharedAccountId)
-                .or(() -> accounts.findByLedgerIdAndCode(ledger.ledgerId(), AccountRole.SHARED.defaultCode())
-                        .map(Account::id));
+                .or(() -> accounts.findByCode(ledger, AccountRole.SHARED.defaultCode()).map(Account::id));
         if (sharedAccountId.isEmpty()) {
             return List.of();
         }

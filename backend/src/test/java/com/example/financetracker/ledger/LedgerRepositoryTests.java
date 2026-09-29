@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import com.example.financetracker.IntegrationTest;
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,13 +41,15 @@ class LedgerRepositoryTests extends IntegrationTest {
 
     private final String user = UUID.randomUUID().toString();
     private final String other = UUID.randomUUID().toString();
+    private LedgerScope scope;
+    private LedgerScope othersScope;
     private long ledger;
-    private long othersLedger;
 
     @BeforeEach
     void createLedgers() {
-        ledger = ledgers.provisionPersonal(user).ledgerId();
-        othersLedger = ledgers.provisionPersonal(other).ledgerId();
+        scope = ledgers.provisionPersonal(user);
+        othersScope = ledgers.provisionPersonal(other);
+        ledger = scope.ledgerId();
     }
 
     @Test
@@ -55,12 +58,12 @@ class LedgerRepositoryTests extends IntegrationTest {
         Account saved = accounts.save(new Account(null, user, ledger, "FX_EXCHANGE", "Exchange", AccountType.EQUITY,
                 "EUR", false, true, archivedAt, null));
 
-        Account read = accounts.findByIdAndLedgerId(saved.id(), ledger).orElseThrow();
+        Account read = accounts.find(scope, saved.id()).orElseThrow();
 
         assertThat(read).usingRecursiveComparison().ignoringFields("createdAt").isEqualTo(saved);
         assertThat(read.createdAt()).isNotNull();
-        assertThat(accounts.findByIdAndLedgerId(saved.id(), othersLedger)).isEmpty();
-        assertThat(accounts.findAllByLedgerIdAndIdIn(othersLedger, List.of(saved.id()))).isEmpty();
+        assertThat(accounts.find(othersScope, saved.id())).isEmpty();
+        assertThat(accounts.lockAll(othersScope, List.of(saved.id()))).isEmpty();
     }
 
     @Test
@@ -69,10 +72,10 @@ class LedgerRepositoryTests extends IntegrationTest {
                 new LedgerCategory(null, user, ledger, "REST", "Rest", CategoryType.EXPENSE, null));
         Counterparty unclassified = counterparties.save(new Counterparty(null, user, ledger, "Friend A", null, null));
 
-        assertThat(categories.findByIdAndLedgerId(category.id(), ledger)).contains(category);
-        assertThat(counterparties.findByIdAndLedgerId(unclassified.id(), ledger)).contains(unclassified);
-        assertThat(categories.findByIdAndLedgerId(category.id(), othersLedger)).isEmpty();
-        assertThat(counterparties.findAllByLedgerIdAndIdIn(othersLedger, List.of(unclassified.id()))).isEmpty();
+        assertThat(categories.find(scope, category.id())).contains(category);
+        assertThat(counterparties.find(scope, unclassified.id())).contains(unclassified);
+        assertThat(categories.find(othersScope, category.id())).isEmpty();
+        assertThat(counterparties.lockAll(othersScope, List.of(unclassified.id()))).isEmpty();
     }
 
     @Test
@@ -81,14 +84,14 @@ class LedgerRepositoryTests extends IntegrationTest {
                 null, null, new Json("""
                         {"rows": 299, "skipped": ["zero amount"]}""")));
 
-        ImportBatch read = importBatches.findByIdAndLedgerId(saved.id(), ledger).orElseThrow();
+        ImportBatch read = importBatches.find(scope, saved.id()).orElseThrow();
 
         assertThat(read.startedAt()).isNotNull();
         assertThat(read.dryRun()).isTrue();
         // JSONB normalizes the text, so compare the parsed values.
         assertThat(json.readTree(read.report().value()))
                 .isEqualTo(json.readTree("{\"skipped\": [\"zero amount\"], \"rows\": 299}"));
-        assertThat(importBatches.findByIdAndLedgerId(saved.id(), othersLedger)).isEmpty();
+        assertThat(importBatches.find(othersScope, saved.id())).isEmpty();
     }
 
     @Test

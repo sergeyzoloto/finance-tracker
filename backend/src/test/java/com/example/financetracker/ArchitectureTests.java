@@ -3,11 +3,14 @@ package com.example.financetracker;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.codeUnits;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.constructors;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import java.util.Map;
+import java.util.Set;
 
 import com.example.financetracker.ledger.ExchangeRateRepository;
+import com.example.financetracker.ledger.LedgerScopedRepository;
 import com.example.financetracker.ledger.UserDataService;
 import com.example.financetracker.ledger.UserSettingsRepository;
 import com.example.financetracker.ledger.access.LedgerAccess;
@@ -17,6 +20,7 @@ import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -67,6 +71,31 @@ class ArchitectureTests {
                 .check(APPLICATION);
     }
 
+    /**
+     * A repository method that takes a raw ledger id is a Spring Data derived query, and filters by the ledger exactly
+     * when its name has "LedgerId": that is how the rule finds them in the bytecode, where parameter names are gone.
+     * {@link #everyOtherQueryMethodTakesALedgerScope} keeps that complete.
+     */
+    @Test
+    void rawLedgerIdsStayInsideTheirRepository() {
+        methods().that(takeARawLedgerId())
+                .should(beUsedOnlyByScopedDefaultMethodsOfTheirRepository())
+                .because("a ledger id comes only from a LedgerScope, which LedgerAccess made after checking the "
+                        + "membership (ADR 0003, topic C)")
+                .check(APPLICATION);
+    }
+
+    @Test
+    void everyOtherQueryMethodTakesALedgerScope() {
+        methods().that().areDeclaredInClassesThat().areAssignableTo(LedgerScopedRepository.class)
+                .and().haveModifier(JavaModifier.ABSTRACT)
+                .and().haveNameNotMatching(".*LedgerId.*")
+                .should(takeALedgerScopeOrAnEntity())
+                .because("a query method either takes a LedgerScope or filters by a raw ledger id that one of its "
+                        + "repository's scoped default methods passes")
+                .check(APPLICATION);
+    }
+
     @Test
     void onlyLedgerAccessMakesALedgerScope() {
         classes().that().belongToAnyOf(LedgerScope.class).should().haveModifier(JavaModifier.FINAL)
@@ -96,11 +125,53 @@ class ArchitectureTests {
                         || javaClass.getName().startsWith(type.getName() + "$")));
     }
 
+    private static DescribedPredicate<JavaMethod> takeARawLedgerId() {
+        return DescribedPredicate.describe("take a raw ledger id (repository methods whose name has \"LedgerId\")",
+                method -> method.getOwner().isAssignableTo(LedgerScopedRepository.class)
+                        && method.getName().contains("LedgerId"));
+    }
+
+    private static boolean takesALedgerScope(JavaCodeUnit unit) {
+        return unit.getRawParameterTypes().stream().anyMatch(type -> type.isEquivalentTo(LedgerScope.class));
+    }
+
+    private static ArchCondition<JavaMethod> beUsedOnlyByScopedDefaultMethodsOfTheirRepository() {
+        return new ArchCondition<>("be called or referenced only by default methods of their own repository that "
+                + "take a LedgerScope") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                method.getAccessesToSelf().stream()
+                        .filter(access -> !(access.getOriginOwner().equals(method.getOwner())
+                                && !access.getOrigin().getModifiers().contains(JavaModifier.ABSTRACT)
+                                && takesALedgerScope(access.getOrigin())))
+                        .forEach(access -> events.add(SimpleConditionEvent.violated(method,
+                                ("%s takes a raw ledger id, but %s uses it; call a default method of %s that takes a "
+                                        + "LedgerScope instead: %s").formatted(method.getFullName(),
+                                        access.getOrigin().getFullName(), method.getOwner().getSimpleName(),
+                                        access.getDescription()))));
+            }
+        };
+    }
+
+    private static ArchCondition<JavaMethod> takeALedgerScopeOrAnEntity() {
+        Set<String> entityMethods = Set.of("save", "delete");
+        return new ArchCondition<>("take a LedgerScope, unless they save or delete an entity") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                if (!takesALedgerScope(method) && !entityMethods.contains(method.getName())) {
+                    events.add(SimpleConditionEvent.violated(method,
+                            "%s is a query method with neither a LedgerScope nor \"LedgerId\" in its name"
+                                    .formatted(method.getFullName())));
+                }
+            }
+        };
+    }
+
     private static ArchCondition<JavaCodeUnit> runSqlOnlyWithALedgerScope() {
         return new ArchCondition<>("run SQL only if they take a LedgerScope") {
             @Override
             public void check(JavaCodeUnit unit, ConditionEvents events) {
-                if (unit.getRawParameterTypes().stream().anyMatch(type -> type.isEquivalentTo(LedgerScope.class))) {
+                if (takesALedgerScope(unit)) {
                     return;
                 }
                 if (unit.isAnnotatedWith(Query.class)) {

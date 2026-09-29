@@ -234,7 +234,7 @@ public class EntryService {
     }
 
     private JournalEntry find(LedgerScope ledger, long entryId) {
-        return entries.findByIdAndLedgerId(entryId, ledger.ledgerId())
+        return entries.find(ledger, entryId)
                 .orElseThrow(() -> new EntryNotFoundException(entryId));
     }
 
@@ -259,7 +259,7 @@ public class EntryService {
     /** The accounts commands post to by role, and the settings of the personal ledger's member. */
     private LedgerContext context(LedgerScope ledger) {
         Optional<UserSettings> userSettings = settings.findById(ledger.userId());
-        Map<String, Long> idsByCode = accounts.findAllByLedgerIdAndCodeIn(ledger.ledgerId(), ROLE_CODES).stream()
+        Map<String, Long> idsByCode = accounts.findAllByCode(ledger, ROLE_CODES).stream()
                 .collect(Collectors.toMap(Account::code, Account::id));
         Map<AccountRole, Long> roles = new EnumMap<>(AccountRole.class);
         for (AccountRole role : AccountRole.values()) {
@@ -276,19 +276,19 @@ public class EntryService {
     /** The ledger's rows among those the entry refers to, locked until the transaction ends. */
     private LedgerReferences references(LedgerScope ledger, EntryDraft draft) {
         return new LedgerReferences(
-                lookup(ledger, draft.accountIds(), accounts::findAllByLedgerIdAndIdIn, Account::id,
+                lookup(ledger, draft.accountIds(), accounts::lockAll, Account::id,
                         a -> new AccountInfo(a.code(), a.type(), a.requiresCounterparty())),
-                lookup(ledger, draft.categoryIds(), categories::findAllByLedgerIdAndIdIn, LedgerCategory::id,
+                lookup(ledger, draft.categoryIds(), categories::lockAll, LedgerCategory::id,
                         c -> new CategoryInfo(c.code(), c.type())),
-                lookup(ledger, draft.counterpartyIds(), counterparties::findAllByLedgerIdAndIdIn, Counterparty::id,
+                lookup(ledger, draft.counterpartyIds(), counterparties::lockAll, Counterparty::id,
                         c -> c).keySet());
     }
 
     private static <T, V> Map<Long, V> lookup(LedgerScope ledger, Set<Long> ids,
-            BiFunction<Long, Collection<Long>, List<T>> find, Function<T, Long> id, Function<T, V> value) {
+            BiFunction<LedgerScope, Collection<Long>, List<T>> find, Function<T, Long> id, Function<T, V> value) {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        return find.apply(ledger.ledgerId(), ids).stream().collect(Collectors.toMap(id, value));
+        return find.apply(ledger, ids).stream().collect(Collectors.toMap(id, value));
     }
 }

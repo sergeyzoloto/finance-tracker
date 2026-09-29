@@ -117,9 +117,9 @@ class ImportServiceTests extends IntegrationTest {
                         tuple("UNALLOCATED", "RUB", money("69148.70")));
         assertThat(report.integrityViolations()).isEmpty();
 
-        assertThat(accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId())).isEmpty();
-        assertThat(categories.findAllByLedgerIdOrderByName(ledger.ledgerId())).isEmpty();
-        assertThat(counterparties.findAllByLedgerIdOrderByName(ledger.ledgerId())).isEmpty();
+        assertThat(accounts.findAll(ledger)).isEmpty();
+        assertThat(categories.findAll(ledger)).isEmpty();
+        assertThat(counterparties.findAll(ledger)).isEmpty();
         assertThat(count("journal_entry")).isZero();
         assertThat(count("import_batch")).isZero();
     }
@@ -130,7 +130,7 @@ class ImportServiceTests extends IntegrationTest {
 
         assertThat(report.outcome()).isEqualTo(Outcome.ABORTED);
         assertThat(report.errors()).extracting(Problem::row).containsExactly(10);
-        assertThat(accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId())).isEmpty();
+        assertThat(accounts.findAll(ledger)).isEmpty();
         assertThat(count("journal_entry")).isZero();
         assertThat(count("import_batch")).isZero();
     }
@@ -141,7 +141,7 @@ class ImportServiceTests extends IntegrationTest {
 
         assertThat(report.outcome()).isEqualTo(Outcome.COMMITTED);
         assertThat(report.errors()).isEmpty();
-        assertThat(accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId()))
+        assertThat(accounts.findAll(ledger))
                 .extracting(Account::code, Account::type, Account::requiresCounterparty, Account::isSystem)
                 .containsExactly(
                         tuple("CASH", AccountType.ASSET, false, false),
@@ -157,7 +157,7 @@ class ImportServiceTests extends IntegrationTest {
                         tuple("RESERVE", AccountType.EQUITY, false, false),
                         tuple("SOUTH_SAVINGS", AccountType.ASSET, false, false),
                         tuple("UNALLOCATED", AccountType.EQUITY, false, false));
-        assertThat(categories.findAllByLedgerIdOrderByName(ledger.ledgerId()))
+        assertThat(categories.findAll(ledger))
                 .extracting(LedgerCategory::code, LedgerCategory::type)
                 .containsExactlyInAnyOrder(
                         tuple("PAYCHECK", CategoryType.INCOME),
@@ -169,7 +169,7 @@ class ImportServiceTests extends IntegrationTest {
                         tuple("TRANSPORT", CategoryType.EXPENSE),
                         tuple("PRESENTS", CategoryType.EXPENSE));
         // Payees are merchants, borrowers people; a name is one counterparty whatever its case or role.
-        assertThat(counterparties.findAllByLedgerIdOrderByName(ledger.ledgerId()))
+        assertThat(counterparties.findAll(ledger))
                 .extracting(Counterparty::name, Counterparty::kind)
                 .contains(
                         tuple("Unassigned", null),
@@ -306,7 +306,7 @@ class ImportServiceTests extends IntegrationTest {
 
         assertThat(report.outcome()).isEqualTo(Outcome.COMMITTED);
         assertThat(report.referenceData()).isEqualTo(new ImportReport.ReferenceCounts(0, 1, 0, 0, 0));
-        assertThat(accounts.findByLedgerIdAndCode(ledger.ledgerId(), "RESERVE")).get()
+        assertThat(accounts.findByCode(ledger, "RESERVE")).get()
                 .extracting(Account::name).isEqualTo("На потом");
     }
 

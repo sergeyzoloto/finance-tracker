@@ -600,9 +600,9 @@ than the MVP needs.
 - Family resources live under `/api/family-ledgers`: GET (the user's ledgers) and POST (create); and
   under `/api/family-ledgers/{ledgerId}/`: `members`, `invites`, `categories`, `records` (with
   `{recordId}` and `{recordId}/changes`), `settlements`, `balances`, `reports/cash-flow`, `settings`.
-  `/api/invites/lookup` and `/api/invites/accept` take the token instead.
-- Headers are rejected because the ledger would be invisible in URLs, links and the OpenAPI paths
-  that `everyOperationOfTheApiIsCheckedHere` reads; a session value because all tabs share it.
+  `/api/invites/lookup`, `/api/invites/accept` and `/api/invites/decline` take the token instead.
+- Headers are rejected because the ledger would be invisible in URLs, links and the path patterns
+  that the isolation tests' coverage records; a session value because all tabs share it.
 
 **UI.** A switcher in the header of `App.tsx`: "My ledger" and each family ledger by name. Family
 pages are routes under `/family/:ledgerId` (records, balances, members, categories, settings), so a
@@ -742,9 +742,9 @@ stays for personal ledgers:
   Each writes a personal ledger with planted markers (`ALICE_PRIVATE`, …) in account names, category
   names, memos and counterparties. A and B get records of every type, settlements, invites, a member
   without an account, a claimed seat and a change journal.
-- For every family operation of the OpenAPI description (the check of
-  `everyOperationOfTheApiIsCheckedHere` covers the new paths too): Bob on B, and Carol on A and B,
-  get 404 word for word as for a ledger id that doesn't exist, for reads and writes alike.
+- For every family endpoint (`everyEndpointIsCheckedHere`, since F2a, fails for a mapped endpoint
+  that no cross-user request reached): Bob on B, and Carol on A and B, get 404 word for word as for
+  a ledger id that doesn't exist, for reads and writes alike.
 - No answer to Bob or Carol contains another user's markers. Bob's answers on A show family data
   only: Alice's display name, family categories, records, shares, balances; never her accounts,
   personal categories, memos or payment accounts.

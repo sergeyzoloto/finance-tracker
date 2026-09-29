@@ -28,17 +28,16 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  */
 abstract class LedgerApiTest extends IntegrationTest {
 
-    /** Every table with rows that a user owns, with how to count the user's rows in it. */
+    /** Every table with rows that a user owns, with the FROM clause that selects the user's rows in it as t. */
     private static final Map<String, String> OWNED_ROWS = new LinkedHashMap<>();
 
     static {
         for (String table : List.of("user_settings", "account", "category", "counterparty", "journal_entry",
                 "import_batch", "exchange_rate")) {
-            OWNED_ROWS.put(table, "SELECT count(*) FROM " + table + " WHERE user_id = ?");
+            OWNED_ROWS.put(table, "FROM " + table + " t WHERE t.user_id = ?");
         }
-        OWNED_ROWS.put("posting",
-                "SELECT count(*) FROM posting JOIN journal_entry e ON e.id = entry_id WHERE e.user_id = ?");
-        OWNED_ROWS.put("users", "SELECT count(*) FROM users WHERE keycloak_id = ?");
+        OWNED_ROWS.put("posting", "FROM posting t JOIN journal_entry e ON e.id = t.entry_id WHERE e.user_id = ?");
+        OWNED_ROWS.put("users", "FROM users t WHERE t.keycloak_id = ?");
     }
 
     @Autowired
@@ -146,8 +145,21 @@ abstract class LedgerApiTest extends IntegrationTest {
     /** How many rows the user has in each table of owned rows, by table. */
     protected Map<String, Long> rowsOf(String user) {
         Map<String, Long> rows = new LinkedHashMap<>();
-        OWNED_ROWS.forEach((table, sql) -> rows.put(table, jdbc.sql(sql).param(user).query(Long.class).single()));
+        OWNED_ROWS.forEach((table, from) -> rows.put(table,
+                jdbc.sql("SELECT count(*) " + from).param(user).query(Long.class).single()));
         return rows;
+    }
+
+    /**
+     * A digest of the user's rows in each table of owned rows, by table, over every column: the digests are equal
+     * exactly when the rows are, whatever changed in them.
+     */
+    protected Map<String, String> digestOf(String user) {
+        Map<String, String> digests = new LinkedHashMap<>();
+        OWNED_ROWS.forEach((table, from) -> digests.put(table, jdbc.sql(
+                "SELECT md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) " + from)
+                .param(user).query(String.class).single()));
+        return digests;
     }
 
     /** The element of the array whose field has the value. */

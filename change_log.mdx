@@ -25,14 +25,39 @@ Not committed yet.
   - Stale statements: ADR 0001's status and CLAUDE.md's "not applied anywhere yet" (production runs
     V1 to V4 since D3); CLAUDE.md and the runbook's step 10 now say the Excel import waits for
     family posting (D-21) and the next step is F2a. The F1 entry below got its commit.
+- Stronger isolation tests (commit "test(isolation): record coverage from real cross-user
+  requests"):
+  - `DataIsolationApiTests`: the hand-kept list of OpenAPI operations is gone. Every request of
+    Bob's after Alice wrote her ledger goes through `bobsRequest`, which checks that her rows are the
+    same afterwards and records the endpoint that handled it: the HTTP method, the path pattern and
+    any required parameters, taken from the `RequestMappingInfo` of the handler method that
+    `MvcResult` reports. `bobReads` adds that a list, search or report of his holds none of her
+    markers; `answersAsIfMissing` keeps the 404, word for word as for a missing id.
+  - `everyEndpointIsCheckedHere` runs last (`@Order`) and fails, with the list, for every endpoint
+    of the application's `RequestMappingInfoHandlerMapping` beans that no such request reached,
+    and when nothing was recorded. `NOT_USER_SCOPED` lists, with reasons, `GET /api/openapi`,
+    `GET /api/openapi.yaml`, `GET /actuator`, `GET /actuator/health`, `GET /actuator/health/**`
+    and `ANY /error`.
+  - The two variants of balances, cash flow and net worth (`!currency` and `currency=BASE`) count
+    as separate endpoints; the old list counted each path once.
+  - New check: Bob uploads manual rates as CSV for Alice's days and currencies, and her rates stay.
+    `POST /api/rates/manual/csv` was in the old list but no test sent it as Bob.
+  - `LedgerApiTest.digestOf`: an MD5 per owned table over the user's rows, from the same table list
+    as `rowsOf`.
+  - CLAUDE.md and ADR 0003 (topics I and K) describe the new check.
 
 **Verified**
-- Baseline on `feature/family-budget` at `6a0ad0e`, clean tree: `./mvnw -B verify` 244 tests, 0
-  failures, 0 errors, 0 skipped. Frontend: `npm ci`, `npm test` 7 files and 84 tests passed, and
-  `npm run build` succeeded.
+- Baseline on `feature/family-budget` at `6a0ad0e`, clean tree: `./mvnw -B verify` 235 tests, 0
+  failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend: `npm ci`, `npm test` 7 files and 84 tests
+  passed, and `npm run build` succeeded.
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1, run from a scratch directory.
+- Isolation tests: `./mvnw -B verify` 235 tests (one coverage test replaced by another), 0
+  failures, 0 errors, BUILD SUCCESS. With the new CSV check taken out, `everyEndpointIsCheckedHere`
+  failed with `Expecting empty but was: ["POST /api/rates/manual/csv"]`; run alone, it failed with
+  "Expecting actual not to be empty". No isolation gap in the application: every request passed.
 
 **Open**
-- The isolation tests and V5 follow in this task.
+- V5 follows in this task.
 
 ## 2026-09-28 · Family budget: requirements, current state and ADR 0003 (F1)
 

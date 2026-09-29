@@ -3,26 +3,40 @@ package com.example.financetracker.ledger.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongFunction;
+import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
 /**
  * Strict isolation between users (rule 11), endpoint by endpoint. Anyone can sign up to the production realm, so no
@@ -33,8 +47,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * list, read, change, delete or refer to any of it; for each of her objects he gets the answer he gets for an object
  * that doesn't exist; every read of his answers the same before and after she writes her ledger; and his demo data
  * and the deletion of all his data leave hers as they were.
- * {@link #everyOperationOfTheApiIsCheckedHere} fails for a new endpoint until it is checked here too.
+ * <p>
+ * Every request of Bob's after Alice wrote her ledger goes through {@link #bobsRequest}, which checks that her rows
+ * are the same afterwards and records the endpoint that handled it, as the application's handler mapping resolved
+ * it. {@link #everyEndpointIsCheckedHere} runs last and fails for every mapped endpoint that none of his requests
+ * reached, unless {@link #NOT_USER_SCOPED} names it with the reason.
  */
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class DataIsolationApiTests extends LedgerApiTest {
 
     private static final String AUGUST = "?from=2026-08-01&to=2026-08-31";
@@ -63,24 +82,23 @@ class DataIsolationApiTests extends LedgerApiTest {
             "/api/rates/manual",
             "/api/settings");
 
-    /** Every operation of the API: the reads above, and the writes of the tests below. */
-    private static final Set<String> CHECKED = Set.of(
-            "get /api/me",
-            "get /api/accounts", "post /api/accounts", "patch /api/accounts/{id}",
-            "get /api/categories", "post /api/categories", "patch /api/categories/{id}",
-            "get /api/counterparties", "post /api/counterparties", "patch /api/counterparties/{id}",
-            "get /api/entries", "post /api/entries",
-            "get /api/entries/{id}", "put /api/entries/{id}", "delete /api/entries/{id}",
-            "get /api/reports/balances", "get /api/reports/cash-flow", "get /api/reports/counterparty-balances",
-            "get /api/reports/net-worth", "get /api/reports/shared-settlement", "get /api/reports/integrity",
-            "post /api/import",
-            "get /api/rates", "get /api/rates/manual", "post /api/rates/manual", "delete /api/rates/manual",
-            "post /api/rates/manual/csv",
-            "get /api/settings", "put /api/settings",
-            "post /api/demo-data", "delete /api/me/data");
+    /** The mapped endpoints that hold nothing of any user's, so that there is nothing to isolate, with the reason. */
+    private static final Map<String, String> NOT_USER_SCOPED = Map.of(
+            "GET /api/openapi", "The API's description, the same for every user.",
+            "GET /api/openapi.yaml", "The same description as YAML.",
+            "GET /actuator", "Actuator's links to its exposed endpoints: only health, open to everyone.",
+            "GET /actuator/health", "UP or DOWN, open to everyone.",
+            "GET /actuator/health/**", "The status of a health group or component, open to everyone.",
+            "ANY /error", "Spring Boot's error answer, which says only the status of a failed request.");
+
+    /** The endpoints that handled a request of Bob's against Alice's data, in every test of this class so far. */
+    private static final Set<String> CHECKED = ConcurrentHashMap.newKeySet();
 
     @Autowired
     private TransactionTemplate transactions;
+
+    @Autowired
+    private List<RequestMappingInfoHandlerMapping> handlerMappings;
 
     private final String alice = newUser();
     private final String bob = newUser();
@@ -110,7 +128,7 @@ class DataIsolationApiTests extends LedgerApiTest {
 
     @Test
     void bobsAnswersAreTheSameBeforeAndAfterAliceWritesHerLedger() throws IOException {
-        Map<String, JsonNode> bobsView = view(bob);
+        Map<String, JsonNode> bobsView = bobsView();
         Map<String, JsonNode> alicesView = view(alice);
 
         SoftAssertions softly = new SoftAssertions();
@@ -177,7 +195,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         softly.assertAll();
 
         assertThat(view(alice)).isEqualTo(alicesView);
-        assertThat(view(bob)).isEqualTo(bobsViewBefore);
+        assertThat(bobsView()).isEqualTo(bobsViewBefore);
     }
 
     @Test
@@ -243,15 +261,17 @@ class DataIsolationApiTests extends LedgerApiTest {
             String missing = reference.command().apply(MISSING);
             // In a new entry, and in place of one of his own.
             for (MvcTestResult[] answers : List.of(
-                    new MvcTestResult[] {post(bob, "/api/entries", hers), post(bob, "/api/entries", missing)},
-                    new MvcTestResult[] {put(bob, bobsEntry, hers), put(bob, bobsEntry, missing)})) {
+                    new MvcTestResult[] {bobsRequest(HttpMethod.POST, "/api/entries", hers),
+                            post(bob, "/api/entries", missing)},
+                    new MvcTestResult[] {bobsRequest(HttpMethod.PUT, bobsEntry, hers), put(bob, bobsEntry, missing)})) {
                 softly.assertThat(answers[0].getResponse().getStatus()).as(reference.what()).isEqualTo(422);
                 softly.assertThat(withoutDigits(answers[0])).as(reference.what()).isEqualTo(withoutDigits(answers[1]));
             }
         }
         String settings = """
                 {"baseCurrency": "EUR", "sharedAccountId": %d, "defaultShareRatio": "0.5"}""";
-        MvcTestResult herSharedAccount = put(bob, "/api/settings", settings.formatted(alicesSharedAccount));
+        MvcTestResult herSharedAccount = bobsRequest(HttpMethod.PUT, "/api/settings",
+                settings.formatted(alicesSharedAccount));
         softly.assertThat(herSharedAccount.getResponse().getStatus()).as("her shared account").isEqualTo(422);
         softly.assertThat(withoutDigits(herSharedAccount)).as("her shared account")
                 .isEqualTo(withoutDigits(put(bob, "/api/settings", settings.formatted(MISSING))));
@@ -259,26 +279,37 @@ class DataIsolationApiTests extends LedgerApiTest {
         for (String filter : List.of("accountId=%d", "categoryId=%d", "counterpartyId=%d")) {
             long id = filter.startsWith("account") ? alicesCash : filter.startsWith("category") ? alicesHobby
                     : alicesFriend;
-            JsonNode found = ok(get(bob, "/api/entries?" + filter.formatted(id)));
+            JsonNode found = bobReads("/api/entries?" + filter.formatted(id));
             softly.assertThat(found.get("totalElements").asLong()).as(filter).isZero();
             softly.assertThat(found).as(filter).isEqualTo(ok(get(bob, "/api/entries?" + filter.formatted(MISSING))));
         }
-        softly.assertThat(body(get(bob, "/api/reports/counterparty-balances?accountCode=ALICE_LOANS"),
-                HttpStatus.NOT_FOUND).get("detail").asText()).isEqualTo("Account ALICE_LOANS not found.");
+        softly.assertThat(body(bobsRequest(HttpMethod.GET, "/api/reports/counterparty-balances?accountCode=ALICE_LOANS",
+                null), HttpStatus.NOT_FOUND).get("detail").asText()).isEqualTo("Account ALICE_LOANS not found.");
         softly.assertAll();
-        assertThat(view(bob)).isEqualTo(bobsViewBefore);
+        assertThat(bobsView()).isEqualTo(bobsViewBefore);
 
         // Codes and names are unique per user only, so taking hers tells him nothing: a clash would.
-        assertThat(post(bob, "/api/accounts", """
+        assertThat(bobsRequest(HttpMethod.POST, "/api/accounts", """
                 {"code": "ALICE_BANK", "name": "Alice's bank", "type": "ASSET"}""")).hasStatus(HttpStatus.CREATED);
-        assertThat(post(bob, "/api/categories", """
+        assertThat(bobsRequest(HttpMethod.POST, "/api/categories", """
                 {"code": "ALICE_HOBBY", "name": "Alice's hobby", "type": "EXPENSE"}""")).hasStatus(HttpStatus.CREATED);
-        assertThat(post(bob, "/api/counterparties", """
+        assertThat(bobsRequest(HttpMethod.POST, "/api/counterparties", """
                 {"name": "Alice's friend"}""")).hasStatus(HttpStatus.CREATED);
         // A rate of his own for her day and currency, and deleting his rate of a day she has one for, leave hers.
-        ok(post(bob, "/api/rates/manual", """
+        ok(bobsRequest(HttpMethod.POST, "/api/rates/manual", """
                 {"date": "2026-08-01", "base": "EUR", "quote": "USD", "rate": "2"}"""));
-        assertThat(delete(bob, "/api/rates/manual?date=2026-08-01&currency=GBP")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(bobsRequest(HttpMethod.DELETE, "/api/rates/manual?date=2026-08-01&currency=GBP", null))
+                .hasStatus(HttpStatus.NO_CONTENT);
+        // So do rates of his own from a file, for her days and currencies.
+        assertThat(ok(bobsRequest(() -> mvc.post().uri("/api/rates/manual/csv").multipart()
+                .file(new MockMultipartFile("file", "rates.csv", "text/csv", """
+                        date,base,quote,rate
+                        2026-08-15,EUR,USD,1.5
+                        2026-08-01,EUR,GBP,0.7
+                        """.getBytes(StandardCharsets.UTF_8)))
+                .with(member(bob))
+                .exchange())).get("saved").asInt()).isEqualTo(2);
+        assertThat(rateKeys(bobReads("/api/rates/manual"))).contains("2026-08-15 USD", "2026-08-01 GBP");
         assertThat(view(alice)).isEqualTo(alicesView);
     }
 
@@ -287,8 +318,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         Map<String, JsonNode> alicesView = view(alice);
         byte[] transactions = withoutRow(fixture("transactions.csv"), 10);
 
-        JsonNode dryRun = ok(importWorkbook(bob, transactions, null));
-        JsonNode committed = ok(importWorkbook(bob, transactions, "false"));
+        JsonNode dryRun = ok(bobsRequest(() -> importWorkbook(bob, transactions, null)));
+        JsonNode committed = ok(bobsRequest(() -> importWorkbook(bob, transactions, "false")));
 
         // Alice imported the same files, but for Bob every row is new: none is skipped as imported before.
         assertThat(dryRun.get("entriesByKind")).isEqualTo(alicesImport.get("entriesByKind"));
@@ -297,10 +328,10 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(committed.get("entriesByKind")).isEqualTo(alicesImport.get("entriesByKind"));
         assertThat(committed.get("skipped")).isEqualTo(alicesImport.get("skipped"));
         // The balances after the import are his accounts' alone.
-        List<String> bobsAccounts = ok(get(bob, "/api/accounts")).findValuesAsText("id");
+        List<String> bobsAccounts = bobReads("/api/accounts").findValuesAsText("id");
         assertThat(committed.get("balances").findValuesAsText("accountId")).isNotEmpty()
                 .allMatch(bobsAccounts::contains);
-        assertThat(ok(get(bob, "/api/entries")).get("totalElements").asLong()).isEqualTo(4 + 24);
+        assertThat(bobReads("/api/entries").get("totalElements").asLong()).isEqualTo(4 + 24);
         assertThat(view(alice)).isEqualTo(alicesView);
     }
 
@@ -309,28 +340,29 @@ class DataIsolationApiTests extends LedgerApiTest {
         Map<String, JsonNode> alicesView = view(alice);
 
         // A parameter, a header or a field of the body that names Alice changes nothing.
-        assertThat(ok(mvc.get().uri("/api/accounts").param("userId", alice).param("user_id", alice)
-                .param("sub", alice).header("X-User-Id", alice).with(member(bob)).exchange()))
+        assertThat(ok(bobsRequest(() -> mvc.get().uri("/api/accounts").param("userId", alice).param("user_id", alice)
+                .param("sub", alice).header("X-User-Id", alice).with(member(bob)).exchange())))
                 .isEqualTo(bobsViewBefore.get("/api/accounts"));
-        assertThat(post(bob, "/api/counterparties", """
+        assertThat(bobsRequest(HttpMethod.POST, "/api/counterparties", """
                 {"name": "Planted", "userId": "%1$s", "user_id": "%1$s", "sub": "%1$s"}""".formatted(alice)))
                 .hasStatus(HttpStatus.CREATED);
-        newEntry(bob, """
+        body(bobsRequest(HttpMethod.POST, "/api/entries", """
                 {"kind": "EXPENSE", "entryDate": "2026-08-20", "accountId": %d, "currency": "EUR", "amount": "1",
-                 "categoryId": %d, "memo": "Planted", "userId": "%s"}""".formatted(bobsCash, bobsGroceries, alice));
-        ok(put(bob, "/api/settings", """
+                 "categoryId": %d, "memo": "Planted", "userId": "%s"}""".formatted(bobsCash, bobsGroceries, alice)),
+                HttpStatus.CREATED);
+        ok(bobsRequest(HttpMethod.PUT, "/api/settings", """
                 {"baseCurrency": "GBP", "defaultShareRatio": "0.5", "userId": "%s"}""".formatted(alice)));
-        assertThat(ok(get(bob, "/api/counterparties")).findValuesAsText("name")).contains("Planted");
-        assertThat(ok(get(bob, "/api/entries")).get("totalElements").asLong()).isEqualTo(5);
-        assertThat(ok(get(bob, "/api/settings")).get("baseCurrency").asText()).isEqualTo("GBP");
+        assertThat(bobReads("/api/counterparties").findValuesAsText("name")).contains("Planted");
+        assertThat(bobReads("/api/entries").get("totalElements").asLong()).isEqualTo(5);
+        assertThat(bobReads("/api/settings").get("baseCurrency").asText()).isEqualTo("GBP");
         assertThat(view(alice)).isEqualTo(alicesView);
 
         // The same with an access token signed like Keycloak's, rather than spring-security-test's stand-in.
         long alicesEntry = alicesView.get("/api/entries?size=200").get("content").get(0).get("id").asLong();
-        assertThat(request(HttpMethod.GET, "/api/entries/%d?userId=%s".formatted(alicesEntry, alice), token(bob), null))
-                .hasStatus(HttpStatus.NOT_FOUND);
-        assertThat(read(request(HttpMethod.GET, "/api/counterparties?userId=" + alice, token(bob), null),
-                JsonNode.class).findValuesAsText("name")).containsExactly("Bob's friend", "Planted");
+        assertThat(bobsRequest(() -> request(HttpMethod.GET, "/api/entries/%d?userId=%s".formatted(alicesEntry, alice),
+                token(bob), null))).hasStatus(HttpStatus.NOT_FOUND);
+        assertThat(read(bobsRequest(() -> request(HttpMethod.GET, "/api/counterparties?userId=" + alice, token(bob),
+                null)), JsonNode.class).findValuesAsText("name")).containsExactly("Bob's friend", "Planted");
     }
 
     @Test
@@ -339,17 +371,17 @@ class DataIsolationApiTests extends LedgerApiTest {
         Map<String, Long> alicesRows = rowsOf(alice);
 
         // He has entries, so the demo is refused until he deletes his data.
-        assertThat(post(bob, "/api/demo-data", null)).hasStatus(HttpStatus.CONFLICT);
-        assertThat(delete(bob, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(bobsRequest(HttpMethod.POST, "/api/demo-data", null)).hasStatus(HttpStatus.CONFLICT);
+        assertThat(bobsRequest(HttpMethod.DELETE, "/api/me/data", null)).hasStatus(HttpStatus.NO_CONTENT);
         assertThat(rowsOf(bob)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
         assertThat(rowsOf(alice)).isEqualTo(alicesRows);
         assertThat(view(alice)).isEqualTo(alicesView);
 
-        ok(post(bob, "/api/demo-data", null));
+        ok(bobsRequest(HttpMethod.POST, "/api/demo-data", null));
         assertThat(rowsOf(alice)).isEqualTo(alicesRows);
         assertThat(view(alice)).isEqualTo(alicesView);
         // His demo ledger holds nothing of hers, and her broken posting doesn't show in his integrity check.
-        Map<String, JsonNode> bobsView = view(bob);
+        Map<String, JsonNode> bobsView = bobsView();
         SoftAssertions softly = new SoftAssertions();
         for (String uri : READS) {
             softly.assertThat(bobsView.get(uri).toString()).as("Bob's %s", uri).doesNotContain("Alice", "ALICE", alice);
@@ -357,30 +389,40 @@ class DataIsolationApiTests extends LedgerApiTest {
         softly.assertAll();
         assertThat(bobsView.get("/api/reports/integrity")).isEmpty();
 
-        assertThat(delete(bob, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(bobsRequest(HttpMethod.DELETE, "/api/me/data", null)).hasStatus(HttpStatus.NO_CONTENT);
         assertThat(rowsOf(bob)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
         assertThat(rowsOf(alice)).isEqualTo(alicesRows);
         assertThat(view(alice)).isEqualTo(alicesView);
     }
 
-    @Test
-    void everyOperationOfTheApiIsCheckedHere() throws IOException {
-        Set<String> operations = new TreeSet<>();
-        ok(get(bob, "/api/openapi")).get("paths").properties().forEach(path -> path.getValue().fieldNames()
-                .forEachRemaining(method -> operations.add(method + " " + path.getKey())));
-
-        assertThat(operations).containsExactlyInAnyOrderElementsOf(CHECKED);
-    }
-
     /** A shared browser or a proxy must never hand one user's answer to the next. */
     @Test
-    void noAnswerOfTheApiMayBeStored() {
+    void noAnswerOfTheApiMayBeStored() throws IOException {
         SoftAssertions softly = new SoftAssertions();
         for (String uri : READS) {
-            softly.assertThat(get(bob, uri).getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).as(uri)
-                    .contains("no-store");
+            softly.assertThat(bobsRequest(HttpMethod.GET, uri, null).getResponse().getHeader(HttpHeaders.CACHE_CONTROL))
+                    .as(uri).contains("no-store");
         }
         softly.assertAll();
+    }
+
+    /**
+     * Every endpoint of the application, as its handler mappings map them, handled at least one request of Bob's
+     * against Alice's data in the tests above, or holds nothing of a user's. Runs after them, since it reads what
+     * they recorded; run on its own, it fails.
+     */
+    @Test
+    @Order(Integer.MAX_VALUE)
+    void everyEndpointIsCheckedHere() {
+        assertThat(CHECKED).as("endpoints that Bob's requests reached; this test needs the others of its class")
+                .isNotEmpty();
+        Set<String> mapped = mappedEndpoints();
+        assertThat(mapped).as("mapped endpoints").containsAll(NOT_USER_SCOPED.keySet());
+
+        Set<String> unchecked = new TreeSet<>(mapped);
+        unchecked.removeAll(CHECKED);
+        unchecked.removeAll(NOT_USER_SCOPED.keySet());
+        assertThat(unchecked).as("endpoints that no request of Bob's against Alice's data reached").isEmpty();
     }
 
     /** A few entries in euros and dollars, and a manual rate for pounds. Dollars have no rate of his. */
@@ -496,8 +538,93 @@ class DataIsolationApiTests extends LedgerApiTest {
         return view;
     }
 
+    /** Bob's answer to every read, once Alice has written her ledger. */
+    private Map<String, JsonNode> bobsView() throws IOException {
+        Map<String, JsonNode> view = new LinkedHashMap<>();
+        for (String uri : READS) {
+            view.put(uri, bobReads(uri));
+        }
+        return view;
+    }
+
+    /**
+     * One of Bob's requests, sent once Alice has written her ledger. Whatever it asks, her rows are the same
+     * afterwards, in every table and column; and the endpoint that handled it counts as checked.
+     *
+     * @param request sends the request as Bob
+     */
+    private MvcTestResult bobsRequest(Request request) throws IOException {
+        Map<String, String> alicesRows = digestOf(alice);
+        MvcTestResult result = request.send();
+        String endpoint = endpointOf(result.getMvcResult());
+        assertThat(digestOf(alice)).as("Alice's rows after Bob's request to %s", endpoint).isEqualTo(alicesRows);
+        CHECKED.add(endpoint);
+        return result;
+    }
+
+    private MvcTestResult bobsRequest(HttpMethod method, String uri, String body) throws IOException {
+        return bobsRequest(() -> call(bob, method, uri, body));
+    }
+
+    /** Bob's read of a list, a search or a report of his: it answers, and nothing of Alice's is in it. */
+    private JsonNode bobReads(String uri) throws IOException {
+        JsonNode answer = ok(bobsRequest(HttpMethod.GET, uri, null));
+        assertThat(answer.toString()).as("Bob's %s", uri).doesNotContain("Alice", "ALICE", alice);
+        return answer;
+    }
+
+    /**
+     * The endpoint that handled the request: its method and path pattern, and the parameters it requires, as the
+     * handler mapping that chose the handler maps them.
+     */
+    private String endpointOf(MvcResult result) {
+        MockHttpServletRequest request = result.getRequest();
+        String what = request.getMethod() + " " + request.getRequestURI();
+        assertThat(result.getHandler()).as("the handler of %s", what).isInstanceOf(HandlerMethod.class);
+        Method handler = ((HandlerMethod) result.getHandler()).getMethod();
+        String pattern = (String) request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        RequestMethod method = RequestMethod.resolve(request.getMethod());
+        for (RequestMappingInfoHandlerMapping mapping : handlerMappings) {
+            for (var mapped : mapping.getHandlerMethods().entrySet()) {
+                RequestMappingInfo info = mapped.getKey();
+                Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
+                if (mapped.getValue().getMethod().equals(handler) && info.getPatternValues().contains(pattern)
+                        && (methods.isEmpty() || methods.contains(method))) {
+                    return endpoint(methods.isEmpty() ? "ANY" : method.name(), pattern, info);
+                }
+            }
+        }
+        throw new AssertionError("No handler mapping maps %s to %s".formatted(what, handler));
+    }
+
+    /** Every endpoint of the application's handler mappings. */
+    private Set<String> mappedEndpoints() {
+        Set<String> endpoints = new TreeSet<>();
+        for (RequestMappingInfoHandlerMapping mapping : handlerMappings) {
+            for (RequestMappingInfo info : mapping.getHandlerMethods().keySet()) {
+                List<String> methods = new ArrayList<>(info.getMethodsCondition().getMethods().stream()
+                        .map(RequestMethod::name).toList());
+                if (methods.isEmpty()) {
+                    methods.add("ANY");
+                }
+                for (String method : methods) {
+                    info.getPatternValues().forEach(pattern -> endpoints.add(endpoint(method, pattern, info)));
+                }
+            }
+        }
+        return endpoints;
+    }
+
+    /** Such as {@code GET /api/reports/balances [currency=BASE]}. */
+    private static String endpoint(String method, String pattern, RequestMappingInfo info) {
+        String params = info.getParamsCondition().getExpressions().stream().map(Object::toString).sorted()
+                .collect(Collectors.joining(" & "));
+        return method + " " + pattern + (params.isEmpty() ? "" : " [" + params + "]");
+    }
+
     /** Bob's request for one of Alice's objects, by its id. */
-    private void answersAsIfMissing(SoftAssertions softly, HttpMethod method, String uri, long alicesId, String body) {
+    private void answersAsIfMissing(SoftAssertions softly, HttpMethod method, String uri, long alicesId, String body)
+            throws IOException {
         answersAsIfMissing(softly, method, uri, alicesId, MISSING, body);
     }
 
@@ -508,8 +635,8 @@ class DataIsolationApiTests extends LedgerApiTest {
      * @param uri with a %s or %d for the object's key
      */
     private void answersAsIfMissing(SoftAssertions softly, HttpMethod method, String uri, Object alicesKey,
-            Object missingKey, String body) {
-        MvcTestResult answer = call(bob, method, uri.formatted(alicesKey), body);
+            Object missingKey, String body) throws IOException {
+        MvcTestResult answer = bobsRequest(method, uri.formatted(alicesKey), body);
         MvcTestResult answerIfMissing = call(bob, method, uri.formatted(missingKey), body);
         String what = method + " " + uri.formatted(alicesKey);
         softly.assertThat(answer.getResponse().getStatus()).as(what).isEqualTo(404);
@@ -553,5 +680,11 @@ class DataIsolationApiTests extends LedgerApiTest {
      * @param command the command with the object's id
      */
     private record Reference(String what, long alicesId, LongFunction<String> command) {
+    }
+
+    /** Sends a request. */
+    @FunctionalInterface
+    private interface Request {
+        MvcTestResult send() throws IOException;
     }
 }

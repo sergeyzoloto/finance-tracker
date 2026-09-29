@@ -69,8 +69,8 @@ class LedgerAccessTests extends IntegrationTest {
 
     @Test
     void aFamilyLedgerIsReachedByAnActiveMembershipOnly() {
-        long family = jdbc.sql("INSERT INTO ledger (type, name, base_currency) VALUES ('SHARED', 'Family', 'EUR') "
-                + "RETURNING id").query(Long.class).single();
+        long family = jdbc.sql("INSERT INTO ledger (type, name, base_currency, split_rule) "
+                + "VALUES ('SHARED', 'Family', 'EUR', 'EQUAL') RETURNING id").query(Long.class).single();
         long alicesMembership = join(family, alice, "OWNER");
         long bobsMembership = join(family, bob, "MEMBER");
 
@@ -101,7 +101,7 @@ class LedgerAccessTests extends IntegrationTest {
     private long join(long ledgerId, String sub, String role) {
         return jdbc.sql("""
                 INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date)
-                VALUES (?, 'SHARED', ?, 'Member', ?, 'ACTIVE', ?) RETURNING id""")
-                .params(ledgerId, sub, role, LocalDate.of(2026, 9, 1)).query(Long.class).single();
+                VALUES (?, 'SHARED', ?, ?, ?, 'ACTIVE', ?) RETURNING id""")
+                .params(ledgerId, sub, "Member " + sub, role, LocalDate.of(2026, 9, 1)).query(Long.class).single();
     }
 }

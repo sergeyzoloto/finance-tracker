@@ -37,6 +37,7 @@ class LedgerSchemaTests {
     private static final String CHECK_VIOLATION = "23514";
     private static final String FOREIGN_KEY_VIOLATION = "23503";
     private static final String UNIQUE_VIOLATION = "23505";
+    private static final String NOT_NULL_VIOLATION = "23502";
 
     private static final PostgreSQLContainer<?> POSTGRES = IntegrationTest.POSTGRES;
     private static final String URL = "jdbc:postgresql://%s:%d/ledger_schema_tests"
@@ -49,6 +50,8 @@ class LedgerSchemaTests {
     private long cash, card, loans, unallocated, familyDebt, fxExchange, groceries, borrower;
     /** Unique across all entries, so that a posting moved to another entry keeps a free line number. */
     private int lineNo;
+    /** The members {@link #member} named so far. */
+    private int members;
 
     @BeforeAll
     static void migrateEmptyDatabase() throws SQLException {
@@ -400,7 +403,10 @@ class LedgerSchemaTests {
                 CHECK_VIOLATION, "ledger member %d: a former member stays as they are".formatted(seat));
     }
 
-    /** In F2a every row is in its user's personal ledger, and in no other. */
+    /**
+     * A row with a user is in that user's personal ledger, and in no other: not another user's, and not a family
+     * ledger, which holds only family categories (V6, familyLedgerHoldsOnlyCategoriesWithoutAUser).
+     */
     @Test
     void aRowIsInThePersonalLedgerOfItsUser() throws SQLException {
         String other = UUID.randomUUID().toString();
@@ -409,12 +415,15 @@ class LedgerSchemaTests {
         long batch = importBatch(user);
         db.commit();
 
-        for (long ledger : new long[] {personalLedger(other), family}) {
-            assertFails(() -> insert("INSERT INTO account (user_id, ledger_id, code, name, type) "
-                    + "VALUES (?, ?, 'BANK', 'Bank', 'ASSET')", user, ledger), FOREIGN_KEY_VIOLATION,
-                    "ledger %d is not the personal ledger of its user".formatted(ledger));
-            db.rollback();
-        }
+        long othersLedger = personalLedger(other);
+        assertFails(() -> insert("INSERT INTO account (user_id, ledger_id, code, name, type) "
+                + "VALUES (?, ?, 'BANK', 'Bank', 'ASSET')", user, othersLedger), FOREIGN_KEY_VIOLATION,
+                "ledger %d is not the personal ledger of its user".formatted(othersLedger));
+        db.rollback();
+        assertFails(() -> insert("INSERT INTO account (user_id, ledger_id, code, name, type) "
+                + "VALUES (?, ?, 'BANK', 'Bank', 'ASSET')", user, family), FOREIGN_KEY_VIOLATION,
+                "ledger %d is a family ledger, which holds only categories without user_id".formatted(family));
+        db.rollback();
         // An import batch's user_id was never fixed, but it can't take the batch into another user's ledger.
         long ledger = personalLedger(user);
         assertFails(() -> update("UPDATE import_batch SET user_id = ? WHERE id = ?", other, batch),
@@ -441,6 +450,151 @@ class LedgerSchemaTests {
                     row.getValue()));
             db.rollback();
         }
+    }
+
+    /**
+     * A family ledger holds family categories, rows without a user, and nothing else yet (V6; ADR 0003, topics A and
+     * F). A category without a user is in a family ledger, never in a personal one.
+     */
+    @Test
+    void familyLedgerHoldsOnlyCategoriesWithoutAUser() throws SQLException {
+        long family = sharedLedger();
+        db.commit();
+        // The same code as the user's own GROCERIES: codes are unique per ledger.
+        long familyGroceries = insert("INSERT INTO category (ledger_id, code, name, type) "
+                + "VALUES (?, 'GROCERIES', 'Groceries', 'EXPENSE')", family);
+        db.commit();
+
+        String refused = "ledger %d is a family ledger, which holds only categories without user_id".formatted(family);
+        for (String insert : List.of(
+                "INSERT INTO category (user_id, ledger_id, code, name, type) VALUES (?, ?, 'RENT', 'Rent', 'EXPENSE')",
+                "INSERT INTO account (user_id, ledger_id, code, name, type) VALUES (?, ?, 'BANK', 'Bank', 'ASSET')",
+                "INSERT INTO counterparty (user_id, ledger_id, name) VALUES (?, ?, 'Shop')",
+                "INSERT INTO journal_entry (user_id, ledger_id, entry_date) VALUES (?, ?, DATE '2026-09-25')",
+                "INSERT INTO import_batch (user_id, ledger_id, file_name, file_sha256, dry_run) "
+                        + "VALUES (?, ?, 'transactions.csv', repeat('0', 64), TRUE)")) {
+            assertFails(() -> insert(insert, user, family), FOREIGN_KEY_VIOLATION, refused);
+            db.rollback();
+        }
+        assertFails(() -> update("UPDATE category SET user_id = ? WHERE id = ?", user, familyGroceries),
+                FOREIGN_KEY_VIOLATION, refused);
+        db.rollback();
+        assertFails(() -> insert("INSERT INTO category (ledger_id, code, name, type) "
+                + "VALUES (?, 'GROCERIES', 'Food', 'EXPENSE')", family), UNIQUE_VIOLATION, "category_ledger_id_code_key");
+        db.rollback();
+
+        long ledger = personalLedger(user);
+        assertFails(() -> insert("INSERT INTO category (ledger_id, code, name, type) "
+                + "VALUES (?, 'RENT', 'Rent', 'EXPENSE')", ledger), FOREIGN_KEY_VIOLATION,
+                "ledger %d is not the personal ledger of its user".formatted(ledger));
+        db.rollback();
+        assertFails(() -> update("UPDATE category SET user_id = NULL WHERE id = ?", groceries), FOREIGN_KEY_VIOLATION,
+                "ledger %d is not the personal ledger of its user".formatted(ledger));
+        db.rollback();
+        assertFails(() -> insert("INSERT INTO category (code, name, type) VALUES ('RENT', 'Rent', 'EXPENSE')"),
+                NOT_NULL_VIOLATION, "a personal ledger needs a user");
+    }
+
+    /** F3a leaves the posting trigger as it is: a family category is in another ledger than any entry (F4a). */
+    @Test
+    void aFamilyCategoryCannotBeUsedOnAPostingYet() throws SQLException {
+        long family = sharedLedger();
+        member(family, "SHARED", user, "OWNER");
+        long familyGroceries = insert("INSERT INTO category (ledger_id, code, name, type) "
+                + "VALUES (?, 'GROCERIES', 'Groceries', 'EXPENSE')", family);
+        db.commit();
+
+        assertFails(() -> post(entry(), unallocated, "EUR", "5.00", familyGroceries, null), FOREIGN_KEY_VIOLATION,
+                "category %d belongs to another ledger".formatted(familyGroceries));
+    }
+
+    /**
+     * In a family ledger, a display name is never blank, and belongs to one member who isn't FORMER, whatever its case
+     * (D-3). FORMER members are all "Former member" (D-20).
+     */
+    @Test
+    void displayNamesAreUniquePerFamilyLedgerWhateverTheirCase() throws SQLException {
+        long family = sharedLedger();
+        member(family, "SHARED", user, "OWNER", "Anna", null);
+        long boris = member(family, "SHARED", null, "MEMBER", "Boris", null);
+        long clara = member(family, "SHARED", null, "MEMBER", "Clara", null);
+        db.commit();
+
+        assertFails(() -> member(family, "SHARED", null, "MEMBER", "ANNA", null), UNIQUE_VIOLATION,
+                "ledger_member_display_name_key");
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger_member SET display_name = 'anna' WHERE id = ?", boris),
+                UNIQUE_VIOLATION, "ledger_member_display_name_key");
+        db.rollback();
+        assertFails(() -> member(family, "SHARED", null, "MEMBER", " ", null), CHECK_VIOLATION,
+                "ledger_member_display_name_check");
+        db.rollback();
+        // Another family ledger has its own names.
+        member(sharedLedger(), "SHARED", null, "MEMBER", "Anna", null);
+        db.commit();
+
+        // A member who left keeps the name; former members share theirs, and free the one they had.
+        update("UPDATE ledger_member SET status = 'LEFT', left_date = DATE '2026-05-01' WHERE id = ?", clara);
+        db.commit();
+        assertFails(() -> member(family, "SHARED", null, "MEMBER", "clara", null), UNIQUE_VIOLATION,
+                "ledger_member_display_name_key");
+        db.rollback();
+        update("UPDATE ledger_member SET status = 'FORMER', role = 'MEMBER', user_sub = NULL, "
+                + "display_name = 'Former member', left_date = DATE '2026-05-01' WHERE ledger_id = ? AND user_sub = ?",
+                family, user);
+        update("UPDATE ledger_member SET status = 'FORMER', display_name = 'Former member', "
+                + "left_date = DATE '2026-05-01' WHERE id = ?", boris);
+        member(family, "SHARED", null, "MEMBER", "Anna", null);
+        db.commit();
+    }
+
+    /**
+     * A family ledger has a split rule and a personal one none. Under CUSTOM every ACTIVE member has a share out of
+     * 10000, and they sum to 10000 at commit; under EQUAL nobody has one (D-12, ADR 0003 topic B).
+     */
+    @Test
+    void aFamilyLedgersSplitRuleFitsItsMembers() throws SQLException {
+        assertFails(() -> insert("INSERT INTO ledger (type, name, base_currency) VALUES ('SHARED', 'Family', 'EUR')"),
+                CHECK_VIOLATION, "ledger_shared_split_rule_check");
+        db.rollback();
+        assertFails(() -> insert("INSERT INTO ledger (type, split_rule) VALUES ('PERSONAL', 'EQUAL')"),
+                CHECK_VIOLATION, "ledger_shared_split_rule_check");
+        db.rollback();
+        assertFails(() -> insert("INSERT INTO ledger (type, name, base_currency, split_rule) "
+                + "VALUES ('SHARED', ' ', 'EUR', 'EQUAL')"), CHECK_VIOLATION, "ledger_name_check");
+        db.rollback();
+
+        long family = sharedLedger("CUSTOM");
+        long anna = member(family, "SHARED", user, "OWNER", "Anna", 6000);
+        member(family, "SHARED", null, "MEMBER", "Boris", 4000);
+        db.commit();
+        update("UPDATE ledger_member SET share_bp = 5000 WHERE id = ?", anna);
+        assertFails(db::commit, CHECK_VIOLATION,
+                "family ledger %d: the custom shares sum to 9000, not 10000".formatted(family));
+        member(family, "SHARED", null, "MEMBER", "Clara", null);
+        assertFails(db::commit, CHECK_VIOLATION,
+                "family ledger %d: a custom split needs a share for each of its 1 members without one"
+                        .formatted(family));
+        long clara = member(family, "SHARED", null, "MEMBER", "Clara", 0);
+        db.commit();
+
+        // Refused at once: a share out of range, one of a member who isn't ACTIVE, one in a personal ledger.
+        assertFails(() -> update("UPDATE ledger_member SET share_bp = 10001 WHERE id = ?", anna), CHECK_VIOLATION,
+                "ledger_member_share_bp_check");
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger_member SET status = 'LEFT', left_date = DATE '2026-05-01' "
+                + "WHERE id = ?", clara), CHECK_VIOLATION, "ledger_member_share_check");
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger_member SET share_bp = 0 WHERE user_sub = ? AND ledger_type = "
+                + "'PERSONAL'", user), CHECK_VIOLATION, "ledger_member_share_check");
+        db.rollback();
+
+        update("UPDATE ledger SET split_rule = 'EQUAL' WHERE id = ?", family);
+        assertFails(db::commit, CHECK_VIOLATION,
+                "family ledger %d: an equal split has no custom shares".formatted(family));
+        update("UPDATE ledger SET split_rule = 'EQUAL' WHERE id = ?", family);
+        update("UPDATE ledger_member SET share_bp = NULL WHERE ledger_id = ?", family);
+        db.commit();
     }
 
     /**
@@ -529,13 +683,25 @@ class LedgerSchemaTests {
     }
 
     private long sharedLedger() throws SQLException {
-        return insert("INSERT INTO ledger (type, name, base_currency) VALUES ('SHARED', 'Family', 'EUR')");
+        return sharedLedger("EQUAL");
     }
 
+    private long sharedLedger(String splitRule) throws SQLException {
+        return insert("INSERT INTO ledger (type, name, base_currency, split_rule) VALUES ('SHARED', 'Family', 'EUR', ?)",
+                splitRule);
+    }
+
+    /** A member named "Member n", a name no other member of the test has. */
     private long member(long ledger, String ledgerType, String sub, String role) throws SQLException {
+        return member(ledger, ledgerType, sub, role, "Member " + ++members, null);
+    }
+
+    private long member(long ledger, String ledgerType, String sub, String role, String name, Integer share)
+            throws SQLException {
         return insert("""
-                INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date)
-                VALUES (?, ?, ?, 'Member', ?, 'ACTIVE', DATE '2026-01-01')""", ledger, ledgerType, sub, role);
+                INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date,
+                                           share_bp)
+                VALUES (?, ?, ?, ?, ?, 'ACTIVE', DATE '2026-01-01', ?)""", ledger, ledgerType, sub, name, role, share);
     }
 
     /** A member without an account. */

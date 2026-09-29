@@ -61,7 +61,7 @@ class LedgerBackfillMigrationTests {
             Map<String, Long> rowsBefore = rows();
             String postingsBefore = strings("SELECT string_agg(p::text, '|' ORDER BY p.id) FROM posting p").getFirst();
 
-            MigrateResult v5 = flyway(null).migrate();
+            MigrateResult v5 = flyway("5").migrate();
 
             assertThat(v5.success).isTrue();
             assertThat(v5.initialSchemaVersion).isEqualTo("4");
@@ -89,6 +89,23 @@ class LedgerBackfillMigrationTests {
                     .isEqualTo(postingsBefore);
             assertThat(strings("SELECT DISTINCT user_id || ' ' || ledger_id FROM account ORDER BY 1")).containsExactly(
                     OWNER + " " + ledger(OWNER), WITHOUT_USERS_ROW + " " + ledger(WITHOUT_USERS_ROW));
+
+            // V6 (F3a) on the backfilled rows, as in production: additive, it changes none of them, and a personal
+            // ledger gets no split rule and its member no share.
+            String ledgers = """
+                    SELECT string_agg(concat_ws(' ', l.id, l.type, l.name, l.base_currency, m.id, m.user_sub,
+                        m.display_name, m.role, m.status, m.join_date), '|' ORDER BY l.id)
+                    FROM ledger l JOIN ledger_member m ON m.ledger_id = l.id""";
+            String ledgersBefore = strings(ledgers).getFirst();
+            MigrateResult v6 = flyway(null).migrate();
+            assertThat(v6.success).isTrue();
+            assertThat(v6.targetSchemaVersion).isEqualTo("6");
+            assertThat(rows()).isEqualTo(rowsBefore);
+            assertThat(strings("SELECT string_agg(p::text, '|' ORDER BY p.id) FROM posting p").getFirst())
+                    .isEqualTo(postingsBefore);
+            assertThat(strings(ledgers).getFirst()).isEqualTo(ledgersBefore);
+            assertThat(number("SELECT count(*) FROM ledger WHERE split_rule IS NOT NULL")).isZero();
+            assertThat(number("SELECT count(*) FROM ledger_member WHERE share_bp IS NOT NULL")).isZero();
         } finally {
             db.close();
         }

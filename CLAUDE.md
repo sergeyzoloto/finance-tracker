@@ -197,6 +197,8 @@ cd backend
 ./mvnw -B verify              # what CI runs
 ```
 
+When VS Code is open, run `./mvnw -B clean verify`. Its Java extension writes Eclipse-compiled classes into `target/classes`, and `ArchitectureTests` misreads their lambdas (`lambda$N`), so it fails on code that is fine. CI builds from scratch and is not affected.
+
 Without a JDK (for example on a machine with only a JRE), run Maven in Docker from the repository root. Add `-Dtest=ApiTests` before `-Dmaven.repo.local` to run one class:
 
 ```bash

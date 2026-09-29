@@ -3,11 +3,38 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-29 · Family budget: family ledgers in the backend, behind a switch (F3a)
+
+Not committed yet.
+
+**Changes**
+- The owner's decisions on the questions of parts 1 and 2 (commit "docs(family-budget): split
+  shares in basis points, F3a decisions"):
+  - ADR 0003, topic B: the default split rule is `EQUAL` or `CUSTOM`, and a member's custom share
+    is `ledger_member.share_bp`, an integer from 0 to 10000, set for every member that is not LEFT
+    or FORMER under `CUSTOM` and summing to exactly 10000 there, NULL under `EQUAL`; the API sends
+    and accepts integers. Topic D: a record stores its share amounts, and a percentage it keeps is
+    in basis points (`family_share.share_bp`). Topic I: the interface shows and accepts
+    percentages with two decimals and converts them with integer arithmetic.
+  - Topic C: an owner's action by a member answers 409 naming the rule, as the ADR said, not 403,
+    which the frontend reads as "no access to Finance Tracker".
+  - Topics E and J: `account.family_ledger_id` and the members' `Debt(L)` accounts move to F4a,
+    which also creates them for members who joined before it.
+  - `docs/family-budget/requirements.md`, D-12: stored as basis points, shown as percentages with
+    two decimals.
+  - CLAUDE.md, "How to run tests": `./mvnw -B clean verify` while VS Code is open.
+  - The entry below got its commit `74cc0ff`.
+
+**Verified**
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1, run from a scratch directory.
+
+**Open**
+- Part 3: V6 and the family ledger backend.
+
 ## 2026-09-29 · Family budget: F2b's deploy, the F3 split, raw ledger ids only through a scope (F3a, parts 1 and 2)
 
-Committed locally on `feature/family-budget` in two commits: `0151b08` (documents) and
-"refactor(ledger): call raw ledger id methods only through a scope", whose hash belongs here with
-the next change log commit. Not pushed, not merged, not deployed.
+Committed locally on `feature/family-budget` in two commits: `0151b08` (documents) and `74cc0ff`
+(the raw ledger id rule). Not pushed, not merged, not deployed.
 
 **Changes**
 - F2b's deploy and the decisions after the F2b review (commit "docs(family-budget): F2b deploy and

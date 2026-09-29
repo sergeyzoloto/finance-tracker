@@ -7,7 +7,9 @@ below include them. F2a's migration V5 (topic J) is deployed to production since
 block deleting personal entries (D-19, topic E), and the architecture test's exceptions (topic C).
 F2b is deployed since 2026-09-29, from `ee9e498`. Amended after the F2b review: the exception rule
 and raw ledger ids (topic C), and F3 split into F3a and F3b, with family categories in personal
-ledgers moved to F4a (topic J). The requirements and decisions D-1 to D-26 are in
+ledgers moved to F4a (topic J). Amended for F3a: split shares in basis points (topics B, D and I),
+409 rather than 403 for an owner's action (topic C), and `Debt(L)` with its column in F4a (topics E
+and J). The requirements and decisions D-1 to D-26 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -120,7 +122,7 @@ CREATE TABLE ledger (
     type          VARCHAR(8) NOT NULL CHECK (type IN ('PERSONAL', 'SHARED')),
     name          VARCHAR(100),          -- SHARED only
     base_currency CHAR(3),               -- SHARED only; a personal ledger's is user_settings.base_currency
-    split_rule    VARCHAR(7),            -- SHARED only: EQUAL or PERCENT (F3)
+    split_rule    VARCHAR(6),            -- SHARED only: EQUAL or CUSTOM (F3a)
     archived_at   TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (id, type),
@@ -137,7 +139,7 @@ CREATE TABLE ledger_member (
     status        VARCHAR(6) NOT NULL CHECK (status IN ('ACTIVE', 'LEFT', 'FORMER')),
     join_date     DATE NOT NULL,
     left_date     DATE,
-    share_percent NUMERIC(7, 4),         -- the default split's custom percentage (F3)
+    share_bp      INTEGER CHECK (share_bp BETWEEN 0 AND 10000),  -- the default split's custom share (F3a)
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     FOREIGN KEY (ledger_id, ledger_type) REFERENCES ledger (id, type) ON DELETE CASCADE,
     UNIQUE (ledger_id, user_sub),        -- a sub at most once per ledger; NULLs are seats
@@ -152,8 +154,17 @@ CREATE UNIQUE INDEX ON ledger_member (user_sub) WHERE ledger_type = 'PERSONAL';
 CREATE UNIQUE INDEX ON ledger_member (ledger_id) WHERE ledger_type = 'PERSONAL';
 ```
 
-V5 (F2a) creates both tables without `split_rule` and `share_percent`, which F3's V6 adds with the
+V5 (F2a) creates both tables without `split_rule` and `share_bp`, which F3a's V6 adds with the
 split rule.
+
+**The default split rule (D-12), in basis points** (after the F2b review). `split_rule` is `EQUAL` or
+`CUSTOM`. Under `CUSTOM`, every member that is not LEFT or FORMER has a `share_bp`, an integer from 0
+to 10000, and those shares sum to exactly 10000; LEFT and FORMER members have none. Under `EQUAL`,
+every `share_bp` is NULL, and the shares follow the members. A member added under `CUSTOM` gets 0
+until an owner changes the rule. The API sends and accepts the shares as integers; percentages with
+two decimals are the interface's business (topic I). Integers sum exactly, and 0.01 % is finer than
+a household split needs. A deferred trigger checks the rule at commit; the service checks it first
+and answers 422.
 
 Triggers complete it:
 
@@ -195,8 +206,11 @@ request and scope every query by the resolved `ledger_id`.
   - `member(sub, ledgerId)`: the ledger if the sub has an ACTIVE membership in it, else
     `NotFoundException("Ledger n not found")`, the same answer as for a ledger that doesn't exist;
   - `owner(sub, ledgerId)`: as `member`, for an owner's action (D-15). A MEMBER gets 409 naming the
-    rule rather than 404, since the ledger itself is visible to them. It comes with F3, the first
-    stage with an action only owners may take.
+    rule rather than 404, since the ledger itself is visible to them. It comes with F3a, the first
+    stage with an action only owners may take. Not 403: to the frontend a 403 means the account has
+    no access to Finance Tracker at all (the client role `user` is missing). On `/api/me` it shows
+    that screen with only a sign-out button, and any other call throws "Access denied. Please reload
+    the page." without reading the problem's detail.
   - `provisionPersonal(sub)`: `personal`, after creating the ledger through `personal_ledger_id` if
     the sub has none: for provisioning and for the command-line importer (F2b).
 - Services take a `LedgerScope` instead of `String userId`. A raw ledger id or a sub never reaches a
@@ -300,7 +314,7 @@ CREATE TABLE family_share (
     record_id            BIGINT NOT NULL REFERENCES family_record ON DELETE CASCADE,
     member_id            BIGINT NOT NULL REFERENCES ledger_member,
     amount               NUMERIC(19, 4) NOT NULL,          -- in the base currency, stored (D-6)
-    percent              NUMERIC(7, 4),                    -- as entered, for PERCENT and EQUAL
+    share_bp             INTEGER,                          -- as entered, in basis points, for PERCENT and EQUAL
     updated_by_member_id BIGINT NOT NULL REFERENCES ledger_member,
     updated_at           TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (record_id, member_id)
@@ -315,10 +329,12 @@ CREATE TABLE family_share (
   Σ settlements m paid + Σ settlements m was paid. Because every record's shares add up to its
   amount, the balances of all members, with or without an account, add up to zero by construction
   (D-1).
-- Shares are split by `split_method` when written and stored (D-6, D-12). EQUAL and PERCENT: every
-  share is T × p rounded HALF_UP to the currency's minor unit, and the remainder goes to the member
+- Shares are split by `split_method` when written and stored (D-6, D-12). A record stores its share
+  amounts; wherever it also keeps a percentage, that percentage is in basis points (`share_bp`, an
+  integer out of 10000), as the ledger's default rule is (topic B). EQUAL and PERCENT: every
+  share is T × p rounded HALF_UP to the currency's minor unit, with p = `share_bp` / 10000, and the remainder goes to the member
   with the largest share; on a tie to the payer (the recipient for income), then by join order. AMOUNT: as entered, and they must add up. ONE_MEMBER: one share
-  of T. The default rule (`ledger.split_rule`, `ledger_member.share_percent`) applies to new records
+  of T. The default rule (`ledger.split_rule`, `ledger_member.share_bp`) applies to new records
   only; the participants are the members that are ACTIVE with `join_date` on or before the record's
   date.
 - **Frozen** is computed, not stored: a record is frozen when its payer or a member with a share is
@@ -369,7 +385,9 @@ currency, Debt(L) +base (D-13).
 - `Debt(L)`: one per family ledger in each member's personal ledger, created when the member joins:
   a system LIABILITY with the family's base currency as default currency, a new column
   `account.family_ledger_id` naming L (unique per personal ledger), code `FAMILY_DEBT_<L's id>`, name
-  "Debt to family budget: <family's name>". The legacy `FAMILY_DEBT` stays as it is (D-21).
+  "Debt to family budget: <family's name>". The legacy `FAMILY_DEBT` stays as it is (D-21). F4a adds
+  the column and creates the accounts with the posting service, also for the members who joined
+  before it (the creators of the family ledgers that F3a lets them create); V6 doesn't add them.
 - "Payments without a specified account": one system ASSET per personal ledger, code
   `UNSPECIFIED_PAYMENTS`, created when first needed.
 - `UNALLOCATED` and `OPENING_BALANCE` are found by code as today (`AccountRole`). Rule 5 puts every
@@ -646,7 +664,9 @@ than the MVP needs.
 
 **UI.** A switcher in the header of `App.tsx`: "My ledger" and each family ledger by name. Family
 pages are routes under `/family/:ledgerId` (records, balances, members, categories, settings), so a
-link or a reload keeps the ledger. The personal routes stay. The entry form's "Family" switch shows a
+link or a reload keeps the ledger. The personal routes stay. The split rule's custom shares are
+shown and entered as percentages with two decimals, and converted to and from the API's basis
+points with integer arithmetic, never floating point: "33.33" is 3333, and 3333 is "33.33". The entry form's "Family" switch shows a
 family selector only for a user with more than one family ledger (D-5). Posted entries show a badge
 in the list and open read-only, with a link to the family record.
 
@@ -755,8 +775,9 @@ back").
 **F3 to F7.** The plan holds with these changes:
 
 - **F3 split into F3a and F3b** (after the F2b review). F3a is V6 and the backend: the `ledger` split
-  columns, members without an account, `category.user_id` nullable for family categories in the
-  family ledger, the family endpoints and the feature switch (D-25). It also takes D-20's membership
+  columns (`split_rule`, `ledger_member.share_bp`), members without an account, `category.user_id`
+  nullable for family categories in the family ledger, the family endpoints and the feature switch
+  (D-25). `account.family_ledger_id` and the members' `Debt(L)` accounts move to F4a (topic E). It also takes D-20's membership
   part (FORMER, the owner passed on, a family ledger without members deleted), because from F3a a
   membership holds a sub that "Delete all my data" must remove. The confirmation screen's list of
   family ledgers can stay in F6. F3b is the interface: the ledger switcher and the family pages.

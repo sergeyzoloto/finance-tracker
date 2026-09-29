@@ -233,6 +233,12 @@ with a reason for each entry, and every exception:
 - never reads the security context;
 - is covered by the isolation tests.
 
+F2b implements it as `ArchitectureTests` (ArchUnit), with five exceptions: `LedgerAccess`,
+`UserDataService`, `UserSettingsRepository`, `ExchangeRateRepository` and `EcbRateLoader`. The
+last writes the ECB's rates, which have no user, so it takes no user id either. The same test
+checks that only `LedgerAccess` constructs a `LedgerScope` and that nothing in the service or domain
+packages reads the security context.
+
 **Consequences.** The membership check is one indexed lookup per request. Mistakes in a single query
 are caught by the triggers for writes and by the isolation tests for reads. Row level security can
 still be added later as defense in depth.

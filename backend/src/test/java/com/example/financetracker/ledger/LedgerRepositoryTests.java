@@ -10,12 +10,17 @@ import java.util.List;
 import java.util.UUID;
 
 import com.example.financetracker.IntegrationTest;
+import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/** Each ledger entity round-trips through its repository, and lookups by user see only that user's rows. */
+/**
+ * Each ledger entity round-trips through its repository, lookups by ledger see only that ledger's rows, and the
+ * settings and manual rates, which are the person's, are looked up by user.
+ */
 class LedgerRepositoryTests extends IntegrationTest {
 
     @Autowired
@@ -30,56 +35,66 @@ class LedgerRepositoryTests extends IntegrationTest {
     private UserSettingsRepository settings;
     @Autowired
     private ExchangeRateRepository exchangeRates;
+    @Autowired
+    private LedgerAccess ledgers;
 
     private final String user = UUID.randomUUID().toString();
     private final String other = UUID.randomUUID().toString();
+    private long ledger;
+    private long othersLedger;
 
-    @Test
-    void accountRoundTripsAndIsScopedByUser() {
-        Instant archivedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        Account saved = accounts.save(new Account(null, user, "FX_EXCHANGE", "Exchange", AccountType.EQUITY, "EUR",
-                false, true, archivedAt, null));
-
-        Account read = accounts.findByIdAndUserId(saved.id(), user).orElseThrow();
-
-        assertThat(read).usingRecursiveComparison().ignoringFields("createdAt").isEqualTo(saved);
-        assertThat(read.createdAt()).isNotNull();
-        assertThat(accounts.findByIdAndUserId(saved.id(), other)).isEmpty();
-        assertThat(accounts.findAllByUserIdAndIdIn(other, List.of(saved.id()))).isEmpty();
+    @BeforeEach
+    void createLedgers() {
+        ledger = ledgers.provisionPersonal(user).ledgerId();
+        othersLedger = ledgers.provisionPersonal(other).ledgerId();
     }
 
     @Test
-    void categoryAndCounterpartyRoundTripAndAreScopedByUser() {
-        LedgerCategory category = categories.save(
-                new LedgerCategory(null, user, "REST", "Rest", CategoryType.EXPENSE, null));
-        Counterparty unclassified = counterparties.save(new Counterparty(null, user, "Friend A", null, null));
+    void accountRoundTripsAndIsScopedByLedger() {
+        Instant archivedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Account saved = accounts.save(new Account(null, user, ledger, "FX_EXCHANGE", "Exchange", AccountType.EQUITY,
+                "EUR", false, true, archivedAt, null));
 
-        assertThat(categories.findByIdAndUserId(category.id(), user)).contains(category);
-        assertThat(counterparties.findByIdAndUserId(unclassified.id(), user)).contains(unclassified);
-        assertThat(categories.findByIdAndUserId(category.id(), other)).isEmpty();
-        assertThat(counterparties.findAllByUserIdAndIdIn(other, List.of(unclassified.id()))).isEmpty();
+        Account read = accounts.findByIdAndLedgerId(saved.id(), ledger).orElseThrow();
+
+        assertThat(read).usingRecursiveComparison().ignoringFields("createdAt").isEqualTo(saved);
+        assertThat(read.createdAt()).isNotNull();
+        assertThat(accounts.findByIdAndLedgerId(saved.id(), othersLedger)).isEmpty();
+        assertThat(accounts.findAllByLedgerIdAndIdIn(othersLedger, List.of(saved.id()))).isEmpty();
+    }
+
+    @Test
+    void categoryAndCounterpartyRoundTripAndAreScopedByLedger() {
+        LedgerCategory category = categories.save(
+                new LedgerCategory(null, user, ledger, "REST", "Rest", CategoryType.EXPENSE, null));
+        Counterparty unclassified = counterparties.save(new Counterparty(null, user, ledger, "Friend A", null, null));
+
+        assertThat(categories.findByIdAndLedgerId(category.id(), ledger)).contains(category);
+        assertThat(counterparties.findByIdAndLedgerId(unclassified.id(), ledger)).contains(unclassified);
+        assertThat(categories.findByIdAndLedgerId(category.id(), othersLedger)).isEmpty();
+        assertThat(counterparties.findAllByLedgerIdAndIdIn(othersLedger, List.of(unclassified.id()))).isEmpty();
     }
 
     @Test
     void importBatchKeepsItsJsonReport() throws Exception {
-        ImportBatch saved = importBatches.save(new ImportBatch(null, user, "journal.csv", "a".repeat(64), true, null,
-                null, new Json("""
+        ImportBatch saved = importBatches.save(new ImportBatch(null, user, ledger, "journal.csv", "a".repeat(64), true,
+                null, null, new Json("""
                         {"rows": 299, "skipped": ["zero amount"]}""")));
 
-        ImportBatch read = importBatches.findByIdAndUserId(saved.id(), user).orElseThrow();
+        ImportBatch read = importBatches.findByIdAndLedgerId(saved.id(), ledger).orElseThrow();
 
         assertThat(read.startedAt()).isNotNull();
         assertThat(read.dryRun()).isTrue();
         // JSONB normalizes the text, so compare the parsed values.
         assertThat(json.readTree(read.report().value()))
                 .isEqualTo(json.readTree("{\"skipped\": [\"zero amount\"], \"rows\": 299}"));
-        assertThat(importBatches.findByIdAndUserId(saved.id(), other)).isEmpty();
+        assertThat(importBatches.findByIdAndLedgerId(saved.id(), othersLedger)).isEmpty();
     }
 
     @Test
     void userSettingsAreInsertedThenReplaced() {
-        long shared = accounts.save(new Account(null, user, "PARTNER_DEBT", "Partner", AccountType.LIABILITY, null,
-                false, false, null, null)).id();
+        long shared = accounts.save(new Account(null, user, ledger, "PARTNER_DEBT", "Partner", AccountType.LIABILITY,
+                null, false, false, null, null)).id();
 
         settings.save(new UserSettings(user, "EUR", null, new BigDecimal("0.5000")));
         settings.save(new UserSettings(user, "RUB", shared, new BigDecimal("0.4000")));

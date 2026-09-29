@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import com.example.financetracker.api.CurrencyCode;
 import com.example.financetracker.ledger.SettingsService;
 import com.example.financetracker.ledger.SettingsView;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
@@ -46,8 +47,8 @@ class SettingsController {
 
     /** Replaces the settings. A shared account the user doesn't have is refused with 422. */
     @PutMapping
-    SettingsView update(CurrentUser user, @Valid @RequestBody SettingsRequest request) {
-        return settings.update(user.id(), request.baseCurrency(), request.sharedAccountId(),
+    SettingsView update(LedgerScope ledger, @Valid @RequestBody SettingsRequest request) {
+        return settings.update(ledger, request.baseCurrency(), request.sharedAccountId(),
                 request.defaultShareRatio());
     }
 }

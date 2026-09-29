@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import com.example.financetracker.api.CurrencyCode;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.rates.ManualRate;
 import com.example.financetracker.ledger.rates.RateService;
 import com.example.financetracker.ledger.rates.RateService.ManualRateView;
@@ -62,8 +63,8 @@ class RateController {
      * currency for want of a rate.
      */
     @GetMapping
-    RatesView overview(CurrentUser user) {
-        return rates.overview(user.id());
+    RatesView overview(LedgerScope ledger) {
+        return rates.overview(ledger);
     }
 
     /** The user's manual rates, newest first. */

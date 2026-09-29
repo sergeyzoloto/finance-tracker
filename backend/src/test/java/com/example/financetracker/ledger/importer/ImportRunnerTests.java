@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import com.example.financetracker.IntegrationTest;
+import com.example.financetracker.ledger.access.LedgerAccess;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,6 +28,8 @@ class ImportRunnerTests extends IntegrationTest {
 
     @Autowired
     private ImportService imports;
+    @Autowired
+    private LedgerAccess ledgers;
 
     @TempDir
     private Path dir;
@@ -101,7 +104,7 @@ class ImportRunnerTests extends IntegrationTest {
     }
 
     private int execute(String... args) {
-        return new ImportRunner(imports, null).execute(new DefaultApplicationArguments(args),
+        return new ImportRunner(imports, ledgers, null).execute(new DefaultApplicationArguments(args),
                 new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(err, true, StandardCharsets.UTF_8));
     }
 }

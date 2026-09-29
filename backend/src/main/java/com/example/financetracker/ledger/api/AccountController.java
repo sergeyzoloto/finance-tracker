@@ -6,8 +6,8 @@ import com.example.financetracker.api.CurrencyCode;
 import com.example.financetracker.ledger.AccountChanges;
 import com.example.financetracker.ledger.AccountService;
 import com.example.financetracker.ledger.AccountView;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountType;
-import com.example.financetracker.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -97,20 +97,20 @@ class AccountController {
 
     /** All the user's accounts, archived ones included, by code. */
     @GetMapping
-    List<AccountView> list(CurrentUser user) {
-        return accounts.list(user.id());
+    List<AccountView> list(LedgerScope ledger) {
+        return accounts.list(ledger);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    AccountView create(CurrentUser user, @Valid @RequestBody NewAccount account) {
-        return accounts.create(user.id(), account.code(), account.name().strip(), account.type(),
+    AccountView create(LedgerScope ledger, @Valid @RequestBody NewAccount account) {
+        return accounts.create(ledger, account.code(), account.name().strip(), account.type(),
                 account.defaultCurrency(), account.requiresCounterparty());
     }
 
     /** Renaming or archiving a system account, such as OPENING_BALANCE, is refused with 409. */
     @PatchMapping("/{id}")
-    AccountView update(CurrentUser user, @PathVariable long id, @Valid @RequestBody AccountPatch patch) {
-        return accounts.update(user.id(), id, patch.changes());
+    AccountView update(LedgerScope ledger, @PathVariable long id, @Valid @RequestBody AccountPatch patch) {
+        return accounts.update(ledger, id, patch.changes());
     }
 }

@@ -20,6 +20,8 @@ import com.example.financetracker.ledger.LedgerCategory;
 import com.example.financetracker.ledger.LedgerCategoryRepository;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
+import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.domain.CurrencyExchangeCommand;
@@ -65,13 +67,17 @@ class BaseCurrencyReportTests extends IntegrationTest {
     private LedgerCategoryRepository categories;
     @Autowired
     private UserSettingsRepository settings;
+    @Autowired
+    private LedgerAccess ledgers;
 
     private final String user = UUID.randomUUID().toString();
+    private LedgerScope ledger;
     private long cash, card, tenge, unallocated, openingBalance, fxExchange;
     private long groceries, salary;
 
     @BeforeEach
     void createAccounts() {
+        ledger = ledgers.provisionPersonal(user);
         cash = account("CASH", "Cash", ASSET, "RUB");
         card = account("CARD", "Card", ASSET, "EUR");
         tenge = account("TENGE", "Tenge wallet", ASSET, "KZT");
@@ -92,7 +98,7 @@ class BaseCurrencyReportTests extends IntegrationTest {
         create(new ExpenseCommand(AUG_10, null, null, tenge, "KZT", money("5000.00"), groceries));
         create(new ExpenseCommand(AUG_10, null, null, cash, "RUB", money("1000.00"), groceries));
 
-        List<ConvertedBalance> balances = reports.balancesInBase(user, AUG_31);
+        List<ConvertedBalance> balances = reports.balancesInBase(ledger, AUG_31);
         assertThat(balance(balances, "TENGE").balance()).isNull();
         assertThat(balance(balances, "TENGE").missingRates()).containsExactly(new MissingRate("KZT", AUG_31, AUG_31, 1));
         assertThat(balance(balances, "CASH").balance()).isEqualTo(money("90.00"));
@@ -100,7 +106,7 @@ class BaseCurrencyReportTests extends IntegrationTest {
         // Zero needs no rate: the card holds nothing yet.
         assertThat(balance(balances, "CARD").balance()).isEqualTo(money("0.00"));
 
-        ConvertedNetWorth netWorth = reports.netWorthInBase(user, AUG_31);
+        ConvertedNetWorth netWorth = reports.netWorthInBase(ledger, AUG_31);
         assertThat(netWorth.assets()).isNull();
         assertThat(netWorth.netWorth()).isNull();
         assertThat(netWorth.unrealizedRevaluation()).isNull();
@@ -108,7 +114,7 @@ class BaseCurrencyReportTests extends IntegrationTest {
         assertThat(netWorth.liabilities()).isEqualTo(money("0.00"));
         assertThat(netWorth.missingRates()).containsExactly(new MissingRate("KZT", AUG_1, AUG_31, 3));
 
-        ConvertedCashFlow cashFlow = reports.cashFlowInBase(user, AUG_1, AUG_31);
+        ConvertedCashFlow cashFlow = reports.cashFlowInBase(ledger, AUG_1, AUG_31);
         assertThat(cashFlow.rows()).containsExactly(new ConvertedCashFlow.Row(YearMonth.of(2026, 8), "GROCERIES",
                 "Groceries", EXPENSE, null, List.of(new MissingRate("KZT", AUG_10, AUG_10, 1))));
         assertThat(cashFlow.exchangeResults().getFirst().unrealized()).isNull();
@@ -123,10 +129,10 @@ class BaseCurrencyReportTests extends IntegrationTest {
         create(new OpeningBalanceCommand(AUG_1, null, cash, "RUB", money("10000.00"), null));
         create(new ExpenseCommand(AUG_10, null, null, cash, "RUB", money("800.00"), groceries));
 
-        assertThat(balance(reports.balancesInBase(user, AUG_31), "CASH").balance()).isEqualTo(money("115.00"));
-        assertThat(reports.cashFlowInBase(user, AUG_1, AUG_31).rows()).containsExactly(new ConvertedCashFlow.Row(
+        assertThat(balance(reports.balancesInBase(ledger, AUG_31), "CASH").balance()).isEqualTo(money("115.00"));
+        assertThat(reports.cashFlowInBase(ledger, AUG_1, AUG_31).rows()).containsExactly(new ConvertedCashFlow.Row(
                 YearMonth.of(2026, 8), "GROCERIES", "Groceries", EXPENSE, money("10.00"), List.of()));
-        ConvertedNetWorth netWorth = reports.netWorthInBase(user, AUG_31);
+        ConvertedNetWorth netWorth = reports.netWorthInBase(ledger, AUG_31);
         assertThat(netWorth.netWorth()).isEqualTo(money("115.00"));
         // Both rates the conversion went through.
         assertThat(netWorth.rates()).containsExactly(
@@ -142,21 +148,21 @@ class BaseCurrencyReportTests extends IntegrationTest {
         rate(SEP_1, "USD", "1.20");
         create(new OpeningBalanceCommand(AUG_1, null, card, "EUR", money("100.00"), null));
 
-        ConvertedNetWorth august = reports.netWorthInBase(user, AUG_31);
+        ConvertedNetWorth august = reports.netWorthInBase(ledger, AUG_31);
         assertThat(august.netWorth()).isEqualTo(money("110.00"));
         assertThat(august.unrealizedRevaluation()).isEqualTo(money("0.00"));
-        ConvertedNetWorth september = reports.netWorthInBase(user, SEP_30);
+        ConvertedNetWorth september = reports.netWorthInBase(ledger, SEP_30);
         assertThat(september.netWorth()).isEqualTo(money("120.00"));
         assertThat(september.unrealizedRevaluation()).isEqualTo(money("10.00"));
         assertThat(september.realizedExchangeResult()).isEqualTo(money("0.00"));
         assertThat(september.missingRates()).isEmpty();
 
         // The cash flow shows the gain in the month the rate moved in.
-        assertThat(reports.cashFlowInBase(user, AUG_1, SEP_30).exchangeResults()).containsExactly(
+        assertThat(reports.cashFlowInBase(ledger, AUG_1, SEP_30).exchangeResults()).containsExactly(
                 new ConvertedCashFlow.ExchangeResult(YearMonth.of(2026, 8), money("0.00"), money("0.00"), List.of()),
                 new ConvertedCashFlow.ExchangeResult(YearMonth.of(2026, 9), money("0.00"), money("10.00"), List.of()));
         // A period that starts on 15 August takes the balance before it at the rate of 14 August.
-        assertThat(reports.cashFlowInBase(user, AUG_15, SEP_15).exchangeResults()).extracting(
+        assertThat(reports.cashFlowInBase(ledger, AUG_15, SEP_15).exchangeResults()).extracting(
                 ConvertedCashFlow.ExchangeResult::unrealized).containsExactly(money("0.00"), money("10.00"));
     }
 
@@ -173,19 +179,19 @@ class BaseCurrencyReportTests extends IntegrationTest {
         create(new CurrencyExchangeCommand(SEP_15, null, null, cash, "RUB", money("9000.00"), card, "EUR",
                 money("100.00")));
 
-        ConvertedNetWorth netWorth = reports.netWorthInBase(user, SEP_30);
+        ConvertedNetWorth netWorth = reports.netWorthInBase(ledger, SEP_30);
         assertThat(netWorth.realizedExchangeResult()).isEqualTo(money("10.00"));
         assertThat(netWorth.unrealizedRevaluation()).isEqualTo(money("-10.00"));
         assertThat(netWorth.netWorth()).isEqualTo(money("100.00"));
         // Before the exchange, nothing is realized.
-        assertThat(reports.netWorthInBase(user, AUG_31).realizedExchangeResult()).isEqualTo(money("0.00"));
+        assertThat(reports.netWorthInBase(ledger, AUG_31).realizedExchangeResult()).isEqualTo(money("0.00"));
 
-        assertThat(reports.cashFlowInBase(user, AUG_1, SEP_30).exchangeResults()).containsExactly(
+        assertThat(reports.cashFlowInBase(ledger, AUG_1, SEP_30).exchangeResults()).containsExactly(
                 new ConvertedCashFlow.ExchangeResult(YearMonth.of(2026, 8), money("0.00"), money("0.00"), List.of()),
                 new ConvertedCashFlow.ExchangeResult(YearMonth.of(2026, 9), money("10.00"), money("-10.00"),
                         List.of()));
         // The exchange is neither income nor an expense.
-        assertThat(reports.cashFlowInBase(user, AUG_1, SEP_30).rows()).isEmpty();
+        assertThat(reports.cashFlowInBase(ledger, AUG_1, SEP_30).rows()).isEmpty();
     }
 
     /** 1000 RUB at 100 per euro on 10 August and 1000 RUB at 80 per euro on 20 August. */
@@ -197,7 +203,7 @@ class BaseCurrencyReportTests extends IntegrationTest {
         create(new ExpenseCommand(AUG_20, null, null, cash, "RUB", money("1000.00"), groceries));
         create(new IncomeCommand(AUG_20, null, null, card, "EUR", money("2000.00"), salary));
 
-        assertThat(reports.cashFlowInBase(user, AUG_1, AUG_31)).isEqualTo(new ConvertedCashFlow("EUR", List.of(
+        assertThat(reports.cashFlowInBase(ledger, AUG_1, AUG_31)).isEqualTo(new ConvertedCashFlow("EUR", List.of(
                 new ConvertedCashFlow.Row(YearMonth.of(2026, 8), "GROCERIES", "Groceries", EXPENSE, money("22.50"),
                         List.of()),
                 new ConvertedCashFlow.Row(YearMonth.of(2026, 8), "SALARY", "Salary", INCOME, money("2000.00"),
@@ -213,10 +219,10 @@ class BaseCurrencyReportTests extends IntegrationTest {
         rates.saveManual(other, new ManualRate(JUL_31, "EUR", "KZT", money("550")));
         create(new OpeningBalanceCommand(AUG_1, null, tenge, "KZT", money("55000.00"), null));
 
-        assertThat(balance(reports.balancesInBase(user, AUG_31), "TENGE").balance()).isNull();
+        assertThat(balance(reports.balancesInBase(ledger, AUG_31), "TENGE").balance()).isNull();
 
         rate(JUL_31, "KZT", "500");
-        assertThat(balance(reports.balancesInBase(user, AUG_31), "TENGE").balance()).isEqualTo(money("110.00"));
+        assertThat(balance(reports.balancesInBase(ledger, AUG_31), "TENGE").balance()).isEqualTo(money("110.00"));
     }
 
     private void rate(LocalDate day, String currency, String perEuro) {
@@ -224,7 +230,7 @@ class BaseCurrencyReportTests extends IntegrationTest {
     }
 
     private void create(EntryCommand command) {
-        entries.create(user, command);
+        entries.create(ledger, command);
     }
 
     private void baseCurrency(String currency) {
@@ -236,11 +242,12 @@ class BaseCurrencyReportTests extends IntegrationTest {
     }
 
     private long account(String code, String name, AccountType type, String defaultCurrency) {
-        return accounts.save(new Account(null, user, code, name, type, defaultCurrency, false, false, null, null)).id();
+        return accounts.save(new Account(null, user, ledger.ledgerId(), code, name, type, defaultCurrency, false, false,
+                null, null)).id();
     }
 
     private long category(String code, String name, CategoryType type) {
-        return categories.save(new LedgerCategory(null, user, code, name, type, null)).id();
+        return categories.save(new LedgerCategory(null, user, ledger.ledgerId(), code, name, type, null)).id();
     }
 
     private static BigDecimal money(String amount) {

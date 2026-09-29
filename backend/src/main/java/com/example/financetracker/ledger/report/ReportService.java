@@ -24,6 +24,7 @@ import com.example.financetracker.ledger.AccountRepository;
 import com.example.financetracker.ledger.SettingsService;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.rates.MissingRate;
@@ -35,18 +36,18 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Reports over the ledger, computed from postings on every call (rule 13). Callers pass the user id, the Keycloak
- * "sub" claim (rule 11), and every query is scoped by it: each table with a user_id that a query reads is filtered by
- * it, even where V2's triggers already guarantee that the rows reached through the user's entries are the user's. The
- * figures of each report come from one SQL statement, so they are read from one snapshot and add up without a
- * surrounding transaction.
+ * Reports over a ledger, computed from postings on every call (rule 13). Callers pass the {@link LedgerScope} that
+ * LedgerAccess resolved (rule 11), and every query is scoped by it: each ledger table that a query reads is filtered
+ * by the ledger id, even where the triggers already guarantee that the rows reached through the ledger's entries are
+ * the ledger's. The figures of each report come from one SQL statement, so they are read from one snapshot and add up
+ * without a surrounding transaction.
  * <p>
  * Dates are inclusive. A balance "as of" a day includes every entry dated that day.
  * <p>
- * Balances, net worth and cash flow also come in the user's base currency ({@code *InBase}), converted with the rates
- * of {@link RateService}: an amount on a day at the latest rate on or before that day. A figure that needs a rate that
- * doesn't exist is null, and says which rate is missing. Those reports read the postings and the rates in two
- * statements, in one transaction with a snapshot that both see.
+ * Balances, net worth and cash flow also come in the base currency of the personal ledger's member ({@code *InBase}),
+ * converted with the rates that member sees ({@link RateService}): an amount on a day at the latest rate on or before
+ * that day. A figure that needs a rate that doesn't exist is null, and says which rate is missing. Those reports read
+ * the postings and the rates in two statements, in one transaction with a snapshot that both see.
  */
 @Service
 public class ReportService {
@@ -73,27 +74,27 @@ public class ReportService {
      * {@code asOf}, zero included, and in its default currency even before it has any. Ordered by account code and
      * currency.
      */
-    public List<AccountBalance> balances(String userId, LocalDate asOf) {
+    public List<AccountBalance> balances(LedgerScope ledger, LocalDate asOf) {
         return jdbc.sql("""
                 WITH amounts AS (
                     SELECT p.account_id, p.currency, sum(p.amount) AS total
                     FROM journal_entry e
                     JOIN posting p ON p.entry_id = e.id
-                    WHERE e.user_id = :userId AND e.entry_date <= :asOf
+                    WHERE e.ledger_id = :ledgerId AND e.entry_date <= :asOf
                     GROUP BY p.account_id, p.currency
                     UNION ALL
                     SELECT id, default_currency, 0
                     FROM account
-                    WHERE user_id = :userId AND default_currency IS NOT NULL
+                    WHERE ledger_id = :ledgerId AND default_currency IS NOT NULL
                 )
                 SELECT a.id AS account_id, a.code AS account_code, a.name AS account_name, a.type AS account_type,
                        t.currency, CASE a.type WHEN 'ASSET' THEN sum(t.total) ELSE -sum(t.total) END AS balance
                 FROM account a
                 JOIN amounts t ON t.account_id = a.id
-                WHERE a.user_id = :userId AND a.archived_at IS NULL
+                WHERE a.ledger_id = :ledgerId AND a.archived_at IS NULL
                 GROUP BY a.id, t.currency
                 ORDER BY a.code, t.currency""")
-                .param("userId", userId)
+                .param("ledgerId", ledger.ledgerId())
                 .param("asOf", asOf)
                 .query(AccountBalance.class)
                 .list();
@@ -103,11 +104,11 @@ public class ReportService {
      * The displayed balance of an account that requires a counterparty (rule 8), per counterparty and currency, as of
      * {@code asOf}. Counterparties whose balance is zero are left out. Ordered by counterparty name and currency.
      *
-     * @throws AccountNotFoundException if the user has no account with this code
+     * @throws AccountNotFoundException if the ledger has no account with this code
      * @throws IllegalArgumentException if the account doesn't require a counterparty
      */
-    public List<CounterpartyBalance> counterpartyBalances(String userId, String accountCode, LocalDate asOf) {
-        Account account = accounts.findByUserIdAndCode(userId, accountCode)
+    public List<CounterpartyBalance> counterpartyBalances(LedgerScope ledger, String accountCode, LocalDate asOf) {
+        Account account = accounts.findByLedgerIdAndCode(ledger.ledgerId(), accountCode)
                 .orElseThrow(() -> new AccountNotFoundException(accountCode));
         if (!account.requiresCounterparty()) {
             throw new IllegalArgumentException(
@@ -120,12 +121,13 @@ public class ReportService {
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
                 JOIN counterparty c ON c.id = p.counterparty_id
-                WHERE e.user_id = :userId AND a.user_id = :userId AND c.user_id = :userId AND a.id = :accountId
+                WHERE e.ledger_id = :ledgerId AND a.ledger_id = :ledgerId AND c.ledger_id = :ledgerId
+                  AND a.id = :accountId
                   AND e.entry_date <= :asOf
                 GROUP BY a.id, c.id, p.currency
                 HAVING sum(p.amount) <> 0
                 ORDER BY c.name, p.currency""")
-                .param("userId", userId)
+                .param("ledgerId", ledger.ledgerId())
                 .param("accountId", account.id())
                 .param("asOf", asOf)
                 .query(CounterpartyBalance.class)
@@ -139,7 +141,7 @@ public class ReportService {
      *
      * @throws IllegalArgumentException if {@code from} is after {@code to}
      */
-    public List<CashFlowRow> cashFlow(String userId, LocalDate from, LocalDate to) {
+    public List<CashFlowRow> cashFlow(LedgerScope ledger, LocalDate from, LocalDate to) {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("'from' must not be after 'to'");
         }
@@ -152,10 +154,10 @@ public class ReportService {
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN category c ON c.id = p.category_id
-                WHERE e.user_id = :userId AND c.user_id = :userId AND e.entry_date BETWEEN :from AND :to
+                WHERE e.ledger_id = :ledgerId AND c.ledger_id = :ledgerId AND e.entry_date BETWEEN :from AND :to
                 GROUP BY month, c.id, p.currency
                 ORDER BY month, c.type, c.code, p.currency""")
-                .param("userId", userId)
+                .param("ledgerId", ledger.ledgerId())
                 .param("from", from)
                 .param("to", to)
                 .query(ReportService::cashFlowRow)
@@ -163,11 +165,11 @@ public class ReportService {
     }
 
     /**
-     * Assets minus liabilities per currency, as of {@code asOf}, in every currency the user's ASSET and LIABILITY
+     * Assets minus liabilities per currency, as of {@code asOf}, in every currency the ledger's ASSET and LIABILITY
      * accounts have postings in. Archived accounts count: archiving hides an account, it doesn't take its money away.
      * Ordered by currency.
      */
-    public List<NetWorth> netWorth(String userId, LocalDate asOf) {
+    public List<NetWorth> netWorth(LedgerScope ledger, LocalDate asOf) {
         // Liabilities are displayed as minus the sum of their postings (rule 4), so assets − liabilities is the sum of
         // the postings to both.
         return jdbc.sql("""
@@ -178,26 +180,26 @@ public class ReportService {
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
-                WHERE e.user_id = :userId AND a.user_id = :userId AND e.entry_date <= :asOf
+                WHERE e.ledger_id = :ledgerId AND a.ledger_id = :ledgerId AND e.entry_date <= :asOf
                   AND a.type IN ('ASSET', 'LIABILITY')
                 GROUP BY p.currency
                 ORDER BY p.currency""")
-                .param("userId", userId)
+                .param("ledgerId", ledger.ledgerId())
                 .param("asOf", asOf)
                 .query(NetWorth.class)
                 .list();
     }
 
     /**
-     * {@link #balances} in the user's base currency: one row per account, each of its currencies converted at the rate
+     * {@link #balances} in the base currency: one row per account, each of its currencies converted at the rate
      * on {@code asOf}. Ordered by account code.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public List<ConvertedBalance> balancesInBase(String userId, LocalDate asOf) {
-        String base = settingsService.get(userId).baseCurrency();
-        List<AccountBalance> balances = balances(userId, asOf);
-        RateBook book = rates.rateBook(userId, currencies(balances.stream().map(AccountBalance::currency), base),
-                asOf, asOf);
+    public List<ConvertedBalance> balancesInBase(LedgerScope ledger, LocalDate asOf) {
+        String base = settingsService.get(ledger.userId()).baseCurrency();
+        List<AccountBalance> balances = balances(ledger, asOf);
+        RateBook book = rates.rateBook(ledger.userId(),
+                currencies(balances.stream().map(AccountBalance::currency), base), asOf, asOf);
         Map<Long, List<AccountBalance>> byAccount = balances.stream()
                 .collect(Collectors.groupingBy(AccountBalance::accountId, LinkedHashMap::new, Collectors.toList()));
         return byAccount.values().stream().map(rows -> {
@@ -210,12 +212,12 @@ public class ReportService {
     }
 
     /**
-     * {@link #netWorth} in the user's base currency as of {@code asOf}, with the unrealized revaluation of what is held
+     * {@link #netWorth} in the base currency as of {@code asOf}, with the unrealized revaluation of what is held
      * or owed and the realized result of exchanges (see {@link ConvertedNetWorth}).
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public ConvertedNetWorth netWorthInBase(String userId, LocalDate asOf) {
-        String base = settingsService.get(userId).baseCurrency();
+    public ConvertedNetWorth netWorthInBase(LedgerScope ledger, LocalDate asOf) {
+        String base = settingsService.get(ledger.userId()).baseCurrency();
         // Per day and currency: the postings to ASSET and to LIABILITY accounts, archived ones included, and those to
         // FX_EXCHANGE.
         List<DaySum> sums = jdbc.sql("""
@@ -224,17 +226,18 @@ public class ReportService {
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
-                WHERE e.user_id = :userId AND a.user_id = :userId AND e.entry_date <= :asOf
+                WHERE e.ledger_id = :ledgerId AND a.ledger_id = :ledgerId AND e.entry_date <= :asOf
                   AND (a.type IN ('ASSET', 'LIABILITY') OR (a.type = 'EQUITY' AND a.code = :fxExchange))
                 GROUP BY 1, 2, 3
                 ORDER BY 2, 1, 3""")
-                .param("userId", userId)
+                .param("ledgerId", ledger.ledgerId())
                 .param("asOf", asOf)
                 .param("fxExchange", FX_EXCHANGE)
                 .query(DaySum.class)
                 .list();
         LocalDate first = sums.isEmpty() ? asOf : sums.getFirst().day();
-        RateBook book = rates.rateBook(userId, currencies(sums.stream().map(DaySum::currency), base), first, asOf);
+        RateBook book = rates.rateBook(ledger.userId(), currencies(sums.stream().map(DaySum::currency), base), first,
+                asOf);
 
         ConvertedSum assets = new ConvertedSum(book, base);
         ConvertedSum liabilities = new ConvertedSum(book, base);
@@ -281,18 +284,18 @@ public class ReportService {
     }
 
     /**
-     * {@link #cashFlow} in the user's base currency, each posting converted at the rate on its own day, and per month
+     * {@link #cashFlow} in the base currency, each posting converted at the rate on its own day, and per month
      * the realized result of exchanges and the change of the unrealized revaluation (see
      * {@link ConvertedCashFlow.ExchangeResult}).
      *
      * @throws IllegalArgumentException if {@code from} is after {@code to}
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public ConvertedCashFlow cashFlowInBase(String userId, LocalDate from, LocalDate to) {
+    public ConvertedCashFlow cashFlowInBase(LedgerScope ledger, LocalDate from, LocalDate to) {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("'from' must not be after 'to'");
         }
-        String base = settingsService.get(userId).baseCurrency();
+        String base = settingsService.get(ledger.userId()).baseCurrency();
         // Per day and currency: categorized postings (CATEGORY) as cashFlow adds them up, postings to FX_EXCHANGE
         // (EXCHANGE), and postings in other currencies than the base currency to ASSET and LIABILITY accounts
         // (HOLDING), which are what is revalued. HOLDING before the period is one sum per currency, without a day.
@@ -303,7 +306,7 @@ public class ReportService {
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN category c ON c.id = p.category_id
-                WHERE e.user_id = :userId AND c.user_id = :userId AND e.entry_date BETWEEN :from AND :to
+                WHERE e.ledger_id = :ledgerId AND c.ledger_id = :ledgerId AND e.entry_date BETWEEN :from AND :to
                 GROUP BY e.entry_date, p.currency, c.id
                 UNION ALL
                 SELECT CASE a.type WHEN 'EQUITY' THEN 'EXCHANGE' ELSE 'HOLDING' END,
@@ -312,11 +315,11 @@ public class ReportService {
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
-                WHERE e.user_id = :userId AND a.user_id = :userId AND e.entry_date <= :to
+                WHERE e.ledger_id = :ledgerId AND a.ledger_id = :ledgerId AND e.entry_date <= :to
                   AND ((a.type IN ('ASSET', 'LIABILITY') AND p.currency <> :base)
                        OR (a.type = 'EQUITY' AND a.code = :fxExchange AND e.entry_date >= :from))
                 GROUP BY 1, 2, 3""")
-                .param("userId", userId)
+                .param("ledgerId", ledger.ledgerId())
                 .param("from", from)
                 .param("to", to)
                 .param("base", base)
@@ -324,7 +327,7 @@ public class ReportService {
                 .query(FlowSum.class)
                 .list();
         // The day before the period: where the first month's revaluation starts from.
-        RateBook book = rates.rateBook(userId, currencies(sums.stream().map(FlowSum::currency), base),
+        RateBook book = rates.rateBook(ledger.userId(), currencies(sums.stream().map(FlowSum::currency), base),
                 from.minusDays(1), to);
 
         record Category(YearMonth month, CategoryType type, String code) {
@@ -376,14 +379,15 @@ public class ReportService {
     }
 
     /**
-     * The displayed balance of the user's shared account per currency, as of {@code asOf}. That is the account the
+     * The displayed balance of the ledger's shared account per currency, as of {@code asOf}. That is the account the
      * user's settings name, or else FAMILY_DEBT, as for shared expenses (rule 7). Currencies that are settled, with a
-     * balance of zero, are left out, and so is everything when the user has no shared account. Ordered by currency.
+     * balance of zero, are left out, and so is everything when the ledger has no shared account. Ordered by currency.
      */
-    public List<SharedSettlement> sharedSettlement(String userId, LocalDate asOf) {
-        Optional<Long> sharedAccountId = settings.findById(userId)
+    public List<SharedSettlement> sharedSettlement(LedgerScope ledger, LocalDate asOf) {
+        Optional<Long> sharedAccountId = settings.findById(ledger.userId())
                 .map(UserSettings::sharedAccountId)
-                .or(() -> accounts.findByUserIdAndCode(userId, AccountRole.SHARED.defaultCode()).map(Account::id));
+                .or(() -> accounts.findByLedgerIdAndCode(ledger.ledgerId(), AccountRole.SHARED.defaultCode())
+                        .map(Account::id));
         if (sharedAccountId.isEmpty()) {
             return List.of();
         }
@@ -394,11 +398,12 @@ public class ReportService {
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
-                WHERE e.user_id = :userId AND a.user_id = :userId AND a.id = :accountId AND e.entry_date <= :asOf
+                WHERE e.ledger_id = :ledgerId AND a.ledger_id = :ledgerId AND a.id = :accountId
+                  AND e.entry_date <= :asOf
                 GROUP BY a.id, p.currency
                 HAVING sum(p.amount) <> 0
                 ORDER BY p.currency""")
-                .param("userId", userId)
+                .param("ledgerId", ledger.ledgerId())
                 .param("accountId", sharedAccountId.get())
                 .param("asOf", asOf)
                 .query(SharedSettlement.class)
@@ -406,20 +411,20 @@ public class ReportService {
     }
 
     /**
-     * The currencies in which the user's ledger doesn't add up, over all dates and all accounts, archived ones
+     * The currencies in which the ledger doesn't add up, over all dates and all accounts, archived ones
      * included. It is empty for a sound ledger. The triggers of V2 keep every entry balanced, so a violation means
      * that data was written past them.
      * <p>
-     * The two figures take different paths to the postings. The posting sum reaches them through the user's entries,
-     * and assets − liabilities − equity through the user's accounts.
+     * The two figures take different paths to the postings. The posting sum reaches them through the ledger's entries,
+     * and assets − liabilities − equity through the ledger's accounts.
      */
-    public List<IntegrityViolation> integrityCheck(String userId) {
+    public List<IntegrityViolation> integrityCheck(LedgerScope ledger) {
         return jdbc.sql("""
                 WITH by_entry AS (
                     SELECT p.currency, sum(p.amount) AS posting_sum
                     FROM journal_entry e
                     JOIN posting p ON p.entry_id = e.id
-                    WHERE e.user_id = :userId
+                    WHERE e.ledger_id = :ledgerId
                     GROUP BY p.currency
                 ), by_account AS (
                     SELECT p.currency,
@@ -428,7 +433,7 @@ public class ReportService {
                                - coalesce(-sum(p.amount) FILTER (WHERE a.type = 'EQUITY'), 0) AS balance_sheet_gap
                     FROM account a
                     JOIN posting p ON p.account_id = a.id
-                    WHERE a.user_id = :userId
+                    WHERE a.ledger_id = :ledgerId
                     GROUP BY p.currency
                 )
                 SELECT currency, coalesce(posting_sum, 0) AS posting_sum,
@@ -436,7 +441,7 @@ public class ReportService {
                 FROM by_entry FULL JOIN by_account USING (currency)
                 WHERE coalesce(posting_sum, 0) <> 0 OR coalesce(balance_sheet_gap, 0) <> 0
                 ORDER BY currency""")
-                .param("userId", userId)
+                .param("ledgerId", ledger.ledgerId())
                 .query(IntegrityViolation.class)
                 .list();
     }

@@ -2,7 +2,7 @@ package com.example.financetracker.ledger.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 
 import java.io.IOException;
@@ -156,7 +156,7 @@ class DemoDataApiTests extends LedgerApiTest {
                 throw new IllegalStateException("The database went away");
             }
             return invocation.callRealMethod();
-        }).when(entries).create(eq(user), any(EntryCommand.class));
+        }).when(entries).create(argThat(ledger -> ledger.userId().equals(user)), any(EntryCommand.class));
 
         assertThat(post(user, "/api/demo-data", null)).hasStatus(HttpStatus.INTERNAL_SERVER_ERROR);
 

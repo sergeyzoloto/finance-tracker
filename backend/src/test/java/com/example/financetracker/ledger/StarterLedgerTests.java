@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 /** The seed in {@code seed/starter-ledger.json} against the ledger's rules. */
 class StarterLedgerTests {
 
-    private final Seed seed = new StarterLedger(null, new ObjectMapper()).seed();
+    private final Seed seed = new StarterLedger(null, null, null, new ObjectMapper()).seed();
     private final Map<String, SeedAccount> accounts = seed.accounts().stream()
             .collect(Collectors.toMap(SeedAccount::code, Function.identity()));
 

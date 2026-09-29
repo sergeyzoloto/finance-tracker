@@ -8,8 +8,8 @@ import java.util.List;
 
 import com.example.financetracker.ledger.CategoryService;
 import com.example.financetracker.ledger.CategoryView;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.CategoryType;
-import com.example.financetracker.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -52,19 +52,19 @@ class CategoryController {
 
     /** All the user's categories, archived ones included, by name. */
     @GetMapping
-    List<CategoryView> list(CurrentUser user) {
-        return categories.list(user.id());
+    List<CategoryView> list(LedgerScope ledger) {
+        return categories.list(ledger);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    CategoryView create(CurrentUser user, @Valid @RequestBody NewCategory category) {
-        return categories.create(user.id(), category.code(), category.name().strip(), category.type());
+    CategoryView create(LedgerScope ledger, @Valid @RequestBody NewCategory category) {
+        return categories.create(ledger, category.code(), category.name().strip(), category.type());
     }
 
     @PatchMapping("/{id}")
-    CategoryView update(CurrentUser user, @PathVariable long id, @Valid @RequestBody CategoryPatch patch) {
-        return categories.update(user.id(), id, patch.name() == null ? null : patch.name().strip(), patch.archived(),
+    CategoryView update(LedgerScope ledger, @PathVariable long id, @Valid @RequestBody CategoryPatch patch) {
+        return categories.update(ledger, id, patch.name() == null ? null : patch.name().strip(), patch.archived(),
                 patch.type());
     }
 }

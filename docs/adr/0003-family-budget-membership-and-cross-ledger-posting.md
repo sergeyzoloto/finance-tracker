@@ -186,12 +186,17 @@ request and scope every query by the resolved `ledger_id`.
 **Recommendation: resolve once, then scope by ledger id, with the scope as a type.**
 
 - `ledger/access/LedgerScope`, a final class with a package-private constructor: ledger id, type,
-  member id, role. Only `ledger/access/LedgerAccess` makes one:
+  member id, role, and the member's sub. Until the cleanup migration, the rows of a personal ledger
+  carry that sub as their `user_id`, and a personal ledger's settings and manual rates are keyed by
+  it. Only `ledger/access/LedgerAccess` makes one:
   - `personal(sub)`: the sub's personal ledger (provisioned on first sight, as today);
   - `member(sub, ledgerId)`: the ledger if the sub has an ACTIVE membership in it, else
     `NotFoundException("Ledger n not found")`, the same answer as for a ledger that doesn't exist;
   - `owner(sub, ledgerId)`: as `member`, for an owner's action (D-15). A MEMBER gets 409 naming the
-    rule rather than 404, since the ledger itself is visible to them.
+    rule rather than 404, since the ledger itself is visible to them. It comes with F3, the first
+    stage with an action only owners may take.
+  - `provisionPersonal(sub)`: `personal`, after creating the ledger through `personal_ledger_id` if
+    the sub has none: for provisioning and for the command-line importer (F2b).
 - Services take a `LedgerScope` instead of `String userId`. A raw ledger id or a sub never reaches a
   service method that reads or writes ledger rows; `CurrentUser` stays for what is about the person
   (`/api/me`, settings, manual rates, delete-all).
@@ -701,7 +706,10 @@ Tests:
   `UserDataApiTests` and `DataIsolationApiTests` prove that delete-all leaves nothing. `ApiTests`'
   parallel first requests create exactly one personal ledger.
 
-**F2b, scoping by ledger, with no migration.**
+**F2b, scoping by ledger, with no migration.** Implemented on `feature/family-budget` as described
+below, with these details: the importer and the demo take the scope from their caller;
+`UserDataService` also provisions the `users` row, so that the security package runs no SQL; the
+rate queries that are about the person moved from `RateService` into `ExchangeRateRepository`.
 
 - New: `ledger/access/LedgerScope`, `LedgerAccess`, `LedgerType`, `MemberRole`, and an argument
   resolver for the personal scope next to `CurrentUserResolver`.

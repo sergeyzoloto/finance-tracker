@@ -7,17 +7,17 @@ import java.util.Optional;
 import org.springframework.data.relational.core.sql.LockMode;
 import org.springframework.data.relational.repository.Lock;
 
-/** Every lookup is scoped by user id; there is none by id alone ({@link OwnedRepository}). */
-public interface CounterpartyRepository extends OwnedRepository<Counterparty, Long> {
+/** Every lookup is scoped by ledger id; there is none by id alone ({@link LedgerScopedRepository}). */
+public interface CounterpartyRepository extends LedgerScopedRepository<Counterparty, Long> {
 
-    Optional<Counterparty> findByIdAndUserId(long id, String userId);
+    Optional<Counterparty> findByIdAndLedgerId(long id, long ledgerId);
 
-    List<Counterparty> findAllByUserIdOrderByName(String userId);
+    List<Counterparty> findAllByLedgerIdOrderByName(long ledgerId);
 
     /**
      * Locked FOR SHARE until the transaction ends, so that none can be deleted before an entry that uses it is
      * written.
      */
     @Lock(LockMode.PESSIMISTIC_READ)
-    List<Counterparty> findAllByUserIdAndIdIn(String userId, Collection<Long> ids);
+    List<Counterparty> findAllByLedgerIdAndIdIn(long ledgerId, Collection<Long> ids);
 }

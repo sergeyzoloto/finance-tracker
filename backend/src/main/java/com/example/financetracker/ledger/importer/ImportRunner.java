@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
+import com.example.financetracker.ledger.access.LedgerAccess;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
@@ -23,6 +24,9 @@ import org.springframework.stereotype.Component;
  * <li>2: row errors; nothing was saved.
  * </ul>
  * The report goes next to the transactions file as import-report.md, unless --report names another file.
+ * <p>
+ * The entries go into the personal ledger of the sub that --user-sub names, which {@link LedgerAccess} creates if the
+ * sub has none yet, as it does on a user's first request.
  */
 @Component
 @Profile("import")
@@ -37,10 +41,12 @@ class ImportRunner implements ApplicationRunner {
             "opening-balances", "commit", "report");
 
     private final ImportService imports;
+    private final LedgerAccess ledgers;
     private final ConfigurableApplicationContext context;
 
-    ImportRunner(ImportService imports, ConfigurableApplicationContext context) {
+    ImportRunner(ImportService imports, LedgerAccess ledgers, ConfigurableApplicationContext context) {
         this.imports = imports;
+        this.ledgers = ledgers;
         this.context = context;
     }
 
@@ -71,11 +77,11 @@ class ImportRunner implements ApplicationRunner {
                     ? Path.of(reportOption)
                     : transactions.toAbsolutePath().normalize().resolveSibling("import-report.md");
 
-            ImportRequest request = new ImportRequest(value(args, "user-sub", true),
-                    file(Path.of(value(args, "accounts", true))), file(Path.of(value(args, "categories", true))),
-                    file(transactions), openingBalances == null ? null : file(Path.of(openingBalances)),
-                    args.containsOption("commit"));
-            ImportReport report = imports.run(request);
+            String userSub = value(args, "user-sub", true);
+            ImportRequest request = new ImportRequest(file(Path.of(value(args, "accounts", true))),
+                    file(Path.of(value(args, "categories", true))), file(transactions),
+                    openingBalances == null ? null : file(Path.of(openingBalances)), args.containsOption("commit"));
+            ImportReport report = imports.run(ledgers.provisionPersonal(userSub), request);
             Files.writeString(reportFile, ImportReportMarkdown.render(report));
 
             out.printf("%s: %d entries, %d row errors, %d warnings, %d skipped rows. Report: %s%n",

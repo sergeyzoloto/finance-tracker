@@ -7,8 +7,8 @@ import com.example.financetracker.ledger.EntryFilter;
 import com.example.financetracker.ledger.EntryPage;
 import com.example.financetracker.ledger.EntryService;
 import com.example.financetracker.ledger.EntryView;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.EntryCommand;
-import com.example.financetracker.security.CurrentUser;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
@@ -53,25 +53,25 @@ class EntryController {
      * @param size entries per page
      */
     @GetMapping
-    EntryPage list(CurrentUser user, @RequestParam(required = false) LocalDate from,
+    EntryPage list(LedgerScope ledger, @RequestParam(required = false) LocalDate from,
             @RequestParam(required = false) LocalDate to, @RequestParam(required = false) Long accountId,
             @RequestParam(required = false) Long categoryId, @RequestParam(required = false) Long counterpartyId,
             @RequestParam(required = false) @Size(max = 100) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "50") @Min(1) @Max(200) int size) {
-        return entries.search(user.id(), new EntryFilter(from, to, accountId, categoryId, counterpartyId, q), page,
+        return entries.search(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q), page,
                 size);
     }
 
     @GetMapping("/{id}")
-    EntryView get(CurrentUser user, @PathVariable long id) {
-        return entries.get(user.id(), id);
+    EntryView get(LedgerScope ledger, @PathVariable long id) {
+        return entries.get(ledger, id);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    ResponseEntity<EntryView> create(CurrentUser user, @RequestBody EntryCommand command) {
-        EntryView entry = entries.create(user.id(), command);
+    ResponseEntity<EntryView> create(LedgerScope ledger, @RequestBody EntryCommand command) {
+        EntryView entry = entries.create(ledger, command);
         return ResponseEntity.created(URI.create("/api/entries/" + entry.id())).body(entry);
     }
 
@@ -81,15 +81,15 @@ class EntryController {
      * @param version the version the caller read; if the entry has changed since, it is refused with 409
      */
     @PutMapping("/{id}")
-    EntryView update(CurrentUser user, @PathVariable long id, @RequestParam int version,
+    EntryView update(LedgerScope ledger, @PathVariable long id, @RequestParam int version,
             @RequestBody EntryCommand command) {
-        return entries.update(user.id(), id, version, command);
+        return entries.update(ledger, id, version, command);
     }
 
     /** @param version the version the caller read; if the entry has changed since, it is refused with 409 */
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void delete(CurrentUser user, @PathVariable long id, @RequestParam int version) {
-        entries.delete(user.id(), id, version);
+    void delete(LedgerScope ledger, @PathVariable long id, @RequestParam int version) {
+        entries.delete(ledger, id, version);
     }
 }

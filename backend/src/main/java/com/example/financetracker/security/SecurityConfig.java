@@ -57,7 +57,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * locally against the realm's keys: signature, issuer, expiry, audience ({@code application.yml}) and subject, then
  * this client's {@code user} role ({@link ClientRoles}).
  * <li>The token's subject is the user id that all data is keyed by. Controllers get it as a {@link CurrentUser}
- * parameter ({@link CurrentUserResolver}).
+ * parameter ({@link CurrentUserResolver}), and the user's personal ledger as a LedgerScope parameter
+ * ({@link PersonalLedgerResolver}).
  * <li>Only {@code /actuator/health} is open to everyone.
  * </ul>
  * Keycloak is contacted lazily, so the app starts while it's down; API requests then get 401.
@@ -133,13 +134,17 @@ class SecurityConfig {
         return new JwtClaimValidator<String>(JwtClaimNames.SUB, subject -> subject != null && !subject.isBlank());
     }
 
-    /** Controllers take the user as a {@link CurrentUser} parameter. */
+    /**
+     * Controllers take the user as a {@link CurrentUser} parameter, and the user's personal ledger as a
+     * {@link com.example.financetracker.ledger.access.LedgerScope} parameter.
+     */
     @Bean
-    WebMvcConfigurer currentUserParameter(CurrentUserResolver currentUser) {
+    WebMvcConfigurer currentUserParameter(CurrentUserResolver currentUser, PersonalLedgerResolver personalLedger) {
         return new WebMvcConfigurer() {
             @Override
             public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
                 resolvers.add(currentUser);
+                resolvers.add(personalLedger);
             }
         };
     }

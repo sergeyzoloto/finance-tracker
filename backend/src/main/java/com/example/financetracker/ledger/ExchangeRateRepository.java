@@ -2,6 +2,7 @@ package com.example.financetracker.ledger;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -11,7 +12,8 @@ import org.springframework.data.repository.Repository;
 
 /**
  * The ECB's rates are shared by all users, and a manual rate belongs to the user who entered it. Queries that take a
- * user id see the shared rates and that user's own.
+ * user id see the shared rates and that user's own. Rates belong to no ledger, so this is not a
+ * {@link LedgerScopedRepository}.
  */
 public interface ExchangeRateRepository extends Repository<ExchangeRate, Void> {
 
@@ -21,6 +23,28 @@ public interface ExchangeRateRepository extends Repository<ExchangeRate, Void> {
             WHERE rate_date = :rateDate AND base_currency = :baseCurrency AND quote_currency = :quoteCurrency
               AND user_id IS NOT DISTINCT FROM :userId""")
     Optional<ExchangeRate> find(LocalDate rateDate, String baseCurrency, String quoteCurrency, String userId);
+
+    /**
+     * The shared rates and the user's own of the currencies, against EUR, on {@code from} to {@code to}, and of each
+     * currency and source the latest before {@code from}.
+     */
+    @Query("""
+            (SELECT * FROM exchange_rate
+             WHERE base_currency = 'EUR' AND quote_currency IN (:currencies)
+               AND (user_id IS NULL OR user_id = :userId) AND rate_date BETWEEN :from AND :to)
+            UNION ALL
+            (SELECT DISTINCT ON (quote_currency, source) * FROM exchange_rate
+             WHERE base_currency = 'EUR' AND quote_currency IN (:currencies)
+               AND (user_id IS NULL OR user_id = :userId) AND rate_date < :from
+             ORDER BY quote_currency, source, rate_date DESC)""")
+    List<ExchangeRate> findForPeriod(String userId, Collection<String> currencies, LocalDate from, LocalDate to);
+
+    /** The latest rate of every currency against EUR, the user's own before the shared one on the same day. */
+    @Query("""
+            SELECT DISTINCT ON (quote_currency) * FROM exchange_rate
+            WHERE base_currency = 'EUR' AND (user_id IS NULL OR user_id = :userId)
+            ORDER BY quote_currency, rate_date DESC, user_id NULLS LAST""")
+    List<ExchangeRate> findLatest(String userId);
 
     /** The user's manual rates, newest first. */
     @Query("""

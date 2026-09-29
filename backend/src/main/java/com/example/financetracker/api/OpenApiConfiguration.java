@@ -3,6 +3,7 @@ package com.example.financetracker.api;
 import java.math.BigDecimal;
 import java.util.Set;
 
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.security.CurrentUser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.core.jackson.ModelResolver;
@@ -26,7 +27,7 @@ class OpenApiConfiguration {
                 .replaceWithSchema(BigDecimal.class,
                         new StringSchema().types(Set.of("string")).format("decimal").example("-12.50"))
                 // Filled in from the access token, not from the request.
-                .addRequestWrapperToIgnore(CurrentUser.class);
+                .addRequestWrapperToIgnore(CurrentUser.class, LedgerScope.class);
     }
 
     @Bean

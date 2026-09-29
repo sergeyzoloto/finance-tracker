@@ -38,6 +38,47 @@ Not committed yet.
     never reading the security context, and covered by the isolation tests.
   - CLAUDE.md: production runs `1f1662f`, V5 is applied there, and "Delete a user" covers a sub
     without a `users` row.
+- Scoping by `ledger_id` (commit "refactor(ledger): scope every query by ledger_id"), ADR 0003
+  topics C and J; no migration, no change to any endpoint, body or status, and none under
+  `frontend/src`:
+  - New `ledger/access/`: `LedgerScope`, a final class whose package-private constructor only
+    `LedgerAccess` calls, holding the ledger id, `LedgerType`, member id, `MemberRole` and the
+    member's sub; and `LedgerAccess`, the one place that decides access, by an ACTIVE
+    `ledger_member` row: `personal(sub)`, `member(sub, ledgerId)` (`NotFoundException("Ledger n not
+    found")` for a ledger that doesn't exist and for one the sub isn't an ACTIVE member of alike)
+    and `provisionPersonal(sub)` (`personal_ledger_id`, then `personal`).
+  - `OwnedRepository` is `LedgerScopedRepository`. `AccountRepository`,
+    `LedgerCategoryRepository`, `CounterpartyRepository`, `JournalEntryRepository` and
+    `ImportBatchRepository` look up by `ledgerId` (`findByIdAndLedgerId` and so on);
+    `JournalEntryRepository.findExternalRefs` takes the `LedgerScope` itself, read in its `@Query`
+    by a SpEL expression. The records `Account`, `LedgerCategory`, `Counterparty`, `JournalEntry`
+    and `ImportBatch` carry `ledgerId` next to `userId`.
+  - Services take the `LedgerScope`: `AccountService`, `CategoryService`, `CounterpartyService`,
+    `EntryService`, `ReportService`, `DemoLedgerService`, `ImportService`, `StarterLedger.restore`,
+    `SettingsService.update` and `RateService.overview`. Every `JdbcClient` statement on the five
+    ledger tables filters by `ledger_id`, and `EntryService` also reads a page's postings through
+    their entries' ledger. New rows get `ledger_id` and `user_id` from the scope; V5's fill trigger
+    stays as a safety net for older images.
+  - What is about the person stays by user id: `UserDataService` (which now also inserts the
+    `users` row, so the security package runs no SQL) provisions and deletes all; delete-all
+    removes the ledger's rows by `ledger_id` and the personal ledger by the member's sub, also for a
+    sub without a `users` row. `SettingsService.get`, the manual rates, and the rate queries, which
+    moved from `RateService` into `ExchangeRateRepository` (`findForPeriod`, `findLatest`), stay
+    per user; `UserSettingsRepository.insertIfAbsent` replaces `StarterLedger`'s own SQL.
+  - Controllers: `security/PersonalLedgerResolver` fills a `LedgerScope` parameter with the user's
+    personal ledger after `CurrentUserResolver` has provisioned them. The ledger endpoints take it;
+    `/api/me/data`, the manual rates and GET `/api/settings` keep `CurrentUser`. springdoc ignores
+    `LedgerScope` as it ignores `CurrentUser`.
+  - The importer: `ImportRequest` lost its user id, `ImportService.run` takes the scope, and
+    `ImportRunner` resolves `--user-sub` with `LedgerAccess.provisionPersonal`. The demo loader
+    locks the settings row as before, and answers 404 if the ledger was deleted meanwhile.
+  - Tests whose signatures changed: `EntryServiceTests`, `LedgerRepositoryTests`,
+    `ReportServiceTests`, `BaseCurrencyReportTests`, `ImportServiceTests`, `ImportRunnerTests`,
+    `StarterLedgerTests` (constructor) and `DemoDataApiTests` (the spied `create`). New
+    `ledger/access/LedgerAccessTests`: a user's scope is their personal ledger; another user's
+    ledger id and a missing one both answer `NotFoundException`; a family ledger written with plain
+    SQL is reached by ACTIVE members only, not after LEFT or FORMER.
+  - ADR 0003 (topics C and J) and CLAUDE.md describe it.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`: the checkout was on
@@ -55,6 +96,14 @@ Not committed yet.
   `users` row fails. After the documents' commit, `./mvnw -B verify`: 248 tests (247 and the new
   one), 0 failures, 0 errors, BUILD SUCCESS.
 
+- The refactor: `./mvnw -B verify` 252 tests (248 and 4 new), 0 failures, 0 errors, BUILD
+  SUCCESS. `DataIsolationApiTests` passed unchanged.
+- The new code doesn't rely on V5's fill trigger: with a temporary migration on the test classpath
+  (not committed) that makes `fill_and_check_ledger_id` refuse a row without `ledger_id`, every
+  API, service, importer, demo and isolation test passed. The 27 that failed write rows without
+  `ledger_id` on purpose: `LedgerSchemaTests` and `LedgerBackfillMigrationTests`, which test the
+  trigger and also saw the extra migration, and the runbook test of a sub without a `users` row.
+
 **Open**
 - Nothing yet.
 
@@ -62,7 +111,7 @@ Not committed yet.
 
 Commits `c6a16cd` (documents), `43d2c4f` (isolation tests) and `1f1662f` (V5), on
 `feature/family-budget`, merged into `main` and deployed on 2026-09-29; the deploy's records:
-"docs(family-budget): F2a deploy and runbook fixes", whose hash is in the F2b entry.
+`69a831c`.
 
 **Changes**
 - Documents after the owner's F1 review (commit "docs(family-budget): apply F1 review decisions"):

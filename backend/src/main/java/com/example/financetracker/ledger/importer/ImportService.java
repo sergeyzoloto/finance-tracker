@@ -30,6 +30,7 @@ import com.example.financetracker.ledger.LedgerCategory;
 import com.example.financetracker.ledger.LedgerCategoryRepository;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.EntryKind;
@@ -61,7 +62,8 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Imports the owner's Excel ledger for one user: the accounts and categories first, created or updated by code, then
+ * Imports the owner's Excel ledger into one ledger, which the caller resolved through LedgerAccess: the accounts and
+ * categories first, created or updated by code, then
  * one entry per row of the journal, then the opening balances. The rules for a row are in {@link EntryMapper}; the
  * entries are written through {@link EntryService}, so the ledger's rules hold for them as for any other.
  * <p>
@@ -69,7 +71,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * a commit rolls it back too if any row can't be imported, so a commit saves everything or nothing. Each row is
  * written under its own savepoint, so a row the database refuses doesn't stop the rows after it.
  * <p>
- * Running it again over the same files is safe: a row whose external ref the user already has is skipped.
+ * Running it again over the same files is safe: a row whose external ref the ledger already has is skipped.
  */
 @Service
 public class ImportService {
@@ -109,7 +111,7 @@ public class ImportService {
         this.savepoint.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
     }
 
-    public ImportReport run(ImportRequest request) {
+    public ImportReport run(LedgerScope ledger, ImportRequest request) {
         Instant startedAt = Instant.now();
         Sheet<AccountRow> accountRows = Workbook.accounts(request.accounts());
         Sheet<CategoryRow> categoryRows = Workbook.categories(request.categories());
@@ -118,8 +120,8 @@ public class ImportService {
                 ? null
                 : Workbook.openingBalances(request.openingBalances());
         return transaction.execute(status -> {
-            ImportReport report = new Run(request, startedAt).execute(accountRows, categoryRows, transactionRows,
-                    openingRows);
+            ImportReport report = new Run(ledger, request, startedAt).execute(accountRows, categoryRows,
+                    transactionRows, openingRows);
             if (report.outcome() != Outcome.COMMITTED) {
                 status.setRollbackOnly();
             }
@@ -130,7 +132,7 @@ public class ImportService {
     /** One run's state. */
     private final class Run {
 
-        private final String userId;
+        private final LedgerScope ledger;
         private final boolean commit;
         private final Instant startedAt;
         private final List<FileSummary> files = new ArrayList<>();
@@ -145,13 +147,13 @@ public class ImportService {
         private int categoriesCreated;
         private int categoriesUpdated;
         private int counterpartiesCreated;
-        /** The user's counterparties by lowercase name, as the database's unique index compares them. */
+        /** The ledger's counterparties by lowercase name, as the database's unique index compares them. */
         private Map<String, Long> counterpartyIds;
         private Set<String> externalRefs;
         private long batchId;
 
-        Run(ImportRequest request, Instant startedAt) {
-            this.userId = request.userId();
+        Run(LedgerScope ledger, ImportRequest request, Instant startedAt) {
+            this.ledger = ledger;
             this.commit = request.commit();
             this.startedAt = startedAt;
         }
@@ -167,12 +169,12 @@ public class ImportService {
 
             Chart chart = chart(accountRows, categoryRows);
             EntryMapper mapper = new EntryMapper(chart);
-            counterpartyIds = counterparties.findAllByUserIdOrderByName(userId).stream()
+            counterpartyIds = counterparties.findAllByLedgerIdOrderByName(ledger.ledgerId()).stream()
                     .collect(Collectors.toMap(c -> key(c.name()), Counterparty::id, (first, second) -> first));
-            externalRefs = new HashSet<>(journal.findExternalRefsByUserId(userId));
+            externalRefs = new HashSet<>(journal.findExternalRefs(ledger));
             ImportFile transactionsFile = transactionRows.file();
-            batchId = batches.save(new ImportBatch(null, userId, transactionsFile.name(), transactionsFile.sha256(),
-                    !commit, null, null, null)).id();
+            batchId = batches.save(new ImportBatch(null, ledger.userId(), ledger.ledgerId(), transactionsFile.name(),
+                    transactionsFile.sha256(), !commit, null, null, null)).id();
 
             for (TransactionRow row : transactionRows.rows()) {
                 importRow(transactionsFile.name(), row, mapper.map(row));
@@ -180,16 +182,16 @@ public class ImportService {
             if (openingRows != null) {
                 importOpeningBalances(openingRows, mapper);
             }
-            checkDeferredConstraints();
+            checkDeferredConstraints(ledger);
 
             Outcome outcome = !commit ? Outcome.DRY_RUN : errors.isEmpty() ? Outcome.COMMITTED : Outcome.ABORTED;
-            ImportReport report = new ImportReport(userId, commit, outcome, startedAt, files, entriesByKind,
+            ImportReport report = new ImportReport(ledger.userId(), commit, outcome, startedAt, files, entriesByKind,
                     new ReferenceCounts(accountsCreated, accountsUpdated, categoriesCreated, categoriesUpdated,
                             counterpartiesCreated),
-                    errors, warnings, skipped, zeroFxRows, fxRows, reports.balances(userId, ALL_DATES),
-                    reports.integrityCheck(userId));
-            batches.save(new ImportBatch(batchId, userId, transactionsFile.name(), transactionsFile.sha256(), !commit,
-                    null, Instant.now(), summary(report)));
+                    errors, warnings, skipped, zeroFxRows, fxRows, reports.balances(ledger, ALL_DATES),
+                    reports.integrityCheck(ledger));
+            batches.save(new ImportBatch(batchId, ledger.userId(), ledger.ledgerId(), transactionsFile.name(),
+                    transactionsFile.sha256(), !commit, null, Instant.now(), summary(report)));
             return report;
         }
 
@@ -205,15 +207,16 @@ public class ImportService {
          * exist (rules 4, 8, 9 and 10).
          */
         private Chart chart(Sheet<AccountRow> accountRows, Sheet<CategoryRow> categoryRows) {
-            Map<String, Account> accountsByCode = accounts.findAllByUserIdOrderByCode(userId).stream()
+            Map<String, Account> accountsByCode = accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId()).stream()
                     .collect(Collectors.toMap(Account::code, Function.identity()));
             Map<String, AccountRef> accountsByName = new HashMap<>();
             for (AccountRow row : accountRows.rows()) {
                 Account existing = accountsByCode.get(row.code());
                 Account wanted = existing == null
-                        ? new Account(null, userId, row.code(), row.name(), row.type(), null,
-                                row.requiresCounterparty(), false, null, null)
-                        : new Account(existing.id(), userId, existing.code(), row.name(), row.type(),
+                        ? new Account(null, ledger.userId(), ledger.ledgerId(), row.code(), row.name(), row.type(),
+                                null, row.requiresCounterparty(), false, null, null)
+                        : new Account(existing.id(), existing.userId(), existing.ledgerId(), existing.code(),
+                                row.name(), row.type(),
                                 existing.defaultCurrency(), row.requiresCounterparty(), existing.isSystem(),
                                 existing.archivedAt(), existing.createdAt());
                 Account account = existing;
@@ -233,7 +236,8 @@ public class ImportService {
             systemAccount(AccountRole.OPENING_BALANCE, "Opening balance", accountsByCode);
             systemAccount(AccountRole.FX_EXCHANGE, "Currency exchange", accountsByCode);
 
-            Map<String, LedgerCategory> categoriesByCode = categories.findAllByUserIdOrderByName(userId).stream()
+            Map<String, LedgerCategory> categoriesByCode = categories.findAllByLedgerIdOrderByName(ledger.ledgerId())
+                    .stream()
                     .collect(Collectors.toMap(LedgerCategory::code, Function.identity()));
             Map<String, CategoryRef> categoriesByName = new HashMap<>();
             for (CategoryRow row : categoryRows.rows()) {
@@ -245,8 +249,9 @@ public class ImportService {
                                     .formatted(row.code(), existing.type(), row.type())));
                     continue;
                 }
-                LedgerCategory wanted = new LedgerCategory(existing == null ? null : existing.id(), userId,
-                        row.code(), row.name(), row.type(), existing == null ? null : existing.archivedAt());
+                LedgerCategory wanted = new LedgerCategory(existing == null ? null : existing.id(), ledger.userId(),
+                        ledger.ledgerId(), row.code(), row.name(), row.type(),
+                        existing == null ? null : existing.archivedAt());
                 LedgerCategory category = existing;
                 if (!wanted.equals(existing)) {
                     category = save(categoryRows.file(), row.row(), () -> categories.save(wanted), "the category");
@@ -265,19 +270,20 @@ public class ImportService {
             Map<String, AccountRef> refsByCode = accountsByCode.values().stream()
                     .collect(Collectors.toMap(Account::code, ImportService::accountRef));
             // Rule 7: the account the settings name, else FAMILY_DEBT.
-            AccountRef shared = settings.findById(userId)
+            AccountRef shared = settings.findById(ledger.userId())
                     .map(UserSettings::sharedAccountId)
                     .flatMap(id -> refsByCode.values().stream().filter(ref -> ref.id() == id).findFirst())
                     .orElse(refsByCode.get(AccountRole.SHARED.defaultCode()));
             return new Chart(accountsByName, refsByCode, categoriesByName, shared);
         }
 
-        /** Rules 9 and 10: an EQUITY account the importer posts to on its own, created if the user lacks it. */
+        /** Rules 9 and 10: an EQUITY account the importer posts to on its own, created if the ledger lacks it. */
         private void systemAccount(AccountRole role, String name, Map<String, Account> accountsByCode) {
             String code = role.defaultCode();
             if (!accountsByCode.containsKey(code)) {
                 accountsByCode.put(code, accounts.save(
-                        new Account(null, userId, code, name, AccountType.EQUITY, null, false, true, null, null)));
+                        new Account(null, ledger.userId(), ledger.ledgerId(), code, name, AccountType.EQUITY, null,
+                                false, true, null, null)));
                 accountsCreated++;
             }
         }
@@ -346,7 +352,7 @@ public class ImportService {
             });
         }
 
-        /** Whether the user has the entry already; it is then skipped. */
+        /** Whether the ledger has the entry already; it is then skipped. */
         private boolean importedBefore(String file, Integer row, EntryPlan plan) {
             if (!externalRefs.contains(plan.externalRef())) {
                 return false;
@@ -365,7 +371,7 @@ public class ImportService {
         private boolean write(String file, Integer row, EntryPlan plan) {
             Map<String, Long> created = new HashMap<>();
             try {
-                savepoint.executeWithoutResult(status -> entries.createImported(userId, command(plan, created),
+                savepoint.executeWithoutResult(status -> entries.createImported(ledger, command(plan, created),
                         batchId, plan.externalRef()));
             } catch (InvalidEntryException e) {
                 errors.add(new Problem(file, row, label(row, plan) + String.join("; ", e.violations())));
@@ -402,7 +408,8 @@ public class ImportService {
             String key = key(party.name());
             Long id = Optional.ofNullable(counterpartyIds.get(key)).orElseGet(() -> created.get(key));
             if (id == null) {
-                id = counterparties.save(new Counterparty(null, userId, party.name(), party.kind(), null)).id();
+                id = counterparties.save(new Counterparty(null, ledger.userId(), ledger.ledgerId(), party.name(),
+                        party.kind(), null)).id();
                 created.put(key, id);
             }
             return id;
@@ -410,9 +417,9 @@ public class ImportService {
 
         /**
          * Runs the checks the database defers to the commit now, so that a dry run meets them too, and a commit
-         * reports them instead of failing.
+         * reports them instead of failing. They cover what this transaction wrote, which is the ledger's.
          */
-        private void checkDeferredConstraints() {
+        private void checkDeferredConstraints(LedgerScope ledger) {
             try {
                 savepoint.executeWithoutResult(status -> jdbc.sql("SET CONSTRAINTS ALL IMMEDIATE").update());
             } catch (DataAccessException e) {

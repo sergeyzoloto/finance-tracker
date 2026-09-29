@@ -27,6 +27,8 @@ import com.example.financetracker.ledger.Counterparty;
 import com.example.financetracker.ledger.CounterpartyRepository;
 import com.example.financetracker.ledger.LedgerCategory;
 import com.example.financetracker.ledger.LedgerCategoryRepository;
+import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.domain.EntryKind;
@@ -36,6 +38,7 @@ import com.example.financetracker.ledger.importer.ImportReport.Outcome;
 import com.example.financetracker.ledger.importer.ImportReport.Problem;
 import com.example.financetracker.ledger.report.AccountBalance;
 import org.assertj.core.groups.Tuple;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -45,7 +48,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * {@link ImportService} against real PostgreSQL, over the synthetic workbook in {@code src/test/resources/import/}:
  * 26 journal rows in March 2024 with the quirks of the real exports (a byte order mark, CRLF, quoted fields, no-break
  * spaces in numbers, formula columns). Every name and amount in it is invented. Row 10 names an account the accounts
- * file doesn't have; tests that commit leave it out. Every test runs as a fresh user.
+ * file doesn't have; tests that commit leave it out. Every test runs as a fresh user, into their personal ledger.
  */
 class ImportServiceTests extends IntegrationTest {
 
@@ -61,12 +64,20 @@ class ImportServiceTests extends IntegrationTest {
     private CounterpartyRepository counterparties;
     @Autowired
     private JdbcClient jdbc;
+    @Autowired
+    private LedgerAccess ledgers;
 
     private final String user = UUID.randomUUID().toString();
+    private LedgerScope ledger;
+
+    @BeforeEach
+    void createLedger() {
+        ledger = ledgers.provisionPersonal(user);
+    }
 
     @Test
     void dryRunReportsEveryRowAndSavesNothing() throws IOException {
-        ImportReport report = imports.run(request(fixture(TRANSACTIONS), null, false));
+        ImportReport report = imports.run(ledger, request(fixture(TRANSACTIONS), null, false));
 
         assertThat(report.outcome()).isEqualTo(Outcome.DRY_RUN);
         assertThat(report.entriesByKind()).containsExactly(entry(EXPENSE, 8), entry(INCOME, 4), entry(TRANSFER, 5),
@@ -106,31 +117,31 @@ class ImportServiceTests extends IntegrationTest {
                         tuple("UNALLOCATED", "RUB", money("69148.70")));
         assertThat(report.integrityViolations()).isEmpty();
 
-        assertThat(accounts.findAllByUserIdOrderByCode(user)).isEmpty();
-        assertThat(categories.findAllByUserIdOrderByName(user)).isEmpty();
-        assertThat(counterparties.findAllByUserIdOrderByName(user)).isEmpty();
+        assertThat(accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId())).isEmpty();
+        assertThat(categories.findAllByLedgerIdOrderByName(ledger.ledgerId())).isEmpty();
+        assertThat(counterparties.findAllByLedgerIdOrderByName(ledger.ledgerId())).isEmpty();
         assertThat(count("journal_entry")).isZero();
         assertThat(count("import_batch")).isZero();
     }
 
     @Test
     void aCommitWithARowErrorSavesNothing() throws IOException {
-        ImportReport report = imports.run(request(fixture(TRANSACTIONS), null, true));
+        ImportReport report = imports.run(ledger, request(fixture(TRANSACTIONS), null, true));
 
         assertThat(report.outcome()).isEqualTo(Outcome.ABORTED);
         assertThat(report.errors()).extracting(Problem::row).containsExactly(10);
-        assertThat(accounts.findAllByUserIdOrderByCode(user)).isEmpty();
+        assertThat(accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId())).isEmpty();
         assertThat(count("journal_entry")).isZero();
         assertThat(count("import_batch")).isZero();
     }
 
     @Test
     void aCommitWritesTheAccountsAndCategoriesByTheRules() throws IOException {
-        ImportReport report = imports.run(request(withoutRow(fixture(TRANSACTIONS), 10), null, true));
+        ImportReport report = imports.run(ledger, request(withoutRow(fixture(TRANSACTIONS), 10), null, true));
 
         assertThat(report.outcome()).isEqualTo(Outcome.COMMITTED);
         assertThat(report.errors()).isEmpty();
-        assertThat(accounts.findAllByUserIdOrderByCode(user))
+        assertThat(accounts.findAllByLedgerIdOrderByCode(ledger.ledgerId()))
                 .extracting(Account::code, Account::type, Account::requiresCounterparty, Account::isSystem)
                 .containsExactly(
                         tuple("CASH", AccountType.ASSET, false, false),
@@ -146,7 +157,7 @@ class ImportServiceTests extends IntegrationTest {
                         tuple("RESERVE", AccountType.EQUITY, false, false),
                         tuple("SOUTH_SAVINGS", AccountType.ASSET, false, false),
                         tuple("UNALLOCATED", AccountType.EQUITY, false, false));
-        assertThat(categories.findAllByUserIdOrderByName(user))
+        assertThat(categories.findAllByLedgerIdOrderByName(ledger.ledgerId()))
                 .extracting(LedgerCategory::code, LedgerCategory::type)
                 .containsExactlyInAnyOrder(
                         tuple("PAYCHECK", CategoryType.INCOME),
@@ -158,7 +169,7 @@ class ImportServiceTests extends IntegrationTest {
                         tuple("TRANSPORT", CategoryType.EXPENSE),
                         tuple("PRESENTS", CategoryType.EXPENSE));
         // Payees are merchants, borrowers people; a name is one counterparty whatever its case or role.
-        assertThat(counterparties.findAllByUserIdOrderByName(user))
+        assertThat(counterparties.findAllByLedgerIdOrderByName(ledger.ledgerId()))
                 .extracting(Counterparty::name, Counterparty::kind)
                 .contains(
                         tuple("Unassigned", null),
@@ -170,7 +181,7 @@ class ImportServiceTests extends IntegrationTest {
 
     @Test
     void aCommitWritesEachRowAsTheRulesBuildIt() throws IOException {
-        imports.run(request(withoutRow(fixture(TRANSACTIONS), 10), null, true));
+        imports.run(ledger, request(withoutRow(fixture(TRANSACTIONS), 10), null, true));
 
         // Rule 7 with the workbook's split: the family's part is minus FAMILY_EXP, the own part the rest.
         assertThat(postings("2024-03-05", SHARED_EXPENSE)).containsExactly(
@@ -240,9 +251,9 @@ class ImportServiceTests extends IntegrationTest {
     @Test
     void aSecondRunSkipsWhatTheFirstImported() throws IOException {
         byte[] transactions = withoutRow(fixture(TRANSACTIONS), 10);
-        imports.run(request(transactions, fixture("opening-balances.csv"), true));
+        imports.run(ledger, request(transactions, fixture("opening-balances.csv"), true));
 
-        ImportReport again = imports.run(request(transactions, fixture("opening-balances.csv"), true));
+        ImportReport again = imports.run(ledger, request(transactions, fixture("opening-balances.csv"), true));
 
         assertThat(again.outcome()).isEqualTo(Outcome.COMMITTED);
         assertThat(again.entriesWritten()).isZero();
@@ -259,7 +270,7 @@ class ImportServiceTests extends IntegrationTest {
 
     @Test
     void openingBalancesAreOneEntryPerDate() throws IOException {
-        ImportReport report = imports.run(request(withoutRow(fixture(TRANSACTIONS), 10),
+        ImportReport report = imports.run(ledger, request(withoutRow(fixture(TRANSACTIONS), 10),
                 fixture("opening-balances.csv"), true));
 
         assertThat(report.outcome()).isEqualTo(Outcome.COMMITTED);
@@ -286,30 +297,32 @@ class ImportServiceTests extends IntegrationTest {
 
     @Test
     void referenceDataIsUpdatedByCode() throws IOException {
-        imports.run(request(withoutRow(fixture(TRANSACTIONS), 10), null, true));
+        imports.run(ledger, request(withoutRow(fixture(TRANSACTIONS), 10), null, true));
         String renamed = new String(fixture("accounts.csv"), StandardCharsets.UTF_8).replace("Отложено", "На потом");
 
-        ImportReport report = imports.run(new ImportRequest(user, file("accounts.csv", renamed.getBytes(StandardCharsets.UTF_8)),
+        ImportReport report = imports.run(ledger, new ImportRequest(
+                file("accounts.csv", renamed.getBytes(StandardCharsets.UTF_8)),
                 file("categories.csv", fixture("categories.csv")), file(TRANSACTIONS, headerOnly()), null, true));
 
         assertThat(report.outcome()).isEqualTo(Outcome.COMMITTED);
         assertThat(report.referenceData()).isEqualTo(new ImportReport.ReferenceCounts(0, 1, 0, 0, 0));
-        assertThat(accounts.findByUserIdAndCode(user, "RESERVE")).get()
+        assertThat(accounts.findByLedgerIdAndCode(ledger.ledgerId(), "RESERVE")).get()
                 .extracting(Account::name).isEqualTo("На потом");
     }
 
     @Test
     void aCategoryKeepsItsType() throws IOException {
-        categories.save(new LedgerCategory(null, user, "FOOD", "Продукты", CategoryType.INCOME, null));
+        categories.save(new LedgerCategory(null, user, ledger.ledgerId(), "FOOD", "Продукты", CategoryType.INCOME,
+                null));
 
-        ImportReport report = imports.run(request(fixture(TRANSACTIONS), null, false));
+        ImportReport report = imports.run(ledger, request(fixture(TRANSACTIONS), null, false));
 
         assertThat(report.errors()).contains(new Problem("categories.csv", 5,
                 "the category FOOD is INCOME, and a category's type can't change to EXPENSE"));
     }
 
     private ImportRequest request(byte[] transactions, byte[] openingBalances, boolean commit) throws IOException {
-        return new ImportRequest(user, file("accounts.csv", fixture("accounts.csv")),
+        return new ImportRequest(file("accounts.csv", fixture("accounts.csv")),
                 file("categories.csv", fixture("categories.csv")), file(TRANSACTIONS, transactions),
                 openingBalances == null ? null : file("opening-balances.csv", openingBalances), commit);
     }

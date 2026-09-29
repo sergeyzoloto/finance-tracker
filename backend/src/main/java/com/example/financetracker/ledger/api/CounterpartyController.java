@@ -8,7 +8,7 @@ import com.example.financetracker.ledger.Counterparty;
 import com.example.financetracker.ledger.CounterpartyChanges;
 import com.example.financetracker.ledger.CounterpartyService;
 import com.example.financetracker.ledger.CounterpartyView;
-import com.example.financetracker.security.CurrentUser;
+import com.example.financetracker.ledger.access.LedgerScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -90,18 +90,18 @@ class CounterpartyController {
      * categorized entry as payee, to preselect in the next one.
      */
     @GetMapping
-    List<CounterpartyView> list(CurrentUser user) {
-        return counterparties.list(user.id());
+    List<CounterpartyView> list(LedgerScope ledger) {
+        return counterparties.list(ledger);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    CounterpartyView create(CurrentUser user, @Valid @RequestBody NewCounterparty counterparty) {
-        return counterparties.create(user.id(), counterparty.name().strip(), counterparty.kind());
+    CounterpartyView create(LedgerScope ledger, @Valid @RequestBody NewCounterparty counterparty) {
+        return counterparties.create(ledger, counterparty.name().strip(), counterparty.kind());
     }
 
     @PatchMapping("/{id}")
-    CounterpartyView update(CurrentUser user, @PathVariable long id, @Valid @RequestBody CounterpartyPatch patch) {
-        return counterparties.update(user.id(), id, patch.changes());
+    CounterpartyView update(LedgerScope ledger, @PathVariable long id, @Valid @RequestBody CounterpartyPatch patch) {
+        return counterparties.update(ledger, id, patch.changes());
     }
 }

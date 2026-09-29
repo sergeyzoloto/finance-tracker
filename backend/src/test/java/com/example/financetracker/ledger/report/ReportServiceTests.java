@@ -28,6 +28,8 @@ import com.example.financetracker.ledger.LedgerCategory;
 import com.example.financetracker.ledger.LedgerCategoryRepository;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
+import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.domain.CurrencyExchangeCommand;
@@ -76,9 +78,13 @@ class ReportServiceTests extends IntegrationTest {
     private JdbcClient jdbc;
     @Autowired
     private TransactionTemplate transactions;
+    @Autowired
+    private LedgerAccess ledgers;
 
     private final String user = UUID.randomUUID().toString();
     private final String other = UUID.randomUUID().toString();
+    private LedgerScope ledger;
+    private LedgerScope othersLedger;
     private long cash, card, savings, oldWallet, loans, creditorDebt, familyDebt, unallocated, openingBalance,
             fxExchange, othersCash, othersOpeningBalance;
     private long groceries, restaurants, salary;
@@ -87,19 +93,21 @@ class ReportServiceTests extends IntegrationTest {
 
     @BeforeEach
     void writeLedger() {
-        cash = account(user, "CASH", "Cash", ASSET, "RUB", false);
-        card = account(user, "CARD", "Card", ASSET, "EUR", false);
+        ledger = ledgers.provisionPersonal(user);
+        othersLedger = ledgers.provisionPersonal(other);
+        cash = account(ledger, "CASH", "Cash", ASSET, "RUB", false);
+        card = account(ledger, "CARD", "Card", ASSET, "EUR", false);
         // Never used: it still shows, at zero, in its default currency.
-        savings = account(user, "SAVINGS", "Savings", ASSET, "EUR", false);
+        savings = account(ledger, "SAVINGS", "Savings", ASSET, "EUR", false);
         // Never used and without a default currency: it has no currency to show a balance in.
-        account(user, "RESERVE", "Reserve", EQUITY, null, false);
-        oldWallet = account(user, "OLD_WALLET", "Old wallet", ASSET, "RUB", false);
-        loans = account(user, "LOANS_ASSET", "Loans given", ASSET, null, true);
-        creditorDebt = account(user, "CREDITOR_DEBT", "Creditor", LIABILITY, null, true);
-        familyDebt = account(user, "FAMILY_DEBT", "Family budget", LIABILITY, null, false);
-        unallocated = account(user, "UNALLOCATED", "Unallocated", EQUITY, null, false);
-        openingBalance = account(user, "OPENING_BALANCE", "Opening balance", EQUITY, null, false);
-        fxExchange = account(user, "FX_EXCHANGE", "Currency exchange", EQUITY, null, false);
+        account(ledger, "RESERVE", "Reserve", EQUITY, null, false);
+        oldWallet = account(ledger, "OLD_WALLET", "Old wallet", ASSET, "RUB", false);
+        loans = account(ledger, "LOANS_ASSET", "Loans given", ASSET, null, true);
+        creditorDebt = account(ledger, "CREDITOR_DEBT", "Creditor", LIABILITY, null, true);
+        familyDebt = account(ledger, "FAMILY_DEBT", "Family budget", LIABILITY, null, false);
+        unallocated = account(ledger, "UNALLOCATED", "Unallocated", EQUITY, null, false);
+        openingBalance = account(ledger, "OPENING_BALANCE", "Opening balance", EQUITY, null, false);
+        fxExchange = account(ledger, "FX_EXCHANGE", "Currency exchange", EQUITY, null, false);
         groceries = category("GROCERIES", "Groceries", EXPENSE);
         restaurants = category("RESTAURANTS", "Restaurants", EXPENSE);
         salary = category("SALARY", "Salary", INCOME);
@@ -141,14 +149,14 @@ class ReportServiceTests extends IntegrationTest {
         // Archived with money still in it.
         archive(oldWallet);
 
-        othersCash = account(other, "CASH", "Cash", ASSET, "RUB", false);
-        othersOpeningBalance = account(other, "OPENING_BALANCE", "Opening balance", EQUITY, null, false);
-        entries.create(other, new OpeningBalanceCommand(AUG_1, null, othersCash, "RUB", money("777.00"), null));
+        othersCash = account(othersLedger, "CASH", "Cash", ASSET, "RUB", false);
+        othersOpeningBalance = account(othersLedger, "OPENING_BALANCE", "Opening balance", EQUITY, null, false);
+        entries.create(othersLedger, new OpeningBalanceCommand(AUG_1, null, othersCash, "RUB", money("777.00"), null));
     }
 
     @Test
     void balancesShowEveryAccountThatIsNotArchivedInEachCurrency() {
-        assertThat(reports.balances(user, SEP_30)).containsExactly(
+        assertThat(reports.balances(ledger, SEP_30)).containsExactly(
                 new AccountBalance(card, "CARD", "Card", ASSET, "EUR", money("1609.75")),
                 new AccountBalance(cash, "CASH", "Cash", ASSET, "RUB", money("45923.95")),
                 new AccountBalance(creditorDebt, "CREDITOR_DEBT", "Creditor", LIABILITY, "RUB", money("1500.00")),
@@ -178,29 +186,29 @@ class ReportServiceTests extends IntegrationTest {
 
     @Test
     void counterpartyBalancesLeaveOutCounterpartiesThatAreSettled() {
-        assertThat(reports.counterpartyBalances(user, "LOANS_ASSET", SEP_6)).containsExactly(
+        assertThat(reports.counterpartyBalances(ledger, "LOANS_ASSET", SEP_6)).containsExactly(
                 new CounterpartyBalance(friendA, "Friend A", "RUB", money("3000.00")),
                 new CounterpartyBalance(friendB, "Friend B", "RUB", money("1000.00")));
-        assertThat(reports.counterpartyBalances(user, "LOANS_ASSET", SEP_30)).containsExactly(
+        assertThat(reports.counterpartyBalances(ledger, "LOANS_ASSET", SEP_30)).containsExactly(
                 new CounterpartyBalance(friendA, "Friend A", "RUB", money("2000.00")));
         // A LIABILITY reads as what is owed.
-        assertThat(reports.counterpartyBalances(user, "CREDITOR_DEBT", SEP_30)).containsExactly(
+        assertThat(reports.counterpartyBalances(ledger, "CREDITOR_DEBT", SEP_30)).containsExactly(
                 new CounterpartyBalance(bank, "Bank", "RUB", money("1500.00")));
     }
 
     @Test
     void counterpartyBalancesNeedAnAccountOfTheUserThatRequiresACounterparty() {
-        assertThatThrownBy(() -> reports.counterpartyBalances(user, "CASH", SEP_30))
+        assertThatThrownBy(() -> reports.counterpartyBalances(ledger, "CASH", SEP_30))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Account CASH has no balances per counterparty: it doesn't require one");
-        assertThatThrownBy(() -> reports.counterpartyBalances(other, "LOANS_ASSET", SEP_30))
+        assertThatThrownBy(() -> reports.counterpartyBalances(othersLedger, "LOANS_ASSET", SEP_30))
                 .isInstanceOf(AccountNotFoundException.class)
                 .hasMessage("Account LOANS_ASSET not found");
     }
 
     @Test
     void cashFlowIsPositiveForIncomeAndExpenseAndRefundsReduceIt() {
-        assertThat(reports.cashFlow(user, AUG_1, SEP_30)).containsExactly(
+        assertThat(reports.cashFlow(ledger, AUG_1, SEP_30)).containsExactly(
                 cashFlow(2026, 8, "GROCERIES", "Groceries", EXPENSE, "EUR", "40.25"),
                 cashFlow(2026, 8, "GROCERIES", "Groceries", EXPENSE, "RUB", "1250.50"),
                 // The user's own part of the shared dinner.
@@ -213,12 +221,12 @@ class ReportServiceTests extends IntegrationTest {
 
     @Test
     void cashFlowSplitsMonthsAtTheEntryDate() {
-        assertThat(reports.cashFlow(user, AUG_31, AUG_31)).containsExactly(
+        assertThat(reports.cashFlow(ledger, AUG_31, AUG_31)).containsExactly(
                 cashFlow(2026, 8, "GROCERIES", "Groceries", EXPENSE, "EUR", "40.25"),
                 cashFlow(2026, 8, "RESTAURANTS", "Restaurants", EXPENSE, "RUB", "362.77"));
-        assertThat(reports.cashFlow(user, SEP_1, SEP_1)).containsExactly(
+        assertThat(reports.cashFlow(ledger, SEP_1, SEP_1)).containsExactly(
                 cashFlow(2026, 9, "GROCERIES", "Groceries", EXPENSE, "RUB", "800.00"));
-        assertThat(reports.cashFlow(user, SEP_1, OCT_1)).containsExactly(
+        assertThat(reports.cashFlow(ledger, SEP_1, OCT_1)).containsExactly(
                 cashFlow(2026, 9, "GROCERIES", "Groceries", EXPENSE, "RUB", "600.00"),
                 cashFlow(2026, 9, "SALARY", "Salary", INCOME, "EUR", "1000.00"),
                 cashFlow(2026, 10, "GROCERIES", "Groceries", EXPENSE, "RUB", "99.99"));
@@ -226,14 +234,14 @@ class ReportServiceTests extends IntegrationTest {
 
     @Test
     void cashFlowNeedsARangeInOrder() {
-        assertThatThrownBy(() -> reports.cashFlow(user, SEP_30, SEP_1))
+        assertThatThrownBy(() -> reports.cashFlow(ledger, SEP_30, SEP_1))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("'from' must not be after 'to'");
     }
 
     @Test
     void netWorthIsAssetsMinusLiabilitiesPerCurrencyAndCountsArchivedAccounts() {
-        assertThat(reports.netWorth(user, SEP_30)).containsExactly(
+        assertThat(reports.netWorth(ledger, SEP_30)).containsExactly(
                 new NetWorth("EUR", money("1609.75"), money("50.00"), money("1559.75")),
                 // Assets: CASH 45923.95, LOANS_ASSET 2000.00 and the archived OLD_WALLET 300.00. Liabilities:
                 // CREDITOR_DEBT 1500.00 and FAMILY_DEBT -362.78.
@@ -242,9 +250,9 @@ class ReportServiceTests extends IntegrationTest {
 
     @Test
     void sharedSettlementSaysWhoOwesWhomPerCurrency() {
-        assertThat(reports.sharedSettlement(user, AUG_31)).containsExactly(
+        assertThat(reports.sharedSettlement(ledger, AUG_31)).containsExactly(
                 new SharedSettlement(familyDebt, "FAMILY_DEBT", "RUB", money("-362.78"), USER_IS_OWED));
-        assertThat(reports.sharedSettlement(user, SEP_30)).containsExactly(
+        assertThat(reports.sharedSettlement(ledger, SEP_30)).containsExactly(
                 new SharedSettlement(familyDebt, "FAMILY_DEBT", "EUR", money("50.00"), USER_OWES),
                 new SharedSettlement(familyDebt, "FAMILY_DEBT", "RUB", money("-362.78"), USER_IS_OWED));
     }
@@ -254,25 +262,25 @@ class ReportServiceTests extends IntegrationTest {
         // The family budget pays the user back.
         create(new TransferCommand(SEP_30, null, null, familyDebt, cash, "RUB", money("362.78"), null));
 
-        assertThat(reports.sharedSettlement(user, SEP_30)).containsExactly(
+        assertThat(reports.sharedSettlement(ledger, SEP_30)).containsExactly(
                 new SharedSettlement(familyDebt, "FAMILY_DEBT", "EUR", money("50.00"), USER_OWES));
     }
 
     /** Positive on an ASSET account means the opposite of positive on FAMILY_DEBT, a LIABILITY. */
     @Test
     void sharedSettlementUsesTheSharedAccountFromTheSettingsWhateverItsType() {
-        long partnerShare = account(user, "PARTNER_SHARE", "Partner's share", ASSET, null, false);
+        long partnerShare = account(ledger, "PARTNER_SHARE", "Partner's share", ASSET, null, false);
         settings.save(new UserSettings(user, "EUR", partnerShare, new BigDecimal("0.5000")));
         create(new SharedExpenseCommand(SEP_30, null, null, card, "EUR", money("30.00"), restaurants, null));
 
-        assertThat(reports.sharedSettlement(user, SEP_30)).containsExactly(
+        assertThat(reports.sharedSettlement(ledger, SEP_30)).containsExactly(
                 new SharedSettlement(partnerShare, "PARTNER_SHARE", "EUR", money("15.00"), USER_IS_OWED));
     }
 
     @Test
     void integrityCheckFindsNothingInALedgerWrittenThroughTheService() {
-        assertThat(reports.integrityCheck(user)).isEmpty();
-        assertThat(reports.integrityCheck(other)).isEmpty();
+        assertThat(reports.integrityCheck(ledger)).isEmpty();
+        assertThat(reports.integrityCheck(othersLedger)).isEmpty();
     }
 
     @Test
@@ -280,7 +288,7 @@ class ReportServiceTests extends IntegrationTest {
         pastTheTriggers("UPDATE posting SET amount = amount + 0.01 WHERE entry_id = ? AND line_no = 0",
                 cardOpening.id());
 
-        assertThat(reports.integrityCheck(user)).containsExactly(
+        assertThat(reports.integrityCheck(ledger)).containsExactly(
                 new IntegrityViolation("EUR", money("0.01"), money("0.01")));
     }
 
@@ -290,9 +298,9 @@ class ReportServiceTests extends IntegrationTest {
         pastTheTriggers("UPDATE posting SET account_id = ? WHERE entry_id = ? AND line_no = 0", othersCash,
                 oldWalletOpening.id());
 
-        assertThat(reports.integrityCheck(user)).containsExactly(
+        assertThat(reports.integrityCheck(ledger)).containsExactly(
                 new IntegrityViolation("RUB", money("0.00"), money("-300.00")));
-        assertThat(reports.integrityCheck(other)).containsExactly(
+        assertThat(reports.integrityCheck(othersLedger)).containsExactly(
                 new IntegrityViolation("RUB", money("0.00"), money("300.00")));
     }
 
@@ -302,39 +310,40 @@ class ReportServiceTests extends IntegrationTest {
      */
     @Test
     void reportsNeverShowAnotherUsersCategoryOrCounterpartyEvenPastTheTriggers() {
-        long othersCategory = categories.save(new LedgerCategory(null, other, "SECRET", "Other's secret", EXPENSE,
-                null)).id();
-        long othersCounterparty = counterparties.save(new Counterparty(null, other, "Other's friend", null, null)).id();
+        long othersCategory = categories.save(new LedgerCategory(null, other, othersLedger.ledgerId(), "SECRET",
+                "Other's secret", EXPENSE, null)).id();
+        long othersCounterparty = counterparties.save(new Counterparty(null, other, othersLedger.ledgerId(),
+                "Other's friend", null, null)).id();
         pastTheTriggers("UPDATE posting SET category_id = ? WHERE category_id = ?", othersCategory, restaurants);
         pastTheTriggers("UPDATE posting SET counterparty_id = ? WHERE counterparty_id = ?", othersCounterparty,
                 friendB);
 
-        assertThat(reports.cashFlow(user, AUG_1, SEP_30)).extracting(CashFlowRow::categoryCode)
+        assertThat(reports.cashFlow(ledger, AUG_1, SEP_30)).extracting(CashFlowRow::categoryCode)
                 .contains("GROCERIES").doesNotContain("SECRET");
-        assertThat(reports.cashFlowInBase(user, AUG_1, SEP_30).rows()).extracting(ConvertedCashFlow.Row::categoryCode)
+        assertThat(reports.cashFlowInBase(ledger, AUG_1, SEP_30).rows()).extracting(ConvertedCashFlow.Row::categoryCode)
                 .contains("GROCERIES").doesNotContain("SECRET");
-        assertThat(reports.counterpartyBalances(user, "LOANS_ASSET", SEP_6)).containsExactly(
+        assertThat(reports.counterpartyBalances(ledger, "LOANS_ASSET", SEP_6)).containsExactly(
                 new CounterpartyBalance(friendA, "Friend A", "RUB", money("3000.00")));
     }
 
     @Test
     void anotherUserSeesOnlyTheirOwnLedger() {
-        assertThat(reports.balances(other, SEP_30)).containsExactly(
+        assertThat(reports.balances(othersLedger, SEP_30)).containsExactly(
                 new AccountBalance(othersCash, "CASH", "Cash", ASSET, "RUB", money("777.00")),
                 new AccountBalance(othersOpeningBalance, "OPENING_BALANCE", "Opening balance", EQUITY, "RUB",
                         money("777.00")));
-        assertThat(reports.netWorth(other, SEP_30)).containsExactly(
+        assertThat(reports.netWorth(othersLedger, SEP_30)).containsExactly(
                 new NetWorth("RUB", money("777.00"), money("0.00"), money("777.00")));
-        assertThat(reports.cashFlow(other, AUG_1, SEP_30)).isEmpty();
-        assertThat(reports.sharedSettlement(other, SEP_30)).isEmpty();
+        assertThat(reports.cashFlow(othersLedger, AUG_1, SEP_30)).isEmpty();
+        assertThat(reports.sharedSettlement(othersLedger, SEP_30)).isEmpty();
     }
 
     private EntryView create(EntryCommand command) {
-        return entries.create(user, command);
+        return entries.create(ledger, command);
     }
 
     private BigDecimal balance(LocalDate asOf, long accountId, String currency) {
-        return reports.balances(user, asOf).stream()
+        return reports.balances(ledger, asOf).stream()
                 .filter(b -> b.accountId() == accountId && b.currency().equals(currency))
                 .map(AccountBalance::balance)
                 .findFirst().orElseThrow();
@@ -348,25 +357,25 @@ class ReportServiceTests extends IntegrationTest {
         });
     }
 
-    private long account(String owner, String code, String name, AccountType type, String defaultCurrency,
+    private long account(LedgerScope owner, String code, String name, AccountType type, String defaultCurrency,
             boolean requiresCounterparty) {
-        return accounts.save(new Account(null, owner, code, name, type, defaultCurrency, requiresCounterparty, false,
-                null, null)).id();
+        return accounts.save(new Account(null, owner.userId(), owner.ledgerId(), code, name, type, defaultCurrency,
+                requiresCounterparty, false, null, null)).id();
     }
 
     private void archive(long accountId) {
-        Account account = accounts.findByIdAndUserId(accountId, user).orElseThrow();
-        accounts.save(new Account(account.id(), account.userId(), account.code(), account.name(), account.type(),
-                account.defaultCurrency(), account.requiresCounterparty(), account.isSystem(), Instant.now(),
-                account.createdAt()));
+        Account account = accounts.findByIdAndLedgerId(accountId, ledger.ledgerId()).orElseThrow();
+        accounts.save(new Account(account.id(), account.userId(), account.ledgerId(), account.code(), account.name(),
+                account.type(), account.defaultCurrency(), account.requiresCounterparty(), account.isSystem(),
+                Instant.now(), account.createdAt()));
     }
 
     private long category(String code, String name, CategoryType type) {
-        return categories.save(new LedgerCategory(null, user, code, name, type, null)).id();
+        return categories.save(new LedgerCategory(null, user, ledger.ledgerId(), code, name, type, null)).id();
     }
 
     private long counterparty(String name) {
-        return counterparties.save(new Counterparty(null, user, name, null, null)).id();
+        return counterparties.save(new Counterparty(null, user, ledger.ledgerId(), name, null, null)).id();
     }
 
     private static CashFlowRow cashFlow(int year, int month, String code, String name, CategoryType type,

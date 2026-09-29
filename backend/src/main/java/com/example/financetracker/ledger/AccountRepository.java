@@ -7,21 +7,21 @@ import java.util.Optional;
 import org.springframework.data.relational.core.sql.LockMode;
 import org.springframework.data.relational.repository.Lock;
 
-/** Every lookup is scoped by user id; there is none by id alone ({@link OwnedRepository}). */
-public interface AccountRepository extends OwnedRepository<Account, Long> {
+/** Every lookup is scoped by ledger id; there is none by id alone ({@link LedgerScopedRepository}). */
+public interface AccountRepository extends LedgerScopedRepository<Account, Long> {
 
-    Optional<Account> findByIdAndUserId(long id, String userId);
+    Optional<Account> findByIdAndLedgerId(long id, long ledgerId);
 
-    Optional<Account> findByUserIdAndCode(String userId, String code);
+    Optional<Account> findByLedgerIdAndCode(long ledgerId, String code);
 
-    List<Account> findAllByUserIdOrderByCode(String userId);
+    List<Account> findAllByLedgerIdOrderByCode(long ledgerId);
 
-    List<Account> findAllByUserIdAndCodeIn(String userId, Collection<String> codes);
+    List<Account> findAllByLedgerIdAndCodeIn(long ledgerId, Collection<String> codes);
 
     /**
      * Locked FOR SHARE until the transaction ends, so that the accounts can't change type or start requiring a
      * counterparty between checking an entry and writing it.
      */
     @Lock(LockMode.PESSIMISTIC_READ)
-    List<Account> findAllByUserIdAndIdIn(String userId, Collection<Long> ids);
+    List<Account> findAllByLedgerIdAndIdIn(long ledgerId, Collection<Long> ids);
 }

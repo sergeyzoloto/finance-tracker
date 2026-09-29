@@ -16,6 +16,7 @@ import com.example.financetracker.ledger.ExchangeRateRepository;
 import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.SettingsService;
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.Money;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -23,8 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Exchange rates as a user sees them: the ECB's, which all users share, and the user's own manual rates, which take
- * precedence on the same day (rule 11: a user's rates change only that user's reports). Callers pass the user id, the
- * Keycloak "sub" claim.
+ * precedence on the same day (rule 11: a user's rates change only that user's reports). Rates are the person's, so
+ * callers pass the user id, the Keycloak "sub" claim; what the rates page says about a ledger's postings takes the
+ * {@link LedgerScope} that LedgerAccess resolved.
  */
 @Service
 public class RateService {
@@ -50,54 +52,28 @@ public class RateService {
         if (foreign.isEmpty()) {
             return book.build();
         }
-        jdbc.sql("""
-                (SELECT quote_currency AS currency, rate_date, rate, source
-                 FROM exchange_rate
-                 WHERE base_currency = 'EUR' AND quote_currency IN (:currencies)
-                   AND (user_id IS NULL OR user_id = :userId) AND rate_date BETWEEN :from AND :to)
-                UNION ALL
-                (SELECT DISTINCT ON (quote_currency, source) quote_currency, rate_date, rate, source
-                 FROM exchange_rate
-                 WHERE base_currency = 'EUR' AND quote_currency IN (:currencies)
-                   AND (user_id IS NULL OR user_id = :userId) AND rate_date < :from
-                 ORDER BY quote_currency, source, rate_date DESC)""")
-                .param("currencies", foreign)
-                .param("userId", userId)
-                .param("from", from)
-                .param("to", to)
-                .query((row, n) -> new RateBook.Rate(row.getString("currency"),
-                        row.getObject("rate_date", LocalDate.class), row.getBigDecimal("rate"),
-                        RateSource.valueOf(row.getString("source"))))
-                .list()
-                .forEach(book::add);
+        rates.findForPeriod(userId, foreign, from, to).stream().map(RateService::rate).forEach(book::add);
         return book.build();
     }
 
     /**
-     * The latest rate of every currency that has one, and of every currency in the user's ledger, whether it has a
-     * rate or not; and the days on which the user's postings can't be converted to the base currency.
+     * The latest rate of every currency that has one, and of every currency in the user's personal ledger, whether it
+     * has a rate or not; and the days on which the ledger's postings can't be converted to the base currency. The
+     * rates and the base currency are those of the ledger's member.
      */
     @Transactional(readOnly = true)
-    public RatesView overview(String userId) {
+    public RatesView overview(LedgerScope personalLedger) {
+        String userId = personalLedger.userId();
         String base = settings.get(userId).baseCurrency();
         Map<String, RateBook.Rate> latest = new TreeMap<>();
-        jdbc.sql("""
-                SELECT DISTINCT ON (quote_currency) quote_currency AS currency, rate_date, rate, source
-                FROM exchange_rate
-                WHERE base_currency = 'EUR' AND (user_id IS NULL OR user_id = :userId)
-                ORDER BY quote_currency, rate_date DESC, user_id NULLS LAST""")
-                .param("userId", userId)
-                .query((row, n) -> new RateBook.Rate(row.getString("currency"),
-                        row.getObject("rate_date", LocalDate.class), row.getBigDecimal("rate"),
-                        RateSource.valueOf(row.getString("source"))))
-                .list()
-                .forEach(rate -> latest.put(rate.currency(), rate));
+        rates.findLatest(userId).stream().map(RateService::rate).forEach(rate -> latest.put(rate.currency(), rate));
 
         Set<String> ledger = new HashSet<>(jdbc.sql("""
-                SELECT p.currency FROM journal_entry e JOIN posting p ON p.entry_id = e.id WHERE e.user_id = :userId
+                SELECT p.currency FROM journal_entry e JOIN posting p ON p.entry_id = e.id
+                WHERE e.ledger_id = :ledgerId
                 UNION
-                SELECT default_currency FROM account WHERE user_id = :userId AND default_currency IS NOT NULL""")
-                .param("userId", userId)
+                SELECT default_currency FROM account WHERE ledger_id = :ledgerId AND default_currency IS NOT NULL""")
+                .param("ledgerId", personalLedger.ledgerId())
                 .query(String.class)
                 .list());
         ledger.add(base);
@@ -110,18 +86,21 @@ public class RateService {
             return rate == null ? new LatestRate(currency, null, null, null, ledger.contains(currency))
                     : new LatestRate(currency, rate.date(), rate.perEuro(), rate.source(), ledger.contains(currency));
         }).toList();
-        return new RatesView(base, rows, missing(userId, base));
+        return new RatesView(base, rows, missing(personalLedger, base));
     }
 
-    /** The days on which the user's postings in a currency other than the base currency can't be converted. */
-    private List<MissingRate> missing(String userId, String base) {
+    /**
+     * The days on which the ledger's postings in a currency other than the base currency can't be converted with the
+     * rates its member sees.
+     */
+    private List<MissingRate> missing(LedgerScope ledger, String base) {
         record Day(String currency, LocalDate date) {
         }
         List<Day> days = jdbc.sql("""
                 SELECT DISTINCT p.currency, e.entry_date AS date
                 FROM journal_entry e JOIN posting p ON p.entry_id = e.id
-                WHERE e.user_id = :userId AND p.currency <> :base""")
-                .param("userId", userId)
+                WHERE e.ledger_id = :ledgerId AND p.currency <> :base""")
+                .param("ledgerId", ledger.ledgerId())
                 .param("base", base)
                 .query(Day.class)
                 .list();
@@ -130,7 +109,8 @@ public class RateService {
         }
         Set<String> currencies = days.stream().map(Day::currency).collect(Collectors.toSet());
         currencies.add(base);
-        RateBook book = rateBook(userId, currencies, days.stream().map(Day::date).min(LocalDate::compareTo).get(),
+        RateBook book = rateBook(ledger.userId(), currencies,
+                days.stream().map(Day::date).min(LocalDate::compareTo).get(),
                 days.stream().map(Day::date).max(LocalDate::compareTo).get());
         MissingRate.Days missing = new MissingRate.Days();
         days.forEach(day -> book.missing(day.currency(), base, day.date())
@@ -178,6 +158,10 @@ public class RateService {
         if (!rates.deleteManual(userId, date, currency)) {
             throw new NotFoundException("No manual rate for %s on %s".formatted(currency, date));
         }
+    }
+
+    private static RateBook.Rate rate(ExchangeRate rate) {
+        return new RateBook.Rate(rate.quoteCurrency(), rate.rateDate(), rate.rate(), RateSource.valueOf(rate.source()));
     }
 
     private ExchangeRate save(String userId, ManualRate rate) {

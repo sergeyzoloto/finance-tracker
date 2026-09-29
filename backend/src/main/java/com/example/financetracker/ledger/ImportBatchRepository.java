@@ -2,8 +2,8 @@ package com.example.financetracker.ledger;
 
 import java.util.Optional;
 
-/** Every lookup is scoped by user id; there is none by id alone ({@link OwnedRepository}). */
-public interface ImportBatchRepository extends OwnedRepository<ImportBatch, Long> {
+/** Every lookup is scoped by ledger id; there is none by id alone ({@link LedgerScopedRepository}). */
+public interface ImportBatchRepository extends LedgerScopedRepository<ImportBatch, Long> {
 
-    Optional<ImportBatch> findByIdAndUserId(long id, String userId);
+    Optional<ImportBatch> findByIdAndLedgerId(long id, long ledgerId);
 }

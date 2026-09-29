@@ -3,11 +3,11 @@ package com.example.financetracker.ledger.api;
 import java.io.IOException;
 import java.util.Objects;
 
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.importer.ImportFile;
 import com.example.financetracker.ledger.importer.ImportReport;
 import com.example.financetracker.ledger.importer.ImportRequest;
 import com.example.financetracker.ledger.importer.ImportService;
-import com.example.financetracker.security.CurrentUser;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -41,11 +41,11 @@ class ImportController {
      * @param dryRun false to commit
      */
     @PostMapping(path = "/api/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    ImportReport importLedger(CurrentUser user, @RequestPart MultipartFile accounts,
+    ImportReport importLedger(LedgerScope ledger, @RequestPart MultipartFile accounts,
             @RequestPart MultipartFile categories, @RequestPart MultipartFile transactions,
             @RequestPart(required = false) MultipartFile openingBalances,
             @RequestParam(defaultValue = "true") boolean dryRun) throws IOException {
-        return imports.run(new ImportRequest(user.id(), file(accounts), file(categories), file(transactions),
+        return imports.run(ledger, new ImportRequest(file(accounts), file(categories), file(transactions),
                 openingBalances == null ? null : file(openingBalances), !dryRun));
     }
 

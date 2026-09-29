@@ -2,11 +2,15 @@ package com.example.financetracker.ledger;
 
 import java.math.BigDecimal;
 
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.Money;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** The user's settings. Callers pass the user id, the Keycloak "sub" claim (rule 11). */
+/**
+ * The user's settings: the person's, 1:1 with their personal ledger (ADR 0003, topic A), so they are read by the user
+ * id, the Keycloak "sub" claim (rule 11). A change is checked against the personal ledger, whose account it may name.
+ */
 @Service
 public class SettingsService {
 
@@ -28,18 +32,21 @@ public class SettingsService {
     }
 
     /**
-     * Replaces the user's settings.
+     * Replaces the settings of the personal ledger's member.
      *
+     * @param personalLedger the user's personal ledger, the settings' own
      * @param sharedAccountId null for the account FAMILY_DEBT
-     * @throws RuleViolationException if the user has no account {@code sharedAccountId}
+     * @throws RuleViolationException if the ledger has no account {@code sharedAccountId}
      */
     @Transactional
-    public SettingsView update(String userId, String baseCurrency, Long sharedAccountId,
+    public SettingsView update(LedgerScope personalLedger, String baseCurrency, Long sharedAccountId,
             BigDecimal defaultShareRatio) {
-        if (sharedAccountId != null && accounts.findByIdAndUserId(sharedAccountId, userId).isEmpty()) {
+        if (sharedAccountId != null
+                && accounts.findByIdAndLedgerId(sharedAccountId, personalLedger.ledgerId()).isEmpty()) {
             throw new RuleViolationException("account %d does not exist".formatted(sharedAccountId));
         }
-        UserSettings updated = new UserSettings(userId, baseCurrency, sharedAccountId, defaultShareRatio);
+        UserSettings updated = new UserSettings(personalLedger.userId(), baseCurrency, sharedAccountId,
+                defaultShareRatio);
         settings.save(updated);
         return view(updated);
     }

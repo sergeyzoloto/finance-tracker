@@ -2,9 +2,9 @@ package com.example.financetracker.ledger.api;
 
 import java.time.LocalDate;
 
+import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.demo.DemoLedgerService;
 import com.example.financetracker.ledger.demo.DemoLedgerView;
-import com.example.financetracker.security.CurrentUser;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -24,7 +24,7 @@ class DemoController {
      * refused with 409.
      */
     @PostMapping("/api/demo-data")
-    DemoLedgerView load(CurrentUser user) {
-        return demo.load(user.id(), LocalDate.now());
+    DemoLedgerView load(LedgerScope ledger) {
+        return demo.load(ledger, LocalDate.now());
     }
 }

@@ -2,9 +2,11 @@
 
 **Status:** Accepted, 2026-09-29, after the F1 review (proposed 2026-09-28 in stage F1). The owner's
 answers to the open questions are under [Resolved questions](#resolved-questions), and the topics
-below include them. F2a's migration V5 (topic J) is implemented on the branch
-`feature/family-budget`, not yet deployed. The requirements and decisions D-1 to
-D-26 are in [docs/family-budget/requirements.md](../family-budget/requirements.md);
+below include them. F2a's migration V5 (topic J) is deployed to production since 2026-09-29, from
+`1f1662f`. Amended after that deploy: D-3's display name (topics B and G), detached links that never
+block deleting personal entries (D-19, topic E), and the architecture test's exceptions (topic C).
+The requirements and decisions D-1 to D-26 are in
+[docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
 ## Context
@@ -128,7 +130,7 @@ CREATE TABLE ledger_member (
     ledger_id     BIGINT NOT NULL,
     ledger_type   VARCHAR(8) NOT NULL,
     user_sub      TEXT,                  -- NULL: a member without an account, or FORMER
-    display_name  VARCHAR(100) NOT NULL,
+    display_name  VARCHAR(100) NOT NULL,  -- what other members see; chosen at acceptance (D-3)
     role          VARCHAR(6) NOT NULL CHECK (role IN ('OWNER', 'MEMBER')),
     status        VARCHAR(6) NOT NULL CHECK (status IN ('ACTIVE', 'LEFT', 'FORMER')),
     join_date     DATE NOT NULL,
@@ -218,8 +220,13 @@ request and scope every query by the resolved `ledger_id`.
 
 **An architecture test (F2b).** It allows `JdbcClient` and `@Query` only in methods that take a
 `LedgerScope`, with a named list of exceptions for what is about the person or shared by all users
-(provisioning, settings, manual and ECB rates, delete-all), each with its reason. A new native query
-that forgets the scope then fails the build instead of relying on review.
+(provisioning, settings, manual and ECB rates, delete-all). A new native query that forgets the
+scope then fails the build instead of relying on review. The exception list is explicit and short,
+with a reason for each entry, and every exception:
+
+- takes the user id as a parameter;
+- never reads the security context;
+- is covered by the isolation tests.
 
 **Consequences.** The membership check is one indexed lookup per request. Mistakes in a single query
 are caught by the triggers for writes and by the isolation tests for reads. Row level security can
@@ -356,7 +363,8 @@ personal report counts it without change, plus a link row (D-9):
 
 ```sql
 CREATE TABLE family_entry_link (
-    entry_id         BIGINT PRIMARY KEY REFERENCES journal_entry ON DELETE CASCADE,
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    entry_id         BIGINT UNIQUE REFERENCES journal_entry ON DELETE SET NULL,  -- see below
     family_ledger_id BIGINT NOT NULL REFERENCES ledger,
     member_id        BIGINT NOT NULL REFERENCES ledger_member,
     record_id        BIGINT REFERENCES family_record,     -- NULL for OPENING_BALANCE
@@ -364,10 +372,20 @@ CREATE TABLE family_entry_link (
         CHECK (link_type IN ('SHARE', 'PAYMENT', 'SETTLEMENT', 'OPENING_BALANCE', 'CORRECTION')),
     system_owned     BOOLEAN NOT NULL,                     -- written by the posting service
     detached_at      TIMESTAMPTZ,                          -- the member left (D-19)
-    UNIQUE (record_id, member_id, link_type)
+    CHECK (entry_id IS NOT NULL OR detached_at IS NOT NULL)
 );
-CREATE UNIQUE INDEX ON family_entry_link (family_ledger_id, member_id) WHERE link_type = 'OPENING_BALANCE';
+CREATE UNIQUE INDEX ON family_entry_link (record_id, member_id, link_type) WHERE detached_at IS NULL;
+CREATE UNIQUE INDEX ON family_entry_link (family_ledger_id, member_id)
+    WHERE link_type = 'OPENING_BALANCE' AND detached_at IS NULL;
 ```
+
+A link row never blocks deleting its personal entry (D-19, amended after F2a). While the member is
+in the family, the posting service deletes a link it no longer wants together with its entry, and
+the trigger below keeps everyone else from deleting a system-owned entry. After a detach, the entries
+are the member's own: deleting one, or all their data (D-20), sets the detached link's `entry_id` to
+NULL, and the link stays as the family's history. The alternative is a link without a foreign key to
+the entry, which keeps the old id; F4a, which implements the table, chooses between the two, and a
+test deletes a detached member's entries one by one and through delete-all.
 
 The entry's `kind` gets `FAMILY_SHARE`, `FAMILY_PAYMENT`, `FAMILY_SETTLEMENT`,
 `FAMILY_OPENING` and `FAMILY_CORRECTION` as hints for the UI (rule 6). A contribution to a joint
@@ -402,7 +420,8 @@ something other than a record):
    after the family.
 
 Afterwards no row of the member's personal ledger references L. The link rows, marked detached, stay
-as the family side's record of what was posted; they are deleted with the entries they point to.
+as the family side's record of what was posted, also after the member deletes those entries or all
+their data: the link then loses its reference to the entry, never the other way round.
 
 **Returning members (D-26).** Reactivation (topic G) links the same `Debt(L)` again (found by its
 code), matches categories by code as at the first join, and posts every record from the new join
@@ -529,18 +548,19 @@ lands in logs. Rejected.
 
 1. `POST /api/invites/lookup` with the token, behind sign-in (D-17): the ledger's name and base
    currency, the join date (the seat's; the acceptance date otherwise), the seat's name if any, the
-   members' display names, the category matching (the user's categories whose codes the family has,
-   and names that differ), and for a returning member the corrective amount (D-26). Invalid,
-   expired, revoked, used and declined tokens, and a user who is an ACTIVE member of the ledger, get
-   the same 404 body.
-2. `POST /api/invites/accept` with the token and the category choices, in one transaction: lock the
-   invite by its hash (`FOR UPDATE`) and check it again; claim the seat (set `user_sub`, the seat's
-   join date, which may be in the past), add a member (MEMBER, ACTIVE, the acceptance date), or
-   reactivate the LEFT membership of the same sub (the acceptance date, D-26); create or relink
-   `Debt(L)`; merge categories (topic F);
-   post the records from the join date and the opening balance, and the claimed seat's payments to
-   the placeholder (topic E), and a returning member's correction; mark the invite used. No owner
-   confirmation (D-17); the members page shows who accepted and when.
+   members' display names, the user's own display name for the other members, prefilled from the
+   account's name (`users.display_name`) for the user to edit (D-3), the category matching (the
+   user's categories whose codes the family has, and names that differ), and for a returning member
+   the corrective amount (D-26). Invalid, expired, revoked, used and declined tokens, and a user who
+   is an ACTIVE member of the ledger, get the same 404 body.
+2. `POST /api/invites/accept` with the token, the chosen display name and the category choices, in
+   one transaction: lock the invite by its hash (`FOR UPDATE`) and check it again; claim the seat
+   (set `user_sub`, the seat's join date, which may be in the past), add a member (MEMBER, ACTIVE,
+   the acceptance date), or reactivate the LEFT membership of the same sub (the acceptance date,
+   D-26), each with the chosen display name; create or relink `Debt(L)`; merge categories (topic
+   F); post the records from the join date and the opening balance, and the claimed seat's payments
+   to the placeholder (topic E), and a returning member's correction; mark the invite used. No
+   owner confirmation (D-17); the members page shows who accepted and when.
 3. `POST /api/invites/decline` with the token consumes it (`declined_at`), and owners see the invite
    as declined. The browser erases the token either way.
 

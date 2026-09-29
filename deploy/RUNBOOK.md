@@ -28,6 +28,9 @@ The auth server's rules for projects behind its Caddy apply throughout (its `PRO
 
 - "On the laptop" means a shell in `~/dev/finance-tracker`, unless the block changes directory.
 - No block needs editing. Where a value must be looked up, the block prints it or asks for it.
+- A block that starts with a `read` prompt: paste the block once, then type the answer at the
+  prompt and press Enter. Don't paste the block again as the answer: `read` would take the block's
+  first line as the value, and the block would run with it.
 - `docker compose exec -T` passes its input on to the container, so without `</dev/null` it can
   swallow the commands that follow it in the same block, and they never run. That happened in
   step 6 on 2026-09-28, with the block fed to `bash` through SSH. Every such line here whose
@@ -570,8 +573,9 @@ now on the daily pull also warns when the finance database's newest dump is olde
 ## 10. Import the Excel ledger
 
 **Not yet.** The import waits for family posting: its Family rows will go straight into a family
-ledger (D-21 in [docs/family-budget/requirements.md](../docs/family-budget/requirements.md)). The next
-step is stage F2a of the family budget. The steps below stay for when the import is due.
+ledger (D-21 in [docs/family-budget/requirements.md](../docs/family-budget/requirements.md)). The
+family budget's stages come first; F2a is deployed since 2026-09-29. The steps below stay for when
+the import is due.
 
 Do this only once step 9 has passed. The import runs in the browser, as the signed-in user, so it
 lands in your ledger. Nothing is copied onto the server's disk.
@@ -627,6 +631,7 @@ changed since: `git -C /opt/finance-tracker log -1 --oneline` on the server.
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-09-29 | `1f1662f` (feat(db): V5 ledgers and membership) | F2a: migration V5 (ledger, ledger_member, ledger_id on five tables); no application code changed. Deployed with [Deploy a release whose only change is a migration](#deploy-a-release-whose-only-change-is-a-migration). Flyway at version 5, "ledgers and membership", success. After the migration: one PERSONAL ledger with one member, an active owner; no sub without a personal ledger; no row without a ledger or outside its user's personal ledger; counts unchanged (10 accounts, 15 categories, 0 counterparties, 0 entries, 0 import batches). The api healthy on the new image; the web image was rebuilt with the same layers, and its container kept running. Smoke test with a test account: after Load demo data, its 12 accounts, 18 categories, 10 counterparties and 138 entries all in its own ledger (3), the owner's rows unchanged, 2 ledgers in all and none without a member; after Delete all my data, re-provisioned into a new ledger (4) with only the starter rows (10 accounts, 15 categories), the owner's rows again unchanged. The new `finance.conf` installed after the migration; restore test PASS with 14 tables, migration 5, 2 ledgers and 2 members (the owner's and the test account's). |
 | 2026-09-28 | `9287f0e` (Change log: D3a's commit) | D3a: one token refresh per session, and a late login callback lands in the app. Only the backend changed; Compose left `finance-tracker-web` running, as its rebuilt image has the same layers. |
 | 2026-09-28 | `070fab2` (Change log: D2c's commit) | First deploy, steps 1 to 9 of this runbook (D3). Step 10, the import, is still to do. Certificate from Let's Encrypt (YE2), valid until 2026-12-27; Caddy renews it. |
 
@@ -700,10 +705,24 @@ schema, which the new checks may not fit (V5's ledgers, for one).
 ## Deploy a release whose only change is a migration
 
 For a release that changes the database and nothing the app does, such as F2a's V5 (ADR 0003,
-topic J): [Update the app](#update-the-app), with checks before and after. The code is the same as
-before, so the previous image runs on the new schema, and a rollback needs no restore.
+topic J): the steps of [Update the app](#update-the-app), written out here as step 5, with checks
+before and after. Follow the section from top to bottom. The code is the same as before, so the
+previous image runs on the new schema, and a rollback needs no restore.
 
-**1. On the laptop:** check that the release changes no application code but the migration. Take
+**1. On the laptop:** merge the release into `main`, push it, and wait until CI is green
+(<https://github.com/sergeyzoloto/finance-tracker/actions>). For the family budget the release is
+on `feature/family-budget`:
+
+```bash
+# On the laptop
+git fetch origin && git checkout main && git merge --ff-only origin/main && git merge --ff-only feature/family-budget && git push origin main
+git log -1 --oneline
+```
+
+You should see the push, then the release's last commit. If a merge says `Not possible to
+fast-forward`, stop: `main` has commits the release doesn't, and the release needs a rebase first.
+
+**2. On the laptop:** check that the release changes no application code but the migration. Take
 the running commit from [Deployed revisions](#deployed-revisions); for F2a it is `9287f0e`:
 
 ```bash
@@ -711,9 +730,10 @@ the running commit from [Deployed revisions](#deployed-revisions); for F2a it is
 git diff --stat 9287f0e origin/main -- backend/src/main frontend/src
 ```
 
-You should see only the new `backend/src/main/resources/db/migration/V….sql`.
+You should see only the new `backend/src/main/resources/db/migration/V….sql`. It prints nothing
+when step 1 was skipped, because `origin/main` is then still the running commit: do step 1 first.
 
-**2. On the server:** the numbers before, read only, to compare afterwards:
+**3. On the server:** the numbers before, read only, to compare afterwards:
 
 ```bash
 # On the server (read only)
@@ -722,7 +742,7 @@ cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A
 
 Before F2a, on 2026-09-29: version `4`, and `1|1|10|15|0|0|0`.
 
-**3. On the server:** a backup, and a restore test of it with the settings file still installed:
+**4. On the server:** a backup, and a restore test of it with the settings file still installed:
 
 ```bash
 # On the server
@@ -731,7 +751,37 @@ systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
 
 You should see `PASS`, with the migration before the release (`4` before F2a).
 
-**4.** [Update the app](#update-the-app), all of it. Then, **on the server**, Flyway's lines:
+**5. On the server:** the update itself, the blocks of [Update the app](#update-the-app). Back up,
+note the running commit for a rollback, and pull:
+
+```bash
+# On the server
+systemctl start pg-backup@finance.service
+cd /opt/finance-tracker && git rev-parse HEAD > /root/finance-tracker.previous && git pull --ff-only
+git log --oneline "$(cat /root/finance-tracker.previous)"..HEAD
+git diff --stat "$(cat /root/finance-tracker.previous)" HEAD -- deploy/finance.caddy deploy/pg-backup
+```
+
+You should see the release's commits, and the last command may list
+`deploy/pg-backup/finance.conf` (step 7 installs it). If it lists `deploy/finance.caddy`, the
+release is more than a migration: stop, and follow [Update the app](#update-the-app) instead.
+
+Keep the running images as `:previous`, then build and restart:
+
+```bash
+# On the server
+cd /opt/finance-tracker/deploy/app
+docker tag finance-tracker-api finance-tracker-api:previous && docker tag finance-tracker-web finance-tracker-web:previous
+docker compose build api && docker compose build web && docker compose up -d
+for i in $(seq 60); do s=$(docker inspect -f '{{.State.Health.Status}}' finance-tracker-api); [ "$s" = healthy ] && break; sleep 5; done; echo "api: $s"
+docker compose ps --format 'table {{.Name}}\t{{.Status}}'
+docker image prune -f
+```
+
+You should see `api: healthy` and all three containers `Up … (healthy)`. The frontend didn't
+change, so `finance-tracker-web` keeps its earlier `Up` time: its rebuilt image has the same layers.
+
+Then Flyway's lines:
 
 ```bash
 # On the server
@@ -742,7 +792,7 @@ For F2a: `Migrating schema "app" to version "5 - ledgers and membership"`,
 `Successfully applied 1 migration to schema "app", now at version v5`, and
 `Started FinanceTrackerApplication`.
 
-**5. On the server:** the migration's own checks, read only. For F2a:
+**6. On the server:** the migration's own checks, read only. For F2a:
 
 ```bash
 # On the server (read only)
@@ -754,17 +804,26 @@ You should see, for production as on 2026-09-29:
 - `5|ledgers and membership|t`;
 - `PERSONAL|1|1|1`: one ledger per sub, each with its one member, an active owner;
 - `subs_without_ledger` 0;
-- the counts of step 2 (`10|15|0|0|0`);
+- the counts of step 3 (`10|15|0|0|0`);
 - `rows_without_ledger` 0 and `rows_outside_their_users_ledger` 0.
 
 The queries were tried on 2026-09-29 against V1 to V5 in a throwaway local container, with the
 owner's 10 accounts and 15 categories written before V5.
 
-**6. On the server:** if the release changed `deploy/pg-backup/finance.conf`, as F2a does, install
-it now, after the migration (the block "If `deploy/pg-backup/finance.conf` changed" above). You
-should see `PASS`, with `tables` 14, `migration` 5, `ledgers` 1 and `members` 1 for F2a.
+**7. On the server:** if the release changed `deploy/pg-backup/finance.conf`, as F2a does, install
+it now, after the migration, and test it with a new backup:
 
-**7. A smoke test with a test account**, never your own: sign in with it in a private window, and on
+```bash
+# On the server
+install -o root -g root -m 600 /opt/finance-tracker/deploy/pg-backup/finance.conf /etc/pg-backup/finance.conf
+systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
+```
+
+You should see `PASS`, with `tables` 14 and `migration` 5 for F2a. `ledgers` and `members` each
+equal the number of `users` in the same table at that moment, since every user has one personal
+ledger with one member: 2 on 2026-09-29, the owner's and a test account's.
+
+**8. A smoke test with a test account**, never your own: sign in with it in a private window, and on
 its empty dashboard click **Load demo data**. Then, **on the server**, read only, with the test
 account's email address:
 
@@ -783,22 +842,24 @@ SQL
 
 You should see `its ledger N, OWNER ACTIVE`; each of its tables with all its rows in its ledger
 (`accounts 12 (12 in its ledger)`, `categories 18 (18 …)`, `counterparties 10 (10 …)` and the
-demo's entries); `everyone else: ledgers 1, accounts 10, categories 15, counterparties 0,
-entries 0`, which are your rows; and `ledgers in all 2, without a member 0`. Note N.
+demo's 138 entries); `everyone else: ledgers 1, accounts 10, categories 15, counterparties 0,
+entries 0`, which are your rows when nobody else has any; and `ledgers in all 2, without a member
+0`. Note N.
 
 Then, in the test account's window, **Settings → Delete all my data**. The empty dashboard it shows
-provisions the account again. Run the block again (the `read` asks again). You should see
-`its ledger M` with M greater than N: ledger N and its member are gone, and the new ledger holds
-only the starter rows (`accounts 10`, `categories 15`; tables without rows are left out). The
-`everyone else` line is unchanged, and `ledgers in all 2, without a member 0`. To remove the test
-account too, [delete the user](#delete-a-user); afterwards `ledgers in all 1`.
+provisions the account again. Paste the block again, and type the address at its prompt again. You
+should see `its ledger M` with M greater than N: ledger N and its member are gone, and the new
+ledger holds only the starter rows (`accounts 10`, `categories 15`; tables without rows are left
+out). The `everyone else` line is unchanged, and `ledgers in all 2, without a member 0`. To remove
+the test account too, [delete the user](#delete-a-user); afterwards `ledgers in all 1`.
 
-**8.** Add the row to [Deployed revisions](#deployed-revisions).
+**9.** Add the row to [Deployed revisions](#deployed-revisions), with the commit
+`git log -1 --oneline` prints on the server.
 
 **Rolling back** is [Roll an update back](#roll-an-update-back) without a restore: the previous
 image runs on the new schema, and Flyway in it ignores the migration it doesn't know. For V5 the
 whole test suite of the code before it passed on V5, which is the evidence. A restore of the dump
-from step 3 is needed only if the migration damaged data, or left the database in a state that
+from step 4 is needed only if the migration damaged data, or left the database in a state that
 neither image can work with; it loses everything written since the dump. A migration that fails
 leaves nothing behind: Flyway runs it in one transaction, the api doesn't start, and the previous
 image runs on the schema as it was.
@@ -922,36 +983,75 @@ To take the site offline, **on the server**: `caddy-site remove finance`. It kee
 
 For someone who asks for their account to be deleted (the privacy policy: "your login account is
 deleted on request"), or a test account. This deletes the user in Keycloak and every row the app
-keeps for them. It can't be undone, except by restoring a backup. The first block only looks: it
-asks for the email address and prints the user's id, linked providers, Keycloak sessions and the
-app's rows.
+keeps for them. It can't be undone, except by restoring a backup.
+
+**Keycloak's side needs the service client `automation-cli`**, which has been disabled since the
+auth server's D4. Either enable it for this section: in the admin console, realm `myapps` →
+**Clients** → `automation-cli` → **Enabled** on, and off again at the end. Or leave it disabled,
+and do the Keycloak part in the admin console instead: the block "Without `automation-cli`" below
+in place of the first one, and the user's deletion there at the end.
+
+The first block only looks: it asks for the email address and prints the user's id, linked
+providers, Keycloak sessions and the app's rows. It stops with a `STOP` line if kcadm can't sign in
+or Keycloak has no user with that address.
 
 ```bash
 # On the server
-kc() { docker compose -f /opt/auth/docker-compose.yml exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config </dev/null; }
-kc config credentials --server http://localhost:8080 --realm myapps --client automation-cli --secret "$(cat /root/automation-cli.secret)"
 IFS= read -r -p 'Email address of the user: ' email
-sub=$(kc get users -r myapps -q email="$email" -q exact=true --fields id --format csv --noquotes); echo "user: ${sub:-none}"
-[ -n "$sub" ] && kc get users/$sub/federated-identity -r myapps --fields identityProvider && echo "sessions: $(kc get users/$sub/sessions -r myapps --fields id --format csv --noquotes | grep -c .)"
-cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -U finance -d finance -v sub="$sub" <<'SQL'
+kc() { docker compose -f /opt/auth/docker-compose.yml exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config </dev/null; }
+sub=""
+if ! kc config credentials --server http://localhost:8080 --realm myapps --client automation-cli --secret "$(cat /root/automation-cli.secret)"; then
+  echo "STOP: kcadm could not sign in. Is automation-cli enabled?"
+else
+  sub=$(kc get users -r myapps -q email="$email" -q exact=true --fields id --format csv --noquotes)
+  if [ -z "$sub" ]; then
+    echo "STOP: Keycloak has no user with this email address."
+  else
+    echo "user: $sub"
+    kc get users/$sub/federated-identity -r myapps --fields identityProvider
+    echo "sessions: $(kc get users/$sub/sessions -r myapps --fields id --format csv --noquotes | grep -c .)"
+    cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -U finance -d finance -v sub="$sub" <<'SQL'
 SELECT 'users ' || count(*) FROM app.users WHERE keycloak_id = :'sub';
 SELECT 'accounts ' || count(*) || ', categories ' || (SELECT count(*) FROM app.category WHERE user_id = :'sub') || ', entries ' || (SELECT count(*) FROM app.journal_entry WHERE user_id = :'sub') FROM app.account WHERE user_id = :'sub';
 SELECT 'ledgers ' || count(*) FROM app.ledger_member WHERE user_sub = :'sub';
 SQL
+  fi
+fi
 ```
 
-You should see the user's id (36 characters), then their linked providers (`[ ]` for none),
-`sessions: 0`, and the numbers of rows. If `sessions` isn't 0, sign them out in the admin console
-(realm `myapps` → **Users** → the user → **Sessions** → **Sign out**), wait 5 minutes, the
-lifetime of an access token, and run the block again.
+You should see a line about logging in, the user's id (36 characters), then their linked providers
+(`[ ]` for none), `sessions: 0`, and the numbers of rows. If `sessions` isn't 0, sign them out in
+the admin console (realm `myapps` → **Users** → the user → **Sessions** → **Sign out**), wait 5
+minutes, the lifetime of an access token, and run the block again.
 
-Then, in the same shell: a backup, the app's rows in one transaction, as the app's own "Delete all
-my data" deletes them (`UserDataService.deleteAll`), and the Keycloak user:
+**Without `automation-cli`**, look the user up in the admin console instead: realm `myapps` →
+**Users**, search for the email address, open the user, and copy the **ID** field. Check their
+**Sessions** tab as above. Then this block asks for the id and prints the app's rows:
+
+```bash
+# On the server
+IFS= read -r -p 'ID of the user, from the admin console: ' sub
+if [ -z "$sub" ]; then
+  echo "STOP: no user id."
+else
+  cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -U finance -d finance -v sub="$sub" <<'SQL'
+SELECT 'users ' || count(*) FROM app.users WHERE keycloak_id = :'sub';
+SELECT 'accounts ' || count(*) || ', categories ' || (SELECT count(*) FROM app.category WHERE user_id = :'sub') || ', entries ' || (SELECT count(*) FROM app.journal_entry WHERE user_id = :'sub') FROM app.account WHERE user_id = :'sub';
+SELECT 'ledgers ' || count(*) FROM app.ledger_member WHERE user_sub = :'sub';
+SQL
+fi
+```
+
+Then, in the same shell: a backup, and the app's rows in one transaction, as the app's own "Delete
+all my data" deletes them (`UserDataService.deleteAll`). The block refuses to run without a user id:
 
 ```bash
 # On the server, in the shell of the block above
-systemctl start pg-backup@finance.service
-cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -1 -v ON_ERROR_STOP=1 -U finance -d finance -v sub="$sub" <<'SQL'
+if [ -z "$sub" ]; then
+  echo "STOP: no user id. Run the block above again."
+else
+  systemctl start pg-backup@finance.service
+  cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -1 -v ON_ERROR_STOP=1 -U finance -d finance -v sub="$sub" <<'SQL'
 DELETE FROM app.user_settings WHERE user_id = :'sub';
 DELETE FROM app.journal_entry WHERE user_id = :'sub';
 DELETE FROM app.import_batch WHERE user_id = :'sub';
@@ -961,22 +1061,45 @@ DELETE FROM app.counterparty WHERE user_id = :'sub';
 DELETE FROM app.exchange_rate WHERE user_id = :'sub';
 DELETE FROM app.transactions WHERE user_id IN (SELECT id FROM app.users WHERE keycloak_id = :'sub');
 DELETE FROM app.categories WHERE user_id IN (SELECT id FROM app.users WHERE keycloak_id = :'sub');
+DELETE FROM app.ledger WHERE id IN (SELECT ledger_id FROM app.ledger_member WHERE user_sub = :'sub' AND ledger_type = 'PERSONAL');
 DELETE FROM app.users WHERE keycloak_id = :'sub';
+SELECT 'ledgers left ' || count(*) FROM app.ledger_member WHERE user_sub = :'sub';
 SQL
-kc delete users/$sub -r myapps && echo "deleted in Keycloak"
+fi
+```
+
+You should see one `DELETE n` per statement, with the numbers of the first block, `DELETE 1` for
+the ledger, and `ledgers left 0`. Deleting the personal ledger deletes its member with it (`ON
+DELETE CASCADE`), and the statement finds the ledger by the member's sub, so it also removes the
+ledger of a sub without a `users` row: the command-line importer (CLAUDE.md, "How to run the
+importer") writes rows without one. A ledger that still holds a row of theirs makes the statement
+fail, and the transaction with it. Deleting the `users` row would also delete the personal ledger,
+by V5's trigger, but only for a sub that has that row.
+
+Last, the Keycloak user. With `automation-cli`, in the shell of the first block:
+
+```bash
+# On the server, in the shell of the first block
+if [ -z "$sub" ]; then
+  echo "STOP: no user id. Run the first block again."
+else
+  kc delete users/$sub -r myapps && echo "deleted in Keycloak"
+fi
 docker compose -f /opt/auth/docker-compose.yml exec -T keycloak rm -f /tmp/kcadm.config </dev/null
 ```
 
-You should see one `DELETE n` per table, with the numbers of the first block, and `deleted in
-Keycloak`. Since V5, deleting the `users` row also deletes the user's personal ledger and its
-member (a trigger); it fails, and the transaction with it, if a row of theirs is left in the
-ledger. The dump taken first holds the user until it ages out, 14 days on the server and 60 on
-the laptop, as the privacy policy says. On 2026-09-28 the test account of the first deploy was
-deleted with these statements, run in a `DO` block that also checked the total: 27 rows (settings
-1, accounts 10, categories 15, users 1), then the Keycloak user. Afterwards both blocks were tried
-as they are written here, for an address and a `sub` nobody has: the first printed `user: none`,
-and the second's `psql`, with a failing statement added at the end, ran its ten `DELETE 0` and
-rolled back.
+You should see `deleted in Keycloak`; the last line deletes kcadm's session. Then disable
+`automation-cli` again in the admin console. Without it: in the admin console, the user's page →
+**Action** → **Delete**.
+
+The dump taken first holds the user until it ages out, 14 days on the server and 60 on the laptop,
+as the privacy policy says. On 2026-09-28 the test account of the first deploy was deleted with
+these statements, as they were then, run in a `DO` block that also checked the total: 27 rows
+(settings 1, accounts 10, categories 15, users 1), then the Keycloak user. Afterwards both blocks
+were tried as they were written then, for an address and a `sub` nobody has: the first printed
+`user: none`, and the second's `psql`, with a failing statement added at the end, ran its ten
+`DELETE 0` and rolled back. `UserDataApiTests` runs the statements of the deleting block as they
+are written here.
 
 ## Regular checks
 

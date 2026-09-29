@@ -3,11 +3,66 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-29 · Family budget: F2a's deploy, runbook fixes, scoping by `ledger_id` (F2b)
+
+Not committed yet.
+
+**Changes**
+- F2a's deploy and the runbook (commit "docs(family-budget): F2a deploy and runbook fixes"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-09-29, `1f1662f`, with the owner's
+    checks. The F2a entry below got its commit `1f1662f` and the deploy's record, the way D3a's
+    was recorded.
+  - "Deploy a release whose only change is a migration": a new step 1 on the laptop (merge the
+    release into `main` with `--ff-only`, push, wait for CI), so the steps are now 1 to 9; the diff
+    check says that it prints nothing when step 1 was skipped; the deploy (step 5) writes out the
+    blocks of "Update the app" instead of linking there; the restore test's `ledgers` and `members`
+    equal the number of users at that moment, not a fixed 1.
+  - "How to read this": a block that starts with a `read` prompt is pasted once, and the answer
+    typed at the prompt.
+  - "Delete a user": `automation-cli` is disabled since the auth server's D4, so the section says
+    to enable it for the task and disable it after, or to use the admin console, with its own block
+    that asks for the user's id. The first block stops with a `STOP` line when kcadm can't sign in
+    or no user has the address; the deleting block and the Keycloak block refuse to run without a
+    `sub`. The deleting block also deletes the personal ledger by the member's sub (the member goes
+    with it), so a sub without a `users` row leaves nothing behind.
+  - `UserDataApiTests` runs the new statements, and a new test deletes a sub that has rows but no
+    `users` row.
+  - `docs/family-budget/requirements.md`: D-3, the display name in a family ledger is chosen on
+    the acceptance screen, prefilled from the account's name; D-19, detached link rows stay as the
+    family's history but never block deleting the member's personal entries, one by one or through
+    "Delete all my data" (F4a).
+  - ADR 0003: status (V5 deployed); topic E's `family_entry_link` with its own id, `entry_id`
+    nullable with `ON DELETE SET NULL` (or no foreign key, F4a's choice) and the unique indexes
+    only over links that aren't detached; topic G's lookup and acceptance carry the display name;
+    topic C's architecture test has a short exception list, each with a reason, taking the user id,
+    never reading the security context, and covered by the isolation tests.
+  - CLAUDE.md: production runs `1f1662f`, V5 is applied there, and "Delete a user" covers a sub
+    without a `users` row.
+
+**Verified**
+- Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`: the checkout was on
+  `main`, not `feature/family-budget`, with a clean tree; `main`, `origin/main`,
+  `feature/family-budget` and `origin/feature/family-budget` were all at `1f1662f`, so switching to
+  the branch changed no file. `./mvnw -B verify`: 247 tests, 0 failures, 0 errors, 0 skipped,
+  BUILD SUCCESS. Frontend: `npm ci`, `npm test` 7 files and 84 tests passed, `npm run build`
+  succeeded.
+- The runbook: every bash block passes `bash -n` (55 blocks). The new blocks of "Delete a user" ran
+  locally against a stand-in `docker` and `systemctl`: a failed kcadm login prints `STOP: kcadm
+  could not sign in…`, an unknown address `STOP: Keycloak has no user…`, the deleting and the
+  Keycloak block print `STOP: no user id…` without a `sub` and run nothing, and with a `sub` they
+  pass it to `psql`. The blocks of step 5 equal those of "Update the app" character for character.
+- `UserDataApiTests`: 5 tests pass. Without the new ledger statement, the test of a sub without a
+  `users` row fails. After the documents' commit, `./mvnw -B verify`: 248 tests (247 and the new
+  one), 0 failures, 0 errors, BUILD SUCCESS.
+
+**Open**
+- Nothing yet.
+
 ## 2026-09-29 · Family budget: F1 review decisions, stronger isolation tests, migration V5 (F2a)
 
-Committed locally on `feature/family-budget` in three commits: `c6a16cd` (documents), `43d2c4f`
-(isolation tests) and "feat(db): V5 ledgers and membership", whose hash belongs here with the next
-change log commit. Not pushed, not merged, not deployed.
+Commits `c6a16cd` (documents), `43d2c4f` (isolation tests) and `1f1662f` (V5), on
+`feature/family-budget`, merged into `main` and deployed on 2026-09-29; the deploy's records:
+"docs(family-budget): F2a deploy and runbook fixes", whose hash is in the F2b entry.
 
 **Changes**
 - Documents after the owner's F1 review (commit "docs(family-budget): apply F1 review decisions"):
@@ -86,6 +141,10 @@ change log commit. Not pushed, not merged, not deployed.
     settings file changes; "Delete a user" prints the ledgers and explains the trigger.
   - CLAUDE.md: V5, the family budget's documents, the tests and the backup checks. ADR 0003's
     status says V5 is implemented.
+- Deployed to production on 2026-09-29 by the owner, from `1f1662f` on `main`, with the runbook's
+  "Deploy a release whose only change is a migration". Nothing ran from this repository's side.
+- After the deploy: a row in the runbook's "Deployed revisions", and the runbook fixes the deploy
+  found (listed in the F2b entry).
 
 **Verified**
 - Baseline on `feature/family-budget` at `6a0ad0e`, clean tree: `./mvnw -B verify` 235 tests, 0
@@ -106,13 +165,25 @@ change log commit. Not pushed, not merged, not deployed.
   `10|15|0|0|0`, and 0 rows without or outside their ledger. The smoke test's block and the
   "Delete a user" statements behaved as described there, including a re-provisioned test account
   getting a new ledger. `restore-test.sh` of the auth repository reads any `CHECK_*` key.
+- The deploy on 2026-09-29, as the owner checked it:
+  - Flyway's history: version 5, "ledgers and membership", success.
+  - After the migration: one PERSONAL ledger with one member, an active owner; no sub without a
+    personal ledger; no row without a ledger or outside its user's personal ledger; the counts
+    unchanged, 10 accounts, 15 categories, 0 counterparties, 0 entries and 0 import batches.
+  - The api healthy on the new image. The web image was rebuilt with the same layers, and its
+    container kept running.
+  - A smoke test with a test account. After "Load demo data": all its 12 accounts, 18 categories,
+    10 counterparties and 138 entries in its own ledger (3), the owner's rows unchanged, 2 ledgers
+    in all and none without a member. After "Delete all my data": the account re-provisioned into
+    a new ledger (4) with only the starter rows (10 accounts, 15 categories), and the owner's rows
+    again unchanged.
+  - The new `finance.conf` installed after the migration; the restore test passed with 14 tables,
+    migration 5, 2 ledgers and 2 members (the owner's and the test account's).
 
 **Open**
-- The owner's deploy: merge `feature/family-budget` into `main`, push, and follow the runbook's
-  "Deploy a release whose only change is a migration" (the task's report has the checklist).
-- A sub whose rows were written without a `users` row (only `ImportRunner` does that) keeps its
-  ledger after "Delete a user", whose statements delete by `user_id`; the users row's trigger
-  never fires for it. The browser import always has a `users` row.
+- Found during the deploy and fixed with its records (the F2b entry): the runbook's migration
+  section, its read prompts, and "Delete a user", which now also removes the ledger of a sub
+  without a `users` row (the command-line importer's case).
 - F2b: scoping by `ledger_id`, and the architecture test of ADR 0003, topic C.
 
 ## 2026-09-28 · Family budget: requirements, current state and ADR 0003 (F1)

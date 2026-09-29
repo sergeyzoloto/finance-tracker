@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
@@ -72,9 +73,8 @@ class UserDataApiTests extends LedgerApiTest {
     }
 
     /**
-     * The runbook's "Delete a user" (deploy/RUNBOOK.md) deletes a user by hand with the statements of
-     * {@link com.example.financetracker.ledger.UserDataService#deleteAll}, in one transaction. Since V5 the users row's
-     * trigger takes the personal ledger and its member with it, so the statements stay as they were.
+     * The runbook's "Delete a user" (deploy/RUNBOOK.md) deletes a user by hand with the statements of its deleting
+     * block, in one transaction, like {@link com.example.financetracker.ledger.UserDataService#deleteAll}.
      */
     @Test
     void theRunbooksDeleteAUserLeavesNothingOfTheUserAndChangesNobodyElses() throws IOException {
@@ -85,6 +85,30 @@ class UserDataApiTests extends LedgerApiTest {
         assertThat(rowsOf(user)).containsEntry("ledger", 1L).containsEntry("ledger_member", 1L);
         Map<String, String> othersRows = digestOf(other);
 
+        runbooksDeleteAUser(user);
+
+        assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+        assertThat(digestOf(other)).isEqualTo(othersRows);
+    }
+
+    /**
+     * The command-line importer writes rows for a sub that has no users row, so the users row's trigger never removes
+     * its ledger. The runbook deletes the ledger by the member's sub.
+     */
+    @Test
+    void theRunbooksDeleteAUserAlsoRemovesTheLedgerOfASubWithoutAUsersRow() {
+        String sub = UUID.randomUUID().toString();
+        jdbc.sql("INSERT INTO account (user_id, code, name, type) VALUES (?, 'CASH', 'Cash', 'ASSET')").param(sub)
+                .update();
+        assertThat(rowsOf(sub)).containsEntry("users", 0L).containsEntry("account", 1L).containsEntry("ledger", 1L)
+                .containsEntry("ledger_member", 1L);
+
+        runbooksDeleteAUser(sub);
+
+        assertThat(rowsOf(sub)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+    }
+
+    private void runbooksDeleteAUser(String sub) {
         inTransaction.executeWithoutResult(status -> {
             for (String statement : List.of(
                     "DELETE FROM user_settings WHERE user_id = ?",
@@ -96,13 +120,12 @@ class UserDataApiTests extends LedgerApiTest {
                     "DELETE FROM exchange_rate WHERE user_id = ?",
                     "DELETE FROM transactions WHERE user_id IN (SELECT id FROM users WHERE keycloak_id = ?)",
                     "DELETE FROM categories WHERE user_id IN (SELECT id FROM users WHERE keycloak_id = ?)",
+                    "DELETE FROM ledger WHERE id IN (SELECT ledger_id FROM ledger_member WHERE user_sub = ? "
+                            + "AND ledger_type = 'PERSONAL')",
                     "DELETE FROM users WHERE keycloak_id = ?")) {
-                jdbc.sql(statement).param(user).update();
+                jdbc.sql(statement).param(sub).update();
             }
         });
-
-        assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
-        assertThat(digestOf(other)).isEqualTo(othersRows);
     }
 
     /** The user's next requests find the starter ledger and nothing else, as on a first sign-in. */

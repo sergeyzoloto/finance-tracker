@@ -2,6 +2,8 @@ The sections below were agreed in stage F0 and are copied here verbatim from the
 
 Amended after the F1 review on 2026-09-29: Background, D-7, D-8, D-12, D-14, D-17, D-18, D-19, D-20, D-21, D-22, new D-24 to D-26, stories D2 and the planned stages.
 
+Amended after the F2a deploy on 2026-09-29: D-3 (the display name in a family ledger) and D-19 (detached links never block deleting personal entries).
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -13,7 +15,7 @@ Do not reopen these. Flag only real conflicts with the code.
 Model and access
 - D-1. The family budget is a settlement mechanism between members' personal ledgers, not a separate pot of money. Family-marked expenses and incomes are split into shares. Each member's share is posted into their personal ledger, and the difference goes to that member's "Debt to family budget" liability. The members' balances in a family ledger always sum to zero, and "who owes whom" is read from those balances. A real joint bank account is out of scope, but the model must not prevent a family-owned account from becoming a payer later.
 - D-2. A family budget is a ledger of type SHARED. A personal ledger is a ledger of type PERSONAL with exactly one member. Access to any ledger-scoped row is decided by active membership in that ledger, not by the row's user_id. One access model covers both types.
-- D-3. A membership row holds: the ledger, a nullable user sub, a display name, a role (OWNER or MEMBER; several owners are allowed), a status (ACTIVE, LEFT, FORMER), a join date (family records dated on or after it are posted to this member) and a left date. Every family row references a membership row, never a sub; the sub appears only in the membership table. A member without an account is a membership row with a null sub. Claiming that seat through an invite sets the sub. Deleting a user's data nulls the sub and replaces the name with "Former member".
+- D-3. A membership row holds: the ledger, a nullable user sub, a display name, a role (OWNER or MEMBER; several owners are allowed), a status (ACTIVE, LEFT, FORMER), a join date (family records dated on or after it are posted to this member) and a left date. Every family row references a membership row, never a sub; the sub appears only in the membership table. A member without an account is a membership row with a null sub. Claiming that seat through an invite sets the sub. Deleting a user's data nulls the sub and replaces the name with "Former member". In a family ledger, the display name the other members see is chosen on the invite acceptance screen; it is prefilled from the account's name and can be edited.
 - D-4. Invariants: each user has exactly one personal ledger; a personal ledger has exactly one member and cannot receive members or invites; a sub appears at most once per ledger. Enforce them in the service layer and in the database.
 - D-5. A user can belong to several family ledgers from the start. The UI has a ledger switcher. When a personal entry is marked as family, a family-ledger selector appears only if the user has more than one.
 
@@ -87,6 +89,7 @@ Leaving and deletion
     - their links to family records are marked detached;
     - posted entries become ordinary, editable personal entries;
     - their "Debt to family budget" balance stays in their ledger.
+  - The detached link rows stay as the family's history, marked detached, but they never block deleting the member's personal entries, one at a time or through "Delete all my data" (D-20). Either the link's reference to the personal entry is set to null when the entry is deleted, or the link holds no foreign key to it. Implemented in F4a.
   - When an owner removes a member, the detach runs through the cross-ledger writer (D-8). After the detach, no row of a LEFT member references the family ledger.
   - LEFT members never count as "members with an account" in D-19 or D-20.
   - Records where a LEFT or FORMER member has a share or is the payer are frozen.

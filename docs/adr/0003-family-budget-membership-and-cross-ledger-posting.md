@@ -9,7 +9,10 @@ F2b is deployed since 2026-09-29, from `ee9e498`. Amended after the F2b review: 
 and raw ledger ids (topic C), and F3 split into F3a and F3b, with family categories in personal
 ledgers moved to F4a (topic J). Amended for F3a: split shares in basis points (topics B, D and I),
 409 rather than 403 for an owner's action (topic C), and `Debt(L)` with its column in F4a (topics E
-and J). The requirements and decisions D-1 to D-26 are in
+and J). F3a is deployed since 2026-09-29, from `9bbf427`, with the feature switch off. Amended after
+the F3a review: the fallback to `EQUAL` stands and is journaled from F4a (topics B and H), a member
+changes their own display name (topics B and I), and delete-all's order once family categories reach
+personal ledgers (topic J). The requirements and decisions D-1 to D-26 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -168,10 +171,13 @@ and answers 422.
 
 **F3a's details.** A member without an account whose custom share is above 0 can't be removed
 (409) until an owner changes the rule. When a member with a custom share above 0 becomes FORMER
-(D-20), the rule falls back to EQUAL: nobody else may decide what the others' shares become, and
-F6 settles the same for LEFT. In a family ledger a display name is never blank and is unique,
-case-insensitive, among the members that aren't FORMER (a unique index); every FORMER member is
-"Former member". D-20's membership part is one database function, `release_family_memberships(sub)`,
+(D-20), the rule falls back to EQUAL: nobody else may decide what the others' shares become. The
+owner confirmed it after the F3a review, and it holds for a LEFT member too once F6 brings leaving
+and removal. From F4a, which brings the change journal (topic H), such a reset is journaled as a
+system change that names the member who left. In a family ledger a display name is never blank and
+is unique, case-insensitive, among the members that aren't FORMER (a unique index); every FORMER
+member is "Former member". A member with an account changes their own display name (after the F3a
+review, D-3; topic I), with the same checks; owners rename only members without an account. D-20's membership part is one database function, `release_family_memberships(sub)`,
 which "Delete all my data" and the runbook's "Delete a user" both run: it locks each of the sub's
 family ledgers in turn and reads the membership after the lock, so that two members deleting their
 data at once see each other's changes.
@@ -645,6 +651,13 @@ CREATE TABLE family_record_change (
   of a payment (the account) is never written here (D-16).
 - Every member reads the journal of every record (D-16); a share shows its last editor and time from
   `family_share`.
+- **System changes** (after the F3a review). A change that no member made is journaled too, as a
+  system change: the default split rule falling back to `EQUAL` when a member with a custom share
+  above 0 becomes FORMER (D-20) or, from F6, LEFT (topic B). It names the member who left, by
+  membership id like every member here, so it reads "Former member" once they are FORMER. Such a
+  change belongs to the ledger, not to a record, and has no member as its author: F4a either lets
+  `record_id` and `changed_by_member_id` be NULL for it, with an action of its own, or gives the
+  ledger's changes a table of their own.
 - D-20's erasure (as amended): when a member becomes FORMER, the comment text they wrote is replaced
   with null in the record and wherever the journal holds it: the new value of each of their own
   changes of the comment, and the old value of the change that replaced one of theirs. A comment
@@ -673,6 +686,11 @@ than the MVP needs.
   currency) and the split rule as PUT `/{ledgerId}/split-rule`, in place of `settings`, with
   `members` and `categories` as above. `LedgerAccess.member` answers only for family ledgers, so no
   family path reaches a personal ledger, not even the user's own.
+- A member's own display name (after the F3a review, D-3): `PATCH /{ledgerId}/members/me` lets any
+  ACTIVE member with an account change the name the others see, with the same validation and
+  uniqueness as any display name (409 naming the rule on a clash). The path names no member id, so a
+  member reaches only their own membership through it. Owners rename members without an account
+  through `/{ledgerId}/members/{memberId}`, and nobody renames another member with an account.
 - Headers are rejected because the ledger would be invisible in URLs, links and the path patterns
   that the isolation tests' coverage records; a session value because all tabs share it.
 
@@ -802,6 +820,13 @@ back").
   the family ones by code, the posting trigger's family category rule (topic C), and family
   categories in personal category lists and reports. Until then a family category lives only in its
   family ledger.
+  **Delete-all in F4a** (after the F3a review). Once a personal posting can carry a family category,
+  "Delete all my data" must delete the user's personal entries, or at least their postings on
+  family categories, before `release_family_memberships` runs; the alternative is to run the release
+  after them. As F3a has it, the release runs first, and a family ledger in which the user was the
+  only member with an account can't be deleted while the user's own postings still use its
+  categories (the foreign keys refuse it). The runbook's "Delete a user" follows the same order. A
+  test covers delete-all for a user with such postings.
   F4b: marking a personal entry as family (C2), incomes (C5), other currencies (C7), settlements (D2,
   D-24), and the payment edits of D-14.
 - **F5**: invites, seat claiming and returning members (D-26). It is the first stage in which

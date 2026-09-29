@@ -3,11 +3,41 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-29 · Family budget: F3a's deploy, review decisions, the interface behind the switch (F3b)
+
+Not committed yet.
+
+**Changes**
+- F3a's deploy and the decisions after the F3a review (commit "docs(family-budget): F3a deploy and
+  review decisions"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-09-29, `9bbf427`, with the owner's
+    checks, and the mistaken rollback to `ee9e498` and the redeploy. "Roll an update back" starts
+    with a warning: only for an update that failed its checks; after a successful one it undoes the
+    release. The F3a entry below got its commit `9bbf427` and the deploy's record, the way F2b's
+    was recorded.
+  - ADR 0003, topic B: the fallback to `EQUAL` stands, for a FORMER member now and a LEFT one in
+    F6; topic H: from F4a such a reset is journaled as a system change that names the member who
+    left, with no member as its author and no record. Topic J: in F4a, "Delete all my data" deletes
+    the user's personal entries, or at least their postings on family categories, before
+    `release_family_memberships` runs, or runs the release after them, and a test covers delete-all
+    with such postings. Topics B and I: a member with an account changes their own display name.
+  - `docs/family-budget/requirements.md`, D-3: the same.
+  - CLAUDE.md: F3a merged and deployed, production runs `9bbf427`, V6 applied there.
+
+**Verified**
+- Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`: `feature/family-budget`
+  checked out with a clean tree; it, `main` and `origin/main` all at `9bbf427`.
+  `./mvnw -B clean verify`: 277 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend:
+  `npm ci`, `npm test` 7 files and 84 tests passed, `npm run build` succeeded.
+
+**Open**
+- F3b's parts 2 and 3.
+
 ## 2026-09-29 · Family budget: family ledgers in the backend, behind a switch (F3a)
 
-Committed locally on `feature/family-budget` in three commits: `2c36840` (the owner's decisions),
-`7db4ff8` (V6) and "feat(family): family ledgers in the backend, behind a switch", whose hash
-belongs here with the next change log commit. Not pushed, not merged, not deployed.
+Commits `2c36840` (the owner's decisions), `7db4ff8` (V6) and `9bbf427` (the backend), on
+`feature/family-budget`, merged into `main` and deployed on 2026-09-29; the deploy's records:
+"docs(family-budget): F3a deploy and review decisions".
 
 **Changes**
 - The owner's decisions on the questions of parts 1 and 2 (commit "docs(family-budget): split
@@ -123,6 +153,20 @@ belongs here with the next change log commit. Not pushed, not merged, not deploy
   (`ledger_shared_split_rule_check`), and `LedgerBackfillMigrationTests` expects version 5 as the
   latest. Every API, isolation, delete-all, runbook, importer, report and demo test passed. The
   worktree was removed; nothing was committed from it.
+- The deploy on 2026-09-29, from `9bbf427`, as the owner checked it:
+  - Before: Flyway at version 5; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30
+    categories, 0 counterparties, 0 entries and 0 import batches; the restore test passed with 14
+    tables, migration 5, 2 ledgers and 2 members.
+  - The api healthy on the new image; the web container kept running; Flyway applied V6 ("6 -
+    family ledgers"); at startup the api logged "Family ledgers (D-25): off; the family endpoints
+    answer 404".
+  - After: the same counts; no family ledger, family member, family category, split rule or share;
+    no row outside its user's personal ledger.
+  - A rollback to `ee9e498` ran by mistake at 21:06 UTC. The old image ran on V6 without problems,
+    which confirms the rollback path. `9bbf427` was then deployed again: Flyway reported the schema
+    up to date, the startup log showed the switch off, and the checks were repeated on it:
+    `/api/family-ledgers` answered 404 and `/api/me` held `"features":{"familyLedgers":false}`;
+    the owner's dashboard looked as before; the smoke test with the test account passed.
 
 **Open**
 - The owner's deploy of F3a with the switch off; the report of this task has the checklist.

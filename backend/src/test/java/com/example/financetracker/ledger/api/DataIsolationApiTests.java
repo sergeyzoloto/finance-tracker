@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -404,6 +405,148 @@ class DataIsolationApiTests extends LedgerApiTest {
                     .as(uri).contains("no-store");
         }
         softly.assertAll();
+    }
+
+    /**
+     * Family ledgers with three users (F3a; ADR 0003, topic K): Alice and Bob in family ledger A, Alice alone in B,
+     * Carol in neither. For everything of B, Bob gets the answer for a family ledger that doesn't exist, and so does
+     * Carol for everything of A and B, reads and writes alike. Nobody reaches a personal ledger, or another family
+     * ledger's members and categories, through a family endpoint. Bob sees only A's family data, and no family answer
+     * holds a sub or an email address. Bob's requests on B reach every family endpoint for
+     * {@link #everyEndpointIsCheckedHere}.
+     */
+    @Test
+    void familyLedgersAreReachedByTheirActiveMembersOnly() throws IOException {
+        String carol = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        Map<String, JsonNode> alicesViewBefore = view(alice);
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "categoryIds": [%d]}"""
+                .formatted(categoryId(alice, "GROCERIES"))).get("id").asLong();
+        join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 9, 1));
+        body(post(alice, "/api/family-ledgers/" + familyA + "/members", """
+                {"displayName": "Grandma"}"""), HttpStatus.CREATED);
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "USD", "displayName": "Alice", "splitRule": "CUSTOM",
+                 "categoryIds": [%d]}""".formatted(alicesHobby)).get("id").asLong();
+        long bSeat = created(post(alice, "/api/family-ledgers/" + familyB + "/members", """
+                {"displayName": "Alice's cousin"}"""));
+        long bCategory = find(ok(get(alice, "/api/family-ledgers/" + familyB + "/categories")), "code",
+                "ALICE_HOBBY").get("id").asLong();
+        long familyC = newFamily(bob, """
+                {"name": "Bob's allotment", "baseCurrency": "EUR", "displayName": "Bob"}""").get("id").asLong();
+        // Family ledgers leave the personal answers as they were: family categories join them in F4a.
+        assertThat(view(alice)).isEqualTo(alicesViewBefore);
+        long alicesPersonal = personalLedger(alice);
+        long bobsPersonal = personalLedger(bob);
+        List<FamilyRequest> requests = List.of(
+                new FamilyRequest(HttpMethod.GET, "", null),
+                new FamilyRequest(HttpMethod.PATCH, "", """
+                        {"name": "Mine now", "baseCurrency": "EUR"}"""),
+                new FamilyRequest(HttpMethod.PUT, "/split-rule", """
+                        {"rule": "EQUAL"}"""),
+                new FamilyRequest(HttpMethod.GET, "/members", null),
+                new FamilyRequest(HttpMethod.POST, "/members", """
+                        {"displayName": "Intruder"}"""),
+                new FamilyRequest(HttpMethod.PATCH, "/members/" + bSeat, """
+                        {"displayName": "Intruder"}"""),
+                new FamilyRequest(HttpMethod.DELETE, "/members/" + bSeat, null),
+                new FamilyRequest(HttpMethod.GET, "/categories", null),
+                new FamilyRequest(HttpMethod.POST, "/categories", """
+                        {"code": "INTRUDER", "name": "Intruder", "type": "EXPENSE"}"""),
+                new FamilyRequest(HttpMethod.PATCH, "/categories/" + bCategory, """
+                        {"name": "Intruder", "archived": true}"""),
+                new FamilyRequest(HttpMethod.DELETE, "/categories/" + bCategory, null));
+
+        SoftAssertions softly = new SoftAssertions();
+        for (FamilyRequest request : requests) {
+            String uri = "/api/family-ledgers/%d" + request.path();
+            // Bob on B, and on either personal ledger, his own included.
+            for (long ledger : List.of(familyB, alicesPersonal, bobsPersonal)) {
+                answersAsIfMissing(softly, request.method(), uri, ledger, request.body());
+            }
+            // Carol on A and B, and on Alice's personal ledger.
+            for (long ledger : List.of(familyA, familyB, alicesPersonal)) {
+                answersAsIfMissingTo(softly, carol, request.method(), uri.formatted(ledger),
+                        uri.formatted(MISSING), request.body());
+            }
+        }
+        // In a family ledger of his own, B's members and categories and Alice's personal ones are missing.
+        String inC = "/api/family-ledgers/" + familyC;
+        for (long bMember : List.of(bSeat, jdbc.sql("SELECT id FROM ledger_member WHERE ledger_id = ? AND user_sub = ?")
+                .params(familyB, alice).query(Long.class).single())) {
+            answersAsIfMissing(softly, HttpMethod.PATCH, inC + "/members/%d", bMember, """
+                    {"displayName": "Intruder"}""");
+            answersAsIfMissing(softly, HttpMethod.DELETE, inC + "/members/%d", bMember, null);
+        }
+        for (long category : List.of(bCategory, alicesHobby, alicesGifts)) {
+            answersAsIfMissing(softly, HttpMethod.PATCH, inC + "/categories/%d", category, """
+                    {"name": "Intruder", "archived": true}""");
+            answersAsIfMissing(softly, HttpMethod.DELETE, inC + "/categories/%d", category, null);
+        }
+        // Nor can he start a family ledger with her categories.
+        String newLedger = """
+                {"name": "Bob's other", "baseCurrency": "EUR", "displayName": "Bob", "categoryIds": [%d]}""";
+        MvcTestResult withHers = bobsRequest(HttpMethod.POST, "/api/family-ledgers", newLedger.formatted(alicesHobby));
+        softly.assertThat(withHers.getResponse().getStatus()).as("a family ledger with her category").isEqualTo(404);
+        softly.assertThat(withoutDigits(withHers)).as("a family ledger with her category")
+                .isEqualTo(withoutDigits(post(bob, "/api/family-ledgers", newLedger.formatted(MISSING))));
+        softly.assertAll();
+
+        // In A, Bob sees the family's data, and nothing of Alice's own.
+        String inA = "/api/family-ledgers/" + familyA;
+        assertThat(bobReads(inA).get("name").asText()).isEqualTo("Home");
+        assertThat(bobReads(inA + "/members").findValuesAsText("displayName")).containsExactly("Dad", "Mum", "Grandma");
+        assertThat(bobReads(inA + "/categories").findValuesAsText("code")).containsExactly("GROCERIES");
+        assertThat(bobReads("/api/family-ledgers").findValuesAsText("id"))
+                .containsExactlyInAnyOrder(String.valueOf(familyA), String.valueOf(familyC));
+        assertThat(ok(get(carol, "/api/family-ledgers"))).isEmpty();
+        // A member who isn't an owner changes nothing of A's (bobsRequest compares her rows, A's included).
+        assertThat(bobsRequest(HttpMethod.PATCH, inA, """
+                {"name": "Bob's now"}""")).hasStatus(HttpStatus.CONFLICT);
+        assertThat(bobsRequest(HttpMethod.DELETE, inA + "/categories/" + find(bobReads(inA + "/categories"), "code",
+                "GROCERIES").get("id").asLong(), null)).hasStatus(HttpStatus.CONFLICT);
+
+        // No family answer, to anyone, names a sub or an email address.
+        List<String> answers = new ArrayList<>();
+        for (String user : List.of(alice, bob, carol)) {
+            answers.add(get(user, "/api/family-ledgers").getResponse().getContentAsString());
+            for (long ledger : List.of(familyA, familyB, familyC)) {
+                for (String read : List.of("", "/members", "/categories")) {
+                    answers.add(get(user, "/api/family-ledgers/" + ledger + read).getResponse().getContentAsString());
+                }
+            }
+        }
+        assertThat(answers).allSatisfy(answer -> assertThat(answer)
+                .doesNotContain(alice, bob, carol, "@example.com", "User ", "\"sub\"", "userSub", "email"));
+        assertThat(String.join("", answers)).contains("Mum", "Dad", "Grandma", "Alice's cousin", "Bob");
+
+        assertThat(bobsView()).isEqualTo(bobsViewBefore);
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+    }
+
+    /**
+     * A user's request for another's object, sent by the user: 404, word for word the answer for an object that
+     * doesn't exist, and Alice's rows the same afterwards. For users other than Bob, whose requests go through
+     * {@link #answersAsIfMissing}.
+     */
+    private void answersAsIfMissingTo(SoftAssertions softly, String user, HttpMethod method, String uri,
+            String missingUri, String body) throws IOException {
+        Map<String, String> alicesRows = digestOf(alice);
+        MvcTestResult answer = call(user, method, uri, body);
+        softly.assertThat(digestOf(alice)).as("Alice's rows after %s %s", method, uri).isEqualTo(alicesRows);
+        softly.assertThat(answer.getResponse().getStatus()).as("%s %s", method, uri).isEqualTo(404);
+        softly.assertThat(withoutDigits(answer)).as("%s %s", method, uri)
+                .isEqualTo(withoutDigits(call(user, method, missingUri, body)));
+    }
+
+    private long personalLedger(String user) {
+        return jdbc.sql("SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'")
+                .param(user).query(Long.class).single();
+    }
+
+    /** A request to a family endpoint, by its path after the ledger's. */
+    private record FamilyRequest(HttpMethod method, String path, String body) {
     }
 
     /**

@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 import com.example.financetracker.IntegrationTest;
+import com.example.financetracker.ledger.ConflictException;
 import com.example.financetracker.ledger.NotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,9 +15,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
- * {@link LedgerAccess} against the V5 schema: a scope comes only from an ACTIVE membership, and anything else answers
- * like a ledger that doesn't exist. Family ledgers and LEFT or FORMER memberships are written here with plain SQL,
- * since no code creates them yet.
+ * {@link LedgerAccess}: a scope comes only from an ACTIVE membership, and anything else answers like a ledger that
+ * doesn't exist. Memberships of several users with an account, and LEFT or FORMER ones, are written here with plain
+ * SQL, since no code creates them before F5.
  */
 class LedgerAccessTests extends IntegrationTest {
 
@@ -44,7 +45,10 @@ class LedgerAccessTests extends IntegrationTest {
         assertThat(scope.role()).isEqualTo(MemberRole.OWNER);
         assertThat(scope.userId()).isEqualTo(alice);
         assertThat(access.provisionPersonal(alice)).isEqualTo(scope);
-        assertThat(access.member(alice, ledgerId)).isEqualTo(scope);
+        // A personal ledger never comes in by its id, not even the user's own.
+        assertThatThrownBy(() -> access.member(alice, ledgerId)).isInstanceOf(NotFoundException.class)
+                .hasMessage("Ledger %d not found", ledgerId);
+        assertThat(access.families(alice)).isEmpty();
         assertThat(access.provisionPersonal(bob).ledgerId()).isNotEqualTo(ledgerId);
     }
 
@@ -69,10 +73,10 @@ class LedgerAccessTests extends IntegrationTest {
 
     @Test
     void aFamilyLedgerIsReachedByAnActiveMembershipOnly() {
-        long family = jdbc.sql("INSERT INTO ledger (type, name, base_currency, split_rule) "
-                + "VALUES ('SHARED', 'Family', 'EUR', 'EQUAL') RETURNING id").query(Long.class).single();
+        long family = familyLedger();
         long alicesMembership = join(family, alice, "OWNER");
         long bobsMembership = join(family, bob, "MEMBER");
+        assertThat(access.families(bob)).containsExactly(access.member(bob, family));
 
         LedgerScope alicesScope = access.member(alice, family);
         assertThat(alicesScope.type()).isEqualTo(LedgerType.SHARED);
@@ -96,6 +100,33 @@ class LedgerAccessTests extends IntegrationTest {
                 .update();
         assertThatThrownBy(() -> access.member(alice, family)).isInstanceOf(NotFoundException.class)
                 .hasMessage("Ledger %d not found", family);
+    }
+
+    /**
+     * Owners' actions (D-15): an owner gets the scope, a member who isn't one a conflict that names the rule, and
+     * anyone else the 404 of a ledger that doesn't exist.
+     */
+    @Test
+    void onlyAnOwnerGetsAnOwnersScope() {
+        long family = familyLedger();
+        join(family, alice, "OWNER");
+        join(family, bob, "MEMBER");
+        long carolsFamily = familyLedger();
+        String carol = UUID.randomUUID().toString();
+        join(carolsFamily, carol, "OWNER");
+
+        assertThat(access.owner(alice, family)).isEqualTo(access.member(alice, family));
+        assertThatThrownBy(() -> access.owner(bob, family)).isInstanceOf(ConflictException.class)
+                .hasMessageStartingWith("Only an owner of the family ledger can do this");
+        assertThatThrownBy(() -> access.owner(bob, carolsFamily)).isInstanceOf(NotFoundException.class)
+                .hasMessage("Ledger %d not found", carolsFamily);
+        assertThat(access.families(alice)).extracting(LedgerScope::ledgerId).containsExactly(family);
+        assertThat(access.families(carol)).extracting(LedgerScope::ledgerId).containsExactly(carolsFamily);
+    }
+
+    private long familyLedger() {
+        return jdbc.sql("INSERT INTO ledger (type, name, base_currency, split_rule) "
+                + "VALUES ('SHARED', 'Family', 'EUR', 'EQUAL') RETURNING id").query(Long.class).single();
     }
 
     private long join(long ledgerId, String sub, String role) {

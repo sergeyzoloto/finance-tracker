@@ -39,4 +39,7 @@ public interface LedgerCategoryRepository extends LedgerScopedRepository<LedgerC
      */
     @Lock(LockMode.PESSIMISTIC_READ)
     List<LedgerCategory> findAllByLedgerIdAndIdIn(long ledgerId, Collection<Long> ids);
+
+    /** Deletes a family category that {@link #find} loaded (CategoryService.delete). */
+    void delete(LedgerCategory category);
 }

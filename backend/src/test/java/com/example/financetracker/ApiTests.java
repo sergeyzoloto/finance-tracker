@@ -97,7 +97,25 @@ class ApiTests extends IntegrationTest {
                 new Object[] {PUT, "/api/settings", """
                         {"baseCurrency": "EUR", "defaultShareRatio": "0.5"}"""},
                 new Object[] {POST, "/api/demo-data", null},
-                new Object[] {DELETE, "/api/me/data", null});
+                new Object[] {DELETE, "/api/me/data", null},
+                new Object[] {GET, "/api/family-ledgers", null},
+                new Object[] {POST, "/api/family-ledgers", """
+                        {"name": "Family", "baseCurrency": "EUR", "displayName": "Me"}"""},
+                new Object[] {GET, "/api/family-ledgers/1", null},
+                new Object[] {PATCH, "/api/family-ledgers/1", "{}"},
+                new Object[] {PUT, "/api/family-ledgers/1/split-rule", """
+                        {"rule": "EQUAL"}"""},
+                new Object[] {GET, "/api/family-ledgers/1/members", null},
+                new Object[] {POST, "/api/family-ledgers/1/members", """
+                        {"displayName": "Kid"}"""},
+                new Object[] {PATCH, "/api/family-ledgers/1/members/1", """
+                        {"displayName": "Kid"}"""},
+                new Object[] {DELETE, "/api/family-ledgers/1/members/1", null},
+                new Object[] {GET, "/api/family-ledgers/1/categories", null},
+                new Object[] {POST, "/api/family-ledgers/1/categories", """
+                        {"code": "RENT", "name": "Rent", "type": "EXPENSE"}"""},
+                new Object[] {PATCH, "/api/family-ledgers/1/categories/1", "{}"},
+                new Object[] {DELETE, "/api/family-ledgers/1/categories/1", null});
 
         SoftAssertions softly = new SoftAssertions();
         invalidTokens.forEach((kind, token) -> endpoints.forEach(e -> softly
@@ -240,10 +258,20 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/rates/manual/csv", List.of("post")),
                 Map.entry("/api/settings", List.of("get", "put")),
                 Map.entry("/api/demo-data", List.of("post")),
-                Map.entry("/api/me/data", List.of("delete"))));
+                Map.entry("/api/me/data", List.of("delete")),
+                Map.entry("/api/family-ledgers", List.of("get", "post")),
+                Map.entry("/api/family-ledgers/{ledgerId}", List.of("get", "patch")),
+                Map.entry("/api/family-ledgers/{ledgerId}/split-rule", List.of("put")),
+                Map.entry("/api/family-ledgers/{ledgerId}/members", List.of("get", "post")),
+                Map.entry("/api/family-ledgers/{ledgerId}/members/{memberId}", List.of("delete", "patch")),
+                Map.entry("/api/family-ledgers/{ledgerId}/categories", List.of("get", "post")),
+                Map.entry("/api/family-ledgers/{ledgerId}/categories/{categoryId}", List.of("delete", "patch"))));
 
-        // The user comes from the token, not from a parameter.
+        // The user comes from the token, not from a parameter; a family ledger comes by its id in the path only.
         assertThat(openApi.get("paths").get("/api/accounts").get("get").has("parameters")).isFalse();
+        assertThat(openApi.get("paths").get("/api/family-ledgers").get("post").has("parameters")).isFalse();
+        assertThat(openApi.get("paths").get("/api/family-ledgers/{ledgerId}/members").get("get").get("parameters")
+                .findValuesAsText("name")).containsExactly("ledgerId");
         JsonNode schemas = openApi.get("components").get("schemas");
         assertThat(schemas.get("PostingLine").get("properties").get("amount").get("type").asText()).isEqualTo("string");
         assertThat(schemas.get("EntryCommand").get("discriminator").get("propertyName").asText()).isEqualTo("kind");

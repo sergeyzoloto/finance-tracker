@@ -5,7 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-09-29 · Family budget: family ledgers in the backend, behind a switch (F3a)
 
-Not committed yet.
+Committed locally on `feature/family-budget` in three commits: `2c36840` (the owner's decisions),
+`7db4ff8` (V6) and "feat(family): family ledgers in the backend, behind a switch", whose hash
+belongs here with the next change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - The owner's decisions on the questions of parts 1 and 2 (commit "docs(family-budget): split
@@ -17,19 +19,124 @@ Not committed yet.
     in basis points (`family_share.share_bp`). Topic I: the interface shows and accepts
     percentages with two decimals and converts them with integer arithmetic.
   - Topic C: an owner's action by a member answers 409 naming the rule, as the ADR said, not 403,
-    which the frontend reads as "no access to Finance Tracker".
+    which the frontend reads as "no access to Finance Tracker": on `/api/me` it shows that screen
+    with only a sign-out button, and any other call throws "Access denied. Please reload the page."
   - Topics E and J: `account.family_ledger_id` and the members' `Debt(L)` accounts move to F4a,
     which also creates them for members who joined before it.
   - `docs/family-budget/requirements.md`, D-12: stored as basis points, shown as percentages with
     two decimals.
   - CLAUDE.md, "How to run tests": `./mvnw -B clean verify` while VS Code is open.
   - The entry below got its commit `74cc0ff`.
+- Migration V6 (commit "feat(db): V6 family ledgers"), additive (D-22):
+  - `ledger.split_rule` (`EQUAL` or `CUSTOM`, set exactly for SHARED ledgers) and
+    `ledger_member.share_bp` (0 to 10000, only for ACTIVE members of a family ledger); a deferred
+    trigger, `ledger_check_split_rule`, checks at commit that under `EQUAL` nobody has a share and
+    under `CUSTOM` every ACTIVE member has one and they sum to 10000.
+  - A family ledger's name and its display names are never blank; `ledger_member_display_name_key`
+    makes display names unique per family ledger, case-insensitive, among members that aren't
+    FORMER.
+  - `category.user_id` is nullable. `fill_and_check_ledger_id` lets into a SHARED ledger only a
+    category without `user_id` ("ledger n is a family ledger, which holds only categories without
+    user_id") and checks personal rows as before. The posting trigger is unchanged: a family
+    category is in another ledger than any entry, so no posting can use one yet (F4a).
+  - `release_family_memberships(sub)`, D-20's membership part for the app and the runbook alike:
+    one family ledger at a time, under its row's lock, the membership becomes FORMER ("Former
+    member", no sub, no share, left today); a family ledger without another ACTIVE member with an
+    account is deleted with its categories and members (LEFT members never count); else a custom
+    share of the user's above 0 turns the rule into `EQUAL`, and if no owner remains, the ACTIVE
+    member with an account who joined earliest becomes one.
+  - `LedgerSchemaTests`: four new tests (family categories and what else a family ledger refuses;
+    a family category on a posting; display names; the split rule), and family ledgers with a split
+    rule and members with distinct names in the existing ones. `LedgerBackfillMigrationTests`
+    migrates to V5 as before, then checks that V6 changes none of those rows.
+- The family ledger backend (commit "feat(family): family ledgers in the backend, behind a
+  switch"):
+  - The feature switch (D-25): `app.family.enabled`, env `FAMILY_LEDGERS_ENABLED`, off by default,
+    and so off in production (`deploy/app/docker-compose.yml` doesn't set it). The root
+    `docker-compose.yml` (local runs) and `IntegrationTest` turn it on. `FamilySwitch` logs "Family
+    ledgers (D-25): on" or "off; the family endpoints answer 404" once at startup.
+    `FamilyLedgerController` exists only with the switch on, so off, its paths are unknown and
+    answer 404 like any other. `/api/me` gets the additive `features.familyLedgers`.
+  - `LedgerAccess`: `member(sub, ledgerId)` answers only for family ledgers, never a personal one,
+    not even the user's own; `owner(sub, ledgerId)` adds a `ConflictException` for a member who
+    isn't an owner; `families(sub)` lists the ACTIVE family memberships. `LedgerScope.rowUserId()`
+    is the `user_id` of a new row, null in a family ledger.
+  - `ledger/family/FamilyLedgerService` with `FamilyLedgerView` and `FamilyMemberView` (display
+    name, role, status, join date, `hasAccount`, share; never a sub or an email):
+    - create from the creator's personal scope: SHARED, the creator OWNER and ACTIVE from today
+      (share 10000 under `CUSTOM`), and copies of the code, name and type of the personal
+      categories they chose; another user's category answers 404 and nothing is written;
+    - get and update (name, base currency, validated like the personal one);
+    - members without an account: add (joined today, share 0 under `CUSTOM`), rename, remove; a
+      member with an account, a FORMER one, or one with a custom share above 0 answers 409;
+    - `setSplitRule`: 422 listing every violation (a share for someone who isn't an ACTIVE member
+      of the ledger, an ACTIVE member without a share, a sum other than 10000, shares under
+      `EQUAL`, one member twice); a share outside 0 to 10000 is a 400.
+  - Family categories through `CategoryService`, which writes a family ledger's rows without
+    `user_id`, says "The family ledger has a category with the code X already", and gets `delete`
+    for an unused family category (the foreign keys refuse a used one: 409). Personal categories
+    are still only archived.
+  - Endpoints under `/api/family-ledgers`: GET, POST; GET and PATCH `/{ledgerId}`; PUT
+    `/{ledgerId}/split-rule`; GET and POST `/{ledgerId}/members`; PATCH and DELETE
+    `/{ledgerId}/members/{memberId}`; GET and POST `/{ledgerId}/categories`; PATCH and DELETE
+    `/{ledgerId}/categories/{categoryId}`. Not an ACTIVE member: 404 for everything, as for a
+    ledger that doesn't exist. Owners only, 409 for a member: PATCH the ledger, the split rule,
+    adding, renaming and removing members, renaming, archiving and deleting categories.
+  - `UserDataService.deleteAll` calls `release_family_memberships` first. The runbook's "Delete a
+    user" runs it as the first statement of its deleting block, and its looking blocks print the
+    user's family ledgers.
+  - Tests: new `FamilyLedgerApiTests` (7), `FamilySwitchOffApiTests` (2), `FamilySwitchTests` (1);
+    `DataIsolationApiTests.familyLedgersAreReachedByTheirActiveMembersOnly` (Alice and Bob in A,
+    Alice alone in B, Carol in neither, and Bob's own C); four new `UserDataApiTests` for D-20,
+    whose runbook statements include the new function; `LedgerAccessTests` for `member` on a
+    personal ledger, `owner` and `families`; `ApiTests` lists the family endpoints for 401 and in
+    the OpenAPI description. `LedgerApiTest`'s owned rows include the user's family ledgers'
+    members and categories, so `bobsRequest` also proves that Bob changed nothing of Alice's
+    families.
+  - ADR 0003 (topics B and I: F3a's details and paths), the runbook and CLAUDE.md describe it.
 
 **Verified**
 - `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1, run from a scratch directory.
+- After the decisions' commit: documents only.
+- After V6's commit, in a scratch worktree of `7db4ff8` (the application code of `74cc0ff` with V6):
+  `./mvnw -B clean verify` 261 tests (257 and 4), 0 failures, 0 errors, BUILD SUCCESS.
+- After the backend's commit: `./mvnw -B clean verify` 277 tests, 0 failures, 0 errors, 0
+  skipped, BUILD SUCCESS; each application context logged the switch once. Frontend: `npm test`
+  7 files and 84 tests passed, `npm run build` succeeded; nothing under `frontend/` changed.
+- `DataIsolationApiTests.java`: 143 lines added since `ee9e498`, none removed or changed.
+- The new isolation checks against temporary mutations, not committed: a member lookup without
+  its ledger made Bob's rename of B's member through his own C answer 200 with "Alice's cousin"
+  (expected 404, "Member N not found."); a new endpoint `GET /api/family-ledgers/{ledgerId}/probe`
+  made `everyEndpointIsCheckedHere` fail with `Expecting empty but was: [..., "GET /api/family-ledgers/{ledgerId}/probe"]`.
+- A POST, PUT, PATCH or DELETE to an unknown path answers 404 here, like a GET ("No static resource
+  …"), which `FamilySwitchOffApiTests` relies on.
+- The runbook: all 55 bash blocks pass `bash -n`. The SQL of "Delete a user", as written there, ran
+  in a throwaway local `postgres:17-alpine` with V1 to V6: the looking block printed `family
+  ledgers 2, owned 2`; the deleting block `family memberships released 2`, its `DELETE` lines and
+  `ledgers left 0`; afterwards the family ledger alone with the user was gone with its category,
+  and in the other the member who joined earliest was `OWNER`, the user `Former member`, and the
+  rule `EQUAL`, since the user's share was 6000.
+- Rollback evidence: in a scratch worktree of `ee9e498` with only V6 added, that version's
+  `./mvnw -B clean verify`: 255 tests, 248 passed, 1 failure and 6 errors, all in tests that write
+  what the application never writes or pin the version: 5 in `LedgerSchemaTests` and 1 in
+  `LedgerAccessTests` insert a SHARED ledger with plain SQL and without a split rule
+  (`ledger_shared_split_rule_check`), and `LedgerBackfillMigrationTests` expects version 5 as the
+  latest. Every API, isolation, delete-all, runbook, importer, report and demo test passed. The
+  worktree was removed; nothing was committed from it.
 
 **Open**
-- Part 3: V6 and the family ledger backend.
+- The owner's deploy of F3a with the switch off; the report of this task has the checklist.
+  Rollback: the `:previous` image, `ee9e498`, which runs on V6 without a restore.
+- F3b: the interface (the ledger switcher and the family pages), which reads
+  `features.familyLedgers` from `/api/me`.
+- F4a: the check that a member to remove has no shares and a category to delete has no records or
+  postings; the base currency locked by the first record; family categories in personal ledgers.
+  Once personal postings can use family categories, `release_family_memberships`, which runs
+  before the personal ledger goes, can't delete a family ledger whose categories the user's own
+  postings still use (the foreign keys refuse it): F4a must delete those entries first or run the
+  release after them, and test delete-all with such postings.
+- When a member with a custom share becomes LEFT (F6), the rule needs the same decision as for
+  FORMER; F3a falls back to `EQUAL` for FORMER.
 
 ## 2026-09-29 · Family budget: F2b's deploy, the F3 split, raw ledger ids only through a scope (F3a, parts 1 and 2)
 

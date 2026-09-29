@@ -1015,6 +1015,7 @@ else
 SELECT 'users ' || count(*) FROM app.users WHERE keycloak_id = :'sub';
 SELECT 'accounts ' || count(*) || ', categories ' || (SELECT count(*) FROM app.category WHERE user_id = :'sub') || ', entries ' || (SELECT count(*) FROM app.journal_entry WHERE user_id = :'sub') FROM app.account WHERE user_id = :'sub';
 SELECT 'ledgers ' || count(*) FROM app.ledger_member WHERE user_sub = :'sub';
+SELECT 'family ledgers ' || count(*) || ', owned ' || count(*) FILTER (WHERE role = 'OWNER') FROM app.ledger_member WHERE user_sub = :'sub' AND ledger_type = 'SHARED';
 SQL
   fi
 fi
@@ -1039,6 +1040,7 @@ else
 SELECT 'users ' || count(*) FROM app.users WHERE keycloak_id = :'sub';
 SELECT 'accounts ' || count(*) || ', categories ' || (SELECT count(*) FROM app.category WHERE user_id = :'sub') || ', entries ' || (SELECT count(*) FROM app.journal_entry WHERE user_id = :'sub') FROM app.account WHERE user_id = :'sub';
 SELECT 'ledgers ' || count(*) FROM app.ledger_member WHERE user_sub = :'sub';
+SELECT 'family ledgers ' || count(*) || ', owned ' || count(*) FILTER (WHERE role = 'OWNER') FROM app.ledger_member WHERE user_sub = :'sub' AND ledger_type = 'SHARED';
 SQL
 fi
 ```
@@ -1053,6 +1055,7 @@ if [ -z "$sub" ]; then
 else
   systemctl start pg-backup@finance.service
   cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -1 -v ON_ERROR_STOP=1 -U finance -d finance -v sub="$sub" <<'SQL'
+SELECT 'family memberships released ' || app.release_family_memberships(:'sub');
 DELETE FROM app.user_settings WHERE user_id = :'sub';
 DELETE FROM app.journal_entry WHERE user_id = :'sub';
 DELETE FROM app.import_batch WHERE user_id = :'sub';
@@ -1069,8 +1072,14 @@ SQL
 fi
 ```
 
-You should see one `DELETE n` per statement, with the numbers of the first block, `DELETE 1` for
-the ledger, and `ledgers left 0`. Deleting the personal ledger deletes its member with it (`ON
+You should see `family memberships released n`, with the `family ledgers` of the first block, then
+one `DELETE n` per statement, with the numbers of the first block, `DELETE 1` for the ledger, and
+`ledgers left 0`. The first statement is the membership part of "Delete all my data" (D-20), the
+database function `release_family_memberships` (V6) that `UserDataService.deleteAll` calls too: in
+each family ledger the user becomes a FORMER member without a sub, named "Former member"; a family
+ledger without another ACTIVE member with an account is deleted with its categories and members;
+otherwise, if the user was its last owner, the ACTIVE member with an account who joined earliest
+becomes owner, and a custom share of the user's above 0 turns the split rule into EQUAL. Deleting the personal ledger deletes its member with it (`ON
 DELETE CASCADE`), and the statement finds the ledger by the member's sub, so it also removes the
 ledger of a sub without a `users` row: the command-line importer (CLAUDE.md, "How to run the
 importer") writes rows without one. A ledger that still holds a row of theirs makes the statement

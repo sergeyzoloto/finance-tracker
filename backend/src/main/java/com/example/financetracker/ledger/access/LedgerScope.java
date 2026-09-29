@@ -50,6 +50,14 @@ public final class LedgerScope {
         return userId;
     }
 
+    /**
+     * The {@code user_id} of a new row of this ledger, until the cleanup migration: the member's sub in a personal
+     * ledger, and null in a family ledger, whose rows belong to no single user (V6; ADR 0003, topic A).
+     */
+    public String rowUserId() {
+        return type == LedgerType.PERSONAL ? userId : null;
+    }
+
     @Override
     public boolean equals(Object other) {
         return other instanceof LedgerScope scope && ledgerId == scope.ledgerId && type == scope.type

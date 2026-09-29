@@ -5,6 +5,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import java.io.IOException;
 import java.util.TimeZone;
 
+import com.example.financetracker.ledger.family.FamilySwitch;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.JWTClaimsSet;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -24,10 +26,12 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
  * Full stack against real Postgres and a {@link FakeKeycloak}. The app finds the realm through discovery, exactly as
- * configured in production, and tokens are real RS256 JWTs.
+ * configured in production, and tokens are real RS256 JWTs. The family budget's feature switch is on (D-25);
+ * FamilySwitchOffApiTests turns it off.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@TestPropertySource(properties = FamilySwitch.PROPERTY + "=true")
 public abstract class IntegrationTest {
 
     protected static final FakeKeycloak KEYCLOAK = FakeKeycloak.start();

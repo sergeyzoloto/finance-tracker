@@ -166,6 +166,16 @@ two decimals are the interface's business (topic I). Integers sum exactly, and 0
 a household split needs. A deferred trigger checks the rule at commit; the service checks it first
 and answers 422.
 
+**F3a's details.** A member without an account whose custom share is above 0 can't be removed
+(409) until an owner changes the rule. When a member with a custom share above 0 becomes FORMER
+(D-20), the rule falls back to EQUAL: nobody else may decide what the others' shares become, and
+F6 settles the same for LEFT. In a family ledger a display name is never blank and is unique,
+case-insensitive, among the members that aren't FORMER (a unique index); every FORMER member is
+"Former member". D-20's membership part is one database function, `release_family_memberships(sub)`,
+which "Delete all my data" and the runbook's "Delete a user" both run: it locks each of the sub's
+family ledgers in turn and reads the membership after the lock, so that two members deleting their
+data at once see each other's changes.
+
 Triggers complete it:
 
 - `ledger_type` can't change (the composite foreign key already refuses it while members exist).
@@ -659,6 +669,10 @@ than the MVP needs.
   under `/api/family-ledgers/{ledgerId}/`: `members`, `invites`, `categories`, `records` (with
   `{recordId}` and `{recordId}/changes`), `settlements`, `balances`, `reports/cash-flow`, `settings`.
   `/api/invites/lookup`, `/api/invites/accept` and `/api/invites/decline` take the token instead.
+  F3a implements the ledger itself as GET and PATCH `/api/family-ledgers/{ledgerId}` (name and base
+  currency) and the split rule as PUT `/{ledgerId}/split-rule`, in place of `settings`, with
+  `members` and `categories` as above. `LedgerAccess.member` answers only for family ledgers, so no
+  family path reaches a personal ledger, not even the user's own.
 - Headers are rejected because the ledger would be invisible in URLs, links and the path patterns
   that the isolation tests' coverage records; a session value because all tabs share it.
 

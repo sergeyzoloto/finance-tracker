@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 
@@ -38,10 +40,18 @@ abstract class LedgerApiTest extends IntegrationTest {
         }
         OWNED_ROWS.put("posting", "FROM posting t JOIN journal_entry e ON e.id = t.entry_id WHERE e.user_id = ?");
         OWNED_ROWS.put("users", "FROM users t WHERE t.keycloak_id = ?");
-        // The personal ledger and its member (V5), by the member's sub.
+        // The personal ledger and its member (V5), and the family ledgers and memberships (V6), by the member's sub.
         OWNED_ROWS.put("ledger", "FROM ledger t JOIN ledger_member m ON m.ledger_id = t.id WHERE m.user_sub = ?");
         OWNED_ROWS.put("ledger_member", "FROM ledger_member t WHERE t.user_sub = ?");
+        // What the user's family ledgers hold beside them: every member, and the family categories (V6).
+        OWNED_ROWS.put("family ledger_member", "FROM ledger_member t WHERE t.ledger_type = 'SHARED' AND t.ledger_id IN "
+                + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ?)");
+        OWNED_ROWS.put("family category", "FROM category t WHERE t.ledger_id IN "
+                + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
     }
+
+    /** The tables of {@link #OWNED_ROWS} that only a user in a family ledger has rows in. */
+    protected static final Set<String> FAMILY_ROWS = Set.of("family ledger_member", "family category");
 
     @Autowired
     protected JdbcClient jdbc;
@@ -163,6 +173,26 @@ abstract class LedgerApiTest extends IntegrationTest {
                 "SELECT md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) " + from)
                 .param(user).query(String.class).single()));
         return digests;
+    }
+
+    /** A new family ledger of the user's, which must be valid. */
+    protected JsonNode newFamily(String user, String request) throws IOException {
+        return body(post(user, "/api/family-ledgers", request), HttpStatus.CREATED);
+    }
+
+    /**
+     * A membership of a user with an account in a family ledger, written with plain SQL: no code adds one before F5's
+     * invites. Under a CUSTOM split rule the member's share is 0, as for a member an owner adds.
+     *
+     * @return the membership's id
+     */
+    protected long join(long familyId, String sub, String displayName, String role, LocalDate joinDate) {
+        return jdbc.sql("""
+                INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date,
+                                           share_bp)
+                SELECT id, 'SHARED', ?, ?, ?, 'ACTIVE', ?, CASE split_rule WHEN 'CUSTOM' THEN 0 END
+                FROM ledger WHERE id = ? RETURNING id""")
+                .params(sub, displayName, role, joinDate, familyId).query(Long.class).single();
     }
 
     /** The element of the array whose field has the value. */

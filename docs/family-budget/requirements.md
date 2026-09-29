@@ -4,6 +4,8 @@ Amended after the F1 review on 2026-09-29: Background, D-7, D-8, D-12, D-14, D-1
 
 Amended after the F2a deploy on 2026-09-29: D-3 (the display name in a family ledger) and D-19 (detached links never block deleting personal entries).
 
+Amended after the F2b review on 2026-09-29: the planned stages (F3 split into F3a and F3b; family categories in personal ledgers move to F4a) and a new section "Later".
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -141,10 +143,15 @@ Added after the F1 review (2026-09-29)
 - F1: analysis and ADR 0003 (done).
 - F2a: migration V5, stronger isolation tests, these documents; deployed on its own.
 - F2b: LedgerScope and LedgerAccess, every query scoped by ledger_id, an architecture test; deployed on its own.
-- F3: family ledgers, members without accounts, split rule, family categories, ledger switcher, the feature switch (D-25), and the membership part of D-20.
-- F4a: family records, shares, the posting service, expenses in the base currency, balances, read-only posted rows, the change journal; UNALLOCATED becomes a system account.
+- F3a: migration V6 and the backend: family ledgers, members without accounts, split rule, family categories in the family ledger, the feature switch (D-25), and the membership part of D-20.
+- F3b: the interface: the ledger switcher and the family pages.
+- F4a: family records, shares, the posting service, expenses in the base currency, balances, read-only posted rows, the change journal; UNALLOCATED becomes a system account. Also family categories in personal ledgers: merging a member's categories into the family ones by code, the posting trigger's exception for family categories, and family categories in personal category lists and reports. Until then a family category lives only in its family ledger.
 - F4b: marking personal entries as family, incomes, other currencies, settlements (D-24), payment edits.
 - F5: invites, seat claiming, returning members (D-26). The privacy policy text is ready before F5 starts.
 - F6: leaving, removal and detach; delete-my-data for family data; the published privacy policy; the demo family; family reports and the personal-report filter; removing old SharedExpense creation from the UI.
 - F7: the switch goes on in production, followed by a check with two real accounts.
 - After F7: the Excel import, with Family rows going into a family ledger.
+
+## Later
+Found along the way; not part of a stage yet.
+- Sequential scans on posting. F2b's EXPLAIN showed the balance, integrity and rates statements reading all postings and hash-joining them with the ledger's entries, since posting has no ledger column; the same statements filtered by user_id had the same plan before F2b. Revisit after the Excel import, or when demo ledgers from open registration pile up. The options: a ledger_id on posting, checked by a trigger against its entry's; or statements that start from the ledger's entries and reach the postings through their index.

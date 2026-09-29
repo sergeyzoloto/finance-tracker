@@ -5,7 +5,9 @@ answers to the open questions are under [Resolved questions](#resolved-questions
 below include them. F2a's migration V5 (topic J) is deployed to production since 2026-09-29, from
 `1f1662f`. Amended after that deploy: D-3's display name (topics B and G), detached links that never
 block deleting personal entries (D-19, topic E), and the architecture test's exceptions (topic C).
-The requirements and decisions D-1 to D-26 are in
+F2b is deployed since 2026-09-29, from `ee9e498`. Amended after the F2b review: the exception rule
+and raw ledger ids (topic C), and F3 split into F3a and F3b, with family categories in personal
+ledgers moved to F4a (topic J). The requirements and decisions D-1 to D-26 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -229,15 +231,21 @@ request and scope every query by the resolved `ledger_id`.
 scope then fails the build instead of relying on review. The exception list is explicit and short,
 with a reason for each entry, and every exception:
 
-- takes the user id as a parameter;
+- takes the user id as a parameter, or handles no user's data at all;
 - never reads the security context;
 - is covered by the isolation tests.
 
 F2b implements it as `ArchitectureTests` (ArchUnit), with five exceptions: `LedgerAccess`,
 `UserDataService`, `UserSettingsRepository`, `ExchangeRateRepository` and `EcbRateLoader`. The
-last writes the ECB's rates, which have no user, so it takes no user id either. The same test
+last writes the ECB's rates, which have no user, so it handles no user's data at all. The same test
 checks that only `LedgerAccess` constructs a `LedgerScope` and that nothing in the service or domain
 packages reads the security context.
+
+**Raw ledger ids (after the F2b review).** A repository method that takes a raw ledger id
+(`findByIdAndLedgerId` and the like, Spring Data's derived queries) may be called only from a default
+method of the same repository that takes a `LedgerScope` and passes its ledger id. Services and
+controllers call the scoped default methods, so a ledger id never travels outside a scope.
+`ArchitectureTests` enforces it (F3a).
 
 **Consequences.** The membership check is one indexed lookup per request. Mistakes in a single query
 are caught by the triggers for writes and by the isolation tests for reads. Row level security can
@@ -746,14 +754,19 @@ back").
 
 **F3 to F7.** The plan holds with these changes:
 
-- **F3** (V6: the `ledger` split columns, `category.user_id` nullable, `account.family_ledger_id`,
-  the family category rule in the trigger) and the feature switch (D-25). It also takes D-20's
-  membership part (FORMER, the owner
-  passed on, a family ledger without members deleted), because from F3 a membership holds a sub that
-  "Delete all my data" must remove. The confirmation screen's list of family ledgers can stay in F6.
+- **F3 split into F3a and F3b** (after the F2b review). F3a is V6 and the backend: the `ledger` split
+  columns, members without an account, `category.user_id` nullable for family categories in the
+  family ledger, the family endpoints and the feature switch (D-25). It also takes D-20's membership
+  part (FORMER, the owner passed on, a family ledger without members deleted), because from F3a a
+  membership holds a sub that "Delete all my data" must remove. The confirmation screen's list of
+  family ledgers can stay in F6. F3b is the interface: the ledger switcher and the family pages.
 - **F4 split into F4a and F4b.** F4a: records, shares, the posting service, family expenses in the
   base currency (C1), the members' balances (D1), read-only posted rows (C6), the change journal
   (C3), and the members without an account as payers; `UNALLOCATED` becomes a system account (D-8).
+  F4a also takes family categories in personal ledgers (topic F): merging a member's categories into
+  the family ones by code, the posting trigger's family category rule (topic C), and family
+  categories in personal category lists and reports. Until then a family category lives only in its
+  family ledger.
   F4b: marking a personal entry as family (C2), incomes (C5), other currencies (C7), settlements (D2,
   D-24), and the payment edits of D-14.
 - **F5**: invites, seat claiming and returning members (D-26). It is the first stage in which

@@ -239,6 +239,7 @@ class UserDataApiTests extends LedgerApiTest {
         assertThat(reset.get("action").asText()).isEqualTo("SPLIT_RULE_RESET");
         assertThat(reset.get("author").isNull()).isTrue();
         assertThat(reset.get("recordId").isNull()).isTrue();
+        assertThat(reset.get("record").isNull()).isTrue();
         assertThat(reset.get("about").get("displayName").asText()).isEqualTo("Former member");
         assertThat(reset.get("changes")).isEqualTo(json.readTree("""
                 [{"field": "splitRule", "member": null, "old": "CUSTOM", "new": "EQUAL"}]"""));

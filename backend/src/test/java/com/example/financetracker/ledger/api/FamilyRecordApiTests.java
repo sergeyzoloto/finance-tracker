@@ -425,12 +425,17 @@ class FamilyRecordApiTests extends LedgerApiTest {
                         + "splitMethod null→EQUAL, share of Mum null→6.66, share of Dad null→6.68, "
                         + "share of Kid null→6.66, comment null→Dad's note");
         assertThat(ok(get(bob, uri + "/journal?recordId=" + id + "&size=1")).get("content")).hasSize(1);
+        // Each change names its record as it is now, so that a sentence reads "… of Rent, 14 Sep" (F4b).
+        assertThat(summaries(journal)).containsOnly("2026-09-14 Rent 20.00 live");
         // The private side of the payment is never journaled (D-16).
         assertThat(journal.toString()).doesNotContain("UNSPECIFIED", "account", "Account");
 
         // Only Bob, who paid it, deletes it.
         assertThat(delete(alice, uri + "/records/" + id + "?version=2")).hasStatus(HttpStatus.CONFLICT);
         assertThat(delete(bob, uri + "/records/" + id + "?version=2")).hasStatus(HttpStatus.NO_CONTENT);
+        // A deleted record is named all the same: the journal is where it still shows.
+        assertThat(summaries(ok(get(alice, uri + "/journal")))).containsExactly("2026-09-14 Rent 20.00 deleted",
+                "2026-09-14 Rent 20.00 deleted", "2026-09-14 Rent 20.00 deleted", "2026-09-14 Rent 20.00 deleted");
         assertThat(delete(bob, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
         assertThat(changes(ok(get(alice, uri + "/journal")))).containsExactly(
                 "DELETE by Former member: ",
@@ -523,6 +528,14 @@ class FamilyRecordApiTests extends LedgerApiTest {
             return change.get("action").asText() + " by " + change.get("author").get("displayName").asText() + ": "
                     + String.join(", ", fields);
         }).toList();
+    }
+
+    /** Each journal entry's record as "date category amount live|deleted". */
+    private static List<String> summaries(JsonNode journal) {
+        return StreamSupport.stream(journal.get("content").spliterator(), false).map(change -> change.get("record"))
+                .map(record -> record.get("date").asText() + " " + record.get("category").asText() + " "
+                        + record.get("amount").asText() + (record.get("deleted").asBoolean() ? " deleted" : " live"))
+                .toList();
     }
 
     private static List<Long> ids(JsonNode array) {

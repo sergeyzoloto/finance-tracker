@@ -19,6 +19,16 @@ Not committed yet.
   - `docs/family-budget/requirements.md`: F6 revisits that twin with the demo family (H1); "Later":
     the personal entry list is wider than a 375 px screen, with or without family rows.
   - CLAUDE.md: production runs `5f5af66`, and V7 is applied there since 2026-09-30.
+- The journal names each record (commit "feat(family): the journal names each record"), the one
+  backend change the interface needs, additive: every entry of `GET /api/family-ledgers/{ledgerId}/journal`
+  gets `record`, the record as it is now (`date`, `category`, the family category's name, `amount`
+  in the base currency, `deleted`), null for a system change. Without it the journal couldn't say
+  which expense a change was about once the record is deleted (its GET answers 404) or on another
+  page of the list. Only family data, as in the record's own answer.
+  - Tests: `FamilyRecordApiTests.theJournalShowsWhoChangedWhatAndWhen` checks the summaries before
+    and after the deletion; `UserDataApiTests` checks that the system change has none.
+    `DataIsolationApiTests` is unchanged; its check of Bob's raw `/journal` answers in A (no
+    account, no entry of Alice's) covers the new field.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -26,6 +36,8 @@ Not committed yet.
   `5f5af66`. `./mvnw -B clean verify`: 312 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
   Frontend: `npm ci`, `npm test` 11 files and 151 tests passed, `npm run build` succeeded.
 - After the documents' commit: documents only.
+- After the journal's commit: `./mvnw -B clean verify` 312 tests, 0 failures, 0 errors, 0 skipped,
+  BUILD SUCCESS.
 
 **Open**
 - The rest of this stage.

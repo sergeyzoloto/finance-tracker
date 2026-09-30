@@ -345,13 +345,17 @@ public class FamilyRecordService {
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public FamilyJournalPage journal(LedgerScope family, Long recordId, int page, int size) {
-        String where = "ledger_id = :ledgerId" + (recordId == null ? "" : " AND record_id = :recordId");
-        var count = jdbc.sql("SELECT count(*) FROM family_record_change WHERE " + where)
+        String where = "c.ledger_id = :ledgerId" + (recordId == null ? "" : " AND c.record_id = :recordId");
+        var count = jdbc.sql("SELECT count(*) FROM family_record_change c WHERE " + where)
                 .param("ledgerId", family.ledgerId());
         var rows = jdbc.sql("""
-                SELECT id, changed_at, action, record_id, changed_by_member_id, about_member_id, changes::text AS changes
-                FROM family_record_change WHERE %s
-                ORDER BY id DESC LIMIT :limit OFFSET :offset""".formatted(where))
+                SELECT c.id, c.changed_at, c.action, c.record_id, c.changed_by_member_id, c.about_member_id,
+                       c.changes::text AS changes, r.record_date, r.category_id, r.base_amount,
+                       r.deleted_at IS NOT NULL AS deleted
+                FROM family_record_change c
+                LEFT JOIN family_record r ON r.id = c.record_id AND r.ledger_id = c.ledger_id
+                WHERE %s
+                ORDER BY c.id DESC LIMIT :limit OFFSET :offset""".formatted(where))
                 .param("ledgerId", family.ledgerId()).param("limit", size).param("offset", (long) page * size);
         if (recordId != null) {
             count = count.param("recordId", recordId);
@@ -360,12 +364,19 @@ public class FamilyRecordService {
         long total = count.query(Long.class).single();
         Map<Long, Member> members = members(family);
         Map<Long, CategoryRef> categories = categories(family);
+        int scale = ShareSplit.minorUnit(jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
+                .param("ledgerId", family.ledgerId()).query(String.class).single());
         List<FamilyChangeView> content = rows.query((row, n) -> new FamilyChangeView(row.getLong("id"),
                         row.getTimestamp("changed_at").toInstant(), row.getString("action"),
                         row.getObject("record_id", Long.class),
                         ref(members, row.getObject("changed_by_member_id", Long.class)),
                         ref(members, row.getObject("about_member_id", Long.class)),
-                        changes(row.getString("changes"), members, categories)))
+                        changes(row.getString("changes"), members, categories),
+                        row.getObject("record_id") == null ? null : new FamilyChangeView.RecordSummary(
+                                row.getObject("record_date", LocalDate.class),
+                                categoryName(categories, row.getObject("category_id", Long.class)),
+                                row.getBigDecimal("base_amount").setScale(scale, RoundingMode.UNNECESSARY),
+                                row.getBoolean("deleted"))))
                 .list();
         return new FamilyJournalPage(content, page, size, total, Math.toIntExact((total + size - 1) / size));
     }
@@ -821,6 +832,12 @@ public class FamilyRecordService {
             case "payer" -> ref(members, value.asLong()).displayName();
             default -> value.asText();
         };
+    }
+
+    /** A category's name; null for a record without one, such as a settlement (F4c). */
+    private static String categoryName(Map<Long, CategoryRef> categories, Long categoryId) {
+        CategoryRef category = categoryId == null ? null : categories.get(categoryId);
+        return category == null ? null : category.name();
     }
 
     private static MemberRef ref(Map<Long, Member> members, Long memberId) {

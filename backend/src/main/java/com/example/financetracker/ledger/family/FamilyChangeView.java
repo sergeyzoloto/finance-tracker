@@ -1,6 +1,8 @@
 package com.example.financetracker.ledger.family;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import com.example.financetracker.ledger.family.FamilyRecordView.MemberRef;
@@ -14,9 +16,21 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @param recordId the record it is about; null for a system change
  * @param author who made it; null for a system change
  * @param about the member a system change is about, such as the one whose leaving reset the split rule
+ * @param record the record it is about as it is now, deleted or not, so that a change reads "… of Groceries, 12 Sep"
+ *        wherever the record itself is (F4b); null for a system change
  */
 public record FamilyChangeView(long id, Instant at, String action, Long recordId, MemberRef author, MemberRef about,
-        List<Change> changes) {
+        List<Change> changes, RecordSummary record) {
+
+    /**
+     * A record as the journal names it: only family data, as in {@link FamilyRecordView}.
+     *
+     * @param category the family category's name; null for a record without one, such as a settlement (F4c)
+     * @param amount in the family's base currency, with its minor unit's decimals
+     * @param deleted whether the record is deleted, which only the journal still shows
+     */
+    public record RecordSummary(LocalDate date, String category, BigDecimal amount, boolean deleted) {
+    }
 
     /**
      * A field's old and new value, as text: a date, an amount in the base currency, a category's or member's name, a

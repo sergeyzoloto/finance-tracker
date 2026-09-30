@@ -17,6 +17,7 @@ import com.example.financetracker.ledger.LedgerCategory;
 import com.example.financetracker.ledger.LedgerCategoryRepository;
 import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.RuleViolationException;
+import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
@@ -35,6 +36,13 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class FamilyLedgerService {
+
+    /** The codes of the split rule's violations (D-12), with the member each is about where there is one. */
+    public static final String SHARES_UNDER_EQUAL = "SHARES_UNDER_EQUAL";
+    public static final String NOT_ACTIVE_MEMBER = "NOT_ACTIVE_MEMBER";
+    public static final String NO_SHARE = "NO_SHARE";
+    public static final String DUPLICATE_SHARE = "DUPLICATE_SHARE";
+    public static final String SUM_NOT_WHOLE = "SUM_NOT_WHOLE";
 
     private static final String LEDGER = """
             SELECT l.id, l.name, l.base_currency, l.split_rule, m.role, m.id AS member_id, l.created_at
@@ -201,8 +209,8 @@ public class FamilyLedgerService {
         FamilyMemberView member = member(owner, memberId);
         requireMemberWithoutAccount(member, "only members without an account can be removed so far");
         if (member.share() != null && member.share() > 0) {
-            throw new ConflictException(("%s has a share of %d basis points in the custom split rule; change the rule "
-                    + "to give them 0 first").formatted(member.displayName(), member.share()));
+            throw new ConflictException(("%s has a share of %s in the custom split rule; change the rule to give them "
+                    + "0 first").formatted(member.displayName(), BasisPoints.percent(member.share())));
         }
         jdbc.sql("DELETE FROM ledger_member WHERE id = :memberId AND ledger_id = :ledgerId")
                 .param("memberId", memberId).param("ledgerId", owner.ledgerId())
@@ -222,26 +230,26 @@ public class FamilyLedgerService {
     public List<FamilyMemberView> setSplitRule(LedgerScope owner, SplitRule rule, Map<Long, Integer> shares) {
         lock(owner);
         List<FamilyMemberView> members = members(owner);
-        List<String> violations = new ArrayList<>();
+        List<Violation> violations = new ArrayList<>();
         if (rule == SplitRule.EQUAL) {
             if (!shares.isEmpty()) {
-                violations.add("an equal split takes no shares");
+                violations.add(new Violation(SHARES_UNDER_EQUAL, null, "an equal split takes no shares"));
             }
         } else {
             Map<Long, FamilyMemberView> active = new LinkedHashMap<>();
             members.stream().filter(m -> m.status() == MemberStatus.ACTIVE).forEach(m -> active.put(m.id(), m));
             shares.keySet().stream().filter(id -> !active.containsKey(id)).sorted()
-                    .forEach(id -> violations.add("member %d is not an active member of the family ledger"
-                            .formatted(id)));
+                    .forEach(id -> violations.add(notActive(id)));
             active.values().stream().filter(m -> !shares.containsKey(m.id()))
-                    .forEach(m -> violations.add("%s (member %d) has no share".formatted(m.displayName(), m.id())));
+                    .forEach(m -> violations.add(new Violation(NO_SHARE, m.id(),
+                            "%s has no share".formatted(m.displayName()))));
             long total = shares.values().stream().mapToLong(Integer::longValue).sum();
-            if (total != 10_000) {
-                violations.add("the shares sum to %d basis points, not 10000".formatted(total));
+            if (total != BasisPoints.WHOLE) {
+                violations.add(sumNotWhole(total));
             }
         }
         if (!violations.isEmpty()) {
-            throw new RuleViolationException(violations);
+            throw RuleViolationException.of(violations);
         }
         jdbc.sql("UPDATE ledger SET split_rule = :rule WHERE id = :ledgerId")
                 .param("rule", rule.name()).param("ledgerId", owner.ledgerId())
@@ -253,6 +261,23 @@ public class FamilyLedgerService {
                     .update();
         }
         return members(owner);
+    }
+
+    /** A share for someone who isn't an ACTIVE member of the ledger, or no member at all. */
+    public static Violation notActive(long memberId) {
+        return new Violation(NOT_ACTIVE_MEMBER, memberId,
+                "Member %d is not an active member of the family budget".formatted(memberId));
+    }
+
+    /** Shares that don't sum to exactly 100.00 %. */
+    public static Violation sumNotWhole(long total) {
+        return new Violation(SUM_NOT_WHOLE, null, "the shares sum to %s, not %s".formatted(BasisPoints.percent(total),
+                BasisPoints.percent(BasisPoints.WHOLE)));
+    }
+
+    /** One member named twice. */
+    public static Violation duplicate(long memberId) {
+        return new Violation(DUPLICATE_SHARE, memberId, "Member %d has more than one share".formatted(memberId));
     }
 
     /** Locks the ledger's row until the transaction ends, and returns its split rule. */
@@ -277,7 +302,7 @@ public class FamilyLedgerService {
                 .param("ledgerId", family.ledgerId()).param("name", displayName).param("except", except)
                 .query(Boolean.class).single();
         if (taken) {
-            throw new ConflictException("The family ledger has a member named %s already".formatted(displayName));
+            throw new ConflictException("The family budget has a member named %s already".formatted(displayName));
         }
     }
 

@@ -125,7 +125,7 @@ class FamilyLedgerController {
         Map<Long, Integer> shares = new LinkedHashMap<>();
         for (Share share : request.shares() == null ? List.<Share>of() : request.shares()) {
             if (shares.put(share.memberId(), share.share()) != null) {
-                throw new RuleViolationException("member %d has more than one share".formatted(share.memberId()));
+                throw RuleViolationException.of(List.of(FamilyLedgerService.duplicate(share.memberId())));
             }
         }
         return families.setSplitRule(owner, request.rule(), shares);

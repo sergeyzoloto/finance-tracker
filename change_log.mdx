@@ -20,6 +20,28 @@ Not committed yet.
     F4b. "Later": the category lists' row buttons.
   - ADR 0003: the status line, the start date in topic D, and the F4 split in topic J.
   - CLAUDE.md: never `git stash`; file copies or a scratch worktree instead.
+- Local runs and messages (commit "chore: local compose on a local database; user-facing family
+  messages"):
+  - The root `docker-compose.yml` runs a `postgres:17-alpine` service with the named volume
+    `local-db` (`finance-tracker_local-db`), and the backend connects to it; it reads no
+    `SUPABASE_*` variable and never reaches a remote database. `docker-compose.local.yml` publishes
+    it on `127.0.0.1:5433` (`LOCAL_DB_PORT`) for the host-networked backend; `LOCAL_DB_PASSWORD` is
+    optional. `.env.example`, the README, `docs/auth.md` and CLAUDE.md say so; `./dev.sh` is fine to
+    use again.
+  - The family endpoints' messages are user-facing: "family budget" (`Family budget 7 not found.`,
+    "Only an owner of the family budget …", "The family budget has a member named …"), and shares as
+    percentages with two decimals (`Kid has a share of 33.33 % …`, `the shares sum to 90.00 %, not 100.00 %`),
+    through `ledger.family.BasisPoints`. Personal messages are unchanged.
+  - A 422 of the split rule also carries `violationDetails`, additive: one object per violation with
+    `code` (`NO_SHARE`, `NOT_ACTIVE_MEMBER`, `DUPLICATE_SHARE`, `SUM_NOT_WHOLE`,
+    `SHARES_UNDER_EQUAL`), `memberId` (or null) and `message`, the same sentence as in
+    `violations`. `RuleViolationException.of` builds one; `ApiExceptionHandler` adds the field only
+    when there are details.
+  - Frontend: `familyMessage` is gone, and the screens show the server's detail as it comes;
+    `violationsByMember` sorts `violationDetails` by `memberId`, so the split rule page puts each
+    message next to its member. `ApiError` gets `violationDetails`. Tests: `family.test.ts`
+    rewritten, `Family.test.tsx` with the new wording and details; `FamilyLedgerApiTests` and
+    `LedgerAccessTests` with the new messages, and the details of a 422.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -27,6 +49,11 @@ Not committed yet.
   `5a7e490`. `./mvnw -B clean verify`: 279 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
   Frontend: `npm ci`, `npm test` 10 files and 142 tests passed, `npm run build` succeeded.
 - After the documents' commit: documents only.
+- The local stack, on the laptop: `docker compose up -d --build postgres backend` with the local
+  overlay built the backend, which migrated the local database at `127.0.0.1:5433` to version 6
+  and answered `{"status":"UP"}`; the switch logged on. `docker compose down -v` removed it again.
+- After the messages' commit: `./mvnw -B clean verify` 279 tests, 0 failures, 0 errors, 0 skipped,
+  BUILD SUCCESS. Frontend: `npm test` 10 files and 142 tests passed, `npm run build` succeeded.
 
 **Open**
 - The rest of F4a.

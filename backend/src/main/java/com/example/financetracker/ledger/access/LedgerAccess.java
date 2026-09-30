@@ -46,11 +46,12 @@ public class LedgerAccess {
      * The family ledger with this id, if the user is an ACTIVE member of it: the way into every family endpoint. A
      * personal ledger never comes in through here, not even the user's own, which is always {@link #personal}.
      *
-     * @throws NotFoundException if there is no such family ledger, or the user isn't an ACTIVE member of it
+     * @throws NotFoundException if there is no such family ledger, or the user isn't an ACTIVE member of it; its
+     *         message, like every family message, says "family budget", as the screens do
      */
     public LedgerScope member(String userId, long ledgerId) {
         return find(userId, "m.ledger_id = :ledgerId AND m.ledger_type = 'SHARED'", ledgerId)
-                .orElseThrow(() -> new NotFoundException("Ledger " + ledgerId + " not found"));
+                .orElseThrow(() -> new NotFoundException("Family budget " + ledgerId + " not found"));
     }
 
     /**
@@ -65,7 +66,7 @@ public class LedgerAccess {
     public LedgerScope owner(String userId, long ledgerId) {
         LedgerScope scope = member(userId, ledgerId);
         if (scope.role() != MemberRole.OWNER) {
-            throw new ConflictException("Only an owner of the family ledger can do this: owners manage its settings, "
+            throw new ConflictException("Only an owner of the family budget can do this: owners manage its settings, "
                     + "split rule and members, and rename, archive and delete its categories");
         }
         return scope;

@@ -201,7 +201,7 @@ describe('creating a family budget', () => {
   it('opens the new budget and says what failed when a later call fails', async () => {
     const calls = stubApi({
       ...reference,
-      'POST /api/family-ledgers/7/members': { status: 409, body: { status: 409, detail: 'The family ledger has a member named Kid already.' } },
+      'POST /api/family-ledgers/7/members': { status: 409, body: { status: 409, detail: 'The family budget has a member named Kid already.' } },
     })
     const onCreated = renderNewFamily()
     await fillIn()
@@ -329,8 +329,12 @@ describe('the split rule', () => {
   it('shows a 422 by the member it names', async () => {
     stubApi({
       'PUT /api/family-ledgers/7/split-rule': { status: 422, body: {
-        status: 422, detail: 'Kid (member 71) has no share; the shares sum to 5000 basis points, not 10000.',
-        violations: ['Kid (member 71) has no share', 'the shares sum to 5000 basis points, not 10000'],
+        status: 422, detail: 'Kid has no share; the shares sum to 50.00 %, not 100.00 %.',
+        violations: ['Kid has no share', 'the shares sum to 50.00 %, not 100.00 %'],
+        violationDetails: [
+          { code: 'NO_SHARE', memberId: 71, message: 'Kid has no share' },
+          { code: 'SUM_NOT_WHOLE', memberId: null, message: 'the shares sum to 50.00 %, not 100.00 %' },
+        ],
       } },
     })
     renderPage(<FamilySplitRule family={familyData(home, [anna, kid])} />)
@@ -355,9 +359,9 @@ describe('the members', () => {
   it('lets an owner manage members without an account, and shows a 409 with the way to the split rule', async () => {
     const calls = stubApi({
       'DELETE /api/family-ledgers/7/members/71': { status: 409, body: { status: 409,
-        detail: 'Kid has a share of 3333 basis points in the custom split rule; change the rule to give them 0 first.' } },
+        detail: 'Kid has a share of 33.33 % in the custom split rule; change the rule to give them 0 first.' } },
       'PATCH /api/family-ledgers/7/members/me': { status: 409, body: { status: 409,
-        detail: 'The family ledger has a member named kid already.' } },
+        detail: 'The family budget has a member named kid already.' } },
     })
     const custom = { ...home, splitRule: 'CUSTOM' as const }
     renderPage(<FamilyMembers family={familyData(custom, [{ ...anna, share: 6667 }, { ...kid, share: 3333 }])} />)
@@ -386,7 +390,7 @@ describe('the members', () => {
 
   it('hides the owners’ actions from a member, who changes only their own name', async () => {
     const calls = stubApi({ 'PATCH /api/family-ledgers/8/members/me': [
-      { status: 409, body: { status: 409, detail: 'The family ledger has a member named anna already.' } },
+      { status: 409, body: { status: 409, detail: 'The family budget has a member named anna already.' } },
       { status: 200, body: { ...ben, displayName: 'Dad' } },
     ] })
     const kidInAllotment = { ...kid, id: 81 }

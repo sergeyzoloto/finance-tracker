@@ -192,6 +192,12 @@ export interface DemoLedger {
 /** One invalid field of a request (400), such as `amount` or `postings[1].amount`. */
 export interface InvalidField { field: string; message: string }
 
+/**
+ * One violation of a family budget's rule (422), with a stable code and the member it is about, if any, such as
+ * `{ code: 'NO_SHARE', memberId: 12, message: 'Kid has no share' }`.
+ */
+export interface ViolationDetail { code: string; memberId: number | null; message: string }
+
 /** An error answer of the API, an RFC 7807 problem detail (ApiExceptionHandler). */
 export class ApiError extends Error {
   readonly status: number
@@ -199,12 +205,16 @@ export class ApiError extends Error {
   readonly errors: InvalidField[]
   /** 422: every ledger rule the request breaks. */
   readonly violations: string[]
+  /** 422 of a family budget's rule: the violations again, each with its code and member. */
+  readonly violationDetails: ViolationDetail[]
 
-  constructor(message: string, status: number, errors: InvalidField[] = [], violations: string[] = []) {
+  constructor(message: string, status: number, errors: InvalidField[] = [], violations: string[] = [],
+    violationDetails: ViolationDetail[] = []) {
     super(message)
     this.status = status
     this.errors = errors
     this.violations = violations
+    this.violationDetails = violationDetails
   }
 }
 
@@ -228,7 +238,7 @@ export async function api<T = void>(path: string, method = 'GET', body?: unknown
   if (!response.ok) {
     const problem = await response.json().catch(() => null)
     throw new ApiError(problem?.detail ?? problem?.title ?? `${response.status} ${response.statusText}`,
-      response.status, problem?.errors ?? [], problem?.violations ?? [])
+      response.status, problem?.errors ?? [], problem?.violations ?? [], problem?.violationDetails ?? [])
   }
   return (response.status === 204 ? undefined : await response.json()) as T
 }

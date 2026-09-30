@@ -198,7 +198,7 @@ Production also needs:
      Then assign `finance-tracker` → `user` to `testuser` in the admin console.
    - The other option, `docker compose down -v && docker compose up -d`, re-imports the realm but
      deletes all dev data.
-2. In this repo: `cp .env.example .env`, fill in the Supabase values, then `docker compose up --build`.
+2. In this repo: `cp .env.example .env`, then `docker compose up --build`, which starts a local PostgreSQL too.
    - `COMPOSE_FILE` in `.env` adds `docker-compose.local.yml`, which puts the backend (port 8081)
      and nginx (port 3000) on the host network. Tokens name `localhost:8080` as their issuer, and
      the backend must reach Keycloak at that same address.

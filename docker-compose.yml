@@ -1,22 +1,39 @@
-# Production-like stack: nginx serves the frontend and proxies the API and the login endpoints to the backend.
-# Users log in through the shared Keycloak, realm myapps, client finance-tracker (docs/auth.md).
-# Locally, docker-compose.local.yml goes on top (COMPOSE_FILE in .env) to reach the auth server's dev stack;
-# for frontend hot reload see docker-compose.dev.yml.
-# Postgres is hosted on Supabase; the backend connects through the Session Pooler, whose per-user client limit is the
-# project's pool size, hence the small connection pool.
+# Local stack: PostgreSQL, the backend, and nginx, which serves the frontend and proxies the API and the login
+# endpoints to the backend. Users log in through the shared Keycloak, realm myapps, client finance-tracker
+# (docs/auth.md). Locally, docker-compose.local.yml goes on top (COMPOSE_FILE in .env) to reach the auth server's dev
+# stack; for frontend hot reload see docker-compose.dev.yml.
+# The database is a local container with a named volume. This file never reaches a remote database: production runs
+# its own stack (deploy/app/docker-compose.yml), and no variable here points anywhere else.
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: finance
+      POSTGRES_USER: finance
+      # Local only: the port is published on 127.0.0.1 alone (docker-compose.local.yml).
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:-finance-local}
+    volumes:
+      - local-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "finance", "-d", "finance"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   backend:
     build: ./backend
     environment:
-      SPRING_DATASOURCE_URL: ${SUPABASE_JDBC_URL}
-      SPRING_DATASOURCE_USERNAME: ${SUPABASE_DB_USER}
-      SPRING_DATASOURCE_PASSWORD: ${SUPABASE_DB_PASSWORD}
-      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 5
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/finance
+      SPRING_DATASOURCE_USERNAME: finance
+      SPRING_DATASOURCE_PASSWORD: ${LOCAL_DB_PASSWORD:-finance-local}
       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:?set KEYCLOAK_ISSUER_URL in .env}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:?set KEYCLOAK_CLIENT_ID in .env}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}
       # The family budget's feature switch (D-25): on for local runs, off in production (deploy/app) until F7.
       FAMILY_LEDGERS_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -24,3 +41,7 @@ services:
       - "${FRONTEND_PORT}:80"
     depends_on:
       - backend
+
+volumes:
+  # finance-tracker_local-db in docker volume ls. It survives docker compose down; down -v deletes it.
+  local-db:

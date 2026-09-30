@@ -1,35 +1,19 @@
-import type { FamilyMember, MemberRole, MemberStatus } from './api'
+import type { FamilyMember, MemberRole, MemberStatus, ViolationDetail } from './api'
 import { basisPointsToPercent } from './basisPoints'
 
-// The family budget's screens without React. The API says "family ledger" and counts shares in basis points; the
-// screens say "family budget" and show percentages.
+// The family budget's screens without React. The API's messages say "family budget" and show shares as percentages,
+// as the screens do, so they are shown as they come.
 
 export const ROLE_LABELS: Record<MemberRole, string> = { OWNER: 'Owner', MEMBER: 'Member' }
 export const STATUS_LABELS: Record<MemberStatus, string> = { ACTIVE: 'Active', LEFT: 'Left', FORMER: 'Former member' }
 
-/**
- * A message of the API in the screens' words: "family budget" for "family ledger", and percentages for basis
- * points. "Kid has a share of 3333 basis points …" → "Kid has a share of 33.33 % …".
- */
-export function familyMessage(message: string): string {
-  return message
-    .replace(/\b([Ff])amily ledger/g, (_, f: string) => `${f}amily budget`)
-    .replace(/\b(\d+) basis points/g, (_, bp: string) => `${basisPointsToPercent(Number(bp))} %`)
-    .replace(/\bnot 10000\b/g, 'not 100.00 %')
-}
-
-/**
- * The violations of a 422 by the member they name ("Kid (member 12) has no share", "member 12 is not …"), and the
- * others, each in the screens' words.
- */
-export function violationsByMember(violations: string[]) {
+/** The violations of a 422 by the member each names (`violationDetails`), and the others. */
+export function violationsByMember(details: ViolationDetail[]) {
   const byMember = new Map<number, string[]>()
   const other: string[] = []
-  for (const violation of violations) {
-    const member = /\bmember (\d+)\b/.exec(violation)
-    const text = familyMessage(violation.replace(/ \(member \d+\)/, ''))
-    if (member) byMember.set(Number(member[1]), [...(byMember.get(Number(member[1])) ?? []), text])
-    else other.push(text)
+  for (const { memberId, message } of details) {
+    if (memberId !== null) byMember.set(memberId, [...(byMember.get(memberId) ?? []), message])
+    else other.push(message)
   }
   return { byMember, other }
 }

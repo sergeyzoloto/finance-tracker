@@ -123,7 +123,7 @@ deploy/                       production (RUNBOOK.md)
 docs/auth.md                  authentication and authorization in depth
 docs/database-hosting.md      where the database runs at launch and later, and why
 change_log.mdx                every completed task: what changed, how it was verified, what is open
-docker-compose.yml            production-like stack: backend and nginx
+docker-compose.yml            local stack: PostgreSQL, backend and nginx
 docker-compose.local.yml      local overlay: host network, next to the dev Keycloak
 docker-compose.dev.yml        Vite dev server with hot reload
 dev.sh                        starts the dev stack, auth server included
@@ -139,9 +139,11 @@ stop.sh                       stops it
   Docker Desktop needs host networking turned on in its settings.
 - **The auth server's dev stack**, from the auth server repository: Keycloak on `localhost:8080`,
   with the `finance-tracker` client in realm `myapps`.
-- **A PostgreSQL database.** Production uses Supabase. For local work any PostgreSQL the backend
-  can reach will do; Flyway creates the `app` schema and its tables on startup.
-- **Free host ports** 3000 (nginx) and 8081 (backend), and 5173 for hot reload.
+- **No database of your own.** `docker-compose.yml` runs PostgreSQL 17 in a container with a named
+  volume, `local-db` (`finance-tracker_local-db` in `docker volume ls`); Flyway creates the `app` schema and its tables on startup.
+  Nothing in the local stack reaches a remote database.
+- **Free host ports** 3000 (nginx), 8081 (backend) and 5433 (PostgreSQL, on 127.0.0.1 only), and
+  5173 for hot reload.
 
 ### Run the stack
 
@@ -152,8 +154,7 @@ stop.sh                       stops it
    ```bash
    cp .env.example .env
    ```
-   Fill in `SUPABASE_JDBC_URL`, `SUPABASE_DB_USER` and `SUPABASE_DB_PASSWORD`. The Keycloak values
-   already match the dev realm.
+   The values already match the dev realm and the local database.
 3. Start the stack:
    ```bash
    docker compose up --build
@@ -191,21 +192,17 @@ secrets out of git.
 | Variable                 | Purpose                                                                  | Local value                                   |
 | ------------------------ | ------------------------------------------------------------------------ | --------------------------------------------- |
 | `COMPOSE_FILE`           | Adds the local overlay                                                   | `docker-compose.yml:docker-compose.local.yml` |
-| `SUPABASE_JDBC_URL`      | JDBC URL of the Supabase **Session Pooler** (port 5432, `sslmode=require`) | your project's                              |
-| `SUPABASE_DB_USER`       | Pooler user, `postgres.<project-ref>`                                    | your project's                                |
-| `SUPABASE_DB_PASSWORD`   | Database password                                                        | your project's                                |
+| `LOCAL_DB_PORT`          | The local PostgreSQL's port on 127.0.0.1 (optional)                      | `5433`                                        |
+| `LOCAL_DB_PASSWORD`      | The local PostgreSQL's password (optional)                               | `finance-local`                               |
 | `KEYCLOAK_ISSUER_URL`    | Realm URL. Must equal the tokens' `iss` claim character for character.   | `http://localhost:8080/realms/myapps`         |
 | `KEYCLOAK_CLIENT_ID`     | OIDC client                                                              | `finance-tracker`                             |
 | `KEYCLOAK_CLIENT_SECRET` | OIDC client secret                                                       | `finance-tracker-secret` (dev realm only)     |
 | `FRONTEND_PORT`          | nginx port on the host                                                   | `3000`                                        |
 | `BACKEND_PORT`           | Backend port on the host, local setup only (8080 is Keycloak's)          | `8081`                                        |
 
-About the database connection:
-
-- Use the Session Pooler. The Transaction Pooler (port 6543) breaks the JDBC driver's server-side
-  prepared statements, and the direct connection is IPv6-only, which Docker networks lack.
-- The backend's connection pool is capped at 5, because the Session Pooler limits clients per user
-  to the project's pool size.
+The local database keeps its data in the volume `finance-tracker_local-db` across restarts;
+`docker compose down -v` deletes it. Production runs its own stack
+([deploy/app/docker-compose.yml](deploy/app/docker-compose.yml), [deploy/RUNBOOK.md](deploy/RUNBOOK.md)).
 
 ## Development
 

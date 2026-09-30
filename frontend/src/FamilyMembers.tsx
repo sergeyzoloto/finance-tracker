@@ -237,8 +237,8 @@ export function FamilySplitRule({ family }: { family: FamilyData }) {
   }
 
   // A 422 by the member it names, next to their share; the rest, and any other failure, below the form.
-  const unprocessable = save.failure instanceof ApiError && save.failure.violations.length > 0
-  const violations = violationsByMember(unprocessable ? (save.failure as ApiError).violations : [])
+  const unprocessable = save.failure instanceof ApiError && save.failure.violationDetails.length > 0
+  const violations = violationsByMember(unprocessable ? (save.failure as ApiError).violationDetails : [])
   const byRow = new Map<string, string[]>()
   const general: (string | undefined)[] = unprocessable ? violations.other : [save.message]
   for (const [id, messages] of violations.byMember) {

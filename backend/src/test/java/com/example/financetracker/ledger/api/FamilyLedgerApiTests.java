@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 class FamilyLedgerApiTests extends LedgerApiTest {
 
     /** What a member who isn't an owner gets for an owner's action (D-15): 409, not 403. */
-    private static final String OWNERS_ONLY = "Only an owner of the family ledger can do this: owners manage its "
+    private static final String OWNERS_ONLY = "Only an owner of the family budget can do this: owners manage its "
             + "settings, split rule and members, and rename, archive and delete its categories.";
 
     private final String alice = newUser();
@@ -130,10 +130,10 @@ class FamilyLedgerApiTests extends LedgerApiTest {
         // Display names are one per person, whatever their case.
         assertThat(detail(post(alice, uri + "/members", """
                 {"displayName": "KID"}"""), HttpStatus.CONFLICT))
-                .isEqualTo("The family ledger has a member named KID already.");
+                .isEqualTo("The family budget has a member named KID already.");
         assertThat(detail(patch(alice, kidUri, """
                 {"displayName": "anna"}"""), HttpStatus.CONFLICT))
-                .isEqualTo("The family ledger has a member named anna already.");
+                .isEqualTo("The family budget has a member named anna already.");
         assertThat(ok(patch(alice, kidUri, """
                 {"displayName": "kid"}""")).get("displayName").asText()).isEqualTo("kid");
         // A member with an account chooses their own name, and isn't removed here.
@@ -182,9 +182,9 @@ class FamilyLedgerApiTests extends LedgerApiTest {
                 {"displayName": "  "}"""), HttpStatus.BAD_REQUEST).get("errors").findValuesAsText("field"))
                 .containsExactly("displayName");
         assertThat(detail(patch(bob, me, """
-                {"displayName": "kid"}"""), HttpStatus.CONFLICT)).isEqualTo("The family ledger has a member named kid already.");
+                {"displayName": "kid"}"""), HttpStatus.CONFLICT)).isEqualTo("The family budget has a member named kid already.");
         assertThat(detail(patch(bob, me, """
-                {"displayName": "anna"}"""), HttpStatus.CONFLICT)).isEqualTo("The family ledger has a member named anna already.");
+                {"displayName": "anna"}"""), HttpStatus.CONFLICT)).isEqualTo("The family budget has a member named anna already.");
         assertThat(ok(get(bob, uri + "/members")).findValuesAsText("displayName")).containsExactly("ANNA", "Dad", "Kid");
         assertThat(jdbc.sql("SELECT display_name FROM ledger_member WHERE id = ?").param(kid).query(String.class)
                 .single()).isEqualTo("Kid");
@@ -193,7 +193,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
         jdbc.sql("UPDATE ledger_member SET status = 'LEFT', left_date = current_date WHERE id = ?")
                 .param(bobsMembership).update();
         assertThat(detail(patch(bob, me, """
-                {"displayName": "Dad again"}"""), HttpStatus.NOT_FOUND)).isEqualTo("Ledger %d not found.".formatted(family));
+                {"displayName": "Dad again"}"""), HttpStatus.NOT_FOUND)).isEqualTo("Family budget %d not found.".formatted(family));
         assertThat(jdbc.sql("SELECT display_name FROM ledger_member WHERE id = ?").param(bobsMembership)
                 .query(String.class).single()).isEqualTo("Dad");
     }
@@ -214,16 +214,21 @@ class FamilyLedgerApiTests extends LedgerApiTest {
         assertThat(ok(get(alice, uri + "/members")).findValuesAsText("share")).containsExactly("6667", "3333", "0");
 
         assertThat(violations(put(alice, uri + "/split-rule", custom.formatted(alicesMembership, 6000, kid, 3000))))
-                .containsExactly("Baby (member %d) has no share".formatted(baby),
-                        "the shares sum to 9000 basis points, not 10000");
+                .containsExactly("Baby has no share", "the shares sum to 90.00 %, not 100.00 %");
+        // The same violations with a code, and the member each is about, for the interface to place them.
+        assertThat(body(put(alice, uri + "/split-rule", custom.formatted(alicesMembership, 6000, kid, 3000)),
+                HttpStatus.UNPROCESSABLE_ENTITY).get("violationDetails")).isEqualTo(json.readTree("""
+                [{"code": "NO_SHARE", "memberId": %d, "message": "Baby has no share"},
+                 {"code": "SUM_NOT_WHOLE", "memberId": null, "message": "the shares sum to 90.00 %%, not 100.00 %%"}]"""
+                .formatted(baby)));
         assertThat(violations(put(alice, uri + "/split-rule", """
                 {"rule": "CUSTOM", "shares": [{"memberId": %d, "share": 10000}, {"memberId": %d, "share": 0},
                  {"memberId": %d, "share": 0}, {"memberId": 9000000000, "share": 0}]}"""
                 .formatted(alicesMembership, kid, baby)))).containsExactly(
-                        "member 9000000000 is not an active member of the family ledger");
+                        "Member 9000000000 is not an active member of the family budget");
         assertThat(violations(put(alice, uri + "/split-rule", """
                 {"rule": "CUSTOM", "shares": [{"memberId": %d, "share": 5000}, {"memberId": %d, "share": 5000}]}"""
-                .formatted(kid, kid)))).containsExactly("member %d has more than one share".formatted(kid));
+                .formatted(kid, kid)))).containsExactly("Member %d has more than one share".formatted(kid));
         assertThat(violations(put(alice, uri + "/split-rule", """
                 {"rule": "EQUAL", "shares": [{"memberId": %d, "share": 10000}]}""".formatted(alicesMembership))))
                 .containsExactly("an equal split takes no shares");
@@ -235,7 +240,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
 
         // A member with a share of the custom rule stays until an owner gives it to others.
         assertThat(detail(delete(alice, uri + "/members/" + kid), HttpStatus.CONFLICT)).isEqualTo(
-                "Kid has a share of 3333 basis points in the custom split rule; change the rule to give them 0 first.");
+                "Kid has a share of 33.33 % in the custom split rule; change the rule to give them 0 first.");
         assertThat(delete(alice, uri + "/members/" + baby)).hasStatus(HttpStatus.NO_CONTENT);
         ok(put(alice, uri + "/split-rule", """
                 {"rule": "CUSTOM", "shares": [{"memberId": %d, "share": 10000}, {"memberId": %d, "share": 0}]}"""
@@ -264,7 +269,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
 
         assertThat(detail(post(alice, uri + "/categories", """
                 {"code": "HOLIDAYS", "name": "Trips", "type": "EXPENSE"}"""), HttpStatus.CONFLICT))
-                .isEqualTo("The family ledger has a category with the code HOLIDAYS already.");
+                .isEqualTo("The family budget has a category with the code HOLIDAYS already.");
         assertThat(body(post(bob, uri + "/categories", """
                 {"code": "holidays", "name": "Trips", "type": "EXPENSE"}"""), HttpStatus.BAD_REQUEST).get("errors")
                 .findValuesAsText("field")).containsExactly("code");

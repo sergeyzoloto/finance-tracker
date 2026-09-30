@@ -7,7 +7,6 @@ import {
 import { percentToBasisPoints, WHOLE } from './basisPoints'
 import { CurrencyInput, Errors, Field, Loading } from './components'
 import type { CreationState } from './familyData'
-import { familyMessage } from './family'
 import { equalValues, ShareTable, shareTotal, type ShareRow } from './FamilyMembers'
 
 const GROUPS: { type: CategoryType; title: string }[] = [
@@ -88,7 +87,7 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
         const added = await api<FamilyMember>(`/family-ledgers/${created.id}/members`, 'POST', { displayName: member.name })
         memberIds.set(member.key, added.id)
       } catch (e) {
-        problems.push(`${member.name} wasn’t added: ${sentence(familyMessage(errorMessage(e)))}`)
+        problems.push(`${member.name} wasn’t added: ${sentence(errorMessage(e))}`)
       }
     }
     if (rule === 'CUSTOM' && problems.length > 0) {
@@ -101,7 +100,7 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
           shares: rows.map((row) => ({ memberId: memberIds.get(row.key), share: percentToBasisPoints(shareValues[row.key]) })),
         })
       } catch (e) {
-        problems.push(`The split rule stayed equal: ${sentence(familyMessage(errorMessage(e)))} Set it on the Split rule page.`)
+        problems.push(`The split rule stayed equal: ${sentence(errorMessage(e))} Set it on the Split rule page.`)
       }
     }
     onCreated()
@@ -220,7 +219,7 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
           </button>
           {rule === 'CUSTOM' && total !== WHOLE && <span className="muted">The shares must add up to exactly 100.00 %.</span>}
         </div>
-        <Errors messages={[fieldsFailed || !creation.error ? undefined : sentence(familyMessage(creation.error))]} />
+        <Errors messages={[fieldsFailed || !creation.error ? undefined : sentence(creation.error)]} />
       </form>
     </>
   )

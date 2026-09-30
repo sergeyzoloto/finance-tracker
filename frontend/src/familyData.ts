@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { ApiError, useMutation, type FamilyLedger, type FamilyMember } from './api'
-import { familyMessage } from './family'
 
 /** A family budget as its pages share it. `reload` loads it again, and the switcher's list with it. */
 export interface FamilyData {
@@ -22,14 +21,14 @@ export interface CreationState { creationProblems?: string[] }
 
 /**
  * A write about a family budget, as useMutation. A 404 or 409 loads the budget again: the budget may be gone, which
- * shows the not-found page, or changed meanwhile. `message` is the failure in the screens' words, unless it is only
- * about fields of the form (400).
+ * shows the not-found page, or changed meanwhile. `message` is the failure as the API words it for the screens,
+ * unless it is only about fields of the form (400).
  */
 export function useFamilyMutation(family: FamilyData, onDone: () => void = () => {}) {
   const mutation = useMutation(() => { family.reload(); onDone() })
   const failure = mutation.failure
   const message = failure && !(failure instanceof ApiError && failure.errors.length > 0)
-    ? familyMessage(failure.message) : undefined
+    ? failure.message : undefined
   const { reload } = family
   useEffect(() => {
     if (failure instanceof ApiError && (failure.status === 404 || failure.status === 409)) reload()

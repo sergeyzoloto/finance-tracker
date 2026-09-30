@@ -44,7 +44,7 @@ public class CategoryService {
         } catch (DbActionExecutionException e) {
             if (e.getCause() instanceof DuplicateKeyException) {
                 throw new ConflictException((ledger.type() == LedgerType.PERSONAL ? "You have"
-                        : "The family ledger has") + " a category with the code %s already".formatted(code));
+                        : "The family budget has") + " a category with the code %s already".formatted(code));
             }
             throw e;
         }

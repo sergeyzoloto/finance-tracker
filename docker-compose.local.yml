@@ -3,12 +3,18 @@
 #
 # Tokens carry the issuer the browser used, http://localhost:8080/realms/myapps, and the backend has to reach
 # Keycloak at that same address: for discovery, keys, the code exchange and refreshes. So both containers share the
-# host's network. nginx listens on FRONTEND_PORT, the backend on BACKEND_PORT, since 8080 is Keycloak's.
+# host's network. nginx listens on FRONTEND_PORT, the backend on BACKEND_PORT, since 8080 is Keycloak's. The backend
+# reaches the local PostgreSQL on 127.0.0.1:LOCAL_DB_PORT, where only this machine can connect.
 services:
+  postgres:
+    ports:
+      - "127.0.0.1:${LOCAL_DB_PORT:-5433}:5432"
+
   backend:
     network_mode: host
     environment:
       SERVER_PORT: ${BACKEND_PORT:?set BACKEND_PORT in .env}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:${LOCAL_DB_PORT:-5433}/finance
 
   frontend:
     network_mode: host

@@ -53,7 +53,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * <li>400: a malformed request. {@code errors} lists each invalid field or parameter with what is wrong with it.
  * <li>404: an object the user doesn't have, whether it doesn't exist or belongs to someone else (rule 11).
  * <li>409: a stale version, or a change that the object's state rules out.
- * <li>422: an entry or setting that breaks the ledger's rules. {@code violations} lists every rule it breaks.
+ * <li>422: an entry or setting that breaks the ledger's rules. {@code violations} lists every rule it breaks, and
+ * for the family budget's rules {@code violationDetails} lists them again with a code and the member each names.
  * <li>500: anything else, which is logged.
  * </ul>
  * The {@code @ResponseStatus} of the handlers put these statuses into the OpenAPI description of every operation.
@@ -78,7 +79,12 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(RuleViolationException.class)
     @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
     ProblemDetail ruleViolation(RuleViolationException e) {
-        return ledgerRules(e.violations());
+        ProblemDetail problem = ledgerRules(e.violations());
+        if (!e.details().isEmpty()) {
+            // Additive (F4a): the same violations with a code and the member each is about, for the client to place.
+            problem.setProperty("violationDetails", e.details());
+        }
+        return problem;
     }
 
     @ExceptionHandler(NotFoundException.class)

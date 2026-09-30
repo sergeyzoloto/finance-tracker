@@ -47,7 +47,7 @@ class LedgerAccessTests extends IntegrationTest {
         assertThat(access.provisionPersonal(alice)).isEqualTo(scope);
         // A personal ledger never comes in by its id, not even the user's own.
         assertThatThrownBy(() -> access.member(alice, ledgerId)).isInstanceOf(NotFoundException.class)
-                .hasMessage("Ledger %d not found", ledgerId);
+                .hasMessage("Family budget %d not found", ledgerId);
         assertThat(access.families(alice)).isEmpty();
         assertThat(access.provisionPersonal(bob).ledgerId()).isNotEqualTo(ledgerId);
     }
@@ -66,9 +66,9 @@ class LedgerAccessTests extends IntegrationTest {
         long missing = jdbc.sql("SELECT max(id) + 1000 FROM ledger").query(Long.class).single();
 
         assertThatThrownBy(() -> access.member(bob, alicesLedger)).isInstanceOf(NotFoundException.class)
-                .hasMessage("Ledger %d not found", alicesLedger);
+                .hasMessage("Family budget %d not found", alicesLedger);
         assertThatThrownBy(() -> access.member(bob, missing)).isInstanceOf(NotFoundException.class)
-                .hasMessage("Ledger %d not found", missing);
+                .hasMessage("Family budget %d not found", missing);
     }
 
     @Test
@@ -92,14 +92,14 @@ class LedgerAccessTests extends IntegrationTest {
         jdbc.sql("UPDATE ledger_member SET status = 'LEFT', left_date = ? WHERE id = ?")
                 .params(LocalDate.of(2026, 9, 29), bobsMembership).update();
         assertThatThrownBy(() -> access.member(bob, family)).isInstanceOf(NotFoundException.class)
-                .hasMessage("Ledger %d not found", family);
+                .hasMessage("Family budget %d not found", family);
 
         // Alice deletes all her data, and her membership becomes FORMER, without her sub (D-20).
         jdbc.sql("UPDATE ledger_member SET status = 'FORMER', role = 'MEMBER', user_sub = NULL, left_date = ?, "
                 + "display_name = 'Former member' WHERE id = ?").params(LocalDate.of(2026, 9, 29), alicesMembership)
                 .update();
         assertThatThrownBy(() -> access.member(alice, family)).isInstanceOf(NotFoundException.class)
-                .hasMessage("Ledger %d not found", family);
+                .hasMessage("Family budget %d not found", family);
     }
 
     /**
@@ -117,9 +117,9 @@ class LedgerAccessTests extends IntegrationTest {
 
         assertThat(access.owner(alice, family)).isEqualTo(access.member(alice, family));
         assertThatThrownBy(() -> access.owner(bob, family)).isInstanceOf(ConflictException.class)
-                .hasMessageStartingWith("Only an owner of the family ledger can do this");
+                .hasMessageStartingWith("Only an owner of the family budget can do this");
         assertThatThrownBy(() -> access.owner(bob, carolsFamily)).isInstanceOf(NotFoundException.class)
-                .hasMessage("Ledger %d not found", carolsFamily);
+                .hasMessage("Family budget %d not found", carolsFamily);
         assertThat(access.families(alice)).extracting(LedgerScope::ledgerId).containsExactly(family);
         assertThat(access.families(carol)).extracting(LedgerScope::ledgerId).containsExactly(carolsFamily);
     }

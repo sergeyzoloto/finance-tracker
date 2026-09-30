@@ -22,7 +22,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 /**
  * With the feature switch off (D-25), as in production until F7: every family endpoint answers 404 exactly like an
  * unknown path, since it doesn't exist, the personal endpoints work as before, and {@code /api/me} tells the frontend.
- * The family endpoints come from {@link FamilyLedgerController}'s own mappings, so a new one can't be left out.
+ * The family endpoints come from the own mappings of {@link FamilyLedgerController} and
+ * {@link FamilyRecordController}, so a new one can't be left out. The one change of the personal endpoints: UNALLOCATED
+ * can't be archived (F4a, D-8).
  */
 @TestPropertySource(properties = FamilySwitch.PROPERTY + "=false")
 class FamilySwitchOffApiTests extends LedgerApiTest {
@@ -35,11 +37,12 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     @Test
     void everyFamilyEndpointAnswers404LikeAnUnknownPath() throws IOException {
         List<String[]> endpoints = familyEndpoints();
-        assertThat(endpoints).hasSize(14);
+        assertThat(endpoints).hasSize(21);
         assertThat(context.getBeanNamesForType(FamilyLedgerController.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(FamilyRecordController.class)).isEmpty();
         String body = """
                 {"name": "Home", "baseCurrency": "EUR", "displayName": "Anna", "rule": "EQUAL", "code": "RENT",
-                 "type": "EXPENSE"}""";
+                 "type": "EXPENSE", "date": "2026-09-01", "categoryId": 1, "amount": "1", "payerMemberId": 1}""";
 
         SoftAssertions softly = new SoftAssertions();
         for (String[] endpoint : endpoints) {
@@ -65,14 +68,34 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/accounts"))).isNotEmpty();
         assertThat(post(user, "/api/categories", """
                 {"code": "RENT", "name": "Rent", "type": "EXPENSE"}""")).hasStatus(HttpStatus.CREATED);
+        // UNALLOCATED can be renamed, but no longer archived (F4a): a family budget posts its shares there (D-8).
+        long unallocated = accountId(user, "UNALLOCATED");
+        assertThat(ok(patch(user, "/api/accounts/" + unallocated, """
+                {"name": "Free money"}""")).get("name").asText()).isEqualTo("Free money");
+        assertThat(body(patch(user, "/api/accounts/" + unallocated, """
+                {"archived": true}"""), HttpStatus.CONFLICT).get("detail").asText())
+                .isEqualTo("UNALLOCATED can be renamed, but not archived: a family budget posts its shares there.");
+        assertThat(ok(patch(user, "/api/accounts/" + accountId(user, "RESERVE"), """
+                {"archived": true}""")).get("archived").asBoolean()).isTrue();
+        // No personal ledger gets a family budget's account.
+        assertThat(ok(get(user, "/api/accounts")).findValuesAsText("code"))
+                .noneMatch(code -> code.startsWith("FAMILY_DEBT_") || code.equals("UNSPECIFIED_PAYMENTS"));
         assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
     }
 
-    /** Each endpoint of FamilyLedgerController as {method, path}, with 1 for every id in the path. */
+    /** Each endpoint of the family controllers as {method, path}, with 1 for every id in the path. */
     private static List<String[]> familyEndpoints() {
-        String base = FamilyLedgerController.class.getAnnotation(RequestMapping.class).value()[0];
         List<String[]> endpoints = new ArrayList<>();
-        for (Method method : FamilyLedgerController.class.getDeclaredMethods()) {
+        for (Class<?> controller : List.of(FamilyLedgerController.class, FamilyRecordController.class)) {
+            endpoints.addAll(endpoints(controller));
+        }
+        return endpoints;
+    }
+
+    private static List<String[]> endpoints(Class<?> controller) {
+        String base = controller.getAnnotation(RequestMapping.class).value()[0];
+        List<String[]> endpoints = new ArrayList<>();
+        for (Method method : controller.getDeclaredMethods()) {
             RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class);
             if (mapping != null) {
                 String path = base + (mapping.value().length == 0 ? "" : mapping.value()[0]);

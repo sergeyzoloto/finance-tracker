@@ -5,6 +5,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.codeUnits;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.constructors;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Map;
 import java.util.Set;
@@ -15,6 +16,7 @@ import com.example.financetracker.ledger.UserDataService;
 import com.example.financetracker.ledger.UserSettingsRepository;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.family.posting.FamilyPostingService;
 import com.example.financetracker.ledger.rates.EcbRateLoader;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -103,6 +105,22 @@ class ArchitectureTests {
         constructors().that().areDeclaredIn(LedgerScope.class).should().notBePublic()
                 .andShould().onlyBeCalled().byClassesThat().belongToAnyOf(LedgerAccess.class)
                 .because("a scope stands for a membership that LedgerAccess checked")
+                .check(APPLICATION);
+    }
+
+    /**
+     * The one code path that writes into another user's personal ledger (D-8; ADR 0003, topic E): only
+     * FamilyPostingService uses CrossLedgerWriter, which is package-private for that.
+     */
+    @Test
+    void onlyThePostingServiceUsesTheCrossLedgerWriter() {
+        String writer = "com.example.financetracker.ledger.family.posting.CrossLedgerWriter";
+        DescribedPredicate<JavaClass> theWriter = DescribedPredicate.describe("CrossLedgerWriter or nested in it",
+                javaClass -> javaClass.getName().equals(writer) || javaClass.getName().startsWith(writer + "$"));
+        assertThat(APPLICATION.contain(writer)).isTrue();
+        noClasses().that().doNotBelongToAnyOf(FamilyPostingService.class).and(DescribedPredicate.not(theWriter))
+                .should().dependOnClassesThat(theWriter)
+                .because("the posting service is the only code allowed to write into another user's ledger (D-8)")
                 .check(APPLICATION);
     }
 

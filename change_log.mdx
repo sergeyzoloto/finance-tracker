@@ -3,9 +3,12 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
-## 2026-09-30 · Family budget: F3b's deploy, the start date, family records and posting (F4a)
+## 2026-09-30 · Family budget: F3b's deploy, the start date, family records and posting (F4a, parts 1 to 4)
 
-Not committed yet.
+Committed locally on `feature/family-budget` in four commits: `c9e58e6` (documents), `71b6785`
+(local compose and messages), `caba76f` (V7) and "feat(family): records, posting, balances and
+journal", whose hash belongs here with the next change log commit. Not pushed, not merged, not
+deployed.
 
 **Changes**
 - F3b's deploy and the owner's decisions (commit "docs(family-budget): F3b deploy, start date, F4
@@ -80,6 +83,53 @@ Not committed yet.
     `releasingAMembershipErasesCommentsAndJournalsTheRuleReset`; `LedgerBackfillMigrationTests`
     migrates to V6, adds a family ledger created two days before, and checks that V7 changes no row
     and gives it its creation date as start date.
+- Records, posting, balances and journal (commit "feat(family): records, posting, balances and
+  journal"), ADR 0003 topics D, E and H, behind the switch:
+  - `FamilyRecordController` under `/api/family-ledgers/{ledgerId}`: GET and POST `/records`, GET,
+    PATCH and DELETE `/records/{recordId}` (PATCH and DELETE with `?version=`), GET `/balances`,
+    GET `/journal` (`?recordId=`). ACTIVE members only; everyone else gets the missing ledger's 404.
+  - `FamilyRecordService`: family expenses in the base currency. A record has a date on or after
+    the start date (409), a family category that isn't archived and is EXPENSE, an amount above 0
+    with at most the currency's decimals, a payer (a member with an account names only themselves,
+    and gives `paymentAccountId` from their personal ledger or `paymentLater`), a comment and a
+    `split`: `RULE` (the ledger's rule), `PERCENT` (basis points summing to 10000), `AMOUNT`
+    (summing to the amount) or `ONE_MEMBER`. Shares go to ACTIVE members only, and to a member with
+    an account only from their join date. Every other broken rule is a 422 with `violationDetails`
+    codes. The author or an owner changes the family fields (category, comment, split); a payment
+    field answers 409 until F4c. The payer with an account deletes; a record paid by a member
+    without one, its author or an owner; a deleted record stays for the journal. A record that
+    involves a LEFT or FORMER member is frozen (409). A stale version is a 409.
+  - `ShareSplit`: D-12's split. Each share is cut down to the minor unit and the remainder goes to
+    the largest share, on a tie the payer, then join order: 10.01 split 50/50 gives the payer 5.01
+    (ADR 0003 topic D now says so; the ADR's HALF_UP would give the payer 5.00).
+  - `posting/FamilyPostingService` and the package-private `posting/CrossLedgerWriter`: a share
+    entry (`FAMILY_SHARE`: UNALLOCATED +share with the family category, `Debt(L)` −share) for every
+    ACTIVE member with an account who joined by the record's date, and the payer's payment
+    (`FAMILY_PAYMENT`: the account or "Payments without a specified account" −amount, `Debt(L)`
+    +amount). `FAMILY_DEBT_<ledger id>` and `UNSPECIFIED_PAYMENTS` are created on first need. Every
+    change re-posts idempotently by record, member and link type. The writer refuses every line D-8
+    doesn't allow, and sets `app.writer` for its own statements only.
+  - Personal side: `EntryView.family` (additive) names the family budget, the record and the link;
+    PUT and DELETE of a posted entry or a payment answer 409 naming the rule; a command posting to a
+    debt account answers 422; `EntryKind` has the `FAMILY_*` kinds, which no command makes. UNALLOCATED
+    can't be archived (409).
+  - Balances: B(m) = shares − paid, summing to zero, with display names and `you`. The journal: the
+    creation, each change of family fields with old and new values, the deletion, and V7's
+    `SPLIT_RULE_RESET`, newest first, with names resolved when read ("Former member").
+  - The F3a checks that were waiting: the base currency is fixed by the first record, a member who
+    paid or shares a record can't be removed, and a family category that a record or any posting
+    uses can't be deleted (409 each). `FamilyLedgerView` has `startDate`; POST takes `startDate`
+    (422 `START_DATE` in the future), which is the creator's join date.
+  - "Delete all my data" sets `app.writer` to `delete-all`, deletes the personal ledger's rows
+    first, posted entries included, and calls `release_family_memberships` after them; the
+    runbook's "Delete a user" follows the same order and says so.
+  - Tests: `ShareSplitTests` (7), `FamilyRecordApiTests` (8), `FamilyRecordRandomTests` (240
+    operations from the seed 20260930: 123 creates, 68 changes, 38 deletes, 11 split rules),
+    `CrossLedgerWriterTests`, the helper `FamilyInvariants`,
+    `DataIsolationApiTests.familyRecordsAreReachedByTheirActiveMembersOnly`, two new
+    `UserDataApiTests` and records in its scenario, `ArchitectureTests`' rule for the writer, and
+    the new endpoints in `ApiTests` and `FamilySwitchOffApiTests` (21 family endpoints; UNALLOCATED
+    refused with the switch off). `DemoLedgerTests` compares with the command kinds.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -102,9 +152,26 @@ Not committed yet.
   isolation, delete-all (the runbook's statements with V7's `release_family_memberships`
   included), importer, report and demo test passed. The worktree was removed; nothing was committed
   from it.
+- After the records' commit: `./mvnw -B clean verify` 305 tests, 0 failures, 0 errors, 0 skipped,
+  BUILD SUCCESS. Frontend unchanged since the messages' commit. `DataIsolationApiTests.java`: one
+  test method and one helper added, nothing removed or changed.
+- The new checks against temporary mutations, from file copies, not committed: the writer's
+  whitelist switched off made `CrossLedgerWriterTests` fail (the database's guard refused instead);
+  every posted share one cent more made 5 of the 8 `FamilyRecordApiTests` fail on "the debt account
+  of member …"; a class in the posting package holding a `CrossLedgerWriter` made `ArchitectureTests`
+  fail.
 
 **Open**
-- The rest of F4a.
+- Parts 5 and 6 of F4a were not done: family categories in personal ledgers (lists, reports, the
+  merge at creation, the integrity check) and the personal pages' tolerance of family rows. Part 5
+  changes what existing `DataIsolationApiTests` checks assert (Alice's and Bob's personal answers
+  once they are in a family ledger), which the task keeps unchanged; the owner decides. Until then a
+  posted share's family category isn't in the personal category list, and the personal cash flow
+  leaves it out.
+- The owner's deploy of F4a's parts 1 to 4 with the switch off; the report has the checklist.
+  Rollback: the `:previous` image, `5a7e490`, which runs on V7 without a restore.
+- `deploy/pg-backup/finance.conf` counts no family table yet; the restore test's table count reads
+  18 after V7.
 
 ## 2026-09-29 · Family budget: F3a's deploy, review decisions, the interface behind the switch (F3b)
 

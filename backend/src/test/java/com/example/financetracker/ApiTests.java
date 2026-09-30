@@ -117,7 +117,15 @@ class ApiTests extends IntegrationTest {
                 new Object[] {POST, "/api/family-ledgers/1/categories", """
                         {"code": "RENT", "name": "Rent", "type": "EXPENSE"}"""},
                 new Object[] {PATCH, "/api/family-ledgers/1/categories/1", "{}"},
-                new Object[] {DELETE, "/api/family-ledgers/1/categories/1", null});
+                new Object[] {DELETE, "/api/family-ledgers/1/categories/1", null},
+                new Object[] {GET, "/api/family-ledgers/1/records", null},
+                new Object[] {POST, "/api/family-ledgers/1/records", """
+                        {"date": "2026-09-01", "categoryId": 1, "amount": "1", "payerMemberId": 1}"""},
+                new Object[] {GET, "/api/family-ledgers/1/records/1", null},
+                new Object[] {PATCH, "/api/family-ledgers/1/records/1?version=0", "{}"},
+                new Object[] {DELETE, "/api/family-ledgers/1/records/1?version=0", null},
+                new Object[] {GET, "/api/family-ledgers/1/balances", null},
+                new Object[] {GET, "/api/family-ledgers/1/journal", null});
 
         SoftAssertions softly = new SoftAssertions();
         invalidTokens.forEach((kind, token) -> endpoints.forEach(e -> softly
@@ -268,7 +276,11 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/family-ledgers/{ledgerId}/members/me", List.of("patch")),
                 Map.entry("/api/family-ledgers/{ledgerId}/members/{memberId}", List.of("delete", "patch")),
                 Map.entry("/api/family-ledgers/{ledgerId}/categories", List.of("get", "post")),
-                Map.entry("/api/family-ledgers/{ledgerId}/categories/{categoryId}", List.of("delete", "patch"))));
+                Map.entry("/api/family-ledgers/{ledgerId}/categories/{categoryId}", List.of("delete", "patch")),
+                Map.entry("/api/family-ledgers/{ledgerId}/records", List.of("get", "post")),
+                Map.entry("/api/family-ledgers/{ledgerId}/records/{recordId}", List.of("delete", "get", "patch")),
+                Map.entry("/api/family-ledgers/{ledgerId}/balances", List.of("get")),
+                Map.entry("/api/family-ledgers/{ledgerId}/journal", List.of("get"))));
 
         // The user comes from the token, not from a parameter; a family ledger comes by its id in the path only.
         assertThat(openApi.get("paths").get("/api/accounts").get("get").has("parameters")).isFalse();

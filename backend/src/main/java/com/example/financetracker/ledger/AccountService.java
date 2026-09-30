@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.AccountType;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.relational.core.conversion.DbActionExecutionException;
@@ -51,7 +52,7 @@ public class AccountService {
 
     /**
      * @throws AccountNotFoundException if the ledger has no such account
-     * @throws ConflictException if the changes rename or archive a system account
+     * @throws ConflictException if the changes rename or archive a system account, or archive UNALLOCATED
      */
     @Transactional
     public AccountView update(LedgerScope ledger, long accountId, AccountChanges changes) {
@@ -64,6 +65,12 @@ public class AccountService {
             if (Boolean.TRUE.equals(changes.archived())) {
                 throw new ConflictException("%s is a system account and can't be archived".formatted(account.code()));
             }
+        }
+        if (account.code().equals(AccountRole.UNALLOCATED.defaultCode()) && Boolean.TRUE.equals(changes.archived())
+                && account.archivedAt() == null) {
+            // D-8: the family budget posts every share there, so it is always there to find (F4a).
+            throw new ConflictException("%s can be renamed, but not archived: a family budget posts its shares there"
+                    .formatted(account.code()));
         }
         String name = changes.name() != null ? changes.name() : account.name();
         String defaultCurrency = changes.changesDefaultCurrency()

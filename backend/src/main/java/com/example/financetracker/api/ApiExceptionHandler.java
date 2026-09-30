@@ -218,7 +218,8 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return switch (ex.getCause()) {
             case InvalidTypeIdException typeId -> invalid(ex, List.of(new InvalidField("kind",
                     (typeId.getTypeId() == null ? "is missing" : "'%s' is unknown".formatted(typeId.getTypeId()))
-                            + "; it must be one of " + names(EntryKind.values()))), headers, request);
+                            + "; it must be one of " + names(Arrays.stream(EntryKind.values()).filter(EntryKind::isCommand)
+                            .toArray()))), headers, request);
             case MismatchedInputException mismatch when !mismatch.getPath().isEmpty() -> invalid(ex,
                     List.of(new InvalidField(path(mismatch), expected(mismatch.getTargetType()))), headers, request);
             case JsonMappingException mapping -> body(ex, "The request body doesn't have the expected form.", headers,

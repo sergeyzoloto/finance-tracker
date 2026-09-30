@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -168,6 +169,86 @@ class UserDataApiTests extends LedgerApiTest {
         assertThat(get(scenario.alice(), "/api/family-ledgers/" + scenario.family())).hasStatus(HttpStatus.NOT_FOUND);
     }
 
+    /**
+     * "Delete all my data" with postings on family categories (ADR 0003, topic J): the user's entries go first, those
+     * the family budget posted and their payments included, so that the family ledger, which has nobody else with an
+     * account, can go with its categories, records and journal.
+     */
+    @Test
+    void deletesPostingsOnFamilyCategoriesAndAFamilyWithOnlyGuests() throws IOException {
+        String user = newUser();
+        JsonNode created = newFamily(user, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Anna", "categoryIds": [%d]}"""
+                .formatted(categoryId(user, "GROCERIES")));
+        long family = created.get("id").asLong();
+        String uri = "/api/family-ledgers/" + family;
+        body(post(user, uri + "/members", """
+                {"displayName": "Kid"}"""), HttpStatus.CREATED);
+        long groceries = ok(get(user, uri + "/categories")).get(0).get("id").asLong();
+        body(post(user, uri + "/records", """
+                {"date": "%s", "categoryId": %d, "amount": "30", "payerMemberId": %d, "paymentAccountId": %d}"""
+                .formatted(LocalDate.now(), groceries, created.get("memberId").asLong(), accountId(user, "CASH"))),
+                HttpStatus.CREATED);
+        body(post(user, uri + "/records", """
+                {"date": "%s", "categoryId": %d, "amount": "4", "payerMemberId": %d, "paymentLater": true}"""
+                .formatted(LocalDate.now(), groceries, created.get("memberId").asLong())), HttpStatus.CREATED);
+        assertThat(jdbc.sql("SELECT count(*) FROM posting p JOIN journal_entry e ON e.id = p.entry_id "
+                + "WHERE e.user_id = ? AND p.category_id = ?").params(user, groceries).query(Long.class).single())
+                .isEqualTo(2);
+        assertThat(rowsOf(user)).containsEntry("family family_record", 2L).containsEntry("family family_share", 4L);
+
+        assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+
+        assertThat(familyRows(family)).isEqualTo("ledgers 0, members 0, categories 0");
+        assertThat(jdbc.sql("SELECT (SELECT count(*) FROM family_record WHERE ledger_id = :family) "
+                + "+ (SELECT count(*) FROM family_record_change WHERE ledger_id = :family) "
+                + "+ (SELECT count(*) FROM family_entry_link WHERE family_ledger_id = :family)")
+                .param("family", family).query(Long.class).single()).isZero();
+        assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+        startsAgainAsANewUser(user);
+    }
+
+    /**
+     * D-20 with records: the user's personal entries go, their posted shares and payments included, and they become a
+     * FORMER member. Their records stay, frozen; the others' balances, and their posted entries, stay as they were;
+     * and the journal shows the split rule's reset, a system change about the user.
+     */
+    @Test
+    void aMemberWhoDeletesTheirDataLeavesTheirRecordsFrozenAndTheOthersBalances() throws IOException {
+        Scenario scenario = scenario();
+        String uri = "/api/family-ledgers/" + scenario.family();
+        JsonNode balancesBefore = ok(get(scenario.bob(), uri + "/balances"));
+        Map<String, String> bobsPersonalRows = personal(digestOf(scenario.bob()));
+        FamilyInvariants.check(jdbc, scenario.family());
+
+        assertThat(delete(scenario.alice(), "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+
+        assertThat(rowsOf(scenario.alice())).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+        JsonNode balancesAfter = ok(get(scenario.bob(), uri + "/balances"));
+        assertThat(balancesAfter.get("members").findValuesAsText("balance"))
+                .isEqualTo(balancesBefore.get("members").findValuesAsText("balance"));
+        assertThat(balancesAfter.get("members").findValuesAsText("displayName")).contains("Former member")
+                .doesNotContain("Alice");
+        assertThat(personal(digestOf(scenario.bob()))).isEqualTo(bobsPersonalRows);
+        FamilyInvariants.check(jdbc, scenario.family());
+        JsonNode records = ok(get(scenario.bob(), uri + "/records")).get("content");
+        assertThat(records).hasSize(2).allSatisfy(record -> assertThat(record.get("frozen").asBoolean()).isTrue());
+        assertThat(patch(scenario.bob(), uri + "/records/" + records.get(0).get("id").asLong() + "?version=0", """
+                {"comment": "Mine now"}""")).hasStatus(HttpStatus.CONFLICT);
+        JsonNode reset = ok(get(scenario.bob(), uri + "/journal")).get("content").get(0);
+        assertThat(reset.get("action").asText()).isEqualTo("SPLIT_RULE_RESET");
+        assertThat(reset.get("author").isNull()).isTrue();
+        assertThat(reset.get("recordId").isNull()).isTrue();
+        assertThat(reset.get("about").get("displayName").asText()).isEqualTo("Former member");
+        assertThat(reset.get("changes")).isEqualTo(json.readTree("""
+                [{"field": "splitRule", "member": null, "old": "CUSTOM", "new": "EQUAL"}]"""));
+        // Her links stay as the family's history, detached and without her entries.
+        assertThat(jdbc.sql("""
+                SELECT count(*) FROM family_entry_link l JOIN ledger_member m ON m.id = l.member_id
+                WHERE l.family_ledger_id = ? AND m.status = 'FORMER' AND l.detached_at IS NOT NULL
+                  AND l.entry_id IS NULL""").param(scenario.family()).query(Long.class).single()).isEqualTo(3);
+    }
+
     /** A LEFT member never counts as a member with an account (D-19): with only them left, the ledger goes. */
     @Test
     void aLeftMemberNeverKeepsTheFamilyLedger() throws IOException {
@@ -199,6 +280,7 @@ class UserDataApiTests extends LedgerApiTest {
 
         assertThat(members(byRunbook.family())).isEqualTo(members(byApi.family()));
         assertThat(familyRows(byRunbook.family())).isEqualTo(familyRows(byApi.family()));
+        assertThat(records(byRunbook.family())).isEqualTo(records(byApi.family()));
         assertThat(jdbc.sql("SELECT split_rule FROM ledger WHERE id IN (?, ?)")
                 .params(byApi.family(), byRunbook.family()).query(String.class).list()).containsExactly("EQUAL", "EQUAL");
         assertThat(rowsOf(byRunbook.alice())).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
@@ -232,7 +314,28 @@ class UserDataApiTests extends LedgerApiTest {
                 {"rule": "CUSTOM", "shares": [{"memberId": %d, "share": 5000}, {"memberId": %d, "share": 5000},
                  {"memberId": %d, "share": 0}, {"memberId": %d, "share": 0}]}"""
                 .formatted(created.get("memberId").asLong(), bobs, carols, kid)));
+        // A record Alice paid with her cash, and one Bob paid and will specify later, both split by the rule.
+        long groceries = ok(get(alice, uri + "/categories")).get(0).get("id").asLong();
+        body(post(alice, uri + "/records", """
+                {"date": "%s", "categoryId": %d, "amount": "30", "comment": "Alice's shop", "payerMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(LocalDate.now(), groceries, created.get("memberId").asLong(),
+                accountId(alice, "CASH"))), HttpStatus.CREATED);
+        body(post(bob, uri + "/records", """
+                {"date": "%s", "categoryId": %d, "amount": "12", "payerMemberId": %d, "paymentLater": true}"""
+                .formatted(LocalDate.now(), groceries, bobs)), HttpStatus.CREATED);
         return new Scenario(alice, bob, family);
+    }
+
+    /** The family ledger's records, shares and journal, without ids and times, to compare two ledgers. */
+    private List<String> records(long family) {
+        return jdbc.sql("""
+                SELECT concat_ws(' ', r.type, r.record_date, r.base_amount, r.comment, r.deleted_at IS NULL,
+                    (SELECT string_agg(s.amount::text, ',' ORDER BY s.amount) FROM family_share s WHERE s.record_id = r.id))
+                FROM family_record r WHERE r.ledger_id = :family
+                UNION ALL
+                SELECT concat_ws(' ', c.action, c.changes::text) FROM family_record_change c
+                WHERE c.ledger_id = :family AND c.record_id IS NULL
+                ORDER BY 1""").param("family", family).query(String.class).list();
     }
 
     private record Scenario(String alice, String bob, long family) {
@@ -269,7 +372,7 @@ class UserDataApiTests extends LedgerApiTest {
     private void runbooksDeleteAUser(String sub) {
         inTransaction.executeWithoutResult(status -> {
             for (String statement : List.of(
-                    "SELECT release_family_memberships(?)",
+                    "SELECT 'writer ' || set_config('app.writer', 'delete-all', true)",
                     "DELETE FROM user_settings WHERE user_id = ?",
                     "DELETE FROM journal_entry WHERE user_id = ?",
                     "DELETE FROM import_batch WHERE user_id = ?",
@@ -279,13 +382,15 @@ class UserDataApiTests extends LedgerApiTest {
                     "DELETE FROM exchange_rate WHERE user_id = ?",
                     "DELETE FROM transactions WHERE user_id IN (SELECT id FROM users WHERE keycloak_id = ?)",
                     "DELETE FROM categories WHERE user_id IN (SELECT id FROM users WHERE keycloak_id = ?)",
+                    "SELECT release_family_memberships(?)",
                     "DELETE FROM ledger WHERE id IN (SELECT ledger_id FROM ledger_member WHERE user_sub = ? "
                             + "AND ledger_type = 'PERSONAL')",
                     "DELETE FROM users WHERE keycloak_id = ?")) {
+                var sql = statement.contains("?") ? jdbc.sql(statement).param(sub) : jdbc.sql(statement);
                 if (statement.startsWith("SELECT")) {
-                    jdbc.sql(statement).param(sub).query().singleValue();
+                    sql.query().singleValue();
                 } else {
-                    jdbc.sql(statement).param(sub).update();
+                    sql.update();
                 }
             }
         });

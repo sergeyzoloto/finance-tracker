@@ -49,7 +49,9 @@ class DemoLedgerTests {
                 .collect(Collectors.groupingBy(EntryCommand::kind, () -> new EnumMap<>(EntryKind.class),
                         Collectors.counting()));
 
-        assertThat(byKind.keySet()).isEqualTo(EnumSet.allOf(EntryKind.class));
+        // Every kind a user makes an entry of; the family kinds are the family budget's to post (F4a).
+        assertThat(byKind.keySet()).isEqualTo(EnumSet.copyOf(EnumSet.allOf(EntryKind.class).stream()
+                .filter(EntryKind::isCommand).toList()));
         assertThat(byKind).isEqualTo(Map.of(EntryKind.OPENING_BALANCE, 5L, EntryKind.INCOME, 12L,
                 EntryKind.EXPENSE, 80L, EntryKind.SHARED_EXPENSE, 12L, EntryKind.TRANSFER, 23L,
                 EntryKind.LOAN_GIVEN, 1L, EntryKind.LOAN_REPAID, 2L, EntryKind.CURRENCY_EXCHANGE, 2L,

@@ -8,6 +8,7 @@ import com.example.financetracker.ledger.domain.CategoryType;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.relational.core.conversion.DbActionExecutionException;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,9 +21,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class CategoryService {
 
     private final LedgerCategoryRepository categories;
+    private final JdbcClient jdbc;
 
-    CategoryService(LedgerCategoryRepository categories) {
+    CategoryService(LedgerCategoryRepository categories, JdbcClient jdbc) {
         this.categories = categories;
+        this.jdbc = jdbc;
     }
 
     /** All the ledger's categories, archived ones included, by name. */
@@ -51,9 +54,9 @@ public class CategoryService {
     }
 
     /**
-     * Deletes a family category that nothing uses (D-11). A personal category is archived, never deleted (rule 12), and
-     * has no endpoint for this. In F3a no posting can use a family category yet; F4a adds the check of its postings
-     * and records, and until then the foreign keys refuse the deletion of a used one.
+     * Deletes a family category that nothing uses (D-11): no family record, deleted ones included, and no posting in
+     * any member's personal ledger. A personal category is archived, never deleted (rule 12), and has no endpoint for
+     * this.
      *
      * @throws NotFoundException if the ledger has no such category
      * @throws ConflictException if something uses the category
@@ -62,6 +65,14 @@ public class CategoryService {
     public void delete(LedgerScope ledger, long categoryId) {
         LedgerCategory category = categories.find(ledger, categoryId)
                 .orElseThrow(() -> new NotFoundException("Category " + categoryId + " not found"));
+        if (jdbc.sql("""
+                SELECT EXISTS (SELECT FROM family_record WHERE category_id = :categoryId AND ledger_id = :ledgerId)
+                    OR EXISTS (SELECT FROM posting WHERE category_id = :categoryId)""")
+                .param("categoryId", category.id()).param("ledgerId", ledger.ledgerId())
+                .query(Boolean.class).single()) {
+            throw new ConflictException("The category %s is in use by family records or entries; archive it instead"
+                    .formatted(category.code()));
+        }
         try {
             categories.delete(category);
         } catch (DbActionExecutionException e) {

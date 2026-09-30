@@ -43,9 +43,11 @@ public class FamilyLedgerService {
     public static final String NO_SHARE = "NO_SHARE";
     public static final String DUPLICATE_SHARE = "DUPLICATE_SHARE";
     public static final String SUM_NOT_WHOLE = "SUM_NOT_WHOLE";
+    /** A start date after today (D-27). */
+    public static final String START_DATE = "START_DATE";
 
     private static final String LEDGER = """
-            SELECT l.id, l.name, l.base_currency, l.split_rule, m.role, m.id AS member_id, l.created_at
+            SELECT l.id, l.name, l.base_currency, l.split_rule, m.role, m.id AS member_id, l.created_at, l.start_date
             FROM ledger l JOIN ledger_member m ON m.ledger_id = l.id
             WHERE l.id = :ledgerId AND m.id = :memberId""";
     private static final String MEMBERS = """
@@ -63,20 +65,29 @@ public class FamilyLedgerService {
     }
 
     /**
-     * Creates a family ledger, with its creator as its one member: OWNER, ACTIVE, joined today (D-15). Its category
-     * dictionary starts with copies of the code, name and type of the creator's categories that the creator chose
-     * (D-11); those personal categories and their postings stay as they are until F4a merges them.
+     * Creates a family ledger, with its creator as its one member: OWNER, ACTIVE, joined on the ledger's start date
+     * (D-15, D-27). Its category dictionary starts with copies of the code, name and type of the creator's categories
+     * that the creator chose (D-11); those personal categories and their postings stay as they are until F4a merges
+     * them.
      *
      * @param personal the creator's personal ledger
+     * @param startDate the first day records may be dated (D-27); null for today. Never after today.
      * @param displayName the name the other members will see (D-3)
      * @param categoryIds the creator's categories to copy
      * @throws NotFoundException if one of the categories isn't in the creator's personal ledger
+     * @throws RuleViolationException if the start date is after today
      */
     @Transactional
-    public FamilyLedgerView create(LedgerScope personal, String name, String baseCurrency, String displayName,
-            SplitRule rule, List<Long> categoryIds) {
+    public FamilyLedgerView create(LedgerScope personal, String name, String baseCurrency, LocalDate startDate,
+            String displayName, SplitRule rule, List<Long> categoryIds) {
         if (personal.type() != LedgerType.PERSONAL) {
             throw new IllegalArgumentException("A family ledger is created from its creator's personal ledger");
+        }
+        LocalDate today = jdbc.sql("SELECT current_date").query(LocalDate.class).single();
+        LocalDate starts = startDate == null ? today : startDate;
+        if (starts.isAfter(today)) {
+            throw RuleViolationException.of(List.of(new Violation(START_DATE, null,
+                    "the start date %s is in the future; a family budget starts today or earlier".formatted(starts))));
         }
         Set<Long> wanted = new LinkedHashSet<>(categoryIds);
         List<LedgerCategory> seed = wanted.isEmpty() ? List.of() : categories.lockAll(personal, wanted);
@@ -86,15 +97,18 @@ public class FamilyLedgerService {
             throw new NotFoundException("Category " + missing + " not found");
         }
         long ledgerId = jdbc.sql("""
-                INSERT INTO ledger (type, name, base_currency, split_rule) VALUES ('SHARED', :name, :currency, :rule)
+                INSERT INTO ledger (type, name, base_currency, split_rule, start_date)
+                VALUES ('SHARED', :name, :currency, :rule, :starts)
                 RETURNING id""")
                 .param("name", name).param("currency", baseCurrency).param("rule", rule.name())
+                .param("starts", starts)
                 .query(Long.class).single();
         jdbc.sql("""
                 INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date,
                                            share_bp)
-                VALUES (:ledgerId, 'SHARED', :sub, :displayName, 'OWNER', 'ACTIVE', current_date, :share)""")
+                VALUES (:ledgerId, 'SHARED', :sub, :displayName, 'OWNER', 'ACTIVE', :starts, :share)""")
                 .param("ledgerId", ledgerId).param("sub", personal.userId()).param("displayName", displayName)
+                .param("starts", starts)
                 .param("share", rule == SplitRule.CUSTOM ? 10_000 : null)
                 .update();
         LedgerScope family = access.member(personal.userId(), ledgerId);
@@ -110,18 +124,26 @@ public class FamilyLedgerService {
                 .query((row, n) -> new FamilyLedgerView(row.getLong("id"), row.getString("name"),
                         row.getString("base_currency"), SplitRule.valueOf(row.getString("split_rule")),
                         MemberRole.valueOf(row.getString("role")), row.getLong("member_id"),
-                        row.getTimestamp("created_at").toInstant()))
+                        row.getTimestamp("created_at").toInstant(), row.getObject("start_date", LocalDate.class)))
                 .single();
     }
 
     /**
      * Renames the ledger or changes its base currency; null leaves a field as it is. The base currency may change
-     * while the ledger has no records (D-13), and none can exist before F4a, which adds that check.
+     * only while the ledger has no records (D-13): shares and balances are in it.
      *
      * @param owner the ledger, as one of its owners
+     * @throws ConflictException if the base currency changes after the first record
      */
     @Transactional
     public FamilyLedgerView update(LedgerScope owner, String name, String baseCurrency) {
+        lock(owner);
+        if (baseCurrency != null && !baseCurrency.equals(get(owner).baseCurrency()) && jdbc.sql(
+                "SELECT EXISTS (SELECT FROM family_record WHERE ledger_id = :ledgerId)")
+                .param("ledgerId", owner.ledgerId()).query(Boolean.class).single()) {
+            throw new ConflictException("The base currency of a family budget can't change once it has a record: its "
+                    + "shares and balances are in it");
+        }
         jdbc.sql("""
                 UPDATE ledger SET name = coalesce(:name, name), base_currency = coalesce(:currency, base_currency)
                 WHERE id = :ledgerId""")
@@ -196,18 +218,26 @@ public class FamilyLedgerService {
     }
 
     /**
-     * Removes a member without an account. Allowed while the member has no shares, which F4a checks once records
-     * exist; under a CUSTOM split rule the member's share must be 0 first, so that the others' still sum to 10000.
+     * Removes a member without an account, while no record names them, as payer or with a share, deleted records
+     * included (their journal does); under a CUSTOM split rule the member's share must be 0 first, so that the
+     * others' still sum to 10000.
      *
      * @param owner the ledger, as one of its owners
      * @throws NotFoundException if the ledger has no such member
-     * @throws ConflictException if the member has an account or is FORMER, or a custom share above 0
+     * @throws ConflictException if the member has an account or is FORMER, a custom share above 0, or records
      */
     @Transactional
     public void removeMember(LedgerScope owner, long memberId) {
         lock(owner);
         FamilyMemberView member = member(owner, memberId);
         requireMemberWithoutAccount(member, "only members without an account can be removed so far");
+        if (jdbc.sql("""
+                SELECT EXISTS (SELECT FROM family_record WHERE ledger_id = :ledgerId AND payer_member_id = :memberId)
+                    OR EXISTS (SELECT FROM family_share WHERE ledger_id = :ledgerId AND member_id = :memberId)""")
+                .param("ledgerId", owner.ledgerId()).param("memberId", memberId).query(Boolean.class).single()) {
+            throw new ConflictException(("%s paid or shares family records, so they stay a member of the family "
+                    + "budget").formatted(member.displayName()));
+        }
         if (member.share() != null && member.share() > 0) {
             throw new ConflictException(("%s has a share of %s in the custom split rule; change the rule to give them "
                     + "0 first").formatted(member.displayName(), BasisPoints.percent(member.share())));

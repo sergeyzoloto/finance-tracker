@@ -2,6 +2,7 @@ package com.example.financetracker.ledger.api;
 
 import static com.example.financetracker.ledger.api.AccountController.NOT_BLANK;
 
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,9 +57,12 @@ class FamilyLedgerController {
      * @param displayName the name the other members will see (D-3)
      * @param splitRule the default split rule; EQUAL if left out. Under CUSTOM the creator's share is 10000
      * @param categoryIds the creator's own categories whose code, name and type start the family's dictionary
+     * @param startDate the first day a record may be dated, and the creator's join date (D-27); today if left out,
+     *        never later
      */
     record NewFamilyLedger(@NotBlank @Size(max = 100) String name, @NotNull @CurrencyCode String baseCurrency,
-            @NotBlank @Size(max = 100) String displayName, SplitRule splitRule, List<@NotNull Long> categoryIds) {
+            @NotBlank @Size(max = 100) String displayName, SplitRule splitRule, List<@NotNull Long> categoryIds,
+            LocalDate startDate) {
     }
 
     /** Rename the ledger or change its base currency; fields left out stay as they are. */
@@ -99,7 +103,8 @@ class FamilyLedgerController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     FamilyLedgerView create(LedgerScope personal, @Valid @RequestBody NewFamilyLedger ledger) {
-        return families.create(personal, ledger.name().strip(), ledger.baseCurrency(), ledger.displayName().strip(),
+        return families.create(personal, ledger.name().strip(), ledger.baseCurrency(), ledger.startDate(),
+                ledger.displayName().strip(),
                 ledger.splitRule() == null ? SplitRule.EQUAL : ledger.splitRule(),
                 ledger.categoryIds() == null ? List.of() : ledger.categoryIds());
     }

@@ -102,10 +102,12 @@ public class EntryService {
      * @throws EntryNotFoundException if the ledger has no such entry
      * @throws OptimisticLockingFailureException if the entry is no longer at {@code expectedVersion}
      * @throws InvalidEntryException naming every problem with the new entry
+     * @throws ConflictException if a family budget posted the entry, or it is a payment for a family record (D-8)
      */
     @Transactional
     public EntryView update(LedgerScope ledger, long entryId, int expectedVersion, EntryCommand command) {
         JournalEntry entry = find(ledger, entryId);
+        requireOwn(ledger, entry);
         requireVersion(entry, expectedVersion);
         EntryDraft draft = validDraft(ledger, command);
         try {
@@ -122,10 +124,12 @@ public class EntryService {
      * @param expectedVersion the version the caller read
      * @throws EntryNotFoundException if the ledger has no such entry
      * @throws OptimisticLockingFailureException if the entry is no longer at {@code expectedVersion}
+     * @throws ConflictException if a family budget posted the entry, or it is a payment for a family record (D-8)
      */
     @Transactional
     public void delete(LedgerScope ledger, long entryId, int expectedVersion) {
         JournalEntry entry = find(ledger, entryId);
+        requireOwn(ledger, entry);
         requireVersion(entry, expectedVersion);
         try {
             entries.delete(entry);
@@ -138,7 +142,7 @@ public class EntryService {
     // The entry and its postings are read by separate queries; one snapshot keeps them consistent.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public EntryView get(LedgerScope ledger, long entryId) {
-        return EntryView.of(find(ledger, entryId));
+        return EntryView.of(find(ledger, entryId), families(ledger, List.of(entryId)).get(entryId));
     }
 
     /**
@@ -205,7 +209,7 @@ public class EntryService {
         String kind = row.getString("kind");
         return new EntryView(row.getLong("id"), row.getInt("version"), row.getObject("entry_date", LocalDate.class),
                 kind == null ? null : EntryKind.valueOf(kind), row.getObject("payee_id", Long.class),
-                row.getString("memo"), List.of());
+                row.getString("memo"), List.of(), null);
     }
 
     /** The entries of the ledger with their postings in order, which are read in one query for all of them. */
@@ -227,10 +231,53 @@ public class EntryService {
                             row.getString("currency"), Money.normalize(row.getBigDecimal("amount")),
                             row.getObject("category_id", Long.class), row.getObject("counterparty_id", Long.class)));
                 });
+        Map<Long, EntryFamily> families = families(ledger, postings.keySet());
         return headers.stream()
                 .map(e -> new EntryView(e.id(), e.version(), e.entryDate(), e.kind(), e.payeeId(), e.memo(),
-                        List.copyOf(postings.get(e.id()))))
+                        List.copyOf(postings.get(e.id())), families.get(e.id())))
                 .toList();
+    }
+
+    /**
+     * The family budgets that posted these entries of the ledger, or that they are payments for, by entry id. Detached
+     * links (D-19) don't count: those entries are the member's own.
+     */
+    private Map<Long, EntryFamily> families(LedgerScope ledger, Collection<Long> entryIds) {
+        Map<Long, EntryFamily> families = new HashMap<>();
+        if (entryIds.isEmpty()) {
+            return families;
+        }
+        jdbc.sql("""
+                SELECT l.entry_id, l.family_ledger_id, f.name, l.record_id, l.link_type
+                FROM family_entry_link l
+                JOIN journal_entry e ON e.id = l.entry_id
+                JOIN ledger f ON f.id = l.family_ledger_id
+                WHERE e.ledger_id = :ledgerId AND l.entry_id IN (:entryIds) AND l.detached_at IS NULL""")
+                .param("ledgerId", ledger.ledgerId())
+                .param("entryIds", entryIds)
+                .query(row -> {
+                    families.put(row.getLong("entry_id"), new EntryFamily(row.getLong("family_ledger_id"),
+                            row.getString("name"), row.getObject("record_id", Long.class),
+                            row.getString("link_type"), true));
+                });
+        return families;
+    }
+
+    /**
+     * Refuses a change of an entry that a family budget posted, or that is the payer's payment for a family record:
+     * it changes through the record (D-8). Until F4c brings payment edits, a wrong payment is fixed by deleting the
+     * record and entering it again.
+     */
+    private void requireOwn(LedgerScope ledger, JournalEntry entry) {
+        EntryFamily family = families(ledger, List.of(entry.id())).get(entry.id());
+        if (family == null) {
+            return;
+        }
+        throw new ConflictException(family.link().equals("PAYMENT")
+                ? ("Entry %d is your payment for a record of the family budget \"%s\"; change or delete the record "
+                        + "there").formatted(entry.id(), family.ledgerName())
+                : "Entry %d was posted from the family budget \"%s\"; change it there".formatted(entry.id(),
+                        family.ledgerName()));
     }
 
     private JournalEntry find(LedgerScope ledger, long entryId) {
@@ -252,8 +299,37 @@ public class EntryService {
 
     private EntryDraft validDraft(LedgerScope ledger, EntryCommand command) {
         EntryDraft draft = command.draft(context(ledger));
-        validator.check(draft, references(ledger, draft));
+        List<String> violations = new ArrayList<>(validator.violations(draft, references(ledger, draft)));
+        violations.addAll(familyDebtPostings(ledger, draft));
+        if (!violations.isEmpty()) {
+            throw new InvalidEntryException(violations);
+        }
         return draft;
+    }
+
+    /** Postings to a family budget's debt account, which only the family budget posts to (D-8, D-10). */
+    private List<String> familyDebtPostings(LedgerScope ledger, EntryDraft draft) {
+        if (draft.accountIds().isEmpty()) {
+            return List.of();
+        }
+        Map<Long, String> debtAccounts = new HashMap<>();
+        jdbc.sql("""
+                SELECT id, code FROM account
+                WHERE ledger_id = :ledgerId AND id IN (:accountIds) AND family_ledger_id IS NOT NULL""")
+                .param("ledgerId", ledger.ledgerId())
+                .param("accountIds", draft.accountIds())
+                .query(row -> {
+                    debtAccounts.put(row.getLong("id"), row.getString("code"));
+                });
+        List<String> violations = new ArrayList<>();
+        for (int i = 0; i < draft.postings().size(); i++) {
+            String code = debtAccounts.get(draft.postings().get(i).accountId());
+            if (code != null) {
+                violations.add(("posting %d (%s): the account is a family budget's debt account, which only the "
+                        + "family budget posts to").formatted(i + 1, code));
+            }
+        }
+        return violations;
     }
 
     /** The accounts commands post to by role, and the settings of the personal ledger's member. */

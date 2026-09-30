@@ -573,6 +573,148 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
+    /**
+     * Family records (F4a; ADR 0003, topics E and K), with three users: Alice and Bob in family ledger A, Alice alone
+     * (with a member without an account) in B, Carol in neither. For every record, balance and journal endpoint, Bob
+     * on B, and Carol on A and B, get the answer for a family ledger that doesn't exist. In A, Bob sees Alice's records
+     * by her display name, but none of her accounts' names, ids or codes and none of her personal entries' ids, in the
+     * raw answers. He can't reach the entries the family budget posted into her ledger through any personal endpoint,
+     * nor pay a record with her account; and a record she paid isn't his to delete.
+     */
+    @Test
+    void familyRecordsAreReachedByTheirActiveMembersOnly() throws IOException {
+        String carol = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01",
+                 "categoryIds": [%d]}""".formatted(categoryId(alice, "GROCERIES"))).get("id").asLong();
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        long kidInA = created(post(alice, "/api/family-ledgers/" + familyA + "/members", """
+                {"displayName": "Kid"}"""));
+        String inA = "/api/family-ledgers/" + familyA;
+        long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
+        long alicesRecord = created(post(alice, inA + "/records", """
+                {"date": "2026-08-20", "categoryId": %d, "amount": "60", "comment": "Weekly shop",
+                 "payerMemberId": %d, "paymentAccountId": %d}""".formatted(groceriesInA,
+                find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong(), alicesBank)));
+        long bobsRecordInA = created(post(bob, inA + "/records", """
+                {"date": "2026-08-21", "categoryId": %d, "amount": "9", "payerMemberId": %d}"""
+                .formatted(groceriesInA, kidInA)));
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "USD", "displayName": "Alice", "startDate": "2026-08-01",
+                 "categoryIds": [%d]}""".formatted(alicesHobby)).get("id").asLong();
+        String inB = "/api/family-ledgers/" + familyB;
+        long hobbyInB = find(ok(get(alice, inB + "/categories")), "code", "ALICE_HOBBY").get("id").asLong();
+        long bRecord = created(post(alice, inB + "/records", """
+                {"date": "2026-08-22", "categoryId": %d, "amount": "25", "payerMemberId": %d, "paymentLater": true}"""
+                .formatted(hobbyInB, find(ok(get(alice, inB + "/members")), "displayName", "Alice").get("id")
+                        .asLong())));
+        List<FamilyRequest> requests = List.of(
+                new FamilyRequest(HttpMethod.GET, "/records", null),
+                new FamilyRequest(HttpMethod.POST, "/records", """
+                        {"date": "2026-08-23", "categoryId": %d, "amount": "1", "payerMemberId": %d}"""
+                        .formatted(hobbyInB, bobInA)),
+                new FamilyRequest(HttpMethod.GET, "/records/" + bRecord, null),
+                new FamilyRequest(HttpMethod.PATCH, "/records/" + bRecord + "?version=0", """
+                        {"comment": "Intruder"}"""),
+                new FamilyRequest(HttpMethod.DELETE, "/records/" + bRecord + "?version=0", null),
+                new FamilyRequest(HttpMethod.GET, "/balances", null),
+                new FamilyRequest(HttpMethod.GET, "/journal", null));
+
+        SoftAssertions softly = new SoftAssertions();
+        for (FamilyRequest request : requests) {
+            String uri = "/api/family-ledgers/%d" + request.path();
+            // Bob on B, and on either personal ledger.
+            for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+                answersAsIfMissing(softly, request.method(), uri, ledger, request.body());
+            }
+            for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
+                answersAsIfMissingTo(softly, carol, request.method(), uri.formatted(ledger), uri.formatted(MISSING),
+                        request.body());
+            }
+        }
+        // B's record through A is missing too.
+        answersAsIfMissing(softly, HttpMethod.GET, inA + "/records/%d", bRecord, null);
+        answersAsIfMissing(softly, HttpMethod.PATCH, inA + "/records/%d?version=0", bRecord, """
+                {"comment": "Intruder"}""");
+        answersAsIfMissing(softly, HttpMethod.DELETE, inA + "/records/%d?version=0", bRecord, null);
+        softly.assertAll();
+
+        // In A, Bob reads the family's data: Alice as "Mum", and nothing of her own.
+        List<String> answers = new ArrayList<>();
+        for (String read : List.of("/records", "/records/" + alicesRecord, "/balances", "/journal")) {
+            answers.add(bobReads(inA + read).toString());
+        }
+        String all = String.join("", answers);
+        assertThat(all).contains("Mum", "Dad", "Kid", "Weekly shop");
+        Map<String, JsonNode> alicesView = view(alice);
+        List<String> alicesOwn = new ArrayList<>();
+        for (JsonNode account : alicesView.get("/api/accounts")) {
+            alicesOwn.add(account.get("code").asText());
+            alicesOwn.add(account.get("name").asText());
+        }
+        assertThat(alicesOwn).contains("ALICE_BANK", "FAMILY_DEBT_" + familyA, "Debt to family budget: Home");
+        for (String answer : answers) {
+            assertThat(answer).doesNotContain(alicesOwn.toArray(String[]::new));
+            assertThat(fieldNames(json.readTree(answer))).doesNotContain("accountId", "entryId", "account", "entry",
+                    "postings", "userId", "sub", "email", "paymentAccountId");
+        }
+        // Every id in them is one of A's records, members or categories: none is an account's or an entry's.
+        JsonNode records = bobReads(inA + "/records").get("content");
+        List<String> membersOfA = ok(get(alice, inA + "/members")).findValuesAsText("id");
+        assertThat(records.findValuesAsText("memberId")).isNotEmpty().allMatch(membersOfA::contains);
+        assertThat(StreamSupport.stream(records.spliterator(), false).map(r -> r.get("id").asLong()).toList())
+                .containsExactlyInAnyOrder(alicesRecord, bobsRecordInA);
+        assertThat(records.findValues("category")).allSatisfy(category -> assertThat(category.get("id").asLong())
+                .isEqualTo(groceriesInA));
+
+        // The entries posted into her ledger are hers: missing to Bob through every personal endpoint.
+        List<Long> alicesPosted = jdbc.sql("""
+                SELECT l.entry_id FROM family_entry_link l JOIN journal_entry e ON e.id = l.entry_id
+                WHERE l.family_ledger_id = ? AND e.user_id = ?""").params(familyA, alice).query(Long.class).list();
+        assertThat(alicesPosted).hasSize(3);
+        SoftAssertions personal = new SoftAssertions();
+        String bobsCommand = expense(bobsCash, bobsGroceries, null);
+        for (long entry : alicesPosted) {
+            answersAsIfMissing(personal, HttpMethod.GET, "/api/entries/%d", entry, null);
+            answersAsIfMissing(personal, HttpMethod.PUT, "/api/entries/%d?version=0", entry, bobsCommand);
+            answersAsIfMissing(personal, HttpMethod.DELETE, "/api/entries/%d?version=0", entry, null);
+        }
+        // Her debt account, and her account in a record of his: as missing as any account of hers.
+        long alicesDebt = find(alicesView.get("/api/accounts"), "code", "FAMILY_DEBT_" + familyA).get("id").asLong();
+        MvcTestResult herDebt = bobsRequest(HttpMethod.POST, "/api/entries", expense(alicesDebt, bobsGroceries, null));
+        personal.assertThat(withoutDigits(herDebt)).isEqualTo(withoutDigits(post(bob, "/api/entries",
+                expense(MISSING, bobsGroceries, null))));
+        String paidWith = """
+                {"date": "2026-08-24", "categoryId": %d, "amount": "1", "payerMemberId": %d, "paymentAccountId": %d}""";
+        MvcTestResult herAccount = bobsRequest(HttpMethod.POST, inA + "/records", paidWith.formatted(groceriesInA,
+                bobInA, alicesBank));
+        personal.assertThat(herAccount.getResponse().getStatus()).isEqualTo(422);
+        personal.assertThat(withoutDigits(herAccount)).isEqualTo(withoutDigits(post(bob, inA + "/records",
+                paidWith.formatted(groceriesInA, bobInA, MISSING))));
+        // A record Alice paid is hers to delete; his own posted share is read-only to him.
+        personal.assertThat(bobsRequest(HttpMethod.DELETE, inA + "/records/" + alicesRecord + "?version=0", null)
+                .getResponse().getStatus()).isEqualTo(409);
+        long bobsShare = jdbc.sql("""
+                SELECT l.entry_id FROM family_entry_link l JOIN journal_entry e ON e.id = l.entry_id
+                WHERE l.record_id = ? AND e.user_id = ?""").params(alicesRecord, bob).query(Long.class).single();
+        personal.assertThat(delete(bob, "/api/entries/" + bobsShare + "?version=0").getResponse().getStatus())
+                .isEqualTo(409);
+        personal.assertAll();
+
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+    }
+
+    /** Every field name in the JSON, at any depth. */
+    private static Set<String> fieldNames(JsonNode node) {
+        Set<String> names = new TreeSet<>();
+        if (node.isObject()) {
+            node.fieldNames().forEachRemaining(names::add);
+        }
+        node.elements().forEachRemaining(child -> names.addAll(fieldNames(child)));
+        return names;
+    }
+
     /** Every membership of every ledger but one, as text, to compare before and after. */
     private String membershipsBut(long memberId) {
         return jdbc.sql("SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m WHERE m.id <> ?")

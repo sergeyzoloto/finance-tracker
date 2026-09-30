@@ -352,7 +352,16 @@ CREATE TABLE family_share (
   integer out of 10000), as the ledger's default rule is (topic B). EQUAL and PERCENT: every
   share is T × p rounded HALF_UP to the currency's minor unit, with p = `share_bp` / 10000, and the remainder goes to the member
   with the largest share; on a tie to the payer (the recipient for income), then by join order. AMOUNT: as entered, and they must add up. ONE_MEMBER: one share
-  of T. The default rule (`ledger.split_rule`, `ledger_member.share_bp`) applies to new records
+  of T.
+  **As F4a implements it** (`ledger.family.ShareSplit`): every share is T × p cut down (not
+  HALF_UP) to the minor unit, so that the shares never exceed T and the remainder is never
+  negative; the whole remainder goes to the member with the largest share, on a tie to the payer,
+  then by join order. So 10.01 split 50/50 gives the payer 5.01 and the other 5.00, as the F4a task
+  requires; HALF_UP would give 5.01 to both and take the remainder of −0.01 from the payer, who would
+  end at 5.00. D-12 says only "rounded", and "the remainder goes to" reads as a remainder that is
+  added. A currency without a minor unit (JPY) splits in whole units. Under EQUAL a member with an
+  account shares only records dated on or after their join date (D-7), and a member without an
+  account shares any record of the ledger. The default rule (`ledger.split_rule`, `ledger_member.share_bp`) applies to new records
   only; the participants are the members that are ACTIVE with `join_date` on or before the record's
   date.
 - **The start date** (D-27, after the F3b deploy): `ledger.start_date`, chosen at creation (today by
@@ -456,6 +465,16 @@ The unique indexes are as above.
 The entry's `kind` gets `FAMILY_SHARE`, `FAMILY_PAYMENT`, `FAMILY_SETTLEMENT`,
 `FAMILY_OPENING` and `FAMILY_CORRECTION` as hints for the UI (rule 6). A contribution to a joint
 account becomes another link type later.
+
+**F4a as built.** `FamilyPostingService.post(family scope, record, payment)` is `repost`: the
+writer's methods take the family ledger's `LedgerScope` of the member who acts, which the
+architecture test's rule for SQL asks for, and find each member's personal ledger through their
+membership. The payer with an account is always the member who acts (D-14), so their payment with
+their own account is written in their own ledger; the database lets that account through only in the
+ledger the writer names in `app.own_ledger`. Until F4c, the payment's fields don't change: a change of
+the family fields re-posts the shares and keeps the payment, and the personal endpoints answer 409 for
+the payment too (not only for the system-owned entries), naming the rule. Posted entries have no memo:
+a comment would copy family text into personal ledgers, which D-20's erasure then couldn't reach.
 
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted
@@ -666,7 +685,10 @@ CREATE TABLE family_record_change (
 ```
 
 - Fields are the family fields: type, date, category, payer, original amount and currency, base
-  amount, split method, each share, comment. Members and categories are stored as ids and named
+  amount, split method, each share, comment. F4a stores each as `{"field", "old", "new"}`, with
+  `"member"` for a share (`{"field": "share", "member": 17, "old": "50.00", "new": "40.00"}`), and
+  journals the creation with every field, each change of the family fields, and the deletion
+  (without fields). Members and categories are stored as ids and named
   when read, so a FORMER member reads "Former member" everywhere at once (D-20). The private side
   of a payment (the account) is never written here (D-16).
 - Every member reads the journal of every record (D-16); a share shows its last editor and time from
@@ -706,7 +728,9 @@ than the MVP needs.
   `/api/invites/lookup`, `/api/invites/accept` and `/api/invites/decline` take the token instead.
   F3a implements the ledger itself as GET and PATCH `/api/family-ledgers/{ledgerId}` (name and base
   currency) and the split rule as PUT `/{ledgerId}/split-rule`, in place of `settings`, with
-  `members` and `categories` as above. `LedgerAccess.member` answers only for family ledgers, so no
+  `members` and `categories` as above. F4a adds `records` (GET, POST) and `records/{recordId}` (GET,
+  PATCH and DELETE with `?version=`), `balances`, and `journal` (optionally `?recordId=`), which
+  stands for `{recordId}/changes`. `LedgerAccess.member` answers only for family ledgers, so no
   family path reaches a personal ledger, not even the user's own.
 - A member's own display name (after the F3a review, D-3): `PATCH /{ledgerId}/members/me` lets any
   ACTIVE member with an account change the name the others see, with the same validation and

@@ -445,6 +445,14 @@ NULL, and the link stays as the family's history. The alternative is a link with
 the entry, which keeps the old id; F4a, which implements the table, chooses between the two, and a
 test deletes a detached member's entries one by one and through delete-all.
 
+**F4a's choice (V7): `entry_id` with `ON DELETE SET NULL`.** The foreign key keeps every link's entry
+real while it has one, and the entry's deletion, by whoever may delete it, sets the reference to
+NULL without a trigger; a link that keeps an id of nothing would need its own check that the id was
+ever an entry of that member. `created_at` records when the link was written. The table's `CHECK
+(entry_id IS NOT NULL OR detached_at IS NOT NULL)` above is left out: "Delete all my data" deletes
+the member's entries first, and `release_family_memberships` detaches their links only afterwards.
+The unique indexes are as above.
+
 The entry's `kind` gets `FAMILY_SHARE`, `FAMILY_PAYMENT`, `FAMILY_SETTLEMENT`,
 `FAMILY_OPENING` and `FAMILY_CORRECTION` as hints for the UI (rule 6). A contribution to a joint
 account becomes another link type later.
@@ -502,6 +510,13 @@ beforehand.
   change or delete an entry whose link is `system_owned`, unless the transaction has set
   `app.writer` to `family-posting` or `delete-all` (`SET LOCAL` in `CrossLedgerWriter` and in
   `UserDataService`). All code shares one database login, so this catches mistakes, not attacks.
+  As V7 implements it (F4a): `set_config('app.writer', …, true)`, which `CrossLedgerWriter` sets
+  before and resets after each write, so the rest of the transaction runs without it. With it, only
+  entries of the `FAMILY_*` kinds are written, and their postings go only to the accounts above; a
+  payment's other account only in the ledger the writer names as the caller's own
+  (`app.own_ledger`), since the payer with an account is always the caller (D-14). Without it, no
+  entry of a `FAMILY_*` kind is written, no posting reaches a debt account, no link is written, and
+  no debt account is created. A link's `entry_id` becomes NULL whoever deletes its entry.
 - An architecture test fails if any class but `FamilyPostingService` depends on `CrossLedgerWriter`
   (ArchUnit as a test dependency, or a reflection check without one), and its own isolation tests
   (topic K).
@@ -662,7 +677,9 @@ CREATE TABLE family_record_change (
   membership id like every member here, so it reads "Former member" once they are FORMER. Such a
   change belongs to the ledger, not to a record, and has no member as its author: F4a either lets
   `record_id` and `changed_by_member_id` be NULL for it, with an action of its own, or gives the
-  ledger's changes a table of their own.
+  ledger's changes a table of their own. **F4a (V7)** takes the first: `family_record_change` with
+  `record_id` and `changed_by_member_id` NULL, the action `SPLIT_RULE_RESET`, and
+  `about_member_id` naming the member who left; `release_family_memberships` writes it.
 - D-20's erasure (as amended): when a member becomes FORMER, the comment text they wrote is replaced
   with null in the record and wherever the journal holds it: the new value of each of their own
   changes of the comment, and the old value of the change that replaced one of theirs. A comment

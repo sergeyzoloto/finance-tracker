@@ -42,6 +42,44 @@ Not committed yet.
     message next to its member. `ApiError` gets `violationDetails`. Tests: `family.test.ts`
     rewritten, `Family.test.tsx` with the new wording and details; `FamilyLedgerApiTests` and
     `LedgerAccessTests` with the new messages, and the details of a 422.
+- Migration V7 (commit "feat(db): V7 family records and posting"), additive (D-22), ADR 0003 topics
+  C, D, E, F, H and J:
+  - `ledger.start_date` (D-27), set exactly for family ledgers: `created_at::date` for the ones
+    before V7, today when an insert leaves it out (the image before V7), never changed.
+  - `family_record` (type, date on or after the start date, a category of the ledger and of the
+    record's type, payer and payee members, original and base amounts, split method, comment, author,
+    editor, soft deletion, version) and `family_share` (amount, basis points where entered, editor;
+    written only for ACTIVE members). At commit a live expense's or income's shares add up to its
+    base amount, and a settlement has none. The base currency can't change once a record exists.
+  - `family_entry_link` with its own id, the record, member and link type, `system_owned`,
+    `created_at`, `detached_at`, and unique per record, member and type among the links that aren't
+    detached. The choice: `entry_id` with `ON DELETE SET NULL`, recorded in topic E, so that a link
+    never blocks deleting its entry and stays as the family's history.
+  - `family_record_change`, the journal: the record and the author, both NULL for a system change
+    (`SPLIT_RULE_RESET`, which names the member in `about_member_id`), the time, the action and the
+    changes as a JSON array.
+  - `account.family_ledger_id` for a member's `Debt(L)` (a system LIABILITY, one per personal and
+    family ledger, `ON DELETE SET NULL`). The debt accounts and "Payments without a specified
+    account" are created when first needed; V7 creates none.
+  - The posting trigger's exception: a personal posting may use a category of a SHARED ledger in
+    which the personal ledger's member is ACTIVE.
+  - The guard (topic E), by `app.writer`: only the posting service's writer (`family-posting`)
+    writes entries of the `FAMILY_*` kinds, links, debt accounts and postings to them, and it writes
+    nothing else, and only to the accounts D-8 lists (a payment's own account only in the ledger
+    named by `app.own_ledger`). A system-owned entry changes only through the writer, and is deleted
+    only through it or with `delete-all`. A link's `entry_id` becomes NULL whoever deletes its entry.
+  - UNALLOCATED can be renamed but not archived (a trigger); no endpoint deletes an account.
+  - `release_family_memberships` also erases the member's comments from the records and the journal
+    (D-20, topic H), detaches their links, deletes a family ledger's records, shares, links and
+    journal with it, journals the fall back to `EQUAL` as `SPLIT_RULE_RESET`, and sets `app.writer`
+    to `delete-all` while it runs.
+  - Tests: `LedgerSchemaTests` replaces `aFamilyCategoryCannotBeUsedOnAPostingYet` (V6's refusal,
+    lifted) by `aFamilyCategoryIsUsedOnlyByItsActiveMembers`, and adds
+    `familyRecordsFitTheirLedgerAndTheirShares`, `onlyTheFamilyPostingWritesPostedRows`,
+    `unallocatedIsRenamedButNeverArchived` and
+    `releasingAMembershipErasesCommentsAndJournalsTheRuleReset`; `LedgerBackfillMigrationTests`
+    migrates to V6, adds a family ledger created two days before, and checks that V7 changes no row
+    and gives it its creation date as start date.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -54,6 +92,16 @@ Not committed yet.
   and answered `{"status":"UP"}`; the switch logged on. `docker compose down -v` removed it again.
 - After the messages' commit: `./mvnw -B clean verify` 279 tests, 0 failures, 0 errors, 0 skipped,
   BUILD SUCCESS. Frontend: `npm test` 10 files and 142 tests passed, `npm run build` succeeded.
+- After V7's commit: `./mvnw -B clean verify` 283 tests (279, one replaced, four added), 0
+  failures, 0 errors, 0 skipped, BUILD SUCCESS.
+- Rollback evidence: in a scratch worktree of `5a7e490` with only V7 added, that version's
+  `./mvnw -B clean verify`: 279 tests, 276 passed, 3 failures, all in tests that pin the schema:
+  `LedgerBackfillMigrationTests` expects version 6 as the latest, `LedgerSchemaTests`'
+  `migrationsApplyToAnEmptyDatabase` lists the tables without V7's, and
+  `aFamilyCategoryCannotBeUsedOnAPostingYet` expects V6's refusal that V7 lifts. Every API,
+  isolation, delete-all (the runbook's statements with V7's `release_family_memberships`
+  included), importer, report and demo test passed. The worktree was removed; nothing was committed
+  from it.
 
 **Open**
 - The rest of F4a.

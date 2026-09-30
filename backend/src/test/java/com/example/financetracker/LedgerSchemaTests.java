@@ -96,7 +96,8 @@ class LedgerSchemaTests {
                         "users", "categories", "transactions", // V1
                         "account", "category", "counterparty", "journal_entry", "posting", "exchange_rate",
                         "import_batch", "user_settings", // V2 to V4
-                        "ledger", "ledger_member"); // V5
+                        "ledger", "ledger_member", // V5
+                        "family_record", "family_share", "family_entry_link", "family_record_change"); // V7
     }
 
     /** A shared expense (rule 7): 10.01 paid in cash, 5.00 of it the user's groceries and 5.01 the family's. */
@@ -495,17 +496,275 @@ class LedgerSchemaTests {
                 NOT_NULL_VIOLATION, "a personal ledger needs a user");
     }
 
-    /** F3a leaves the posting trigger as it is: a family category is in another ledger than any entry (F4a). */
+    /**
+     * A personal entry may use a category of a family ledger in which its user is an ACTIVE member (V7; D-11, ADR 0003
+     * topic C), and no other ledger's: not one they left, and not one they were never in.
+     */
     @Test
-    void aFamilyCategoryCannotBeUsedOnAPostingYet() throws SQLException {
+    void aFamilyCategoryIsUsedOnlyByItsActiveMembers() throws SQLException {
         long family = sharedLedger();
-        member(family, "SHARED", user, "OWNER");
-        long familyGroceries = insert("INSERT INTO category (ledger_id, code, name, type) "
-                + "VALUES (?, 'GROCERIES', 'Groceries', 'EXPENSE')", family);
+        long membership = member(family, "SHARED", user, "OWNER");
+        long familyGroceries = familyCategory(family, "GROCERIES", "EXPENSE");
+        long elsewhere = sharedLedger();
+        member(elsewhere, "SHARED", UUID.randomUUID().toString(), "OWNER");
+        long notMine = familyCategory(elsewhere, "GROCERIES", "EXPENSE");
         db.commit();
 
+        long entry = entry();
+        post(entry, cash, "EUR", "-5.00");
+        post(entry, unallocated, "EUR", "5.00", familyGroceries, null);
+        db.commit();
+
+        assertFails(() -> post(entry(), unallocated, "EUR", "5.00", notMine, null), FOREIGN_KEY_VIOLATION,
+                "category %d belongs to another ledger".formatted(notMine));
+        db.rollback();
+        update("UPDATE ledger_member SET status = 'LEFT', role = 'MEMBER', left_date = DATE '2026-09-01' WHERE id = ?",
+                membership);
+        member(family, "SHARED", null, "MEMBER");
+        db.commit();
         assertFails(() -> post(entry(), unallocated, "EUR", "5.00", familyGroceries, null), FOREIGN_KEY_VIOLATION,
                 "category %d belongs to another ledger".formatted(familyGroceries));
+    }
+
+    /**
+     * A family ledger's start date (D-27): set for a family ledger only, today for code that leaves it out, and fixed
+     * once set. A record is dated on or after it, its category has its type, and at commit its shares add up to its
+     * amount; a share goes to an ACTIVE member; the base currency is fixed by the first record (V7; topic D).
+     */
+    @Test
+    void familyRecordsFitTheirLedgerAndTheirShares() throws SQLException {
+        long family = sharedLedger();
+        assertThat(number("SELECT count(*) FROM ledger WHERE id = ? AND start_date = current_date", family)).isOne();
+        assertFails(() -> insert("INSERT INTO ledger (type, start_date) VALUES ('PERSONAL', current_date)"),
+                CHECK_VIOLATION, "ledger_start_date_check");
+        db.rollback();
+        family = sharedLedger();
+        long anna = member(family, "SHARED", user, "OWNER", "Anna", null);
+        long boris = seat(family);
+        long groceriesOfFamily = familyCategory(family, "GROCERIES", "EXPENSE");
+        long salary = familyCategory(family, "SALARY", "INCOME");
+        db.commit();
+        long ledger = family;
+        assertFails(() -> update("UPDATE ledger SET start_date = start_date - 1 WHERE id = ?", ledger),
+                CHECK_VIOLATION, "ledger %d: the start date cannot change".formatted(ledger));
+        db.rollback();
+
+        assertFails(() -> record(ledger, "current_date - 1", groceriesOfFamily, anna, "10.00"), CHECK_VIOLATION,
+                "before its family ledger %d starts on".formatted(ledger));
+        db.rollback();
+        assertFails(() -> record(ledger, "current_date", salary, anna, "10.00"), CHECK_VIOLATION,
+                "category %d is INCOME, and a record of type EXPENSE needs one of its type".formatted(salary));
+        db.rollback();
+        long record = record(ledger, "current_date", groceriesOfFamily, anna, "10.01");
+        share(ledger, record, anna, "5.01", anna);
+        share(ledger, record, boris, "5.01", anna);
+        assertFails(db::commit, CHECK_VIOLATION,
+                "family record %d: the shares sum to 10.0200, not to the amount 10.0100".formatted(record));
+        record = record(ledger, "current_date", groceriesOfFamily, anna, "10.01");
+        share(ledger, record, anna, "5.01", anna);
+        share(ledger, record, boris, "5.00", anna);
+        db.commit();
+
+        long mine = record;
+        assertFails(() -> update("UPDATE ledger SET base_currency = 'USD' WHERE id = ?", ledger), CHECK_VIOLATION,
+                "family ledger %d: the base currency cannot change once the ledger has a record".formatted(ledger));
+        db.rollback();
+        update("UPDATE ledger SET base_currency = base_currency, name = 'Renamed' WHERE id = ?", ledger);
+        db.commit();
+        update("UPDATE ledger_member SET status = 'LEFT', left_date = current_date WHERE id = ?", boris);
+        db.commit();
+        assertFails(() -> update("UPDATE family_share SET amount = 5.00 WHERE record_id = ? AND member_id = ?", mine,
+                boris), CHECK_VIOLATION, "member %d is not an active member and gets no share".formatted(boris));
+        db.rollback();
+        // A deleted record keeps its shares, and they need not add up any more.
+        update("UPDATE family_record SET deleted_at = now(), deleted_by_member_id = ? WHERE id = ?", anna, mine);
+        update("DELETE FROM family_share WHERE record_id = ? AND member_id = ?", mine, anna);
+        db.commit();
+    }
+
+    /**
+     * Only the posting service's writer writes posted rows, and only the kinds and accounts D-8 lists (V7; topic E):
+     * an entry of a family kind, a debt account, a posting to one, and a link. A posted entry changes only through the
+     * writer and is deleted only through it or with all of its user's data; a link loses its entry then.
+     */
+    @Test
+    void onlyTheFamilyPostingWritesPostedRows() throws SQLException {
+        long family = sharedLedger();
+        long anna = member(family, "SHARED", user, "OWNER", "Anna", null);
+        long groceriesOfFamily = familyCategory(family, "GROCERIES", "EXPENSE");
+        long record = record(family, "current_date", groceriesOfFamily, anna, "10.00");
+        share(family, record, anna, "10.00", anna);
+        long ledger = personalLedger(user);
+        db.commit();
+
+        String debtAccount = "INSERT INTO account (user_id, ledger_id, code, name, type, is_system, family_ledger_id) "
+                + "VALUES (?, ?, ?, 'Debt to family budget: Family', 'LIABILITY', TRUE, ?)";
+        assertFails(() -> insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family), CHECK_VIOLATION,
+                "only the family posting creates a family budget's debt account");
+        db.rollback();
+        assertFails(() -> familyEntry("FAMILY_SHARE"), CHECK_VIOLATION,
+                "posted from a family budget, it changes only through its family record");
+        db.rollback();
+
+        writer("family-posting");
+        long debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        String stranger = UUID.randomUUID().toString();
+        long strangersLedger = number("SELECT personal_ledger_id(?)", stranger);
+        assertFails(() -> insert(debtAccount, stranger, strangersLedger, "FAMILY_DEBT_" + family, family),
+                FOREIGN_KEY_VIOLATION, "is not the personal ledger of an active member of family ledger " + family);
+        db.rollback();
+        writer("family-posting");
+        debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        assertFails(() -> insert("INSERT INTO journal_entry (user_id, entry_date, kind) "
+                + "VALUES (?, current_date, 'EXPENSE')", user), CHECK_VIOLATION,
+                "the family posting writes only family kinds, not EXPENSE");
+        db.rollback();
+
+        writer("family-posting");
+        debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        long share = familyEntry("FAMILY_SHARE");
+        long debtAccountId = debt;
+        // Not the user's cash, and not UNALLOCATED without a family category.
+        assertFails(() -> post(share, cash, "EUR", "10.00"), CHECK_VIOLATION,
+                "the family posting may not post FAMILY_SHARE to account CASH");
+        db.rollback();
+        writer("family-posting");
+        debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        long shareEntry = familyEntry("FAMILY_SHARE");
+        assertFails(() -> post(shareEntry, unallocated, "EUR", "10.00", groceries, null), CHECK_VIOLATION,
+                "the family posting may not post FAMILY_SHARE to account UNALLOCATED");
+        db.rollback();
+
+        // A share and a payment with the payer's own cash, which only the ledger the writer names as the caller's gets.
+        writer("family-posting");
+        debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        long posted = familyEntry("FAMILY_SHARE");
+        post(posted, unallocated, "EUR", "10.00", groceriesOfFamily, null);
+        post(posted, debt, "EUR", "-10.00");
+        insert("INSERT INTO family_entry_link (entry_id, family_ledger_id, member_id, record_id, link_type, "
+                + "system_owned) VALUES (?, ?, ?, ?, 'SHARE', TRUE)", posted, family, anna, record);
+        long payment = familyEntry("FAMILY_PAYMENT");
+        long paymentDebt = debt;
+        assertFails(() -> post(payment, cash, "EUR", "-10.00"), CHECK_VIOLATION,
+                "the family posting may not post FAMILY_PAYMENT to account CASH");
+        db.rollback();
+        writer("family-posting");
+        debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        posted = familyEntry("FAMILY_SHARE");
+        post(posted, unallocated, "EUR", "10.00", groceriesOfFamily, null);
+        post(posted, debt, "EUR", "-10.00");
+        insert("INSERT INTO family_entry_link (entry_id, family_ledger_id, member_id, record_id, link_type, "
+                + "system_owned) VALUES (?, ?, ?, ?, 'SHARE', TRUE)", posted, family, anna, record);
+        number("SELECT length(set_config('app.own_ledger', ?, true))", String.valueOf(ledger));
+        long ownPayment = familyEntry("FAMILY_PAYMENT");
+        post(ownPayment, cash, "EUR", "-10.00");
+        post(ownPayment, debt, "EUR", "10.00");
+        insert("INSERT INTO family_entry_link (entry_id, family_ledger_id, member_id, record_id, link_type, "
+                + "system_owned) VALUES (?, ?, ?, ?, 'PAYMENT', FALSE)", ownPayment, family, anna, record);
+        writer("");
+        db.commit();
+
+        // Past the writer: no posting to the debt account, no change of the posted entry, no link.
+        long postedEntry = posted;
+        long debtId = debt;
+        long ordinary = expense("1.00");
+        db.commit();
+        assertFails(() -> post(ordinary, debtId, "EUR", "1.00"), CHECK_VIOLATION,
+                "is the debt account of a family budget, which only it posts to");
+        db.rollback();
+        String onlyThroughTheRecord = "posted from a family budget, it changes only through its family record";
+        assertFails(() -> update("UPDATE journal_entry SET memo = 'mine now' WHERE id = ?", postedEntry),
+                CHECK_VIOLATION, onlyThroughTheRecord);
+        db.rollback();
+        assertFails(() -> update("UPDATE posting SET amount = 11 WHERE entry_id = ? AND amount > 0", postedEntry),
+                CHECK_VIOLATION, onlyThroughTheRecord);
+        db.rollback();
+        assertFails(() -> update("DELETE FROM journal_entry WHERE id = ?", postedEntry), CHECK_VIOLATION,
+                onlyThroughTheRecord);
+        db.rollback();
+        assertFails(() -> update("UPDATE family_entry_link SET system_owned = FALSE WHERE entry_id = ?", postedEntry),
+                CHECK_VIOLATION, "only the family posting writes links");
+        db.rollback();
+        assertFails(() -> update("UPDATE journal_entry SET kind = 'FAMILY_SHARE' WHERE id = ?", ordinary),
+                CHECK_VIOLATION, onlyThroughTheRecord);
+        db.rollback();
+        // The payer's own payment is theirs at the database's level (the service keeps it read-only until F4c).
+        update("UPDATE journal_entry SET memo = 'my card' WHERE id = ?", ownPayment);
+        db.commit();
+
+        // With all of the user's data, a posted entry goes, and its link stays without it.
+        writer("delete-all");
+        update("DELETE FROM journal_entry WHERE id IN (?, ?)", postedEntry, ownPayment);
+        db.commit();
+        assertThat(strings("SELECT link_type || ' ' || (entry_id IS NULL) FROM family_entry_link "
+                + "WHERE family_ledger_id = ? ORDER BY id", family)).containsExactly("SHARE true", "PAYMENT true");
+        assertThat(paymentDebt).isPositive();
+        assertThat(debtAccountId).isPositive();
+    }
+
+    /** UNALLOCATED takes every share of a family budget, so it can be renamed but not archived (V7; D-8). */
+    @Test
+    void unallocatedIsRenamedButNeverArchived() throws SQLException {
+        update("UPDATE account SET name = 'Free money' WHERE id = ?", unallocated);
+        db.commit();
+        assertFails(() -> update("UPDATE account SET archived_at = now() WHERE id = ?", unallocated), CHECK_VIOLATION,
+                "account UNALLOCATED: every share of a family budget is posted there, so it cannot be archived");
+        db.rollback();
+        update("UPDATE account SET archived_at = now() WHERE id = ?", cash);
+        db.commit();
+    }
+
+    /**
+     * "Delete all my data" in a family ledger (V7's release_family_memberships; D-20, topic H): the member's comments
+     * go from the records and from the journal, their links are detached, and a custom rule's fall back to EQUAL is
+     * journaled as a system change about them. A family ledger without another ACTIVE member with an account goes
+     * with its records and journal.
+     */
+    @Test
+    void releasingAMembershipErasesCommentsAndJournalsTheRuleReset() throws SQLException {
+        String bob = UUID.randomUUID().toString();
+        long family = sharedLedger("CUSTOM");
+        long anna = member(family, "SHARED", user, "OWNER", "Anna", 6000);
+        long bobs = member(family, "SHARED", bob, "MEMBER", "Bob", 4000);
+        long groceriesOfFamily = familyCategory(family, "GROCERIES", "EXPENSE");
+        long annasRecord = record(family, "current_date", groceriesOfFamily, anna, "10.00");
+        share(family, annasRecord, anna, "10.00", anna);
+        update("UPDATE family_record SET comment = 'Bob changed it' WHERE id = ?", annasRecord);
+        long bobsRecord = record(family, "current_date", groceriesOfFamily, bobs, "4.00");
+        share(family, bobsRecord, bobs, "4.00", bobs);
+        update("UPDATE family_record SET comment = 'Bob''s own' WHERE id = ?", bobsRecord);
+        journal(family, annasRecord, anna, "CREATE", "[{\"field\": \"comment\", \"old\": null, \"new\": \"Anna's\"}]");
+        journal(family, annasRecord, bobs, "UPDATE", "[{\"field\": \"comment\", \"old\": \"Anna's\", \"new\": \"Bob changed it\"}]");
+        journal(family, bobsRecord, bobs, "CREATE", "[{\"field\": \"amount\", \"old\": null, \"new\": \"4.00\"}, "
+                + "{\"field\": \"comment\", \"old\": null, \"new\": \"Bob's own\"}]");
+        long alone = sharedLedger();
+        member(alone, "SHARED", bob, "OWNER", "Bob", null);
+        member(alone, "SHARED", null, "MEMBER", "Kid", null);
+        long alonesCategory = familyCategory(alone, "TOYS", "EXPENSE");
+        long alonesRecord = record(alone, "current_date", alonesCategory, number(
+                "SELECT id FROM ledger_member WHERE ledger_id = ? AND user_sub = ?", alone, bob), "3.00");
+        share(alone, alonesRecord, number("SELECT id FROM ledger_member WHERE ledger_id = ? AND user_sub IS NULL",
+                alone), "3.00", number("SELECT id FROM ledger_member WHERE ledger_id = ? AND user_sub = ?", alone, bob));
+        db.commit();
+
+        assertThat(number("SELECT release_family_memberships(?)", bob)).isEqualTo(2);
+        assertThat(strings("SELECT coalesce(current_setting('app.writer', true), '')")).containsExactly("");
+        db.commit();
+
+        assertThat(strings("SELECT coalesce(comment, '-') FROM family_record WHERE id IN (?, ?) ORDER BY id",
+                annasRecord, bobsRecord)).containsExactly("-", "-");
+        assertThat(strings("SELECT changes::text FROM family_record_change WHERE record_id IS NOT NULL ORDER BY id"))
+                .containsExactly("[{\"new\": \"Anna's\", \"old\": null, \"field\": \"comment\"}]",
+                        "[{\"new\": null, \"old\": \"Anna's\", \"field\": \"comment\"}]",
+                        "[{\"new\": \"4.00\", \"old\": null, \"field\": \"amount\"}, "
+                                + "{\"new\": null, \"old\": null, \"field\": \"comment\"}]");
+        assertThat(strings("SELECT concat_ws(' ', action, about_member_id, changed_by_member_id IS NULL, changes::text) "
+                + "FROM family_record_change WHERE ledger_id = ? AND record_id IS NULL", family)).containsExactly(
+                "SPLIT_RULE_RESET %d t [{\"new\": \"EQUAL\", \"old\": \"CUSTOM\", \"field\": \"splitRule\"}]"
+                        .formatted(bobs));
+        assertThat(strings("SELECT split_rule FROM ledger WHERE id = ?", family)).containsExactly("EQUAL");
+        assertThat(number("SELECT count(*) FROM ledger WHERE id = ?", alone)).isZero();
+        assertThat(number("SELECT count(*) FROM family_record WHERE ledger_id = ?", alone)).isZero();
     }
 
     /**
@@ -657,6 +916,39 @@ class LedgerSchemaTests {
         assertThatThrownBy(call)
                 .isInstanceOfSatisfying(SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo(sqlState))
                 .hasMessageContaining(message);
+    }
+
+    private long familyCategory(long family, String code, String type) throws SQLException {
+        return insert("INSERT INTO category (ledger_id, code, name, type) VALUES (?, ?, ?, ?)", family, code, code, type);
+    }
+
+    /** An expense of the family ledger, EQUAL, dated by the SQL expression, which its payer wrote. */
+    private long record(long family, String date, long category, long payer, String amount) throws SQLException {
+        return insert("""
+                INSERT INTO family_record (ledger_id, type, record_date, category_id, payer_member_id, original_amount,
+                    original_currency, base_amount, split_method, author_member_id, updated_by_member_id)
+                VALUES (?, 'EXPENSE', %s, ?, ?, ?, 'EUR', ?, 'EQUAL', ?, ?)""".formatted(date), family, category, payer,
+                new BigDecimal(amount), new BigDecimal(amount), payer, payer);
+    }
+
+    private void share(long family, long record, long member, String amount, long by) throws SQLException {
+        update("INSERT INTO family_share (ledger_id, record_id, member_id, amount, updated_by_member_id) "
+                + "VALUES (?, ?, ?, ?, ?)", family, record, member, new BigDecimal(amount), by);
+    }
+
+    private void journal(long family, long record, long by, String action, String changes) throws SQLException {
+        update("INSERT INTO family_record_change (ledger_id, record_id, changed_by_member_id, action, changes) "
+                + "VALUES (?, ?, ?, ?, ?::jsonb)", family, record, by, action, changes);
+    }
+
+    /** An entry of a family kind in the user's ledger, today. */
+    private long familyEntry(String kind) throws SQLException {
+        return insert("INSERT INTO journal_entry (user_id, entry_date, kind) VALUES (?, current_date, ?)", user, kind);
+    }
+
+    /** Which code writes, for V7's triggers, until the transaction ends. */
+    private void writer(String writer) throws SQLException {
+        number("SELECT length(set_config('app.writer', ?, true))", writer);
     }
 
     private long account(String owner, String code, String type, boolean requiresCounterparty) throws SQLException {

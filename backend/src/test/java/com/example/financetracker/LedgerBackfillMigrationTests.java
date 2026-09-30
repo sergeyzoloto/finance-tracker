@@ -97,7 +97,7 @@ class LedgerBackfillMigrationTests {
                         m.display_name, m.role, m.status, m.join_date), '|' ORDER BY l.id)
                     FROM ledger l JOIN ledger_member m ON m.ledger_id = l.id""";
             String ledgersBefore = strings(ledgers).getFirst();
-            MigrateResult v6 = flyway(null).migrate();
+            MigrateResult v6 = flyway("6").migrate();
             assertThat(v6.success).isTrue();
             assertThat(v6.targetSchemaVersion).isEqualTo("6");
             assertThat(rows()).isEqualTo(rowsBefore);
@@ -106,6 +106,38 @@ class LedgerBackfillMigrationTests {
             assertThat(strings(ledgers).getFirst()).isEqualTo(ledgersBefore);
             assertThat(number("SELECT count(*) FROM ledger WHERE split_rule IS NOT NULL")).isZero();
             assertThat(number("SELECT count(*) FROM ledger_member WHERE share_bp IS NOT NULL")).isZero();
+
+            // V7 (F4a) on the same rows, with a family ledger that F3a's code created two days before: additive, it
+            // gives the family ledger its creation date as start date (D-27) and changes nothing else. No personal
+            // ledger gets an account: the debt accounts are created when first needed.
+            db.createStatement().execute("""
+                    INSERT INTO ledger (type, name, base_currency, split_rule, created_at)
+                    VALUES ('SHARED', 'Home', 'EUR', 'EQUAL', TIMESTAMPTZ '2026-09-28 12:00:00+00')""");
+            db.createStatement().execute("""
+                    INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date)
+                    SELECT max(id), 'SHARED', '%s', 'Olive', 'OWNER', 'ACTIVE', DATE '2026-09-28' FROM ledger"""
+                    .formatted(OWNER));
+            String everything = """
+                    SELECT (SELECT string_agg(a::text, '|' ORDER BY a.id) FROM account a)
+                        || (SELECT string_agg(c::text, '|' ORDER BY c.id) FROM category c)
+                        || (SELECT string_agg(e::text, '|' ORDER BY e.id) FROM journal_entry e)
+                        || (SELECT string_agg(p::text, '|' ORDER BY p.id) FROM posting p)
+                        || (SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m)""";
+            String before = strings(everything).getFirst();
+            Map<String, Long> rowsWithFamily = rows();
+            MigrateResult v7 = flyway(null).migrate();
+            assertThat(v7.success).isTrue();
+            assertThat(v7.targetSchemaVersion).isEqualTo("7");
+            assertThat(rows()).isEqualTo(rowsWithFamily);
+            // Account rows gain an empty family_ledger_id, which their text shows as a trailing comma, as members
+            // show their empty share_bp of V6.
+            assertThat(strings(everything).getFirst().replace(",)", ")")).isEqualTo(before.replace(",)", ")"));
+            // The creation date as the session sees it, as for the creator's join date then.
+            String created = strings("SELECT (TIMESTAMPTZ '2026-09-28 12:00:00+00')::date::text").getFirst();
+            assertThat(strings("SELECT type || ' ' || coalesce(start_date::text, '-') FROM ledger ORDER BY id"))
+                    .containsExactly("PERSONAL -", "PERSONAL -", "PERSONAL -", "PERSONAL -", "PERSONAL -",
+                            "SHARED " + created);
+            assertThat(number("SELECT count(*) FROM account WHERE family_ledger_id IS NOT NULL")).isZero();
         } finally {
             db.close();
         }

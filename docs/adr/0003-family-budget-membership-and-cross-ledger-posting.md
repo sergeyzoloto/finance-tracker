@@ -15,7 +15,9 @@ changes their own display name (topics B and I), and delete-all's order once fam
 personal ledgers (topic J). F3b is deployed since 2026-09-30, from `5a7e490`, with the switch off. Amended
 after that deploy: the start date of a family ledger (D-27, topics B and D) and F4 split into F4a, F4b
 and F4c (topic J). F4a is deployed since 2026-09-30, from `71c3eb7` (parts 1 to 4) and `5f5af66`
-(parts 5 and 6), with the switch off; the decisions after its reviews are in topics D, E, F and H. The requirements and decisions D-1 to D-26 are in
+(parts 5 and 6), with the switch off; the decisions after its reviews are in topics D, E, F and H.
+F4b is deployed since 2026-09-30, from `4285d52`, with the switch off; the decisions after its review
+are in topics I and J. The requirements and decisions D-1 to D-27 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -790,6 +792,18 @@ points with integer arithmetic, never floating point: "33.33" is 3333, and 3333 
 family selector only for a user with more than one family ledger (D-5). Posted entries show a badge
 in the list and open read-only, with a link to the family record.
 
+**Kept after the F4b review** (2026-09-30), as built:
+
+- "Who owes whom" pairs the largest debtor with the largest creditor, then the next. It is a display
+  only: the model fixes each member's balance, not the transfers. The fewest transfers that settle
+  every balance (D3 in the review) stay "later" (requirements, "Later").
+- The payment account list leaves out archived accounts, though the backend takes them.
+- Money is formatted with the app's `formatMoney`, as on the personal pages.
+
+**Changed after the F4b review:** the expense page no longer finds the payer's paying account among
+the payer's entries of that day. From F4c the record's answer carries it in a field of its own,
+present only for the payer with an account (topic E, "F4c as built").
+
 **Satisfies** D-5, A3, C6.
 
 ### J. Migration and rollout, F2 to F7
@@ -921,6 +935,10 @@ back").
   and posting, as above, with the start date (D-27); F4b is their interface; F4c takes what the plan
   called F4b just above, backend and interface, and may be split again. Until F4c, a wrong payment
   field is fixed by deleting the record and entering it again.
+  **F4c split** (after the F4b review, 2026-09-30): F4c is the payer's side: the payment edits of
+  D-14, moving a payment to an account, the payer's own payment entry through the personal
+  endpoints, and marking a new personal expense as family (C2). F4d is settlements (D2, D-24) and
+  family incomes (C5); F4e other currencies (C7, D-13). F5, F6 and F7 stay as they are.
 - **F5**: invites, seat claiming and returning members (D-26). It is the first stage in which
   another real person's data meets the owner's, so the privacy policy's new text (H2) is ready before
   F5 starts, even if F6 publishes it.

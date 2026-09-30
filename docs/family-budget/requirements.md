@@ -14,6 +14,8 @@ Amended after the F4a review on 2026-09-30: D-12 (how shares are rounded) and D-
 
 Amended after the review of F4a's parts 5 and 6 on 2026-09-30: the planned stages (F6) and "Later".
 
+Amended after the F4b review on 2026-09-30: the planned stages (F4c split into F4c, F4d and F4e) and "Later".
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -159,7 +161,9 @@ Added after the F3b deploy (2026-09-30)
 - F3b: the interface: the ledger switcher and the family pages.
 - F4a: the backend of family expense records and posting: family records, shares, the posting service, expenses in the base currency, balances, read-only posted rows, the change journal, the start date (D-27); UNALLOCATED becomes a system account. Also family categories in personal ledgers: merging the creator's chosen categories into the family ones at creation, the posting trigger's exception for family categories, and family categories in personal category lists and reports. Until then a family category lives only in its family ledger.
 - F4b: the interface of family expense records.
-- F4c: what the plan called F4b: marking personal entries as family, incomes, other currencies, settlements (D-24), and edits of payment fields, backend and interface; it may be split again. Until F4c, a wrong payment field is fixed by deleting the record and entering it again.
+- F4c: the payer's side, backend and interface: edits of the payment fields (D-14), moving a payment to an account, the payer's own payment entry through the personal endpoints, and marking a new personal expense as family (C2). Until F4c, a wrong payment field is fixed by deleting the record and entering it again.
+- F4d: settlements (D2, D-24) and family incomes (C5).
+- F4e: other currencies (C7, D-13).
 - F5: invites, seat claiming, returning members (D-26). The privacy policy text is ready before F5 starts.
 - F6: leaving, removal and detach; delete-my-data for family data; the published privacy policy; the demo family; family reports and the personal-report filter; removing old SharedExpense creation from the UI. With the demo family, revisit the demo's personal twin of a starter category merged into a family budget (accepted after the review of F4a's parts 5 and 6).
 - F7: the switch goes on in production, followed by a check with two real accounts.
@@ -169,4 +173,5 @@ Added after the F3b deploy (2026-09-30)
 Found along the way; not part of a stage yet.
 - Row buttons in category lists. The entry form's .actions flex rule also applies to td.actions, so the personal and family category lists stack their row buttons vertically. It predates F3b.
 - Sequential scans on posting. F2b's EXPLAIN showed the balance, integrity and rates statements reading all postings and hash-joining them with the ledger's entries, since posting has no ledger column; the same statements filtered by user_id had the same plan before F2b. Revisit after the Excel import, or when demo ledgers from open registration pile up. The options: a ledger_id on posting, checked by a trigger against its entry's; or statements that start from the ledger's entries and reach the postings through their index.
+- Minimal transfers (called D3 in the F4b review). "Who owes whom" pairs the largest debtor with the largest creditor, then the next, as a display only; the model fixes each member's balance, not the transfers. The fewest transfers that settle every balance stay for later.
 - The personal entry list on a phone. At 375 px it is wider than the screen, with or without family rows: 573 px for a month of the demo without them, 664 px with them (found in F4a's walk-through).

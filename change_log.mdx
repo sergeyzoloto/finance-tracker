@@ -3,11 +3,41 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-30 · Family budget: F4b's deploy and review, the payer's side (F4c)
+
+Not committed yet.
+
+**Changes**
+- F4b's deploy and the decisions after its review (commit "docs(family-budget): F4b deploy, review
+  decisions, F4 stages"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-09-30, `4285d52`, with the owner's
+    checks. The F4b entry below got its commit `4285d52` and the deploy's record.
+  - ADR 0003, topic I, kept as built: "who owes whom" pairs the largest debtor with the largest
+    creditor as a display only, and the fewest transfers (D3 in the review) stay "later"; archived
+    accounts are left out of the payment list; money goes through `formatMoney`. Changed: the
+    expense page stops finding the paying account among the payer's entries of the day; a field of
+    the record's answer carries it (F4c).
+  - The stages, in ADR 0003 topic J, `docs/family-budget/requirements.md` and CLAUDE.md: F4c is the
+    payer's side (payment edits, moving a payment to an account, the payer's own payment entry,
+    marking a personal expense as family, C2); F4d settlements (D2, D-24) and incomes (C5); F4e other
+    currencies (C7). F5 to F7 stay. "Later" gains the minimal transfers.
+  - CLAUDE.md: production runs `4285d52`.
+
+**Verified**
+- Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
+  `feature/family-budget` checked out with a clean tree; it, `main` and `origin/main` all at
+  `4285d52`. `./mvnw -B clean verify`: 312 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
+  Frontend: `npm ci`, `npm test` 14 files and 192 tests passed, `npm run build` succeeded.
+- After the documents' commit: documents only.
+
+**Open**
+- The rest of F4c: payment edits in the backend, the payer's personal entry and C2.
+
 ## 2026-09-30 · Family budget: F4a's second deploy and review, the family expenses interface (F4b)
 
-Committed locally on `feature/family-budget` in three commits: `55ee2f9` (documents), `f604039`
-(the journal names each record) and "feat(frontend): family expenses, balances and journal", whose
-hash belongs here with the next change log commit. Not pushed, not merged, not deployed.
+Commits `55ee2f9` (documents), `f604039` (the journal names each record) and `4285d52` (the
+interface), on `feature/family-budget`, merged into `main` and deployed on 2026-09-30; the deploy's
+records: "docs(family-budget): F4b deploy, review decisions, F4 stages".
 
 **Changes**
 - F4a parts 5 and 6: the deploy and the decisions after the review (commit "docs(family-budget):
@@ -108,6 +138,16 @@ hash belongs here with the next change log commit. Not pushed, not merged, not d
   payer made 4 frontend tests fail (three preview cases and the add form's 5.00 and 5.01).
 - After the interface's commit: frontend `npm test` 14 files and 192 tests passed (151 before),
   `npm run build` succeeded; the backend unchanged since the journal's commit.
+- The deploy on 2026-09-30, from `4285d52`, with the switch off, as the owner checked it:
+  - Before: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30
+    categories, 0 counterparties, 0 entries and 0 import batches; every family count 0; no row
+    outside its user's personal ledger; the restore test passed with 18 tables, migration 7 and the
+    four family counts 0.
+  - The deploy: no migration, Flyway reported the schema up to date; the api logged the switch as
+    off; both images new, with layers different from `:previous`; the server at `main`, `4285d52`.
+  - After: the same counts, and every family count 0; `/api/me` held
+    `"features":{"familyLedgers":false}`; no switcher in the header, and `/family/7/expenses` ended
+    on the dashboard; the personal pages as before; the smoke test with the test account passed.
 
 **Open**
 - The owner's deploy of F4b with the switch off; the report has the checklist. No migration and no

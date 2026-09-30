@@ -12,10 +12,10 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  * A family record as every member of its family ledger sees it (D-6, D-16). Only family data: members by their display
  * names, never an account, a personal category or a personal entry of anyone's (C4).
  *
- * @param type EXPENSE (F4a) or SETTLEMENT (F4d)
+ * @param type EXPENSE (F4a), INCOME or SETTLEMENT (F4d)
  * @param category the family category; null for a settlement
  * @param amount in the family's base currency, with its minor unit's decimals
- * @param payer who paid an expense, or who paid in a settlement
+ * @param payer who paid an expense, received an income, or paid in a settlement
  * @param splitMethod EQUAL, PERCENT, AMOUNT or ONE_MEMBER; null for a settlement
  * @param shares by the members' join order; none for a settlement
  * @param version what to pass back to change or delete the record
@@ -29,7 +29,7 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  *        account, else its author or an owner (D-14; F4c, additive); for a settlement, its date and amount, by who may
  *        change it
  * @param yourPayment how the member who reads paid it, only when they are its payer with an account, and left out for
- *        everyone else (F4c, additive); for a settlement, their own side, when they are its payer or receiver with an
+ *        everyone else (F4c, additive); for an income, how its receiver received it; for a settlement, their own side, when they are its payer or receiver with an
  *        account (F4d)
  * @param payee who was paid in a settlement; left out for every other record (F4d, additive)
  */

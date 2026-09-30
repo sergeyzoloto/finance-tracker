@@ -584,6 +584,25 @@ settlement to the placeholder, and to an own account only in the acting member's
   `date`, `amount` and `comment`; the deletion. The journal's record summary gains `type`.
 - `yourPayment` is each side's own: their entry and account, or `later`, in their answers only.
 
+**F4d as built: incomes** (C5). No migration either.
+
+- `POST /records` takes `type`: `EXPENSE`, the default, or `INCOME`. An income mirrors an expense:
+  `payerMemberId` is the member who received it, its category is one of the family's INCOME
+  categories (and an expense's an EXPENSE one: 422 `CATEGORY` either way, also on a change), the
+  split methods are the same, and D-12's tie goes to the receiver.
+- The postings, as this topic's table has them: the receiver's receipt (`FAMILY_PAYMENT`, link
+  `PAYMENT`) is their account, or their placeholder for "Specify later", +T and `Debt(L)` −T; each
+  share (`FAMILY_SHARE`) is UNALLOCATED −s with the income category and `Debt(L)` +s. So D-7's
+  example holds: the receiver of 1000, split 50/50, ends owing 500 and the partner is owed 500. The
+  personal cash flow counts the share as the family category's income.
+- Edits and deletion as for expenses (D-14): the receiver with an account changes the date, the
+  amount, the receiver and their account, also through their receipt's `PATCH
+  /api/entries/{id}/family-payment`, with their private note (`privateNote`, the receipt's memo);
+  for a receiver without an account, the author or an owner; the family fields by the author and
+  the owners. Deleting the receipt deletes the income. `yourPayment` is the receiver's view of
+  their receipt. The messages say "income" and "received".
+- A personal entry's `family` gains `recordType` (additive), so that a receipt reads as one.
+
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted
 entries for every eligible member from the record's stored shares, and compares them with the

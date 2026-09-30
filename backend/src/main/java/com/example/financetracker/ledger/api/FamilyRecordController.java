@@ -38,7 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * A family ledger's records, balances and change journal (F4a; ADR 0003, topics D, H and I), for its ACTIVE members
  * only: anyone else gets 404, the answer for a family ledger that doesn't exist, for reads and writes alike. Records are
- * family expenses and settlements (F4d) in the base currency; incomes come with F4d too, other currencies with F4e. A
+ * family expenses, incomes and settlements (F4d) in the base currency; other currencies come with F4e. A
  * settlement is recorded through {@code /settlements}, the resource ADR 0003 names for it, and is read, changed and
  * deleted as a record. No answer holds a member's accounts, personal categories or personal entries (C4), except the
  * caller's own payment or side of a settlement, for their eyes only ({@code yourPayment}, F4c).
@@ -51,21 +51,28 @@ import org.springframework.web.bind.annotation.RestController;
 class FamilyRecordController {
 
     /**
-     * A family expense (C1).
+     * A family expense (C1), or a family income (C5, F4d), which mirrors it.
      *
+     * @param type EXPENSE, the default, or INCOME (F4d, additive)
+     * @param categoryId a family category of the record's type
      * @param amount in the family's base currency, above 0, with at most its minor unit's decimals
-     * @param payerMemberId who paid: yourself, if you paid, or a member without an account (D-14)
-     * @param paymentAccountId if you paid: the account of your personal ledger you paid with. It stays private: no
-     *        answer about the record names it (D-16)
+     * @param payerMemberId who paid an expense or received an income: yourself, or a member without an account (D-14)
+     * @param paymentAccountId if you paid: the account of your personal ledger you paid with, or for an income received
+     *        it into. It stays private: no answer about the record names it (D-16)
      * @param paymentLater if you paid: true to specify the account later; the payment goes to "Payments without a
      *        specified account" (D-14)
      * @param split how the amount is split; the family budget's rule if left out
      * @param privateNote if you paid: a note that only your payment entry in your personal ledger holds; no family
      *        answer and no journal names it (F4c, C2)
      */
-    record NewRecord(@NotNull LocalDate date, @NotNull Long categoryId, @NotNull BigDecimal amount,
+    record NewRecord(RecordType type, @NotNull LocalDate date, @NotNull Long categoryId, @NotNull BigDecimal amount,
             @Size(max = 500) String comment, @NotNull Long payerMemberId, Long paymentAccountId, Boolean paymentLater,
             @Valid Split split, @Size(max = 500) String privateNote) {
+    }
+
+    /** The types of record with a category and shares; a settlement is recorded through {@code /settlements}. */
+    enum RecordType {
+        EXPENSE, INCOME
     }
 
     /**
@@ -226,12 +233,16 @@ class FamilyRecordController {
         return records.page(access.member(user.id(), ledgerId), page, size);
     }
 
-    /** Any member. The shares are posted into the personal ledgers of the members with an account (D-7). */
+    /**
+     * Any member records an expense or an income. The shares are posted into the personal ledgers of the members with
+     * an account (D-7).
+     */
     @PostMapping("/records")
     @ResponseStatus(HttpStatus.CREATED)
     FamilyRecordView create(CurrentUser user, LedgerScope personal, @PathVariable long ledgerId,
             @Valid @RequestBody NewRecord record) {
-        return records.create(access.member(user.id(), ledgerId), personal, new NewFamilyRecord(record.date(),
+        return records.create(access.member(user.id(), ledgerId), personal, new NewFamilyRecord(
+                record.type() == null ? "EXPENSE" : record.type().name(), record.date(),
                 record.categoryId(), record.amount(),
                 record.comment() == null || record.comment().isBlank() ? null : record.comment().strip(),
                 record.payerMemberId(), record.paymentAccountId(), Boolean.TRUE.equals(record.paymentLater()),

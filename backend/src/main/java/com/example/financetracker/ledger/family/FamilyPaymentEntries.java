@@ -20,7 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * The payer's own payment for a family expense, as an entry of their personal ledger (F4c; D-14; ADR 0003, topic E):
  * a change of its date, amount, account or note is the payer's change of the expense, through
- * {@link FamilyRecordService#update}, and deleting it deletes the expense. A member's own side of a settlement (F4d)
+ * {@link FamilyRecordService#update}, and deleting it deletes the expense; the receiver's receipt of a family income
+ * the same way (F4d). A member's own side of a settlement (F4d)
  * changes the same way: its account by either side, its date and amount by the side who recorded it, who also deletes
  * it through it (D-24). The entry is found in the caller's own personal ledger only, so nobody but its member reaches
  * it: anyone else's entry is missing (rule 11).
@@ -106,8 +107,8 @@ public class FamilyPaymentEntries implements FamilyPayments {
                 .optional()
                 .orElseThrow(() -> new EntryNotFoundException(entryId));
         if (!"PAYMENT".equals(found.link()) && !"SETTLEMENT".equals(found.link())) {
-            throw new ConflictException(("Entry %d is not your payment for a family expense or your side of a "
-                    + "settlement, so it doesn't change as one").formatted(entryId));
+            throw new ConflictException(("Entry %d is not your payment for a family expense, what you received for a "
+                    + "family income or your side of a settlement, so it doesn't change as one").formatted(entryId));
         }
         return new Payment(found.version(), found.familyLedgerId(), found.recordId(), found.memberId());
     }

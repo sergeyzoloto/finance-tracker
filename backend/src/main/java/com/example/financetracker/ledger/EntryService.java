@@ -129,8 +129,8 @@ public class EntryService {
 
     /**
      * Deletes the entry with its postings. The payer's own payment for a family expense deletes the expense, with every
-     * member's share of it, and a member's own side of a settlement deletes the settlement if they recorded it, while
-     * the family budget is switched on (F4c, F4d, D-14).
+     * member's share of it, as the receiver's receipt deletes an income, and a member's own side of a settlement deletes
+     * the settlement if they recorded it, while the family budget is switched on (F4c, F4d, D-14).
      *
      * @param expectedVersion the version the caller read
      * @throws EntryNotFoundException if the ledger has no such entry
@@ -267,17 +267,18 @@ public class EntryService {
             return families;
         }
         jdbc.sql("""
-                SELECT l.entry_id, l.family_ledger_id, f.name, l.record_id, l.link_type
+                SELECT l.entry_id, l.family_ledger_id, f.name, l.record_id, l.link_type, r.type AS record_type
                 FROM family_entry_link l
                 JOIN journal_entry e ON e.id = l.entry_id
                 JOIN ledger f ON f.id = l.family_ledger_id
+                LEFT JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
                 WHERE e.ledger_id = :ledgerId AND l.entry_id IN (:entryIds) AND l.detached_at IS NULL""")
                 .param("ledgerId", ledger.ledgerId())
                 .param("entryIds", entryIds)
                 .query(row -> {
                     families.put(row.getLong("entry_id"), new EntryFamily(row.getLong("family_ledger_id"),
                             row.getString("name"), row.getObject("record_id", Long.class),
-                            row.getString("link_type"), true));
+                            row.getString("link_type"), true, row.getString("record_type")));
                 });
         return families;
     }
@@ -293,8 +294,11 @@ public class EntryService {
             return;
         }
         throw new ConflictException(switch (family.link()) {
-            case "PAYMENT" -> ("Entry %d is your payment for an expense of the family budget \"%s\"; change or delete "
-                    + "the expense there").formatted(entry.id(), family.ledgerName());
+            case "PAYMENT" -> "INCOME".equals(family.recordType())
+                    ? ("Entry %d is what you received for an income of the family budget \"%s\"; change or delete the "
+                            + "income there").formatted(entry.id(), family.ledgerName())
+                    : ("Entry %d is your payment for an expense of the family budget \"%s\"; change or delete the "
+                            + "expense there").formatted(entry.id(), family.ledgerName());
             case "SETTLEMENT" -> ("Entry %d is your side of a settlement in the family budget \"%s\"; change it "
                     + "there").formatted(entry.id(), family.ledgerName());
             default -> "Entry %d was posted from the family budget \"%s\"; change it there".formatted(entry.id(),

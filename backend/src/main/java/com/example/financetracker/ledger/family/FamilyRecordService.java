@@ -44,8 +44,8 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * A family ledger's records (C1, C3; D-6, D-12, D-14, D-16; ADR 0003, topics D and H): family expenses in the base
- * currency (F4a), their shares, the members' balances and the change journal. Every method takes the family ledger's
+ * A family ledger's records (C1, C3, C5, D2; D-6, D-12, D-14, D-16; ADR 0003, topics D and H): family expenses (F4a),
+ * incomes and settlements (F4d) in the base currency, their shares, the members' balances and the change journal. Every method takes the family ledger's
  * {@link LedgerScope} of the member who acts, from {@code LedgerAccess.member}; the payment's account comes from their
  * personal ledger's. Each change is journaled and posted into the members' personal ledgers by
  * {@link FamilyPostingService} in the same transaction.
@@ -57,7 +57,9 @@ import org.springframework.transaction.annotation.Transactional;
  * member). The author and the owners change the family fields; the payer with an account changes the payment fields
  * (the date, the amount, the payer, the account) and deletes, or for a payer without one the author or an owner (F4c);
  * and nobody changes a record that involves a member who left or deleted their data (D-19, frozen: 409). The
- * user-facing messages call a record an expense or a settlement, as the screens do.
+ * user-facing messages call a record an expense, an income or a settlement, as the screens do. An income (C5, F4d)
+ * mirrors an expense: its payer is the member who received it, its category an INCOME one, and D-12's tie goes to the
+ * receiver.
  * <p>
  * Settlements (F4d; D2, D-24): one member pays another, with no category and no shares. A member with an account
  * records one they pay or receive, with their own side's account or "Specify later"; an owner also records one between
@@ -83,6 +85,7 @@ public class FamilyRecordService {
     public static final String PAYEE = "PAYEE";
 
     private static final String EXPENSE = "EXPENSE";
+    private static final String INCOME = "INCOME";
     private static final String SETTLEMENT = "SETTLEMENT";
 
     private static final String RECORDS = """
@@ -103,7 +106,9 @@ public class FamilyRecordService {
     }
 
     /**
-     * Records a family expense, and posts it into the members' personal ledgers.
+     * Records a family expense or income (C5, F4d), and posts it into the members' personal ledgers. An income mirrors
+     * an expense: its payer is the member who received it, its category an INCOME one, and each share is posted as
+     * income, with the receiver's receipt on the account they name.
      *
      * @param family the family ledger, as the member who enters it: its author
      * @param personal the author's personal ledger, which the payment's account is in
@@ -114,17 +119,18 @@ public class FamilyRecordService {
     public FamilyRecordView create(LedgerScope family, LedgerScope personal, NewFamilyRecord request) {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
-        requireStarted(ledger, request.date(), EXPENSE);
+        String type = request.type();
+        requireStarted(ledger, request.date(), type);
         int scale = ShareSplit.minorUnit(ledger.baseCurrency());
         Map<Long, Member> members = members(family);
         List<Violation> violations = new ArrayList<>();
-        checkCategory(family, request.categoryId(), violations);
+        checkCategory(family, request.categoryId(), type, violations);
         checkAmount(request.amount(), ledger.baseCurrency(), scale, violations);
         Member payer = members.get(request.payerMemberId());
         Payment payment = payment(family, personal, request, payer, violations);
         List<Share> shares = violations.stream().anyMatch(v -> v.code().equals(AMOUNT)) ? List.of()
                 : split(request.split(), request.amount(), scale, request.date(), request.payerMemberId(), ledger,
-                        members, violations);
+                        members, violations, type);
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
         }
@@ -134,10 +140,10 @@ public class FamilyRecordService {
                 INSERT INTO family_record (ledger_id, type, record_date, category_id, payer_member_id,
                     original_amount, original_currency, base_amount, split_method, comment, author_member_id,
                     updated_by_member_id)
-                VALUES (:ledgerId, 'EXPENSE', :date, :categoryId, :payerId, :amount, :currency, :amount, :method,
+                VALUES (:ledgerId, :type, :date, :categoryId, :payerId, :amount, :currency, :amount, :method,
                         :comment, :memberId, :memberId)
                 RETURNING id""")
-                .param("ledgerId", family.ledgerId()).param("date", request.date())
+                .param("ledgerId", family.ledgerId()).param("type", type).param("date", request.date())
                 .param("categoryId", request.categoryId()).param("payerId", request.payerMemberId())
                 .param("amount", request.amount().setScale(scale, RoundingMode.UNNECESSARY))
                 .param("currency", ledger.baseCurrency()).param("method", method)
@@ -223,15 +229,19 @@ public class FamilyRecordService {
         // A split that comes with a new amount belongs to the payment's change: under AMOUNT it has to come (D-14).
         boolean familyFields = changes.categoryId() != null || changes.changesComment()
                 || changes.split() != null && !(mayEditPayment && amountChanged);
+        String type = record.type();
         if (familyFields && !mayEditFamily) {
-            throw new ConflictException("Only the expense's author or an owner of the family budget can change its "
-                    + "category, split or comment");
+            throw new ConflictException(("Only the %s's author or an owner of the family budget can change its "
+                    + "category, split or comment").formatted(noun(type)));
         }
         if ((changes.changesPayment() || !mayEditFamily) && !mayEditPayment) {
             throw new ConflictException(payer.hasAccount()
-                    ? "Only %s, who paid it, can change the expense's date, amount, payer or paying account"
+                    ? (type.equals(INCOME)
+                            ? "Only %s, who received it, can change the income's date, amount, receiver or receiving "
+                                    + "account"
+                            : "Only %s, who paid it, can change the expense's date, amount, payer or paying account")
                             .formatted(payer.displayName())
-                    : "Only the expense's author or an owner of the family budget can change it");
+                    : "Only the %s's author or an owner of the family budget can change it".formatted(noun(type)));
         }
         requireNotFrozen(family, record, members);
         if (!date.equals(record.date())) {
@@ -242,7 +252,7 @@ public class FamilyRecordService {
         List<Violation> violations = new ArrayList<>();
         long categoryId = record.categoryId();
         if (changes.categoryId() != null && changes.categoryId() != record.categoryId()) {
-            checkCategory(family, changes.categoryId(), violations);
+            checkCategory(family, changes.categoryId(), type, violations);
             categoryId = changes.categoryId();
         }
         if (changes.amount() != null) {
@@ -255,8 +265,8 @@ public class FamilyRecordService {
         String method = record.splitMethod();
         boolean amountValid = violations.stream().noneMatch(v -> v.code().equals(AMOUNT));
         if (changes.split() != null) {
-            newShares = amountValid ? split(changes.split(), amount, scale, date, payerId, ledger, members, violations)
-                    : List.of();
+            newShares = amountValid ? split(changes.split(), amount, scale, date, payerId, ledger, members, violations,
+                    type) : List.of();
             method = method(changes.split(), ledger);
         } else if (amountChanged || !date.equals(record.date()) || payerId != record.payerId()) {
             newShares = amountValid ? resplit(record, oldShares, amount, amountChanged, scale, date, payerId, members,
@@ -361,8 +371,10 @@ public class FamilyRecordService {
         } else if (payer.hasAccount() ? record.payerId() != family.memberId()
                 : record.authorId() != family.memberId() && family.role() != MemberRole.OWNER) {
             throw new ConflictException(payer.hasAccount()
-                    ? "Only %s, who paid it, can delete this expense".formatted(payer.displayName())
-                    : "Only the expense's author or an owner of the family budget can delete it");
+                    ? "Only %s, who %s it, can delete this %s".formatted(payer.displayName(), paid(record.type()),
+                            noun(record.type()))
+                    : "Only the %s's author or an owner of the family budget can delete it".formatted(
+                            noun(record.type())));
         }
         requireNotFrozen(family, record, members);
         jdbc.sql("""
@@ -377,8 +389,9 @@ public class FamilyRecordService {
     }
 
     /**
-     * Every member's balance, B(m) = their expense shares − the expenses they paid − the settlements they paid + the
-     * settlements they received, over the records that aren't deleted (ADR 0003, topic D). The balances sum to zero,
+     * Every member's balance, B(m) = their expense shares − the expenses they paid + the incomes they received − their
+     * income shares − the settlements they paid + the settlements they received, over the records that aren't deleted
+     * (ADR 0003, topic D). The balances sum to zero,
      * since every record's shares add up to its amount and a settlement moves as much to one as from the other.
      */
     @Transactional(readOnly = true)
@@ -488,9 +501,7 @@ public class FamilyRecordService {
             if (recorder.id() == payer.id() || recorder.id() == payee.id()) {
                 for (Member side : List.of(payer, payee)) {
                     if (side.hasAccount() && side.joinDate().isAfter(request.date())) {
-                        violations.add(new Violation(JOINED_AFTER, side.id(), ("%s joined on %s, after the "
-                                + "settlement's date %s").formatted(side.displayName(), side.joinDate(),
-                                request.date())));
+                        violations.add(joinedAfter(side, request.date(), SETTLEMENT));
                     }
                 }
                 payment = paidWith(personal, recorder.id(), request.paymentAccountId(), request.paymentLater(), null,
@@ -580,8 +591,7 @@ public class FamilyRecordService {
         for (long sideId : List.of(record.payerId(), record.payeeId())) {
             Member side = members.get(sideId);
             if (!date.equals(record.date()) && side.hasAccount() && side.joinDate().isAfter(date)) {
-                violations.add(new Violation(JOINED_AFTER, side.id(), "%s joined on %s, after the settlement's date %s"
-                        .formatted(side.displayName(), side.joinDate(), date)));
+                violations.add(joinedAfter(side, date, SETTLEMENT));
             }
         }
         Payment payment = new FamilyPostingService.Unchanged();
@@ -669,13 +679,22 @@ public class FamilyRecordService {
         }
     }
 
-    /** What the screens call a record of the type: "expense" or "settlement". */
+    /** What the screens call a record of the type: "expense", "income" or "settlement". */
     private static String noun(String type) {
-        return type.equals(SETTLEMENT) ? "settlement" : "expense";
+        return switch (type) {
+            case INCOME -> "income";
+            case SETTLEMENT -> "settlement";
+            default -> "expense";
+        };
     }
 
     private static String article(String type) {
-        return (type.equals(EXPENSE) ? "an " : "a ") + noun(type);
+        return (type.equals(SETTLEMENT) ? "a " : "an ") + noun(type);
+    }
+
+    /** What the payer of a record of the type did with its amount: "paid" an expense, "received" an income. */
+    private static String paid(String type) {
+        return type.equals(INCOME) ? "received" : "paid";
     }
 
     private static String capitalized(String type) {
@@ -683,7 +702,7 @@ public class FamilyRecordService {
         return Character.toUpperCase(noun.charAt(0)) + noun.substring(1);
     }
 
-    private void checkCategory(LedgerScope family, long categoryId, List<Violation> violations) {
+    private void checkCategory(LedgerScope family, long categoryId, String type, List<Violation> violations) {
         record Category(String code, String type, boolean archived) {
         }
         jdbc.sql("SELECT code, type, archived_at IS NOT NULL AS archived FROM category "
@@ -696,10 +715,10 @@ public class FamilyRecordService {
                     if (category.archived()) {
                         violations.add(new Violation(CATEGORY, null,
                                 "the category %s is archived".formatted(category.code())));
-                    } else if (!category.type().equals("EXPENSE")) {
+                    } else if (!category.type().equals(type)) {
                         violations.add(new Violation(CATEGORY, null,
-                                "the category %s is %s, and an expense needs an EXPENSE category"
-                                        .formatted(category.code(), category.type())));
+                                "the category %s is %s, and %s needs an %s category"
+                                        .formatted(category.code(), category.type(), article(type), type)));
                     }
                 }, () -> violations.add(new Violation(CATEGORY, null,
                         "category %d is not a category of the family budget".formatted(categoryId))));
@@ -724,6 +743,7 @@ public class FamilyRecordService {
     private Payment payment(LedgerScope family, LedgerScope personal, NewFamilyRecord request, Member payer,
             List<Violation> violations) {
         long payerId = request.payerMemberId();
+        String type = request.type();
         if (payer == null || payer.status() != MemberStatus.ACTIVE) {
             violations.add(new Violation(PAYER, payerId,
                     "Member %d is not an active member of the family budget".formatted(payerId)));
@@ -735,19 +755,19 @@ public class FamilyRecordService {
                 violations.add(noAccount(payer));
             }
             if (request.privateNote() != null) {
-                violations.add(notYourPayment(payerId));
+                violations.add(notYourPayment(payerId, type));
             }
             return new FamilyPostingService.Unchanged();
         }
         if (payerId != family.memberId()) {
-            violations.add(notYou(payer));
+            violations.add(notYou(payer, type));
             return new FamilyPostingService.Unchanged();
         }
         if (payer.joinDate().isAfter(request.date())) {
-            violations.add(joinedAfter(payer, request.date()));
+            violations.add(joinedAfter(payer, request.date(), type));
         }
         return paidWith(personal, payerId, request.paymentAccountId(), request.paymentLater(), request.privateNote(),
-                violations);
+                violations, type);
     }
 
     /**
@@ -760,6 +780,7 @@ public class FamilyRecordService {
             FamilyRecordChanges changes, LocalDate date, long payerId, Map<Long, Member> members,
             List<Violation> violations) {
         Member payer = members.get(payerId);
+        String type = record.type();
         if (payerId != record.payerId()) {
             if (payer == null || payer.status() != MemberStatus.ACTIVE) {
                 violations.add(new Violation(PAYER, payerId,
@@ -771,32 +792,32 @@ public class FamilyRecordService {
                     violations.add(noAccount(payer));
                 }
                 if (changes.changesNote()) {
-                    violations.add(notYourPayment(payerId));
+                    violations.add(notYourPayment(payerId, type));
                 }
                 return new FamilyPostingService.Unchanged();
             }
             if (payerId != family.memberId()) {
-                violations.add(notYou(payer));
+                violations.add(notYou(payer, type));
                 return new FamilyPostingService.Unchanged();
             }
             if (payer.joinDate().isAfter(date)) {
-                violations.add(joinedAfter(payer, date));
+                violations.add(joinedAfter(payer, date, type));
             }
             return paidWith(personal, payerId, changes.paymentAccountId(), changes.paymentLater(), changes.note(),
-                    violations);
+                    violations, type);
         }
         if (!payer.hasAccount()) {
             if (changes.namesAccount()) {
                 violations.add(noAccount(payer));
             }
             if (changes.changesNote()) {
-                violations.add(notYourPayment(payerId));
+                violations.add(notYourPayment(payerId, type));
             }
             return new FamilyPostingService.Unchanged();
         }
         // The payer with an account stays, and is the caller: only they change the payment fields.
         if (payer.joinDate().isAfter(date)) {
-            violations.add(joinedAfter(payer, date));
+            violations.add(joinedAfter(payer, date, type));
         }
         if (!changes.namesAccount() && !changes.changesNote()) {
             return new FamilyPostingService.Unchanged();
@@ -804,23 +825,24 @@ public class FamilyRecordService {
         OwnPayment current = posting.ownPayments(family, List.of(record.id())).get(record.id());
         String note = changes.changesNote() ? changes.note() : current == null ? null : current.note();
         if (changes.namesAccount()) {
-            return paidWith(personal, payerId, changes.paymentAccountId(), changes.paymentLater(), note, violations);
+            return paidWith(personal, payerId, changes.paymentAccountId(), changes.paymentLater(), note, violations,
+                    type);
         }
         return current == null || current.later() ? new FamilyPostingService.Later(note)
                 : new FamilyPostingService.OwnAccount(current.accountId(), note);
     }
 
-    /** The account of the payer's own personal ledger they paid with, or "Specify later", as they name it. */
-    private Payment paidWith(LedgerScope personal, long payerId, Long accountId, boolean later, String note,
-            List<Violation> violations) {
-        return paidWith(personal, payerId, accountId, later, note, violations, EXPENSE);
-    }
-
-    /** As above, for a record of the type: an expense's payment, or a settlement's side of the member (F4d). */
+    /**
+     * The account of the payer's own personal ledger they paid with, or "Specify later", as they name it; for an
+     * income, the account the receiver received it into, and for a settlement, the member's own side's (F4d).
+     */
     private Payment paidWith(LedgerScope personal, long payerId, Long accountId, boolean later, String note,
             List<Violation> violations, String type) {
-        String which = type.equals(SETTLEMENT) ? "name the account your side of it went from or into"
-                : "name the account you paid with";
+        String which = switch (type) {
+            case SETTLEMENT -> "name the account your side of it went from or into";
+            case INCOME -> "name the account you received it into";
+            default -> "name the account you paid with";
+        };
         if (accountId != null && later) {
             violations.add(new Violation(PAYMENT, payerId, which + ", or specify it later, not both"));
             return new FamilyPostingService.Unchanged();
@@ -846,11 +868,14 @@ public class FamilyRecordService {
             violations.add(new Violation(PAYMENT, payerId, "account %d does not exist".formatted(accountId)));
         } else if (!List.of("ASSET", "LIABILITY").contains(account.get().type()) || account.get().debt()
                 || account.get().requiresCounterparty() || account.get().system()) {
-            violations.add(new Violation(PAYMENT, payerId, (type.equals(SETTLEMENT)
-                    ? "the account %s can't take a settlement: use an account of your own money or credit, or specify "
-                            + "it later"
-                    : "the account %s can't pay a family expense: pay with an account of your own money or credit, or "
-                            + "specify it later").formatted(account.get().code())));
+            violations.add(new Violation(PAYMENT, payerId, (switch (type) {
+                case SETTLEMENT -> "the account %s can't take a settlement: use an account of your own money or "
+                        + "credit, or specify it later";
+                case INCOME -> "the account %s can't receive a family income: use an account of your own money or "
+                        + "credit, or specify it later";
+                default -> "the account %s can't pay a family expense: pay with an account of your own money or "
+                        + "credit, or specify it later";
+            }).formatted(account.get().code())));
         }
         return new FamilyPostingService.OwnAccount(accountId, note);
     }
@@ -860,13 +885,15 @@ public class FamilyRecordService {
                 .formatted(payer.displayName()));
     }
 
-    private static Violation notYou(Member payer) {
-        return new Violation(PAYER, payer.id(), ("%s has an account: only they can record what they paid; name "
-                + "yourself, or a member without an account").formatted(payer.displayName()));
+    private static Violation notYou(Member payer, String type) {
+        return new Violation(PAYER, payer.id(), ("%s has an account: only they can record what they %s; name "
+                + "yourself, or a member without an account").formatted(payer.displayName(), paid(type)));
     }
 
-    private static Violation notYourPayment(long payerId) {
-        return new Violation(PAYMENT, payerId, "a private note goes only on your own payment, and you didn't pay this");
+    private static Violation notYourPayment(long payerId, String type) {
+        return new Violation(PAYMENT, payerId, type.equals(INCOME)
+                ? "a private note goes only on your own receipt, and you didn't receive this"
+                : "a private note goes only on your own payment, and you didn't pay this");
     }
 
     /**
@@ -882,6 +909,7 @@ public class FamilyRecordService {
         List<Member> byJoinDate = members.values().stream()
                 .sorted(Comparator.comparing(Member::joinDate).thenComparing(Member::id)).toList();
         int before = violations.size();
+        String type = record.type();
         switch (record.splitMethod()) {
             case "EQUAL" -> {
                 List<Long> participants = byJoinDate.stream()
@@ -889,8 +917,8 @@ public class FamilyRecordService {
                                 || m.hasAccount() && m.joinDate().isAfter(record.date())))
                         .map(Member::id).toList();
                 if (participants.isEmpty()) {
-                    violations.add(new Violation(NO_MEMBERS, null, "no active member shares an expense of %s"
-                            .formatted(date)));
+                    violations.add(new Violation(NO_MEMBERS, null, "no active member shares %s of %s"
+                            .formatted(article(type), date)));
                     return List.of();
                 }
                 return ShareSplit.equal(amount, scale, participants, payerId);
@@ -904,7 +932,7 @@ public class FamilyRecordService {
                     }
                     int basisPoints = share.basisPoints() == null ? 0 : share.basisPoints();
                     if (basisPoints > 0 && !joinedBy(member, date)) {
-                        violations.add(joinedAfter(member, date));
+                        violations.add(joinedAfter(member, date, type));
                     }
                     weights.add(new Weight(member.id(), basisPoints, basisPoints));
                 }
@@ -914,15 +942,15 @@ public class FamilyRecordService {
                 ShareRow on = old.values().stream().max(Comparator.comparing(ShareRow::amount)).orElseThrow();
                 Member member = members.get(on.memberId());
                 if (!joinedBy(member, date)) {
-                    violations.add(joinedAfter(member, date));
+                    violations.add(joinedAfter(member, date, type));
                     return List.of();
                 }
                 return ShareSplit.oneMember(amount, scale, member.id());
             }
             case "AMOUNT" -> {
                 if (amountChanged) {
-                    violations.add(new Violation(AMOUNTS_NEEDED, null, "the expense is split by amounts: send the "
-                            + "new amounts with the new amount"));
+                    violations.add(new Violation(AMOUNTS_NEEDED, null, ("the %s is split by amounts: send the new "
+                            + "amounts with the new amount").formatted(noun(type))));
                     return List.of();
                 }
                 List<Share> shares = new ArrayList<>();
@@ -932,7 +960,7 @@ public class FamilyRecordService {
                         continue;
                     }
                     if (share.amount().signum() > 0 && !joinedBy(member, date)) {
-                        violations.add(joinedAfter(member, date));
+                        violations.add(joinedAfter(member, date, type));
                     }
                     shares.add(new Share(member.id(), share.amount(), null));
                 }
@@ -947,7 +975,7 @@ public class FamilyRecordService {
      * record on or after their join date, which is when records are posted to them (D-7, D-18).
      */
     private List<Share> split(RecordSplit split, BigDecimal amount, int scale, LocalDate date, long payerId,
-            Ledger ledger, Map<Long, Member> members, List<Violation> violations) {
+            Ledger ledger, Map<Long, Member> members, List<Violation> violations, String type) {
         RecordSplit wanted = split == null ? RecordSplit.rule() : split;
         List<Member> byJoinDate = members.values().stream()
                 .sorted(Comparator.comparing(Member::joinDate).thenComparing(Member::id)).toList();
@@ -959,8 +987,8 @@ public class FamilyRecordService {
                             .filter(m -> m.status() == MemberStatus.ACTIVE && joinedBy(m, date)).map(Member::id)
                             .toList();
                     if (participants.isEmpty()) {
-                        violations.add(new Violation(NO_MEMBERS, null, "no active member shares an expense of %s"
-                                .formatted(date)));
+                        violations.add(new Violation(NO_MEMBERS, null, "no active member shares %s of %s"
+                                .formatted(article(type), date)));
                         return List.of();
                     }
                     return ShareSplit.equal(amount, scale, participants, payerId);
@@ -969,7 +997,7 @@ public class FamilyRecordService {
                 for (Member member : byJoinDate) {
                     if (member.status() == MemberStatus.ACTIVE && member.share() != null) {
                         if (member.share() > 0 && !joinedBy(member, date)) {
-                            violations.add(joinedAfter(member, date));
+                            violations.add(joinedAfter(member, date, type));
                         }
                         weights.add(new Weight(member.id(), member.share(), member.share()));
                     }
@@ -977,7 +1005,7 @@ public class FamilyRecordService {
                 return violations.size() > before ? List.of() : ShareSplit.percent(amount, scale, weights, payerId);
             }
             case PERCENT -> {
-                Map<Long, ShareInput> inputs = inputs(wanted, members, date, violations, true);
+                Map<Long, ShareInput> inputs = inputs(wanted, members, date, violations, true, type);
                 long total = 0;
                 boolean valid = true;
                 for (ShareInput input : inputs.values()) {
@@ -1001,7 +1029,7 @@ public class FamilyRecordService {
                 return ShareSplit.percent(amount, scale, weights, payerId);
             }
             case AMOUNT -> {
-                Map<Long, ShareInput> inputs = inputs(wanted, members, date, violations, false);
+                Map<Long, ShareInput> inputs = inputs(wanted, members, date, violations, false, type);
                 boolean valid = true;
                 for (ShareInput input : inputs.values()) {
                     BigDecimal share = input.amount();
@@ -1038,7 +1066,7 @@ public class FamilyRecordService {
                     return List.of();
                 }
                 if (!joinedBy(member, date)) {
-                    violations.add(joinedAfter(member, date));
+                    violations.add(joinedAfter(member, date, type));
                     return List.of();
                 }
                 return ShareSplit.oneMember(amount, scale, memberId);
@@ -1049,7 +1077,7 @@ public class FamilyRecordService {
 
     /** The shares as entered, by member, each of an ACTIVE member who shares records of the date, once. */
     private static Map<Long, ShareInput> inputs(RecordSplit split, Map<Long, Member> members, LocalDate date,
-            List<Violation> violations, boolean percent) {
+            List<Violation> violations, boolean percent, String type) {
         Map<Long, ShareInput> inputs = new LinkedHashMap<>();
         Set<Long> reported = new HashSet<>();
         for (ShareInput input : split.shares()) {
@@ -1063,7 +1091,7 @@ public class FamilyRecordService {
                 violations.add(FamilyLedgerService.notActive(input.memberId()));
             } else if (!joinedBy(member, date) && (percent ? input.basisPoints() != null && input.basisPoints() > 0
                     : input.amount() != null && input.amount().signum() > 0)) {
-                violations.add(joinedAfter(member, date));
+                violations.add(joinedAfter(member, date, type));
             }
         }
         if (inputs.isEmpty()) {
@@ -1077,9 +1105,9 @@ public class FamilyRecordService {
         return !member.hasAccount() || !member.joinDate().isAfter(date);
     }
 
-    private static Violation joinedAfter(Member member, LocalDate date) {
-        return new Violation(JOINED_AFTER, member.id(), "%s joined on %s, after the expense's date %s"
-                .formatted(member.displayName(), member.joinDate(), date));
+    private static Violation joinedAfter(Member member, LocalDate date, String type) {
+        return new Violation(JOINED_AFTER, member.id(), "%s joined on %s, after the %s's date %s"
+                .formatted(member.displayName(), member.joinDate(), noun(type), date));
     }
 
     /** The split method a record stores (topic D): the rule's EQUAL or, for its custom shares, PERCENT. */

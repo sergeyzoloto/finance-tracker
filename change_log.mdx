@@ -61,6 +61,29 @@ Not committed yet.
     `FamilyInvariants` computes balances with incomes and settlements (topic D's formula) and checks
     that no settlement has shares; `ApiTests` (401 and the OpenAPI paths) and
     `FamilySwitchOffApiTests` (23 endpoints) with the new endpoint.
+- Family incomes (commit "feat(family): family incomes"), C5, ADR 0003 topic E ("F4d as built:
+  incomes"). No migration.
+  - `POST /api/family-ledgers/{ledgerId}/records` takes `type` (additive): `EXPENSE`, the default, or
+    `INCOME`; `SETTLEMENT` there is 400. An income mirrors an expense: `payerMemberId` is who
+    received it, the category an INCOME one (422 `CATEGORY` for an EXPENSE one, and the other way
+    round for an expense, also on a change), the same split methods, D-12's tie to the receiver.
+  - Posting as D-7's income example: the receiver's receipt (`FAMILY_PAYMENT`, link `PAYMENT`) is
+    their account or placeholder +T and debt −T; each share (`FAMILY_SHARE`) UNALLOCATED −s with the
+    income category and debt +s. The personal cash flow counts the share as the family category's
+    income.
+  - Edits as for expenses: the receiver with an account changes date, amount, receiver and account,
+    also through their receipt with their private note; the author and owners the family fields; for
+    a receiver without an account, the author or an owner. Deleting the receipt deletes the income.
+    `yourPayment` is the receiver's receipt. The messages say "income" and "received" ("Only Mum,
+    who received it, can change the income's date, amount, receiver or receiving account.",
+    "Income 5 not found.", "Entry N is what you received for an income of the family budget
+    "Home"; change or delete the income there.").
+  - A personal entry's `family` gains `recordType` (`EXPENSE`, `INCOME` or `SETTLEMENT`; additive,
+    left out without a record).
+  - Tests: new `FamilyIncomeApiTests` (4); `DataIsolationApiTests.anIncomesReceiptIsTheReceiversOwn`
+    (new; the file has gained 176 lines since `e7cdeb1` and lost none); `FamilyRecordRandomTests`
+    with incomes in the mix; `FamilyRecordApiTests` expects `recordType` on a posted entry;
+    `FamilyPaymentApiTests` with the payment endpoint's new message.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -75,6 +98,14 @@ Not committed yet.
 - `aSettlementSideIsItsMembersOwn` against a temporary mutation, from a file copy: `ownPayments`
   without its member and owner filters made it fail (Bob's answer held "Alice's bank"). The file
   restored.
+- After the incomes' commit: `./mvnw -B clean verify` 335 tests (330 and 5), 0 failures, 0 errors, 0
+  skipped, BUILD SUCCESS; the invariants after every family test and after each of the random
+  test's 240 operations (from the seed: 81 expenses and 25 incomes created, 29 changes, 18 payment
+  edits, 22 deletes, 12 split rules, 26 settlements, 16 settlement changes, 11 settlement deletes).
+- `anIncomesReceiptIsTheReceiversOwn` against temporary mutations, from file copies: `ownPayments`
+  without its filters alone left it passing, since the record's view asks only for the caller's own
+  records; with the view asking for every record too, it failed (Bob's answer held her receipt).
+  Both files restored.
 
 **Open**
 - Settlements, incomes and their interface (this stage's later commits).

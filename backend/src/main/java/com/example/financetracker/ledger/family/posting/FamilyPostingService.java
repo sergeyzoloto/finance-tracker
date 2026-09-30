@@ -26,9 +26,11 @@ import org.springframework.transaction.annotation.Transactional;
  * with an account who joined on or before the record's date:
  * <ul>
  * <li>their share of an expense, unless it is 0: UNALLOCATED +share with the family category, and their debt account
- * −share ({@code FAMILY_SHARE});
+ * −share ({@code FAMILY_SHARE}); of an income (F4d), the other way round: UNALLOCATED −share with the family's INCOME
+ * category, and their debt account +share;
  * <li>for the payer, the payment: their own account −amount, or "Payments without a specified account" −amount when
- * they chose to specify it later, and their debt account +amount ({@code FAMILY_PAYMENT});
+ * they chose to specify it later, and their debt account +amount ({@code FAMILY_PAYMENT}); for the receiver of an
+ * income, the receipt, the other way round: the account +amount, the debt account −amount;
  * <li>for each side of a settlement (F4d), its part ({@code FAMILY_SETTLEMENT}): the payer's account −amount and debt
  * account +amount, the receiver's account +amount and debt account −amount. The side who records it names their
  * account, or "Specify later"; the other side's part goes to their "Payments without a specified account" (D-24), and
@@ -135,7 +137,8 @@ public class FamilyPostingService {
         shares.forEach((memberId, amount) -> {
             if (posted.contains(memberId) && amount.signum() != 0) {
                 wanted.put(key(memberId, LinkType.SHARE), share(family, memberId, recordId, record.date(),
-                        record.categoryId(), amount, record.currency()));
+                        record.categoryId(), record.type().equals("INCOME") ? amount.negate() : amount,
+                        record.currency()));
             }
         });
         Map<String, Link> existing = new HashMap<>();
@@ -145,7 +148,7 @@ public class FamilyPostingService {
         List<Side> sides = record.type().equals("SETTLEMENT")
                 ? List.of(new Side(record.payerId(), LinkType.SETTLEMENT, true),
                         new Side(record.payeeId(), LinkType.SETTLEMENT, false))
-                : List.of(new Side(record.payerId(), LinkType.PAYMENT, true));
+                : List.of(new Side(record.payerId(), LinkType.PAYMENT, !record.type().equals("INCOME")));
         for (Side side : sides) {
             if (posted.contains(side.memberId())) {
                 wanted.put(key(side.memberId(), side.link()), side(family, side, existing.get(key(side.memberId(),
@@ -166,7 +169,8 @@ public class FamilyPostingService {
     }
 
     /**
-     * A member's side of a record: the payer's payment of an expense, or a side of a settlement.
+     * A member's side of a record: the payer's payment of an expense, the receiver's receipt of an income, or a side of
+     * a settlement.
      *
      * @param out whether money went out of the member's hands: they paid
      */
@@ -235,7 +239,10 @@ public class FamilyPostingService {
         return payments;
     }
 
-    /** A member's share of an expense: UNALLOCATED +share with the family category, the debt account −share. */
+    /**
+     * A member's share: UNALLOCATED +share with the family category, the debt account −share; an income's share comes
+     * negative, so income on UNALLOCATED and the debt account +share.
+     */
     private PostedEntry share(LedgerScope family, long memberId, long recordId, LocalDate date, long categoryId,
             BigDecimal amount, String currency) {
         long debt = writer.debtAccount(family, memberId);

@@ -17,8 +17,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 /**
- * Family records created, changed and deleted at random, from a fixed seed, by two members with an account and for
- * one without (ADR 0003, topic K), with the default split rule changed now and then, payment edits (F4c): a new
+ * Family expenses and incomes (F4d) created, changed and deleted at random, from a fixed seed, by two members with an
+ * account and for one without (ADR 0003, topic K), with the default split rule changed now and then, payment edits
+ * (F4c): a new
  * date, amount, payer or paying account, and settlements (F4d): recorded by a side with an account, changed by their
  * recorder (date, amount, comment, account) or put on an account by their other side, and deleted. After every
  * operation the family ledger's invariants hold
@@ -34,8 +35,8 @@ class FamilyRecordRandomTests extends LedgerApiTest {
     private final String alice = newUser();
     private final String bob = newUser();
 
-    /** A record that isn't deleted: who wrote it, who paid, and its version. */
-    private record Live(long id, String author, long payer, int version) {
+    /** A record that isn't deleted: its type, who wrote it, who paid or received it, and its version. */
+    private record Live(long id, String type, String author, long payer, int version) {
     }
 
     /** A settlement that isn't deleted: who recorded it, the other side if they have an account, and its version. */
@@ -47,7 +48,8 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         ok(get(bob, "/api/accounts"));
         JsonNode created = newFamily(alice, """
                 {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-09-01",
-                 "categoryIds": [%d, %d]}""".formatted(categoryId(alice, "GROCERIES"), categoryId(alice, "HOUSING")));
+                 "categoryIds": [%d, %d, %d]}""".formatted(categoryId(alice, "GROCERIES"), categoryId(alice, "HOUSING"),
+                categoryId(alice, "SALARY")));
         long family = created.get("id").asLong();
         String uri = "/api/family-ledgers/" + family;
         long mum = created.get("memberId").asLong();
@@ -55,8 +57,11 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         long kid = body(post(alice, uri + "/members", """
                 {"displayName": "Kid"}"""), HttpStatus.CREATED).get("id").asLong();
         long[] members = {mum, dad, kid};
-        List<Long> categories = ok(get(alice, uri + "/categories")).findValuesAsText("id").stream().map(Long::valueOf)
-                .toList();
+        Map<String, List<Long>> categories = new LinkedHashMap<>();
+        for (JsonNode category : ok(get(alice, uri + "/categories"))) {
+            categories.computeIfAbsent(category.get("type").asText(), type -> new ArrayList<>())
+                    .add(category.get("id").asLong());
+        }
         Map<String, List<Long>> accounts = Map.of(
                 alice, List.of(accountId(alice, "CASH"), accountId(alice, "CURRENT_ACCOUNT")),
                 bob, List.of(accountId(bob, "CASH")));
@@ -80,12 +85,14 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 String payment = payer == kid ? "" : random.nextInt(4) == 0 ? "\"paymentLater\": true,"
                         : "\"paymentAccountId\": %d,".formatted(pick(accounts.get(actor)));
                 BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
+                String type = random.nextInt(4) == 0 ? "INCOME" : "EXPENSE";
                 JsonNode record = body(post(actor, uri + "/records", """
-                        {"date": "%s", "categoryId": %d, "amount": "%s", %s "payerMemberId": %d, "split": %s}"""
-                        .formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)), pick(categories), amount,
-                                payment, payer, split(members, amount))), HttpStatus.CREATED);
-                live.put(record.get("id").asLong(), new Live(record.get("id").asLong(), actor, payer, 0));
-                done.merge("create", 1, Integer::sum);
+                        {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", %s "payerMemberId": %d,
+                         "split": %s}""".formatted(type, LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)),
+                                pick(categories.get(type)), amount, payment, payer, split(members, amount))),
+                        HttpStatus.CREATED);
+                live.put(record.get("id").asLong(), new Live(record.get("id").asLong(), type, actor, payer, 0));
+                done.merge(type.equals("INCOME") ? "income" : "create", 1, Integer::sum);
             } else if (choice < 55 || choice < 85 && choice >= 78 && settlements.isEmpty()) {
                 // The actor pays or receives, with one of the other two members.
                 long own = self.get(actor);
@@ -105,9 +112,9 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 String editor = record.author().equals(bob) && random.nextBoolean() ? bob : alice;
                 JsonNode changed = ok(patch(editor, uri + "/records/" + record.id() + "?version=" + record.version(),
                         """
-                        {"categoryId": %d, "comment": "Change %d", "split": %s}""".formatted(pick(categories), i,
-                                split(members, amount(uri, record.id())))));
-                live.put(record.id(), new Live(record.id(), record.author(), record.payer(),
+                        {"categoryId": %d, "comment": "Change %d", "split": %s}""".formatted(
+                                pick(categories.get(record.type())), i, split(members, amount(uri, record.id())))));
+                live.put(record.id(), new Live(record.id(), record.type(), record.author(), record.payer(),
                         changed.get("version").asInt()));
                 done.merge("change", 1, Integer::sum);
             } else if (choice >= 78 && choice < 85) {
@@ -165,7 +172,8 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 }
                 JsonNode changed = ok(patch(editor, uri + "/records/" + record.id() + "?version=" + record.version(),
                         "{" + String.join(", ", fields) + "}"));
-                live.put(record.id(), new Live(record.id(), record.author(), payer, changed.get("version").asInt()));
+                live.put(record.id(), new Live(record.id(), record.type(), record.author(), payer,
+                        changed.get("version").asInt()));
                 done.merge("payment", 1, Integer::sum);
             } else if (!settlements.isEmpty() && random.nextInt(4) == 0) {
                 // Its recorder deletes a settlement.
@@ -188,10 +196,12 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         }
 
         // What the seed gives: every kind of operation, many times.
-        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.of("create", 88, "change", 35, "payment", 25,
-                "delete", 28, "split rule", 11, "settle", 21, "settlement change", 20, "settlement delete", 12));
-        assertThat(live).hasSize(60);
-        assertThat(settlements).hasSize(9);
+        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.of("create", 81, "income", 25, "change", 29,
+                "payment", 18, "delete", 22, "split rule", 12, "settle", 26, "settlement change", 16,
+                "settlement delete", 11));
+        assertThat(live).hasSize(84);
+        assertThat(live.values()).filteredOn(record -> record.type().equals("INCOME")).isNotEmpty();
+        assertThat(settlements).hasSize(15);
         Map<Long, BigDecimal> balances = FamilyInvariants.check(jdbc, family);
         JsonNode answered = ok(get(bob, uri + "/balances")).get("members");
         for (JsonNode member : answered) {

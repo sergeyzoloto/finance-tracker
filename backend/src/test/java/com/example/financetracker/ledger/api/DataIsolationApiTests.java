@@ -920,6 +920,76 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
+    /**
+     * Incomes (F4d, C5): Alice receives an income of A into her bank, with a private note. Her receipt is hers, as her
+     * payment is (F4c): only her answers hold {@code yourPayment}, nobody's family answer holds the note, and her receipt
+     * is missing to Bob and Carol through every personal endpoint and the payment endpoint. Bob's share is his, posted
+     * as income, and names the record's type ({@code recordType}) in his own answers only. An income through {@code
+     * POST /records} answers Bob on B, and Carol on A and B, as a missing family ledger does.
+     */
+    @Test
+    void anIncomesReceiptIsTheReceiversOwn() throws IOException {
+        String carol = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01"}""")
+                .get("id").asLong();
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        String inA = "/api/family-ledgers/" + familyA;
+        String category = """
+                {"code": "FAMILY_INCOME", "name": "Family income", "type": "INCOME"}""";
+        long salaryInA = created(post(alice, inA + "/categories", category));
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice",
+                 "startDate": "2026-08-01"}""").get("id").asLong();
+        long giftsInB = created(post(alice, "/api/family-ledgers/" + familyB + "/categories", category));
+
+        JsonNode received = body(post(alice, inA + "/records", """
+                {"type": "INCOME", "date": "2026-08-20", "categoryId": %d, "amount": "1000", "payerMemberId": %d,
+                 "paymentAccountId": %d, "privateNote": "ALICE_PRIVATE_BONUS"}""".formatted(salaryInA, mumInA,
+                alicesBank)), HttpStatus.CREATED);
+        long alicesReceipt = received.get("yourPayment").get("entryId").asLong();
+        assertThat(received.get("yourPayment").get("accountId").asLong()).isEqualTo(alicesBank);
+        for (String read : List.of("/records", "/records/" + received.get("id").asLong(), "/journal", "/balances")) {
+            assertThat(fieldNames(bobReads(inA + read))).as(read).doesNotContain("yourPayment", "privateNote", "memo",
+                    "entryId", "accountId", "accountName");
+            assertThat(ok(get(alice, inA + read)).toString()).as(read).doesNotContain("ALICE_PRIVATE");
+        }
+        // Bob's share: income on his UNALLOCATED, marked as an income's in his own entry only.
+        JsonNode bobsShare = bobReads("/api/entries?size=200").get("content").get(0);
+        assertThat(bobsShare.get("family").get("recordType").asText()).isEqualTo("INCOME");
+        assertThat(bobsShare.get("postings").findValuesAsText("amount")).contains("-500.00");
+
+        SoftAssertions softly = new SoftAssertions();
+        String payment = "/api/entries/%d/family-payment?version=0";
+        String intrusion = """
+                {"accountId": %d, "memo": "Intruder"}""".formatted(bobsCash);
+        answersAsIfMissing(softly, HttpMethod.PATCH, payment, alicesReceipt, intrusion);
+        answersAsIfMissing(softly, HttpMethod.GET, "/api/entries/%d", alicesReceipt, null);
+        answersAsIfMissing(softly, HttpMethod.DELETE, "/api/entries/%d?version=0", alicesReceipt, null);
+        answersAsIfMissingTo(softly, carol, HttpMethod.PATCH, payment.formatted(alicesReceipt),
+                payment.formatted(MISSING), intrusion);
+        String income = """
+                {"type": "INCOME", "date": "2026-08-21", "categoryId": %d, "amount": "1", "payerMemberId": %d}"""
+                .formatted(giftsInB, bobInA);
+        String uri = "/api/family-ledgers/%d/records";
+        for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+            answersAsIfMissing(softly, HttpMethod.POST, uri, ledger, income);
+        }
+        for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
+            answersAsIfMissingTo(softly, carol, HttpMethod.POST, uri.formatted(ledger), uri.formatted(MISSING), income);
+        }
+        softly.assertAll();
+        // Her receipt is hers: Bob changes neither its amount nor its account through the income.
+        String hers = inA + "/records/" + received.get("id").asLong() + "?version=0";
+        assertThat(bobsRequest(HttpMethod.PATCH, hers, """
+                {"amount": "1", "paymentAccountId": %d}""".formatted(bobsCash))).hasStatus(HttpStatus.CONFLICT);
+        assertThat(bobsRequest(HttpMethod.DELETE, hers, null)).hasStatus(HttpStatus.CONFLICT);
+
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+    }
+
     /** Every field name in the JSON, at any depth. */
     private static Set<String> fieldNames(JsonNode node) {
         Set<String> names = new TreeSet<>();

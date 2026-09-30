@@ -544,11 +544,12 @@ You should see `Wrote /var/backups/pg/finance/finance-….dump: … bytes, … a
 `OK: 1 dumps in /var/backups/pg/finance`. The directory is `drwx------` and the dump `-rw-------`.
 
 **The restore test** restores the newest dump into a throwaway container without a network, from
-the image production runs, and compares it with the live database:
+the image production runs, and compares it with the live database. It always runs right after a
+fresh backup, in the same block, so that the newest dump is the live database as it is:
 
 ```bash
 # On the server
-pg-restore-test finance
+systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
 ```
 
 You should see `Restored in …s`, then a table in which every line ends with `ok`: `tables` 14 and
@@ -556,7 +557,16 @@ You should see `Restored in …s`, then a table in which every line ends with `o
 accounts, categories, counterparties, entries and postings, the sum of all posted amounts,
 `unbalanced` 0 and the manual rates. Then
 `No test container left` and `PASS`. A `MISMATCH` right after a sign-in or a new entry means the
-database changed after the dump: run both blocks again.
+database changed between the backup and the test: run the block again.
+
+**A restore test against an older dump fails** after any change in production since that dump: a
+sign-in that provisions a user, a new entry, the demo, "Delete all my data". It compares the
+restored copy with the live database, so it passes only against a dump taken just before it. On
+2026-09-30 the checklist of F4c's deploy ran it against the previous evening's dump, after the test
+account had loaded the demo, and it failed with mismatches; after a fresh backup it passed. Every
+restore test in this runbook therefore comes right after `systemctl start pg-backup@finance.service`,
+except step 1 of [Restore from a backup](#restore-from-a-backup), which checks a dump you chose and
+expects the numbers to differ.
 
 **The laptop's copy:**
 
@@ -631,6 +641,7 @@ changed since: `git -C /opt/finance-tracker log -1 --oneline` on the server.
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-09-30 | `e7cdeb1` (feat(family): the payer's entry and family expenses from the personal editor) | F4c: the payer's side, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 22 accounts, 33 categories, 10 counterparties, 138 entries, 0 import batches (the test account held the demo); every family count 0; no row outside its user's personal ledger. A restore test against the previous evening's dump failed with mismatches: it ran without a fresh backup, and the test account had loaded the demo since. After a fresh backup it passed with 18 tables, migration 7 and the same counts. The three F4c commits pulled; `finance.caddy` and `finance.conf` unchanged; both images rebuilt; the api healthy, logging the schema as up to date and the switch as off; the server at `main`, `e7cdeb1`. After: the same counts, every family count 0; `/api/me` held `"features":{"familyLedgers":false}`; no switcher in the header; New entry → Expense without a "Family expense" option; `/api/entries/1/family-payment` answered 404. Smoke test with the test account: an ordinary expense created, edited and deleted; Delete all my data; the demo loaded (12 accounts, 18 categories, 10 counterparties, 138 entries in its ledger); Delete all my data again, back to the starter rows. |
 | 2026-09-30 | `4285d52` (feat(frontend): family expenses, balances and journal) | F4b: the family expenses interface, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; every family count 0; no row outside its user's personal ledger; restore test PASS with 18 tables, migration 7 and 0 for each of the four family counts. No migration: Flyway reported the schema up to date; the api logged the switch as off; both images new, with layers different from `:previous`; the server at `main`, `4285d52`. After: the same counts; every family count 0; `/api/me` held `"features":{"familyLedgers":false}`; no switcher in the header; `/family/7/expenses` ended on the dashboard; the personal pages as before; the smoke test with the test account passed. |
 | 2026-09-30 | `5f5af66` (feat(frontend): personal pages with family rows) | F4a parts 5 and 6: family categories in personal ledgers, personal pages with family rows, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; restore test PASS with 18 tables and migration 7. No migration: Flyway reported the schema up to date; the api logged the switch as off; both images new, with layers different from `:previous`; the server at `main`, `5f5af66`. The new `finance.conf` installed after the deploy; restore test PASS with 18 tables, migration 7 and 0 for each of the four family counts. After: the same counts; every family count 0; no row outside its user's personal ledger; the browser checks passed; smoke test with the test account: 18 categories, each with Rename and Archive; reports without family lines; archiving Unallocated refused; Delete all my data re-provisioned the ledger. |
 | 2026-09-30 | `71c3eb7` (feat(family): records, posting, balances and journal) | F4a parts 1 to 4: V7, family records and posting, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 6; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; restore test PASS with 14 tables and migration 6. Flyway applied V7 ("7 - family records and posting") in 0.077 s; the api healthy, logging the switch as off; the server at `main`, `71c3eb7`; the layers of both images different from `:previous`. After: the same counts, still 20 accounts; every family count 0 (family ledgers, members, categories, records, shares, links, journal rows, family accounts, start dates); no row outside its user's personal ledger; restore test on a new backup PASS with 18 tables and migration 7; the browser checks passed; the smoke test with the test account passed, the refusal to archive Unallocated included. |
@@ -929,11 +940,11 @@ Then, **on the server** in the same shell:
 
 ```bash
 # On the server, in the same shell
-# 1. Check that the dump restores, without touching production
-pg-restore-test finance "$dump" </dev/null
-# 2. Dump the current state too, and pause the nightly backup until step 6
+# 1. Dump the current state first, and pause the nightly backup until step 6
 systemctl start pg-backup@finance.service
 systemctl stop pg-backup@finance.timer
+# 2. Check that the chosen dump restores, without touching production
+pg-restore-test finance "$dump" </dev/null
 # 3. Stop the api (the site answers 502 meanwhile)
 cd /opt/finance-tracker/deploy/app && docker compose stop api
 # 4. Keep the current database under another name, and create an empty one
@@ -946,8 +957,9 @@ for i in $(seq 60); do s=$(docker inspect -f '{{.State.Health.Status}}' finance-
 systemctl start pg-backup@finance.timer
 ```
 
-- Step 1 compares the restored copy with the live database. For an older dump, or after activity
-  since the dump, the numbers differ; what counts there is `Restored in …s`.
+- Step 2 compares the restored copy of the dump you chose with the live database. It is the one
+  restore test here that doesn't come right after its own dump: for an older dump, or after
+  activity since the dump, the numbers differ, and what counts is `Restored in …s`.
 - You should see `restored` and `api: healthy`. Sign in and check **Accounts**, and that
   <https://app.finance-nl.com/api/reports/integrity> shows `[]`.
 - Steps 4 and 5 were tried on 2026-09-27 in a throwaway container of the production image, with
@@ -975,7 +987,7 @@ cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -U
 **If the server or the volume is lost**, the dump comes from the laptop. Set up the auth server
 first (its `PRODUCTION.md`); Keycloak's own database comes back from its own backup, and every
 ledger row is keyed by a Keycloak user's `sub`, so the realm must be the restored one. Then do steps
-1 and 4 to 6 here: new database passwords in `.env` are fine, because a dump holds the database
+2 and 4 to 6 here: new database passwords in `.env` are fine, because a dump holds the database
 but not the logins, which `postgres-init.sh` creates. Copy the newest dump up:
 
 ```bash
@@ -983,7 +995,7 @@ but not the logins, which `postgres-init.sh` creates. Copy the newest dump up:
 scp "$(ls -1 ~/backups/finance-nl-server/finance/finance-*.dump | tail -n 1)" root@2.28.108.199:/root/
 ```
 
-Then restore it as above with `dump=$(ls -1 /root/finance-*.dump | tail -n 1)`; step 1's comparison
+Then restore it as above with `dump=$(ls -1 /root/finance-*.dump | tail -n 1)`; step 2's comparison
 fails there, because the live database is new and empty. Then steps 7 and 9.
 
 ## Change the site file
@@ -1197,7 +1209,7 @@ major version needs a dump and a restore, which this runbook doesn't cover.
 | `caddy-site` says the running Caddy has an older Caddyfile | On the server, `cd /opt/auth && docker compose restart caddy` (logins pause for seconds), then run the install again. |
 | A container restarts again and again | On the server, `docker inspect -f '{{.State.OOMKilled}}' finance-tracker-api` (or another container's name) prints `true` when it ran out of memory. Compare with the [memory budget](#memory-budget). |
 | `pg-backup@finance.service` failed | On the server, `journalctl -u pg-backup@finance.service -n 30 --no-pager`. `COMPOSE_DIR … is not a directory`: step 4. `required variable … is missing a value`: `.env` is missing (step 5). `database not ready`: the stack is down (step 6). |
-| `pg-restore-test finance` shows `MISMATCH` | The database changed after the dump. Back up again and repeat the test. |
+| `pg-restore-test finance` shows `MISMATCH` | The database changed after the dump: the test ran against an older dump, or something changed between the backup and the test. Run `systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null` again. |
 | The import fails with `413` | A file is over 20 MiB, the limit in Caddy and in the backend. |
 
 ## Not covered

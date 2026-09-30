@@ -17,7 +17,8 @@ after that deploy: the start date of a family ledger (D-27, topics B and D) and 
 and F4c (topic J). F4a is deployed since 2026-09-30, from `71c3eb7` (parts 1 to 4) and `5f5af66`
 (parts 5 and 6), with the switch off; the decisions after its reviews are in topics D, E, F and H.
 F4b is deployed since 2026-09-30, from `4285d52`, with the switch off; the decisions after its review
-are in topics I and J. The requirements and decisions D-1 to D-27 are in
+are in topics I and J. F4c is deployed since 2026-09-30, from `e7cdeb1`, with the switch off; the
+decisions after its review are in topics E and I. The requirements and decisions D-1 to D-27 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -539,6 +540,14 @@ too: `date`, `amount`, `payerMemberId`, and for the payer with an account `payme
 - The payer's note is their own text in their own entry: it is not the family text that this topic
   keeps out of personal ledgers, and no family answer or journal holds it.
 
+**Kept after the F4c review** (2026-10-01), as built:
+
+- The payer's private note on their own payment entry (`privateNote`, the entry's memo), which only
+  that entry holds.
+- A new amount, date or payer of an expense split equally splits it again among the record's own
+  members as of the new date: a member with an account comes in or drops out as the date crosses
+  their join date, and a member added since doesn't come in (D-18).
+
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted
 entries for every eligible member from the record's stored shares, and compares them with the
@@ -859,6 +868,10 @@ in the list and open read-only, with a link to the family record.
 **Changed after the F4b review:** the expense page no longer finds the payer's paying account among
 the payer's entries of that day. From F4c the record's answer carries it in a field of its own,
 present only for the payer with an account (topic E, "F4c as built").
+
+**Changed after the F4c review** (2026-10-01): the expense page's split preview follows the record's
+stored split (its method, and for equal shares its own members), not the family budget's current
+rule, which applies only to new records (D-12). Fixed in F4d.
 
 **Satisfies** D-5, A3, C6.
 

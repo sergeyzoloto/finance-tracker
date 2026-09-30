@@ -3,12 +3,43 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-01 · Family budget: F4c's deploy and review, settlements and incomes (F4d)
+
+Not committed yet.
+
+**Changes**
+- F4c's deploy and the decisions after its review (commit "docs(family-budget): F4c deploy and
+  review decisions"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-09-30, `e7cdeb1`, with the owner's
+    checks. The F4c entry below got its commit `e7cdeb1` and the deploy's record, and lost a stray
+    blank line in its "Verified".
+  - `deploy/RUNBOOK.md`: every restore test comes right after a fresh backup, in the same block
+    (section 9's test now starts with `systemctl start pg-backup@finance.service`, and "Restore
+    from a backup" dumps the current state before it tests the chosen dump), with a note that a
+    restore test against an older dump fails after any change in production, as it did in F4c's
+    deploy; the troubleshooting row for `MISMATCH` says to back up and test again in one block.
+  - ADR 0003: the status line (F4c deployed from `e7cdeb1`); topic E, kept after the F4c review: the
+    payer's private note on their own payment entry, and equal shares split again among the record's
+    own members as of the new date; topic I, changed: the expense page's split preview follows the
+    record's stored split, not the budget's current rule (fixed in F4d).
+  - CLAUDE.md: production runs `e7cdeb1`.
+
+**Verified**
+- Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
+  `feature/family-budget` checked out with a clean tree; it, `main` and `origin/main` all at
+  `e7cdeb1`. `./mvnw -B clean verify`: 326 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
+  Frontend: `npm ci`, `npm test` 15 files and 207 tests passed, `npm run build` succeeded.
+- After the documents' commit: documents only.
+
+**Open**
+- Settlements, incomes and their interface (this stage's later commits).
+
 ## 2026-09-30 · Family budget: F4b's deploy and review, the payer's side (F4c)
 
-Committed locally on `feature/family-budget` in three commits: `3ef8c3c` (documents), `1245fe2`
-(payment edits and the payer's own view) and "feat(family): the payer's entry and family expenses
-from the personal editor", whose hash belongs here with the next change log commit. Not pushed, not
-merged, not deployed.
+Commits `3ef8c3c` (documents), `1245fe2` (payment edits and the payer's own view) and `e7cdeb1`
+(the payer's entry and family expenses from the personal editor), on `feature/family-budget`,
+merged into `main` and deployed on 2026-09-30; the deploy's records: "docs(family-budget): F4c
+deploy and review decisions".
 
 **Changes**
 - F4b's deploy and the decisions after its review (commit "docs(family-budget): F4b deploy, review
@@ -103,7 +134,6 @@ merged, not deployed.
   errors, 0 skipped, BUILD SUCCESS; the invariants after every family test and after each of the
   random test's 240 operations. Frontend: `npm test` 14 files and 193 tests passed, `npm run build`
   succeeded.
-
 - `aPaymentIsThePayersOwn` against a temporary mutation, from file copies: `ownPayments` without its
   payer filter, and the view asking for every record, made it fail (Bob's answers held
   `yourPayment`). A frontend mutation, the C2 request without `privateNote`, made its test fail. Both
@@ -134,6 +164,22 @@ merged, not deployed.
 - After the third commit: `./mvnw -B clean verify` 326 tests (320 and 6), 0 failures, 0 errors, 0
   skipped, BUILD SUCCESS. Frontend: `npm test` 15 files and 207 tests passed, `npm run build`
   succeeded.
+- The deploy on 2026-09-30, from `e7cdeb1`, with the switch off, as the owner checked it:
+  - Before: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 22 accounts, 33
+    categories, 10 counterparties, 138 entries and 0 import batches (the test account held the
+    demo); every family count 0; no row outside its user's personal ledger. A restore test against
+    the previous evening's dump failed with mismatches: the checklist ran it without a fresh backup,
+    and the test account had loaded the demo since. After a fresh backup it passed with 18 tables,
+    migration 7 and the same counts.
+  - The deploy: the three F4c commits pulled; `finance.caddy` and `finance.conf` unchanged; both
+    images rebuilt; the api healthy, logging the schema as up to date and the switch as off; the
+    server at `main`, `e7cdeb1`.
+  - After: the same counts, and every family count 0; `/api/me` held
+    `"features":{"familyLedgers":false}`; no switcher in the header; New entry → Expense showed no
+    "Family expense" option; `/api/entries/1/family-payment` answered 404.
+  - The smoke test with the test account passed: an ordinary expense created, edited and deleted;
+    "Delete all my data"; the demo loaded (12 accounts, 18 categories, 10 counterparties, 138
+    entries in its ledger); "Delete all my data" again, back to the starter rows.
 
 **Open**
 - The owner's deploy of F4c with the switch off; the report has the checklist. No migration, no

@@ -35,6 +35,7 @@ import com.example.financetracker.ledger.domain.LedgerReferences.CategoryInfo;
 import com.example.financetracker.ledger.domain.LedgerValidator;
 import com.example.financetracker.ledger.domain.Money;
 import com.example.financetracker.ledger.domain.PostingLine;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -64,11 +65,12 @@ public class EntryService {
     private final UserSettingsRepository settings;
     private final JdbcClient jdbc;
     private final LedgerAccess access;
+    private final ObjectProvider<FamilyPayments> familyPayments;
     private final LedgerValidator validator = new LedgerValidator();
 
     EntryService(JournalEntryRepository entries, AccountRepository accounts, LedgerCategoryRepository categories,
             CounterpartyRepository counterparties, UserSettingsRepository settings, JdbcClient jdbc,
-            LedgerAccess access) {
+            LedgerAccess access, ObjectProvider<FamilyPayments> familyPayments) {
         this.entries = entries;
         this.accounts = accounts;
         this.categories = categories;
@@ -76,6 +78,7 @@ public class EntryService {
         this.settings = settings;
         this.jdbc = jdbc;
         this.access = access;
+        this.familyPayments = familyPayments;
     }
 
     /** @throws InvalidEntryException naming every problem with the entry */
@@ -125,16 +128,25 @@ public class EntryService {
     }
 
     /**
-     * Deletes the entry with its postings.
+     * Deletes the entry with its postings. The payer's own payment for a family expense deletes the expense, with every
+     * member's share of it, while the family budget is switched on (F4c, D-14).
      *
      * @param expectedVersion the version the caller read
      * @throws EntryNotFoundException if the ledger has no such entry
      * @throws OptimisticLockingFailureException if the entry is no longer at {@code expectedVersion}
-     * @throws ConflictException if a family budget posted the entry, or it is a payment for a family record (D-8)
+     * @throws ConflictException if a family budget posted the entry, or it is a payment for a family record and the
+     *         family budget is switched off (D-8)
      */
     @Transactional
     public void delete(LedgerScope ledger, long entryId, int expectedVersion) {
         JournalEntry entry = find(ledger, entryId);
+        EntryFamily family = families(ledger, List.of(entry.id())).get(entry.id());
+        FamilyPayments payments = familyPayments.getIfAvailable();
+        if (family != null && family.link().equals("PAYMENT") && payments != null) {
+            requireVersion(entry, expectedVersion);
+            payments.deleteExpenseOf(ledger, entryId);
+            return;
+        }
         requireOwn(ledger, entry);
         requireVersion(entry, expectedVersion);
         try {
@@ -271,8 +283,8 @@ public class EntryService {
 
     /**
      * Refuses a change of an entry that a family budget posted, or that is the payer's payment for a family record:
-     * it changes through the record (D-8). Until F4c brings payment edits, a wrong payment is fixed by deleting the
-     * record and entering it again.
+     * it changes through the record (D-8). The payer changes their payment's date, amount, account and note through
+     * {@code PATCH /api/entries/{id}/family-payment} (F4c), which changes the record.
      */
     private void requireOwn(LedgerScope ledger, JournalEntry entry) {
         EntryFamily family = families(ledger, List.of(entry.id())).get(entry.id());

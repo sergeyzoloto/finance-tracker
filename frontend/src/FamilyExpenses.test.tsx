@@ -289,12 +289,13 @@ describe('an expense’s page', () => {
 
     expect(await screen.findByRole('heading', { name: 'Groceries, Sep 12, 2026' })).toBeDefined()
     expect(screen.getByText('Weekly shop')).toBeDefined()
-    expect(screen.getByText('Anna (you)')).toBeDefined()
+    expect(screen.getByText('Anna (you)', { selector: 'dd' })).toBeDefined()
     expect((await screen.findByRole('link', { name: 'Cash' })).getAttribute('href')).toBe('/entries/90')
     const shares = screen.getAllByRole('table')[0]
     expect(within(shares).getAllByRole('row').map((r) => r.textContent?.replace(/changed by.*?PM|changed by.*?AM/, '')))
       .toEqual(['MemberSharePercent', 'AnnaYou€5.0150.05 %', 'Sam€5.0049.95 %', 'Total€10.01'])
-    expect(screen.getByText('To change the date, amount or payer, delete the expense and enter it again.')).toBeDefined()
+    // The payment's fields change here now (F4c): no advice to delete and enter it again.
+    expect(screen.queryByText(/delete the expense and enter it again/)).toBeNull()
     // The account comes with the record, for the payer only: no search of the day's entries.
     expect(calls.some((c) => c.url.startsWith('/api/entries'))).toBe(false)
   })
@@ -313,9 +314,10 @@ describe('an expense’s page', () => {
 
   it.each<[string, Partial<FamilyRecord>, boolean, boolean]>([
     ['the author, who paid', {}, true, true],
-    ['an owner, not the payer with an account', { canDelete: false }, true, false],
-    ['the payer, who may not edit', { canEdit: false }, false, true],
-    ['nobody, when frozen', { canEdit: false, canDelete: false, frozen: true }, false, false],
+    ['an owner, not the payer with an account', { canDelete: false, canEditPayment: false }, true, false],
+    ['the payer, who may change only the payment', { canEdit: false }, true, true],
+    ['a member who may change nothing', { canEdit: false, canEditPayment: false, canDelete: false }, false, false],
+    ['nobody, when frozen', { canEdit: false, canDelete: false, canEditPayment: false, frozen: true }, false, false],
   ])('offers changes and deletion as the server allows: %s', async (_, changes, edit, remove) => {
     detail(changes)
     renderApp('/family/7/expenses/5')

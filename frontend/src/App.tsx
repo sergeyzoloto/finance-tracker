@@ -40,8 +40,8 @@ export default function App({ me }: { me: Me }) {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/entries" element={<Entries />} />
-          <Route path="/entries/new" element={<EntryEditor key="new" />} />
-          <Route path="/entries/:id" element={<EntryEditor />} />
+          <Route path="/entries/new" element={<EntryEditor key="new" families={familyOn ? families.data ?? [] : undefined} />} />
+          <Route path="/entries/:id" element={<EntryEditor families={familyOn ? families.data ?? [] : undefined} />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/categories" element={<Categories />} />
           <Route path="/rates" element={<Rates />} />

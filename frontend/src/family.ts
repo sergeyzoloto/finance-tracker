@@ -147,6 +147,15 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
       return { text: `${who} deleted ${name}${record ? `, ${formatMoney(record.amount, currency)}` : ''}.`, details: [] }
     default: {
       const parts: [string, string][] = []
+      // The payment's fields (F4c), then the family's.
+      const date = field('date')
+      if (date) parts.push(['the date', `${date.old ? formatDate(date.old) : 'none'} → ${date.new ? formatDate(date.new) : 'none'}`])
+      const amount = field('amount')
+      if (amount) {
+        parts.push(['the amount', `${amount.old ? formatMoney(amount.old, currency) : 'none'} → ${amount.new ? formatMoney(amount.new, currency) : 'none'}`])
+      }
+      const payer = field('payer')
+      if (payer) parts.push(['the payer', `${payer.old ?? 'none'} → ${payer.new ?? 'none'}`])
       const category = field('category')
       if (category) parts.push(['the category', `${category.old ?? 'none'} → ${category.new ?? 'none'}`])
       if (change.changes.some((c) => c.field === 'splitMethod' || c.field === 'share')) {

@@ -1,9 +1,16 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
+import { useApi, type Category, type FamilyLedger, type FamilyMember } from './api'
 import { AccountSelect, CategorySelect, CounterpartyInput, CurrencyInput, Errors, Field } from './components'
 import {
-  accountChoices, blankPosting, postingBalances, postingsBalance, postingWithAccount, sharePreview, switchTab, TABS,
-  transferNeedsCounterparty, validate, withAccount, withPayee, type EntryForm, type FieldErrors, type PostingDraft,
+  accountChoices, blankPosting, isFamilyExpense, postingBalances, postingsBalance, postingWithAccount, sharePreview,
+  switchTab, TABS, transferNeedsCounterparty, validate, withAccount, withPayee, type EntryForm, type FieldErrors,
+  type PostingDraft,
 } from './entryForm'
+import { newSplit, previewSplit, type SplitContext, type SplitPreview } from './expenseForm'
+import {
+  familiesFor, familyProblems, familyRequest, familyServerErrors, memberField, splitContext, unavailable,
+} from './familyEntry'
+import { SplitEditor } from './FamilySplit'
 import { accountById, counterpartyNamed, knownCurrencies, sharedAccount, type Ledger } from './ledger'
 import { amountProblem, formatMoney, parseAmount, rate } from './money'
 
@@ -18,10 +25,42 @@ interface Props {
   onCancel?: () => void
   /** Shown above the fields, such as why an entry opened in Advanced. */
   notice?: ReactNode
+  /**
+   * The user's family budgets, for a new expense that can be a family expense (C2); left out while the family budget
+   * is switched off, and for an entry that exists.
+   */
+  families?: FamilyLedger[]
+  /** Creates a family expense in the budget with the request; rejects with the server's answer. */
+  onSaveFamily?: (ledgerId: number, request: ReturnType<typeof familyRequest>, andNew: boolean) => Promise<void>
+}
+
+/** A family expense's budget as the form has chosen it, with what its split needs. */
+interface FamilyExpense {
+  ledger: FamilyLedger
+  categories?: Category[]
+  context?: SplitContext
+  preview?: SplitPreview
+  error?: string
+}
+
+/** The chosen family budget's members and categories, while the form is a family expense. */
+function useFamilyExpense(form: EntryForm, families?: FamilyLedger[]): FamilyExpense | undefined {
+  const chosen = isFamilyExpense(form) ? families?.find((f) => String(f.id) === form.familyId) : undefined
+  const members = useApi<FamilyMember[]>(chosen ? `/family-ledgers/${chosen.id}/members` : null)
+  const categories = useApi<Category[]>(chosen ? `/family-ledgers/${chosen.id}/categories` : null)
+  if (!chosen) return undefined
+  const context = members.data ? splitContext(form, chosen, members.data) : undefined
+  return {
+    ledger: chosen,
+    categories: categories.data,
+    context,
+    preview: context ? previewSplit(form.familySplit, context, chosen.baseCurrency) : undefined,
+    error: members.error ?? categories.error,
+  }
 }
 
 /** The entry form with its tabs. It checks what it can before saving, and shows the server's messages at the fields. */
-export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, notice }: Props) {
+export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, notice, families, onSaveFamily }: Props) {
   const [form, setForm] = useState(initial)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [busy, setBusy] = useState(false)
@@ -36,21 +75,42 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
   }
   const set = (patch: Partial<EntryForm>) => change({ ...form, ...patch }, Object.keys(patch))
   const balanced = form.tab !== 'advanced' || postingsBalance(form.postings)
+  const family = useFamilyExpense(form, families)
 
   async function save(andNew: boolean) {
     const problems = validate(form, ledger)
+    if (isFamilyExpense(form)) {
+      if (!family?.preview) (problems[''] ??= []).push(family?.error ?? 'The family budget is still loading.')
+      else {
+        for (const [field, messages] of Object.entries(familyProblems(form, family.ledger, family.preview))) {
+          (problems[field] ??= []).push(...messages)
+        }
+      }
+    }
     setErrors(problems)
     if (Object.keys(problems).length > 0) return
     setBusy(true)
-    const failed = await run(() => onSave(form, andNew))
+    const failed = isFamilyExpense(form) && family?.preview
+      ? await saveFamily(family.ledger, family.preview, andNew)
+      : await run(() => onSave(form, andNew))
     setBusy(false)
     if (failed) {
       setErrors(failed)
     } else if (andNew) {
       // The next entry is often like this one: same day, account and currency.
       setForm({ ...form, payee: '', memo: '', amount: '', toAmount: '', categoryId: '', refund: false, counterparty: '',
-        postings: [blankPosting(form.currency), blankPosting(form.currency)] })
+        postings: [blankPosting(form.currency), blankPosting(form.currency)], familyCategoryId: '', familyComment: '' })
       setSaved(true)
+    }
+  }
+
+  /** Creates the family expense (C2) through the family budget's endpoint; the messages if it failed. */
+  async function saveFamily(chosen: FamilyLedger, preview: SplitPreview, andNew: boolean): Promise<FieldErrors | undefined> {
+    try {
+      await onSaveFamily!(chosen.id, familyRequest(form, chosen, preview), andNew)
+      return undefined
+    } catch (e) {
+      return familyServerErrors(e, preview, chosen.memberId)
     }
   }
 
@@ -68,6 +128,9 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
   }
 
   const fields = { form, ledger, errors, set, change }
+  const familyOn = isFamilyExpense(form)
+  const byMember = new Map(Object.entries(errors).filter(([field]) => field.startsWith('familyMember.'))
+    .map(([field, messages]) => [Number(field.slice('familyMember.'.length)), messages]))
   return (
     <form className="entry-form" onSubmit={submit} noValidate>
       <div className="tabs" role="tablist" aria-label="Kind of entry">
@@ -83,16 +146,23 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
         <Field label="Date" errors={errors.date}>
           <input type="date" value={form.date} required onChange={(e) => set({ date: e.target.value })} />
         </Field>
-        {form.tab === 'expense' && <ExpenseFields {...fields} />}
+        {form.tab === 'expense' && <ExpenseFields {...fields} families={onSaveFamily ? families : undefined} family={family} />}
         {form.tab === 'income' && <IncomeFields {...fields} />}
         {form.tab === 'transfer' && <TransferFields {...fields} />}
         {form.tab === 'loan' && <LoanFields {...fields} />}
         {form.tab === 'exchange' && <ExchangeFields {...fields} />}
         {form.tab === 'advanced' && <PayeeField {...fields} label="Payee (optional)" />}
-        <Field label="Memo" errors={errors.memo} className="wide">
+        <Field label={familyOn ? 'Note, only you see it' : 'Memo'} errors={errors.memo} className="wide"
+          hint={familyOn ? 'It stays on your payment in your own ledger; the family budget never sees it.' : undefined}>
           <input value={form.memo} maxLength={500} onChange={(e) => set({ memo: e.target.value })} />
         </Field>
       </div>
+      {familyOn && family?.context && family.preview && (
+        <SplitEditor form={form.familySplit} preview={family.preview} context={family.context}
+          currency={family.ledger.baseCurrency} byMember={byMember} problems={errors.familySplit ?? []}
+          you={family.ledger.memberId}
+          onChange={(familySplit) => change({ ...form, familySplit }, ['familySplit', 'familyMember'])} />
+      )}
       {form.tab === 'advanced' && <AdvancedFields {...fields} />}
       <div className="actions">
         <button type="submit" className="primary" disabled={busy || !balanced}>Save</button>
@@ -165,31 +235,50 @@ function AmountFields({ form, ledger, errors, set, amount = 'amount', currency =
   )
 }
 
-function ExpenseFields(props: FieldsProps) {
-  const { form, ledger, errors, set } = props
+function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?: FamilyExpense }) {
+  const { form, ledger, errors, set, families, family } = props
   const parts = sharePreview(form)
-  const family = sharedAccount(ledger)
+  const shared = sharedAccount(ledger)
+  const familyOn = isFamilyExpense(form)
+  const reason = families && families.length > 0 ? unavailable(families, form.currency, family?.ledger) : undefined
   return (
     <>
-      <PayeeField {...props} />
+      {!familyOn && <PayeeField {...props} />}
       <AccountField {...props} field="accountId" label="Paid from" />
       <AmountFields {...props} label={form.split ? 'Total paid' : 'Amount'} />
-      <Field label="Category" errors={errors.categoryId}>
-        <CategorySelect categories={ledger.categories} type="EXPENSE" value={form.categoryId}
-          onChange={(categoryId) => set({ categoryId })} />
-      </Field>
+      {!familyOn && (
+        <Field label="Category" errors={errors.categoryId}>
+          <CategorySelect categories={ledger.categories} type="EXPENSE" value={form.categoryId}
+            onChange={(categoryId) => set({ categoryId })} />
+        </Field>
+      )}
       <div className="wide options">
-        <label className="check">
-          <input type="checkbox" checked={form.refund} onChange={(e) => set({ refund: e.target.checked })} />
-          Refund: the money came back
-        </label>
-        <label className="check">
-          <input type="checkbox" role="switch" checked={form.split} disabled={!family}
-            onChange={(e) => set({ split: e.target.checked })} />
-          Split with family
-        </label>
+        {!familyOn && (
+          <>
+            <label className="check">
+              <input type="checkbox" checked={form.refund} onChange={(e) => set({ refund: e.target.checked })} />
+              Refund: the money came back
+            </label>
+            <label className="check">
+              <input type="checkbox" role="switch" checked={form.split} disabled={!shared}
+                onChange={(e) => set({ split: e.target.checked })} />
+              Split with family
+            </label>
+          </>
+        )}
+        {families && families.length > 0 && (
+          <label className="check">
+            <input type="checkbox" role="switch" checked={familyOn} disabled={!familyOn && reason !== undefined}
+              onChange={(e) => set(e.target.checked
+                ? { familyId: String((familiesFor(families, form.currency)[0] ?? families[0]).id), refund: false, split: false, payee: '' }
+                : { familyId: '' })} />
+            Family expense
+          </label>
+        )}
       </div>
-      {form.split && (
+      {reason && <p className="wide muted small" role="note">{reason}</p>}
+      {familyOn && families && family && <FamilyExpenseFields {...props} families={families} family={family} />}
+      {!familyOn && form.split && (
         <div className="wide split">
           <Field label="Family's share, %" errors={errors.sharePercent} className="narrow">
             <input inputMode="decimal" value={form.sharePercent} onChange={(e) => set({ sharePercent: e.target.value })} />
@@ -198,12 +287,45 @@ function ExpenseFields(props: FieldsProps) {
             {parts ? (
               <>
                 Your share: <strong data-testid="own-share">{formatMoney(parts.own, form.currency)}</strong>
-                {' · '}{family?.name ?? 'Family'}: <strong>{formatMoney(parts.other, form.currency)}</strong>
+                {' · '}{shared?.name ?? 'Family'}: <strong>{formatMoney(parts.other, form.currency)}</strong>
               </>
             ) : 'Enter the total and the share to see your part.'}
           </p>
         </div>
       )}
+    </>
+  )
+}
+
+/**
+ * A family expense's own fields (C2): the family budget, only when the user has more than one (D-5), a family
+ * category, and the comment every member sees. The split follows the fields, and the memo becomes the user's note.
+ */
+function FamilyExpenseFields({ form, errors, change, families, family }: FieldsProps & {
+  families: FamilyLedger[]
+  family: FamilyExpense
+}) {
+  const expenseCategories = (family.categories ?? []).filter((c) => c.type === 'EXPENSE')
+  return (
+    <>
+      {families.length > 1 && (
+        <Field label="Family budget">
+          <select value={form.familyId} onChange={(e) => change(
+            { ...form, familyId: e.target.value, familyCategoryId: '', familySplit: newSplit() },
+            ['familyId', 'familyCategoryId', 'familySplit', 'familyMember', ''])}>
+            {families.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        </Field>
+      )}
+      <Field label="Family category" errors={errors.familyCategoryId}>
+        <CategorySelect categories={expenseCategories} type="EXPENSE" value={form.familyCategoryId}
+          onChange={(familyCategoryId) => change({ ...form, familyCategoryId }, ['familyCategoryId'])} />
+      </Field>
+      <Field label="Comment for the family budget" errors={errors.familyComment} className="wide"
+        hint={`Every member of ${family.ledger.name} sees it.`}>
+        <input value={form.familyComment} maxLength={500}
+          onChange={(e) => change({ ...form, familyComment: e.target.value }, ['familyComment'])} />
+      </Field>
     </>
   )
 }

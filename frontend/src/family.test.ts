@@ -97,6 +97,24 @@ describe('the journal in words', () => {
     })
   })
 
+  it('names the payment’s changes: the date, the amount and the payer (F4c)', () => {
+    expect(journalLine(entry({
+      changes: [{ field: 'payer', member: null, old: 'Sam', new: 'Anna' }],
+    }), 'EUR').text).toBe('Anna changed the payer of Groceries, Sep 12, 2026: Sam → Anna.')
+    expect(journalLine(entry({
+      changes: [
+        { field: 'date', member: null, old: '2026-09-10', new: '2026-09-12' },
+        { field: 'amount', member: null, old: '20.00', new: '24.00' },
+        { field: 'share', member: anna, old: '10.00', new: '12.00' },
+        { field: 'share', member: sam, old: '10.00', new: '12.00' },
+      ],
+    }), 'EUR')).toEqual({
+      text: 'Anna changed the date, the amount and the split of Groceries, Sep 12, 2026:',
+      details: ['Date: Sep 10, 2026 → Sep 12, 2026', 'Amount: €20.00 → €24.00',
+        'Split: Anna €10.00 → €12.00, Sam €10.00 → €12.00'],
+    })
+  })
+
   it('says what changed in one sentence, or line by line', () => {
     expect(journalLine(entry({
       changes: [

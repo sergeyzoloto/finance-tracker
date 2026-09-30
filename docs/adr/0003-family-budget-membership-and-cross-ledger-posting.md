@@ -515,6 +515,30 @@ too: `date`, `amount`, `payerMemberId`, and for the payer with an account `payme
   payer's entries of the day (after the F4b review, topic I).
 - The records' messages say "expense", as the screens do.
 
+**F4c as built: the payer's personal entry and C2.**
+
+- The payer's `FAMILY_PAYMENT` entry changes as a payment through `PATCH
+  /api/entries/{id}/family-payment?version=` (the entry's version): `date`, `amount`, `accountId` or
+  `later`, and `memo`, the payer's private note. `FamilyPaymentEntries` finds the entry in the
+  caller's own personal ledger only, so anyone else's reads as missing (404), and hands the change to
+  `FamilyRecordService.update` as the payer's, without a record version. `PUT` of it still answers
+  409, and a share entry stays read-only (409 on the new path too). A new amount of an expense split by
+  amounts is 422 `AMOUNTS_NEEDED` there: only the expense's page takes new amounts.
+- `DELETE /api/entries/{id}?version=` of the payment deletes the expense as its payer, with every
+  share (D-14), through the interface `ledger.FamilyPayments`, which exists only while the switch is
+  on; with it off, the answer is the 409 it was. The interface's confirmation names the family budget
+  and says that the other members' shares go too.
+- C2: the personal editor's new expense has a "Family expense" switch while the switch is on and the
+  user has a family budget; the budget selector only with more than one (D-5). It creates the record
+  through `POST /api/family-ledgers/{ledgerId}/records`, as the family pages do: the user as payer,
+  the entry's account, the family category, the split (the budget's rule by default), the family
+  comment, and `privateNote`, the entry's memo, which only the payer's payment entry keeps (the
+  posting service writes it; `CrossLedgerWriter` refuses a memo on anything else). The result is the
+  payment and share entries, not an ordinary expense. Until F4e, an entry in another currency than the
+  budget's can't be one, with a line that says why. Existing entries aren't converted.
+- The payer's note is their own text in their own entry: it is not the family text that this topic
+  keeps out of personal ledgers, and no family answer or journal holds it.
+
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted
 entries for every eligible member from the record's stored shares, and compares them with the

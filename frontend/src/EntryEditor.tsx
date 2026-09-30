@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, formatDate, isoDate, useApi, type Counterparty, type Entry } from './api'
+import { api, formatDate, isoDate, useApi, type Counterparty, type Entry, type FamilyLedger } from './api'
 import { Errors, Loading } from './components'
 import {
   formFromEntry, newCounterpartyNames, newForm, serverErrors, TABS, tabOf, toCommand, type EntryForm, type Tab,
@@ -8,9 +8,15 @@ import {
 import { EntryFormView } from './EntryForms'
 import { describeEntry, kindLabel, useLedger, type Ledger } from './ledger'
 import { formatMoney } from './money'
+import PaymentEntry from './PaymentEntry'
 
-/** `/entries/new?tab=…` writes a new entry; `/entries/:id` edits one in the form of its kind. */
-export default function EntryEditor() {
+/**
+ * `/entries/new?tab=…` writes a new entry; `/entries/:id` edits one in the form of its kind.
+ *
+ * @param families the user's family budgets while the family budget is switched on (D-25), else undefined: a new
+ *        expense can then be a family expense (C2), and the user's payment for a family expense changes as one (F4c)
+ */
+export default function EntryEditor({ families }: { families?: FamilyLedger[] }) {
   const { id } = useParams()
   const [params] = useSearchParams()
   const navigate = useNavigate()
@@ -25,6 +31,10 @@ export default function EntryEditor() {
   const title = <h2>{id ? 'Edit entry' : 'New entry'}</h2>
   if (error ?? entry.error) return <>{title}<Errors messages={[error ?? entry.error]} /></>
   if (!ledger || (id && !entry.data)) return <>{title}<Loading /></>
+  if (entry.data?.family?.link === 'PAYMENT' && families) {
+    return <PaymentEntry key={`${entry.data.id}:${entry.data.version}`} entry={entry.data} ledger={ledger}
+      onSaved={entry.reload} onDeleted={() => navigate(back)} />
+  }
   if (entry.data?.family?.readOnly) {
     return <ReadOnlyEntry entry={entry.data} ledger={ledger} onBack={() => navigate(back)} />
   }
@@ -60,6 +70,12 @@ export default function EntryEditor() {
     }
   }
 
+  /** A family expense (C2), created through the family budget's endpoint as the family pages create one. */
+  async function saveFamily(ledgerId: number, request: object, andNew: boolean) {
+    await api(`/family-ledgers/${ledgerId}/records`, 'POST', request)
+    if (!andNew) navigate(back)
+  }
+
   async function remove() {
     try {
       await api(`/entries/${entry.data!.id}?version=${entry.data!.version}`, 'DELETE')
@@ -79,6 +95,8 @@ export default function EntryEditor() {
         onSave={save}
         onDelete={entry.data ? remove : undefined}
         onCancel={() => navigate(back)}
+        families={entry.data ? undefined : families}
+        onSaveFamily={entry.data || !families ? undefined : saveFamily}
         notice={!simple && (
           <p className="notice">
             This entry doesn’t fit the {TABS.find((t) => t.tab === tabOf(entry.data!.kind))?.label} form, so it opens

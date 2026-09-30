@@ -727,6 +727,93 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
+    /**
+     * The payer's side (F4c): Alice pays two expenses of A, with her account and "Specify later", each with a private
+     * note. Only her answers hold {@code yourPayment}; Bob's raw answers in A have no such field, and nobody's family
+     * answer holds a note. Her payment entry is missing to Bob and Carol through the payment endpoint and to Bob's
+     * delete; Bob changes none of her payment through the expense, and neither his payment entry nor his expense takes
+     * her account. His own note stays his.
+     */
+    @Test
+    void aPaymentIsThePayersOwn() throws IOException {
+        String carol = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01",
+                 "categoryIds": [%d]}""".formatted(categoryId(alice, "GROCERIES"))).get("id").asLong();
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        String inA = "/api/family-ledgers/" + familyA;
+        long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        JsonNode paid = body(post(alice, inA + "/records", """
+                {"date": "2026-08-20", "categoryId": %d, "amount": "60", "payerMemberId": %d, "paymentAccountId": %d,
+                 "privateNote": "ALICE_PRIVATE_NOTE"}""".formatted(groceriesInA, mumInA, alicesBank)),
+                HttpStatus.CREATED);
+        JsonNode later = body(post(alice, inA + "/records", """
+                {"date": "2026-08-21", "categoryId": %d, "amount": "8", "payerMemberId": %d, "paymentLater": true,
+                 "privateNote": "ALICE_PRIVATE_LATER"}""".formatted(groceriesInA, mumInA)), HttpStatus.CREATED);
+        long alicesPayment = paid.get("yourPayment").get("entryId").asLong();
+        assertThat(paid.get("yourPayment").get("accountId").asLong()).isEqualTo(alicesBank);
+        assertThat(later.get("yourPayment").get("later").asBoolean()).isTrue();
+
+        List<String> reads = List.of("/records", "/records/" + paid.get("id").asLong(),
+                "/records/" + later.get("id").asLong(), "/journal", "/balances");
+        for (String read : reads) {
+            // bobReads refuses anything with "ALICE" in it: her notes included.
+            assertThat(fieldNames(bobReads(inA + read))).as(read).doesNotContain("yourPayment", "privateNote", "memo",
+                    "entryId", "accountId", "accountName");
+            assertThat(ok(get(alice, inA + read)).toString()).as(read).doesNotContain("ALICE_PRIVATE");
+        }
+        assertThat(ok(get(alice, inA + "/records")).get("content").findValues("yourPayment")).hasSize(2);
+
+        SoftAssertions softly = new SoftAssertions();
+        String payment = "/api/entries/%d/family-payment?version=0";
+        String intrusion = """
+                {"amount": "1", "accountId": %d, "memo": "Intruder"}""".formatted(bobsCash);
+        answersAsIfMissing(softly, HttpMethod.PATCH, payment, alicesPayment, intrusion);
+        answersAsIfMissing(softly, HttpMethod.DELETE, "/api/entries/%d?version=0", alicesPayment, null);
+        answersAsIfMissingTo(softly, carol, HttpMethod.PATCH, payment.formatted(alicesPayment),
+                payment.formatted(MISSING), intrusion);
+        softly.assertAll();
+
+        // Her payment is hers: not Bob's to change through the expense (bobsRequest compares her rows).
+        String hers = inA + "/records/" + paid.get("id").asLong() + "?version=0";
+        assertThat(bobsRequest(HttpMethod.PATCH, hers, """
+                {"paymentAccountId": %d}""".formatted(bobsCash))).hasStatus(HttpStatus.CONFLICT);
+        assertThat(bobsRequest(HttpMethod.PATCH, hers, """
+                {"amount": "61", "date": "2026-08-22"}""")).hasStatus(HttpStatus.CONFLICT);
+        // His own expense, all on him: her account pays neither it nor his payment entry, as a missing one doesn't.
+        JsonNode his = body(post(bob, inA + "/records", """
+                {"date": "2026-08-22", "categoryId": %d, "amount": "5", "payerMemberId": %d, "paymentAccountId": %d,
+                 "split": {"method": "ONE_MEMBER", "memberId": %d}}""".formatted(groceriesInA, bobInA, bobsCash,
+                bobInA)), HttpStatus.CREATED);
+        long bobsPayment = his.get("yourPayment").get("entryId").asLong();
+        String account = """
+                {"accountId": %d}""";
+        MvcTestResult herAccount = bobsRequest(HttpMethod.PATCH, payment.formatted(bobsPayment),
+                account.formatted(alicesBank));
+        assertThat(herAccount).hasStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(withoutDigits(herAccount)).isEqualTo(withoutDigits(call(bob, HttpMethod.PATCH,
+                payment.formatted(bobsPayment), account.formatted(MISSING))));
+        String record = inA + "/records/" + his.get("id").asLong() + "?version=0";
+        String paidWith = """
+                {"paymentAccountId": %d}""";
+        MvcTestResult herAccountOnHisExpense = bobsRequest(HttpMethod.PATCH, record, paidWith.formatted(alicesBank));
+        assertThat(herAccountOnHisExpense).hasStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(withoutDigits(herAccountOnHisExpense)).isEqualTo(withoutDigits(call(bob, HttpMethod.PATCH, record,
+                paidWith.formatted(MISSING))));
+        // His note changes his entry only.
+        assertThat(ok(bobsRequest(HttpMethod.PATCH, payment.formatted(bobsPayment), """
+                {"memo": "BOB_PRIVATE_NOTE"}""")).get("memo").asText()).isEqualTo("BOB_PRIVATE_NOTE");
+        for (String read : List.of("/records", "/records/" + his.get("id").asLong(), "/journal")) {
+            JsonNode alices = ok(get(alice, inA + read));
+            assertThat(alices.toString()).as(read).doesNotContain("BOB_PRIVATE_NOTE");
+        }
+        assertThat(ok(get(alice, inA + "/records/" + his.get("id").asLong())).has("yourPayment")).isFalse();
+
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+    }
+
     /** Every field name in the JSON, at any depth. */
     private static Set<String> fieldNames(JsonNode node) {
         Set<String> names = new TreeSet<>();

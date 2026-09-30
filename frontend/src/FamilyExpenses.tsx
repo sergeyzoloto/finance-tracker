@@ -1,18 +1,19 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
-  api, ApiError, formatDate, formatInstant, useApi, type Category, type FamilyJournalPage, type FamilyRecord,
-  type FamilyRecordPage, type YourPayment,
+  api, ApiError, formatDate, formatInstant, useApi, type Account, type Category, type FamilyJournalPage,
+  type FamilyRecord, type FamilyRecordPage, type YourPayment,
 } from './api'
 import { basisPointsToPercent } from './basisPoints'
-import { CategorySelect, Errors, Field, Loading } from './components'
+import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
 import {
-  expenseProblems, formFromRecord, previewSplit, sharers, splitRequest, type SplitContext, type SplitForm,
+  expenseProblems, formFromRecord, paymentAccounts, previewSplit, sharers, splitRequest, type SplitContext,
+  type SplitForm,
 } from './expenseForm'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { JournalList } from './FamilyJournal'
 import { SplitEditor } from './FamilySplit'
-import { toMinor } from './minorUnits'
+import { fromMinor, parseMinor, toMinor } from './minorUnits'
 import { formatMoney } from './money'
 import { basisPointsOf } from './shareSplit'
 
@@ -91,8 +92,9 @@ export function FamilyExpenses({ family }: { family: FamilyData }) {
 /**
  * One expense at `/family/{ledgerId}/expenses/{recordId}`: every field, the shares with their amounts and
  * percentages, and its journal. Its author and the owners change the category, the split and the comment; the payer
- * with an account deletes it, or else its author or an owner (D-14). A stale version shows the server's message and
- * the expense as it is now.
+ * with an account changes the date, the amount, the payer and the account they paid with, and deletes it, or for a
+ * payer without an account its author or an owner (D-14, F4c). A stale version shows the server's message and the
+ * expense as it is now.
  */
 export function ExpenseDetail({ family }: { family: FamilyData }) {
   const { recordId = '' } = useParams()
@@ -127,6 +129,7 @@ export function ExpenseDetail({ family }: { family: FamilyData }) {
   if (!record.data) return <>{back}{record.error ? <Errors messages={[record.error]} /> : <Loading what="the expense" />}</>
   const r = record.data
   const mine = r.payer.memberId === family.ledger.memberId
+  const payerHasAccount = family.members.some((m) => m.id === r.payer.memberId && m.hasAccount)
 
   function remove() {
     if (!confirm(`Delete “${r.category.name}” of ${formatDate(r.date)}? Its shares and payment go with it.`)) return
@@ -185,9 +188,9 @@ export function ExpenseDetail({ family }: { family: FamilyData }) {
         <tfoot><tr><th scope="row">Total</th><td className="amount nowrap">{formatMoney(r.amount, r.currency)}</td><td /></tr></tfoot>
       </table>
 
-      <p className="muted">To change the date, amount or payer, delete the expense and enter it again.</p>
-      {r.canEdit && (
-        <EditExpense key={r.version} record={r} family={family} problems={problems} pending={change.pending}
+      {(r.canEdit || r.canEditPayment) && (
+        <EditExpense key={`${r.version}:${r.yourPayment?.accountId}:${r.yourPayment?.later}`} record={r} family={family}
+          problems={problems} pending={change.pending}
           onSave={(patch) => {
             setSaved(false)
             removal.clear()
@@ -198,7 +201,13 @@ export function ExpenseDetail({ family }: { family: FamilyData }) {
           }} />
       )}
       {!r.canEdit && !r.frozen && (
-        <p className="muted small">Only the expense’s author, {r.author.displayName}, or an owner of the family budget changes it.</p>
+        <p className="muted small">
+          Only the expense’s author, {r.author.displayName}, or an owner of the family budget changes its category,
+          split and comment.
+        </p>
+      )}
+      {!r.canEditPayment && !r.frozen && payerHasAccount && (
+        <p className="muted small">Only {r.payer.displayName}, who paid it, changes its date, amount and payer.</p>
       )}
       {saved && <p className="success" role="status">Saved.</p>}
       <Errors messages={problems.other} />
@@ -235,9 +244,19 @@ function PaidFrom({ payment }: { payment: YourPayment }) {
 }
 
 /** A PATCH of a record: only what changed. */
-type RecordPatch = { categoryId?: number; comment?: string | null; split?: unknown }
+type RecordPatch = {
+  categoryId?: number; comment?: string | null; split?: unknown
+  date?: string; amount?: string; payerMemberId?: number; paymentAccountId?: number; paymentLater?: true
+}
 
-/** The family fields of an expense (D-14): its category, split and comment, with the version it was read at. */
+const LATER = 'later'
+
+/**
+ * What the reader may change of an expense (D-14), with the version it was read at: the payment fields (the date, the
+ * amount, the payer, and the account the reader paid with, or "Specify later") when `canEditPayment`, and its category,
+ * split and comment when `canEdit`. Only what changed is sent. A new amount, date or payer is split again by the
+ * expense's split on the server; one split by amounts needs the new amounts with a new amount.
+ */
 function EditExpense({ record, family, problems, pending, onSave }: {
   record: FamilyRecord
   family: FamilyData
@@ -245,54 +264,117 @@ function EditExpense({ record, family, problems, pending, onSave }: {
   pending: boolean
   onSave: (patch: RecordPatch) => void
 }) {
-  const categories = useApi<Category[]>(`${family.path}/categories`)
-  const initial = formFromRecord(record, family.ledger, family.members)
+  const categories = useApi<Category[]>(record.canEdit ? `${family.path}/categories` : null)
+  const accounts = useApi<Account[]>(record.canEditPayment ? '/accounts' : null)
+  const { ledger, members } = family
+  const currency = record.currency
+  const me = ledger.memberId
+  const initial = formFromRecord(record, ledger, members)
+  const initialPayment = record.yourPayment ? (record.yourPayment.later ? LATER : String(record.yourPayment.accountId)) : ''
+  const [date, setDate] = useState(record.date)
+  const [amountText, setAmountText] = useState(record.amount)
+  const [payer, setPayer] = useState(String(record.payer.memberId))
+  const [payment, setPayment] = useState(initialPayment)
   const [categoryId, setCategoryId] = useState(String(record.category.id))
   const [split, setSplit] = useState<SplitForm>(initial)
   const [comment, setComment] = useState(record.comment ?? '')
-  const currency = record.currency
-  const amount = toMinor(record.amount, currency)
-  const context: SplitContext = {
-    ledger: family.ledger, members: family.members, date: record.date, amount, payerId: record.payer.memberId,
-  }
+
+  const recordAmount = toMinor(record.amount, currency)
+  const parsed = parseMinor(amountText, currency)
+  const amount = 'minor' in parsed ? parsed.minor : undefined
+  const payerId = Number(payer)
+  const context: SplitContext = { ledger, members, date, amount, payerId }
   const preview = previewSplit(split, context, currency)
+  const initialContext: SplitContext = { ledger, members, date: record.date, amount: recordAmount, payerId: record.payer.memberId }
   const splitChanged = JSON.stringify(splitRequest(split, preview, currency))
-    !== JSON.stringify(splitRequest(initial, previewSplit(initial, context, currency), currency))
+    !== JSON.stringify(splitRequest(initial, previewSplit(initial, initialContext, currency), currency))
+  const amountChanged = amount !== undefined && amount !== recordAmount
+  const payerChanged = payerId !== record.payer.memberId
+  const payerIsMe = payerId === me
+  // A new amount of an expense split by amounts needs the new amounts; any other split follows on the server.
+  const needsAmounts = record.splitMethod === 'AMOUNT' && amountChanged && !splitChanged
   const patch: RecordPatch = {
+    ...(date !== record.date ? { date } : {}),
+    ...(amountChanged ? { amount: fromMinor(amount, currency) } : {}),
+    ...(payerChanged ? { payerMemberId: payerId } : {}),
+    ...(payerIsMe && payment !== '' && (payerChanged || payment !== initialPayment)
+      ? (payment === LATER ? { paymentLater: true as const } : { paymentAccountId: Number(payment) }) : {}),
     ...(categoryId !== String(record.category.id) ? { categoryId: Number(categoryId) } : {}),
     ...(comment.trim() !== (record.comment ?? '') ? { comment: comment.trim() || null } : {}),
     ...(splitChanged ? { split: splitRequest(split, preview, currency) } : {}),
   }
   const changed = Object.keys(patch).length > 0
-  const ready = changed && (!splitChanged || preview.problems.length === 0)
+  const dateProblem = date === '' ? 'Enter a date.'
+    : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an expense can’t be earlier.` : undefined
+  const splitProblems = splitChanged || needsAmounts ? preview.problems : []
+  const ready = changed && !dateProblem && amount !== undefined && (!payerIsMe || payment !== '')
+    && splitProblems.length === 0 && !needsAmounts
+  const followsSplit = !splitChanged && (amountChanged || date !== record.date || payerChanged)
 
   function submit(event: FormEvent) {
     event.preventDefault()
     if (ready) onSave(patch)
   }
 
+  function undo() {
+    setDate(record.date); setAmountText(record.amount); setPayer(String(record.payer.memberId)); setPayment(initialPayment)
+    setCategoryId(String(record.category.id)); setSplit(initial); setComment(record.comment ?? '')
+  }
+
   const current: Category = { ...record.category, type: 'EXPENSE' }
   const shown = (categories.data ?? [current]).filter((c) => c.type === 'EXPENSE')
+  // Who may pay: the reader, or a member without an account (D-14); and whoever pays it now.
+  const payers = members.filter((m) => (m.status === 'ACTIVE' && (m.id === me || !m.hasAccount)) || m.id === record.payer.memberId)
+  const choices = paymentAccounts(accounts.data ?? [])
   return (
     <form className="family-form expense-form" onSubmit={submit}>
       <h4>Change this expense</h4>
       <div className="fields">
-        <Field label="Category" errors={problems.category}>
-          <CategorySelect categories={shown} type="EXPENSE" value={categoryId} onChange={setCategoryId} />
-        </Field>
-        <Field label="Comment (optional)" errors={problems.comment} className="wide">
-          <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
-        </Field>
+        {record.canEditPayment && (
+          <>
+            <Field label="Date" errors={[...(dateProblem ? [dateProblem] : []), ...problems.date]}>
+              <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
+            </Field>
+            <Field label={`Amount (${currency})`}
+              errors={[...(amountText.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}>
+              <input className="amount" inputMode="decimal" value={amountText} autoComplete="off"
+                onChange={(e) => setAmountText(e.target.value)} />
+            </Field>
+            <Field label="Paid by" errors={problems.payer}>
+              <select value={payer} onChange={(e) => setPayer(e.target.value)}>
+                {payers.map((m) => <option key={m.id} value={m.id}>{m.id === me ? `${m.displayName} (you)` : m.displayName}</option>)}
+              </select>
+            </Field>
+            {payerIsMe && (
+              <Field label="Paid from" errors={problems.payment}
+                hint="Only you see it. “Specify later” keeps the payment under “Payments without a specified account”.">
+                <AccountSelect accounts={choices} value={payment} onChange={setPayment}>
+                  <option value={LATER}>Specify later</option>
+                </AccountSelect>
+              </Field>
+            )}
+          </>
+        )}
+        {record.canEdit && (
+          <>
+            <Field label="Category" errors={problems.category}>
+              <CategorySelect categories={shown} type="EXPENSE" value={categoryId} onChange={setCategoryId} />
+            </Field>
+            <Field label="Comment (optional)" errors={problems.comment} className="wide">
+              <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
+            </Field>
+          </>
+        )}
       </div>
-      <SplitEditor form={split} preview={preview} context={context} currency={currency} onChange={setSplit}
-        byMember={problems.byMember} problems={problems.split} you={family.ledger.memberId} />
+      {(record.canEdit || record.splitMethod === 'AMOUNT') && (
+        <SplitEditor form={split} preview={{ ...preview, problems: splitProblems }} context={context} currency={currency}
+          onChange={setSplit} byMember={problems.byMember} problems={problems.split} you={me} />
+      )}
+      {needsAmounts && <p className="error small" role="alert">This expense is split by amounts: enter the new amounts with the new amount.</p>}
+      {followsSplit && <p className="muted small">When you save, the shares are split again as the expense is split now.</p>}
       <div className="actions">
         <button className="primary" disabled={!ready || pending}>Save the changes</button>
-        {changed && (
-          <button type="button" onClick={() => { setCategoryId(String(record.category.id)); setSplit(initial); setComment(record.comment ?? '') }}>
-            Undo
-          </button>
-        )}
+        {changed && <button type="button" onClick={undo}>Undo</button>}
       </div>
     </form>
   )

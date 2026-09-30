@@ -5,7 +5,10 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-09-30 · Family budget: F4b's deploy and review, the payer's side (F4c)
 
-Not committed yet.
+Committed locally on `feature/family-budget` in three commits: `3ef8c3c` (documents), `1245fe2`
+(payment edits and the payer's own view) and "feat(family): the payer's entry and family expenses
+from the personal editor", whose hash belongs here with the next change log commit. Not pushed, not
+merged, not deployed.
 
 **Changes**
 - F4b's deploy and the decisions after its review (commit "docs(family-budget): F4b deploy, review
@@ -53,6 +56,42 @@ Not committed yet.
     (from the seed: 103 creates, 59 changes, 35 payment edits, 31 deletes, 12 split rules);
     `CrossLedgerWriterTests` refuses a note on another member's entry; `FamilyExpenses.test.tsx`
     reads the account from `yourPayment` (1 new).
+- The payer's entry and family expenses from the personal editor (commit "feat(family): the payer's
+  entry and family expenses from the personal editor"), ADR 0003 topic E. No migration.
+  - `PATCH /api/entries/{id}/family-payment?version=` (new, only with the switch on): the payer's own
+    `FAMILY_PAYMENT` entry's `date`, `amount`, `accountId` or `later`, and `memo`, as the payer's
+    change of the expense (`FamilyPaymentEntries`, through `FamilyRecordService.update`); it answers
+    with the entry. Anyone else's entry is missing (404); a share or an ordinary entry answers 409, "Entry
+    N is not your payment for a family expense, so it doesn't change as one."; a new amount of an
+    expense split by amounts is 422 `AMOUNTS_NEEDED`. `PUT` of the payment still answers 409.
+  - `DELETE /api/entries/{id}?version=` of the payment deletes the expense with every share, through
+    `ledger.FamilyPayments`, which exists only with the switch on; with it off, the 409 as before.
+  - The personal editor: a new expense has a "Family expense" switch while the switch is on and the
+    user has a family budget. It shows the family budget (a selector only with more than one, D-5), a
+    family category, the comment for the family budget, the split (`SplitEditor`, the budget's rule
+    by default), and the memo as "Note, only you see it"; payee, refund, the personal category and the
+    old "Split with family" go while it is on; "Paid from" offers only assets and liabilities. It
+    creates the record through `POST /api/family-ledgers/{ledgerId}/records` with the user as payer,
+    the entry's account and `privateNote`: a payment and a share entry, no ordinary expense. For an
+    entry in another currency than the budget's it is disabled, with one line that says why.
+  - The payer's payment entry (`PaymentEntry.tsx`), with the switch on: date, amount, "Paid from"
+    (accounts or "Specify later") and the note, Save sending only what changed; Delete after "Delete
+    your payment and the expense “Groceries” of Sep 12, 2026 in the family budget “Home”? The other
+    members' shares of it go too." With the switch off it opens read-only as before.
+  - The expense page: "Change this expense" takes the date, amount, payer and "Paid from" when
+    `canEditPayment`, and the category, split and comment when `canEdit`; a new amount of an expense
+    split by amounts needs the new amounts before Save. "To change the date, amount or payer, delete the
+    expense and enter it again." is gone; where the reader can't, "Only Ben, who paid it, changes its
+    date, amount and payer."
+  - The journal's sentences name a new date, amount and payer ("Anna changed the payer of …: Sam →
+    Anna."), which F4b's sentences left out (found in the walk-through).
+  - Tests: `FamilyPaymentApiTests` (5 new: the payer's entry changes the expense, `AMOUNTS_NEEDED`
+    there, deleting it deletes the expense, what isn't a payment, C2 row by row against the family
+    pages' request); `DataIsolationApiTests.aPaymentIsThePayersOwn` (new; the file gained 87 lines and
+    lost none); `FamilySwitchOffApiTests` with the new controller (22 endpoints) and no
+    `FamilyPayments`; `ApiTests`' OpenAPI paths; `FamilyRecordApiTests`' payment deletion now a PUT's
+    409. Frontend: new `FamilyPayer.test.tsx` (12), `family.test.ts` (1 new); `FamilyExpenses.test.tsx`
+    with `canEditPayment` in the permission table.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -65,8 +104,47 @@ Not committed yet.
   random test's 240 operations. Frontend: `npm test` 14 files and 193 tests passed, `npm run build`
   succeeded.
 
+- `aPaymentIsThePayersOwn` against a temporary mutation, from file copies: `ownPayments` without its
+  payer filter, and the view asking for every record, made it fail (Bob's answers held
+  `yourPayment`). A frontend mutation, the C2 request without `privateNote`, made its test fail. Both
+  files restored.
+- The walk-through in headless Chrome (playwright-core), against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true` on a throwaway `postgres:17-alpine`, the Vite dev server and the dev
+  Keycloak's testuser, after the demo, with "Home" from 2026-08-30 (Groceries merged) and Sam:
+  1. From the personal editor: 60.00 Groceries paid with Cash, comment "Market", note "Card ending
+     4": the record with 30.00 each, `yourPayment` Cash, a payment and a share entry and no ordinary
+     expense, the note on the payment entry.
+  2. The note on none of the family pages (overview, expenses, the expense, balances, journal) and
+     in none of the raw family answers.
+  3. 45.50 "Specify later" on the family page, then Cash on its page: version 0 still, no journal
+     line.
+  4. The first expense to 70.00 and 2026-09-19 on its page: shares 35.00 each, the payment entry
+     followed, the journal "date, amount, share, share"; then Current account from the personal
+     entry, the note kept.
+  5. The second deleted through its payment entry: the confirmation named "Home" and the shares, the
+     expense 404, journaled as deleted.
+  After each step the balances summed to zero (last: −35.00 and 35.00) and
+  `/api/reports/integrity` read `[]`. At 375 px the editor with the family option, the payment
+  entry, the expense page with its form, expenses, balances, journal and overview were 375 px wide.
+  Found and fixed: the "Family expense" switch came after the fields it shows (now before them); an
+  update's date, amount and payer were missing from the journal's sentences. Rechecked after the
+  fixes. The console's errors: `/api/me`'s 401 before the sign-in, and the 404 of the script's own
+  check that the deleted expense is gone. The instance and its database were removed; screenshots stay
+  in the session's scratchpad.
+- After the third commit: `./mvnw -B clean verify` 326 tests (320 and 6), 0 failures, 0 errors, 0
+  skipped, BUILD SUCCESS. Frontend: `npm test` 15 files and 207 tests passed, `npm run build`
+  succeeded.
+
 **Open**
-- The rest of F4c: the payer's personal entry and C2.
+- The owner's deploy of F4c with the switch off; the report has the checklist. No migration, no
+  `finance.conf` or `finance.caddy` change. Rollback: the `:previous` images, `4285d52`.
+- Equal shares after a new amount, date or payer go among the record's own members as of the new
+  date; a member without an account added since doesn't come in (D-18). The expense page's preview
+  follows the budget's rule and may show that member until the server answers.
+- An expense split equally while the rule is now custom opens with its amounts in the split editor;
+  a new amount then shows amounts that don't add up, though the server splits it equally again. Save
+  isn't blocked, and a line says the split follows on saving.
+- F4d (settlements, incomes) and F4e (other currencies).
 
 ## 2026-09-30 · Family budget: F4a's second deploy and review, the family expenses interface (F4b)
 

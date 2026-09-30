@@ -111,7 +111,8 @@ class FamilyRecordApiTests extends FamilyApiTest {
                 .formatted(share.get("id").asLong()));
         assertThat(detail(delete(alice, "/api/entries/%d?version=0".formatted(share.get("id").asLong())),
                 HttpStatus.CONFLICT)).startsWith("Entry %d was posted".formatted(share.get("id").asLong()));
-        assertThat(detail(delete(alice, "/api/entries/%d?version=0".formatted(payment.get("id").asLong())),
+        // The payment changes as a payment, or through the expense; deleting it deletes the expense (F4c).
+        assertThat(detail(put(alice, "/api/entries/%d?version=0".formatted(payment.get("id").asLong()), command),
                 HttpStatus.CONFLICT)).isEqualTo(("Entry %d is your payment for an expense of the family budget \"Home\"; "
                 + "change or delete the expense there.").formatted(payment.get("id").asLong()));
         assertThat(ok(get(alice, "/api/entries/" + share.get("id").asLong())).get("family").get("readOnly").asBoolean())

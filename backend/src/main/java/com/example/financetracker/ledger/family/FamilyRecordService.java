@@ -325,13 +325,14 @@ public class FamilyRecordService {
      * included (D-14).
      *
      * @param family the family ledger, as the payer if they have an account, else as the author or an owner
-     * @param expectedVersion the version the caller read
+     * @param expectedVersion the version the caller read; null for the deletion of the payer's own payment entry,
+     *        whose own version the caller read (FamilyPaymentEntries)
      * @throws NotFoundException if the family ledger has no such record, or it is deleted already
      * @throws OptimisticLockingFailureException if the record is no longer at {@code expectedVersion}
      * @throws ConflictException if the member may not delete it, or it is frozen
      */
     @Transactional
-    public void delete(LedgerScope family, long recordId, int expectedVersion) {
+    public void delete(LedgerScope family, long recordId, Integer expectedVersion) {
         lockLedger(family);
         RecordRow record = lockRecord(family, recordId, expectedVersion);
         Map<Long, Member> members = members(family);

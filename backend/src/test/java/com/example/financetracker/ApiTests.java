@@ -256,6 +256,7 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/counterparties/{id}", List.of("patch")),
                 Map.entry("/api/entries", List.of("get", "post")),
                 Map.entry("/api/entries/{id}", List.of("delete", "get", "put")),
+                Map.entry("/api/entries/{id}/family-payment", List.of("patch")),
                 Map.entry("/api/reports/balances", List.of("get")),
                 Map.entry("/api/reports/cash-flow", List.of("get")),
                 Map.entry("/api/reports/counterparty-balances", List.of("get")),

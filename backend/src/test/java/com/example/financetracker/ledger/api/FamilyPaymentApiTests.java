@@ -359,6 +359,193 @@ class FamilyPaymentApiTests extends FamilyApiTest {
                 "PAYMENT %d a private note goes only on your own payment, and you didn't pay this".formatted(kid));
     }
 
+    /**
+     * The payer's own payment entry changes as a payment (F4c): its date, amount, account and note, through the
+     * personal endpoint, as the payer's change of the expense. The other members' shares follow in the same
+     * transaction, and the journal reads as for a change on the expense's page.
+     */
+    @Test
+    void thePayerChangesTheExpenseThroughTheirPaymentEntry() throws IOException {
+        long current = accountId(alice, "CURRENT_ACCOUNT");
+        long cash = accountId(alice, "CASH");
+        JsonNode record = created(post(alice, uri + "/records", """
+                {"date": "2026-09-10", "categoryId": %d, "amount": "100", "payerMemberId": %d, "paymentAccountId": %d,
+                 "split": {"method": "PERCENT", "shares": [{"memberId": %d, "basisPoints": 5000},
+                   {"memberId": %d, "basisPoints": 5000}]}}""".formatted(groceries, mum, current, mum, dad)));
+        long id = record.get("id").asLong();
+        String entry = "/api/entries/" + record.get("yourPayment").get("entryId").asLong();
+        long debt = accountId(alice, "FAMILY_DEBT_" + family);
+
+        JsonNode changed = ok(patch(alice, entry + "/family-payment?version=0", """
+                {"date": "2026-09-12", "amount": "120", "accountId": %d, "memo": "Receipt in the drawer"}"""
+                .formatted(cash)));
+        assertThat(changed.get("entryDate").asText()).isEqualTo("2026-09-12");
+        assertThat(changed.get("memo").asText()).isEqualTo("Receipt in the drawer");
+        assertThat(changed.get("version").asInt()).isOne();
+        assertThat(changed.get("postings")).isEqualTo(json.readTree("""
+                [{"accountId": %d, "currency": "EUR", "amount": "-120.00", "categoryId": null, "counterpartyId": null},
+                 {"accountId": %d, "currency": "EUR", "amount": "120.00", "categoryId": null, "counterpartyId": null}]"""
+                .formatted(cash, debt)));
+        assertThat(changed.get("family").get("link").asText()).isEqualTo("PAYMENT");
+        JsonNode expense = ok(get(bob, uri + "/records/" + id));
+        assertThat(expense.get("date").asText()).isEqualTo("2026-09-12");
+        assertThat(shares(expense)).containsExactly("Mum 60.00 5000", "Dad 60.00 5000");
+        assertThat(postedEntries(bob)).containsExactly("FAMILY_SHARE SHARE %d:60.00:%d %d:-60.00:null".formatted(
+                accountId(bob, "UNALLOCATED"), groceries, accountId(bob, "FAMILY_DEBT_" + family)));
+        assertThat(changes(ok(get(bob, uri + "/journal?recordId=" + id))).getFirst()).isEqualTo("UPDATE by Mum: "
+                + "date 2026-09-10→2026-09-12, amount 100.00→120.00, share of Mum 50.00→60.00, share of Dad 50.00→60.00");
+        for (String read : List.of(uri + "/records/" + id, uri + "/records", uri + "/journal")) {
+            assertThat(ok(get(alice, read)).toString()).as(read).doesNotContain("drawer");
+            assertThat(ok(get(bob, read)).toString()).as(read).doesNotContain("drawer", "Cash", "yourPayment");
+        }
+
+        assertThat(detail(patch(alice, entry + "/family-payment?version=0", """
+                {"amount": "1"}"""), HttpStatus.CONFLICT)).isEqualTo("Journal entry %s has changed since version 0. "
+                .formatted(entry.substring(entry.lastIndexOf('/') + 1)) + "Reload it and try again.");
+        // To "Specify later" and back to an account; the note stays until it is removed.
+        JsonNode later = ok(patch(alice, entry + "/family-payment?version=1", """
+                {"later": true}"""));
+        assertThat(later.get("postings").get(0).get("accountId").asLong())
+                .isEqualTo(accountId(alice, "UNSPECIFIED_PAYMENTS"));
+        assertThat(later.get("memo").asText()).isEqualTo("Receipt in the drawer");
+        assertThat(ok(get(alice, uri + "/records/" + id)).get("yourPayment").get("later").asBoolean()).isTrue();
+        JsonNode back = ok(patch(alice, entry + "/family-payment?version=2", """
+                {"accountId": %d, "memo": null}""".formatted(current)));
+        assertThat(back.get("postings").get(0).get("accountId").asLong()).isEqualTo(current);
+        assertThat(back.get("memo").isNull()).isTrue();
+        assertThat(ok(get(alice, uri + "/records/" + id)).get("version").asInt()).isOne();
+        // The rules are the expense's: a date before the start is a conflict, an amount of 0 a violation.
+        assertThat(patch(alice, entry + "/family-payment?version=3", """
+                {"date": "2026-08-31"}""")).hasStatus(HttpStatus.CONFLICT);
+        assertThat(details(patch(alice, entry + "/family-payment?version=3", """
+                {"amount": "0"}"""))).containsExactly("AMOUNT null the amount must be above 0");
+    }
+
+    /** A new amount of an expense split by amounts needs the new amounts, which only the expense's page takes. */
+    @Test
+    void theAmountOfAnExpenseSplitByAmountsChangesOnTheExpense() throws IOException {
+        JsonNode record = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "9", mum,
+                "\"paymentAccountId\": %d,".formatted(accountId(alice, "CASH")), """
+                {"method": "AMOUNT", "shares": [{"memberId": %d, "amount": "4"}, {"memberId": %d, "amount": "5"}]}"""
+                        .formatted(mum, dad))));
+        String entry = "/api/entries/" + record.get("yourPayment").get("entryId").asLong();
+        assertThat(details(patch(alice, entry + "/family-payment?version=0", """
+                {"amount": "10"}"""))).containsExactly("AMOUNTS_NEEDED null the expense is split by amounts: send the "
+                + "new amounts with the new amount");
+        assertThat(ok(patch(alice, entry + "/family-payment?version=0", """
+                {"date": "2026-09-11"}""")).get("entryDate").asText()).isEqualTo("2026-09-11");
+    }
+
+    /**
+     * Deleting the payment entry deletes the expense, with every member's share and the payment (D-14): as the
+     * payer's deletion on the expense's page, with the entry's version. A frozen expense stays.
+     */
+    @Test
+    void deletingThePaymentEntryDeletesTheExpense() throws IOException {
+        JsonNode record = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "30", mum,
+                "\"paymentAccountId\": %d,".formatted(accountId(alice, "CASH")))));
+        long id = record.get("id").asLong();
+        String entry = "/api/entries/" + record.get("yourPayment").get("entryId").asLong();
+        assertThat(postedEntries(bob)).hasSize(1);
+
+        assertThat(detail(delete(alice, entry + "?version=1"), HttpStatus.CONFLICT))
+                .endsWith("has changed since version 1. Reload it and try again.");
+        assertThat(delete(alice, entry + "?version=0")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(detail(get(alice, uri + "/records/" + id), HttpStatus.NOT_FOUND))
+                .isEqualTo("Expense %d not found.".formatted(id));
+        assertThat(get(alice, entry)).hasStatus(HttpStatus.NOT_FOUND);
+        assertThat(postedEntries(alice)).isEmpty();
+        assertThat(postedEntries(bob)).isEmpty();
+        assertThat(changes(ok(get(bob, uri + "/journal?recordId=" + id))).getFirst()).isEqualTo("DELETE by Mum: ");
+        assertThat(balances(bob)).containsExactly("Mum 0.00", "Dad 0.00 you", "Kid 0.00");
+
+        JsonNode withBob = created(post(alice, uri + "/records", expense("2026-09-11", groceries, "20", mum,
+                "\"paymentAccountId\": %d,".formatted(accountId(alice, "CASH")))));
+        assertThat(delete(bob, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(detail(delete(alice, "/api/entries/" + withBob.get("yourPayment").get("entryId").asLong()
+                + "?version=0"), HttpStatus.CONFLICT)).startsWith("The expense is frozen");
+    }
+
+    /**
+     * Only the payer's own payment changes as a payment: a share, an ordinary entry, and anyone else's entry don't,
+     * and to Bob, Alice's payment entry is missing, as any entry of hers is (rule 11).
+     */
+    @Test
+    void onlyThePayersOwnPaymentChangesAsAPayment() throws IOException {
+        JsonNode record = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "30", mum,
+                "\"paymentAccountId\": %d,".formatted(accountId(alice, "CASH")))));
+        long alicesPayment = record.get("yourPayment").get("entryId").asLong();
+        long bobsShare = ok(get(bob, "/api/entries")).get("content").get(0).get("id").asLong();
+        long ordinary = newExpense(bob, "2026-09-10", "5", null, null).get("id").asLong();
+        String body = """
+                {"amount": "31"}""";
+
+        for (long entry : List.of(bobsShare, ordinary)) {
+            assertThat(detail(patch(bob, "/api/entries/%d/family-payment?version=0".formatted(entry), body),
+                    HttpStatus.CONFLICT)).isEqualTo(("Entry %d is not your payment for a family expense, so it doesn't "
+                    + "change as one.").formatted(entry));
+        }
+        assertThat(delete(bob, "/api/entries/%d?version=0".formatted(bobsShare))).hasStatus(HttpStatus.CONFLICT);
+        assertThat(detail(patch(bob, "/api/entries/%d/family-payment?version=0".formatted(alicesPayment), body),
+                HttpStatus.NOT_FOUND)).isEqualTo("Journal entry %d not found.".formatted(alicesPayment));
+        assertThat(detail(delete(bob, "/api/entries/%d?version=0".formatted(alicesPayment)), HttpStatus.NOT_FOUND))
+                .isEqualTo("Journal entry %d not found.".formatted(alicesPayment));
+        assertThat(ok(get(alice, uri + "/records/" + record.get("id").asLong())).get("version").asInt()).isZero();
+    }
+
+    /**
+     * C2: an expense entered from the personal editor is the request the family pages send, with the paying account
+     * and the private note, and gives the same rows, the note on the payment entry apart: the record, its shares and
+     * journal, the links, the entries and their postings.
+     */
+    @Test
+    void anExpenseFromThePersonalEditorIsTheOneTheFamilyPagesEnter() throws IOException {
+        String fromTheFamilyPages = """
+                {"date": "2026-09-10", "categoryId": %d, "amount": "45.50", "comment": "Market",
+                 "payerMemberId": %d, "paymentAccountId": %d, "split": {"method": "RULE"}""".formatted(groceries, mum,
+                accountId(alice, "CASH"));
+        long familyPages = created(post(alice, uri + "/records", fromTheFamilyPages + "}")).get("id").asLong();
+        long personalEditor = created(post(alice, uri + "/records", fromTheFamilyPages + """
+                , "privateNote": "Only mine"}""")).get("id").asLong();
+
+        assertThat(rowsOf(personalEditor)).isEqualTo(rowsOf(familyPages));
+        assertThat(memos(personalEditor)).containsExactly("PAYMENT Only mine", "SHARE null", "SHARE null");
+        assertThat(memos(familyPages)).containsExactly("PAYMENT null", "SHARE null", "SHARE null");
+    }
+
+    /** The record's rows and its entries' rows, without ids, times and the entries' memos, in a stable order. */
+    private List<String> rowsOf(long recordId) {
+        List<String> rows = new java.util.ArrayList<>();
+        rows.addAll(jdbc.sql("""
+                SELECT concat_ws(' ', type, record_date, category_id, payer_member_id, payee_member_id, original_amount,
+                                 original_currency, base_amount, split_method, comment, author_member_id,
+                                 updated_by_member_id, deleted_at IS NULL, version)
+                FROM family_record WHERE id = ?""").param(recordId).query(String.class).list());
+        rows.addAll(jdbc.sql("""
+                SELECT concat_ws(' ', member_id, amount, share_bp, updated_by_member_id) FROM family_share
+                WHERE record_id = ? ORDER BY member_id""").param(recordId).query(String.class).list());
+        rows.addAll(jdbc.sql("""
+                SELECT concat_ws(' ', changed_by_member_id, action, changes::text) FROM family_record_change
+                WHERE record_id = ? ORDER BY id""").param(recordId).query(String.class).list());
+        rows.addAll(jdbc.sql("""
+                SELECT concat_ws(' ', l.member_id, l.link_type, l.system_owned, l.detached_at IS NULL, e.user_id,
+                                 e.ledger_id, e.entry_date, e.kind, e.payee_id, e.version,
+                                 (SELECT string_agg(concat_ws(':', p.line_no, p.account_id, p.currency, p.amount,
+                                                              p.category_id, p.counterparty_id), ' ' ORDER BY p.line_no)
+                                  FROM posting p WHERE p.entry_id = e.id))
+                FROM family_entry_link l JOIN journal_entry e ON e.id = l.entry_id
+                WHERE l.record_id = ? ORDER BY l.member_id, l.link_type""").param(recordId).query(String.class).list());
+        return rows;
+    }
+
+    /** The memo of each of the record's entries, as "LINK memo", ordered by link type. */
+    private List<String> memos(long recordId) {
+        return jdbc.sql("""
+                SELECT l.link_type || ' ' || coalesce(e.memo, 'null')
+                FROM family_entry_link l JOIN journal_entry e ON e.id = l.entry_id
+                WHERE l.record_id = ? ORDER BY l.link_type, l.member_id""").param(recordId).query(String.class).list();
+    }
+
     /** Whether the link of the payment entry says that only the family budget changes it. */
     private boolean systemOwned(long entryId) {
         return jdbc.sql("SELECT system_owned FROM family_entry_link WHERE entry_id = ?").param(entryId)

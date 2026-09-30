@@ -10,6 +10,8 @@ Amended after the F3a review on 2026-09-29: D-3 (a member with an account change
 
 Amended after the F3b deploy on 2026-09-30: new D-27 (the start date), the planned stages (F4 split into F4a, F4b and F4c) and "Later".
 
+Amended after the F4a review on 2026-09-30: D-12 (how shares are rounded) and D-18 (who shares records of which dates).
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -50,7 +52,7 @@ Categories
   - Balance-sheet accounts are never shared.
 
 Split rule
-- D-12. Each family ledger has a default split rule: equal shares, or custom percentages summing to 100. The custom percentages are stored and sent by the API as integer basis points summing to exactly 10000; the interface shows and accepts percentages with two decimals and converts them with integer arithmetic. It applies to expenses and incomes, and only to new records. A record can override it with percentages, with amounts, or "entirely on one member". Amounts are rounded to the currency's minor unit. The remainder goes to the member with the largest share; on a tie, to the payer (the recipient for income), then by join order. So the shares always sum to the record amount.
+- D-12. Each family ledger has a default split rule: equal shares, or custom percentages summing to 100. The custom percentages are stored and sent by the API as integer basis points summing to exactly 10000; the interface shows and accepts percentages with two decimals and converts them with integer arithmetic. It applies to expenses and incomes, and only to new records. A record can override it with percentages, with amounts, or "entirely on one member". Amounts are rounded to the currency's minor unit. The remainder goes to the member with the largest share; on a tie, to the payer (the recipient for income), then by join order. So the shares always sum to the record amount. As built in F4a and kept after its review: each share is cut down to the minor unit, and the remainder, never negative, goes as above; 10.01 split 50/50 gives the payer 5.01. HALF_UP stays the rule for single amounts, such as conversions.
 
 Currency
 - D-13. A family ledger has a base currency that cannot change after its first record. Shares, balances and debts are kept in the base currency and fixed at entry. A record keeps the original amount and currency plus the base amount.
@@ -86,6 +88,7 @@ Invites
   - The join date cannot be changed after joining.
   - A user who is already in the ledger cannot claim another seat. Members are never merged.
   - A join date in the past is allowed only when claiming a seat. For a new member, the join date is the acceptance date. Existing records are never re-split.
+  - Who shares records of which dates (after the F4a review): members without an account share records of any date on or after the family ledger's start date (D-27); members with an account share from their join date.
 
 Leaving and deletion
 - D-19. Leaving (or being removed) with a non-zero balance is allowed after a warning.

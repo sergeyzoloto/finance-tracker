@@ -361,7 +361,10 @@ CREATE TABLE family_share (
   end at 5.00. D-12 says only "rounded", and "the remainder goes to" reads as a remainder that is
   added. A currency without a minor unit (JPY) splits in whole units. Under EQUAL a member with an
   account shares only records dated on or after their join date (D-7), and a member without an
-  account shares any record of the ledger. The default rule (`ledger.split_rule`, `ledger_member.share_bp`) applies to new records
+  account shares any record of the ledger.
+  **Kept after the F4a review** (2026-09-30), and D-12 says so; HALF_UP stays the rule for single
+  amounts. D-18 as amended: members without an account share records of any date on or after the
+  start date, members with an account from their join date. The default rule (`ledger.split_rule`, `ledger_member.share_bp`) applies to new records
   only; the participants are the members that are ACTIVE with `join_date` on or before the record's
   date.
 - **The start date** (D-27, after the F3b deploy): `ledger.start_date`, chosen at creation (today by
@@ -473,7 +476,8 @@ membership. The payer with an account is always the member who acts (D-14), so t
 their own account is written in their own ledger; the database lets that account through only in the
 ledger the writer names in `app.own_ledger`. Until F4c, the payment's fields don't change: a change of
 the family fields re-posts the shares and keeps the payment, and the personal endpoints answer 409 for
-the payment too (not only for the system-owned entries), naming the rule. Posted entries have no memo:
+the payment too (not only for the system-owned entries), naming the rule. Accepted after the F4a
+review, as is leaving out the link check below. Posted entries have no memo:
 a comment would copy family text into personal ledgers, which D-20's erasure then couldn't reach.
 
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
@@ -701,7 +705,9 @@ CREATE TABLE family_record_change (
   `record_id` and `changed_by_member_id` be NULL for it, with an action of its own, or gives the
   ledger's changes a table of their own. **F4a (V7)** takes the first: `family_record_change` with
   `record_id` and `changed_by_member_id` NULL, the action `SPLIT_RULE_RESET`, and
-  `about_member_id` naming the member who left; `release_family_memberships` writes it.
+  `about_member_id` naming the member who left; `release_family_memberships` writes it. Accepted
+  after the F4a review, with the journal at `/journal?recordId=` (topic I) and D-20's erasure of
+  comments already inside `release_family_memberships`.
 - D-20's erasure (as amended): when a member becomes FORMER, the comment text they wrote is replaced
   with null in the record and wherever the journal holds it: the new value of each of their own
   changes of the comment, and the old value of the change that replaced one of theirs. A comment

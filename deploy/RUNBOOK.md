@@ -631,6 +631,7 @@ changed since: `git -C /opt/finance-tracker log -1 --oneline` on the server.
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-09-30 | `71c3eb7` (feat(family): records, posting, balances and journal) | F4a parts 1 to 4: V7, family records and posting, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 6; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; restore test PASS with 14 tables and migration 6. Flyway applied V7 ("7 - family records and posting") in 0.077 s; the api healthy, logging the switch as off; the server at `main`, `71c3eb7`; the layers of both images different from `:previous`. After: the same counts, still 20 accounts; every family count 0 (family ledgers, members, categories, records, shares, links, journal rows, family accounts, start dates); no row outside its user's personal ledger; restore test on a new backup PASS with 18 tables and migration 7; the browser checks passed; the smoke test with the test account passed, the refusal to archive Unallocated included. |
 | 2026-09-30 | `5a7e490` (feat(family): the family budget interface, behind the switch) | F3b: the family budget interface, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 6; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; no family ledger, member, category, split rule or share; no row outside its user's personal ledger; restore test PASS with 14 tables and migration 6. The api and web images both new, with layers different from `:previous`; Flyway reported the schema up to date; the api logged the switch as off; the server at `main`, `5a7e490`. After: the same counts; `/api/me` held `"features":{"familyLedgers":false}`; no switcher in the header; `/family/new` ended on the dashboard; the personal pages as before. Smoke test with the test account: the demo landed in its ledger 7 (12 accounts, 18 categories, 10 counterparties, 138 entries), and after Delete all my data it got a new ledger 8 with the starter rows only; the owner's rows unchanged each time. |
 | 2026-09-29 | `9bbf427` (feat(family): family ledgers in the backend, behind a switch) | F3a: V6 and the family ledger backend, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 5; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; restore test PASS with 14 tables, migration 5, 2 ledgers and 2 members. The api healthy on the new image, the web container kept running, Flyway applied V6 ("6 - family ledgers"), and the api logged "Family ledgers (D-25): off; the family endpoints answer 404". After: the same counts; no family ledger, family member, family category, split rule or share; no row outside its user's personal ledger; `/api/family-ledgers` answered 404 and `/api/me` held `"features":{"familyLedgers":false}`; the owner's dashboard as before; the smoke test with the test account passed. A rollback to `ee9e498` ran by mistake at 21:06 UTC, and its image ran on V6 without problems, which confirms the rollback path; `9bbf427` was then deployed again (Flyway: schema up to date; the switch off), and the checks were repeated on it. |
 | 2026-09-29 | `ee9e498` (test(architecture): enforce ledger scoping) | F2b: every query scoped by ledger_id; no migration. Deployed with [Update the app](#update-the-app). Before: Flyway at version 5; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; restore test PASS with 14 tables, migration 5, 2 ledgers and 2 members. The api healthy on the new image; the web container kept running on the same layers; Flyway reported the schema up to date. After: the same counts; no row without a ledger or outside its user's personal ledger; the owner's dashboard and accounts as before. Smoke test with the test account: the demo landed in its own ledger, delete-all re-provisioned a new ledger, and the owner's rows were unchanged. |
@@ -703,7 +704,10 @@ systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
 ```
 
 You should see `PASS`. The new backup comes first: the dump taken before the update has the old
-schema, which the new checks may not fit (V5's ledgers, for one).
+schema, which the new checks may not fit (V5's ledgers, for one; V7's family tables, for another).
+Since F4a's parts 5 and 6 the checks also count the family records, shares, links and journal rows
+(`family_records`, `family_shares`, `family_links`, `family_journal`); in production they read 0
+until the switch goes on (F7).
 
 ## Deploy a release whose only change is a migration
 
@@ -891,6 +895,17 @@ for i in $(seq 60); do s=$(docker inspect -f '{{.State.Health.Status}}' finance-
   ([Restore from a backup](#restore-from-a-backup)).
 - If the update changed `deploy/finance.caddy`, install the old one too: the block "If
   `deploy/finance.caddy` changed" above, which now copies the older file.
+- **Past V7, only while production holds no family record.** The images before F4a (`5a7e490` and
+  older) can't read the entry kinds the family budget posts (`FAMILY_SHARE`, `FAMILY_PAYMENT` and
+  the others): an entry list with one of them fails. While the switch is off in production (until
+  F7) there are none, and the rollback needs no restore. Once the switch is on, going back past V7
+  means restoring the dump taken before the update ([Restore from a backup](#restore-from-a-backup)).
+  Check it before the block above; it must print `0`:
+
+  ```bash
+  # On the server (read only)
+  cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -U finance -d finance -c "SELECT count(*) FROM app.family_record" </dev/null
+  ```
 
 To go forward again, leave the detached checkout first, **on the server**:
 `cd /opt/finance-tracker && git checkout main`, then [Update the app](#update-the-app).

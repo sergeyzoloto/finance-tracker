@@ -3,12 +3,44 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-09-30 · Family budget: F4a's deploy and review, family categories in personal ledgers (F4a, parts 5 and 6)
+
+Not committed yet.
+
+**Changes**
+- F4a's deploy and the decisions after its review (commit "docs(family-budget): F4a deploy and
+  review decisions"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-09-30, `71c3eb7`, with the owner's
+    checks. The F4a entry below got its commit `71c3eb7` and the deploy's record.
+  - Rounding stays as built: shares cut down to the minor unit, the remainder to the largest share,
+    on a tie the payer, then join order. D-12, ADR 0003 topic D and CLAUDE.md's rule 3 say so;
+    HALF_UP stays the rule for single amounts, such as conversions.
+  - Accepted as built, in ADR 0003: payment entries read-only until F4c, the journal at
+    `/journal?recordId=`, the link check left out, comments erased inside
+    `release_family_memberships`.
+  - D-18: members without an account share records of any date on or after the start date;
+    members with an account from their join date.
+  - `deploy/RUNBOOK.md`, "Roll an update back": past V7 without a restore only while production
+    holds no family record, with the read-only check; once the switch is on (F7), going back past V7
+    means restoring a dump.
+  - `deploy/pg-backup/finance.conf` counts the family records, shares, links and journal rows
+    (`CHECK_FAMILY_*`), and the runbook's block for a changed `finance.conf` names them.
+
+**Verified**
+- Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
+  `feature/family-budget` checked out with a clean tree; it, `main` and `origin/main` all at
+  `71c3eb7`. `./mvnw -B clean verify`: 305 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
+  Frontend: `npm ci`, `npm test` 10 files and 142 tests passed, `npm run build` succeeded.
+- After the documents' commit: documents and `finance.conf` only.
+
+**Open**
+- The rest of this stage.
+
 ## 2026-09-30 · Family budget: F3b's deploy, the start date, family records and posting (F4a, parts 1 to 4)
 
-Committed locally on `feature/family-budget` in four commits: `c9e58e6` (documents), `71b6785`
-(local compose and messages), `caba76f` (V7) and "feat(family): records, posting, balances and
-journal", whose hash belongs here with the next change log commit. Not pushed, not merged, not
-deployed.
+Commits `c9e58e6` (documents), `71b6785` (local compose and messages), `caba76f` (V7) and
+`71c3eb7` (records and posting), on `feature/family-budget`, merged into `main` and deployed on
+2026-09-30; the deploy's records: "docs(family-budget): F4a deploy and review decisions".
 
 **Changes**
 - F3b's deploy and the owner's decisions (commit "docs(family-budget): F3b deploy, start date, F4
@@ -160,6 +192,18 @@ deployed.
   every posted share one cent more made 5 of the 8 `FamilyRecordApiTests` fail on "the debt account
   of member …"; a class in the posting package holding a `CrossLedgerWriter` made `ArchitectureTests`
   fail.
+- The deploy on 2026-09-30, from `71c3eb7`, with the switch off, as the owner checked it:
+  - Before: Flyway at version 6; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30
+    categories, 0 counterparties, 0 entries and 0 import batches; the restore test passed with 14
+    tables and migration 6.
+  - The deploy: Flyway applied V7 ("7 - family records and posting") in 0.077 s; the api healthy
+    and logging the switch as off; the server at `main`, `71c3eb7`; the layers of both images
+    different from `:previous`.
+  - After: the same counts, still 20 accounts; every family count 0 (family ledgers, members,
+    categories, records, shares, links, journal rows, family accounts, start dates); no row outside
+    its user's personal ledger; a restore test on a new backup passed with 18 tables and migration
+    7; the browser checks passed; the smoke test with the test account passed, the refusal to
+    archive Unallocated included.
 
 **Open**
 - Parts 5 and 6 of F4a were not done: family categories in personal ledgers (lists, reports, the

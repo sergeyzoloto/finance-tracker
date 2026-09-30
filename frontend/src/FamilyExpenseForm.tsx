@@ -1,0 +1,139 @@
+import { useState, type FormEvent } from 'react'
+import { Link, useNavigate } from 'react-router'
+import { api, formatDate, isoDate, useApi, type Account, type Category, type FamilyRecord } from './api'
+import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
+import {
+  expenseProblems, newSplit, paymentAccounts, previewSplit, splitRequest, type SplitContext, type SplitForm,
+} from './expenseForm'
+import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
+import { SplitEditor } from './FamilySplit'
+import { fromMinor, parseMinor } from './minorUnits'
+
+/** How the user paid their last family expense in this budget, to preselect it (D-14): an account's id, or "later". */
+const LAST_PAYMENT = (ledgerId: number) => `finance-tracker:family-payment:${ledgerId}`
+const LATER = 'later'
+
+function lastPayment(ledgerId: number) {
+  try {
+    return localStorage.getItem(LAST_PAYMENT(ledgerId)) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function rememberPayment(ledgerId: number, payment: string) {
+  try {
+    localStorage.setItem(LAST_PAYMENT(ledgerId), payment)
+  } catch {
+    // Only a convenience: the next expense starts without a preselected account.
+  }
+}
+
+/**
+ * A new family expense (C1) at `/family/{ledgerId}/expenses/new`: the date, a family category, the amount in the base
+ * currency, who paid, how the user paid if it was them (D-14), the split with every member's amount before saving
+ * (D-12), and a comment. The server's objections appear next to the field or member they name.
+ */
+export default function NewExpense({ family }: { family: FamilyData }) {
+  const navigate = useNavigate()
+  const { ledger, members } = family
+  const currency = ledger.baseCurrency
+  const categories = useFamilyApi<Category[]>(family, `${family.path}/categories`)
+  const accounts = useApi<Account[]>('/accounts')
+
+  const [date, setDate] = useState(() => {
+    const today = isoDate(new Date())
+    return today < ledger.startDate ? ledger.startDate : today
+  })
+  const [categoryId, setCategoryId] = useState('')
+  const [amountText, setAmountText] = useState('')
+  const [payer, setPayer] = useState(String(ledger.memberId))
+  const [chosenPayment, setPayment] = useState<string>()
+  const [split, setSplit] = useState<SplitForm>(newSplit)
+  const [comment, setComment] = useState('')
+  const save = useFamilyMutation(family)
+
+  const payers = members.filter((m) => m.status === 'ACTIVE' && (m.id === ledger.memberId || !m.hasAccount))
+  const payerIsMe = payer === String(ledger.memberId)
+  const eligible = paymentAccounts(accounts.data ?? [])
+  // The last way of paying, while it is still one the backend takes.
+  const remembered = lastPayment(ledger.id)
+  const payment = chosenPayment
+    ?? (remembered === LATER || eligible.some((a) => String(a.id) === remembered) ? remembered : '')
+
+  const parsed = parseMinor(amountText, currency)
+  const amount = 'minor' in parsed ? parsed.minor : undefined
+  const context: SplitContext = { ledger, members, date, amount, payerId: Number(payer) }
+  const preview = previewSplit(split, context, currency)
+  const dateProblem = date === '' ? 'Enter a date.'
+    : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an expense can’t be earlier.` : undefined
+  const ready = !dateProblem && categoryId !== '' && amount !== undefined && payer !== ''
+    && (!payerIsMe || payment !== '') && preview.problems.length === 0
+
+  const problems = expenseProblems(save.failure, preview.rows.map((r) => r.member.id), Number(payer), 'date')
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!ready) return
+    const how = payerIsMe ? (payment === LATER ? { paymentLater: true } : { paymentAccountId: Number(payment) }) : {}
+    void save.run(async () => {
+      const created = await api<FamilyRecord>(`${family.path}/records`, 'POST', {
+        date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), comment: comment.trim() || null,
+        payerMemberId: Number(payer), ...how, split: splitRequest(split, preview, currency),
+      })
+      if (payerIsMe) rememberPayment(ledger.id, payment)
+      navigate(`${family.page}/expenses/${created.id}`)
+    })
+  }
+
+  if (!categories.data) return categories.error ? <Errors messages={[categories.error]} /> : <Loading what="categories" />
+  const expenseCategories = categories.data.filter((c) => c.type === 'EXPENSE')
+  return (
+    <section>
+      <h3>Add an expense</h3>
+      <form className="family-form expense-form" onSubmit={submit}>
+        <div className="fields">
+          <Field label="Date" errors={[...(dateProblem ? [dateProblem] : []), ...problems.date]}
+            hint={`The family budget starts on ${formatDate(ledger.startDate)}.`}>
+            <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label="Category" errors={problems.category}
+            hint={expenseCategories.every((c) => c.archived)
+              ? <>No expense categories yet: <Link to={`${family.page}/categories`}>add one</Link>.</> : undefined}>
+            <CategorySelect categories={expenseCategories} type="EXPENSE" value={categoryId} onChange={setCategoryId} />
+          </Field>
+          <Field label={`Amount (${currency})`} errors={[...(amountText.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}>
+            <input className="amount" inputMode="decimal" value={amountText} autoComplete="off" placeholder="0.00"
+              onChange={(e) => setAmountText(e.target.value)} />
+          </Field>
+          <Field label="Paid by" errors={problems.payer}>
+            <select value={payer} onChange={(e) => setPayer(e.target.value)}>
+              {payers.map((m) => (
+                <option key={m.id} value={m.id}>{m.id === ledger.memberId ? `${m.displayName} (you)` : m.displayName}</option>
+              ))}
+            </select>
+          </Field>
+          {payerIsMe && (
+            <Field label="Paid from" errors={problems.payment}
+              hint="“Specify later” keeps the payment under “Payments without a specified account” in your ledger.">
+              <AccountSelect accounts={eligible} value={payment} onChange={setPayment}>
+                <option value={LATER}>Specify later</option>
+              </AccountSelect>
+            </Field>
+          )}
+          <Field label="Comment (optional)" errors={problems.comment} className="wide"
+            hint="Every member of the family budget sees it.">
+            <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
+          </Field>
+        </div>
+        <SplitEditor form={split} preview={preview} context={context} currency={currency} onChange={setSplit}
+          byMember={problems.byMember} problems={problems.split} you={ledger.memberId} />
+        <div className="actions">
+          <button className="primary" disabled={!ready || save.pending}>{save.pending ? 'Saving…' : 'Add the expense'}</button>
+          <Link className="button" to={`${family.page}/expenses`}>Cancel</Link>
+        </div>
+        <Errors messages={[...problems.other, accounts.error]} />
+      </form>
+    </section>
+  )
+}

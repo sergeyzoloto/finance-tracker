@@ -92,19 +92,21 @@ export default function EntryEditor() {
 
 /**
  * An entry that a family budget posted, or the payer's payment for a family record: it changes only through the
- * record (D-8), so it shows without a form, a save or a delete.
+ * record (D-8), so it shows without a form, a save or a delete, and links to the record's page, "the expense".
  */
 function ReadOnlyEntry({ entry, ledger, onBack }: { entry: Entry; ledger: Ledger; onBack: () => void }) {
   const family = entry.family!
   const summary = describeEntry(entry, ledger)
   const budget = <Link to={`/family/${family.ledgerId}`}>{family.ledgerName}</Link>
+  const expense = family.recordId === null ? null : `/family/${family.ledgerId}/expenses/${family.recordId}`
   return (
     <>
       <h2>{kindLabel(entry.kind)}</h2>
       <p className="notice">
         {family.link === 'PAYMENT'
-          ? <>Your payment for a record of the family budget {budget}. To change it, change or delete the record there.</>
+          ? <>Your payment for an expense of the family budget {budget}. To change it, change or delete the expense there.</>
           : <>Posted by the family budget {budget}. It changes only there.</>}
+        {expense && <> <Link to={expense}>Open the expense</Link></>}
       </p>
       <dl className="read-only">
         <dt>Date</dt>

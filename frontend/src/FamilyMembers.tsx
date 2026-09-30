@@ -249,7 +249,7 @@ export function FamilySplitRule({ family }: { family: FamilyData }) {
     <section>
       <form onSubmit={submit} className="split-rule">
         <fieldset className="choice">
-          <legend>How new family records are split by default</legend>
+          <legend>How new family expenses are split by default</legend>
           <label className="check">
             <input type="radio" name="rule" checked={rule === 'EQUAL'} onChange={() => { setRule('EQUAL'); setSaved(false) }} />
             Equal shares
@@ -272,7 +272,7 @@ export function FamilySplitRule({ family }: { family: FamilyData }) {
       </form>
       {saved && <p className="success" role="status">Saved.</p>}
       <Errors messages={general.map((m) => (m ? sentence(m) : undefined))} />
-      <p className="muted small">The rule applies to new family records only; a record can still be split its own way.</p>
+      <p className="muted small">The rule applies to new expenses only; an expense can still be split its own way.</p>
     </section>
   )
 }

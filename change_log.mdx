@@ -5,7 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-09-30 · Family budget: F4a's second deploy and review, the family expenses interface (F4b)
 
-Not committed yet.
+Committed locally on `feature/family-budget` in three commits: `55ee2f9` (documents), `f604039`
+(the journal names each record) and "feat(frontend): family expenses, balances and journal", whose
+hash belongs here with the next change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - F4a parts 5 and 6: the deploy and the decisions after the review (commit "docs(family-budget):
@@ -29,6 +31,56 @@ Not committed yet.
     and after the deletion; `UserDataApiTests` checks that the system change has none.
     `DataIsolationApiTests` is unchanged; its check of Bob's raw `/journal` answers in A (no
     account, no entry of Alice's) covers the new field.
+- The interface (commit "feat(frontend): family expenses, balances and journal"), behind the switch
+  as before; with it off nothing changes:
+  - Creating a family budget takes the start date (D-27): today by default, earlier allowed, never
+    later, with the line "The first day expenses can have; it is also the day you join the budget."
+    It is sent only when earlier than today, so the server's today counts. The server's 422
+    `START_DATE` shows at the field. The categories note now says what F4a's merge does: a category
+    brought becomes the family's.
+  - Tabs: Overview, Expenses, Balances, Journal, Members, Split rule, Categories, Settings (eight,
+    wrapping on a phone; none grouped). The overview has the reader's balance in words ("Sam owes
+    you €36.20", "You owe Sam …", "You are settled"), the latest five expenses with "Add an
+    expense", and the start date.
+  - Expenses (`/family/{ledgerId}/expenses`): newest first, 20 a page; date, category, payer and a
+    Frozen mark, amount and the reader's share; it fits 375 px.
+  - Add an expense (`expenses/new`): date (today, never before the start date), a family expense
+    category that isn't archived, the amount in the base currency, who paid (the reader or a member
+    without an account), for the reader the paying account (their own assets and liabilities as the
+    backend takes them: no system account, none kept per counterparty; archived ones left out) or
+    "Specify later", with the line that it keeps the payment under "Payments without a specified
+    account"; the last choice is preselected (`localStorage`, per budget). The split: the budget's
+    rule, percentages, amounts or one member, with every member's amount, the live total and Save
+    disabled until it adds up, computed as `ShareSplit` does; the comment. 400 fields and 422
+    `violationDetails` show next to the field or member they name, and a create's 409 (D-27) at
+    the date.
+  - An expense (`expenses/{recordId}`): every field, the shares with amounts, percentages and who
+    changed each last, the payer's own paying account (from their payment entry; only they see
+    it), and the expense's journal. With `canEdit`: category, split and comment, only what changed
+    sent, with `?version=`; a stale version shows the server's message and reloads the expense.
+    With `canDelete`: delete after a confirmation. The line "To change the date, amount or payer,
+    delete the expense and enter it again." A deleted or unknown expense shows "Expense not found"
+    inside the budget.
+  - Balances: each member's balance in words, marking the reader, members without an account and
+    former members; "All together €0.00"; who owes whom, the largest debtor paying the largest
+    creditor.
+  - Journal: newest first, 50 a page, as sentences ("Test User changed the split of Groceries, Sep
+    20, 2026: equal shares → percentages; …"), deleted expenses marked, system changes in words
+    ("The split rule went back to equal shares when a member left: Former member."), names as the
+    server gives them.
+  - The personal side: a posted share or payment opens read-only with "Open the expense", a link to
+    its page. Screens say "expense" where they said "record".
+  - Helpers without floating point: `minorUnits.ts` (BigInt in the currency's minor unit, with
+    the backend's `java.util.Currency` digits: EUR 2, JPY 0, KWD 3, XAU 4), `shareSplit.ts` (D-12
+    as `ShareSplit`), `expenseForm.ts` (who shares a date, the preview, the request, a stored
+    split, where the server's objections go), and in `family.ts` balances in words, `whoOwesWhom`
+    and `journalLine`. `AccountSelect` takes extra options.
+  - Tests: new `minorUnits.test.ts` (5), `shareSplit.test.ts` (8, ShareSplitTests' cases),
+    `FamilyExpenses.test.tsx` (20); `family.test.ts` (7 new); `FamilyRows.test.tsx` (1 new).
+    Changed where the interface changed as asked, all with the switch on: `Family.test.tsx` (the
+    fixture's `startDate`, the eight tabs, the overview's two loads stubbed) and
+    `FamilyRows.test.tsx` (the payment's wording, "expense"). The tests with the switch off are
+    unchanged.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -38,9 +90,33 @@ Not committed yet.
 - After the documents' commit: documents only.
 - After the journal's commit: `./mvnw -B clean verify` 312 tests, 0 failures, 0 errors, 0 skipped,
   BUILD SUCCESS.
+- The walk-through in headless Chrome (playwright-core), against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true` on a throwaway `postgres:17-alpine`, the Vite dev server and the dev
+  Keycloak's testuser, after the demo: "Home" from 2026-08-30 with Groceries merged and Sam; A 60.00
+  paid with Cash at equal shares (30.00 each), B 45.50 "Specify later" at 60/40 (27.30 and 18.20),
+  C 30.00 paid by Sam, all on the reader. A changed to 70/30 (42.00 and 18.00), C deleted; a second
+  tab saving B's stale version got "Record 2 has changed since version 0. Reload it and try again."
+  and showed the first tab's comment. Balances: "Sam owes you €36.20", together €0.00. The journal
+  read as six sentences, C's marked deleted. The personal entries showed the shares and payments,
+  "Open the expense" linked to it, and `/api/reports/integrity` read `[]`. At 375 px the expenses,
+  the add form (percentages), an expense's page, balances, journal, overview and the creation page
+  were 375 px wide. Found and fixed: after a delete the page loaded the deleted expense again (a
+  404 in the console); rechecked without it. The only console error left is `/api/me`'s 401 before
+  the sign-in. Screenshots stay in the session's scratchpad; the instance and its database were
+  removed.
+- A temporary mutation from a file copy: the preview's remainder to the first member instead of the
+  payer made 4 frontend tests fail (three preview cases and the add form's 5.00 and 5.01).
+- After the interface's commit: frontend `npm test` 14 files and 192 tests passed (151 before),
+  `npm run build` succeeded; the backend unchanged since the journal's commit.
 
 **Open**
-- The rest of this stage.
+- The owner's deploy of F4b with the switch off; the report has the checklist. No migration and no
+  `finance.conf` change. Rollback: the `:previous` images, `5f5af66`.
+- Three or more members: "who owes whom" is one way to pair the balances (largest with largest);
+  the model only fixes each member's balance. Settling is F4c.
+- The paying account shown on an expense comes from the payer's personal entries of that day
+  (`/api/entries?from=&to=`, 200 at most), since the record's answer never names it (D-16).
+- Payment accounts: archived ones are left out, though the backend takes them.
 
 ## 2026-09-30 · Family budget: F4a's deploy and review, family categories in personal ledgers (F4a, parts 5 and 6)
 

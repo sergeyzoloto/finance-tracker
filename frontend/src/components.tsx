@@ -43,14 +43,18 @@ export class ErrorBoundary extends Component<{ fallback: ReactNode; children: Re
 
 export const Loading = ({ what = '' }: { what?: string }) => <p className="muted" aria-busy="true">Loading{what && ` ${what}`}…</p>
 
-/** Accounts grouped by type. `accounts` are the choices; archived ones among them are marked. */
-export function AccountSelect({ accounts, value, onChange, placeholder = 'Choose an account', ...rest }: {
+/**
+ * Accounts grouped by type. `accounts` are the choices; archived ones among them are marked. `children` are further
+ * options after them, such as "Specify later".
+ */
+export function AccountSelect({ accounts, value, onChange, placeholder = 'Choose an account', children, ...rest }: {
   accounts: Account[]
   value: string
   onChange: (id: string) => void
   placeholder?: string
   'aria-label'?: string
   name?: string
+  children?: ReactNode
 }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
@@ -63,6 +67,7 @@ export function AccountSelect({ accounts, value, onChange, placeholder = 'Choose
           </optgroup>
         )
       })}
+      {children}
     </select>
   )
 }

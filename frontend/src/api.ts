@@ -53,6 +53,8 @@ export interface FamilyLedger {
   role: MemberRole
   memberId: number
   createdAt: string
+  /** The first day an expense may be dated, and the creator's join date (D-27). */
+  startDate: string
 }
 /** A member as every member sees them; never a login or an email address (D-3). */
 export interface FamilyMember {
@@ -66,6 +68,78 @@ export interface FamilyMember {
   /** Under a custom split rule, in basis points (2500 is 25.00 %); null under an equal one. */
   share: number | null
 }
+
+// A family budget's expenses (F4a): the API calls them records. Amounts are in the budget's base currency.
+/** A member as a record, a balance or the journal names them: "Former member" once they deleted their data. */
+export interface MemberRef { memberId: number; displayName: string }
+/** How a record's amount is split: EQUAL comes from the budget's rule, PERCENT from the rule or the record's own. */
+export type SplitMethod = 'EQUAL' | 'PERCENT' | 'AMOUNT' | 'ONE_MEMBER'
+export interface FamilyShare {
+  member: MemberRef
+  amount: string
+  /** The percentage it was split by, in basis points, or null. */
+  basisPoints: number | null
+  updatedBy: MemberRef
+  updatedAt: string
+}
+/** A family expense as every member sees it: never anyone's account, personal category or entry (C4). */
+export interface FamilyRecord {
+  id: number
+  type: 'EXPENSE' | 'INCOME' | 'SETTLEMENT'
+  date: string
+  category: { id: number; code: string; name: string; archived: boolean }
+  amount: string
+  currency: string
+  comment: string | null
+  payer: MemberRef
+  splitMethod: SplitMethod
+  /** By the members' join order. */
+  shares: FamilyShare[]
+  author: MemberRef
+  createdAt: string
+  updatedBy: MemberRef
+  updatedAt: string
+  version: number
+  /** A member it involves has left or deleted their data, so nobody can change it (D-19). */
+  frozen: boolean
+  canEdit: boolean
+  canDelete: boolean
+}
+export interface FamilyRecordPage { content: FamilyRecord[]; page: number; size: number; totalElements: number; totalPages: number }
+/** How a new or changed record is split (D-12). RULE is the budget's rule; percentages go in basis points. */
+export type RecordSplit =
+  | { method: 'RULE' }
+  | { method: 'PERCENT'; shares: { memberId: number; basisPoints: number }[] }
+  | { method: 'AMOUNT'; shares: { memberId: number; amount: string }[] }
+  | { method: 'ONE_MEMBER'; memberId: number }
+/** A member's balance: what they owe the family budget, positive, or what it owes them, negative. */
+export interface FamilyBalance {
+  memberId: number
+  displayName: string
+  status: MemberStatus
+  hasAccount: boolean
+  balance: string
+  /** The member who reads. */
+  you: boolean
+}
+/** Every member's balance, by join order; they sum to zero. */
+export interface FamilyBalances { currency: string; members: FamilyBalance[] }
+/** One change of a field, as text; members and categories by their names now. Null where there was none, or erased. */
+export interface FamilyFieldChange { field: string; member: MemberRef | null; old: string | null; new: string | null }
+/** An entry of the change journal (D-16): a member's change of a record, or a system change without an author. */
+export interface FamilyChange {
+  id: number
+  at: string
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SPLIT_RULE_RESET'
+  recordId: number | null
+  author: MemberRef | null
+  /** The member a system change is about. */
+  about: MemberRef | null
+  changes: FamilyFieldChange[]
+  /** The record as it is now, deleted or not; null for a system change. */
+  record: { date: string; category: string | null; amount: string; deleted: boolean } | null
+}
+export interface FamilyJournalPage { content: FamilyChange[]; page: number; size: number; totalElements: number; totalPages: number }
 
 export type EntryKind = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'SHARED_EXPENSE' | 'LOAN_GIVEN' | 'LOAN_REPAID'
   | 'CURRENCY_EXCHANGE' | 'OPENING_BALANCE' | 'MANUAL'
@@ -362,3 +436,7 @@ export function formatDate(iso: string, options: Intl.DateTimeFormatOptions = { 
   const [year, month, day] = iso.split('-').map(Number)
   return new Date(year, month - 1, day).toLocaleDateString(undefined, options)
 }
+
+/** An instant, such as "2026-09-30T08:00:00Z", in the user's locale and time zone: "Sep 30, 2026, 10:00 AM". */
+export const formatInstant = (instant: string) =>
+  new Date(instant).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })

@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  api, errorMessage, fieldMessages, sentence, useApi, useMutation, type Account, type Category, type CategoryType,
-  type FamilyLedger, type FamilyMember, type Me, type Settings, type SplitRule,
+  api, ApiError, errorMessage, fieldMessages, isoDate, sentence, useApi, useMutation, type Account, type Category,
+  type CategoryType, type FamilyLedger, type FamilyMember, type Me, type Settings, type SplitRule,
 } from './api'
 import { percentToBasisPoints, WHOLE } from './basisPoints'
 import { CurrencyInput, Errors, Field, Loading } from './components'
@@ -31,6 +31,8 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
   const accounts = useApi<Account[]>('/accounts')
   const categories = useApi<Category[]>('/categories')
 
+  const [today] = useState(() => isoDate(new Date()))
+  const [startDate, setStartDate] = useState(today)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState<string>()
   const [displayName, setDisplayName] = useState(me.name)
@@ -53,8 +55,10 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
     .some((n) => n.trim().toLocaleLowerCase() === candidate.trim().toLocaleLowerCase())
   const memberProblem = memberName.trim() !== '' && taken(memberName)
     ? 'Everyone in a family budget needs a name of their own.' : undefined
+  const startProblem = startDate === '' ? 'Enter a date.'
+    : startDate > today ? 'A family budget starts today or earlier.' : undefined
   const ready = name.trim() !== '' && /^[A-Z]{3}$/.test(baseCurrency) && displayName.trim() !== ''
-    && (rule === 'EQUAL' || total === WHOLE)
+    && !startProblem && (rule === 'EQUAL' || total === WHOLE)
 
   function addMember() {
     if (memberName.trim() === '' || memberProblem) return
@@ -78,6 +82,8 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
   async function create() {
     const created = await api<FamilyLedger>('/family-ledgers', 'POST', {
       name: name.trim(), baseCurrency, displayName: displayName.trim(), categoryIds: [...chosen],
+      // Left out for today, so that the server's today counts: a browser a time zone ahead isn't in its future.
+      ...(startDate !== today ? { startDate } : {}),
     })
     // From here on the budget exists: what fails is said on its page rather than here.
     const problems: string[] = []
@@ -116,7 +122,11 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
   const loadError = settings.error ?? accounts.error ?? categories.error
   if (!settings.data || !categories.data) return loadError ? <Errors messages={[loadError]} /> : <Loading />
   const errorsOf = (field: string) => fieldMessages(creation.failure, field)
-  const fieldsFailed = ['name', 'baseCurrency', 'displayName'].some((f) => errorsOf(f).length > 0)
+  // D-27's 422: the start date in the server's future.
+  const startErrors = creation.failure instanceof ApiError
+    ? creation.failure.violationDetails.filter((v) => v.code === 'START_DATE').map((v) => sentence(v.message)) : []
+  const fieldsFailed = ['name', 'baseCurrency', 'displayName', 'startDate'].some((f) => errorsOf(f).length > 0)
+    || startErrors.length > 0
   const open = categories.data.filter((c) => !c.archived)
   return (
     <>
@@ -130,8 +140,12 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
             <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} placeholder="Our home" />
           </Field>
           <Field label="Base currency" errors={errorsOf('baseCurrency')}
-            hint="Shares and balances are kept in it. It can change until the first family record.">
+            hint="Shares and balances are kept in it. It can change until the first expense.">
             <CurrencyInput currencies={currencies} value={baseCurrency} onChange={setCurrency} required />
+          </Field>
+          <Field label="Start date" errors={[...(startProblem ? [startProblem] : []), ...errorsOf('startDate'), ...startErrors]}
+            hint="The first day expenses can have; it is also the day you join the budget.">
+            <input type="date" value={startDate} max={today} required onChange={(e) => setStartDate(e.target.value)} />
           </Field>
           <Field label="Your name in this budget" errors={errorsOf('displayName')}
             hint="The other members see this name.">
@@ -142,8 +156,8 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
         <fieldset className="section">
           <legend>Categories to bring</legend>
           <p className="muted">
-            Bringing a category puts a copy of its name and code into the family budget; your personal entries don’t
-            change.
+            A category you bring becomes the family budget’s, which every member sees and uses. Your entries in it
+            stay in your ledger, now with the family category.
           </p>
           {open.length === 0 && <p className="empty">You have no categories to bring.</p>}
           <div className="category-groups">

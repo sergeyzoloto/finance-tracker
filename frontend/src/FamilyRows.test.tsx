@@ -122,9 +122,19 @@ describe('the entries', () => {
     renderAt('/entries/91', <EntryEditor />, '/entries/:id')
 
     expect(await screen.findByRole('heading', { name: 'Family payment' })).toBeDefined()
-    expect(screen.getByText(/Your payment for a record of the family budget/).textContent)
-      .toContain('change or delete the record there')
+    expect(screen.getByText(/Your payment for an expense of the family budget/).textContent)
+      .toContain('change or delete the expense there')
     expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
+  })
+
+  it('links a posted share and a payment to their expense in the family budget', async () => {
+    stubApi({ ...reference, '/entries/90': share, '/entries/91': payment })
+    renderAt('/entries/90', <EntryEditor />, '/entries/:id')
+    expect((await screen.findByRole('link', { name: 'Open the expense' })).getAttribute('href')).toBe('/family/7/expenses/3')
+    cleanup()
+
+    renderAt('/entries/91', <EntryEditor />, '/entries/:id')
+    expect((await screen.findByRole('link', { name: 'Open the expense' })).getAttribute('href')).toBe('/family/7/expenses/3')
   })
 
   it('opens an entry of the user’s own in the form, as before', async () => {

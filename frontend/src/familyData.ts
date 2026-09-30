@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { ApiError, useMutation, type FamilyLedger, type FamilyMember } from './api'
+import { ApiError, useApi, useMutation, type FamilyLedger, type FamilyMember } from './api'
 
 /** A family budget as its pages share it. `reload` loads it again, and the switcher's list with it. */
 export interface FamilyData {
@@ -36,3 +36,16 @@ export function useFamilyMutation(family: FamilyData, onDone: () => void = () =>
   return { ...mutation, message }
 }
 
+
+/**
+ * Loads a family budget's resource, as useApi. A 404 loads the budget again: if the budget is gone, its page shows
+ * the not-found page; if only the resource is (a deleted expense), the budget stays and the caller says so.
+ */
+export function useFamilyApi<T>(family: FamilyData, path: string | null) {
+  const result = useApi<T>(path)
+  const { reload } = family
+  useEffect(() => {
+    if (result.status === 404) reload()
+  }, [result.status]) // only when a load fails anew, not when the budget reloads
+  return result
+}

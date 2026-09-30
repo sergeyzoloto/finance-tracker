@@ -185,3 +185,18 @@ form.split-rule { display: block; }
 dl.read-only { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 1rem 0; }
 dl.read-only dt { color: var(--muted); }
 dl.read-only dd { margin: 0; }
+
+/* A family budget's expenses, balances and journal */
+.block { display: block; }
+table.shares th small { display: block; font-weight: normal; }
+table.shares thead th { font-weight: normal; color: var(--muted); font-size: 0.85em; }
+input.money { width: 6rem; }
+.split-editor .options { margin-bottom: 0.5rem; }
+.split-editor .field { margin-bottom: 0.5rem; max-width: 16rem; }
+.expense-form h4 { width: 100%; margin: 1rem 0 0; }
+table.expenses td .small { margin-top: 0.1rem; }
+ol.journal { list-style: none; padding: 0; margin: 0.5rem 0; }
+ol.journal > li { padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
+ol.journal p { margin: 0.15rem 0; }
+ol.journal ul { margin: 0.15rem 0; padding-left: 1.25rem; }
+table.balances-table { margin: 0.75rem 0; }

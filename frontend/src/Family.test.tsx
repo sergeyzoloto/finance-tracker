@@ -38,7 +38,7 @@ function Where() {
 }
 
 const ON: Me = { name: 'Anna', features: { familyLedgers: true } }
-const home: FamilyLedger = { id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'OWNER', memberId: 70, createdAt: '2026-09-29T10:00:00Z' }
+const home: FamilyLedger = { id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'OWNER', memberId: 70, createdAt: '2026-09-29T10:00:00Z', startDate: '2026-09-01' }
 const allotment: FamilyLedger = { ...home, id: 8, name: 'Allotment', role: 'MEMBER', memberId: 80 }
 const anna: FamilyMember = { id: 70, displayName: 'Anna', role: 'OWNER', status: 'ACTIVE', joinDate: '2026-09-29', hasAccount: true, share: null }
 const ben: FamilyMember = { id: 72, displayName: 'Ben', role: 'MEMBER', status: 'ACTIVE', joinDate: '2026-09-29', hasAccount: true, share: null }
@@ -250,6 +250,8 @@ describe('a family budget’s page', () => {
       'GET /api/family-ledgers': { status: 200, body: [home] },
       'GET /api/family-ledgers/7': { status: 200, body: home },
       'GET /api/family-ledgers/7/members': { status: 200, body: [anna] },
+      'GET /api/family-ledgers/7/balances': { status: 200, body: { currency: 'EUR', members: [] } },
+      'GET /api/family-ledgers/7/records?size=5': { status: 200, body: { content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 } },
     })
     renderApp(ON, { pathname: '/family/7', state: { creationProblems: ['Kid wasn’t added: No.'] } })
 
@@ -259,7 +261,8 @@ describe('a family budget’s page', () => {
     expect(screen.getByRole('alert').textContent).toContain('Kid wasn’t added: No.')
     const tabs = within(screen.getByRole('navigation', { name: 'Family budget' })).getAllByRole('link')
     expect(tabs.map((t) => [t.textContent, t.getAttribute('href')])).toEqual([
-      ['Overview', '/family/7'], ['Members', '/family/7/members'], ['Split rule', '/family/7/split-rule'],
+      ['Overview', '/family/7'], ['Expenses', '/family/7/expenses'], ['Balances', '/family/7/balances'],
+      ['Journal', '/family/7/journal'], ['Members', '/family/7/members'], ['Split rule', '/family/7/split-rule'],
       ['Categories', '/family/7/categories'], ['Settings', '/family/7/settings'],
     ])
     expect(await screen.findByRole('option', { name: 'Home', selected: true })).toBeDefined()
@@ -274,8 +277,9 @@ describe('a family budget’s page', () => {
     renderApp(ON, '/family/7/split-rule')
 
     const nav = within(await screen.findByRole('navigation', { name: 'Family budget' }))
-    expect(nav.getAllByRole('link').map((t) => t.getAttribute('href'))).toEqual(
-      ['/family/7', '/family/7/members', '/family/7/split-rule', '/family/7/categories', '/family/7/settings'])
+    expect(nav.getAllByRole('link').map((t) => t.getAttribute('href'))).toEqual(['/family/7', '/family/7/expenses',
+      '/family/7/balances', '/family/7/journal', '/family/7/members', '/family/7/split-rule', '/family/7/categories',
+      '/family/7/settings'])
     expect(nav.getAllByRole('link').filter((t) => t.getAttribute('aria-current') === 'page').map((t) => t.textContent))
       .toEqual(['Split rule'])
     fireEvent.click(nav.getByRole('link', { name: 'Categories' }))

@@ -1,15 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router'
-import { api, fieldMessages, sentence, useApi, type FamilyLedger, type FamilyMember } from './api'
+import {
+  api, fieldMessages, formatDate, sentence, useApi, type FamilyBalances as Balances, type FamilyLedger, type FamilyMember,
+  type FamilyRecordPage,
+} from './api'
 import { Errors, Field, Loading } from './components'
 import { ROLE_LABELS } from './family'
+import FamilyBalances, { YourBalance } from './FamilyBalances'
 import FamilyCategories from './FamilyCategories'
+import NewExpense from './FamilyExpenseForm'
+import { ExpenseDetail, ExpenseTable, FamilyExpenses } from './FamilyExpenses'
+import FamilyJournal from './FamilyJournal'
 import { FamilyMembers, FamilySplitRule } from './FamilyMembers'
-import { useFamilyMutation, type CreationState, type FamilyData } from './familyData'
+import { useFamilyApi, useFamilyMutation, type CreationState, type FamilyData } from './familyData'
 
 /**
- * The pages of one family budget, under `/family/{ledgerId}` (ADR 0003, topic I): overview, members, split rule,
- * categories and settings. A budget the user isn't an ACTIVE member of, or that doesn't exist, answers 404, and so
+ * The pages of one family budget, under `/family/{ledgerId}` (ADR 0003, topic I): overview, expenses (a new one and
+ * each one under it), balances, journal, members, split rule, categories and settings. A budget the user isn't an ACTIVE member of, or that doesn't exist, answers 404, and so
  * does every request about it once it's gone: then the page says so, and the switcher's list is loaded again.
  *
  * @param onChanged loads the switcher's list again
@@ -48,6 +55,9 @@ export default function Family({ onChanged }: { onChanged: () => void }) {
       </div>
       <nav className="subnav" aria-label="Family budget">
         <NavLink to={family.page} end>Overview</NavLink>
+        <NavLink to={`${family.page}/expenses`}>Expenses</NavLink>
+        <NavLink to={`${family.page}/balances`}>Balances</NavLink>
+        <NavLink to={`${family.page}/journal`}>Journal</NavLink>
         <NavLink to={`${family.page}/members`}>Members</NavLink>
         <NavLink to={`${family.page}/split-rule`}>Split rule</NavLink>
         <NavLink to={`${family.page}/categories`}>Categories</NavLink>
@@ -62,6 +72,11 @@ export default function Family({ onChanged }: { onChanged: () => void }) {
       <Errors messages={[error]} />
       <Routes>
         <Route index element={<Overview family={family} />} />
+        <Route path="expenses" element={<FamilyExpenses family={family} />} />
+        <Route path="expenses/new" element={<NewExpense family={family} />} />
+        <Route path="expenses/:recordId" element={<ExpenseDetail family={family} />} />
+        <Route path="balances" element={<FamilyBalances family={family} />} />
+        <Route path="journal" element={<FamilyJournal family={family} />} />
         <Route path="members" element={<FamilyMembers family={family} />} />
         <Route path="split-rule" element={<FamilySplitRule family={family} />} />
         <Route path="categories" element={<FamilyCategories family={family} />} />
@@ -87,25 +102,41 @@ function Overview({ family }: { family: FamilyData }) {
   const { ledger, members } = family
   const me = members.find((m) => m.id === ledger.memberId)
   const active = members.filter((m) => m.status === 'ACTIVE')
+  const balances = useFamilyApi<Balances>(family, `${family.path}/balances`)
+  const records = useFamilyApi<FamilyRecordPage>(family, `${family.path}/records?size=5`)
   return (
     <section>
+      <div className="settlement">
+        {balances.data ? <YourBalance balances={balances.data} /> : !balances.error && <Loading what="your balance" />}
+        <p className="muted small"><Link to={`${family.page}/balances`}>Everyone’s balance</Link></p>
+      </div>
+      <Errors messages={[balances.error, records.error]} />
+
+      <div className="page-title">
+        <h3>Latest expenses</h3>
+        <Link className="button primary" to={`${family.page}/expenses/new`}>Add an expense</Link>
+      </div>
+      {records.data && records.data.totalElements === 0 && <p className="empty">No expenses yet.</p>}
+      {records.data && records.data.content.length > 0 && (
+        <>
+          <ExpenseTable records={records.data.content} family={family} />
+          {records.data.totalElements > records.data.content.length && (
+            <p><Link to={`${family.page}/expenses`}>All {records.data.totalElements} expenses</Link></p>
+          )}
+        </>
+      )}
+
       <dl className="facts">
-        <dt>Name</dt><dd>{ledger.name}</dd>
+        <dt>Start date</dt><dd>{formatDate(ledger.startDate)}</dd>
         <dt>Base currency</dt><dd>{ledger.baseCurrency}</dd>
         <dt>Your role</dt><dd>{ROLE_LABELS[ledger.role]}</dd>
         {me && <><dt>Your name in this budget</dt><dd>{me.displayName}</dd></>}
         <dt>Members</dt><dd>{active.length}</dd>
         <dt>Split rule</dt><dd>{ledger.splitRule === 'EQUAL' ? 'Equal shares' : 'Custom percentages'}</dd>
       </dl>
-      <p className="actions">
-        <Link className="button" to={`${family.page}/members`}>Members</Link>
-        <Link className="button" to={`${family.page}/split-rule`}>Split rule</Link>
-        <Link className="button" to={`${family.page}/categories`}>Categories</Link>
-        <Link className="button" to={`${family.page}/settings`}>Settings</Link>
-      </p>
       <p className="muted">
-        Family expenses and incomes, and who owes whom, come in a later version. The other members see this budget’s
-        members and categories, never your personal accounts, categories or entries.
+        The other members see this budget’s members, categories and expenses, never your personal accounts, categories or
+        entries. Your share of each expense is posted into your personal ledger.
       </p>
     </section>
   )
@@ -146,7 +177,7 @@ function FamilySettings({ family }: { family: FamilyData }) {
           <input value={name} required maxLength={100} onChange={(e) => { setName(e.target.value); setSaved(false) }} />
         </Field>
         <Field label="Base currency" errors={currencyErrors}
-          hint="Shares and balances are kept in it. It can change until the first family record.">
+          hint="Shares and balances are kept in it. It can change until the first expense.">
           <input className="currency" value={currency} required maxLength={3} pattern="[A-Za-z]{3}" autoComplete="off"
             spellCheck={false} onChange={(e) => { setCurrency(e.target.value.toUpperCase()); setSaved(false) }} />
         </Field>

@@ -1,6 +1,6 @@
 import { Component, useId, type ReactNode } from 'react'
 import type { Account, Category, CategoryType, Counterparty } from './api'
-import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
+import { ACCOUNT_TYPES, categoryLabel, TYPE_LABELS } from './ledger'
 import { formatMoney } from './money'
 
 /** A labelled form control with its hint and the messages about it, such as the server's validation errors. */
@@ -79,7 +79,7 @@ export function CategorySelect({ categories, type, value, onChange, placeholder 
   name?: string
 }) {
   const shown = categories.filter((c) => (!type || c.type === type) && (!c.archived || String(c.id) === value))
-  const option = (c: Category) => <option key={c.id} value={c.id}>{c.name}{c.archived ? ' (archived)' : ''}</option>
+  const option = (c: Category) => <option key={c.id} value={c.id}>{categoryLabel(c)}{c.archived ? ' (archived)' : ''}</option>
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
       <option value="">{placeholder}</option>

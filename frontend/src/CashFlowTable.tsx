@@ -10,7 +10,7 @@ export default function CashFlowTable({ table }: { table: Table }) {
   const width = table.months.length + 2
   const row = (line: CashFlowLine, className = '', signed = false) => (
     <tr key={line.key} className={className}>
-      <th scope="row">{line.label}</th>
+      <th scope="row">{line.label}{line.family && <span className="badge" title={`A category of the family budget “${line.family}”`}>{line.family}</span>}</th>
       {line.months.map((amount, i) => (
         <Amount key={table.months[i]} amount={amount} currency={table.currency} rounded={table.converted}
           className={signed ? sign(amount) : ''} />

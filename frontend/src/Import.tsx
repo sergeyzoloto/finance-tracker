@@ -13,7 +13,8 @@ const FILES = [
 ] as const
 type Part = (typeof FILES)[number]['part']
 
-const KIND_LABELS: Record<EntryKind, string> = {
+// The importer writes the kinds of entries users make, never a family budget's.
+const KIND_LABELS: Partial<Record<EntryKind, string>> = {
   EXPENSE: 'Expenses', INCOME: 'Income', TRANSFER: 'Transfers', SHARED_EXPENSE: 'Shared expenses',
   LOAN_GIVEN: 'Loans given', LOAN_REPAID: 'Loans repaid', CURRENCY_EXCHANGE: 'Currency exchanges',
   OPENING_BALANCE: 'Opening balances', MANUAL: 'Other entries',
@@ -110,7 +111,7 @@ function Report({ report }: { report: ImportReport }) {
       {kinds.length === 0 ? <p className="empty">No new entries.</p> : (
         <table>
           <tbody>
-            {kinds.map(([kind, n]) => <tr key={kind}><td>{KIND_LABELS[kind]}</td><td className="amount">{n}</td></tr>)}
+            {kinds.map(([kind, n]) => <tr key={kind}><td>{KIND_LABELS[kind] ?? kind}</td><td className="amount">{n}</td></tr>)}
             <tr><th>Total</th><th className="amount">{entries}</th></tr>
           </tbody>
         </table>

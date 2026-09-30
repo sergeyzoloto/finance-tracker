@@ -1,12 +1,13 @@
 import { useRef } from 'react'
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, isoDate, useApi, type Counterparty, type Entry } from './api'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
+import { api, formatDate, isoDate, useApi, type Counterparty, type Entry } from './api'
 import { Errors, Loading } from './components'
 import {
   formFromEntry, newCounterpartyNames, newForm, serverErrors, TABS, tabOf, toCommand, type EntryForm, type Tab,
 } from './entryForm'
 import { EntryFormView } from './EntryForms'
-import { useLedger, type Ledger } from './ledger'
+import { describeEntry, kindLabel, useLedger, type Ledger } from './ledger'
+import { formatMoney } from './money'
 
 /** `/entries/new?tab=…` writes a new entry; `/entries/:id` edits one in the form of its kind. */
 export default function EntryEditor() {
@@ -24,6 +25,9 @@ export default function EntryEditor() {
   const title = <h2>{id ? 'Edit entry' : 'New entry'}</h2>
   if (error ?? entry.error) return <>{title}<Errors messages={[error ?? entry.error]} /></>
   if (!ledger || (id && !entry.data)) return <>{title}<Loading /></>
+  if (entry.data?.family?.readOnly) {
+    return <ReadOnlyEntry entry={entry.data} ledger={ledger} onBack={() => navigate(back)} />
+  }
 
   const tab = TABS.some((t) => t.tab === params.get('tab')) ? params.get('tab') as Tab : 'expense'
   const { form, simple } = entry.data ? formFromEntry(entry.data, ledger) : { form: newForm(ledger, isoDate(new Date()), tab), simple: true }
@@ -82,6 +86,39 @@ export default function EntryEditor() {
           </p>
         )}
       />
+    </>
+  )
+}
+
+/**
+ * An entry that a family budget posted, or the payer's payment for a family record: it changes only through the
+ * record (D-8), so it shows without a form, a save or a delete.
+ */
+function ReadOnlyEntry({ entry, ledger, onBack }: { entry: Entry; ledger: Ledger; onBack: () => void }) {
+  const family = entry.family!
+  const summary = describeEntry(entry, ledger)
+  const budget = <Link to={`/family/${family.ledgerId}`}>{family.ledgerName}</Link>
+  return (
+    <>
+      <h2>{kindLabel(entry.kind)}</h2>
+      <p className="notice">
+        {family.link === 'PAYMENT'
+          ? <>Your payment for a record of the family budget {budget}. To change it, change or delete the record there.</>
+          : <>Posted by the family budget {budget}. It changes only there.</>}
+      </p>
+      <dl className="read-only">
+        <dt>Date</dt>
+        <dd>{formatDate(entry.entryDate)}</dd>
+        {summary.category && <><dt>Category</dt><dd>{summary.category}</dd></>}
+        <dt>Accounts</dt>
+        <dd>{summary.flow}</dd>
+        <dt>Amount</dt>
+        <dd>{summary.amounts.map((m) => formatMoney(m.amount, m.currency)).join(' → ')}</dd>
+        {entry.memo && <><dt>Memo</dt><dd>{entry.memo}</dd></>}
+      </dl>
+      <div className="actions">
+        <button type="button" onClick={onBack}>Back</button>
+      </div>
     </>
   )
 }

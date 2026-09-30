@@ -106,17 +106,29 @@ function CategoryRow({ category, onChanged }: { category: Category; onChanged: (
         ) : (
           <>
             <Link to={`/entries?categoryId=${category.id}`} title="Show its entries">{category.name}</Link>
+            {category.familyLedgerName && (
+              <span className="badge" title={`A category of the family budget “${category.familyLedgerName}”`}>
+                {category.familyLedgerName}
+              </span>
+            )}
             {category.archived && <span className="badge">Archived</span>}
           </>
         )}
         {otherError && <div><small className="error" role="alert">{otherError}</small></div>}
       </td>
       <td className="actions nowrap">
-        {!renaming && !category.archived && <button type="button" onClick={() => { clear(); setRenaming(true) }}>Rename</button>}
-        {!renaming && (
-          <button type="button" disabled={pending} onClick={() => archive(!category.archived)}>
-            {category.archived ? 'Restore' : 'Archive'}
-          </button>
+        {category.familyLedgerId !== undefined ? (
+          // A family budget's category changes in the family budget, by its owners (D-11, D-15).
+          <Link to={`/family/${category.familyLedgerId}/categories`} className="small">Change it in the family budget</Link>
+        ) : (
+          <>
+            {!renaming && !category.archived && <button type="button" onClick={() => { clear(); setRenaming(true) }}>Rename</button>}
+            {!renaming && (
+              <button type="button" disabled={pending} onClick={() => archive(!category.archived)}>
+                {category.archived ? 'Restore' : 'Archive'}
+              </button>
+            )}
+          </>
         )}
       </td>
     </tr>

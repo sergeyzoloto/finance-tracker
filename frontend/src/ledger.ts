@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
-import { useApi, type Account, type AccountType, type Category, type Counterparty, type Entry, type Settings } from './api'
+import {
+  useApi, type Account, type AccountType, type Category, type Counterparty, type Entry, type EntryKind, type Settings,
+} from './api'
 import { abs, signOf, sum } from './money'
 
 /** The user's reference data, which entry screens need to show and build entries. */
@@ -40,6 +42,20 @@ export const ACCOUNT_TYPES: AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY']
 export const accountById = (ledger: Ledger, id: number | null | undefined) => ledger.accounts.find((a) => a.id === id)
 export const accountWithCode = (ledger: Ledger, code: string) => ledger.accounts.find((a) => a.code === code)
 export const categoryById = (ledger: Ledger, id: number | null | undefined) => ledger.categories.find((c) => c.id === id)
+
+/** A category's name, with its family budget for a family budget's category: "Groceries · Home". */
+export const categoryLabel = (category: Category) =>
+  category.familyLedgerName ? `${category.name} · ${category.familyLedgerName}` : category.name
+
+/** What an entry is, for one without a category, and for one a family budget posted. */
+export function kindLabel(kind: EntryKind): string {
+  return ({
+    TRANSFER: 'Transfer', LOAN_GIVEN: 'Loan given', LOAN_REPAID: 'Loan repaid', CURRENCY_EXCHANGE: 'Exchange',
+    OPENING_BALANCE: 'Opening balance', MANUAL: 'Correction', FAMILY_SHARE: 'Family share',
+    FAMILY_PAYMENT: 'Family payment', FAMILY_SETTLEMENT: 'Family settlement', FAMILY_OPENING: 'Family opening balance',
+    FAMILY_CORRECTION: 'Family correction',
+  } as Partial<Record<EntryKind, string>>)[kind] ?? '—'
+}
 export const counterpartyById = (ledger: Ledger, id: number | null | undefined) =>
   ledger.counterparties.find((c) => c.id === id)
 
@@ -87,7 +103,10 @@ export function describeEntry(entry: Entry, ledger: Ledger): EntrySummary {
   const shown = entry.postings.some((p) => p.accountId !== fx)
     ? entry.postings.filter((p) => p.accountId !== fx) : entry.postings
   const label = (p: Entry['postings'][number]) => {
-    if (p.categoryId !== null) return categoryById(ledger, p.categoryId)?.name ?? 'Unknown category'
+    if (p.categoryId !== null) {
+      const category = categoryById(ledger, p.categoryId)
+      return category ? categoryLabel(category) : 'Unknown category'
+    }
     const account = accountById(ledger, p.accountId)?.name ?? 'Unknown account'
     const counterparty = counterpartyById(ledger, p.counterpartyId)?.name
     return counterparty ? `${account} (${counterparty})` : account

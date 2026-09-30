@@ -85,6 +85,9 @@ export function newForm(ledger: Ledger, date: string, tab: Tab = 'expense'): Ent
 export const tabOf = (kind: EntryKind): Tab => ({
   EXPENSE: 'expense', SHARED_EXPENSE: 'expense', INCOME: 'income', TRANSFER: 'transfer', LOAN_GIVEN: 'loan',
   LOAN_REPAID: 'loan', CURRENCY_EXCHANGE: 'exchange', OPENING_BALANCE: 'advanced', MANUAL: 'advanced',
+  // A family budget's kinds: read-only while linked; one that is the user's own again (F6) opens as raw postings.
+  FAMILY_SHARE: 'advanced', FAMILY_PAYMENT: 'advanced', FAMILY_SETTLEMENT: 'advanced', FAMILY_OPENING: 'advanced',
+  FAMILY_CORRECTION: 'advanced',
 } as const)[kind]
 
 /**

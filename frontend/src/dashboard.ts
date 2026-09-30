@@ -91,7 +91,14 @@ export const MISSING = Symbol('rate missing')
 export type Cell = string | null | typeof MISSING
 
 /** A row of the cash flow table: an amount per month, and their total. */
-export interface CashFlowLine { key: string; label: string; months: Cell[]; total: Cell }
+export interface CashFlowLine {
+  key: string
+  label: string
+  months: Cell[]
+  total: Cell
+  /** For a family budget's category: the budget, which marks the line. */
+  family?: string
+}
 export interface CashFlowSection { lines: CashFlowLine[]; subtotal: CashFlowLine }
 /** The cash flow of one currency, as a pivot of categories by month. */
 export interface CashFlowTable {
@@ -111,7 +118,19 @@ export interface CashFlowTable {
 }
 
 /** A cash flow row whose total is known, or MISSING. */
-interface PivotRow { month: string; categoryCode: string; categoryName: string; categoryType: CategoryType; total: string | typeof MISSING }
+interface PivotRow {
+  month: string
+  categoryCode: string
+  categoryName: string
+  categoryType: CategoryType
+  total: string | typeof MISSING
+  familyLedgerId?: number
+  familyLedgerName?: string
+}
+
+/** A row's category: its code, and for a family budget's category the budget, since one may share its code. */
+const categoryKey = (row: PivotRow) => row.familyLedgerId === undefined ? row.categoryCode
+  : `${row.categoryCode}@${row.familyLedgerId}`
 
 /**
  * The cash flow report as the owner's Excel pivot: a table per currency, with categories as rows and `months` as
@@ -157,12 +176,19 @@ function pivot(currency: string, rows: PivotRow[], columns: string[]): CashFlowT
   return { currency, months: columns, income, expense, net: line('net', 'Net', net), converted: false, exchange: [] }
 }
 
-/** The categories of one type in alphabetical order, as the Excel pivot lists them, and their subtotal. */
+/**
+ * The categories of one type in alphabetical order, as the Excel pivot lists them, and their subtotal. A family
+ * budget's category is a line of its own, marked with the budget, after the user's own of the same name.
+ */
 function section(rows: PivotRow[], columns: string[], subtotalLabel: string): CashFlowSection {
-  const categories = [...new Map(rows.map((r) => [r.categoryCode, r.categoryName]))]
-    .sort(([, a], [, b]) => a.localeCompare(b))
-  const lines = categories.map(([code, name]) => line(`category:${code}`, name, columns.map((month) =>
-    total(rows.filter((r) => r.categoryCode === code && r.month === month).map((r) => r.total)))))
+  const categories = [...new Map(rows.map((r) => [categoryKey(r), r]))]
+    .sort(([, a], [, b]) => a.categoryName.localeCompare(b.categoryName)
+      || (a.familyLedgerName ?? '').localeCompare(b.familyLedgerName ?? ''))
+  const lines = categories.map(([key, row]) => ({
+    ...line(`category:${key}`, row.categoryName, columns.map((month) =>
+      total(rows.filter((r) => categoryKey(r) === key && r.month === month).map((r) => r.total)))),
+    ...(row.familyLedgerName === undefined ? {} : { family: row.familyLedgerName }),
+  }))
   return { lines, subtotal: line('subtotal', subtotalLabel, columns.map((_, i) => total(lines.map((l) => l.months[i])))) }
 }
 

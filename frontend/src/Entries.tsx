@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { formatDate, isoDate, useApi, type EntryPage } from './api'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
-import { describeEntry, useLedger } from './ledger'
+import { describeEntry, kindLabel, useLedger } from './ledger'
 import { formatMoney, negate } from './money'
 
 const PAGE_SIZE = 50
@@ -147,7 +147,14 @@ export default function Entries() {
                       {summary.payee || <span className="muted">—</span>}
                       {entry.memo && <div className="muted small">{entry.memo}</div>}
                     </td>
-                    <td>{summary.category || <span className="muted">{kindLabel(entry.kind)}</span>}</td>
+                    <td>
+                      {summary.category || <span className="muted">{kindLabel(entry.kind)}</span>}
+                      {entry.family && (
+                        <div className="muted small" title="It changes in the family budget">
+                          {summary.category ? `${kindLabel(entry.kind)}, ${entry.family.ledgerName}` : entry.family.ledgerName}
+                        </div>
+                      )}
+                    </td>
                     <td>{summary.flow}</td>
                     <td className={`amount nowrap ${tone}`}>
                       {summary.amounts.map((m) => formatMoney(summary.direction < 0 ? negate(m.amount) : m.amount, m.currency,
@@ -172,12 +179,4 @@ export default function Entries() {
       )}
     </>
   )
-}
-
-/** What an entry without a category is, for the category column. */
-function kindLabel(kind: string) {
-  return ({
-    TRANSFER: 'Transfer', LOAN_GIVEN: 'Loan given', LOAN_REPAID: 'Loan repaid', CURRENCY_EXCHANGE: 'Exchange',
-    OPENING_BALANCE: 'Opening balance', MANUAL: 'Correction',
-  } as Record<string, string>)[kind] ?? '—'
 }

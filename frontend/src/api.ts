@@ -20,7 +20,16 @@ export interface Account {
   system: boolean
   archived: boolean
 }
-export interface Category { id: number; code: string; name: string; type: CategoryType; archived: boolean }
+export interface Category {
+  id: number
+  code: string
+  name: string
+  type: CategoryType
+  archived: boolean
+  /** A family budget's category in the personal list (D-11): the budget. Left out for the user's own. */
+  familyLedgerId?: number
+  familyLedgerName?: string
+}
 export interface Counterparty {
   id: number
   name: string
@@ -60,6 +69,17 @@ export interface FamilyMember {
 
 export type EntryKind = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'SHARED_EXPENSE' | 'LOAN_GIVEN' | 'LOAN_REPAID'
   | 'CURRENCY_EXCHANGE' | 'OPENING_BALANCE' | 'MANUAL'
+  // Posted by a family budget; no command makes them.
+  | 'FAMILY_SHARE' | 'FAMILY_PAYMENT' | 'FAMILY_SETTLEMENT' | 'FAMILY_OPENING' | 'FAMILY_CORRECTION'
+/** What a family budget has to do with a personal entry: it posted it, or it is the payer's payment for a record. */
+export interface EntryFamily {
+  ledgerId: number
+  ledgerName: string
+  recordId: number | null
+  link: 'SHARE' | 'PAYMENT' | 'SETTLEMENT' | 'OPENING_BALANCE' | 'CORRECTION'
+  /** It changes only through its family record. */
+  readOnly: boolean
+}
 export interface Posting {
   accountId: number
   currency: string
@@ -75,6 +95,8 @@ export interface Entry {
   payeeId: number | null
   memo: string | null
   postings: Posting[]
+  /** Null (or missing) for an entry of the user's own. */
+  family?: EntryFamily | null
 }
 export interface EntryPage { content: Entry[]; page: number; size: number; totalElements: number; totalPages: number }
 /** A request to write an entry: the backend builds the postings from it (EntryCommandJson). */
@@ -97,6 +119,9 @@ export interface CashFlowRow {
   categoryType: CategoryType
   currency: string
   total: string
+  /** A family budget's category (D-11): the budget. Left out for the user's own. */
+  familyLedgerId?: number
+  familyLedgerName?: string
 }
 export interface SharedSettlement {
   accountId: number
@@ -107,7 +132,16 @@ export interface SharedSettlement {
   /** Who owes whom, from the side the account's postings add up to: USER_OWES for a credit. */
   direction: 'USER_OWES' | 'USER_IS_OWED'
 }
-export interface IntegrityViolation { currency: string; postingSum: string; balanceSheetGap: string }
+export interface IntegrityViolation {
+  currency: string
+  postingSum: string
+  balanceSheetGap: string
+  /** For a family membership whose debt account doesn't show the family balance (D-10); left out otherwise. */
+  familyLedgerId?: number
+  familyLedgerName?: string
+  debtBalance?: string
+  familyBalance?: string
+}
 
 // Reports with currency=BASE: every amount converted to the user's base currency at the latest rate on or before its
 // day. A figure that needs a rate that doesn't exist is null, and `missingRates` says which.
@@ -146,6 +180,8 @@ export interface ConvertedCashFlowRow {
   categoryType: CategoryType
   total: string | null
   missingRates: MissingRate[]
+  familyLedgerId?: number
+  familyLedgerName?: string
 }
 export interface ExchangeResult { month: string; realized: string | null; unrealized: string | null; missingRates: MissingRate[] }
 export interface ConvertedCashFlow { currency: string; rows: ConvertedCashFlowRow[]; exchangeResults: ExchangeResult[] }

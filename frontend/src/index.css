@@ -180,3 +180,8 @@ table.shares { width: auto; min-width: min(100%, 20rem); }
 table.shares td small { display: block; text-align: left; }
 input.percent { width: 5rem; }
 form.split-rule { display: block; }
+
+/* An entry a family budget posted, shown without a form. */
+dl.read-only { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 1rem 0; }
+dl.read-only dt { color: var(--muted); }
+dl.read-only dd { margin: 0; }

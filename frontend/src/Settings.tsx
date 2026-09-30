@@ -7,11 +7,15 @@ import { CONTACT_EMAIL, PRIVACY_URL } from './links'
 /** What the user types to confirm that all their data goes. */
 export const CONFIRMATION = 'DELETE'
 
-/** The user's data as a whole: deleting all of it (DELETE /api/me/data). */
-export default function Settings() {
+/**
+ * The user's data as a whole: deleting all of it (DELETE /api/me/data).
+ *
+ * @param onDeleted after the deletion, which also releases the user's family budgets (D-20)
+ */
+export default function Settings({ onDeleted = () => {} }: { onDeleted?: () => void }) {
   const navigate = useNavigate()
   const [typed, setTyped] = useState('')
-  const deletion = useMutation(() => navigate('/', { state: { dataDeleted: true } }))
+  const deletion = useMutation(() => { onDeleted(); navigate('/', { state: { dataDeleted: true } }) })
   const confirmed = typed === CONFIRMATION
 
   function submit(event: FormEvent) {

@@ -5,9 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-09-29 · Family budget: F3a's deploy, review decisions, the interface behind the switch (F3b)
 
-Committed locally on `feature/family-budget`: `ca5e01f` (documents) and "feat(family): members change
-their own display name", whose hash belongs here with the next change log commit. Not pushed, not
-merged, not deployed.
+Committed locally on `feature/family-budget` in three commits: `ca5e01f` (documents), `574f004`
+(a member's own display name) and "feat(family): the family budget interface, behind the switch",
+whose hash belongs here with the next change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - F3a's deploy and the decisions after the F3a review (commit "docs(family-budget): F3a deploy and
@@ -41,6 +41,53 @@ merged, not deployed.
     as before). `ApiTests` lists the endpoint for 401 and in the OpenAPI paths;
     `FamilySwitchOffApiTests` counts 14 family endpoints.
   - CLAUDE.md names the endpoint and the tests.
+- The interface (commit "feat(family): the family budget interface, behind the switch"), ADR 0003
+  topic I; no backend change:
+  - The switch: `Me` gets `features.familyLedgers`, and `familyLedgersOn(me)` is true only for
+    `true`, so a missing field is off. `App.tsx` reads it once. Off, it renders no switcher,
+    requests no family budget and registers no family route, so `/family/new` and
+    `/family/7` end like any unknown path, redirected to the dashboard; the app has no not-found page
+    of its own. On, the rest below.
+  - `LedgerSwitcher.tsx`: a native select at the start of the header, "Personal", the family budgets
+    of GET `/api/family-ledgers` by name, and "New family budget…", showing the current page's
+    choice; it wraps with the header on a narrow screen. `App.tsx` reloads the list after a
+    creation, a change, a family 404 and "Delete all my data" (`Settings` gets `onDeleted`).
+  - `NewFamily.tsx` (`/family/new`): name; base currency, the personal one by default, with the
+    user's currencies suggested; "Your name in this budget" from `/api/me`, with a note that other
+    members see it; the personal categories to bring by type, none preselected, "Select all" per
+    type, archived ones left out, and the line on what bringing one means; members without an
+    account; equal or custom shares with a live total. It calls POST, then each member's POST, then
+    PUT `split-rule` if custom (the creator's `memberId` from the POST). If a later call fails, it
+    skips the split rule when a member is missing, opens the new budget, and its page lists what
+    failed (`creationProblems` in the router state).
+  - `Family.tsx` (`/family/:ledgerId/*`): the name, "Family budget · currency · role", tabs
+    Overview, Members, Split rule, Categories and Settings, all with absolute links. A 404 of the
+    budget or its members, or a malformed id, shows `FamilyNotFound` ("Family budget not found",
+    "Back to Personal") and reloads the switcher's list; so does a write that answers 404, through
+    `useFamilyMutation` in `familyData.ts`, which reloads the budget after a 404 or 409.
+  - `FamilyMembers.tsx`: the members with role, status, join date, "You", "No account" and, under a
+    custom rule, the share; owners add, rename and remove members without an account; each member
+    with an account changes their own name (PATCH `/members/me`). A refused removal of a member
+    with a custom share shows the server's message and a link to the split rule. The split rule
+    page: equal or custom, a percentage per ACTIVE member (equal shares to start from), a live
+    total, Save disabled until it is exactly 100.00 %, and a 422 shown by the member it names.
+  - `FamilyCategories.tsx`: as the personal categories page; any member adds, owners rename,
+    archive, restore and delete, and a 409 shows next to the category. Settings: owners change name
+    and base currency.
+  - A member who isn't an owner sees no owners' actions, and a line saying only an owner does them.
+    409 and 422 details are shown next to the action, in the screens' words: `family.ts`'s
+    `familyMessage` says "family budget" for "family ledger" and percentages for basis points. 401
+    and 403 go through `api.ts` as before.
+  - `basisPoints.ts`: `percentToBasisPoints` (at most three digits, at most two decimals, up to
+    10000), `basisPointsToPercent` (the digits of the integer with a point before the last two) and
+    `equalShares`, with integers and strings only.
+  - Tests: `basisPoints.test.ts` (the cases of the task and every value from 0 to 10000 read back),
+    `family.test.ts`, and `Family.test.tsx`: the switch off (false, missing, empty) and on, the
+    switcher's list and choices, the family routes as unknown paths when off, the not-found page,
+    the list after delete-all, creation's calls, its partial failure and a refused POST, the split
+    rule's total and disabled Save, a 422 by member, a 409 with the link to the split rule (and none
+    after a clash of the own name), owners' controls hidden from a member, and a member's own name.
+  - ADR 0003 topic I ("Personal" in the switcher, F3b's pages) and CLAUDE.md describe it.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`: `feature/family-budget`
@@ -57,8 +104,28 @@ merged, not deployed.
   `bobsRequest` made `everyEndpointIsCheckedHere` fail with
   `Expecting empty but was: ["PATCH /api/family-ledgers/{ledgerId}/members/me"]`.
 
+- After the interface's commit: `./mvnw -B clean verify` 279 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend: `npm test` 10
+  files and 142 tests passed (84 before), `npm run build` succeeded.
+- The interface in Chrome (headless, playwright-core), against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true` on a throwaway `postgres:17-alpine`, the dev Keycloak's testuser and
+  the demo data: the switcher listed Personal and New family budget, then the new budget; creation
+  with all expense categories, Salary, the member Sam and 60/40 opened `/family/N` (with 39.99 the
+  total read 99.99 % and Create was disabled); "Change my name" to "sam" showed "The family budget
+  has a member named sam already."; removing Sam showed "Sam has a share of 40.00 % in the custom
+  split rule; change the rule to give them 0 first." with the link; the split rule refused 33.333
+  (total —, Save disabled) and saved 66.67/33.33; a category added and renamed; the budget renamed
+  in Settings, and the switcher followed; `/family/999999` showed the not-found page; at 375 px the
+  page was no wider than the screen. Bugs found there and fixed before the commit: relative tab
+  links inside the splat route resolved against the whole URL (the test "links its pages by their
+  full path" fails with them); the split rule link after a clash of one's own name; and the
+  switcher kept a budget that delete-all had removed.
+
 **Open**
-- F3b's part 3, the interface.
+- The personal and family category lists stack their row buttons vertically: the entry form's
+  `.actions` flex rule also applies to `td.actions`. It predates F3b, and F3b leaves the personal
+  pages as they are.
+- F4a and later: family records, balances and invites have no screens yet; the overview says they
+  come later.
 
 ## 2026-09-29 · Family budget: family ledgers in the backend, behind a switch (F3a)
 

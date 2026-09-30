@@ -3,7 +3,11 @@ import { csrfToken, logIn } from './auth'
 
 // The ledger's API (docs/adr/0001-double-entry-ledger.md). Amounts are decimal strings; see money.ts.
 
-export interface Me { name: string }
+/** The signed-in user. `features` says what the backend has switched on; a missing field counts as off. */
+export interface Me { name: string; features?: { familyLedgers?: boolean } }
+
+/** Whether the family budget is switched on (D-25): off in production until F7. */
+export const familyLedgersOn = (me: Me) => me.features?.familyLedgers === true
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY'
 export type CategoryType = 'INCOME' | 'EXPENSE'
 export interface Account {
@@ -26,6 +30,33 @@ export interface Counterparty {
   lastCategoryId: number | null
 }
 export interface Settings { baseCurrency: string; sharedAccountId: number | null; defaultShareRatio: string }
+
+// Family budgets (ADR 0003, topic I): the API calls them family ledgers, the screens family budgets.
+export type SplitRule = 'EQUAL' | 'CUSTOM'
+export type MemberRole = 'OWNER' | 'MEMBER'
+export type MemberStatus = 'ACTIVE' | 'LEFT' | 'FORMER'
+/** A family budget as its member sees it: `role` and `memberId` are the user's own. */
+export interface FamilyLedger {
+  id: number
+  name: string
+  baseCurrency: string
+  splitRule: SplitRule
+  role: MemberRole
+  memberId: number
+  createdAt: string
+}
+/** A member as every member sees them; never a login or an email address (D-3). */
+export interface FamilyMember {
+  id: number
+  displayName: string
+  role: MemberRole
+  status: MemberStatus
+  joinDate: string
+  /** False for a member without an account, and for a former member. */
+  hasAccount: boolean
+  /** Under a custom split rule, in basis points (2500 is 25.00 %); null under an equal one. */
+  share: number | null
+}
 
 export type EntryKind = 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'SHARED_EXPENSE' | 'LOAN_GIVEN' | 'LOAN_REPAID'
   | 'CURRENCY_EXCHANGE' | 'OPENING_BALANCE' | 'MANUAL'
@@ -213,10 +244,12 @@ class ServerUnavailable extends Error {
  * Loads `path` and reloads whenever it changes; responses to superseded requests are dropped. While the
  * backend is unavailable it keeps retrying, so the screen recovers on its own once the backend is back.
  * A null path loads nothing. `loading` is true while a request is out, even if older data is shown meanwhile.
+ * `status` is the HTTP status of a failed load that the API answered, such as 404.
  */
 export function useApi<T>(path: string | null) {
   const [data, setData] = useState<T>()
   const [error, setError] = useState<string>()
+  const [status, setStatus] = useState<number>()
   const [loading, setLoading] = useState(path !== null)
   const latest = useRef(0)
   const reload = useCallback(() => {
@@ -224,10 +257,11 @@ export function useApi<T>(path: string | null) {
     const request = ++latest.current
     setLoading(true)
     api<T>(path).then(
-      (result) => { if (request === latest.current) { setData(result); setError(undefined); setLoading(false) } },
+      (result) => { if (request === latest.current) { setData(result); setError(undefined); setStatus(undefined); setLoading(false) } },
       (e) => {
         if (request !== latest.current) return
         setError(errorMessage(e))
+        setStatus(e instanceof ApiError ? e.status : undefined)
         setLoading(false)
         if (e instanceof ServerUnavailable) setTimeout(() => request === latest.current && reload(), 3000)
       },
@@ -237,7 +271,7 @@ export function useApi<T>(path: string | null) {
     reload()
     return () => { latest.current++ } // unmounted or path changed: drop pending responses and retries
   }, [reload])
-  return { data, error, loading, reload }
+  return { data, error, status, loading, reload }
 }
 
 /**

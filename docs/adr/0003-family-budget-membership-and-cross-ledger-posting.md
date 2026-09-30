@@ -694,9 +694,12 @@ than the MVP needs.
 - Headers are rejected because the ledger would be invisible in URLs, links and the path patterns
   that the isolation tests' coverage records; a session value because all tabs share it.
 
-**UI.** A switcher in the header of `App.tsx`: "My ledger" and each family ledger by name. Family
-pages are routes under `/family/:ledgerId` (records, balances, members, categories, settings), so a
-link or a reload keeps the ledger. The personal routes stay. The split rule's custom shares are
+**UI.** A switcher in the header of `App.tsx`: "Personal", each family budget by name, and "New
+family budget" (F3b; "My ledger" before). Family pages are routes under `/family/:ledgerId`
+(records, balances, members, categories, settings), so a link or a reload keeps the ledger; F3b
+has the overview, members, split rule, categories and settings, and creation at `/family/new`. The
+screens say "family budget", never "ledger". While `/api/me` says the switch is off, the header has
+no switcher and the family routes don't exist, so they end like any unknown path. The personal routes stay. The split rule's custom shares are
 shown and entered as percentages with two decimals, and converted to and from the API's basis
 points with integer arithmetic, never floating point: "33.33" is 3333, and 3333 is "33.33". The entry form's "Family" switch shows a
 family selector only for a user with more than one family ledger (D-5). Posted entries show a badge

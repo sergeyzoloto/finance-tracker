@@ -42,7 +42,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
     }
 
     @Test
-    void theCreatorOwnsTheNewLedgerWithCopiesOfTheCategoriesTheyChose() throws IOException {
+    void theCreatorOwnsTheNewLedgerAndItsCategoriesAreTheOnesTheyChose() throws IOException {
         JsonNode ledger = ok(get(alice, uri));
         assertThat(ledger.get("name").asText()).isEqualTo("Home");
         assertThat(ledger.get("baseCurrency").asText()).isEqualTo("EUR");
@@ -60,15 +60,23 @@ class FamilyLedgerApiTests extends LedgerApiTest {
         assertThat(members.get(0).get("hasAccount").asBoolean()).isTrue();
         assertThat(members.get(0).get("share").isNull()).isTrue();
 
-        // Copies of code, name and type, with ids of their own; her personal categories stay as they are.
+        // Merged (D-11, F4a): family categories with their code, name and type, in her personal list with the family
+        // budget's name, and her personal ones gone.
         JsonNode categories = ok(get(alice, uri + "/categories"));
         assertThat(categories.findValuesAsText("code")).containsExactly("GROCERIES", "SALARY");
         assertThat(categories.findValuesAsText("type")).containsExactly("EXPENSE", "INCOME");
         JsonNode personal = ok(get(alice, "/api/categories"));
-        assertThat(personal.findValuesAsText("id")).doesNotContainAnyElementsOf(categories.findValuesAsText("id"));
-        assertThat(personal.findValuesAsText("code")).contains("GROCERIES", "SALARY");
+        for (JsonNode category : categories) {
+            JsonNode listed = find(personal, "id", category.get("id").asText());
+            assertThat(listed.get("familyLedgerId").asLong()).isEqualTo(family);
+            assertThat(listed.get("familyLedgerName").asText()).isEqualTo("Home");
+        }
+        assertThat(personal.findValuesAsText("code")).containsOnlyOnce("GROCERIES", "SALARY");
+        assertThat(find(personal, "code", "HOUSING").has("familyLedgerId")).isFalse();
         assertThat(jdbc.sql("SELECT count(*) FROM category WHERE ledger_id = ? AND user_id IS NULL").param(family)
                 .query(Long.class).single()).isEqualTo(2);
+        assertThat(jdbc.sql("SELECT count(*) FROM category WHERE user_id = ? AND code IN ('GROCERIES', 'SALARY')")
+                .param(alice).query(Long.class).single()).isZero();
 
         // A second one, and the switcher's list by name, each with her role.
         long second = newFamily(alice, """
@@ -264,8 +272,10 @@ class FamilyLedgerApiTests extends LedgerApiTest {
                 .single()).isTrue();
         assertThat(ok(get(alice, uri + "/categories")).findValuesAsText("code"))
                 .containsExactly("GROCERIES", "HOLIDAYS", "SALARY");
-        // Not in anybody's personal list before F4a.
-        assertThat(ok(get(bob, "/api/categories")).findValuesAsText("code")).doesNotContain("HOLIDAYS");
+        // In every member's personal list, with the family budget (D-11, F4a).
+        JsonNode inBobs = find(ok(get(bob, "/api/categories")), "code", "HOLIDAYS");
+        assertThat(inBobs.get("id").asLong()).isEqualTo(holidays);
+        assertThat(inBobs.get("familyLedgerName").asText()).isEqualTo("Home");
 
         assertThat(detail(post(alice, uri + "/categories", """
                 {"code": "HOLIDAYS", "name": "Trips", "type": "EXPENSE"}"""), HttpStatus.CONFLICT))
@@ -273,9 +283,10 @@ class FamilyLedgerApiTests extends LedgerApiTest {
         assertThat(body(post(bob, uri + "/categories", """
                 {"code": "holidays", "name": "Trips", "type": "EXPENSE"}"""), HttpStatus.BAD_REQUEST).get("errors")
                 .findValuesAsText("field")).containsExactly("code");
-        // The same code as a personal category of hers is no clash.
-        assertThat(post(alice, "/api/categories", """
-                {"code": "HOLIDAYS", "name": "My holidays", "type": "EXPENSE"}""")).hasStatus(HttpStatus.CREATED);
+        // A personal category may not take the code of a family category she sees (ADR 0003, topic F).
+        assertThat(detail(post(alice, "/api/categories", """
+                {"code": "HOLIDAYS", "name": "My holidays", "type": "EXPENSE"}"""), HttpStatus.CONFLICT)).isEqualTo(
+                "The family budget \"Home\" has a category with the code HOLIDAYS; use it, or choose another code.");
 
         // Renaming, archiving and deleting are the owners'.
         for (MvcTestResult refused : List.of(patch(bob, holidaysUri, """
@@ -294,10 +305,10 @@ class FamilyLedgerApiTests extends LedgerApiTest {
         assertThat(detail(delete(alice, holidaysUri), HttpStatus.NOT_FOUND))
                 .isEqualTo("Category %d not found.".formatted(holidays));
         // A personal category can't be reached through a family ledger.
-        long alicesOwn = categoryId(alice, "GROCERIES");
+        long alicesOwn = categoryId(alice, "HOUSING");
         assertThat(detail(delete(alice, uri + "/categories/" + alicesOwn), HttpStatus.NOT_FOUND))
                 .isEqualTo("Category %d not found.".formatted(alicesOwn));
-        assertThat(ok(get(alice, "/api/categories")).findValuesAsText("code")).contains("GROCERIES");
+        assertThat(ok(get(alice, "/api/categories")).findValuesAsText("code")).contains("HOUSING");
     }
 
     /** Every owner's action answers 409 to a member, and changes nothing (D-15); reading and adding categories don't. */

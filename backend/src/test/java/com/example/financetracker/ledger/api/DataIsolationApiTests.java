@@ -18,6 +18,8 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
@@ -435,8 +437,15 @@ class DataIsolationApiTests extends LedgerApiTest {
                 "ALICE_HOBBY").get("id").asLong();
         long familyC = newFamily(bob, """
                 {"name": "Bob's allotment", "baseCurrency": "EUR", "displayName": "Bob"}""").get("id").asLong();
-        // Family ledgers leave the personal answers as they were: family categories join them in F4a.
-        assertThat(view(alice)).isEqualTo(alicesViewBefore);
+        // Family ledgers change Alice's personal answers only by the merge at creation (D-11, F4a): her GROCERIES and
+        // ALICE_HOBBY became the family categories of A and B, which take their place wherever her answers named
+        // them, marked with their family budget in the category list and the cash flow.
+        long groceriesInA = find(ok(get(alice, "/api/family-ledgers/" + familyA + "/categories")), "code",
+                "GROCERIES").get("id").asLong();
+        long alicesGroceries = find(alicesViewBefore.get("/api/categories"), "code", "GROCERIES").get("id").asLong();
+        List<Merged> merged = List.of(new Merged(alicesGroceries, groceriesInA, "GROCERIES", familyA, "Home"),
+                new Merged(alicesHobby, bCategory, "ALICE_HOBBY", familyB, "ALICE_SECRET_BUDGET"));
+        assertThat(view(alice)).isEqualTo(merged(alicesViewBefore, merged));
         long alicesPersonal = personalLedger(alice);
         long bobsPersonal = personalLedger(bob);
         List<FamilyRequest> requests = List.of(
@@ -521,7 +530,20 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .doesNotContain(alice, bob, carol, "@example.com", "User ", "\"sub\"", "userSub", "email"));
         assertThat(String.join("", answers)).contains("Mum", "Dad", "Grandma", "Alice's cousin", "Bob");
 
-        assertThat(bobsView()).isEqualTo(bobsViewBefore);
+        // Bob's personal answers gain A's family category, and nothing of B's or of Alice's own (D-11, F4a).
+        Map<String, JsonNode> bobsViewAfter = bobsView();
+        assertThat(bobsViewAfter).isEqualTo(withFamilyCategory(bobsViewBefore,
+                find(bobReads("/api/categories"), "id", String.valueOf(groceriesInA))));
+        assertThat(find(bobsViewAfter.get("/api/categories"), "id", String.valueOf(groceriesInA))
+                .get("familyLedgerId").asLong()).isEqualTo(familyA);
+        Set<Long> notBobs = new TreeSet<>(List.of(alicesGroceries, alicesHobby, bCategory));
+        ok(get(alice, "/api/family-ledgers/" + familyB + "/categories")).forEach(c -> notBobs.add(c.get("id").asLong()));
+        view(alice).get("/api/categories").forEach(c -> {
+            if (!c.has("familyLedgerId")) {
+                notBobs.add(c.get("id").asLong());
+            }
+        });
+        assertThat(categoryIds(bobsViewAfter)).isNotEmpty().doesNotContainAnyElementsOf(notBobs);
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
@@ -713,6 +735,82 @@ class DataIsolationApiTests extends LedgerApiTest {
         }
         node.elements().forEachRemaining(child -> names.addAll(fieldNames(child)));
         return names;
+    }
+
+    /** A personal category of the creator's that became a family category at creation (D-11, F4a). */
+    private record Merged(long personal, long family, String code, long familyLedgerId, String familyLedgerName) {
+    }
+
+    /**
+     * The user's view before, with each merged personal category replaced by its family category: in the category
+     * list, marked with its family budget; as the category of their postings and counterparties; and in the cash flow,
+     * whose rows of it are marked with the family budget.
+     */
+    private Map<String, JsonNode> merged(Map<String, JsonNode> before, List<Merged> merged) throws IOException {
+        Map<String, JsonNode> view = new LinkedHashMap<>();
+        for (var answer : before.entrySet()) {
+            JsonNode copy = answer.getValue().deepCopy();
+            for (Merged category : merged) {
+                replaceCategory(copy, answer.getKey().contains("/cash-flow"), category);
+            }
+            // Read back, so that numbers have the node types an answer's have.
+            view.put(answer.getKey(), json.readTree(copy.toString()));
+        }
+        return view;
+    }
+
+    private static void replaceCategory(JsonNode node, boolean cashFlow, Merged category) {
+        if (node.isObject()) {
+            ObjectNode object = (ObjectNode) node;
+            for (String field : List.of("categoryId", "lastCategoryId")) {
+                if (object.path(field).asLong() == category.personal()) {
+                    object.put(field, category.family());
+                }
+            }
+            if (object.has("code") && object.path("id").asLong() == category.personal()) {
+                object.put("id", category.family());
+                object.put("familyLedgerId", category.familyLedgerId());
+                object.put("familyLedgerName", category.familyLedgerName());
+            }
+        }
+        node.forEach(child -> replaceCategory(child, cashFlow, category));
+        if (cashFlow && node.isArray()) {
+            // The cash flow's rows name a category by its code; the merged one's are the family category's now.
+            node.forEach(row -> {
+                if (row.isObject() && row.has("categoryCode") && !row.has("familyLedgerId")
+                        && row.get("categoryCode").asText().equals(category.code())) {
+                    ((ObjectNode) row).put("familyLedgerId", category.familyLedgerId());
+                    ((ObjectNode) row).put("familyLedgerName", category.familyLedgerName());
+                }
+            });
+        }
+    }
+
+    /** The user's view before, with a family category in the category list, after the one of the same name. */
+    private static Map<String, JsonNode> withFamilyCategory(Map<String, JsonNode> before, JsonNode category) {
+        Map<String, JsonNode> view = new LinkedHashMap<>(before);
+        ArrayNode categories = before.get("/api/categories").deepCopy();
+        int at = 0;
+        for (int i = 0; i < categories.size(); i++) {
+            if (categories.get(i).get("name").asText().compareTo(category.get("name").asText()) <= 0) {
+                at = i + 1;
+            }
+        }
+        categories.insert(at, category);
+        view.put("/api/categories", categories);
+        return view;
+    }
+
+    /** Every category id in a view: of the category list, and of postings and counterparties. */
+    private static Set<Long> categoryIds(Map<String, JsonNode> view) {
+        Set<Long> ids = new TreeSet<>();
+        view.get("/api/categories").forEach(c -> ids.add(c.get("id").asLong()));
+        view.values().forEach(answer -> {
+            for (String field : List.of("categoryId", "lastCategoryId")) {
+                answer.findValues(field).stream().filter(JsonNode::isNumber).forEach(id -> ids.add(id.asLong()));
+            }
+        });
+        return ids;
     }
 
     /** Every membership of every ledger but one, as text, to compare before and after. */

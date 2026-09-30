@@ -66,9 +66,11 @@ public class FamilyLedgerService {
 
     /**
      * Creates a family ledger, with its creator as its one member: OWNER, ACTIVE, joined on the ledger's start date
-     * (D-15, D-27). Its category dictionary starts with copies of the code, name and type of the creator's categories
-     * that the creator chose (D-11); those personal categories and their postings stay as they are until F4a merges
-     * them.
+     * (D-15, D-27). The personal categories the creator chose become its category dictionary (D-11, merged since F4a):
+     * a family category with each one's code, name and type; the creator's postings on the personal one move to it,
+     * and the personal category goes. Their entries keep their versions: only the category's id changes, and a form
+     * still holding the old one gets 422 for a category that doesn't exist. Family ledgers created before F4a were not
+     * merged and keep their copies.
      *
      * @param personal the creator's personal ledger
      * @param startDate the first day records may be dated (D-27); null for today. Never after today.
@@ -112,10 +114,25 @@ public class FamilyLedgerService {
                 .param("share", rule == SplitRule.CUSTOM ? 10_000 : null)
                 .update();
         LedgerScope family = access.member(personal.userId(), ledgerId);
-        seed.stream().sorted(Comparator.comparing(LedgerCategory::code)).forEach(category -> categories.save(
-                new LedgerCategory(null, family.rowUserId(), ledgerId, category.code(), category.name(),
-                        category.type(), null)));
+        seed.stream().sorted(Comparator.comparing(LedgerCategory::code)).forEach(category -> merge(personal, category,
+                categories.save(new LedgerCategory(null, family.rowUserId(), ledgerId, category.code(),
+                        category.name(), category.type(), null))));
         return get(family);
+    }
+
+    /**
+     * Moves the creator's postings from their personal category to the family category that replaces it, and deletes
+     * the personal one (D-11). The posting trigger lets them use it: the creator is an ACTIVE member by now (V7).
+     */
+    private void merge(LedgerScope personal, LedgerCategory mine, LedgerCategory family) {
+        jdbc.sql("""
+                UPDATE posting SET category_id = :family
+                WHERE category_id = :mine AND entry_id IN (SELECT id FROM journal_entry WHERE ledger_id = :ledgerId)""")
+                .param("family", family.id()).param("mine", mine.id()).param("ledgerId", personal.ledgerId())
+                .update();
+        jdbc.sql("DELETE FROM category WHERE id = :mine AND ledger_id = :ledgerId")
+                .param("mine", mine.id()).param("ledgerId", personal.ledgerId())
+                .update();
     }
 
     @Transactional(readOnly = true)

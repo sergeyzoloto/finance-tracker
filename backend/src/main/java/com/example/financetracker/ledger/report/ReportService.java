@@ -24,7 +24,11 @@ import com.example.financetracker.ledger.AccountRepository;
 import com.example.financetracker.ledger.SettingsService;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
+import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.access.LedgerType;
+import com.example.financetracker.ledger.family.FamilyBalances;
+import com.example.financetracker.ledger.family.FamilyRecordService;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.rates.MissingRate;
@@ -59,14 +63,18 @@ public class ReportService {
     private final UserSettingsRepository settings;
     private final SettingsService settingsService;
     private final RateService rates;
+    private final LedgerAccess access;
+    private final FamilyRecordService records;
 
     ReportService(JdbcClient jdbc, AccountRepository accounts, UserSettingsRepository settings,
-            SettingsService settingsService, RateService rates) {
+            SettingsService settingsService, RateService rates, LedgerAccess access, FamilyRecordService records) {
         this.jdbc = jdbc;
         this.accounts = accounts;
         this.settings = settings;
         this.settingsService = settingsService;
         this.rates = rates;
+        this.access = access;
+        this.records = records;
     }
 
     /**
@@ -147,21 +155,26 @@ public class ReportService {
         }
         // The date is truncated as a timestamp without time zone. A bare date would be cast to timestamptz, and the
         // month would then depend on the session's time zone.
-        return jdbc.sql("""
+        List<Long> families = families(ledger);
+        var statement = jdbc.sql("""
                 SELECT date_trunc('month', e.entry_date::timestamp)::date AS month,
                        c.code AS category_code, c.name AS category_name, c.type AS category_type, p.currency,
-                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS total
+                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS total,
+                       f.id AS family_ledger_id, f.name AS family_ledger_name
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN category c ON c.id = p.category_id
-                WHERE e.ledger_id = :ledgerId AND c.ledger_id = :ledgerId AND e.entry_date BETWEEN :from AND :to
-                GROUP BY month, c.id, p.currency
-                ORDER BY month, c.type, c.code, p.currency""")
+                LEFT JOIN ledger f ON f.id = c.ledger_id AND f.type = 'SHARED'
+                WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to
+                GROUP BY month, c.id, p.currency, f.id
+                ORDER BY month, c.type, c.code, p.currency, f.id NULLS FIRST""".formatted(categories(families)))
                 .param("ledgerId", ledger.ledgerId())
                 .param("from", from)
-                .param("to", to)
-                .query(ReportService::cashFlowRow)
-                .list();
+                .param("to", to);
+        if (!families.isEmpty()) {
+            statement = statement.param("families", families);
+        }
+        return statement.query(ReportService::cashFlowRow).list();
     }
 
     /**
@@ -299,50 +312,63 @@ public class ReportService {
         // Per day and currency: categorized postings (CATEGORY) as cashFlow adds them up, postings to FX_EXCHANGE
         // (EXCHANGE), and postings in other currencies than the base currency to ASSET and LIABILITY accounts
         // (HOLDING), which are what is revalued. HOLDING before the period is one sum per currency, without a day.
-        List<FlowSum> sums = jdbc.sql("""
+        List<Long> families = families(ledger);
+        var statement = jdbc.sql("""
                 SELECT 'CATEGORY' AS part, e.entry_date AS day, p.currency, c.code AS category_code,
                        c.name AS category_name, c.type AS category_type,
-                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS amount
+                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS amount,
+                       f.id AS family_ledger_id, f.name AS family_ledger_name
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN category c ON c.id = p.category_id
-                WHERE e.ledger_id = :ledgerId AND c.ledger_id = :ledgerId AND e.entry_date BETWEEN :from AND :to
-                GROUP BY e.entry_date, p.currency, c.id
+                LEFT JOIN ledger f ON f.id = c.ledger_id AND f.type = 'SHARED'
+                WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to
+                GROUP BY e.entry_date, p.currency, c.id, f.id
                 UNION ALL
                 SELECT CASE a.type WHEN 'EQUITY' THEN 'EXCHANGE' ELSE 'HOLDING' END,
                        CASE WHEN e.entry_date < :from THEN NULL ELSE e.entry_date END, p.currency, NULL, NULL, NULL,
-                       sum(p.amount)
+                       sum(p.amount), NULL, NULL
                 FROM journal_entry e
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
                 WHERE e.ledger_id = :ledgerId AND a.ledger_id = :ledgerId AND e.entry_date <= :to
                   AND ((a.type IN ('ASSET', 'LIABILITY') AND p.currency <> :base)
                        OR (a.type = 'EQUITY' AND a.code = :fxExchange AND e.entry_date >= :from))
-                GROUP BY 1, 2, 3""")
+                GROUP BY 1, 2, 3""".formatted(categories(families)))
                 .param("ledgerId", ledger.ledgerId())
                 .param("from", from)
                 .param("to", to)
                 .param("base", base)
-                .param("fxExchange", FX_EXCHANGE)
-                .query(FlowSum.class)
-                .list();
+                .param("fxExchange", FX_EXCHANGE);
+        if (!families.isEmpty()) {
+            statement = statement.param("families", families);
+        }
+        List<FlowSum> sums = statement.query(FlowSum.class).list();
         // The day before the period: where the first month's revaluation starts from.
         RateBook book = rates.rateBook(ledger.userId(), currencies(sums.stream().map(FlowSum::currency), base),
                 from.minusDays(1), to);
 
-        record Category(YearMonth month, CategoryType type, String code) {
+        // A family category may share its code with one of the ledger's own (a family ledger created before F4a's
+        // merge copied them), so the family budget is part of the key; the ledger's own come first.
+        record Category(YearMonth month, CategoryType type, String code, long family) {
         }
         Map<Category, ConvertedSum> totals = new TreeMap<>(Comparator.comparing(Category::month)
-                .thenComparing(category -> category.type().name()).thenComparing(Category::code));
+                .thenComparing(category -> category.type().name()).thenComparing(Category::code)
+                .thenComparingLong(Category::family));
         Map<String, String> names = new LinkedHashMap<>();
+        Map<Long, String> familyNames = new LinkedHashMap<>();
         Map<String, BigDecimal> held = new TreeMap<>();
         Map<YearMonth, List<FlowSum>> byMonth = new TreeMap<>();
         for (FlowSum sum : sums) {
             if (sum.part().equals("CATEGORY")) {
                 CategoryType type = CategoryType.valueOf(sum.categoryType());
-                totals.computeIfAbsent(new Category(YearMonth.from(sum.day()), type, sum.categoryCode()),
+                long family = sum.familyLedgerId() == null ? 0 : sum.familyLedgerId();
+                totals.computeIfAbsent(new Category(YearMonth.from(sum.day()), type, sum.categoryCode(), family),
                         category -> new ConvertedSum(book, base)).add(sum.amount(), sum.currency(), sum.day());
-                names.put(sum.categoryCode(), sum.categoryName());
+                names.put(family + " " + sum.categoryCode(), sum.categoryName());
+                if (sum.familyLedgerId() != null) {
+                    familyNames.put(family, sum.familyLedgerName());
+                }
             } else if (sum.day() == null) {
                 held.merge(sum.currency(), sum.amount(), BigDecimal::add);
             } else {
@@ -350,8 +376,10 @@ public class ReportService {
             }
         }
         List<ConvertedCashFlow.Row> rows = totals.entrySet().stream()
-                .map(e -> new ConvertedCashFlow.Row(e.getKey().month(), e.getKey().code(), names.get(e.getKey().code()),
-                        e.getKey().type(), e.getValue().total(), e.getValue().missing().toList()))
+                .map(e -> new ConvertedCashFlow.Row(e.getKey().month(), e.getKey().code(),
+                        names.get(e.getKey().family() + " " + e.getKey().code()), e.getKey().type(),
+                        e.getValue().total(), e.getValue().missing().toList(),
+                        e.getKey().family() == 0 ? null : e.getKey().family(), familyNames.get(e.getKey().family())))
                 .toList();
 
         List<ConvertedCashFlow.ExchangeResult> results = new ArrayList<>();
@@ -418,7 +446,7 @@ public class ReportService {
      * and assets − liabilities − equity through the ledger's accounts.
      */
     public List<IntegrityViolation> integrityCheck(LedgerScope ledger) {
-        return jdbc.sql("""
+        List<IntegrityViolation> violations = new ArrayList<>(jdbc.sql("""
                 WITH by_entry AS (
                     SELECT p.currency, sum(p.amount) AS posting_sum
                     FROM journal_entry e
@@ -441,8 +469,40 @@ public class ReportService {
                 WHERE coalesce(posting_sum, 0) <> 0 OR coalesce(balance_sheet_gap, 0) <> 0
                 ORDER BY currency""")
                 .param("ledgerId", ledger.ledgerId())
-                .query(IntegrityViolation.class)
-                .list();
+                .query((row, n) -> new IntegrityViolation(row.getString("currency"), row.getBigDecimal("posting_sum"),
+                        row.getBigDecimal("balance_sheet_gap")))
+                .list());
+        if (ledger.type() == LedgerType.PERSONAL) {
+            for (LedgerScope family : access.families(ledger.userId())) {
+                familyDifference(ledger, family).ifPresent(violations::add);
+            }
+        }
+        return violations;
+    }
+
+    /**
+     * D-10 for one family membership: the displayed balance of the member's debt account for the family ledger, which
+     * the posting service keeps, against their family balance, which the records give (FamilyRecordService).
+     */
+    private Optional<IntegrityViolation> familyDifference(LedgerScope personal, LedgerScope family) {
+        FamilyBalances balances = records.balances(family);
+        BigDecimal familyBalance = balances.members().stream().filter(FamilyBalances.MemberBalance::you)
+                .map(FamilyBalances.MemberBalance::balance).findFirst().orElse(BigDecimal.ZERO);
+        BigDecimal debt = jdbc.sql("""
+                SELECT coalesce(-sum(p.amount), 0)
+                FROM account a
+                JOIN posting p ON p.account_id = a.id
+                JOIN journal_entry e ON e.id = p.entry_id
+                WHERE a.ledger_id = :ledgerId AND e.ledger_id = :ledgerId AND a.family_ledger_id = :familyId""")
+                .param("ledgerId", personal.ledgerId()).param("familyId", family.ledgerId())
+                .query(BigDecimal.class).single();
+        if (debt.compareTo(familyBalance) == 0) {
+            return Optional.empty();
+        }
+        String name = jdbc.sql("SELECT name FROM ledger WHERE id = :familyId").param("familyId", family.ledgerId())
+                .query(String.class).single();
+        return Optional.of(new IntegrityViolation(balances.currency(), BigDecimal.ZERO, BigDecimal.ZERO,
+                family.ledgerId(), name, debt, familyBalance));
     }
 
     /** The currencies of the amounts, and the one they are converted to. */
@@ -466,12 +526,29 @@ public class ReportService {
 
     /** As {@link DaySum}, with the category of a categorized posting; {@code day} is null for "before the period". */
     private record FlowSum(String part, LocalDate day, String currency, String categoryCode, String categoryName,
-            String categoryType, BigDecimal amount) {
+            String categoryType, BigDecimal amount, Long familyLedgerId, String familyLedgerName) {
     }
 
     private static CashFlowRow cashFlowRow(ResultSet row, int rowNum) throws SQLException {
         return new CashFlowRow(YearMonth.from(row.getObject("month", LocalDate.class)), row.getString("category_code"),
                 row.getString("category_name"), CategoryType.valueOf(row.getString("category_type")),
-                row.getString("currency"), row.getBigDecimal("total"));
+                row.getString("currency"), row.getBigDecimal("total"), row.getObject("family_ledger_id", Long.class),
+                row.getString("family_ledger_name"));
+    }
+
+    /**
+     * The family ledgers whose categories the ledger's postings may use (D-11, ADR 0003 topic F): its member's ACTIVE
+     * memberships, for a personal ledger; none otherwise.
+     */
+    private List<Long> families(LedgerScope ledger) {
+        if (ledger.type() != LedgerType.PERSONAL) {
+            return List.of();
+        }
+        return access.families(ledger.userId()).stream().map(LedgerScope::ledgerId).toList();
+    }
+
+    /** The condition on a category {@code c} of the cash flow: the ledger's own, or of one of the families. */
+    private static String categories(List<Long> families) {
+        return families.isEmpty() ? "c.ledger_id = :ledgerId" : "(c.ledger_id = :ledgerId OR c.ledger_id IN (:families))";
     }
 }

@@ -83,6 +83,30 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
     }
 
+    /**
+     * For a user without family budgets every personal answer reads as before F4a's parts 5 and 6: the family fields of
+     * categories, cash flow rows and the integrity check are left out, not null, and the demo passes the check.
+     */
+    @Test
+    void personalAnswersHoldNoFamilyFieldsForAUserWithoutFamilies() throws IOException {
+        ok(post(user, "/api/demo-data", null));
+        List<String> reads = List.of("/api/categories", "/api/accounts", "/api/counterparties", "/api/entries?size=200",
+                "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31",
+                "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31&currency=BASE",
+                "/api/reports/balances?asOf=2026-12-31", "/api/reports/net-worth?asOf=2026-12-31",
+                "/api/reports/integrity");
+        SoftAssertions softly = new SoftAssertions();
+        for (String read : reads) {
+            String answer = ok(get(user, read)).toString();
+            softly.assertThat(answer).as(read).doesNotContain("familyLedgerId", "familyLedgerName", "debtBalance",
+                    "familyBalance", "FAMILY_DEBT_", "UNSPECIFIED_PAYMENTS");
+        }
+        softly.assertAll();
+        assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
+        assertThat(ok(get(user, "/api/entries?size=200")).get("content").findValues("family"))
+                .allSatisfy(family -> assertThat(family.isNull()).isTrue());
+    }
+
     /** Each endpoint of the family controllers as {method, path}, with 1 for every id in the path. */
     private static List<String[]> familyEndpoints() {
         List<String[]> endpoints = new ArrayList<>();

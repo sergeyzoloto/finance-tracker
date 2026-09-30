@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +20,9 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.EntryCommand;
 import com.example.financetracker.ledger.domain.EntryDraft;
@@ -60,16 +63,19 @@ public class EntryService {
     private final CounterpartyRepository counterparties;
     private final UserSettingsRepository settings;
     private final JdbcClient jdbc;
+    private final LedgerAccess access;
     private final LedgerValidator validator = new LedgerValidator();
 
     EntryService(JournalEntryRepository entries, AccountRepository accounts, LedgerCategoryRepository categories,
-            CounterpartyRepository counterparties, UserSettingsRepository settings, JdbcClient jdbc) {
+            CounterpartyRepository counterparties, UserSettingsRepository settings, JdbcClient jdbc,
+            LedgerAccess access) {
         this.entries = entries;
         this.accounts = accounts;
         this.categories = categories;
         this.counterparties = counterparties;
         this.settings = settings;
         this.jdbc = jdbc;
+        this.access = access;
     }
 
     /** @throws InvalidEntryException naming every problem with the entry */
@@ -351,11 +357,21 @@ public class EntryService {
 
     /** The ledger's rows among those the entry refers to, locked until the transaction ends. */
     private LedgerReferences references(LedgerScope ledger, EntryDraft draft) {
+        Map<Long, CategoryInfo> categoryInfos = new HashMap<>(lookup(ledger, draft.categoryIds(),
+                categories::lockAll, LedgerCategory::id, c -> new CategoryInfo(c.code(), c.type())));
+        Set<Long> others = new HashSet<>(draft.categoryIds());
+        others.removeAll(categoryInfos.keySet());
+        if (!others.isEmpty() && ledger.type() == LedgerType.PERSONAL) {
+            // The family categories of the member's ACTIVE family memberships (D-11, ADR 0003 topic F).
+            for (LedgerScope family : access.families(ledger.userId())) {
+                categoryInfos.putAll(lookup(family, others, categories::lockAll, LedgerCategory::id,
+                        c -> new CategoryInfo(c.code(), c.type())));
+            }
+        }
         return new LedgerReferences(
                 lookup(ledger, draft.accountIds(), accounts::lockAll, Account::id,
                         a -> new AccountInfo(a.code(), a.type(), a.requiresCounterparty())),
-                lookup(ledger, draft.categoryIds(), categories::lockAll, LedgerCategory::id,
-                        c -> new CategoryInfo(c.code(), c.type())),
+                categoryInfos,
                 lookup(ledger, draft.counterpartyIds(), counterparties::lockAll, Counterparty::id,
                         c -> c).keySet());
     }

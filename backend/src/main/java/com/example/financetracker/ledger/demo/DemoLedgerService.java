@@ -53,6 +53,11 @@ public class DemoLedgerService {
      * back to the starter ledger's, the demo's own are added, and the settings get base currency EUR, the account
      * FAMILY_DEBT for shared expenses and a share of 0.50. Every entry goes through {@link EntryService}, so the
      * ledger's rules hold for it as for any other.
+     * <p>
+     * For a member of family budgets (F4a) the demo touches no family data: the family budget's entries in the ledger
+     * stay, and the demo's categories are always personal ones. A starter category that became a family category
+     * when a family budget was created (D-11's merge) is created again in the personal ledger, beside the family one
+     * with the same code, which the category list marks with its family budget; no demo entry uses a family category.
      *
      * @param personalLedger the user's personal ledger, whose member the settings belong to
      * @throws ConflictException if the ledger has any entries or counterparties, or accounts or categories other than
@@ -121,12 +126,19 @@ public class DemoLedgerService {
                 DemoLedger.COUNTERPARTIES.size(), commands.getFirst().entryDate(), commands.getLast().entryDate());
     }
 
-    /** Whether the ledger has anything besides the starter accounts and categories. */
+    /**
+     * Whether the ledger has anything of the user's own besides the starter accounts and categories. What a family
+     * budget posted there doesn't count (F4a): its entries, the debt accounts and "Payments without a specified
+     * account", which the demo leaves as they are.
+     */
     private boolean hasLedgerOfOwn(LedgerScope ledger) {
         return jdbc.sql("""
-                SELECT EXISTS (SELECT FROM journal_entry WHERE ledger_id = :ledgerId)
+                SELECT EXISTS (SELECT FROM journal_entry e WHERE e.ledger_id = :ledgerId
+                               AND NOT EXISTS (SELECT FROM family_entry_link l
+                                               WHERE l.entry_id = e.id AND l.detached_at IS NULL))
                     OR EXISTS (SELECT FROM counterparty WHERE ledger_id = :ledgerId)
-                    OR EXISTS (SELECT FROM account WHERE ledger_id = :ledgerId AND code NOT IN (:accountCodes))
+                    OR EXISTS (SELECT FROM account WHERE ledger_id = :ledgerId AND code NOT IN (:accountCodes)
+                               AND family_ledger_id IS NULL AND NOT (is_system AND code = 'UNSPECIFIED_PAYMENTS'))
                     OR EXISTS (SELECT FROM category WHERE ledger_id = :ledgerId AND code NOT IN (:categoryCodes))""")
                 .param("ledgerId", ledger.ledgerId())
                 .param("accountCodes", starterLedger.accountCodes())

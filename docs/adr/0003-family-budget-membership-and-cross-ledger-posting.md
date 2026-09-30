@@ -580,6 +580,29 @@ D-18, D-19's detach, D-24, D-26.
   reference, instead of `c.user_id = :userId`; the triggers guarantee that those are the ledger's or a
   family's it is an ACTIVE member of.
 
+**As built in F4a, parts 5 and 6** (2026-09-30):
+
+- `GET /api/categories` adds `familyLedgerId` and `familyLedgerName` to a family category, and leaves
+  both out for the ledger's own, so that a user without family budgets reads what they read before.
+  The personal endpoints answer 409 to a rename or an archive of one ("… belongs to the family budget
+  "Home"; rename or archive it there"); the owners change it in the family budget. For whom isn't
+  an ACTIVE member, it is missing (404) as before.
+- A personal entry may use one (`EntryService` looks it up through `LedgerAccess.families`). The cash
+  flow, in each currency and in the base currency, counts it with `familyLedgerId` and
+  `familyLedgerName`, beside a category of the ledger's own with the same code.
+- The merge at creation: the chosen personal categories become family categories with their code,
+  name and type, the creator's postings move to them, and the personal rows go. The entries keep
+  their versions; only a posting's category changes. Family ledgers created before this weren't
+  merged.
+- The integrity check adds a row for each ACTIVE membership whose debt account doesn't show the
+  member's family balance (D-10), with `familyLedgerId`, `familyLedgerName`, `debtBalance` and
+  `familyBalance`.
+- The demo loads into a ledger that has nothing of the user's own besides what family budgets posted
+  there, and touches no family data. Its categories are always personal: a starter category merged
+  into a family budget comes back as a personal one beside the family one with the same code, which
+  the list marks; no demo entry uses a family category. The rule above, that a personal category
+  may not take a family category's code, is for the categories users create.
+
 **Consequences.** A rename by an owner shows in every member's personal reports at once. A member
 who leaves gets personal copies of the family categories their postings use (the detach, topic E), and
 a member who returns has them matched by code again (D-26). Option 2 would drift and double every

@@ -25,6 +25,34 @@ Not committed yet.
     means restoring a dump.
   - `deploy/pg-backup/finance.conf` counts the family records, shares, links and journal rows
     (`CHECK_FAMILY_*`), and the runbook's block for a changed `finance.conf` names them.
+- Family categories in personal ledgers (commit "feat(family): family categories in personal
+  ledgers"), D-11 and ADR 0003 topic F, which now says what was built:
+  - `GET /api/categories` lists the family categories of the user's ACTIVE memberships too, with
+    the additive `familyLedgerId` and `familyLedgerName`, left out for the user's own, so that a
+    user without family budgets reads what they read before. A rename or an archive of one through
+    `/api/categories` answers 409, "The category GROCERIES belongs to the family budget "Home";
+    rename or archive it there."; a new personal category with a family category's code answers 409
+    too. To a user who isn't a member, a family category is missing, as before.
+  - A personal entry may use a family category. The cash flow, per currency and in the base
+    currency, counts it with its family budget, beside a personal category of the same code; its
+    totals are the posted shares and whatever the user filed there themselves.
+  - Creating a family budget merges: the chosen personal categories become the family's, the
+    creator's postings move to them, and the personal rows are deleted. The entries keep their
+    versions. Family budgets created before this keep their copies.
+  - `/api/reports/integrity` adds a row for each ACTIVE membership whose debt account doesn't show
+    the member's family balance: `familyLedgerId`, `familyLedgerName`, `debtBalance`,
+    `familyBalance`, with `postingSum` and `balanceSheetGap` 0; the fields are left out otherwise.
+  - The demo: it loads when the ledger has nothing of the user's own besides what family budgets
+    posted there, and touches no family data. Its categories are always personal: a starter category
+    merged into a family budget comes back as a personal one beside the family one of the same code,
+    which the list marks, and no demo entry uses a family category.
+  - Tests: new `FamilyCategoryApiTests` (6); `FamilySwitchOffApiTests` checks that a user without
+    families gets no family field in any personal answer; `FamilyLedgerApiTests`' two tests of F3a's
+    copies now check the merge and the code rule. `DataIsolationApiTests`, the one change the task
+    allows: in `familyLedgersAreReachedByTheirActiveMembersOnly`, Alice's view after is her view
+    before with her GROCERIES and ALICE_HOBBY replaced by A's and B's family categories, and Bob's
+    is his view before plus A's family category; new assertions: nothing of B's or of Alice's own
+    categories in Bob's view. Carol's view was already checked as unchanged.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -32,6 +60,11 @@ Not committed yet.
   `71c3eb7`. `./mvnw -B clean verify`: 305 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
   Frontend: `npm ci`, `npm test` 10 files and 142 tests passed, `npm run build` succeeded.
 - After the documents' commit: documents and `finance.conf` only.
+- After the categories' commit: `./mvnw -B clean verify` 312 tests (305 and 7), 0 failures, 0
+  errors, 0 skipped, BUILD SUCCESS. No migration. `DataIsolationApiTests.java`: 101 lines added, 3
+  removed, all in `familyLedgersAreReachedByTheirActiveMembersOnly` and its new helpers.
+- The new isolation check against a temporary mutation, from a file copy: a personal category list
+  with every family budget's categories made `familyLedgersAreReachedByTheirActiveMembersOnly` fail.
 
 **Open**
 - The rest of this stage.

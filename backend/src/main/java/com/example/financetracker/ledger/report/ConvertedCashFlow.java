@@ -6,6 +6,8 @@ import java.util.List;
 
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.rates.MissingRate;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
 
 /**
  * Income and expenses per month and category in the user's base currency, each posting converted at the rate on its
@@ -22,9 +24,18 @@ public record ConvertedCashFlow(String currency, List<Row> rows, List<ExchangeRe
      *
      * @param total null if a posting's currency has no rate on its day
      * @param missingRates why {@code total} is null; empty otherwise
+     * @param familyLedgerId the family budget of a family category, as {@link CashFlowRow#familyLedgerId}
+     * @param familyLedgerName its name
      */
     public record Row(YearMonth month, String categoryCode, String categoryName, CategoryType categoryType,
-            BigDecimal total, List<MissingRate> missingRates) {
+            BigDecimal total, List<MissingRate> missingRates, @JsonInclude(Include.NON_NULL) Long familyLedgerId,
+            @JsonInclude(Include.NON_NULL) String familyLedgerName) {
+
+        /** A row of one of the ledger's own categories. */
+        public Row(YearMonth month, String categoryCode, String categoryName, CategoryType categoryType,
+                BigDecimal total, List<MissingRate> missingRates) {
+            this(month, categoryCode, categoryName, categoryType, total, missingRates, null, null);
+        }
     }
 
     /**

@@ -14,6 +14,7 @@ import com.example.financetracker.ledger.family.FamilyRecordService;
 import com.example.financetracker.ledger.family.FamilyRecordView;
 import com.example.financetracker.ledger.family.FamilySwitch;
 import com.example.financetracker.ledger.family.NewFamilyRecord;
+import com.example.financetracker.ledger.family.NewSettlement;
 import com.example.financetracker.ledger.family.RecordSplit;
 import com.example.financetracker.security.CurrentUser;
 import jakarta.validation.Valid;
@@ -37,9 +38,10 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * A family ledger's records, balances and change journal (F4a; ADR 0003, topics D, H and I), for its ACTIVE members
  * only: anyone else gets 404, the answer for a family ledger that doesn't exist, for reads and writes alike. Records are
- * family expenses in the base currency; incomes and settlements come with F4d, other currencies with F4e. No answer holds
- * a member's accounts, personal categories or personal entries (C4), except the caller's own payment, for their eyes
- * only ({@code yourPayment}, F4c).
+ * family expenses and settlements (F4d) in the base currency; incomes come with F4d too, other currencies with F4e. A
+ * settlement is recorded through {@code /settlements}, the resource ADR 0003 names for it, and is read, changed and
+ * deleted as a record. No answer holds a member's accounts, personal categories or personal entries (C4), except the
+ * caller's own payment or side of a settlement, for their eyes only ({@code yourPayment}, F4c).
  * <p>
  * Only while the feature switch is on (D-25, {@link FamilySwitch}): otherwise these paths are unknown and answer 404.
  */
@@ -81,6 +83,23 @@ class FamilyRecordController {
                     .map(share -> new RecordSplit.ShareInput(share.memberId(), share.basisPoints(), share.amount()))
                     .toList(), memberId);
         }
+    }
+
+    /**
+     * A settlement (D2, D-24): one member pays another.
+     *
+     * @param amount in the family's base currency, above 0, with at most its minor unit's decimals
+     * @param payerMemberId who paid
+     * @param payeeMemberId who received. You are one of the two, unless you are an owner recording a settlement between
+     *        two members without an account
+     * @param paymentAccountId if you pay or receive: the account of your personal ledger it went from or into. It stays
+     *        private: no answer but yours names it (D-16)
+     * @param paymentLater if you pay or receive: true to specify the account later; your side goes to "Payments without
+     *        a specified account". The other side's always does, for them to put on an account (D-24)
+     */
+    record NewSettlementRequest(@NotNull LocalDate date, @NotNull BigDecimal amount, @NotNull Long payerMemberId,
+            @NotNull Long payeeMemberId, @Size(max = 500) String comment, Long paymentAccountId,
+            Boolean paymentLater) {
     }
 
     /** @param basisPoints for PERCENT; @param amount for AMOUNT */
@@ -220,6 +239,20 @@ class FamilyRecordController {
                 record.privateNote() == null || record.privateNote().isBlank() ? null : record.privateNote().strip()));
     }
 
+    /**
+     * A settlement between two members (D2, D-24), by one of them with an account, or by an owner between two members
+     * without an account. Each side with an account gets its part in their personal ledger.
+     */
+    @PostMapping("/settlements")
+    @ResponseStatus(HttpStatus.CREATED)
+    FamilyRecordView settle(CurrentUser user, LedgerScope personal, @PathVariable long ledgerId,
+            @Valid @RequestBody NewSettlementRequest settlement) {
+        return records.settle(access.member(user.id(), ledgerId), personal, new NewSettlement(settlement.date(),
+                settlement.amount(), settlement.payerMemberId(), settlement.payeeMemberId(),
+                settlement.comment() == null || settlement.comment().isBlank() ? null : settlement.comment().strip(),
+                settlement.paymentAccountId(), Boolean.TRUE.equals(settlement.paymentLater())));
+    }
+
     @GetMapping("/records/{recordId}")
     FamilyRecordView record(CurrentUser user, @PathVariable long ledgerId, @PathVariable long recordId) {
         return records.get(access.member(user.id(), ledgerId), recordId);
@@ -227,7 +260,9 @@ class FamilyRecordController {
 
     /**
      * The record's author and the owners change its family fields; its payer with an account, or for a payer without
-     * one its author and the owners, change its payment fields (D-14).
+     * one its author and the owners, change its payment fields (D-14). A settlement's date, amount and comment change by
+     * the side who recorded it (between two members without an account, its author or an owner), and each side with an
+     * account names the account of its own side (F4d).
      *
      * @param version the version the caller read; if the record has changed since, it is refused with 409
      */
@@ -238,8 +273,9 @@ class FamilyRecordController {
     }
 
     /**
-     * The payer deletes a record they paid; a record paid by a member without an account, its author or an owner.
-     * Its posted entries go with it.
+     * The payer deletes a record they paid; a record paid by a member without an account, its author or an owner; a
+     * settlement, the side who recorded it, or between two members without an account its author or an owner. Its
+     * posted entries go with it.
      *
      * @param version the version the caller read; if the record has changed since, it is refused with 409
      */

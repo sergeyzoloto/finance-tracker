@@ -183,9 +183,9 @@ class CrossLedgerWriter {
     record PaymentSide(Long accountId, boolean later, String memo) {
     }
 
-    /** The side of the payment that the link names: the line that isn't on the debt account. */
+    /** The side of the payment or settlement that the link names: the line that isn't on the debt account. */
     PaymentSide paymentSide(LedgerScope family, Link link) {
-        if (link.type() != LinkType.PAYMENT || link.entryId() == null) {
+        if (!PAYMENTS.contains(link.type()) || link.entryId() == null) {
             throw new IllegalStateException("Link %d is not a payment's".formatted(link.id()));
         }
         return jdbc.sql("""

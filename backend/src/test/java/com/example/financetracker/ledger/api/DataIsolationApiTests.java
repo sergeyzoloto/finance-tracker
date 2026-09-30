@@ -814,6 +814,112 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
+    /**
+     * Settlements (F4d; D-24): each side's account is that side's. Alice pays Bob from her bank in A; his side goes to
+     * his "Payments without a specified account", and he puts it on a wallet of his. Each side's {@code yourPayment} is
+     * in that side's answers only, and nobody's answer holds the other side's account; the other side's entry is
+     * missing to Bob and Carol, and Bob's own side takes neither her account nor her amount. {@code POST /settlements}
+     * answers Bob on B, and Carol on A and B, as a missing family ledger does.
+     */
+    @Test
+    void aSettlementSideIsItsMembersOwn() throws IOException {
+        String carol = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01"}""")
+                .get("id").asLong();
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        String inA = "/api/family-ledgers/" + familyA;
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice",
+                 "startDate": "2026-08-01"}""").get("id").asLong();
+        String inB = "/api/family-ledgers/" + familyB;
+        long sam = created(post(alice, inB + "/members", """
+                {"displayName": "Sam"}"""));
+        long aliceInB = find(ok(get(alice, inB + "/members")), "displayName", "Alice").get("id").asLong();
+        created(post(alice, inB + "/settlements", """
+                {"date": "2026-08-20", "amount": "5", "payerMemberId": %d, "payeeMemberId": %d, "paymentLater": true}"""
+                .formatted(aliceInB, sam)));
+        long bobsWallet = created(post(bob, "/api/accounts", """
+                {"code": "BOB_WALLET", "name": "BOB_PRIVATE_WALLET", "type": "ASSET"}"""));
+
+        JsonNode paid = body(post(alice, inA + "/settlements", """
+                {"date": "2026-08-20", "amount": "40", "payerMemberId": %d, "payeeMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(mumInA, bobInA, alicesBank)), HttpStatus.CREATED);
+        long settlement = paid.get("id").asLong();
+        long alicesSide = paid.get("yourPayment").get("entryId").asLong();
+        assertThat(paid.get("yourPayment").get("accountId").asLong()).isEqualTo(alicesBank);
+
+        // Bob reads the settlement: his own side on "Specify later", nothing of hers.
+        String path = inA + "/records/" + settlement;
+        JsonNode his = bobReads(path);
+        long bobsSide = his.get("yourPayment").get("entryId").asLong();
+        assertThat(his.get("yourPayment").get("later").asBoolean()).isTrue();
+        assertThat(jdbc.sql("SELECT user_id FROM journal_entry WHERE id = ?").param(bobsSide).query(String.class)
+                .single()).isEqualTo(bob);
+        for (String read : List.of("/records", "/journal", "/balances")) {
+            assertThat(bobReads(inA + read).findValuesAsText("accountId")).as(read)
+                    .doesNotContain(String.valueOf(alicesBank));
+        }
+        // He puts his side on his wallet (his own write, which changes the family's link, so not one of bobsRequest's).
+        assertThat(ok(patch(bob, path + "?version=0", """
+                {"paymentAccountId": %d}""".formatted(bobsWallet))).get("yourPayment").get("accountName").asText())
+                .isEqualTo("BOB_PRIVATE_WALLET");
+        for (String read : List.of("/records", "/records/" + settlement, "/journal", "/balances")) {
+            JsonNode alices = ok(get(alice, inA + read));
+            assertThat(alices.toString()).as(read).doesNotContain("BOB_PRIVATE", "BOB_WALLET");
+            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsWallet));
+            assertThat(alices.findValuesAsText("entryId")).as(read).doesNotContain(String.valueOf(bobsSide));
+        }
+        assertThat(ok(get(alice, path)).get("yourPayment").get("entryId").asLong()).isEqualTo(alicesSide);
+
+        SoftAssertions softly = new SoftAssertions();
+        // Her side's entry: missing to Bob and Carol, through every personal endpoint and the payment endpoint.
+        String payment = "/api/entries/%d/family-payment?version=0";
+        String intrusion = """
+                {"accountId": %d}""".formatted(bobsCash);
+        answersAsIfMissing(softly, HttpMethod.PATCH, payment, alicesSide, intrusion);
+        answersAsIfMissing(softly, HttpMethod.GET, "/api/entries/%d", alicesSide, null);
+        answersAsIfMissing(softly, HttpMethod.DELETE, "/api/entries/%d?version=0", alicesSide, null);
+        answersAsIfMissingTo(softly, carol, HttpMethod.PATCH, payment.formatted(alicesSide),
+                payment.formatted(MISSING), intrusion);
+        // Recording a settlement: Bob on B and on either personal ledger, Carol on A, B and Alice's personal ledger.
+        String settle = """
+                {"date": "2026-08-21", "amount": "1", "payerMemberId": %d, "payeeMemberId": %d, "paymentLater": true}"""
+                .formatted(bobInA, sam);
+        String uri = "/api/family-ledgers/%d/settlements";
+        for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+            answersAsIfMissing(softly, HttpMethod.POST, uri, ledger, settle);
+        }
+        for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
+            answersAsIfMissingTo(softly, carol, HttpMethod.POST, uri.formatted(ledger), uri.formatted(MISSING), settle);
+        }
+        softly.assertAll();
+
+        // Her account on his side reads as a missing account; the amount and deleting it are hers.
+        String account = """
+                {"paymentAccountId": %d}""";
+        MvcTestResult herAccount = bobsRequest(HttpMethod.PATCH, path + "?version=0", account.formatted(alicesBank));
+        assertThat(herAccount).hasStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(withoutDigits(herAccount)).isEqualTo(withoutDigits(call(bob, HttpMethod.PATCH, path + "?version=0",
+                account.formatted(MISSING))));
+        MvcTestResult herAccountOnHisEntry = bobsRequest(HttpMethod.PATCH, payment.formatted(bobsSide).replace(
+                "version=0", "version=" + ok(get(bob, "/api/entries/" + bobsSide)).get("version").asInt()), """
+                {"accountId": %d}""".formatted(alicesBank));
+        assertThat(herAccountOnHisEntry).hasStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(bobsRequest(HttpMethod.PATCH, path + "?version=0", """
+                {"amount": "1"}""")).hasStatus(HttpStatus.CONFLICT);
+        assertThat(bobsRequest(HttpMethod.DELETE, path + "?version=0", null)).hasStatus(HttpStatus.CONFLICT);
+        // His settlement with her from his own side's wallet: her side is hers, on her placeholder.
+        assertThat(bobsRequest(HttpMethod.POST, inA + "/settlements", """
+                {"date": "2026-08-22", "amount": "1", "payerMemberId": %d, "payeeMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(bobInA, mumInA, alicesBank)))
+                .hasStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+    }
+
     /** Every field name in the JSON, at any depth. */
     private static Set<String> fieldNames(JsonNode node) {
         Set<String> names = new TreeSet<>();

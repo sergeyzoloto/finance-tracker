@@ -129,7 +129,8 @@ public class EntryService {
 
     /**
      * Deletes the entry with its postings. The payer's own payment for a family expense deletes the expense, with every
-     * member's share of it, while the family budget is switched on (F4c, D-14).
+     * member's share of it, and a member's own side of a settlement deletes the settlement if they recorded it, while
+     * the family budget is switched on (F4c, F4d, D-14).
      *
      * @param expectedVersion the version the caller read
      * @throws EntryNotFoundException if the ledger has no such entry
@@ -142,9 +143,9 @@ public class EntryService {
         JournalEntry entry = find(ledger, entryId);
         EntryFamily family = families(ledger, List.of(entry.id())).get(entry.id());
         FamilyPayments payments = familyPayments.getIfAvailable();
-        if (family != null && family.link().equals("PAYMENT") && payments != null) {
+        if (family != null && List.of("PAYMENT", "SETTLEMENT").contains(family.link()) && payments != null) {
             requireVersion(entry, expectedVersion);
-            payments.deleteExpenseOf(ledger, entryId);
+            payments.deleteRecordOf(ledger, entryId);
             return;
         }
         requireOwn(ledger, entry);
@@ -291,11 +292,14 @@ public class EntryService {
         if (family == null) {
             return;
         }
-        throw new ConflictException(family.link().equals("PAYMENT")
-                ? ("Entry %d is your payment for an expense of the family budget \"%s\"; change or delete the expense "
-                        + "there").formatted(entry.id(), family.ledgerName())
-                : "Entry %d was posted from the family budget \"%s\"; change it there".formatted(entry.id(),
-                        family.ledgerName()));
+        throw new ConflictException(switch (family.link()) {
+            case "PAYMENT" -> ("Entry %d is your payment for an expense of the family budget \"%s\"; change or delete "
+                    + "the expense there").formatted(entry.id(), family.ledgerName());
+            case "SETTLEMENT" -> ("Entry %d is your side of a settlement in the family budget \"%s\"; change it "
+                    + "there").formatted(entry.id(), family.ledgerName());
+            default -> "Entry %d was posted from the family budget \"%s\"; change it there".formatted(entry.id(),
+                    family.ledgerName());
+        });
     }
 
     private JournalEntry find(LedgerScope ledger, long entryId) {

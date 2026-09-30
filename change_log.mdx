@@ -23,6 +23,44 @@ Not committed yet.
     own members as of the new date; topic I, changed: the expense page's split preview follows the
     record's stored split, not the budget's current rule (fixed in F4d).
   - CLAUDE.md: production runs `e7cdeb1`.
+- Settlements (commit "feat(family): settlements"), D2 and D-24, ADR 0003 topic E ("F4d as built:
+  settlements"). No migration: V7 has the type, the payee, the link and the kind.
+  - `POST /api/family-ledgers/{ledgerId}/settlements` (new, only with the switch on; 201): `date`,
+    `amount`, `payerMemberId`, `payeeMemberId`, `comment`, and for the recorder's own side
+    `paymentAccountId` or `paymentLater`. The answer is the record (type `SETTLEMENT`, category,
+    split method and shares empty) with the new `payee`; settlements are listed, read, changed and
+    deleted through `/records` like expenses.
+  - Who: a member with an account who pays or receives; an owner, between two members without an
+    account ("Only an owner of the family budget records a settlement between two members without an
+    account.", 409). A member with an account named by someone else: 422 `PAYER` or `PAYEE` (new
+    code); the same member twice: `PAYEE`; a side with an account who joined after the date:
+    `JOINED_AFTER`; before the start date: 409.
+  - Posting (`FAMILY_SETTLEMENT`, link `SETTLEMENT`): the payer's account −x and debt +x, the
+    receiver's account +x and debt −x. The recorder's side on the account they name or their
+    placeholder; the other side, with an account, on their "Payments without a specified account",
+    which they move to an account through `PATCH /records/{recordId}` (`paymentAccountId`,
+    `paymentLater`) or `PATCH /api/entries/{id}/family-payment` (`accountId`, `later`), without a new
+    version or a journal line; nothing for a side without an account.
+  - Changes: the recorder (between members without an account, its author or an owner) changes the
+    date, amount and comment and deletes it, also through their own side's entry; a category, split,
+    other payer or note is 422; frozen and stale are 409 ("Settlement 2 has changed since version
+    0. …", "The settlement is frozen: …", "Settlement 2 not found."). A change of the date or amount
+    moves the other side's part back to their placeholder if they had put it on an account of
+    theirs: only its member posts to their own account (D-8).
+  - The journal: creation (date, amount, payer, `payee`, comment), changes, deletion; its record
+    summary gains `type`. `yourPayment` is each side's own.
+  - The posting service posts sides generally (the expense's payment is the payer's side); the
+    personal endpoints: `DELETE /api/entries/{id}` of one's own side deletes the settlement if one
+    recorded it (else 409 naming the recorder), `PUT` answers 409 ("Entry N is your side of a
+    settlement in the family budget "Home"; change it there."). `ledger.FamilyPayments.deleteExpenseOf`
+    is now `deleteRecordOf`. The expense messages are unchanged apart from the payment endpoint's
+    "Entry N is not your payment for a family expense or your side of a settlement, …".
+  - Tests: new `FamilySettlementApiTests` (3); `DataIsolationApiTests.aSettlementSideIsItsMembersOwn`
+    (new; the file gained 106 lines and lost none); `FamilyRecordRandomTests` with settlements in the
+    mix; `CrossLedgerWriterTests` refuses her cash and a note on her side of a settlement;
+    `FamilyInvariants` computes balances with incomes and settlements (topic D's formula) and checks
+    that no settlement has shares; `ApiTests` (401 and the OpenAPI paths) and
+    `FamilySwitchOffApiTests` (23 endpoints) with the new endpoint.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -30,6 +68,13 @@ Not committed yet.
   `e7cdeb1`. `./mvnw -B clean verify`: 326 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
   Frontend: `npm ci`, `npm test` 15 files and 207 tests passed, `npm run build` succeeded.
 - After the documents' commit: documents only.
+- After the settlements' commit: `./mvnw -B clean verify` 330 tests (326 and 4), 0 failures, 0
+  errors, 0 skipped, BUILD SUCCESS; the invariants after every family test and after each of the
+  random test's 240 operations (from the seed: 88 creates, 35 changes, 25 payment edits, 28 deletes,
+  11 split rules, 21 settlements, 20 settlement changes, 12 settlement deletes).
+- `aSettlementSideIsItsMembersOwn` against a temporary mutation, from a file copy: `ownPayments`
+  without its member and owner filters made it fail (Bob's answer held "Alice's bank"). The file
+  restored.
 
 **Open**
 - Settlements, incomes and their interface (this stage's later commits).

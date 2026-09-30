@@ -18,13 +18,17 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * <li>the members' family balances add up to zero (D-1);
  * <li>for every ACTIVE member with an account, the displayed balance of their debt account for the family ledger
  * equals their family balance, today and on each record's date (D-10);
- * <li>every posted entry balances in each currency, and every record that isn't deleted has shares that add up to its
- * amount.
+ * <li>every posted entry balances in each currency, and every expense or income that isn't deleted has shares that
+ * add up to its amount, and a settlement has none.
  * </ul>
  */
 public final class FamilyInvariants {
 
-    /** A member's family balance: their expense shares less the expenses they paid, of records dated by then. */
+    /**
+     * A member's family balance, of records dated by then (ADR 0003, topic D): their expense shares − the expenses they
+     * paid + the incomes they received − their income shares − the settlements they paid + the settlements they
+     * received.
+     */
     private static final String BALANCES = """
             SELECT m.id, m.user_sub, m.status,
                    coalesce((SELECT sum(s.amount) FROM family_share s JOIN family_record r ON r.id = s.record_id
@@ -32,6 +36,18 @@ public final class FamilyInvariants {
                                AND r.record_date <= :day), 0)
                    - coalesce((SELECT sum(r.base_amount) FROM family_record r
                                WHERE r.payer_member_id = m.id AND r.deleted_at IS NULL AND r.type = 'EXPENSE'
+                                 AND r.record_date <= :day), 0)
+                   + coalesce((SELECT sum(r.base_amount) FROM family_record r
+                               WHERE r.payer_member_id = m.id AND r.deleted_at IS NULL AND r.type = 'INCOME'
+                                 AND r.record_date <= :day), 0)
+                   - coalesce((SELECT sum(s.amount) FROM family_share s JOIN family_record r ON r.id = s.record_id
+                               WHERE s.member_id = m.id AND r.deleted_at IS NULL AND r.type = 'INCOME'
+                                 AND r.record_date <= :day), 0)
+                   - coalesce((SELECT sum(r.base_amount) FROM family_record r
+                               WHERE r.payer_member_id = m.id AND r.deleted_at IS NULL AND r.type = 'SETTLEMENT'
+                                 AND r.record_date <= :day), 0)
+                   + coalesce((SELECT sum(r.base_amount) FROM family_record r
+                               WHERE r.payee_member_id = m.id AND r.deleted_at IS NULL AND r.type = 'SETTLEMENT'
                                  AND r.record_date <= :day), 0) AS balance
             FROM ledger_member m WHERE m.ledger_id = :family ORDER BY m.join_date, m.id""";
 
@@ -58,6 +74,10 @@ public final class FamilyInvariants {
                     WHERE r.ledger_id = ? AND r.deleted_at IS NULL AND r.type <> 'SETTLEMENT'
                     GROUP BY r.id HAVING coalesce(sum(s.amount), 0) <> r.base_amount""")
                     .param(family).query(Long.class).list()).as("records whose shares don't add up").isEmpty();
+            assertThat(jdbc.sql("""
+                    SELECT r.id FROM family_record r JOIN family_share s ON s.record_id = r.id
+                    WHERE r.ledger_id = ? AND r.type = 'SETTLEMENT'""")
+                    .param(family).query(Long.class).list()).as("settlements with shares").isEmpty();
             assertThat(jdbc.sql("""
                     SELECT l.entry_id FROM family_entry_link l JOIN posting p ON p.entry_id = l.entry_id
                     WHERE l.family_ledger_id = ? GROUP BY l.entry_id, p.currency HAVING sum(p.amount) <> 0""")

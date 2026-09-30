@@ -482,8 +482,8 @@ class FamilyPaymentApiTests extends FamilyApiTest {
 
         for (long entry : List.of(bobsShare, ordinary)) {
             assertThat(detail(patch(bob, "/api/entries/%d/family-payment?version=0".formatted(entry), body),
-                    HttpStatus.CONFLICT)).isEqualTo(("Entry %d is not your payment for a family expense, so it doesn't "
-                    + "change as one.").formatted(entry));
+                    HttpStatus.CONFLICT)).isEqualTo(("Entry %d is not your payment for a family expense or your side of a "
+                    + "settlement, so it doesn't change as one.").formatted(entry));
         }
         assertThat(delete(bob, "/api/entries/%d?version=0".formatted(bobsShare))).hasStatus(HttpStatus.CONFLICT);
         assertThat(detail(patch(bob, "/api/entries/%d/family-payment?version=0".formatted(alicesPayment), body),

@@ -123,6 +123,20 @@ class CrossLedgerWriterTests extends IntegrationTest {
                         line(alicesDebt, "-10.00", null)), "Bob's words"),
                 "only the payer's own payment takes a note, their own");
         assertThat(elsewhere).isPositive();
+        // Her cash as her side of a settlement, which only she puts on an account of hers (F4d, D-24), whether the
+        // family budget or she would own it; and a note on a side, which no settlement takes.
+        refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.SETTLEMENT,
+                EntryKind.FAMILY_SETTLEMENT, false, LocalDate.of(2026, 9, 10), List.of(line(alicesCash, "10.00", null),
+                        line(alicesDebt, "-10.00", null)), null),
+                "only a payment with the payer's own account is not the family budget's");
+        refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.SETTLEMENT,
+                EntryKind.FAMILY_SETTLEMENT, true, LocalDate.of(2026, 9, 10), List.of(line(alicesCash, "10.00", null),
+                        line(alicesDebt, "-10.00", null)), null),
+                "account %d is not one it may post a SETTLEMENT to".formatted(alicesCash));
+        refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.SETTLEMENT,
+                EntryKind.FAMILY_SETTLEMENT, true, LocalDate.of(2026, 9, 10), List.of(line(alicesCash, "10.00", null),
+                        line(alicesDebt, "-10.00", null)), "Bob's words"),
+                "only the payer's own payment takes a note, their own");
 
         assertThat(alicesRows()).isEqualTo(alicesRows);
         // What D-8 allows goes through: a share on UNALLOCATED with the family's category and her debt account.

@@ -25,18 +25,20 @@ public record FamilyChangeView(long id, Instant at, String action, Long recordId
     /**
      * A record as the journal names it: only family data, as in {@link FamilyRecordView}.
      *
-     * @param category the family category's name; null for a record without one, such as a settlement (F4c)
+     * @param category the family category's name; null for a record without one, such as a settlement
      * @param amount in the family's base currency, with its minor unit's decimals
      * @param deleted whether the record is deleted, which only the journal still shows
+     * @param type EXPENSE or SETTLEMENT (F4d, additive)
      */
-    public record RecordSummary(LocalDate date, String category, BigDecimal amount, boolean deleted) {
+    public record RecordSummary(LocalDate date, String category, BigDecimal amount, boolean deleted, String type) {
     }
 
     /**
      * A field's old and new value, as text: a date, an amount in the base currency, a category's or member's name, a
      * split method or rule, a comment. Null where there was none, or where a FORMER member's comment was erased.
      *
-     * @param field date, category, amount, payer, splitMethod, share, comment or splitRule
+     * @param field date, category, amount, payer, payee (a settlement's receiver, F4d), splitMethod, share, comment
+     *        or splitRule
      * @param member the member a share is of; null for other fields
      * @param oldValue sent as "old"
      * @param newValue sent as "new"

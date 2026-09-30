@@ -57,7 +57,13 @@ import org.springframework.transaction.annotation.Transactional;
  * member). The author and the owners change the family fields; the payer with an account changes the payment fields
  * (the date, the amount, the payer, the account) and deletes, or for a payer without one the author or an owner (F4c);
  * and nobody changes a record that involves a member who left or deleted their data (D-19, frozen: 409). The
- * user-facing messages call a record an expense, as the screens do.
+ * user-facing messages call a record an expense or a settlement, as the screens do.
+ * <p>
+ * Settlements (F4d; D2, D-24): one member pays another, with no category and no shares. A member with an account
+ * records one they pay or receive, with their own side's account or "Specify later"; an owner also records one between
+ * two members without an account. The side who recorded it changes its date, amount and comment and deletes it (for
+ * one between members without an account, its author or an owner), and each side with an account puts its own side on
+ * an account of theirs.
  */
 @Service
 public class FamilyRecordService {
@@ -73,10 +79,16 @@ public class FamilyRecordService {
     public static final String NO_MEMBERS = "NO_MEMBERS";
     /** A new amount of an expense split by amounts needs the new amounts with it (F4c). */
     public static final String AMOUNTS_NEEDED = "AMOUNTS_NEEDED";
+    /** The receiver of a settlement (F4d). */
+    public static final String PAYEE = "PAYEE";
+
+    private static final String EXPENSE = "EXPENSE";
+    private static final String SETTLEMENT = "SETTLEMENT";
 
     private static final String RECORDS = """
             SELECT r.id, r.type, r.record_date, r.category_id, r.base_amount, r.comment, r.payer_member_id,
-                   r.split_method, r.author_member_id, r.created_at, r.updated_by_member_id, r.updated_at, r.version
+                   r.payee_member_id, r.split_method, r.author_member_id, r.created_at, r.updated_by_member_id,
+                   r.updated_at, r.version
             FROM family_record r
             WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL""";
 
@@ -102,7 +114,7 @@ public class FamilyRecordService {
     public FamilyRecordView create(LedgerScope family, LedgerScope personal, NewFamilyRecord request) {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
-        requireStarted(ledger, request.date());
+        requireStarted(ledger, request.date(), EXPENSE);
         int scale = ShareSplit.minorUnit(ledger.baseCurrency());
         Map<Long, Member> members = members(family);
         List<Violation> violations = new ArrayList<>();
@@ -171,7 +183,7 @@ public class FamilyRecordService {
                 .param("recordId", recordId)
                 .query(FamilyRecordService::recordRow)
                 .optional()
-                .orElseThrow(() -> recordNotFound(recordId));
+                .orElseThrow(() -> recordNotFound(family, recordId));
         return views(family, List.of(row)).getFirst();
     }
 
@@ -197,6 +209,9 @@ public class FamilyRecordService {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
         RecordRow record = lockRecord(family, recordId, expectedVersion);
+        if (record.type().equals(SETTLEMENT)) {
+            return updateSettlement(family, personal, ledger, record, changes);
+        }
         Map<Long, Member> members = members(family);
         Member payer = members.get(record.payerId());
         boolean mayEditFamily = record.authorId() == family.memberId() || family.role() == MemberRole.OWNER;
@@ -220,7 +235,7 @@ public class FamilyRecordService {
         }
         requireNotFrozen(family, record, members);
         if (!date.equals(record.date())) {
-            requireStarted(ledger, date);
+            requireStarted(ledger, date, record.type());
         }
         int scale = ShareSplit.minorUnit(ledger.baseCurrency());
 
@@ -322,9 +337,11 @@ public class FamilyRecordService {
 
     /**
      * Deletes the record: it stays for the journal, marked deleted, and all its posted entries go, the payment
-     * included (D-14).
+     * included (D-14), or both sides of a settlement.
      *
-     * @param family the family ledger, as the payer if they have an account, else as the author or an owner
+     * @param family the family ledger, as the payer if they have an account, else as the author or an owner; for a
+     *        settlement, as the side who recorded it, or between two members without an account as its author or an
+     *        owner
      * @param expectedVersion the version the caller read; null for the deletion of the payer's own payment entry,
      *        whose own version the caller read (FamilyPaymentEntries)
      * @throws NotFoundException if the family ledger has no such record, or it is deleted already
@@ -337,7 +354,11 @@ public class FamilyRecordService {
         RecordRow record = lockRecord(family, recordId, expectedVersion);
         Map<Long, Member> members = members(family);
         Member payer = members.get(record.payerId());
-        if (payer.hasAccount() ? record.payerId() != family.memberId()
+        if (record.type().equals(SETTLEMENT)) {
+            if (!maySettle(family, record)) {
+                throw new ConflictException(notRecorder(record, members, "delete this settlement"));
+            }
+        } else if (payer.hasAccount() ? record.payerId() != family.memberId()
                 : record.authorId() != family.memberId() && family.role() != MemberRole.OWNER) {
             throw new ConflictException(payer.hasAccount()
                     ? "Only %s, who paid it, can delete this expense".formatted(payer.displayName())
@@ -356,9 +377,9 @@ public class FamilyRecordService {
     }
 
     /**
-     * Every member's balance, B(m) = their expense shares − the expenses they paid, over the records that aren't
-     * deleted (ADR 0003, topic D; income and settlements come with F4c). The balances sum to zero, since every
-     * record's shares add up to its amount.
+     * Every member's balance, B(m) = their expense shares − the expenses they paid − the settlements they paid + the
+     * settlements they received, over the records that aren't deleted (ADR 0003, topic D). The balances sum to zero,
+     * since every record's shares add up to its amount and a settlement moves as much to one as from the other.
      */
     @Transactional(readOnly = true)
     public FamilyBalances balances(LedgerScope family) {
@@ -401,7 +422,7 @@ public class FamilyRecordService {
                 .param("ledgerId", family.ledgerId());
         var rows = jdbc.sql("""
                 SELECT c.id, c.changed_at, c.action, c.record_id, c.changed_by_member_id, c.about_member_id,
-                       c.changes::text AS changes, r.record_date, r.category_id, r.base_amount,
+                       c.changes::text AS changes, r.type, r.record_date, r.category_id, r.base_amount,
                        r.deleted_at IS NOT NULL AS deleted
                 FROM family_record_change c
                 LEFT JOIN family_record r ON r.id = c.record_id AND r.ledger_id = c.ledger_id
@@ -427,9 +448,210 @@ public class FamilyRecordService {
                                 row.getObject("record_date", LocalDate.class),
                                 categoryName(categories, row.getObject("category_id", Long.class)),
                                 row.getBigDecimal("base_amount").setScale(scale, RoundingMode.UNNECESSARY),
-                                row.getBoolean("deleted"))))
+                                row.getBoolean("deleted"), row.getString("type"))))
                 .list();
         return new FamilyJournalPage(content, page, size, total, Math.toIntExact((total + size - 1) / size));
+    }
+
+    // --- Settlements (F4d; D2, D-24) ---
+
+    /**
+     * Records a settlement between two members, and posts each side with an account into their personal ledger: the
+     * recorder's with the account they name or "Specify later", the other's to their "Payments without a specified
+     * account" (D-24).
+     *
+     * @param family the family ledger, as the member who records it: its payer or receiver with an account, or an
+     *        owner for a settlement between two members without an account
+     * @param personal the recorder's personal ledger, which their side's account is in
+     * @throws ConflictException if it is dated before the ledger's start date (D-27), or a member who isn't an owner
+     *         records one between two members without an account (D-15)
+     * @throws RuleViolationException listing every other rule it breaks
+     */
+    @Transactional
+    public FamilyRecordView settle(LedgerScope family, LedgerScope personal, NewSettlement request) {
+        requireOwnPersonal(family, personal);
+        Ledger ledger = lockLedger(family);
+        requireStarted(ledger, request.date(), SETTLEMENT);
+        int scale = ShareSplit.minorUnit(ledger.baseCurrency());
+        Map<Long, Member> members = members(family);
+        List<Violation> violations = new ArrayList<>();
+        checkAmount(request.amount(), ledger.baseCurrency(), scale, violations);
+        Member payer = active(members, request.payerMemberId(), PAYER, violations);
+        Member payee = active(members, request.payeeMemberId(), PAYEE, violations);
+        boolean namesAccount = request.paymentAccountId() != null || request.paymentLater();
+        Payment payment = new FamilyPostingService.Unchanged();
+        if (payer != null && payee != null && payer.id() == payee.id()) {
+            violations.add(new Violation(PAYEE, payee.id(), "%s can't settle with themselves; name who received it"
+                    .formatted(payee.displayName())));
+        } else if (payer != null && payee != null) {
+            Member recorder = members.get(family.memberId());
+            if (recorder.id() == payer.id() || recorder.id() == payee.id()) {
+                for (Member side : List.of(payer, payee)) {
+                    if (side.hasAccount() && side.joinDate().isAfter(request.date())) {
+                        violations.add(new Violation(JOINED_AFTER, side.id(), ("%s joined on %s, after the "
+                                + "settlement's date %s").formatted(side.displayName(), side.joinDate(),
+                                request.date())));
+                    }
+                }
+                payment = paidWith(personal, recorder.id(), request.paymentAccountId(), request.paymentLater(), null,
+                        violations, SETTLEMENT);
+            } else if (payer.hasAccount() || payee.hasAccount()) {
+                Member side = payer.hasAccount() ? payer : payee;
+                violations.add(new Violation(side == payer ? PAYER : PAYEE, side.id(), ("%s has an account: only they "
+                        + "record a settlement they pay or receive").formatted(side.displayName())));
+            } else {
+                if (family.role() != MemberRole.OWNER) {
+                    throw new ConflictException("Only an owner of the family budget records a settlement between two "
+                            + "members without an account");
+                }
+                if (namesAccount) {
+                    violations.add(new Violation(PAYMENT, family.memberId(), "you neither pay nor receive this "
+                            + "settlement, so no account of yours is in it"));
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            throw RuleViolationException.of(violations);
+        }
+
+        long recordId = jdbc.sql("""
+                INSERT INTO family_record (ledger_id, type, record_date, payer_member_id, payee_member_id,
+                    original_amount, original_currency, base_amount, comment, author_member_id, updated_by_member_id)
+                VALUES (:ledgerId, 'SETTLEMENT', :date, :payerId, :payeeId, :amount, :currency, :amount, :comment,
+                        :memberId, :memberId)
+                RETURNING id""")
+                .param("ledgerId", family.ledgerId()).param("date", request.date())
+                .param("payerId", request.payerMemberId()).param("payeeId", request.payeeMemberId())
+                .param("amount", request.amount().setScale(scale, RoundingMode.UNNECESSARY))
+                .param("currency", ledger.baseCurrency()).param("comment", request.comment())
+                .param("memberId", family.memberId())
+                .query(Long.class).single();
+        List<Map<String, Object>> changes = new ArrayList<>();
+        changes.add(change("date", null, null, request.date().toString()));
+        changes.add(change("amount", null, null, text(request.amount(), scale)));
+        changes.add(change("payer", null, null, request.payerMemberId()));
+        changes.add(change("payee", null, null, request.payeeMemberId()));
+        if (request.comment() != null) {
+            changes.add(change("comment", null, null, request.comment()));
+        }
+        journal(family, recordId, "CREATE", changes);
+        posting.post(family, recordId, payment);
+        return get(family, recordId);
+    }
+
+    /**
+     * A settlement's change: its date, amount and comment by who may change it ({@link #maySettle}), and a side's
+     * account by that side. Its members and its type don't change; a settlement has no category, split or note. The
+     * account isn't journaled, and alone it changes neither the version nor the editor (D-16).
+     */
+    private FamilyRecordView updateSettlement(LedgerScope family, LedgerScope personal, Ledger ledger,
+            RecordRow record, FamilyRecordChanges changes) {
+        Map<Long, Member> members = members(family);
+        boolean changesRecord = changes.date() != null || changes.amount() != null || changes.changesComment();
+        boolean ownSide = record.payerId() == family.memberId() || record.payeeId() == family.memberId();
+        if ((changesRecord || !ownSide) && !maySettle(family, record)) {
+            throw new ConflictException(notRecorder(record, members, "change the settlement's date, amount or comment"));
+        }
+        requireNotFrozen(family, record, members);
+        LocalDate date = changes.date() == null ? record.date() : changes.date();
+        BigDecimal amount = changes.amount() == null ? record.amount() : changes.amount();
+        if (!date.equals(record.date())) {
+            requireStarted(ledger, date, SETTLEMENT);
+        }
+        int scale = ShareSplit.minorUnit(ledger.baseCurrency());
+
+        List<Violation> violations = new ArrayList<>();
+        if (changes.categoryId() != null) {
+            violations.add(new Violation(CATEGORY, null, "a settlement has no category"));
+        }
+        if (changes.split() != null) {
+            violations.add(new Violation(SHARE, null, "a settlement has no shares"));
+        }
+        if (changes.payerMemberId() != null && changes.payerMemberId() != record.payerId()) {
+            violations.add(new Violation(PAYER, changes.payerMemberId(), "who paid and who received a settlement "
+                    + "don't change: delete it and record it again"));
+        }
+        if (changes.changesNote()) {
+            violations.add(new Violation(PAYMENT, family.memberId(), "a settlement takes no private note"));
+        }
+        if (changes.amount() != null) {
+            checkAmount(changes.amount(), ledger.baseCurrency(), scale, violations);
+        }
+        for (long sideId : List.of(record.payerId(), record.payeeId())) {
+            Member side = members.get(sideId);
+            if (!date.equals(record.date()) && side.hasAccount() && side.joinDate().isAfter(date)) {
+                violations.add(new Violation(JOINED_AFTER, side.id(), "%s joined on %s, after the settlement's date %s"
+                        .formatted(side.displayName(), side.joinDate(), date)));
+            }
+        }
+        Payment payment = new FamilyPostingService.Unchanged();
+        if (changes.namesAccount() && ownSide) {
+            payment = paidWith(personal, family.memberId(), changes.paymentAccountId(), changes.paymentLater(), null,
+                    violations, SETTLEMENT);
+        } else if (changes.namesAccount()) {
+            violations.add(new Violation(PAYMENT, family.memberId(), "you neither pay nor receive this settlement, so "
+                    + "no account of yours is in it"));
+        }
+        if (!violations.isEmpty()) {
+            throw RuleViolationException.of(violations);
+        }
+
+        List<Map<String, Object>> journal = new ArrayList<>();
+        if (!date.equals(record.date())) {
+            journal.add(change("date", null, record.date().toString(), date.toString()));
+        }
+        boolean amountChanged = amount.compareTo(record.amount()) != 0;
+        if (amountChanged) {
+            journal.add(change("amount", null, text(record.amount(), scale), text(amount, scale)));
+        }
+        String comment = changes.changesComment() ? changes.comment() : record.comment();
+        if (!Objects.equals(comment, record.comment())) {
+            journal.add(change("comment", null, record.comment(), comment));
+        }
+        if (!journal.isEmpty()) {
+            jdbc.sql("""
+                    UPDATE family_record
+                    SET record_date = :date, original_amount = :amount, base_amount = :amount, comment = :comment,
+                        updated_by_member_id = :memberId, updated_at = now(), version = version + 1
+                    WHERE id = :recordId AND ledger_id = :ledgerId""")
+                    .param("date", date).param("amount", amount.setScale(scale, RoundingMode.UNNECESSARY))
+                    .param("comment", comment).param("memberId", family.memberId()).param("recordId", record.id())
+                    .param("ledgerId", family.ledgerId())
+                    .update();
+            journal(family, record.id(), "UPDATE", journal);
+        }
+        if (!journal.isEmpty() || !(payment instanceof FamilyPostingService.Unchanged)) {
+            posting.post(family, record.id(), payment);
+        }
+        return get(family, record.id());
+    }
+
+    /**
+     * Who changes and deletes a settlement: the side who recorded it; for one between two members without an account,
+     * which an owner recorded, its author or an owner.
+     */
+    private static boolean maySettle(LedgerScope family, RecordRow settlement) {
+        boolean bySide = settlement.authorId() == settlement.payerId()
+                || Objects.equals(settlement.authorId(), settlement.payeeId());
+        return settlement.authorId() == family.memberId() || !bySide && family.role() == MemberRole.OWNER;
+    }
+
+    private static String notRecorder(RecordRow settlement, Map<Long, Member> members, String what) {
+        boolean bySide = settlement.authorId() == settlement.payerId()
+                || Objects.equals(settlement.authorId(), settlement.payeeId());
+        return bySide ? "Only %s, who recorded it, can %s".formatted(name(members, settlement.authorId()), what)
+                : "Only the settlement's author or an owner of the family budget can %s".formatted(what);
+    }
+
+    /** The member, if they are an ACTIVE member of the family ledger; else a violation with the code. */
+    private static Member active(Map<Long, Member> members, long memberId, String code, List<Violation> violations) {
+        Member member = members.get(memberId);
+        if (member == null || member.status() != MemberStatus.ACTIVE) {
+            violations.add(new Violation(code, memberId,
+                    "Member %d is not an active member of the family budget".formatted(memberId)));
+            return null;
+        }
+        return member;
     }
 
     // --- The rules ---
@@ -440,11 +662,25 @@ public class FamilyRecordService {
         }
     }
 
-    private void requireStarted(Ledger ledger, LocalDate date) {
+    private void requireStarted(Ledger ledger, LocalDate date, String type) {
         if (date.isBefore(ledger.startDate())) {
-            throw new ConflictException(("The family budget starts on %s, and an expense can't be dated before its "
-                    + "start date").formatted(ledger.startDate()));
+            throw new ConflictException(("The family budget starts on %s, and %s can't be dated before its start date")
+                    .formatted(ledger.startDate(), article(type)));
         }
+    }
+
+    /** What the screens call a record of the type: "expense" or "settlement". */
+    private static String noun(String type) {
+        return type.equals(SETTLEMENT) ? "settlement" : "expense";
+    }
+
+    private static String article(String type) {
+        return (type.equals(EXPENSE) ? "an " : "a ") + noun(type);
+    }
+
+    private static String capitalized(String type) {
+        String noun = noun(type);
+        return Character.toUpperCase(noun.charAt(0)) + noun.substring(1);
     }
 
     private void checkCategory(LedgerScope family, long categoryId, List<Violation> violations) {
@@ -577,17 +813,23 @@ public class FamilyRecordService {
     /** The account of the payer's own personal ledger they paid with, or "Specify later", as they name it. */
     private Payment paidWith(LedgerScope personal, long payerId, Long accountId, boolean later, String note,
             List<Violation> violations) {
+        return paidWith(personal, payerId, accountId, later, note, violations, EXPENSE);
+    }
+
+    /** As above, for a record of the type: an expense's payment, or a settlement's side of the member (F4d). */
+    private Payment paidWith(LedgerScope personal, long payerId, Long accountId, boolean later, String note,
+            List<Violation> violations, String type) {
+        String which = type.equals(SETTLEMENT) ? "name the account your side of it went from or into"
+                : "name the account you paid with";
         if (accountId != null && later) {
-            violations.add(new Violation(PAYMENT, payerId,
-                    "name the account you paid with, or specify it later, not both"));
+            violations.add(new Violation(PAYMENT, payerId, which + ", or specify it later, not both"));
             return new FamilyPostingService.Unchanged();
         }
         if (later) {
             return new FamilyPostingService.Later(note);
         }
         if (accountId == null) {
-            violations.add(new Violation(PAYMENT, payerId,
-                    "name the account you paid with, or specify it later"));
+            violations.add(new Violation(PAYMENT, payerId, which + ", or specify it later"));
             return new FamilyPostingService.Unchanged();
         }
         record Account(String code, String type, boolean requiresCounterparty, boolean system, boolean debt) {
@@ -604,8 +846,11 @@ public class FamilyRecordService {
             violations.add(new Violation(PAYMENT, payerId, "account %d does not exist".formatted(accountId)));
         } else if (!List.of("ASSET", "LIABILITY").contains(account.get().type()) || account.get().debt()
                 || account.get().requiresCounterparty() || account.get().system()) {
-            violations.add(new Violation(PAYMENT, payerId, ("the account %s can't pay a family expense: pay with an "
-                    + "account of your own money or credit, or specify it later").formatted(account.get().code())));
+            violations.add(new Violation(PAYMENT, payerId, (type.equals(SETTLEMENT)
+                    ? "the account %s can't take a settlement: use an account of your own money or credit, or specify "
+                            + "it later"
+                    : "the account %s can't pay a family expense: pay with an account of your own money or credit, or "
+                            + "specify it later").formatted(account.get().code())));
         }
         return new FamilyPostingService.OwnAccount(accountId, note);
     }
@@ -851,14 +1096,16 @@ public class FamilyRecordService {
     /** A record whose payer, or a member with a share, has left or deleted their data is frozen (D-19, D-20). */
     private void requireNotFrozen(LedgerScope family, RecordRow record, Map<Long, Member> members) {
         if (frozen(record, shares(family, List.of(record.id())).getOrDefault(record.id(), Map.of()), members)) {
-            throw new ConflictException("The expense is frozen: a member it involves has left the family budget or "
-                    + "deleted their data, so nobody can change it");
+            throw new ConflictException(("The %s is frozen: a member it involves has left the family budget or "
+                    + "deleted their data, so nobody can change it").formatted(noun(record.type())));
         }
     }
 
     private static boolean frozen(RecordRow record, Map<Long, ShareRow> shares, Map<Long, Member> members) {
-        return members.get(record.payerId()).status() != MemberStatus.ACTIVE || shares.values().stream()
-                .anyMatch(s -> s.amount().signum() > 0 && members.get(s.memberId()).status() != MemberStatus.ACTIVE);
+        return members.get(record.payerId()).status() != MemberStatus.ACTIVE
+                || record.payeeId() != null && members.get(record.payeeId()).status() != MemberStatus.ACTIVE
+                || shares.values().stream().anyMatch(s -> s.amount().signum() > 0
+                        && members.get(s.memberId()).status() != MemberStatus.ACTIVE);
     }
 
     // --- Reading and writing ---
@@ -870,9 +1117,14 @@ public class FamilyRecordService {
             Integer share) {
     }
 
-    private record RecordRow(long id, String type, LocalDate date, long categoryId, BigDecimal amount, String comment,
-            long payerId, String splitMethod, long authorId, Instant createdAt, long updatedById, Instant updatedAt,
-            int version) {
+    /**
+     * @param categoryId null for a settlement
+     * @param payeeId who received a settlement; null otherwise
+     * @param splitMethod null for a settlement
+     */
+    private record RecordRow(long id, String type, LocalDate date, Long categoryId, BigDecimal amount, String comment,
+            long payerId, Long payeeId, String splitMethod, long authorId, Instant createdAt, long updatedById,
+            Instant updatedAt, int version) {
     }
 
     private record ShareRow(long memberId, BigDecimal amount, Integer basisPoints, long updatedById,
@@ -897,10 +1149,10 @@ public class FamilyRecordService {
                 .param("ledgerId", family.ledgerId()).param("recordId", recordId)
                 .query(FamilyRecordService::recordRow)
                 .optional()
-                .orElseThrow(() -> recordNotFound(recordId));
+                .orElseThrow(() -> recordNotFound(family, recordId));
         if (expectedVersion != null && record.version() != expectedVersion) {
-            throw new OptimisticLockingFailureException(("Expense %d has changed since version %d. Reload it and try "
-                    + "again.").formatted(recordId, expectedVersion));
+            throw new OptimisticLockingFailureException(("%s %d has changed since version %d. Reload it and try "
+                    + "again.").formatted(capitalized(record.type()), recordId, expectedVersion));
         }
         return record;
     }
@@ -969,19 +1221,24 @@ public class FamilyRecordService {
         Map<Long, Member> members = members(family);
         Map<Long, CategoryRef> categories = categories(family);
         Map<Long, Map<Long, ShareRow>> shares = shares(family, rows.stream().map(RecordRow::id).toList());
-        // The caller's own payments, of the records they paid with an account: for their eyes only (D-16).
+        // The caller's own payments and settlement sides, of the records they paid or settled with an account: for
+        // their eyes only (D-16).
         Map<Long, OwnPayment> own = posting.ownPayments(family, rows.stream()
-                .filter(row -> row.payerId() == family.memberId() && members.get(row.payerId()).hasAccount())
+                .filter(row -> (row.payerId() == family.memberId() || Objects.equals(row.payeeId(), family.memberId()))
+                        && members.get(family.memberId()).hasAccount())
                 .map(RecordRow::id).toList());
         List<Long> joinOrder = new ArrayList<>(members.keySet());
         return rows.stream().map(row -> {
             Map<Long, ShareRow> recordShares = shares.getOrDefault(row.id(), Map.of());
             boolean frozen = frozen(row, recordShares, members);
             Member payer = members.get(row.payerId());
-            boolean mayEdit = row.authorId() == family.memberId() || family.role() == MemberRole.OWNER;
-            boolean mayDelete = payer.hasAccount() ? row.payerId() == family.memberId() : mayEdit;
+            boolean mayEdit = row.type().equals(SETTLEMENT) ? maySettle(family, row)
+                    : row.authorId() == family.memberId() || family.role() == MemberRole.OWNER;
+            boolean mayDelete = row.type().equals(SETTLEMENT) ? mayEdit
+                    : payer.hasAccount() ? row.payerId() == family.memberId() : mayEdit;
             OwnPayment payment = own.get(row.id());
-            return new FamilyRecordView(row.id(), row.type(), row.date(), categories.get(row.categoryId()),
+            return new FamilyRecordView(row.id(), row.type(), row.date(),
+                    row.categoryId() == null ? null : categories.get(row.categoryId()),
                     row.amount().setScale(scale, RoundingMode.UNNECESSARY), currency, row.comment(),
                     ref(members, row.payerId()), row.splitMethod(), recordShares.values().stream()
                             .sorted(Comparator.comparing(s -> joinOrder.indexOf(s.memberId())))
@@ -992,7 +1249,8 @@ public class FamilyRecordService {
                     ref(members, row.authorId()), row.createdAt(), ref(members, row.updatedById()), row.updatedAt(),
                     row.version(), frozen, mayEdit && !frozen, mayDelete && !frozen, mayDelete && !frozen,
                     payment == null ? null : new FamilyRecordView.YourPayment(payment.entryId(), payment.accountId(),
-                            payment.accountName(), payment.later()));
+                            payment.accountName(), payment.later()),
+                    ref(members, row.payeeId()));
         }).toList();
     }
 
@@ -1049,12 +1307,12 @@ public class FamilyRecordService {
                 CategoryRef category = categories.get(value.asLong());
                 yield category == null ? null : category.name();
             }
-            case "payer" -> ref(members, value.asLong()).displayName();
+            case "payer", "payee" -> ref(members, value.asLong()).displayName();
             default -> value.asText();
         };
     }
 
-    /** A category's name; null for a record without one, such as a settlement (F4c). */
+    /** A category's name; null for a record without one, such as a settlement. */
     private static String categoryName(Map<Long, CategoryRef> categories, Long categoryId) {
         CategoryRef category = categoryId == null ? null : categories.get(categoryId);
         return category == null ? null : category.name();
@@ -1077,14 +1335,19 @@ public class FamilyRecordService {
         return amount.setScale(scale, RoundingMode.UNNECESSARY).toPlainString();
     }
 
-    private static NotFoundException recordNotFound(long recordId) {
-        return new NotFoundException("Expense " + recordId + " not found");
+    /** The answer for a record that is missing, or deleted: named by its type if it was one of the ledger's. */
+    private NotFoundException recordNotFound(LedgerScope family, long recordId) {
+        String type = jdbc.sql("SELECT type FROM family_record WHERE id = :recordId AND ledger_id = :ledgerId")
+                .param("recordId", recordId).param("ledgerId", family.ledgerId())
+                .query(String.class).optional().orElse(EXPENSE);
+        return new NotFoundException(capitalized(type) + " " + recordId + " not found");
     }
 
     private static RecordRow recordRow(ResultSet row, int n) throws SQLException {
         return new RecordRow(row.getLong("id"), row.getString("type"), row.getObject("record_date", LocalDate.class),
-                row.getLong("category_id"), row.getBigDecimal("base_amount"), row.getString("comment"),
-                row.getLong("payer_member_id"), row.getString("split_method"), row.getLong("author_member_id"),
+                row.getObject("category_id", Long.class), row.getBigDecimal("base_amount"), row.getString("comment"),
+                row.getLong("payer_member_id"), row.getObject("payee_member_id", Long.class),
+                row.getString("split_method"), row.getLong("author_member_id"),
                 row.getTimestamp("created_at").toInstant(), row.getLong("updated_by_member_id"),
                 row.getTimestamp("updated_at").toInstant(), row.getInt("version"));
     }

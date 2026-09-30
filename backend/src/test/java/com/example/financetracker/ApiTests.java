@@ -121,6 +121,8 @@ class ApiTests extends IntegrationTest {
                 new Object[] {GET, "/api/family-ledgers/1/records", null},
                 new Object[] {POST, "/api/family-ledgers/1/records", """
                         {"date": "2026-09-01", "categoryId": 1, "amount": "1", "payerMemberId": 1}"""},
+                new Object[] {POST, "/api/family-ledgers/1/settlements", """
+                        {"date": "2026-09-01", "amount": "1", "payerMemberId": 1, "payeeMemberId": 2}"""},
                 new Object[] {GET, "/api/family-ledgers/1/records/1", null},
                 new Object[] {PATCH, "/api/family-ledgers/1/records/1?version=0", "{}"},
                 new Object[] {DELETE, "/api/family-ledgers/1/records/1?version=0", null},
@@ -280,6 +282,7 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/family-ledgers/{ledgerId}/categories/{categoryId}", List.of("delete", "patch")),
                 Map.entry("/api/family-ledgers/{ledgerId}/records", List.of("get", "post")),
                 Map.entry("/api/family-ledgers/{ledgerId}/records/{recordId}", List.of("delete", "get", "patch")),
+                Map.entry("/api/family-ledgers/{ledgerId}/settlements", List.of("post")),
                 Map.entry("/api/family-ledgers/{ledgerId}/balances", List.of("get")),
                 Map.entry("/api/family-ledgers/{ledgerId}/journal", List.of("get"))));
 

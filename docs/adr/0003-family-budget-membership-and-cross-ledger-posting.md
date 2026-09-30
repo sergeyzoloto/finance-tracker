@@ -548,6 +548,42 @@ too: `date`, `amount`, `payerMemberId`, and for the payer with an account `payme
   members as of the new date: a member with an account comes in or drops out as the date crosses
   their join date, and a member added since doesn't come in (D-18).
 
+**F4d as built: settlements** (D2, D-24). No migration: V7 already has the record type, the payee,
+the link type `SETTLEMENT`, the kind `FAMILY_SETTLEMENT`, and a guard that lets the writer post a
+settlement to the placeholder, and to an own account only in the acting member's ledger.
+
+- `POST /api/family-ledgers/{ledgerId}/settlements` (topic I's `settlements`) records one: `date`,
+  `amount` in the base currency, `payerMemberId`, `payeeMemberId`, `comment`, and for the recorder's
+  own side `paymentAccountId` or `paymentLater`. It is a `family_record` of type `SETTLEMENT`,
+  without category, split or shares; it is listed, read, changed and deleted through `/records` and
+  `/records/{recordId}` like any record, and its answer adds `payee`.
+- Who records one: a member with an account who pays or receives it; an owner, one between two
+  members without an account (409 for anyone else, D-15). Naming a member with an account who isn't
+  the caller is 422 `PAYER` or `PAYEE`; a side with an account who joined after the date is 422
+  `JOINED_AFTER`; the same member on both sides is 422 `PAYEE`; before the start date 409 (D-27).
+- The postings (`FAMILY_SETTLEMENT`, link `SETTLEMENT`): the payer's account −x and `Debt(L)` +x,
+  the receiver's account +x and `Debt(L)` −x, so the payer's balance moves by x toward being owed
+  and the receiver's the other way; paying more than is owed flips the balances. The recorder's side
+  is on the account they name (theirs, `system_owned` false) or on their placeholder; the other
+  side, if they have an account, always on their placeholder (D-24), which they move to an account
+  through `PATCH /records/{recordId}` (`paymentAccountId` or `paymentLater`) or `PATCH
+  /api/entries/{id}/family-payment` (`accountId` or `later`); a side without an account gets
+  nothing. The balances follow topic D's formula, which F4a already computed.
+- Changes: the side who recorded it (for one between members without an account, its author or an
+  owner) changes the date, the amount and the comment, and deletes it, also by deleting their own
+  side's entry; each side with an account changes only its own account. A category, a split, another
+  payer or a note is 422; frozen (a side LEFT or FORMER) and stale are 409. The account is never
+  journaled and alone changes neither version nor editor (D-16).
+- **Only a member posts to their own account (D-8).** When the recorder changes the date or the
+  amount and the other side has put its part on an account of theirs, that part goes back to their
+  placeholder with the new date and amount, for them to put on an account again: the writer may not
+  write the other member's account, and V7's guard allows an own account only in the acting
+  member's ledger. Deleting the settlement deletes the other side's entry, on whatever account, as
+  deleting an expense deletes every member's share.
+- The journal: the creation with `date`, `amount`, `payer`, `payee` and `comment`; changes of
+  `date`, `amount` and `comment`; the deletion. The journal's record summary gains `type`.
+- `yourPayment` is each side's own: their entry and account, or `later`, in their answers only.
+
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted
 entries for every eligible member from the record's stored shares, and compares them with the
@@ -872,6 +908,9 @@ present only for the payer with an account (topic E, "F4c as built").
 **Changed after the F4c review** (2026-10-01): the expense page's split preview follows the record's
 stored split (its method, and for equal shares its own members), not the family budget's current
 rule, which applies only to new records (D-12). Fixed in F4d.
+
+**F4d:** `POST /{ledgerId}/settlements` records a settlement, which is then a record like any other
+under `records` (topic E, "F4d as built: settlements").
 
 **Satisfies** D-5, A3, C6.
 

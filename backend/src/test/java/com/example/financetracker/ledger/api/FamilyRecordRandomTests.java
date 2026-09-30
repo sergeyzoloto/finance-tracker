@@ -18,8 +18,10 @@ import org.springframework.http.HttpStatus;
 
 /**
  * Family records created, changed and deleted at random, from a fixed seed, by two members with an account and for
- * one without (ADR 0003, topic K), with the default split rule changed now and then, and payment edits (F4c): a new
- * date, amount, payer or paying account. After every operation the family ledger's invariants hold
+ * one without (ADR 0003, topic K), with the default split rule changed now and then, payment edits (F4c): a new
+ * date, amount, payer or paying account, and settlements (F4d): recorded by a side with an account, changed by their
+ * recorder (date, amount, comment, account) or put on an account by their other side, and deleted. After every
+ * operation the family ledger's invariants hold
  * ({@link FamilyInvariants}): the balances sum to zero, each debt account shows its member's family balance on every
  * record's date, and every posted entry balances.
  */
@@ -34,6 +36,10 @@ class FamilyRecordRandomTests extends LedgerApiTest {
 
     /** A record that isn't deleted: who wrote it, who paid, and its version. */
     private record Live(long id, String author, long payer, int version) {
+    }
+
+    /** A settlement that isn't deleted: who recorded it, the other side if they have an account, and its version. */
+    private record Settlement(long id, String recorder, String other, int version) {
     }
 
     @Test
@@ -57,6 +63,8 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         Map<String, Long> self = Map.of(alice, mum, bob, dad);
 
         Map<Long, Live> live = new LinkedHashMap<>();
+        Map<Long, Settlement> settlements = new LinkedHashMap<>();
+        Map<Long, String> users = Map.of(mum, alice, dad, bob);
         Map<String, Integer> done = new LinkedHashMap<>();
         for (int i = 0; i < OPERATIONS; i++) {
             int choice = random.nextInt(100);
@@ -67,7 +75,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                         {"rule": "CUSTOM", "shares": [%s]}""".formatted(percentShares(members, "share"));
                 ok(put(alice, uri + "/split-rule", rule));
                 done.merge("split rule", 1, Integer::sum);
-            } else if (choice < 50 || live.isEmpty()) {
+            } else if (choice < 45 || live.isEmpty()) {
                 long payer = random.nextInt(3) == 0 ? kid : self.get(actor);
                 String payment = payer == kid ? "" : random.nextInt(4) == 0 ? "\"paymentLater\": true,"
                         : "\"paymentAccountId\": %d,".formatted(pick(accounts.get(actor)));
@@ -78,7 +86,20 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                                 payment, payer, split(members, amount))), HttpStatus.CREATED);
                 live.put(record.get("id").asLong(), new Live(record.get("id").asLong(), actor, payer, 0));
                 done.merge("create", 1, Integer::sum);
-            } else if (choice < 70) {
+            } else if (choice < 55 || choice < 85 && choice >= 78 && settlements.isEmpty()) {
+                // The actor pays or receives, with one of the other two members.
+                long own = self.get(actor);
+                long other = pick(List.of(mum, dad, kid).stream().filter(m -> m != own).toList());
+                boolean pays = random.nextBoolean();
+                BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
+                JsonNode settled = body(post(actor, uri + "/settlements", """
+                        {"date": "%s", "amount": "%s", "payerMemberId": %d, "payeeMemberId": %d, %s}"""
+                        .formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)), amount, pays ? own : other,
+                                pays ? other : own, payment(accounts.get(actor)))), HttpStatus.CREATED);
+                settlements.put(settled.get("id").asLong(), new Settlement(settled.get("id").asLong(), actor,
+                        users.get(other), 0));
+                done.merge("settle", 1, Integer::sum);
+            } else if (choice < 68) {
                 Live record = pick(new ArrayList<>(live.values()));
                 // The author or an owner (D-14): Alice owns the ledger.
                 String editor = record.author().equals(bob) && random.nextBoolean() ? bob : alice;
@@ -89,7 +110,30 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 live.put(record.id(), new Live(record.id(), record.author(), record.payer(),
                         changed.get("version").asInt()));
                 done.merge("change", 1, Integer::sum);
-            } else if (choice < 85) {
+            } else if (choice >= 78 && choice < 85) {
+                Settlement settlement = pick(new ArrayList<>(settlements.values()));
+                String path = uri + "/records/" + settlement.id() + "?version=" + settlement.version();
+                JsonNode changed;
+                if (settlement.other() != null && random.nextInt(3) == 0) {
+                    // The other side puts its part on an account, or back: the version stays.
+                    changed = ok(patch(settlement.other(), path, "{" + payment(accounts.get(settlement.other())) + "}"));
+                } else {
+                    List<String> fields = new ArrayList<>();
+                    if (random.nextBoolean()) {
+                        fields.add("\"date\": \"%s\"".formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30))));
+                    }
+                    if (fields.isEmpty() || random.nextBoolean()) {
+                        fields.add("\"amount\": \"%s\"".formatted(BigDecimal.valueOf(1 + random.nextInt(50_000), 2)));
+                    }
+                    if (random.nextBoolean()) {
+                        fields.add(payment(accounts.get(settlement.recorder())));
+                    }
+                    changed = ok(patch(settlement.recorder(), path, "{" + String.join(", ", fields) + "}"));
+                }
+                settlements.put(settlement.id(), new Settlement(settlement.id(), settlement.recorder(),
+                        settlement.other(), changed.get("version").asInt()));
+                done.merge("settlement change", 1, Integer::sum);
+            } else if (choice < 78) {
                 Live record = pick(new ArrayList<>(live.values()));
                 // The payer with an account, else the author or an owner (D-14).
                 String editor = record.payer() == mum ? alice : record.payer() == dad ? bob
@@ -123,6 +167,13 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                         "{" + String.join(", ", fields) + "}"));
                 live.put(record.id(), new Live(record.id(), record.author(), payer, changed.get("version").asInt()));
                 done.merge("payment", 1, Integer::sum);
+            } else if (!settlements.isEmpty() && random.nextInt(4) == 0) {
+                // Its recorder deletes a settlement.
+                Settlement settlement = pick(new ArrayList<>(settlements.values()));
+                assertThat(delete(settlement.recorder(), uri + "/records/" + settlement.id() + "?version="
+                        + settlement.version())).hasStatus(HttpStatus.NO_CONTENT);
+                settlements.remove(settlement.id());
+                done.merge("settlement delete", 1, Integer::sum);
             } else {
                 Live record = pick(new ArrayList<>(live.values()));
                 // The payer with an account, else the author or an owner (D-14).
@@ -137,16 +188,18 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         }
 
         // What the seed gives: every kind of operation, many times.
-        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.of("create", 103, "change", 59, "payment", 35,
-                "delete", 31, "split rule", 12));
-        assertThat(live).hasSize(72);
+        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.of("create", 88, "change", 35, "payment", 25,
+                "delete", 28, "split rule", 11, "settle", 21, "settlement change", 20, "settlement delete", 12));
+        assertThat(live).hasSize(60);
+        assertThat(settlements).hasSize(9);
         Map<Long, BigDecimal> balances = FamilyInvariants.check(jdbc, family);
         JsonNode answered = ok(get(bob, uri + "/balances")).get("members");
         for (JsonNode member : answered) {
             assertThat(new BigDecimal(member.get("balance").asText())).as(member.get("displayName").asText())
                     .isEqualByComparingTo(balances.get(member.get("memberId").asLong()));
         }
-        assertThat(ok(get(alice, uri + "/records?size=200")).get("totalElements").asInt()).isEqualTo(live.size());
+        assertThat(ok(get(alice, uri + "/records?size=200")).get("totalElements").asInt())
+                .isEqualTo(live.size() + settlements.size());
     }
 
     /** The record's amount, as the family reads it. */

@@ -20,8 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * The payer's own payment for a family expense, as an entry of their personal ledger (F4c; D-14; ADR 0003, topic E):
  * a change of its date, amount, account or note is the payer's change of the expense, through
- * {@link FamilyRecordService#update}, and deleting it deletes the expense. The entry is found in the caller's own
- * personal ledger only, so nobody but the payer reaches it: anyone else's entry is missing (rule 11).
+ * {@link FamilyRecordService#update}, and deleting it deletes the expense. A member's own side of a settlement (F4d)
+ * changes the same way: its account by either side, its date and amount by the side who recorded it, who also deletes
+ * it through it (D-24). The entry is found in the caller's own personal ledger only, so nobody but its member reaches
+ * it: anyone else's entry is missing (rule 11).
  * <p>
  * Only while the feature switch is on (D-25, {@link FamilySwitch}).
  */
@@ -57,7 +59,7 @@ public class FamilyPaymentEntries implements FamilyPayments {
     }
 
     /**
-     * Changes the expense the entry pays, as its payer.
+     * Changes the expense the entry pays, as its payer, or the settlement it is a side of, as that side (F4d).
      *
      * @param expectedVersion the entry's version the caller read
      * @throws EntryNotFoundException if the personal ledger has no such entry
@@ -81,7 +83,7 @@ public class FamilyPaymentEntries implements FamilyPayments {
     /** {@inheritDoc} The caller has checked the entry's version. */
     @Override
     @Transactional
-    public void deleteExpenseOf(LedgerScope personal, long entryId) {
+    public void deleteRecordOf(LedgerScope personal, long entryId) {
         Payment payment = payment(personal, entryId);
         records.delete(familyOf(personal, payment), payment.recordId(), null);
     }
@@ -103,9 +105,9 @@ public class FamilyPaymentEntries implements FamilyPayments {
                         row.getObject("member_id", Long.class)))
                 .optional()
                 .orElseThrow(() -> new EntryNotFoundException(entryId));
-        if (!"PAYMENT".equals(found.link())) {
-            throw new ConflictException(("Entry %d is not your payment for a family expense, so it doesn't change as "
-                    + "one").formatted(entryId));
+        if (!"PAYMENT".equals(found.link()) && !"SETTLEMENT".equals(found.link())) {
+            throw new ConflictException(("Entry %d is not your payment for a family expense or your side of a "
+                    + "settlement, so it doesn't change as one").formatted(entryId));
         }
         return new Payment(found.version(), found.familyLedgerId(), found.recordId(), found.memberId());
     }

@@ -148,15 +148,19 @@ class CrossLedgerWriter {
                 .list();
     }
 
-    /** Whether the link's entry has the date and the lines of the wanted one, so that re-posting leaves it. */
+    /**
+     * Whether the link's entry has the date, the memo, the owner and the lines of the wanted one, so that re-posting
+     * leaves it.
+     */
     boolean holds(LedgerScope family, Link link, PostedEntry wanted) {
         if (link.entryId() == null) {
             return false;
         }
         List<LocalDate> dates = new ArrayList<>();
+        List<String> memos = new ArrayList<>();
         List<Line> lines = new ArrayList<>();
         jdbc.sql("""
-                SELECT e.entry_date, p.account_id, p.currency, p.amount, p.category_id
+                SELECT e.entry_date, e.memo, p.account_id, p.currency, p.amount, p.category_id
                 FROM family_entry_link l
                 JOIN journal_entry e ON e.id = l.entry_id
                 JOIN posting p ON p.entry_id = e.id
@@ -165,10 +169,35 @@ class CrossLedgerWriter {
                 .param("linkId", link.id()).param("familyId", family.ledgerId())
                 .query(row -> {
                     dates.add(row.getObject("entry_date", LocalDate.class));
+                    memos.add(row.getString("memo"));
                     lines.add(new Line(row.getLong("account_id"), row.getString("currency"),
                             row.getBigDecimal("amount"), row.getObject("category_id", Long.class)));
                 });
-        return !dates.isEmpty() && wanted.sameAs(dates.getFirst(), lines);
+        return !dates.isEmpty() && wanted.sameAs(dates.getFirst(), memos.getFirst(), link.systemOwned(), lines);
+    }
+
+    /**
+     * A payment's side of the payer: the account it is paid from, or "Payments without a specified account", and the
+     * payer's note on it.
+     */
+    record PaymentSide(Long accountId, boolean later, String memo) {
+    }
+
+    /** The side of the payment that the link names: the line that isn't on the debt account. */
+    PaymentSide paymentSide(LedgerScope family, Link link) {
+        if (link.type() != LinkType.PAYMENT || link.entryId() == null) {
+            throw new IllegalStateException("Link %d is not a payment's".formatted(link.id()));
+        }
+        return jdbc.sql("""
+                SELECT a.id, a.code = :placeholder AND a.is_system AS later, e.memo
+                FROM family_entry_link l
+                JOIN journal_entry e ON e.id = l.entry_id
+                JOIN posting p ON p.entry_id = e.id
+                JOIN account a ON a.id = p.account_id
+                WHERE l.id = :linkId AND l.family_ledger_id = :familyId AND a.family_ledger_id IS NULL""")
+                .param("placeholder", PLACEHOLDER_CODE).param("linkId", link.id()).param("familyId", family.ledgerId())
+                .query((row, n) -> new PaymentSide(row.getLong("id"), row.getBoolean("later"), row.getString("memo")))
+                .single();
     }
 
     /** Writes the entry into the member's personal ledger, with its link. */
@@ -177,10 +206,10 @@ class CrossLedgerWriter {
         check(family, entry, member);
         asWriter(family, ownLedger(family, entry, member), () -> {
             long entryId = jdbc.sql("""
-                    INSERT INTO journal_entry (user_id, ledger_id, entry_date, kind)
-                    VALUES (:sub, :ledgerId, :date, :kind) RETURNING id""")
+                    INSERT INTO journal_entry (user_id, ledger_id, entry_date, kind, memo)
+                    VALUES (:sub, :ledgerId, :date, :kind, :memo) RETURNING id""")
                     .param("sub", member.sub()).param("ledgerId", member.ledgerId()).param("date", entry.date())
-                    .param("kind", entry.kind().name())
+                    .param("kind", entry.kind().name()).param("memo", entry.memo())
                     .query(Long.class).single();
             insertLines(family, entryId, entry);
             return jdbc.sql("""
@@ -194,7 +223,10 @@ class CrossLedgerWriter {
         });
     }
 
-    /** Replaces the link's entry's date and lines with the wanted ones: a new version of the same entry. */
+    /**
+     * Replaces the link's entry's date, memo and lines with the wanted ones: a new version of the same entry. A payment
+     * moved from "Payments without a specified account" to the payer's own account becomes theirs, and back (D-14).
+     */
     void replace(LedgerScope family, Link link, PostedEntry entry) {
         MemberLedger member = memberLedger(family, entry.memberId());
         if (link.memberId() != entry.memberId() || link.type() != entry.link() || link.entryId() == null) {
@@ -203,10 +235,19 @@ class CrossLedgerWriter {
         check(family, entry, member);
         asWriter(family, ownLedger(family, entry, member), () -> {
             jdbc.sql("""
-                    UPDATE journal_entry SET entry_date = :date, version = version + 1, updated_at = now()
+                    UPDATE journal_entry SET entry_date = :date, memo = :memo, version = version + 1, updated_at = now()
                     WHERE id = :entryId AND ledger_id = :ledgerId""")
-                    .param("date", entry.date()).param("entryId", link.entryId()).param("ledgerId", member.ledgerId())
+                    .param("date", entry.date()).param("memo", entry.memo()).param("entryId", link.entryId())
+                    .param("ledgerId", member.ledgerId())
                     .update();
+            if (link.systemOwned() != entry.systemOwned()) {
+                jdbc.sql("""
+                        UPDATE family_entry_link SET system_owned = :systemOwned
+                        WHERE id = :linkId AND family_ledger_id = :familyId""")
+                        .param("systemOwned", entry.systemOwned()).param("linkId", link.id())
+                        .param("familyId", family.ledgerId())
+                        .update();
+            }
             jdbc.sql("DELETE FROM posting WHERE entry_id = :entryId").param("entryId", link.entryId()).update();
             insertLines(family, link.entryId(), entry);
             return null;
@@ -244,7 +285,8 @@ class CrossLedgerWriter {
 
     /**
      * Refuses an entry that D-8 doesn't allow: every line on one of the member's allowed accounts for the entry's link,
-     * the kind that belongs to the link, a record of this family ledger, and a posting to the debt account.
+     * the kind that belongs to the link, a record of this family ledger, a posting to the debt account, and a memo only
+     * on the payment of the member who acts: their own private note (F4c).
      *
      * @throws IllegalStateException naming the first line it refuses: a bug, never a user's mistake
      */
@@ -258,6 +300,9 @@ class CrossLedgerWriter {
         };
         if (entry.kind() != kind) {
             throw refused(entry, "a %s link takes an entry of kind %s".formatted(entry.link(), kind));
+        }
+        if (entry.memo() != null && (entry.link() != LinkType.PAYMENT || entry.memberId() != family.memberId())) {
+            throw refused(entry, "only the payer's own payment takes a note, their own");
         }
         if (entry.recordId() != null && !jdbc.sql("""
                 SELECT EXISTS (SELECT FROM family_record WHERE id = :recordId AND ledger_id = :familyId)""")

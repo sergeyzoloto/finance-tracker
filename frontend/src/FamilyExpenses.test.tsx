@@ -65,7 +65,8 @@ const record: FamilyRecord = {
     { member: ref(sam), amount: '5.00', basisPoints: null, updatedBy: ref(anna), updatedAt: '2026-09-12T10:00:00Z' },
   ],
   author: ref(anna), createdAt: '2026-09-12T10:00:00Z', updatedBy: ref(anna), updatedAt: '2026-09-12T10:00:00Z',
-  version: 0, frozen: false, canEdit: true, canDelete: true,
+  version: 0, frozen: false, canEdit: true, canDelete: true, canEditPayment: true,
+  yourPayment: { entryId: 90, accountId: 1, accountName: 'Cash', later: false },
 }
 
 /** The family budget's own requests, with its members; and anything else. */
@@ -283,19 +284,7 @@ describe('an expense’s page', () => {
   })
 
   it('shows every field, the shares with percentages, and the payer’s own account', async () => {
-    detail({}, {
-      'GET /api/entries?from=2026-09-12&to=2026-09-12&size=200': { status: 200, body: {
-        content: [{
-          id: 90, version: 0, entryDate: '2026-09-12', kind: 'FAMILY_PAYMENT', payeeId: null, memo: null,
-          postings: [
-            { accountId: 1, currency: 'EUR', amount: '-10.01', categoryId: null, counterpartyId: null },
-            { accountId: 40, currency: 'EUR', amount: '10.01', categoryId: null, counterpartyId: null },
-          ],
-          family: { ledgerId: 7, ledgerName: 'Home', recordId: 5, link: 'PAYMENT', readOnly: true },
-        }],
-        page: 0, size: 200, totalElements: 1, totalPages: 1,
-      } },
-    })
+    const calls = detail({})
     renderApp('/family/7/expenses/5')
 
     expect(await screen.findByRole('heading', { name: 'Groceries, Sep 12, 2026' })).toBeDefined()
@@ -306,6 +295,20 @@ describe('an expense’s page', () => {
     expect(within(shares).getAllByRole('row').map((r) => r.textContent?.replace(/changed by.*?PM|changed by.*?AM/, '')))
       .toEqual(['MemberSharePercent', 'AnnaYou€5.0150.05 %', 'Sam€5.0049.95 %', 'Total€10.01'])
     expect(screen.getByText('To change the date, amount or payer, delete the expense and enter it again.')).toBeDefined()
+    // The account comes with the record, for the payer only: no search of the day's entries.
+    expect(calls.some((c) => c.url.startsWith('/api/entries'))).toBe(false)
+  })
+
+  it('shows “Specify later” to the payer, and no account to anyone else', async () => {
+    detail({ yourPayment: { entryId: 90, accountId: null, accountName: null, later: true } })
+    renderApp('/family/7/expenses/5')
+    expect((await screen.findByRole('link', { name: 'Specify later' })).getAttribute('href')).toBe('/entries/90')
+    cleanup()
+
+    detail({ payer: ref(sam), yourPayment: undefined })
+    renderApp('/family/7/expenses/5')
+    await screen.findByRole('heading', { name: 'Groceries, Sep 12, 2026' })
+    expect(screen.queryByText('Paid from')).toBeNull()
   })
 
   it.each<[string, Partial<FamilyRecord>, boolean, boolean]>([

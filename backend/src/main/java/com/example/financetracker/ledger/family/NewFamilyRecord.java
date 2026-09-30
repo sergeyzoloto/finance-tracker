@@ -10,7 +10,9 @@ import java.time.LocalDate;
  * @param paymentAccountId for a payer with an account, the account of their personal ledger they paid with; or null
  * @param paymentLater for a payer with an account, "Specify later": the payment goes to "Payments without a specified
  *        account" (D-14)
+ * @param privateNote for the author who paid: a note that only their own payment entry holds, never the family's
+ *        answers or journal (F4c, C2); or null
  */
 public record NewFamilyRecord(LocalDate date, long categoryId, BigDecimal amount, String comment, long payerMemberId,
-        Long paymentAccountId, boolean paymentLater, RecordSplit split) {
+        Long paymentAccountId, boolean paymentLater, RecordSplit split, String privateNote) {
 }

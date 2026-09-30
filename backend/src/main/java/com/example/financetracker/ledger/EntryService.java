@@ -280,7 +280,7 @@ public class EntryService {
             return;
         }
         throw new ConflictException(family.link().equals("PAYMENT")
-                ? ("Entry %d is your payment for a record of the family budget \"%s\"; change or delete the record "
+                ? ("Entry %d is your payment for an expense of the family budget \"%s\"; change or delete the expense "
                         + "there").formatted(entry.id(), family.ledgerName())
                 : "Entry %d was posted from the family budget \"%s\"; change it there".formatted(entry.id(),
                         family.ledgerName()));

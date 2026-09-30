@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
-  api, ApiError, formatDate, formatInstant, useApi, type Account, type Category, type EntryPage, type FamilyJournalPage,
-  type FamilyRecord, type FamilyRecordPage,
+  api, ApiError, formatDate, formatInstant, useApi, type Category, type FamilyJournalPage, type FamilyRecord,
+  type FamilyRecordPage, type YourPayment,
 } from './api'
 import { basisPointsToPercent } from './basisPoints'
 import { CategorySelect, Errors, Field, Loading } from './components'
@@ -13,7 +13,7 @@ import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { JournalList } from './FamilyJournal'
 import { SplitEditor } from './FamilySplit'
 import { toMinor } from './minorUnits'
-import { formatMoney, signOf } from './money'
+import { formatMoney } from './money'
 import { basisPointsOf } from './shareSplit'
 
 const PAGE_SIZE = 20
@@ -158,7 +158,7 @@ export function ExpenseDetail({ family }: { family: FamilyData }) {
         <dt>Category</dt><dd>{r.category.name}{r.category.archived && <span className="badge">Archived</span>}</dd>
         <dt>Amount</dt><dd>{formatMoney(r.amount, r.currency)}</dd>
         <dt>Paid by</dt><dd>{mine ? `${r.payer.displayName} (you)` : r.payer.displayName}</dd>
-        {mine && <PaidFrom record={r} />}
+        {r.yourPayment && <PaidFrom payment={r.yourPayment} />}
         <dt>Comment</dt><dd>{r.comment ?? <span className="muted">None</span>}</dd>
         <dt>Added</dt><dd>by {r.author.displayName}, {formatInstant(r.createdAt)}</dd>
         {r.updatedAt !== r.createdAt && <><dt>Last changed</dt><dd>by {r.updatedBy.displayName}, {formatInstant(r.updatedAt)}</dd></>}
@@ -216,22 +216,19 @@ export function ExpenseDetail({ family }: { family: FamilyData }) {
 }
 
 /**
- * The account the user paid with, for the payer's eyes only: the other members never see it (D-16). It is the
- * payment entry in the user's own ledger, found by the expense's date and id.
+ * The account the user paid with, for the payer's eyes only: the other members never see it (D-16). The record's
+ * answer carries it for the payer alone (`yourPayment`), with their payment entry in their own ledger.
  */
-function PaidFrom({ record }: { record: FamilyRecord }) {
-  const entries = useApi<EntryPage>(`/entries?from=${record.date}&to=${record.date}&size=200`)
-  const accounts = useApi<Account[]>('/accounts')
-  const payment = entries.data?.content.find((e) => e.family?.recordId === record.id && e.family.link === 'PAYMENT')
-  const paid = payment?.postings.find((p) => signOf(p.amount) < 0)
-  const account = accounts.data?.find((a) => a.id === paid?.accountId)
-  if (!payment || !account) return null
+function PaidFrom({ payment }: { payment: YourPayment }) {
   return (
     <>
       <dt>Paid from</dt>
       <dd>
-        <Link to={`/entries/${payment.id}`}>{account.name}</Link>
-        <small className="muted block">Only you see which account you paid with.</small>
+        <Link to={`/entries/${payment.entryId}`}>{payment.later ? 'Specify later' : payment.accountName}</Link>
+        <small className="muted block">
+          {payment.later ? 'Kept under “Payments without a specified account” until you choose the account. ' : ''}
+          Only you see which account you paid with.
+        </small>
       </dd>
     </>
   )

@@ -18,9 +18,10 @@ import org.springframework.http.HttpStatus;
 
 /**
  * Family records created, changed and deleted at random, from a fixed seed, by two members with an account and for
- * one without (ADR 0003, topic K), with the default split rule changed now and then. After every operation the family
- * ledger's invariants hold ({@link FamilyInvariants}): the balances sum to zero, each debt account shows its member's
- * family balance on every record's date, and every posted entry balances.
+ * one without (ADR 0003, topic K), with the default split rule changed now and then, and payment edits (F4c): a new
+ * date, amount, payer or paying account. After every operation the family ledger's invariants hold
+ * ({@link FamilyInvariants}): the balances sum to zero, each debt account shows its member's family balance on every
+ * record's date, and every posted entry balances.
  */
 class FamilyRecordRandomTests extends LedgerApiTest {
 
@@ -66,7 +67,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                         {"rule": "CUSTOM", "shares": [%s]}""".formatted(percentShares(members, "share"));
                 ok(put(alice, uri + "/split-rule", rule));
                 done.merge("split rule", 1, Integer::sum);
-            } else if (choice < 55 || live.isEmpty()) {
+            } else if (choice < 50 || live.isEmpty()) {
                 long payer = random.nextInt(3) == 0 ? kid : self.get(actor);
                 String payment = payer == kid ? "" : random.nextInt(4) == 0 ? "\"paymentLater\": true,"
                         : "\"paymentAccountId\": %d,".formatted(pick(accounts.get(actor)));
@@ -77,7 +78,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                                 payment, payer, split(members, amount))), HttpStatus.CREATED);
                 live.put(record.get("id").asLong(), new Live(record.get("id").asLong(), actor, payer, 0));
                 done.merge("create", 1, Integer::sum);
-            } else if (choice < 85) {
+            } else if (choice < 70) {
                 Live record = pick(new ArrayList<>(live.values()));
                 // The author or an owner (D-14): Alice owns the ledger.
                 String editor = record.author().equals(bob) && random.nextBoolean() ? bob : alice;
@@ -88,6 +89,40 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 live.put(record.id(), new Live(record.id(), record.author(), record.payer(),
                         changed.get("version").asInt()));
                 done.merge("change", 1, Integer::sum);
+            } else if (choice < 85) {
+                Live record = pick(new ArrayList<>(live.values()));
+                // The payer with an account, else the author or an owner (D-14).
+                String editor = record.payer() == mum ? alice : record.payer() == dad ? bob
+                        : record.author().equals(bob) && random.nextBoolean() ? bob : alice;
+                JsonNode current = ok(get(editor, uri + "/records/" + record.id()));
+                List<String> fields = new ArrayList<>();
+                long payer = record.payer();
+                if (random.nextInt(3) == 0) {
+                    // To a member without an account, or to the editor, who says how they paid.
+                    payer = random.nextBoolean() ? kid : self.get(editor);
+                    if (payer != record.payer()) {
+                        fields.add("\"payerMemberId\": " + payer);
+                        if (payer != kid) {
+                            fields.add(payment(accounts.get(editor)));
+                        }
+                    }
+                } else if (payer != kid && random.nextBoolean()) {
+                    fields.add(payment(accounts.get(editor)));
+                }
+                if (random.nextBoolean()) {
+                    fields.add("\"date\": \"%s\"".formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30))));
+                }
+                if (fields.isEmpty() || random.nextBoolean()) {
+                    BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
+                    fields.add("\"amount\": \"%s\"".formatted(amount));
+                    if (current.get("splitMethod").asText().equals("AMOUNT")) {
+                        fields.add("\"split\": " + amounts(members, amount));
+                    }
+                }
+                JsonNode changed = ok(patch(editor, uri + "/records/" + record.id() + "?version=" + record.version(),
+                        "{" + String.join(", ", fields) + "}"));
+                live.put(record.id(), new Live(record.id(), record.author(), payer, changed.get("version").asInt()));
+                done.merge("payment", 1, Integer::sum);
             } else {
                 Live record = pick(new ArrayList<>(live.values()));
                 // The payer with an account, else the author or an owner (D-14).
@@ -102,9 +137,9 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         }
 
         // What the seed gives: every kind of operation, many times.
-        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.of("create", 123, "change", 68, "delete", 38,
-                "split rule", 11));
-        assertThat(live).hasSize(85);
+        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.of("create", 103, "change", 59, "payment", 35,
+                "delete", 31, "split rule", 12));
+        assertThat(live).hasSize(72);
         Map<Long, BigDecimal> balances = FamilyInvariants.check(jdbc, family);
         JsonNode answered = ok(get(bob, uri + "/balances")).get("members");
         for (JsonNode member : answered) {
@@ -119,6 +154,23 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         return ok(get(alice, uri + "/records/" + recordId)).get("amount").asText();
     }
 
+    /** How the payer paid: one of their accounts, or "Specify later" now and then. */
+    private String payment(List<Long> accounts) {
+        return random.nextInt(4) == 0 ? "\"paymentLater\": true" : "\"paymentAccountId\": " + pick(accounts);
+    }
+
+    /** A split by amounts of the amount among the three members. */
+    private String amounts(long[] members, BigDecimal amount) {
+        long cents = amount.movePointRight(2).longValueExact();
+        long first = (long) (random.nextDouble() * (cents + 1));
+        long second = (long) (random.nextDouble() * (cents - first + 1));
+        return """
+                {"method": "AMOUNT", "shares": [{"memberId": %d, "amount": "%s"},
+                 {"memberId": %d, "amount": "%s"}, {"memberId": %d, "amount": "%s"}]}""".formatted(
+                members[0], BigDecimal.valueOf(first, 2), members[1], BigDecimal.valueOf(second, 2),
+                members[2], BigDecimal.valueOf(cents - first - second, 2));
+    }
+
     /** A split of each kind: the ledger's rule, percentages, amounts, or all on one member. */
     private String split(long[] members, Object amount) {
         return switch (random.nextInt(4)) {
@@ -126,16 +178,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                     {"method": "RULE"}""";
             case 1 -> """
                     {"method": "PERCENT", "shares": [%s]}""".formatted(percentShares(members, "basisPoints"));
-            case 2 -> {
-                long cents = new BigDecimal(amount.toString()).movePointRight(2).longValueExact();
-                long first = (long) (random.nextDouble() * (cents + 1));
-                long second = (long) (random.nextDouble() * (cents - first + 1));
-                yield """
-                        {"method": "AMOUNT", "shares": [{"memberId": %d, "amount": "%s"},
-                         {"memberId": %d, "amount": "%s"}, {"memberId": %d, "amount": "%s"}]}""".formatted(
-                        members[0], BigDecimal.valueOf(first, 2), members[1], BigDecimal.valueOf(second, 2),
-                        members[2], BigDecimal.valueOf(cents - first - second, 2));
-            }
+            case 2 -> amounts(members, new BigDecimal(amount.toString()));
             default -> """
                     {"method": "ONE_MEMBER", "memberId": %d}""".formatted(members[random.nextInt(members.length)]);
         };

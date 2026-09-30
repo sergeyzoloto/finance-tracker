@@ -483,6 +483,38 @@ the payment too (not only for the system-owned entries), naming the rule. Accept
 review, as is leaving out the link check below. Posted entries have no memo:
 a comment would copy family text into personal ledgers, which D-20's erasure then couldn't reach.
 
+**F4c as built: payment edits** (D-14). `PATCH /records/{recordId}?version=` takes the payment fields
+too: `date`, `amount`, `payerMemberId`, and for the payer with an account `paymentAccountId` or
+`paymentLater`.
+
+- Who: for a record paid by a member with an account, that payer alone changes the date, the amount,
+  the account and the payer (an owner who didn't pay gets 409 naming the payer); for a payer without
+  an account, the author or an owner. The family fields stay the author's and the owners'; a split
+  sent with a new amount belongs to the payment's change, so the payer can send the new amounts that
+  AMOUNT needs.
+- The payer changes to a member without an account, whose payment is nobody's, or to the caller, who
+  then names an account or "Specify later"; only the caller becomes a payer with an account (422
+  `PAYER` otherwise). The old payer's payment entry goes.
+- A new amount, date or payer splits the amount again by the stored split: `EQUAL` among the members
+  who shared the record, less a member with an account who joined after the new date, plus one who
+  joined after the old date and by the new one, so that their share entry appears or goes with the
+  date; a member added since doesn't come in (D-18). `PERCENT` keeps the basis points, `ONE_MEMBER`
+  the member; `AMOUNT` keeps the amounts for a new date or payer, and a new amount without new
+  amounts is 422 `AMOUNTS_NEEDED`. A share of a member who joined after the new date, or a payer who
+  did, is 422 `JOINED_AFTER`; a date before the start date 409 (D-27).
+- The journal records `date`, `amount` and `payer` as it records the family fields. The account is
+  never journaled, and a change of the account alone changes neither the record's version nor its
+  editor (D-16).
+- `FamilyPostingService.post` now re-posts the payer's payment with the record: with the account the
+  payer names, or as it is (same account, same note) with the record's date and amount. A payment
+  moved between "Specify later" and an account keeps its entry: `CrossLedgerWriter.replace` sets the
+  link's `system_owned` to match, which V7's guard lets the writer do. No migration.
+- The record's answer gains `canEditPayment` and `yourPayment`, the payer's own view of how they paid
+  (their payment entry's id, and the account's id and name, or `later`), present only for the payer
+  with an account and left out for everyone else. The expense page shows it instead of searching the
+  payer's entries of the day (after the F4b review, topic I).
+- The records' messages say "expense", as the screens do.
+
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted
 entries for every eligible member from the record's stored shares, and compares them with the

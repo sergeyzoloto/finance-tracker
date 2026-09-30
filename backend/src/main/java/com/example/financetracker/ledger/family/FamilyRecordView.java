@@ -5,6 +5,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
+
 /**
  * A family record as every member of its family ledger sees it (D-6, D-16). Only family data: members by their display
  * names, never an account, a personal category or a personal entry of anyone's (C4).
@@ -18,11 +21,23 @@ import java.util.List;
  * @param canEdit whether the member who reads may change its family fields: its author or an owner (D-14)
  * @param canDelete whether the member who reads may delete it: its payer if they have an account, else its author or
  *        an owner (D-14)
+ * @param canEditPayment whether the member who reads may change its date, amount and payer: its payer if they have an
+ *        account, else its author or an owner (D-14; F4c, additive)
+ * @param yourPayment how the member who reads paid it, only when they are its payer with an account, and left out for
+ *        everyone else (F4c, additive)
  */
 public record FamilyRecordView(long id, String type, LocalDate date, CategoryRef category, BigDecimal amount,
         String currency, String comment, MemberRef payer, String splitMethod, List<ShareView> shares,
         MemberRef author, Instant createdAt, MemberRef updatedBy, Instant updatedAt, int version, boolean frozen,
-        boolean canEdit, boolean canDelete) {
+        boolean canEdit, boolean canDelete, boolean canEditPayment,
+        @JsonInclude(Include.NON_NULL) YourPayment yourPayment) {
+
+    /**
+     * The payer's own view of their payment (D-16): their payment entry in their personal ledger, and the account they
+     * paid with, or "Specify later" with both account fields null. Their private note stays in the entry.
+     */
+    public record YourPayment(long entryId, Long accountId, String accountName, boolean later) {
+    }
 
     /** A member as the others see them: "Former member" once they deleted their data (D-20). */
     public record MemberRef(long memberId, String displayName) {

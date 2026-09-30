@@ -12,9 +12,11 @@ import com.example.financetracker.ledger.domain.EntryKind;
  *
  * @param recordId the family record it is for; null for an opening balance or a correction
  * @param systemOwned whether only the family budget changes it; false for the payer's payment with their own account
+ * @param memo the payer's private note on their own payment (F4c); null for every other entry, which carries no text:
+ *        a family comment copied into personal ledgers would be out of reach of D-20's erasure
  */
 record PostedEntry(long memberId, Long recordId, LinkType link, EntryKind kind, boolean systemOwned, LocalDate date,
-        List<Line> lines) {
+        List<Line> lines, String memo) {
 
     PostedEntry {
         lines = List.copyOf(lines);
@@ -29,9 +31,10 @@ record PostedEntry(long memberId, Long recordId, LinkType link, EntryKind kind, 
         }
     }
 
-    /** Whether the other entry has the same date and lines, in the same order. */
-    boolean sameAs(LocalDate otherDate, List<Line> otherLines) {
-        if (!date.equals(otherDate) || lines.size() != otherLines.size()) {
+    /** Whether the other entry has the same date, memo, owner and lines, in the same order. */
+    boolean sameAs(LocalDate otherDate, String otherMemo, boolean otherSystemOwned, List<Line> otherLines) {
+        if (!date.equals(otherDate) || !java.util.Objects.equals(memo, otherMemo) || systemOwned != otherSystemOwned
+                || lines.size() != otherLines.size()) {
             return false;
         }
         for (int i = 0; i < lines.size(); i++) {

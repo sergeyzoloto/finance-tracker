@@ -22,6 +22,37 @@ Not committed yet.
     marking a personal expense as family, C2); F4d settlements (D2, D-24) and incomes (C5); F4e other
     currencies (C7). F5 to F7 stay. "Later" gains the minimal transfers.
   - CLAUDE.md: production runs `4285d52`.
+- Payment edits and the payer's own view (commit "feat(family): payment edits and the payer's own
+  view"), D-14 and ADR 0003 topic E, which now says what was built. No migration.
+  - `PATCH /api/family-ledgers/{ledgerId}/records/{recordId}?version=` takes the payment fields too:
+    `date`, `amount`, `payerMemberId`, and for the payer with an account `paymentAccountId` or
+    `paymentLater`. For a record paid by a member with an account only that payer changes them (an
+    owner who didn't pay it gets 409, "Only Dad, who paid it, …"); for a payer without an account the
+    author or an owner. The family fields stay the author's and the owners'.
+  - The payer changes to a member without an account or to the caller, who then names an account or
+    "Specify later"; only the caller becomes a payer with an account. The old payer's payment entry
+    goes.
+  - A new amount, date or payer splits again by the stored split: `EQUAL` among the record's members
+    as of the new date (a member with an account comes in or drops out as the date crosses their join
+    date; a member added since doesn't come in), `PERCENT` with the same basis points, `ONE_MEMBER` on
+    the same member; `AMOUNT` needs the new amounts with a new amount (422 `AMOUNTS_NEEDED`).
+    `JOINED_AFTER` and the start date's 409 as for a new record; frozen and stale are 409.
+  - The journal records `date`, `amount` and `payer`. The account is never journaled, and changing it
+    alone changes neither the record's version nor its editor. Moving a payment between "Specify
+    later" and an account keeps the entry; the writer flips the link's `system_owned`.
+  - The record's answer gains `canEditPayment` and `yourPayment` (the payer's payment entry, and the
+    account's id and name, or `later`), present only for the payer with an account. The expense page
+    shows "Paid from" from it, no longer from the payer's entries of the day.
+  - `privateNote` on a new record: the payer's note, stored only as their payment entry's memo; the
+    writer refuses a memo on anything but the acting payer's own payment.
+  - The records' messages say "expense": "Expense 2 has changed since version 0. Reload it and try
+    again.", "Expense 2 not found.", "an expense can't be dated before its start date", and so on.
+  - Tests: new `FamilyPaymentApiTests` (8) on a fixture moved out of `FamilyRecordApiTests` into
+    `FamilyApiTest`; `FamilyRecordApiTests` with the new messages, and its payment-field 409 replaced
+    by the start date's 409 for a change; `FamilyRecordRandomTests` with payment edits in the mix
+    (from the seed: 103 creates, 59 changes, 35 payment edits, 31 deletes, 12 split rules);
+    `CrossLedgerWriterTests` refuses a note on another member's entry; `FamilyExpenses.test.tsx`
+    reads the account from `yourPayment` (1 new).
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -29,9 +60,13 @@ Not committed yet.
   `4285d52`. `./mvnw -B clean verify`: 312 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
   Frontend: `npm ci`, `npm test` 14 files and 192 tests passed, `npm run build` succeeded.
 - After the documents' commit: documents only.
+- After the payment edits' commit: `./mvnw -B clean verify` 320 tests (312 and 8), 0 failures, 0
+  errors, 0 skipped, BUILD SUCCESS; the invariants after every family test and after each of the
+  random test's 240 operations. Frontend: `npm test` 14 files and 193 tests passed, `npm run build`
+  succeeded.
 
 **Open**
-- The rest of F4c: payment edits in the backend, the payer's personal entry and C2.
+- The rest of F4c: the payer's personal entry and C2.
 
 ## 2026-09-30 · Family budget: F4a's second deploy and review, the family expenses interface (F4b)
 

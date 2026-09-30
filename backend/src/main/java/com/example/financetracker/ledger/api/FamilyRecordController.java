@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
-import com.example.financetracker.ledger.ConflictException;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.family.FamilyBalances;
@@ -38,8 +37,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * A family ledger's records, balances and change journal (F4a; ADR 0003, topics D, H and I), for its ACTIVE members
  * only: anyone else gets 404, the answer for a family ledger that doesn't exist, for reads and writes alike. Records are
- * family expenses in the base currency; the rest of D-6 comes with F4c. No answer holds a member's accounts, personal
- * categories or personal entries (C4).
+ * family expenses in the base currency; incomes and settlements come with F4d, other currencies with F4e. No answer holds
+ * a member's accounts, personal categories or personal entries (C4), except the caller's own payment, for their eyes
+ * only ({@code yourPayment}, F4c).
  * <p>
  * Only while the feature switch is on (D-25, {@link FamilySwitch}): otherwise these paths are unknown and answer 404.
  */
@@ -58,10 +58,12 @@ class FamilyRecordController {
      * @param paymentLater if you paid: true to specify the account later; the payment goes to "Payments without a
      *        specified account" (D-14)
      * @param split how the amount is split; the family budget's rule if left out
+     * @param privateNote if you paid: a note that only your payment entry in your personal ledger holds; no family
+     *        answer and no journal names it (F4c, C2)
      */
     record NewRecord(@NotNull LocalDate date, @NotNull Long categoryId, @NotNull BigDecimal amount,
             @Size(max = 500) String comment, @NotNull Long payerMemberId, Long paymentAccountId, Boolean paymentLater,
-            @Valid Split split) {
+            @Valid Split split, @Size(max = 500) String privateNote) {
     }
 
     /**
@@ -86,10 +88,17 @@ class FamilyRecordController {
     }
 
     /**
-     * A change of a record's family fields (D-14): its category, comment and split; fields left out stay as they are.
-     * A class rather than a record, because a comment sent as null removes it, while one left out keeps it. The
-     * payment fields (date, amount, payer, the account) can't change before F4c: a request that sends one is refused
-     * with 409.
+     * A change of a record (D-14); fields left out stay as they are. A class rather than a record, because a comment
+     * sent as null removes it, while one left out keeps it.
+     * <ul>
+     * <li>The family fields, by the record's author or an owner: the category, the comment and the split.
+     * <li>The payment fields (F4c), for a record paid by a member with an account by that payer only, else by the author
+     * or an owner: the date, the amount and the payer. A new amount, date or payer splits the amount again by the
+     * record's split; under AMOUNT a new amount needs the split's new amounts with it. The payer may be yourself, or a
+     * member without an account.
+     * <li>How you paid, when you are the payer with an account: the account, or "Specify later". It stays private: no
+     * answer but yours names it, and the journal doesn't (D-16).
+     * </ul>
      */
     static final class RecordPatch {
 
@@ -99,7 +108,11 @@ class FamilyRecordController {
         private boolean changesComment;
         @Valid
         private Split split;
-        private boolean changesPayment;
+        private LocalDate date;
+        private BigDecimal amount;
+        private Long payerMemberId;
+        private Long paymentAccountId;
+        private Boolean paymentLater;
 
         public Long getCategoryId() {
             return categoryId;
@@ -127,39 +140,54 @@ class FamilyRecordController {
             this.split = split;
         }
 
-        /** A payment field: refused until F4c. */
-        public void setDate(Object date) {
-            changesPayment = true;
+        public LocalDate getDate() {
+            return date;
         }
 
-        /** A payment field: refused until F4c. */
-        public void setAmount(Object amount) {
-            changesPayment = true;
+        public void setDate(LocalDate date) {
+            this.date = date;
         }
 
-        /** A payment field: refused until F4c. */
-        public void setPayerMemberId(Object payer) {
-            changesPayment = true;
+        /** In the family's base currency, above 0. */
+        public BigDecimal getAmount() {
+            return amount;
         }
 
-        /** A payment field: refused until F4c. */
-        public void setPaymentAccountId(Object account) {
-            changesPayment = true;
+        public void setAmount(BigDecimal amount) {
+            this.amount = amount;
         }
 
-        /** A payment field: refused until F4c. */
-        public void setPaymentLater(Object later) {
-            changesPayment = true;
+        public Long getPayerMemberId() {
+            return payerMemberId;
+        }
+
+        public void setPayerMemberId(Long payerMemberId) {
+            this.payerMemberId = payerMemberId;
+        }
+
+        /** The account of your personal ledger you paid with, if you paid. */
+        public Long getPaymentAccountId() {
+            return paymentAccountId;
+        }
+
+        public void setPaymentAccountId(Long paymentAccountId) {
+            this.paymentAccountId = paymentAccountId;
+        }
+
+        /** True for "Specify later", if you paid. */
+        public Boolean getPaymentLater() {
+            return paymentLater;
+        }
+
+        public void setPaymentLater(Boolean paymentLater) {
+            this.paymentLater = paymentLater;
         }
 
         FamilyRecordChanges changes() {
-            if (changesPayment) {
-                throw new ConflictException("The payment fields of a record (date, amount, payer, the account paid "
-                        + "with) can't be changed yet; delete the record and enter it again");
-            }
             return new FamilyRecordChanges(categoryId, changesComment,
                     comment == null || comment.isBlank() ? null : comment.strip(),
-                    split == null ? null : split.toSplit());
+                    split == null ? null : split.toSplit(), date, amount, payerMemberId, paymentAccountId,
+                    Boolean.TRUE.equals(paymentLater), false, null);
         }
     }
 
@@ -188,7 +216,8 @@ class FamilyRecordController {
                 record.categoryId(), record.amount(),
                 record.comment() == null || record.comment().isBlank() ? null : record.comment().strip(),
                 record.payerMemberId(), record.paymentAccountId(), Boolean.TRUE.equals(record.paymentLater()),
-                record.split() == null ? null : record.split().toSplit()));
+                record.split() == null ? null : record.split().toSplit(),
+                record.privateNote() == null || record.privateNote().isBlank() ? null : record.privateNote().strip()));
     }
 
     @GetMapping("/records/{recordId}")
@@ -197,14 +226,15 @@ class FamilyRecordController {
     }
 
     /**
-     * The record's author and the owners change its family fields.
+     * The record's author and the owners change its family fields; its payer with an account, or for a payer without
+     * one its author and the owners, change its payment fields (D-14).
      *
      * @param version the version the caller read; if the record has changed since, it is refused with 409
      */
     @PatchMapping("/records/{recordId}")
-    FamilyRecordView update(CurrentUser user, @PathVariable long ledgerId, @PathVariable long recordId,
-            @RequestParam int version, @Valid @RequestBody RecordPatch patch) {
-        return records.update(access.member(user.id(), ledgerId), recordId, version, patch.changes());
+    FamilyRecordView update(CurrentUser user, LedgerScope personal, @PathVariable long ledgerId,
+            @PathVariable long recordId, @RequestParam int version, @Valid @RequestBody RecordPatch patch) {
+        return records.update(access.member(user.id(), ledgerId), personal, recordId, version, patch.changes());
     }
 
     /**

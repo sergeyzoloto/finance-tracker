@@ -104,7 +104,13 @@ export interface FamilyRecord {
   frozen: boolean
   canEdit: boolean
   canDelete: boolean
+  /** Whether the reader may change the date, the amount and the payer (D-14): the payer with an account, else the author or an owner. */
+  canEditPayment: boolean
+  /** How the reader paid it: only for the payer with an account, and missing for everyone else (D-16). */
+  yourPayment?: YourPayment
 }
+/** The payer's own view of their payment: their payment entry, and the account, or "Specify later" with none. */
+export interface YourPayment { entryId: number; accountId: number | null; accountName: string | null; later: boolean }
 export interface FamilyRecordPage { content: FamilyRecord[]; page: number; size: number; totalElements: number; totalPages: number }
 /** How a new or changed record is split (D-12). RULE is the budget's rule; percentages go in basis points. */
 export type RecordSplit =

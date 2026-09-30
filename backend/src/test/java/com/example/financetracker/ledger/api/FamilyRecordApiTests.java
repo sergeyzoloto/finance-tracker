@@ -4,62 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.StreamSupport;
 
-import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
  * Family records (F4a; ADR 0003, topics D, E and H): creating, listing, reading, changing and deleting family
- * expenses, who may do which, the posted entries in the members' personal ledgers, the balances and the journal.
- * Alice ("Mum") created the family ledger "Home", which starts on 2026-09-01; Bob ("Dad") is a member with an account
- * since then, written with plain SQL as no code adds one before F5; Kid has no account. After every test, the family
- * ledger's invariants hold ({@link FamilyInvariants}).
+ * expenses, who may do which, the posted entries in the members' personal ledgers, the balances and the journal, in
+ * the family of {@link FamilyApiTest}.
  */
-class FamilyRecordApiTests extends LedgerApiTest {
-
-    private final String alice = newUser();
-    private final String bob = newUser();
-
-    private long family;
-    private String uri;
-    private long mum;
-    private long dad;
-    private long kid;
-    private long groceries;
-    private long salary;
-    private long rent;
-
-    @BeforeEach
-    void createTheFamily() throws IOException {
-        ok(get(bob, "/api/accounts"));
-        JsonNode created = newFamily(alice, """
-                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-09-01",
-                 "categoryIds": [%d, %d]}""".formatted(categoryId(alice, "GROCERIES"), categoryId(alice, "SALARY")));
-        family = created.get("id").asLong();
-        uri = "/api/family-ledgers/" + family;
-        mum = created.get("memberId").asLong();
-        dad = join(family, bob, "Dad", "MEMBER", LocalDate.of(2026, 9, 1));
-        kid = body(post(alice, uri + "/members", """
-                {"displayName": "Kid"}"""), HttpStatus.CREATED).get("id").asLong();
-        JsonNode categories = ok(get(alice, uri + "/categories"));
-        groceries = find(categories, "code", "GROCERIES").get("id").asLong();
-        salary = find(categories, "code", "SALARY").get("id").asLong();
-        rent = body(post(alice, uri + "/categories", """
-                {"code": "RENT", "name": "Rent", "type": "EXPENSE"}"""), HttpStatus.CREATED).get("id").asLong();
-    }
-
-    @AfterEach
-    void theInvariantsHold() {
-        FamilyInvariants.check(jdbc, family);
-    }
+class FamilyRecordApiTests extends FamilyApiTest {
 
     /**
      * D-7's example: Alice pays 100 with her current account, split 50/50 with Bob. Her ledger gets the payment (the
@@ -155,8 +112,8 @@ class FamilyRecordApiTests extends LedgerApiTest {
         assertThat(detail(delete(alice, "/api/entries/%d?version=0".formatted(share.get("id").asLong())),
                 HttpStatus.CONFLICT)).startsWith("Entry %d was posted".formatted(share.get("id").asLong()));
         assertThat(detail(delete(alice, "/api/entries/%d?version=0".formatted(payment.get("id").asLong())),
-                HttpStatus.CONFLICT)).isEqualTo(("Entry %d is your payment for a record of the family budget \"Home\"; "
-                + "change or delete the record there.").formatted(payment.get("id").asLong()));
+                HttpStatus.CONFLICT)).isEqualTo(("Entry %d is your payment for an expense of the family budget \"Home\"; "
+                + "change or delete the expense there.").formatted(payment.get("id").asLong()));
         assertThat(ok(get(alice, "/api/entries/" + share.get("id").asLong())).get("family").get("readOnly").asBoolean())
                 .isTrue();
 
@@ -202,7 +159,8 @@ class FamilyRecordApiTests extends LedgerApiTest {
         // Bob neither wrote the first record nor owns the ledger.
         assertThat(detail(patch(bob, uri + "/records/" + first + "?version=0", """
                 {"comment": "Mine"}"""), HttpStatus.CONFLICT))
-                .isEqualTo("Only the record's author or an owner of the family budget can change it.");
+                .isEqualTo("Only the expense's author or an owner of the family budget can change its category, split or "
+                        + "comment.");
         // An owner changes a record of Bob's: the category, the comment and the split.
         JsonNode changed = ok(patch(alice, uri + "/records/" + third + "?version=0", """
                 {"categoryId": %d, "comment": "Kid's school trip", "split": {"method": "ONE_MEMBER", "memberId": %d}}"""
@@ -216,7 +174,7 @@ class FamilyRecordApiTests extends LedgerApiTest {
         assertThat(postedEntries(bob)).hasSize(2);
         assertThat(detail(patch(alice, uri + "/records/" + third + "?version=0", """
                 {"comment": "Again"}"""), HttpStatus.CONFLICT))
-                .isEqualTo("Record %d has changed since version 0. Reload it and try again.".formatted(third));
+                .isEqualTo("Expense %d has changed since version 0. Reload it and try again.".formatted(third));
         // The same values again change nothing: no new version, no new entry versions.
         List<String> alicesEntries = entryVersions(alice);
         assertThat(ok(patch(alice, uri + "/records/" + third + "?version=1", """
@@ -226,12 +184,12 @@ class FamilyRecordApiTests extends LedgerApiTest {
 
         // The payer with an account deletes; for Kid, the author or an owner.
         assertThat(detail(delete(bob, uri + "/records/" + first + "?version=0"), HttpStatus.CONFLICT))
-                .isEqualTo("Only Mum, who paid it, can delete this record.");
+                .isEqualTo("Only Mum, who paid it, can delete this expense.");
         assertThat(detail(delete(bob, uri + "/records/" + kidsByAlice + "?version=0"), HttpStatus.CONFLICT))
-                .isEqualTo("Only the record's author or an owner of the family budget can delete it.");
+                .isEqualTo("Only the expense's author or an owner of the family budget can delete it.");
         assertThat(delete(bob, uri + "/records/" + third + "?version=1")).hasStatus(HttpStatus.NO_CONTENT);
         assertThat(detail(get(bob, uri + "/records/" + third), HttpStatus.NOT_FOUND))
-                .isEqualTo("Record %d not found.".formatted(third));
+                .isEqualTo("Expense %d not found.".formatted(third));
         assertThat(delete(alice, uri + "/records/" + kidsByAlice + "?version=0")).hasStatus(HttpStatus.NO_CONTENT);
         assertThat(postedEntries(bob)).hasSize(1);
         assertThat(delete(alice, uri + "/records/" + first + "?version=0")).hasStatus(HttpStatus.NO_CONTENT);
@@ -282,7 +240,7 @@ class FamilyRecordApiTests extends LedgerApiTest {
         assertThat(details(bobsAccount)).containsExactly("PAYMENT %d account %d does not exist".formatted(mum, bobsCash));
         assertThat(details(post(alice, uri + "/records", expense("2026-09-10", groceries, "1", mum,
                 "\"paymentAccountId\": %d,".formatted(accountId(alice, "LOANS_ASSET")))))).containsExactly(
-                "PAYMENT %d the account LOANS_ASSET can't pay a family record: pay with an account of your own money or "
+                "PAYMENT %d the account LOANS_ASSET can't pay a family expense: pay with an account of your own money or "
                         .formatted(mum) + "credit, or specify it later");
 
         // Shares: to ACTIVE members, once each, adding up.
@@ -309,7 +267,7 @@ class FamilyRecordApiTests extends LedgerApiTest {
         long grandpa = join(family, late, "Grandpa", "MEMBER", LocalDate.of(2026, 9, 15));
         assertThat(details(post(alice, uri + "/records", expense("2026-09-10", groceries, "10", kid, "", """
                 {"method": "ONE_MEMBER", "memberId": %d}""".formatted(grandpa))))).containsExactly(
-                "JOINED_AFTER %d Grandpa joined on 2026-09-15, after the record's date 2026-09-10".formatted(grandpa));
+                "JOINED_AFTER %d Grandpa joined on 2026-09-15, after the expense's date 2026-09-10".formatted(grandpa));
         // Under the equal rule he isn't among the members of an earlier record.
         assertThat(shares(created(post(alice, uri + "/records", expense("2026-09-10", groceries, "10", kid, "")))))
                 .containsExactly("Mum 3.33 null", "Dad 3.33 null", "Kid 3.34 null");
@@ -317,14 +275,14 @@ class FamilyRecordApiTests extends LedgerApiTest {
     }
 
     /**
-     * 409 for what the ledger's state rules out: a date before its start (D-27), a change of the payment fields
-     * (F4c), a new base currency after the first record (D-13), removing a member who shares records, deleting a
-     * category that anything uses, and a record that involves a member who deleted their data (D-19, D-20).
+     * 409 for what the ledger's state rules out: a date before its start (D-27), also as a change, a new base currency
+     * after the first record (D-13), removing a member who shares records, deleting a category that anything uses, and
+     * a record that involves a member who deleted their data (D-19, D-20).
      */
     @Test
     void whatTheStateRulesOutIsAConflict() throws IOException {
         assertThat(detail(post(alice, uri + "/records", expense("2026-08-31", groceries, "10", kid, "")),
-                HttpStatus.CONFLICT)).isEqualTo("The family budget starts on 2026-09-01, and a record can't be dated "
+                HttpStatus.CONFLICT)).isEqualTo("The family budget starts on 2026-09-01, and an expense can't be dated "
                 + "before its start date.");
         assertThat(ok(get(alice, uri)).get("startDate").asText()).isEqualTo("2026-09-01");
         assertThat(ok(patch(alice, uri, """
@@ -335,10 +293,8 @@ class FamilyRecordApiTests extends LedgerApiTest {
         JsonNode kids = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "10", kid, "")));
         String record = uri + "/records/" + kids.get("id").asLong() + "?version=0";
         assertThat(detail(patch(alice, record, """
-                {"amount": "11"}"""), HttpStatus.CONFLICT)).isEqualTo("The payment fields of a record (date, amount, "
-                + "payer, the account paid with) can't be changed yet; delete the record and enter it again.");
-        assertThat(patch(alice, record, """
-                {"date": "2026-09-11"}""")).hasStatus(HttpStatus.CONFLICT);
+                {"date": "2026-08-31"}"""), HttpStatus.CONFLICT)).isEqualTo("The family budget starts on 2026-09-01, "
+                + "and an expense can't be dated before its start date.");
         assertThat(detail(patch(alice, uri, """
                 {"baseCurrency": "USD"}"""), HttpStatus.CONFLICT)).isEqualTo("The base currency of a family budget "
                 + "can't change once it has a record: its shares and balances are in it.");
@@ -366,7 +322,7 @@ class FamilyRecordApiTests extends LedgerApiTest {
         assertThat(frozen.get("frozen").asBoolean()).isTrue();
         assertThat(frozen.get("canEdit").asBoolean()).isFalse();
         assertThat(shares(frozen)).containsExactly("Mum 6.68 null", "Former member 6.66 null", "Kid 6.66 null");
-        String frozenMessage = "The record is frozen: a member it involves has left the family budget or deleted "
+        String frozenMessage = "The expense is frozen: a member it involves has left the family budget or deleted "
                 + "their data, so nobody can change it.";
         assertThat(detail(patch(alice, uri + "/records/" + withBob + "?version=0", """
                 {"comment": "Still?"}"""), HttpStatus.CONFLICT)).isEqualTo(frozenMessage);
@@ -445,104 +401,5 @@ class FamilyRecordApiTests extends LedgerApiTest {
                 "CREATE by Former member: date null→2026-09-14, category null→Groceries, amount null→20.00, "
                         + "payer null→Former member, splitMethod null→EQUAL, share of Mum null→6.66, "
                         + "share of Former member null→6.68, share of Kid null→6.66, comment null→null");
-    }
-
-    /** A new record of the rule in the base currency, and the rest of the request. */
-    private static String expense(String date, long category, String amount, long payer, String payment) {
-        return expense(date, category, amount, payer, payment, null);
-    }
-
-    private static String expense(String date, long category, String amount, long payer, String payment,
-            String split) {
-        return """
-                {"date": "%s", "categoryId": %d, "amount": "%s", %s "payerMemberId": %d%s}""".formatted(date, category,
-                amount, payment, payer, split == null ? "" : ", \"split\": " + split);
-    }
-
-    private JsonNode created(MvcTestResult result) throws IOException {
-        return body(result, HttpStatus.CREATED);
-    }
-
-    private String detail(MvcTestResult result, HttpStatus status) throws IOException {
-        return body(result, status).get("detail").asText();
-    }
-
-    private List<String> violationsOf(MvcTestResult result) throws IOException {
-        List<String> violations = new ArrayList<>();
-        body(result, HttpStatus.UNPROCESSABLE_ENTITY).get("violations").forEach(v -> violations.add(v.asText()));
-        return violations;
-    }
-
-    /** The 422's violations as "CODE memberId message". */
-    private List<String> details(MvcTestResult result) throws IOException {
-        List<String> details = new ArrayList<>();
-        body(result, HttpStatus.UNPROCESSABLE_ENTITY).get("violationDetails").forEach(v -> details.add(
-                v.get("code").asText() + " " + v.get("memberId").asText() + " " + v.get("message").asText()));
-        return details;
-    }
-
-    /** The record's shares as "name amount basisPoints". */
-    private static List<String> shares(JsonNode record) {
-        return StreamSupport.stream(record.get("shares").spliterator(), false)
-                .map(s -> s.get("member").get("displayName").asText() + " " + s.get("amount").asText() + " "
-                        + s.get("basisPoints").asText())
-                .toList();
-    }
-
-    /** The balances as the user reads them, as "name balance" and " you" for their own. */
-    private List<String> balances(String user) throws IOException {
-        JsonNode balances = ok(get(user, uri + "/balances"));
-        assertThat(balances.get("currency").asText()).isEqualTo("EUR");
-        return StreamSupport.stream(balances.get("members").spliterator(), false)
-                .map(b -> b.get("displayName").asText() + " " + b.get("balance").asText()
-                        + (b.get("you").asBoolean() ? " you" : ""))
-                .toList();
-    }
-
-    /** The user's entries of the family, as "kind link account:amount:category …", oldest first. */
-    private List<String> postedEntries(String user) throws IOException {
-        List<String> entries = new ArrayList<>();
-        for (JsonNode entry : ok(get(user, "/api/entries?size=200")).get("content")) {
-            if (!entry.get("family").isNull()) {
-                StringBuilder text = new StringBuilder(entry.get("kind").asText() + " "
-                        + entry.get("family").get("link").asText());
-                entry.get("postings").forEach(p -> text.append(" ").append(p.get("accountId").asLong()).append(":")
-                        .append(p.get("amount").asText()).append(":").append(p.get("categoryId").asText()));
-                entries.add(0, text.toString());
-            }
-        }
-        return entries;
-    }
-
-    private List<String> entryVersions(String user) throws IOException {
-        return ok(get(user, "/api/entries?size=200")).get("content").findValuesAsText("version");
-    }
-
-    /** The journal as "ACTION by author: field old→new, …". */
-    private static List<String> changes(JsonNode journal) {
-        return StreamSupport.stream(journal.get("content").spliterator(), false).map(change -> {
-            List<String> fields = new ArrayList<>();
-            change.get("changes").forEach(c -> fields.add(c.get("field").asText()
-                    + (c.get("member").isNull() ? "" : " of " + c.get("member").get("displayName").asText()) + " "
-                    + c.get("old").asText() + "→" + c.get("new").asText()));
-            return change.get("action").asText() + " by " + change.get("author").get("displayName").asText() + ": "
-                    + String.join(", ", fields);
-        }).toList();
-    }
-
-    /** Each journal entry's record as "date category amount live|deleted". */
-    private static List<String> summaries(JsonNode journal) {
-        return StreamSupport.stream(journal.get("content").spliterator(), false).map(change -> change.get("record"))
-                .map(record -> record.get("date").asText() + " " + record.get("category").asText() + " "
-                        + record.get("amount").asText() + (record.get("deleted").asBoolean() ? " deleted" : " live"))
-                .toList();
-    }
-
-    private static List<Long> ids(JsonNode array) {
-        return StreamSupport.stream(array.spliterator(), false).map(element -> element.get("id").asLong()).toList();
-    }
-
-    private static JsonNode[] elements(JsonNode array) {
-        return StreamSupport.stream(array.spliterator(), false).toArray(JsonNode[]::new);
     }
 }

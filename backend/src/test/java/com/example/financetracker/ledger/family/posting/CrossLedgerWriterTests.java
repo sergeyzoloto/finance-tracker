@@ -87,32 +87,41 @@ class CrossLedgerWriterTests extends IntegrationTest {
 
         // One of Alice's own accounts, her cash, in a share of hers.
         refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.SHARE, EntryKind.FAMILY_SHARE, true,
-                LocalDate.of(2026, 9, 10), List.of(line(alicesCash, "10.00", null), line(alicesDebt, "-10.00", null))),
+                LocalDate.of(2026, 9, 10), List.of(line(alicesCash, "10.00", null), line(alicesDebt, "-10.00", null)), null),
                 "account %d is not one it may post a SHARE to".formatted(alicesCash));
         // Her cash as the account of "her" payment, which only she can make.
         refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.PAYMENT, EntryKind.FAMILY_PAYMENT, false,
-                LocalDate.of(2026, 9, 10), List.of(line(alicesCash, "-10.00", null), line(alicesDebt, "10.00", null))),
+                LocalDate.of(2026, 9, 10), List.of(line(alicesCash, "-10.00", null), line(alicesDebt, "10.00", null)), null),
                 "only a payment with the payer's own account is not the family budget's");
         // UNALLOCATED with one of her personal categories.
         refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.SHARE, EntryKind.FAMILY_SHARE, true,
                 LocalDate.of(2026, 9, 10), List.of(line(alicesUnallocated, "10.00", alicesHousing),
-                        line(alicesDebt, "-10.00", null))),
+                        line(alicesDebt, "-10.00", null)), null),
                 "account %d is not one it may post a SHARE to".formatted(alicesUnallocated));
         // A kind that isn't the link's, and an entry that doesn't touch the debt account.
         refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.SHARE, EntryKind.FAMILY_PAYMENT, true,
                 LocalDate.of(2026, 9, 10), List.of(line(alicesUnallocated, "10.00", familyCategory),
-                        line(alicesDebt, "-10.00", null))), "a SHARE link takes an entry of kind FAMILY_SHARE");
+                        line(alicesDebt, "-10.00", null)), null), "a SHARE link takes an entry of kind FAMILY_SHARE");
         refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.SHARE, EntryKind.FAMILY_SHARE, true,
                 LocalDate.of(2026, 9, 10), List.of(line(alicesUnallocated, "10.00", familyCategory),
-                        line(alicesUnallocated, "-10.00", familyCategory))),
+                        line(alicesUnallocated, "-10.00", familyCategory)), null),
                 "it posts nothing to the member's debt account");
         // A record of another family ledger.
         long elsewhere = call(alice, HttpMethod.POST, "/api/family-ledgers", """
                 {"name": "Elsewhere", "baseCurrency": "EUR", "displayName": "Mum"}""").get("id").asLong();
         refused(bobInHome, new PostedEntry(alicesMembership, record + 1_000_000, LinkType.SHARE,
                 EntryKind.FAMILY_SHARE, true, LocalDate.of(2026, 9, 10), List.of(line(alicesUnallocated, "10.00",
-                        familyCategory), line(alicesDebt, "-10.00", null))),
+                        familyCategory), line(alicesDebt, "-10.00", null)), null),
                 "record %d is not of family ledger %d".formatted(record + 1_000_000, family));
+        // A note in her ledger: only the payer's own payment takes one, written by the payer (F4c).
+        refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.PAYMENT, EntryKind.FAMILY_PAYMENT, false,
+                LocalDate.of(2026, 9, 10), List.of(line(alicesCash, "-10.00", null), line(alicesDebt, "10.00", null)),
+                "Bob's words"),
+                "only the payer's own payment takes a note, their own");
+        refused(bobInHome, new PostedEntry(alicesMembership, record, LinkType.SHARE, EntryKind.FAMILY_SHARE, true,
+                LocalDate.of(2026, 9, 10), List.of(line(alicesUnallocated, "10.00", familyCategory),
+                        line(alicesDebt, "-10.00", null)), "Bob's words"),
+                "only the payer's own payment takes a note, their own");
         assertThat(elsewhere).isPositive();
 
         assertThat(alicesRows()).isEqualTo(alicesRows);
@@ -120,7 +129,7 @@ class CrossLedgerWriterTests extends IntegrationTest {
         transaction.executeWithoutResult(status -> {
             writer.write(bobInHome, new PostedEntry(alicesMembership, bobsOwn, LinkType.SHARE,
                     EntryKind.FAMILY_SHARE, true, LocalDate.of(2026, 9, 11), List.of(
-                    line(alicesUnallocated, "1.00", familyCategory), line(alicesDebt, "-1.00", null))));
+                    line(alicesUnallocated, "1.00", familyCategory), line(alicesDebt, "-1.00", null)), null));
             status.setRollbackOnly();
         });
         assertThat(alicesRows()).isEqualTo(alicesRows);

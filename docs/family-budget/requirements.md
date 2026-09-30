@@ -8,6 +8,8 @@ Amended after the F2b review on 2026-09-29: the planned stages (F3 split into F3
 
 Amended after the F3a review on 2026-09-29: D-3 (a member with an account changes their own display name).
 
+Amended after the F3b deploy on 2026-09-30: new D-27 (the start date), the planned stages (F4 split into F4a, F4b and F4c) and "Later".
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -116,6 +118,9 @@ Added after the F1 review (2026-09-29)
 - D-25. Feature switch: family features sit behind a configuration switch that stays off in production until F7. While it is off, the family endpoints answer 404 and the family pages are hidden. Tests run with the switch on. Stages merge into main as they are ready, and their migrations may reach production early.
 - D-26. Returning members: inviting a LEFT member again reactivates the same membership, with the acceptance date as the join date. If their personal debt balance differs from their family balance, one corrective entry dated on the join date fixes the difference; the acceptance screen shows it. Categories are matched by code again, as at the first join.
 
+Added after the F3b deploy (2026-09-30)
+- D-27. The start date: a family ledger has a start date, chosen at creation (today by default, earlier allowed, never in the future). It is also the creator's join date. A record dated before it answers 409 naming the rule. Family ledgers created before F4a get their creation date as start date. The create endpoint takes the start date as an optional additive field.
+
 ## MVP user stories
 - A1 Create a family budget with a name and a base currency.
 - A2 Set a default split rule (equal or custom percentages).
@@ -147,8 +152,9 @@ Added after the F1 review (2026-09-29)
 - F2b: LedgerScope and LedgerAccess, every query scoped by ledger_id, an architecture test; deployed on its own.
 - F3a: migration V6 and the backend: family ledgers, members without accounts, split rule, family categories in the family ledger, the feature switch (D-25), and the membership part of D-20.
 - F3b: the interface: the ledger switcher and the family pages.
-- F4a: family records, shares, the posting service, expenses in the base currency, balances, read-only posted rows, the change journal; UNALLOCATED becomes a system account. Also family categories in personal ledgers: merging a member's categories into the family ones by code, the posting trigger's exception for family categories, and family categories in personal category lists and reports. Until then a family category lives only in its family ledger.
-- F4b: marking personal entries as family, incomes, other currencies, settlements (D-24), payment edits.
+- F4a: the backend of family expense records and posting: family records, shares, the posting service, expenses in the base currency, balances, read-only posted rows, the change journal, the start date (D-27); UNALLOCATED becomes a system account. Also family categories in personal ledgers: merging the creator's chosen categories into the family ones at creation, the posting trigger's exception for family categories, and family categories in personal category lists and reports. Until then a family category lives only in its family ledger.
+- F4b: the interface of family expense records.
+- F4c: what the plan called F4b: marking personal entries as family, incomes, other currencies, settlements (D-24), and edits of payment fields, backend and interface; it may be split again. Until F4c, a wrong payment field is fixed by deleting the record and entering it again.
 - F5: invites, seat claiming, returning members (D-26). The privacy policy text is ready before F5 starts.
 - F6: leaving, removal and detach; delete-my-data for family data; the published privacy policy; the demo family; family reports and the personal-report filter; removing old SharedExpense creation from the UI.
 - F7: the switch goes on in production, followed by a check with two real accounts.
@@ -156,4 +162,5 @@ Added after the F1 review (2026-09-29)
 
 ## Later
 Found along the way; not part of a stage yet.
+- Row buttons in category lists. The entry form's .actions flex rule also applies to td.actions, so the personal and family category lists stack their row buttons vertically. It predates F3b.
 - Sequential scans on posting. F2b's EXPLAIN showed the balance, integrity and rates statements reading all postings and hash-joining them with the ledger's entries, since posting has no ledger column; the same statements filtered by user_id had the same plan before F2b. Revisit after the Excel import, or when demo ledgers from open registration pile up. The options: a ledger_id on posting, checked by a trigger against its entry's; or statements that start from the ledger's entries and reach the postings through their index.

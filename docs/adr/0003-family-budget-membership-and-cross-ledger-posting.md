@@ -12,7 +12,9 @@ ledgers moved to F4a (topic J). Amended for F3a: split shares in basis points (t
 and J). F3a is deployed since 2026-09-29, from `9bbf427`, with the feature switch off. Amended after
 the F3a review: the fallback to `EQUAL` stands and is journaled from F4a (topics B and H), a member
 changes their own display name (topics B and I), and delete-all's order once family categories reach
-personal ledgers (topic J). The requirements and decisions D-1 to D-26 are in
+personal ledgers (topic J). F3b is deployed since 2026-09-30, from `5a7e490`, with the switch off. Amended
+after that deploy: the start date of a family ledger (D-27, topics B and D) and F4 split into F4a, F4b
+and F4c (topic J). The requirements and decisions D-1 to D-26 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -353,6 +355,9 @@ CREATE TABLE family_share (
   of T. The default rule (`ledger.split_rule`, `ledger_member.share_bp`) applies to new records
   only; the participants are the members that are ACTIVE with `join_date` on or before the record's
   date.
+- **The start date** (D-27, after the F3b deploy): `ledger.start_date`, chosen at creation (today by
+  default, earlier allowed, never later), is also the creator's join date. A record dated before it
+  answers 409 naming the rule. Family ledgers created before F4a get their creation date.
 - **Frozen** is computed, not stored: a record is frozen when its payer or a member with a share is
   LEFT or FORMER (D-19, D-20). The service refuses changes to it with 409.
 - A deleted record keeps its row (`deleted_at`), so the change journal and E1's history stay
@@ -832,6 +837,10 @@ back").
   test covers delete-all for a user with such postings.
   F4b: marking a personal entry as family (C2), incomes (C5), other currencies (C7), settlements (D2,
   D-24), and the payment edits of D-14.
+  **F4 split again** (after the F3b deploy, 2026-09-30): F4a is the backend of family expense records
+  and posting, as above, with the start date (D-27); F4b is their interface; F4c takes what the plan
+  called F4b just above, backend and interface, and may be split again. Until F4c, a wrong payment
+  field is fixed by deleting the record and entering it again.
 - **F5**: invites, seat claiming and returning members (D-26). It is the first stage in which
   another real person's data meets the owner's, so the privacy policy's new text (H2) is ready before
   F5 starts, even if F6 publishes it.

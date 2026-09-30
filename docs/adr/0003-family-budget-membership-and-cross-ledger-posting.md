@@ -14,7 +14,8 @@ the F3a review: the fallback to `EQUAL` stands and is journaled from F4a (topics
 changes their own display name (topics B and I), and delete-all's order once family categories reach
 personal ledgers (topic J). F3b is deployed since 2026-09-30, from `5a7e490`, with the switch off. Amended
 after that deploy: the start date of a family ledger (D-27, topics B and D) and F4 split into F4a, F4b
-and F4c (topic J). The requirements and decisions D-1 to D-26 are in
+and F4c (topic J). F4a is deployed since 2026-09-30, from `71c3eb7` (parts 1 to 4) and `5f5af66`
+(parts 5 and 6), with the switch off; the decisions after its reviews are in topics D, E, F and H. The requirements and decisions D-1 to D-26 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -602,6 +603,15 @@ D-18, D-19's detach, D-24, D-26.
   into a family budget comes back as a personal one beside the family one with the same code, which
   the list marks; no demo entry uses a family category. The rule above, that a personal category
   may not take a family category's code, is for the categories users create.
+
+**Kept after the review of parts 5 and 6** (2026-09-30):
+
+- The isolation tests' exception reads as built: in the user's own view, the personal categories
+  merged at creation are replaced by the family ones wherever they appear (the category list, the
+  pickers, the cash flow), and nothing else of that view changes.
+- Re-pointed entries keep their versions: the merge changes only a posting's category.
+- The demo's personal twin of a merged starter category is accepted for now. F6 revisits it together
+  with the demo family (H1).
 
 **Consequences.** A rename by an owner shows in every member's personal reports at once. A member
 who leaves gets personal copies of the family categories their postings use (the detach, topic E), and

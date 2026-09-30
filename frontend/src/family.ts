@@ -1,6 +1,6 @@
 import type {
-  FamilyBalance, FamilyBalances, FamilyChange, FamilyFieldChange, FamilyMember, MemberRole, MemberStatus, SplitMethod,
-  ViolationDetail,
+  FamilyBalance, FamilyBalances, FamilyChange, FamilyFieldChange, FamilyMember, FamilyRecord, FamilyRecordType, MemberRef,
+  MemberRole, MemberStatus, SplitMethod, ViolationDetail,
 } from './api'
 import { formatDate } from './api'
 import { basisPointsToPercent } from './basisPoints'
@@ -36,6 +36,42 @@ export const shareText = (member: FamilyMember) => (member.share === null ? null
 /** An expense as the screens name it: its category and date, "Groceries, Sep 12, 2026". */
 export const expenseName = (category: string | null, date: string) => `${category ?? 'An expense'}, ${formatDate(date)}`
 
+/** What the screens call a record of each type. */
+export const RECORD_NOUNS: Record<FamilyRecordType, string> = { EXPENSE: 'expense', INCOME: 'income', SETTLEMENT: 'settlement' }
+
+/**
+ * A record as a sentence names it: "Groceries, Sep 12, 2026" for an expense, "the income Salary, Sep 12, 2026", "the
+ * settlement of Sep 12, 2026".
+ */
+export function recordName(record: { type?: FamilyRecordType; category: string | null; date: string }) {
+  switch (record.type) {
+    case 'SETTLEMENT': return `the settlement of ${formatDate(record.date)}`
+    case 'INCOME': return `the income ${expenseName(record.category, record.date)}`
+    default: return expenseName(record.category, record.date)
+  }
+}
+
+/** A member as the reader reads them: "you", or their name. */
+export const memberName = (member: MemberRef, me: number) => (member.memberId === me ? 'you' : member.displayName)
+
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
+/** A settlement from the reader's side: "Sam paid you €36.20", "You paid Sam €36.20", "Kid paid Sam €5.00". */
+export function settlementSentence(record: FamilyRecord, me: number) {
+  const to = record.payee ? memberName(record.payee, me) : 'someone'
+  return `${capital(memberName(record.payer, me))} paid ${to} ${formatMoney(record.amount, record.currency)}`
+}
+
+/** A record's title in the list: its category, or "Settlement". */
+export const recordTitle = (record: FamilyRecord) =>
+  record.type === 'SETTLEMENT' ? 'Settlement' : record.category?.name ?? RECORD_NOUNS[record.type]
+
+/** Who paid or received it, from the reader's side: "Paid by you", "Received by Sam", or a settlement's sentence. */
+export function recordWho(record: FamilyRecord, me: number) {
+  if (record.type === 'SETTLEMENT') return settlementSentence(record, me)
+  return `${record.type === 'INCOME' ? 'Received' : 'Paid'} by ${memberName(record.payer, me)}`
+}
+
 // Balances (D1). A member's balance is what they owe the family budget: positive if they owe, negative if they are
 // owed. The balances sum to zero, so what some owe, the others are owed.
 
@@ -62,7 +98,7 @@ export interface Debt { from: FamilyBalance; to: FamilyBalance; amount: string }
 /**
  * Who owes whom: the payments that would settle every balance, as few as the rule below finds. The member who owes
  * most pays the one who is owed most, as much as either can, until nobody owes anything; ties go by join order. With
- * two members that is the one payment there is. It only reads the balances; settling is a later stage (F4c).
+ * two members that is the one payment there is. It only reads the balances; a settlement records a payment (F4d).
  */
 export function whoOwesWhom({ currency, members }: FamilyBalances): Debt[] {
   const open = members.map((member, order) => ({ member, order, rest: toMinor(member.balance, currency) ?? 0n }))
@@ -86,6 +122,18 @@ export function debtSentence({ from, to, amount }: Debt, currency: string) {
   if (from.you) return `You owe ${to.displayName} ${money}`
   return `${from.displayName} owes ${to.you ? 'you' : to.displayName} ${money}`
 }
+
+/** Who owes whom, with the reader's own debts first (to settle up), the others after them in their order. */
+export const settleUpOrder = (debts: Debt[]) =>
+  [...debts.filter((d) => d.from.you || d.to.you), ...debts.filter((d) => !d.from.you && !d.to.you)]
+
+/**
+ * Whether the reader may record a settlement between these members: they pay or receive it, or they are an owner and
+ * neither side has an account (D-24).
+ */
+export const maySettle = (payer: { memberId: number; hasAccount: boolean }, payee: { memberId: number; hasAccount: boolean },
+  me: number, owner: boolean) =>
+  payer.memberId === me || payee.memberId === me || (owner && !payer.hasAccount && !payee.hasAccount)
 
 /** The reader's balance in words, member by member: "Sam owes you €40.00", or "You are settled". */
 export function yourBalance(balances: FamilyBalances): string[] {
@@ -131,16 +179,26 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
   }
   const who = change.author?.displayName ?? 'Former member'
   const record = change.record
-  const name = record ? expenseName(record.category, record.date) : 'an expense'
+  const type = record?.type ?? 'EXPENSE'
+  const name = record ? recordName(record) : 'an expense'
   const field = (f: string) => change.changes.find((c) => c.field === f)
   switch (change.action) {
     case 'CREATE': {
       const amount = field('amount')?.new ?? record?.amount
       const payer = field('payer')?.new
       const comment = field('comment')?.new ?? null
+      const commented = comment ? [`Comment: ${quoted(comment)}`] : []
+      if (type === 'SETTLEMENT') {
+        const payee = field('payee')?.new
+        return {
+          text: `${who} recorded ${name}: ${payer ?? 'someone'} paid ${payee ?? 'someone'} ${amount ? formatMoney(amount, currency) : ''}.`,
+          details: commented,
+        }
+      }
+      const how = type === 'INCOME' ? 'received by' : 'paid by'
       return {
-        text: `${who} added ${name}: ${amount ? formatMoney(amount, currency) : ''}${payer ? `, paid by ${payer}` : ''}.`,
-        details: [`Split: ${createdSplit(change.changes, currency)}`, ...(comment ? [`Comment: ${quoted(comment)}`] : [])],
+        text: `${who} added ${name}: ${amount ? formatMoney(amount, currency) : ''}${payer ? `, ${how} ${payer}` : ''}.`,
+        details: [`Split: ${createdSplit(change.changes, currency)}`, ...commented],
       }
     }
     case 'DELETE':
@@ -155,7 +213,7 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
         parts.push(['the amount', `${amount.old ? formatMoney(amount.old, currency) : 'none'} → ${amount.new ? formatMoney(amount.new, currency) : 'none'}`])
       }
       const payer = field('payer')
-      if (payer) parts.push(['the payer', `${payer.old ?? 'none'} → ${payer.new ?? 'none'}`])
+      if (payer) parts.push([type === 'INCOME' ? 'the receiver' : 'the payer', `${payer.old ?? 'none'} → ${payer.new ?? 'none'}`])
       const category = field('category')
       if (category) parts.push(['the category', `${category.old ?? 'none'} → ${category.new ?? 'none'}`])
       if (change.changes.some((c) => c.field === 'splitMethod' || c.field === 'share')) {

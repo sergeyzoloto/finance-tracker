@@ -261,7 +261,7 @@ describe('a family budget’s page', () => {
     expect(screen.getByRole('alert').textContent).toContain('Kid wasn’t added: No.')
     const tabs = within(screen.getByRole('navigation', { name: 'Family budget' })).getAllByRole('link')
     expect(tabs.map((t) => [t.textContent, t.getAttribute('href')])).toEqual([
-      ['Overview', '/family/7'], ['Expenses', '/family/7/expenses'], ['Balances', '/family/7/balances'],
+      ['Overview', '/family/7'], ['Activity', '/family/7/expenses'], ['Balances', '/family/7/balances'],
       ['Journal', '/family/7/journal'], ['Members', '/family/7/members'], ['Split rule', '/family/7/split-rule'],
       ['Categories', '/family/7/categories'], ['Settings', '/family/7/settings'],
     ])

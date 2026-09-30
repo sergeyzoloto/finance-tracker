@@ -69,7 +69,8 @@ export interface FamilyMember {
   share: number | null
 }
 
-// A family budget's expenses (F4a): the API calls them records. Amounts are in the budget's base currency.
+// A family budget's expenses (F4a), incomes and settlements (F4d): the API calls them records. Amounts are in the
+// budget's base currency.
 /** A member as a record, a balance or the journal names them: "Former member" once they deleted their data. */
 export interface MemberRef { memberId: number; displayName: string }
 /** How a record's amount is split: EQUAL comes from the budget's rule, PERCENT from the rule or the record's own. */
@@ -82,17 +83,23 @@ export interface FamilyShare {
   updatedBy: MemberRef
   updatedAt: string
 }
-/** A family expense as every member sees it: never anyone's account, personal category or entry (C4). */
+export type FamilyRecordType = 'EXPENSE' | 'INCOME' | 'SETTLEMENT'
+/**
+ * A family expense, income or settlement as every member sees it: never anyone's account, personal category or entry
+ * (C4). An income's payer is the member who received it; a settlement has no category, split or shares, and a payee.
+ */
 export interface FamilyRecord {
   id: number
-  type: 'EXPENSE' | 'INCOME' | 'SETTLEMENT'
+  type: FamilyRecordType
   date: string
-  category: { id: number; code: string; name: string; archived: boolean }
+  category: { id: number; code: string; name: string; archived: boolean } | null
   amount: string
   currency: string
   comment: string | null
   payer: MemberRef
-  splitMethod: SplitMethod
+  /** Who received a settlement; missing for an expense or an income. */
+  payee?: MemberRef
+  splitMethod: SplitMethod | null
   /** By the members' join order. */
   shares: FamilyShare[]
   author: MemberRef
@@ -104,9 +111,15 @@ export interface FamilyRecord {
   frozen: boolean
   canEdit: boolean
   canDelete: boolean
-  /** Whether the reader may change the date, the amount and the payer (D-14): the payer with an account, else the author or an owner. */
+  /**
+   * Whether the reader may change the date, the amount and the payer (D-14): the payer with an account, else the author
+   * or an owner; for a settlement, the date and the amount, by the side who recorded it.
+   */
   canEditPayment: boolean
-  /** How the reader paid it: only for the payer with an account, and missing for everyone else (D-16). */
+  /**
+   * How the reader paid it, or received an income: only for its payer or receiver with an account, and missing for
+   * everyone else (D-16); for a settlement, the reader's own side.
+   */
   yourPayment?: YourPayment
 }
 /** The payer's own view of their payment: their payment entry, and the account, or "Specify later" with none. */
@@ -143,7 +156,7 @@ export interface FamilyChange {
   about: MemberRef | null
   changes: FamilyFieldChange[]
   /** The record as it is now, deleted or not; null for a system change. */
-  record: { date: string; category: string | null; amount: string; deleted: boolean } | null
+  record: { date: string; category: string | null; amount: string; deleted: boolean; type?: FamilyRecordType } | null
 }
 export interface FamilyJournalPage { content: FamilyChange[]; page: number; size: number; totalElements: number; totalPages: number }
 
@@ -159,6 +172,8 @@ export interface EntryFamily {
   link: 'SHARE' | 'PAYMENT' | 'SETTLEMENT' | 'OPENING_BALANCE' | 'CORRECTION'
   /** It changes only through its family record. */
   readOnly: boolean
+  /** The record's type: a PAYMENT of an INCOME is what the user received. Missing without a record. */
+  recordType?: FamilyRecordType
 }
 export interface Posting {
   accountId: number

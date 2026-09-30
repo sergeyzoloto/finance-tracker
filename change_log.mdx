@@ -5,7 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-01 · Family budget: F4c's deploy and review, settlements and incomes (F4d)
 
-Not committed yet.
+Committed locally on `feature/family-budget` in four commits: `82d5f7c` (documents), `469eba4`
+(settlements), `567bf8e` (family incomes) and "feat(frontend): incomes, settlements and settling
+up", whose hash belongs here with the next change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - F4c's deploy and the decisions after its review (commit "docs(family-budget): F4c deploy and
@@ -84,6 +86,45 @@ Not committed yet.
     (new; the file has gained 176 lines since `e7cdeb1` and lost none); `FamilyRecordRandomTests`
     with incomes in the mix; `FamilyRecordApiTests` expects `recordType` on a posted entry;
     `FamilyPaymentApiTests` with the payment endpoint's new message.
+- The interface (commit "feat(frontend): incomes, settlements and settling up"), ADR 0003 topic I
+  ("F4d as built: the interface"):
+  - The family pages' "Expenses" tab is "Activity": expenses, incomes and settlements, newest first,
+    labelled from the reader's side ("Paid by you", "Salary · Income · Received by Sam", "Settlement ·
+    Sam paid you €36.20"), with "Add an expense", "Add an income" and "Record a settlement"; the
+    overview shows the latest activity. The paths stay `/family/{id}/expenses…`, which personal
+    entries and the journal link to.
+  - Balances: who owes whom with the reader's own lines first, and "Settle up" on each line the
+    reader may record (they pay or receive it; an owner also between two members without an
+    account). It opens `/family/{id}/settle?payer=&payee=&amount=`, the settlement form: who paid,
+    who received, amount, date, the reader's account or "Specify later" ("Paid from" or "Received
+    into", only when they are a side), comment; a line when the reader may not record it, and one
+    saying the other side's part goes to their placeholder.
+  - `incomes/new`: the expense form as an income ("Received by", "Received into", INCOME
+    categories, the tie to the receiver in the preview), remembering the last account per type.
+  - A record's page by type: an income's mirrors an expense's; a settlement's shows its sentence, both
+    members and the reader's own side, the recorder's date, amount and comment (with a line that a
+    new date or amount moves the other side's part back to their placeholder), and the other side's
+    account alone ("Your side of this settlement").
+  - The journal's sentences: "Sam recorded the settlement of Sep 14, 2026: Sam paid Anna €36.20.",
+    "Anna added the income Salary, Sep 13, 2026: €1,000.00, received by Anna.", "… changed the
+    receiver of the income …".
+  - The personal editor: a new income has "Family income" (C2), as a new expense has "Family
+    expense": budget, income category, split, family comment, the memo as the private note; the
+    account list takes only assets and liabilities. Switching between the two tabs keeps the
+    budget and drops the category and split.
+  - Personal entries: a receipt opens as "Family income received" and a settlement side as "Your
+    side of a family settlement", with the reader's own fields (the account; the date and amount for
+    a receipt and for a settlement's recorder; a receipt's note; delete for a receipt and for the
+    recorder), linked to "the income" or "the settlement". The entry list names "Family income
+    received" and "Family income share"; read-only entries name their record's type.
+  - The fix after the F4c review: an expense or income stored as equal shares opens its split as
+    "Equal shares, as it is split now" (`KEEP`), previewed among its own members as the server
+    splits it again, whatever the budget's rule is now, and never sent. F4c's open item about equal
+    shares under a custom rule (amounts that didn't add up) is gone with it.
+  - Tests: new `FamilyRecords.test.tsx` (10); `family.test.ts` (3 new: settlement and income
+    sentences, settle-up order and who may record); `FamilyExpenses.test.tsx`, `FamilyPayer.test.tsx`
+    and `Family.test.tsx` with the tab's name, the request's `type`, "Nothing recorded yet.", "Not
+    found" and the "Settle up" links.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -106,9 +147,44 @@ Not committed yet.
   without its filters alone left it passing, since the record's view asks only for the caller's own
   records; with the view asking for every record too, it failed (Bob's answer held her receipt).
   Both files restored.
+- After the interface's commit: frontend `npm test` 16 files and 220 tests passed (207 before),
+  `npm run build` succeeded; the backend unchanged since the incomes' commit.
+- The walk-through in headless Chrome (playwright-core), against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true` on a throwaway `postgres:17-alpine`, the Vite dev server and the dev
+  Keycloak's testuser, after "Delete all my data", with "Home" from 2026-08-30 (Groceries and Salary
+  brought in) and Sam without an account:
+  1. An expense of 72.40 paid from Cash, split equally: Sam owed 36.20. "Settle up" opened the form
+     with Sam, the user and 36.20; 20.00 received into Cash left 16.20, and "Settle up" again,
+     prefilled with 16.20, made both balances 0.00 ("Everyone is settled."). The activity read
+     "Sam paid you €16.20", "Sam paid you €20.00", "Paid by you"; the user's side opened in the
+     personal ledger, received into Cash.
+  2. An income of 1000.00 received into Cash, split 50/50 by percentages: shares 500.00 each, the
+     user owing 500.00, and in the personal ledger a share of −500.00 on Unallocated with the family's
+     Salary, listed as "Family income share, Home".
+  3. From the personal editor, a family income of 200.00 into the current account with a comment and
+     a note: the record with the account in `yourPayment`, and the note in no family answer.
+  4. With the rule made custom (70/30), the first expense opened with "Equal shares, as it is split
+     now"; a new amount of 80.01 previewed 40.01 and 40.00, sent only the amount, and the server
+     split it 40.01 and 40.00.
+  After each step the balances summed to zero and `/api/reports/integrity` read `[]`. At 375 px the
+  balances, the settlement form and page, the activity, the settlement side's entry, the income
+  form and page, the personal editor, the expense page, the journal and the overview were 375 px
+  wide. Found and fixed: the activity's expense rows were red (the new row class `expense` met the
+  personal list's style); "Record another settlement" on a budget without one (now "Record a
+  settlement"). Rechecked after the fixes. The only console error is `/api/me`'s 401 before the
+  sign-in. The instance and its database were removed; screenshots stay in the session's
+  scratchpad.
 
 **Open**
-- Settlements, incomes and their interface (this stage's later commits).
+- The owner's deploy of F4d with the switch off; the report has the checklist. No migration, no
+  `finance.conf` or `finance.caddy` change. Rollback: the `:previous` images, `e7cdeb1`.
+- To confirm: when a settlement's recorder changes its date or amount, the other side's part goes
+  back to their "Payments without a specified account" if they had put it on an account of theirs,
+  since only its member posts to their own account (D-8); deleting the settlement deletes their
+  entry wherever it is. The prompt's "its date and amount belong to the record" holds either way.
+- A settlement side takes no private note; a receipt does, like a payment.
+- The activity's paths stay `/family/{id}/expenses…` for all three types.
+- F4e (other currencies).
 
 ## 2026-09-30 · Family budget: F4b's deploy and review, the payer's side (F4c)
 

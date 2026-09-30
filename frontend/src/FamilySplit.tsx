@@ -14,6 +14,7 @@ function ruleLabel(ledger: FamilyLedger, context: SplitContext) {
 }
 
 const MODES: { mode: SplitMode; label: (rule: string) => string }[] = [
+  { mode: 'KEEP', label: () => 'Equal shares, as it is split now' },
   { mode: 'RULE', label: (rule) => `The budget’s rule (${rule})` },
   { mode: 'PERCENT', label: () => 'Percentages' },
   { mode: 'AMOUNT', label: () => 'Amounts' },
@@ -21,9 +22,10 @@ const MODES: { mode: SplitMode; label: (rule: string) => string }[] = [
 ]
 
 /**
- * How a family expense is split (D-12): the budget's rule, percentages, amounts, or one member, with every member's
- * resulting amount and the total before saving, as the server would split it. The server's objections come by member
- * (`byMember`) and for the split as a whole (`problems`).
+ * How a family expense or income is split (D-12): the budget's rule, percentages, amounts, or one member, with every
+ * member's resulting amount and the total before saving, as the server would split it. A stored record split equally
+ * also offers its equal shares as they are, among its own members (KEEP), which the preview follows. The server's
+ * objections come by member (`byMember`) and for the split as a whole (`problems`).
  */
 export function SplitEditor({ form, preview, context, currency, onChange, byMember, problems, you }: {
   form: SplitForm
@@ -52,7 +54,7 @@ export function SplitEditor({ form, preview, context, currency, onChange, byMemb
     <fieldset className="section split-editor">
       <legend>Split</legend>
       <div className="options">
-        {MODES.map(({ mode, label }) => (
+        {MODES.filter(({ mode }) => mode !== 'KEEP' || form.keep).map(({ mode, label }) => (
           <label key={mode} className="check">
             <input type="radio" name="split" checked={form.mode === mode} onChange={() => choose(mode)} />
             {label(ruleLabel(context.ledger, context))}
@@ -132,7 +134,8 @@ export function SplitEditor({ form, preview, context, currency, onChange, byMemb
       {[...preview.problems, ...problems].map((m) => <p key={m} className="error small" role="alert">{m}</p>)}
       <p className="muted small">
         Each share is rounded down to the currency’s smallest unit, and what is left goes to the largest share, on a tie
-        to the payer. The saved expense shows the shares as they were stored.
+        to {context.noun === 'income' ? 'the member who received it' : 'the payer'}.
+        The saved {context.noun ?? 'expense'} shows the shares as they were stored.
       </p>
     </fieldset>
   )

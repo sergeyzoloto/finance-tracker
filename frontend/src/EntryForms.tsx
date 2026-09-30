@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { useApi, type Category, type FamilyLedger, type FamilyMember } from './api'
 import { AccountSelect, CategorySelect, CounterpartyInput, CurrencyInput, Errors, Field } from './components'
 import {
-  accountChoices, blankPosting, isFamilyExpense, postingBalances, postingsBalance, postingWithAccount, sharePreview,
+  accountChoices, blankPosting, isFamilyRecord, postingBalances, postingsBalance, postingWithAccount, sharePreview,
   switchTab, TABS, transferNeedsCounterparty, validate, withAccount, withPayee, type EntryForm, type FieldErrors,
   type PostingDraft,
 } from './entryForm'
@@ -26,15 +26,15 @@ interface Props {
   /** Shown above the fields, such as why an entry opened in Advanced. */
   notice?: ReactNode
   /**
-   * The user's family budgets, for a new expense that can be a family expense (C2); left out while the family budget
-   * is switched off, and for an entry that exists.
+   * The user's family budgets, for a new expense or income that can be a family one (C2, F4d); left out while the
+   * family budget is switched off, and for an entry that exists.
    */
   families?: FamilyLedger[]
-  /** Creates a family expense in the budget with the request; rejects with the server's answer. */
+  /** Creates a family expense or income in the budget with the request; rejects with the server's answer. */
   onSaveFamily?: (ledgerId: number, request: ReturnType<typeof familyRequest>, andNew: boolean) => Promise<void>
 }
 
-/** A family expense's budget as the form has chosen it, with what its split needs. */
+/** A family expense's or income's budget as the form has chosen it, with what its split needs. */
 interface FamilyExpense {
   ledger: FamilyLedger
   categories?: Category[]
@@ -43,9 +43,9 @@ interface FamilyExpense {
   error?: string
 }
 
-/** The chosen family budget's members and categories, while the form is a family expense. */
+/** The chosen family budget's members and categories, while the form is a family expense or income. */
 function useFamilyExpense(form: EntryForm, families?: FamilyLedger[]): FamilyExpense | undefined {
-  const chosen = isFamilyExpense(form) ? families?.find((f) => String(f.id) === form.familyId) : undefined
+  const chosen = isFamilyRecord(form) ? families?.find((f) => String(f.id) === form.familyId) : undefined
   const members = useApi<FamilyMember[]>(chosen ? `/family-ledgers/${chosen.id}/members` : null)
   const categories = useApi<Category[]>(chosen ? `/family-ledgers/${chosen.id}/categories` : null)
   if (!chosen) return undefined
@@ -79,7 +79,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
 
   async function save(andNew: boolean) {
     const problems = validate(form, ledger)
-    if (isFamilyExpense(form)) {
+    if (isFamilyRecord(form)) {
       if (!family?.preview) (problems[''] ??= []).push(family?.error ?? 'The family budget is still loading.')
       else {
         for (const [field, messages] of Object.entries(familyProblems(form, family.ledger, family.preview))) {
@@ -90,7 +90,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
     setErrors(problems)
     if (Object.keys(problems).length > 0) return
     setBusy(true)
-    const failed = isFamilyExpense(form) && family?.preview
+    const failed = isFamilyRecord(form) && family?.preview
       ? await saveFamily(family.ledger, family.preview, andNew)
       : await run(() => onSave(form, andNew))
     setBusy(false)
@@ -104,7 +104,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
     }
   }
 
-  /** Creates the family expense (C2) through the family budget's endpoint; the messages if it failed. */
+  /** Creates the family expense or income (C2) through the family budget's endpoint; the messages if it failed. */
   async function saveFamily(chosen: FamilyLedger, preview: SplitPreview, andNew: boolean): Promise<FieldErrors | undefined> {
     try {
       await onSaveFamily!(chosen.id, familyRequest(form, chosen, preview), andNew)
@@ -128,7 +128,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
   }
 
   const fields = { form, ledger, errors, set, change }
-  const familyOn = isFamilyExpense(form)
+  const familyOn = isFamilyRecord(form)
   const byMember = new Map(Object.entries(errors).filter(([field]) => field.startsWith('familyMember.'))
     .map(([field, messages]) => [Number(field.slice('familyMember.'.length)), messages]))
   return (
@@ -147,13 +147,13 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
           <input type="date" value={form.date} required onChange={(e) => set({ date: e.target.value })} />
         </Field>
         {form.tab === 'expense' && <ExpenseFields {...fields} families={onSaveFamily ? families : undefined} family={family} />}
-        {form.tab === 'income' && <IncomeFields {...fields} />}
+        {form.tab === 'income' && <IncomeFields {...fields} families={onSaveFamily ? families : undefined} family={family} />}
         {form.tab === 'transfer' && <TransferFields {...fields} />}
         {form.tab === 'loan' && <LoanFields {...fields} />}
         {form.tab === 'exchange' && <ExchangeFields {...fields} />}
         {form.tab === 'advanced' && <PayeeField {...fields} label="Payee (optional)" />}
         <Field label={familyOn ? 'Note, only you see it' : 'Memo'} errors={errors.memo} className="wide"
-          hint={familyOn ? 'It stays on your payment in your own ledger; the family budget never sees it.' : undefined}>
+          hint={familyOn ? `It stays on your ${form.tab === 'income' ? 'receipt' : 'payment'} in your own ledger; the family budget never sees it.` : undefined}>
           <input value={form.memo} maxLength={500} onChange={(e) => set({ memo: e.target.value })} />
         </Field>
       </div>
@@ -239,7 +239,7 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
   const { form, ledger, errors, set, families, family } = props
   const parts = sharePreview(form)
   const shared = sharedAccount(ledger)
-  const familyOn = isFamilyExpense(form)
+  const familyOn = isFamilyRecord(form)
   const reason = families && families.length > 0 ? unavailable(families, form.currency, family?.ledger) : undefined
   return (
     <>
@@ -266,18 +266,10 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
             </label>
           </>
         )}
-        {families && families.length > 0 && (
-          <label className="check">
-            <input type="checkbox" role="switch" checked={familyOn} disabled={!familyOn && reason !== undefined}
-              onChange={(e) => set(e.target.checked
-                ? { familyId: String((familiesFor(families, form.currency)[0] ?? families[0]).id), refund: false, split: false, payee: '' }
-                : { familyId: '' })} />
-            Family expense
-          </label>
-        )}
+        {families && families.length > 0 && <FamilyOption {...props} families={families} reason={reason} />}
       </div>
       {reason && <p className="wide muted small" role="note">{reason}</p>}
-      {familyOn && families && family && <FamilyExpenseFields {...props} families={families} family={family} />}
+      {familyOn && families && family && <FamilyRecordFields {...props} families={families} family={family} />}
       {!familyOn && form.split && (
         <div className="wide split">
           <Field label="Family's share, %" errors={errors.sharePercent} className="narrow">
@@ -298,14 +290,34 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
 }
 
 /**
- * A family expense's own fields (C2): the family budget, only when the user has more than one (D-5), a family
- * category, and the comment every member sees. The split follows the fields, and the memo becomes the user's note.
+ * The switch that makes a new expense a family expense, or a new income a family income (C2, F4d): the payee, a
+ * refund or reversal and the old "Split with family" go while it is on. Disabled, with the reason beside it, while no
+ * family budget keeps the entry's currency.
  */
-function FamilyExpenseFields({ form, errors, change, families, family }: FieldsProps & {
+function FamilyOption({ form, set, families, reason }: FieldsProps & { families: FamilyLedger[]; reason?: string }) {
+  const familyOn = isFamilyRecord(form)
+  return (
+    <label className="check">
+      <input type="checkbox" role="switch" checked={familyOn} disabled={!familyOn && reason !== undefined}
+        onChange={(e) => set(e.target.checked
+          ? { familyId: String((familiesFor(families, form.currency)[0] ?? families[0]).id), refund: false, split: false, payee: '' }
+          : { familyId: '' })} />
+      {form.tab === 'income' ? 'Family income' : 'Family expense'}
+    </label>
+  )
+}
+
+/**
+ * A family expense's or income's own fields (C2, F4d): the family budget, only when the user has more than one (D-5),
+ * a family category of the record's type, and the comment every member sees. The split follows the fields, and the
+ * memo becomes the user's note.
+ */
+function FamilyRecordFields({ form, errors, change, families, family }: FieldsProps & {
   families: FamilyLedger[]
   family: FamilyExpense
 }) {
-  const expenseCategories = (family.categories ?? []).filter((c) => c.type === 'EXPENSE')
+  const type = form.tab === 'income' ? 'INCOME' : 'EXPENSE'
+  const ofType = (family.categories ?? []).filter((c) => c.type === type)
   return (
     <>
       {families.length > 1 && (
@@ -318,7 +330,7 @@ function FamilyExpenseFields({ form, errors, change, families, family }: FieldsP
         </Field>
       )}
       <Field label="Family category" errors={errors.familyCategoryId}>
-        <CategorySelect categories={expenseCategories} type="EXPENSE" value={form.familyCategoryId}
+        <CategorySelect categories={ofType} type={type} value={form.familyCategoryId}
           onChange={(familyCategoryId) => change({ ...form, familyCategoryId }, ['familyCategoryId'])} />
       </Field>
       <Field label="Comment for the family budget" errors={errors.familyComment} className="wide"
@@ -330,23 +342,32 @@ function FamilyExpenseFields({ form, errors, change, families, family }: FieldsP
   )
 }
 
-function IncomeFields(props: FieldsProps) {
-  const { form, ledger, errors, set } = props
+function IncomeFields(props: FieldsProps & { families?: FamilyLedger[]; family?: FamilyExpense }) {
+  const { form, ledger, errors, set, families, family } = props
+  const familyOn = isFamilyRecord(form)
+  const reason = families && families.length > 0 ? unavailable(families, form.currency, family?.ledger, 'income') : undefined
   return (
     <>
-      <PayeeField {...props} label="Payer" />
+      {!familyOn && <PayeeField {...props} label="Payer" />}
       <AccountField {...props} field="accountId" label="Received into" />
       <AmountFields {...props} />
-      <Field label="Category" errors={errors.categoryId}>
-        <CategorySelect categories={ledger.categories} type="INCOME" value={form.categoryId}
-          onChange={(categoryId) => set({ categoryId })} />
-      </Field>
+      {!familyOn && (
+        <Field label="Category" errors={errors.categoryId}>
+          <CategorySelect categories={ledger.categories} type="INCOME" value={form.categoryId}
+            onChange={(categoryId) => set({ categoryId })} />
+        </Field>
+      )}
       <div className="wide options">
-        <label className="check">
-          <input type="checkbox" checked={form.refund} onChange={(e) => set({ refund: e.target.checked })} />
-          Reversal: the money went back
-        </label>
+        {!familyOn && (
+          <label className="check">
+            <input type="checkbox" checked={form.refund} onChange={(e) => set({ refund: e.target.checked })} />
+            Reversal: the money went back
+          </label>
+        )}
+        {families && families.length > 0 && <FamilyOption {...props} families={families} reason={reason} />}
       </div>
+      {reason && <p className="wide muted small" role="note">{reason}</p>}
+      {familyOn && families && family && <FamilyRecordFields {...props} families={families} family={family} />}
     </>
   )
 }

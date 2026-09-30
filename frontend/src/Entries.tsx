@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { formatDate, isoDate, useApi, type EntryPage } from './api'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
-import { describeEntry, kindLabel, useLedger } from './ledger'
+import { describeEntry, entryKindLabel, kindLabel, useLedger } from './ledger'
 import { formatMoney, negate } from './money'
 
 const PAGE_SIZE = 50
@@ -151,7 +151,7 @@ export default function Entries() {
                       {summary.category || <span className="muted">{kindLabel(entry.kind)}</span>}
                       {entry.family && (
                         <div className="muted small" title="It changes in the family budget">
-                          {summary.category ? `${kindLabel(entry.kind)}, ${entry.family.ledgerName}` : entry.family.ledgerName}
+                          {summary.category ? `${entryKindLabel(entry)}, ${entry.family.ledgerName}` : entry.family.ledgerName}
                         </div>
                       )}
                     </td>

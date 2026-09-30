@@ -8,7 +8,7 @@ const PAGE_SIZE = 50
 
 /**
  * Changes of the journal as sentences, newest first, with members named as the server names them now. `links` adds a
- * link to each expense that isn't deleted.
+ * link to each expense, income or settlement that isn't deleted.
  */
 export function JournalList({ changes, family, links = true }: { changes: FamilyChange[]; family: FamilyData; links?: boolean }) {
   if (changes.length === 0) return <p className="empty">No changes yet.</p>
@@ -43,7 +43,7 @@ export default function FamilyJournal({ family }: { family: FamilyData }) {
   return (
     <section>
       <h3>Journal</h3>
-      <p className="muted">Every member sees who added, changed or deleted which expense, and when.</p>
+      <p className="muted">Every member sees who added, changed or deleted which expense, income or settlement, and when.</p>
       <Errors messages={[journal.error]} />
       {!data && !journal.error && <Loading what="the journal" />}
       {data && <JournalList changes={data.content} family={family} />}

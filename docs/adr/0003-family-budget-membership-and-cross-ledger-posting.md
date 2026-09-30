@@ -931,6 +931,29 @@ rule, which applies only to new records (D-12). Fixed in F4d.
 **F4d:** `POST /{ledgerId}/settlements` records a settlement, which is then a record like any other
 under `records` (topic E, "F4d as built: settlements").
 
+**F4d as built: the interface.**
+
+- The family pages' "Expenses" tab is "Activity": expenses, incomes and settlements, newest first,
+  each labelled from the reader's side ("Paid by you", "Received by Sam", "Sam paid you €36.20"), with
+  "Add an expense", "Add an income" and "Record a settlement". Its paths stay `expenses` and
+  `expenses/{recordId}`, which personal entries and the journal link to; a new income is at
+  `incomes/new`, a new settlement at `settle`.
+- Balances: who owes whom lists the reader's own debts first, and each one the reader may record
+  (they pay or receive it, or they are an owner and neither side has an account) has "Settle up",
+  which opens the settlement's form with `payer`, `payee` and `amount` in the URL.
+- A settlement's page: the sentence, both members, the reader's own side ("Paid from" or "Received
+  into", for their eyes only); the recorder changes the date, amount and comment, and is told that a
+  new date or amount moves the other side's part back to their placeholder; the other side puts
+  their part on an account there. An income's page mirrors an expense's, with "Received by" and
+  "Received into".
+- The personal editor's new income has "Family income", as a new expense has "Family expense" (C2):
+  the budget, an income category, the split, the family comment, the memo as the private note. A
+  receipt and a settlement side open with the reader's own fields (the account; for a receipt, and
+  for a settlement's recorder, the date and amount; a receipt's note) and link to their record.
+- The fix after the F4c review: an expense or income stored as equal shares opens its split as
+  "Equal shares, as it is split now", previewed among its own members as the server splits it
+  again, whatever the budget's rule is now; it isn't sent unless the user picks another split.
+
 **Satisfies** D-5, A3, C6.
 
 ### J. Migration and rollout, F2 to F7

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { FamilyBalance, FamilyBalances, FamilyChange, MemberRef } from './api'
-import { balanceWords, debtSentence, journalLine, violationsByMember, whoOwesWhom, yourBalance } from './family'
+import {
+  balanceWords, debtSentence, journalLine, maySettle, settleUpOrder, violationsByMember, whoOwesWhom, yourBalance,
+} from './family'
 
 describe('violationsByMember', () => {
   it('sorts the violations of a 422 by the member each names', () => {
@@ -156,5 +158,59 @@ describe('the journal in words', () => {
       about: { memberId: 72, displayName: 'Former member' },
       changes: [{ field: 'splitRule', member: null, old: 'CUSTOM', new: 'EQUAL' }],
     }), 'EUR')).toEqual({ text: 'The split rule went back to equal shares when a member left: Former member.', details: [] })
+  })
+
+  it('says who recorded, changed and deleted a settlement, which has no category (F4d)', () => {
+    const settlement = { date: '2026-09-14', category: null, amount: '36.20', deleted: false, type: 'SETTLEMENT' as const }
+    expect(journalLine(entry({
+      action: 'CREATE', record: settlement, author: sam,
+      changes: [
+        { field: 'date', member: null, old: null, new: '2026-09-14' },
+        { field: 'amount', member: null, old: null, new: '36.20' },
+        { field: 'payer', member: null, old: null, new: 'Sam' },
+        { field: 'payee', member: null, old: null, new: 'Anna' },
+        { field: 'comment', member: null, old: null, new: 'Cash' },
+      ],
+    }), 'EUR')).toEqual({
+      text: 'Sam recorded the settlement of Sep 14, 2026: Sam paid Anna €36.20.', details: ['Comment: “Cash”'],
+    })
+    expect(journalLine(entry({
+      record: settlement, author: sam, changes: [{ field: 'amount', member: null, old: '36.20', new: '40.00' }],
+    }), 'EUR').text).toBe('Sam changed the amount of the settlement of Sep 14, 2026: €36.20 → €40.00.')
+    expect(journalLine(entry({ action: 'DELETE', record: { ...settlement, deleted: true }, author: sam }), 'EUR').text)
+      .toBe('Sam deleted the settlement of Sep 14, 2026, €36.20.')
+  })
+
+  it('says who added an income and who received it, and names a new receiver as such (F4d)', () => {
+    const income = { date: '2026-09-13', category: 'Salary', amount: '1000.00', deleted: false, type: 'INCOME' as const }
+    expect(journalLine(entry({
+      action: 'CREATE', record: income,
+      changes: [
+        { field: 'amount', member: null, old: null, new: '1000.00' },
+        { field: 'payer', member: null, old: null, new: 'Anna' },
+        { field: 'splitMethod', member: null, old: null, new: 'PERCENT' },
+        { field: 'share', member: anna, old: null, new: '500.00' },
+        { field: 'share', member: sam, old: null, new: '500.00' },
+      ],
+    }), 'EUR')).toEqual({
+      text: 'Anna added the income Salary, Sep 13, 2026: €1,000.00, received by Anna.',
+      details: ['Split: percentages: Anna €500.00, Sam €500.00'],
+    })
+    expect(journalLine(entry({ record: income, changes: [{ field: 'payer', member: null, old: 'Anna', new: 'Sam' }] }), 'EUR').text)
+      .toBe('Anna changed the receiver of the income Salary, Sep 13, 2026: Anna → Sam.')
+  })
+})
+
+describe('settling up (F4d)', () => {
+  it('puts the reader’s own debts first, and lets them record what they pay or receive, and an owner the rest without accounts', () => {
+    const you = balance(70, 'Anna', '-10.00', { you: true, hasAccount: true })
+    const sam = balance(71, 'Sam', '50.00')
+    const ben = balance(72, 'Ben', '-40.00', { hasAccount: true })
+    const debts = settleUpOrder(whoOwesWhom(budget(you, sam, ben)))
+    expect(debts.map((d) => debtSentence(d, 'EUR'))).toEqual(['Sam owes you €10.00', 'Sam owes Ben €40.00'])
+    expect(debts.map((d) => maySettle(d.from, d.to, 70, true))).toEqual([true, false])
+    const kid = balance(73, 'Kid', '-40.00')
+    expect(maySettle(sam, kid, 70, true)).toBe(true)
+    expect(maySettle(sam, kid, 70, false)).toBe(false)
   })
 })

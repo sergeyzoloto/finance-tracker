@@ -10,8 +10,10 @@ import {
   expenseProblems, formFromRecord, paymentAccounts, previewSplit, sharers, splitRequest, type SplitContext,
   type SplitForm,
 } from './expenseForm'
+import { memberName, RECORD_NOUNS, recordTitle, recordWho, settlementSentence } from './family'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { JournalList } from './FamilyJournal'
+import { LATER, sideLabel } from './FamilySettlement'
 import { SplitEditor } from './FamilySplit'
 import { fromMinor, parseMinor, toMinor } from './minorUnits'
 import { formatMoney } from './money'
@@ -20,31 +22,36 @@ import { basisPointsOf } from './shareSplit'
 const PAGE_SIZE = 20
 
 /**
- * Expenses in a table that fits a phone: the date; the category, who paid and a frozen mark; the amount and the
- * reader's share.
+ * Expenses, incomes and settlements in a table that fits a phone: the date; what it is (the category, or
+ * "Settlement"), who paid or received it, "Sam paid you €36.20" for a settlement, and a frozen mark; the amount and
+ * the reader's share.
  */
-export function ExpenseTable({ records, family }: { records: FamilyRecord[]; family: FamilyData }) {
+export function RecordTable({ records, family }: { records: FamilyRecord[]; family: FamilyData }) {
   const navigate = useNavigate()
+  const me = family.ledger.memberId
   return (
     <table className="entries expenses">
       <thead>
-        <tr><th scope="col">Date</th><th scope="col">Expense</th><th scope="col" className="amount">Amount</th></tr>
+        <tr><th scope="col">Date</th><th scope="col">What</th><th scope="col" className="amount">Amount</th></tr>
       </thead>
       <tbody>
         {records.map((r) => {
-          const yours = r.shares.find((s) => s.member.memberId === family.ledger.memberId)
+          const yours = r.shares.find((s) => s.member.memberId === me)
           const to = `${family.page}/expenses/${r.id}`
           return (
             <tr key={r.id} className="clickable" onClick={() => navigate(to)}>
               <td className="nowrap">{formatDate(r.date)}</td>
               <td>
-                <Link to={to} onClick={(e) => e.stopPropagation()}>{r.category.name}</Link>
+                <Link to={to} onClick={(e) => e.stopPropagation()}>{recordTitle(r)}</Link>
+                {r.type === 'INCOME' && <span className="badge">Income</span>}
                 {r.frozen && <span className="badge" title="A member it involves has left; nobody can change it">Frozen</span>}
-                <div className="small muted">Paid by {r.payer.memberId === family.ledger.memberId ? 'you' : r.payer.displayName}</div>
+                <div className="small muted">{recordWho(r, me)}</div>
               </td>
               <td className="amount nowrap">
                 {formatMoney(r.amount, r.currency)}
-                <div className="small muted">Yours {yours ? formatMoney(yours.amount, r.currency) : '—'}</div>
+                {r.type !== 'SETTLEMENT' && (
+                  <div className="small muted">Yours {yours ? formatMoney(yours.amount, r.currency) : '—'}</div>
+                )}
               </td>
             </tr>
           )
@@ -54,8 +61,19 @@ export function ExpenseTable({ records, family }: { records: FamilyRecord[]; fam
   )
 }
 
-/** The family budget's expenses, newest first, page by page (the page in the URL). */
-export function FamilyExpenses({ family }: { family: FamilyData }) {
+/** The actions that record something new in the family budget: an expense, an income, a settlement. */
+export function AddButtons({ family }: { family: FamilyData }) {
+  return (
+    <div className="actions add-records">
+      <Link className="button primary" to={`${family.page}/expenses/new`}>Add an expense</Link>
+      <Link className="button" to={`${family.page}/incomes/new`}>Add an income</Link>
+      <Link className="button" to={`${family.page}/settle`}>Record a settlement</Link>
+    </div>
+  )
+}
+
+/** The family budget's expenses, incomes and settlements, newest first, page by page (the page in the URL). */
+export function FamilyRecords({ family }: { family: FamilyData }) {
   const [params, setParams] = useSearchParams()
   const page = Math.max(0, Number(params.get('page') ?? 0) || 0)
   const records = useFamilyApi<FamilyRecordPage>(family, `${family.path}/records?page=${page}&size=${PAGE_SIZE}`)
@@ -63,16 +81,15 @@ export function FamilyExpenses({ family }: { family: FamilyData }) {
   const setPage = (p: number) => setParams(p === 0 ? {} : { page: String(p) })
   return (
     <section>
-      <div className="page-title">
-        <h3>Expenses</h3>
-        <Link className="button primary" to={`${family.page}/expenses/new`}>Add an expense</Link>
-      </div>
+      <h3>Activity</h3>
+      <p className="muted">Expenses, incomes and settlements, newest first.</p>
+      <AddButtons family={family} />
       <Errors messages={[records.error]} />
-      {!data && !records.error && <Loading what="expenses" />}
-      {data && data.totalElements === 0 && <p className="empty">No expenses yet.</p>}
+      {!data && !records.error && <Loading what="the activity" />}
+      {data && data.totalElements === 0 && <p className="empty">Nothing recorded yet.</p>}
       {data && data.content.length > 0 && (
         <>
-          <ExpenseTable records={data.content} family={family} />
+          <RecordTable records={data.content} family={family} />
           {data.totalPages > 1 && (
             <nav className="pager" aria-label="Pages">
               <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>← Newer</button>
@@ -90,13 +107,14 @@ export function FamilyExpenses({ family }: { family: FamilyData }) {
 }
 
 /**
- * One expense at `/family/{ledgerId}/expenses/{recordId}`: every field, the shares with their amounts and
- * percentages, and its journal. Its author and the owners change the category, the split and the comment; the payer
- * with an account changes the date, the amount, the payer and the account they paid with, and deletes it, or for a
- * payer without an account its author or an owner (D-14, F4c). A stale version shows the server's message and the
- * expense as it is now.
+ * One expense, income or settlement at `/family/{ledgerId}/expenses/{recordId}`: every field, the shares with their
+ * amounts and percentages, and its journal. For an expense or an income, its author and the owners change the
+ * category, the split and the comment; its payer or receiver with an account changes the date, the amount, who paid
+ * or received it and their own account, and deletes it, or for one without an account its author or an owner (D-14,
+ * F4c). A settlement's recorder changes its date, amount and comment and deletes it, and each side with an account puts
+ * its own side on an account (D-24). A stale version shows the server's message and the record as it is now.
  */
-export function ExpenseDetail({ family }: { family: FamilyData }) {
+export function RecordDetail({ family }: { family: FamilyData }) {
   const { recordId = '' } = useParams()
   const navigate = useNavigate()
   const valid = /^[1-9]\d{0,17}$/.test(recordId)
@@ -116,23 +134,28 @@ export function ExpenseDetail({ family }: { family: FamilyData }) {
     }
   }, [failure]) // only when a new failure arrives
 
-  const back = <p><Link to={`${family.page}/expenses`}>← All expenses</Link></p>
+  const back = <p><Link to={`${family.page}/expenses`}>← All activity</Link></p>
   if (!valid || record.status === 404) {
     return (
       <section>
         {back}
-        <h3>Expense not found</h3>
-        <p>This expense doesn’t exist, or it was deleted. The journal still shows what happened to it.</p>
+        <h3>Not found</h3>
+        <p>This expense, income or settlement doesn’t exist, or it was deleted. The journal still shows what happened to it.</p>
       </section>
     )
   }
-  if (!record.data) return <>{back}{record.error ? <Errors messages={[record.error]} /> : <Loading what="the expense" />}</>
+  if (!record.data) return <>{back}{record.error ? <Errors messages={[record.error]} /> : <Loading what="the record" />}</>
   const r = record.data
-  const mine = r.payer.memberId === family.ledger.memberId
+  const me = family.ledger.memberId
+  const noun = RECORD_NOUNS[r.type]
+  const settlement = r.type === 'SETTLEMENT'
   const payerHasAccount = family.members.some((m) => m.id === r.payer.memberId && m.hasAccount)
 
   function remove() {
-    if (!confirm(`Delete “${r.category.name}” of ${formatDate(r.date)}? Its shares and payment go with it.`)) return
+    const what = settlement
+      ? `the settlement of ${formatDate(r.date)} (${settlementSentence(r, me)})? Both sides go from the personal ledgers.`
+      : `“${r.category?.name}” of ${formatDate(r.date)}? Its shares and ${r.type === 'INCOME' ? 'what was received' : 'payment'} go with it.`
+    if (!confirm(`Delete ${what}`)) return
     setSaved(false)
     change.clear()
     void removal.run(async () => {
@@ -141,79 +164,106 @@ export function ExpenseDetail({ family }: { family: FamilyData }) {
     })
   }
 
+  function save(patch: object) {
+    setSaved(false)
+    removal.clear()
+    void change.run(async () => {
+      await api(`${family.path}/records/${r.id}?version=${r.version}`, 'PATCH', patch)
+      setSaved(true)
+    })
+  }
+
   const amount = toMinor(r.amount, r.currency) ?? 0n
   // The members the split editor may show: who shares the date, and who has a share in a custom rule.
   const rowIds = [...sharers(family.members, r.date), ...family.members.filter((m) => m.status === 'ACTIVE' && m.share !== null)]
     .map((m) => m.id)
-  const problems = expenseProblems(failure, rowIds, r.payer.memberId)
+  const problems = expenseProblems(failure, rowIds, r.payer.memberId, 'other', r.payee?.memberId ?? null)
+  const editKey = `${r.version}:${r.yourPayment?.accountId}:${r.yourPayment?.later}`
   return (
     <section>
       {back}
       <div className="page-title">
-        <h3>{r.category.name}, {formatDate(r.date)}</h3>
+        <h3>{settlement ? 'Settlement' : r.category?.name}, {formatDate(r.date)}</h3>
+        {r.type === 'INCOME' && <span className="badge">Income</span>}
         {r.frozen && <span className="badge">Frozen</span>}
       </div>
       {r.frozen && (
-        <p className="notice">A member this expense involves has left the family budget or deleted their data, so nobody can change it.</p>
+        <p className="notice">A member this {noun} involves has left the family budget or deleted their data, so nobody can change it.</p>
       )}
+      {settlement && <p className="sentence">{settlementSentence(r, me)}.</p>}
       <dl className="facts">
         <dt>Date</dt><dd>{formatDate(r.date)}</dd>
-        <dt>Category</dt><dd>{r.category.name}{r.category.archived && <span className="badge">Archived</span>}</dd>
+        {r.category && <><dt>Category</dt><dd>{r.category.name}{r.category.archived && <span className="badge">Archived</span>}</dd></>}
         <dt>Amount</dt><dd>{formatMoney(r.amount, r.currency)}</dd>
-        <dt>Paid by</dt><dd>{mine ? `${r.payer.displayName} (you)` : r.payer.displayName}</dd>
-        {r.yourPayment && <PaidFrom payment={r.yourPayment} />}
+        <dt>{r.type === 'INCOME' ? 'Received by' : 'Paid by'}</dt>
+        <dd>{r.payer.memberId === me ? `${r.payer.displayName} (you)` : r.payer.displayName}</dd>
+        {r.payee && <><dt>Received by</dt><dd>{r.payee.memberId === me ? `${r.payee.displayName} (you)` : r.payee.displayName}</dd></>}
+        {r.yourPayment && (
+          <YourSide payment={r.yourPayment}
+            label={settlement ? sideLabel(r.payer.memberId === me) : r.type === 'INCOME' ? 'Received into' : 'Paid from'} />
+        )}
         <dt>Comment</dt><dd>{r.comment ?? <span className="muted">None</span>}</dd>
-        <dt>Added</dt><dd>by {r.author.displayName}, {formatInstant(r.createdAt)}</dd>
+        <dt>{settlement ? 'Recorded' : 'Added'}</dt><dd>by {r.author.displayName}, {formatInstant(r.createdAt)}</dd>
         {r.updatedAt !== r.createdAt && <><dt>Last changed</dt><dd>by {r.updatedBy.displayName}, {formatInstant(r.updatedAt)}</dd></>}
       </dl>
 
-      <h4>Shares</h4>
-      <table className="shares">
-        <thead><tr><th scope="col">Member</th><th scope="col" className="amount">Share</th><th scope="col" className="amount">Percent</th></tr></thead>
-        <tbody>
-          {r.shares.map((s) => (
-            <tr key={s.member.memberId}>
-              <th scope="row">
-                {s.member.displayName}
-                {s.member.memberId === family.ledger.memberId && <span className="badge">You</span>}
-                <small className="muted block">changed by {s.updatedBy.displayName}, {formatInstant(s.updatedAt)}</small>
-              </th>
-              <td className="amount nowrap">{formatMoney(s.amount, r.currency)}</td>
-              <td className="amount nowrap">
-                {basisPointsToPercent(s.basisPoints ?? basisPointsOf(toMinor(s.amount, r.currency) ?? 0n, amount))} %
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot><tr><th scope="row">Total</th><td className="amount nowrap">{formatMoney(r.amount, r.currency)}</td><td /></tr></tfoot>
-      </table>
-
-      {(r.canEdit || r.canEditPayment) && (
-        <EditExpense key={`${r.version}:${r.yourPayment?.accountId}:${r.yourPayment?.later}`} record={r} family={family}
-          problems={problems} pending={change.pending}
-          onSave={(patch) => {
-            setSaved(false)
-            removal.clear()
-            void change.run(async () => {
-              await api(`${family.path}/records/${r.id}?version=${r.version}`, 'PATCH', patch)
-              setSaved(true)
-            })
-          }} />
+      {!settlement && (
+        <>
+          <h4>Shares</h4>
+          <table className="shares">
+            <thead><tr><th scope="col">Member</th><th scope="col" className="amount">Share</th><th scope="col" className="amount">Percent</th></tr></thead>
+            <tbody>
+              {r.shares.map((s) => (
+                <tr key={s.member.memberId}>
+                  <th scope="row">
+                    {s.member.displayName}
+                    {s.member.memberId === me && <span className="badge">You</span>}
+                    <small className="muted block">changed by {s.updatedBy.displayName}, {formatInstant(s.updatedAt)}</small>
+                  </th>
+                  <td className="amount nowrap">{formatMoney(s.amount, r.currency)}</td>
+                  <td className="amount nowrap">
+                    {basisPointsToPercent(s.basisPoints ?? basisPointsOf(toMinor(s.amount, r.currency) ?? 0n, amount))} %
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr><th scope="row">Total</th><td className="amount nowrap">{formatMoney(r.amount, r.currency)}</td><td /></tr></tfoot>
+          </table>
+        </>
       )}
-      {!r.canEdit && !r.frozen && (
+
+      {settlement && (r.canEditPayment || r.yourPayment) && !r.frozen && (
+        <EditSettlement key={editKey} record={r} family={family} problems={problems} pending={change.pending} onSave={save} />
+      )}
+      {!settlement && (r.canEdit || r.canEditPayment) && (
+        <EditRecord key={editKey} record={r} family={family} problems={problems} pending={change.pending} onSave={save} />
+      )}
+      {!settlement && !r.canEdit && !r.frozen && (
         <p className="muted small">
-          Only the expense’s author, {r.author.displayName}, or an owner of the family budget changes its category,
+          Only the {noun}’s author, {r.author.displayName}, or an owner of the family budget changes its category,
           split and comment.
         </p>
       )}
-      {!r.canEditPayment && !r.frozen && payerHasAccount && (
-        <p className="muted small">Only {r.payer.displayName}, who paid it, changes its date, amount and payer.</p>
+      {!settlement && !r.canEditPayment && !r.frozen && payerHasAccount && (
+        <p className="muted small">
+          {r.type === 'INCOME'
+            ? `Only ${r.payer.displayName}, who received it, changes its date, amount and receiver.`
+            : `Only ${r.payer.displayName}, who paid it, changes its date, amount and payer.`}
+        </p>
+      )}
+      {settlement && !r.canEditPayment && !r.frozen && (
+        <p className="muted small">
+          Only {memberName(r.author, me) === 'you' ? 'you' : r.author.displayName}, who recorded it, changes its date,
+          amount and comment{r.yourPayment ? '; you put your own side on an account' : ''}.
+        </p>
       )}
       {saved && <p className="success" role="status">Saved.</p>}
       <Errors messages={problems.other} />
       {r.canDelete && (
         <div className="actions">
-          <button type="button" className="danger" disabled={change.pending || removal.pending} onClick={remove}>Delete the expense</button>
+          <button type="button" className="danger" disabled={change.pending || removal.pending} onClick={remove}>
+            Delete the {noun}
+          </button>
         </div>
       )}
 
@@ -225,18 +275,18 @@ export function ExpenseDetail({ family }: { family: FamilyData }) {
 }
 
 /**
- * The account the user paid with, for the payer's eyes only: the other members never see it (D-16). The record's
- * answer carries it for the payer alone (`yourPayment`), with their payment entry in their own ledger.
+ * The account of the reader's own side, for their eyes only: the other members never see it (D-16). The record's
+ * answer carries it for them alone (`yourPayment`), with their entry in their own ledger.
  */
-function PaidFrom({ payment }: { payment: YourPayment }) {
+function YourSide({ payment, label }: { payment: YourPayment; label: string }) {
   return (
     <>
-      <dt>Paid from</dt>
+      <dt>{label}</dt>
       <dd>
         <Link to={`/entries/${payment.entryId}`}>{payment.later ? 'Specify later' : payment.accountName}</Link>
         <small className="muted block">
           {payment.later ? 'Kept under “Payments without a specified account” until you choose the account. ' : ''}
-          Only you see which account you paid with.
+          Only you see which account it is.
         </small>
       </dd>
     </>
@@ -249,33 +299,44 @@ type RecordPatch = {
   date?: string; amount?: string; payerMemberId?: number; paymentAccountId?: number; paymentLater?: true
 }
 
-const LATER = 'later'
-
-/**
- * What the reader may change of an expense (D-14), with the version it was read at: the payment fields (the date, the
- * amount, the payer, and the account the reader paid with, or "Specify later") when `canEditPayment`, and its category,
- * split and comment when `canEdit`. Only what changed is sent. A new amount, date or payer is split again by the
- * expense's split on the server; one split by amounts needs the new amounts with a new amount.
- */
-function EditExpense({ record, family, problems, pending, onSave }: {
+interface EditProps {
   record: FamilyRecord
   family: FamilyData
   problems: ReturnType<typeof expenseProblems>
   pending: boolean
   onSave: (patch: RecordPatch) => void
-}) {
+}
+
+/** How the reader names their own account, or "Specify later", as a patch: only when it changed. */
+function accountPatch(payment: string, initial: string): RecordPatch {
+  if (payment === '' || payment === initial) return {}
+  return payment === LATER ? { paymentLater: true } : { paymentAccountId: Number(payment) }
+}
+
+/**
+ * What the reader may change of an expense or an income (D-14), with the version it was read at: the payment fields
+ * (the date, the amount, who paid or received it, and the reader's own account, or "Specify later") when
+ * `canEditPayment`, and its category, split and comment when `canEdit`. Only what changed is sent. A new amount, date or
+ * payer is split again by the record's stored split on the server, which the preview follows: equal shares among its
+ * own members (KEEP), its percentages, its member; one split by amounts needs the new amounts with a new amount.
+ */
+function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const categories = useApi<Category[]>(record.canEdit ? `${family.path}/categories` : null)
   const accounts = useApi<Account[]>(record.canEditPayment ? '/accounts' : null)
   const { ledger, members } = family
   const currency = record.currency
   const me = ledger.memberId
-  const initial = formFromRecord(record, ledger, members)
+  const income = record.type === 'INCOME'
+  const noun = RECORD_NOUNS[record.type]
+  const type = income ? 'INCOME' : 'EXPENSE'
+  const initial = formFromRecord(record, members)
   const initialPayment = record.yourPayment ? (record.yourPayment.later ? LATER : String(record.yourPayment.accountId)) : ''
+  const initialCategory = String(record.category?.id ?? '')
   const [date, setDate] = useState(record.date)
   const [amountText, setAmountText] = useState(record.amount)
   const [payer, setPayer] = useState(String(record.payer.memberId))
   const [payment, setPayment] = useState(initialPayment)
-  const [categoryId, setCategoryId] = useState(String(record.category.id))
+  const [categoryId, setCategoryId] = useState(initialCategory)
   const [split, setSplit] = useState<SplitForm>(initial)
   const [comment, setComment] = useState(record.comment ?? '')
 
@@ -283,30 +344,31 @@ function EditExpense({ record, family, problems, pending, onSave }: {
   const parsed = parseMinor(amountText, currency)
   const amount = 'minor' in parsed ? parsed.minor : undefined
   const payerId = Number(payer)
-  const context: SplitContext = { ledger, members, date, amount, payerId }
+  const context: SplitContext = { ledger, members, date, amount, payerId, noun }
   const preview = previewSplit(split, context, currency)
-  const initialContext: SplitContext = { ledger, members, date: record.date, amount: recordAmount, payerId: record.payer.memberId }
-  const splitChanged = JSON.stringify(splitRequest(split, preview, currency))
-    !== JSON.stringify(splitRequest(initial, previewSplit(initial, initialContext, currency), currency))
+  const initialContext: SplitContext = { ledger, members, date: record.date, amount: recordAmount, payerId: record.payer.memberId, noun }
+  const request = splitRequest(split, preview, currency)
+  // The stored equal split isn't sent: the server splits again by it.
+  const splitChanged = request !== null
+    && JSON.stringify(request) !== JSON.stringify(splitRequest(initial, previewSplit(initial, initialContext, currency), currency))
   const amountChanged = amount !== undefined && amount !== recordAmount
   const payerChanged = payerId !== record.payer.memberId
   const payerIsMe = payerId === me
-  // A new amount of an expense split by amounts needs the new amounts; any other split follows on the server.
+  // A new amount of a record split by amounts needs the new amounts; any other split follows on the server.
   const needsAmounts = record.splitMethod === 'AMOUNT' && amountChanged && !splitChanged
   const patch: RecordPatch = {
     ...(date !== record.date ? { date } : {}),
     ...(amountChanged ? { amount: fromMinor(amount, currency) } : {}),
     ...(payerChanged ? { payerMemberId: payerId } : {}),
-    ...(payerIsMe && payment !== '' && (payerChanged || payment !== initialPayment)
-      ? (payment === LATER ? { paymentLater: true as const } : { paymentAccountId: Number(payment) }) : {}),
-    ...(categoryId !== String(record.category.id) ? { categoryId: Number(categoryId) } : {}),
+    ...(payerIsMe ? accountPatch(payment, payerChanged ? '' : initialPayment) : {}),
+    ...(categoryId !== initialCategory ? { categoryId: Number(categoryId) } : {}),
     ...(comment.trim() !== (record.comment ?? '') ? { comment: comment.trim() || null } : {}),
-    ...(splitChanged ? { split: splitRequest(split, preview, currency) } : {}),
+    ...(splitChanged ? { split: request } : {}),
   }
   const changed = Object.keys(patch).length > 0
   const dateProblem = date === '' ? 'Enter a date.'
-    : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an expense can’t be earlier.` : undefined
-  const splitProblems = splitChanged || needsAmounts ? preview.problems : []
+    : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${noun} can’t be earlier.` : undefined
+  const splitProblems = splitChanged || needsAmounts || split.mode === 'KEEP' ? preview.problems : []
   const ready = changed && !dateProblem && amount !== undefined && (!payerIsMe || payment !== '')
     && splitProblems.length === 0 && !needsAmounts
   const followsSplit = !splitChanged && (amountChanged || date !== record.date || payerChanged)
@@ -318,17 +380,17 @@ function EditExpense({ record, family, problems, pending, onSave }: {
 
   function undo() {
     setDate(record.date); setAmountText(record.amount); setPayer(String(record.payer.memberId)); setPayment(initialPayment)
-    setCategoryId(String(record.category.id)); setSplit(initial); setComment(record.comment ?? '')
+    setCategoryId(initialCategory); setSplit(initial); setComment(record.comment ?? '')
   }
 
-  const current: Category = { ...record.category, type: 'EXPENSE' }
-  const shown = (categories.data ?? [current]).filter((c) => c.type === 'EXPENSE')
-  // Who may pay: the reader, or a member without an account (D-14); and whoever pays it now.
+  const current: Category[] = record.category ? [{ ...record.category, type }] : []
+  const shown = (categories.data ?? current).filter((c) => c.type === type)
+  // Who may pay or receive it: the reader, or a member without an account (D-14); and whoever does now.
   const payers = members.filter((m) => (m.status === 'ACTIVE' && (m.id === me || !m.hasAccount)) || m.id === record.payer.memberId)
   const choices = paymentAccounts(accounts.data ?? [])
   return (
     <form className="family-form expense-form" onSubmit={submit}>
-      <h4>Change this expense</h4>
+      <h4>Change this {noun}</h4>
       <div className="fields">
         {record.canEditPayment && (
           <>
@@ -340,14 +402,14 @@ function EditExpense({ record, family, problems, pending, onSave }: {
               <input className="amount" inputMode="decimal" value={amountText} autoComplete="off"
                 onChange={(e) => setAmountText(e.target.value)} />
             </Field>
-            <Field label="Paid by" errors={problems.payer}>
+            <Field label={income ? 'Received by' : 'Paid by'} errors={problems.payer}>
               <select value={payer} onChange={(e) => setPayer(e.target.value)}>
                 {payers.map((m) => <option key={m.id} value={m.id}>{m.id === me ? `${m.displayName} (you)` : m.displayName}</option>)}
               </select>
             </Field>
             {payerIsMe && (
-              <Field label="Paid from" errors={problems.payment}
-                hint="Only you see it. “Specify later” keeps the payment under “Payments without a specified account”.">
+              <Field label={income ? 'Received into' : 'Paid from'} errors={problems.payment}
+                hint={`Only you see it. “Specify later” keeps ${income ? 'it' : 'the payment'} under “Payments without a specified account”.`}>
                 <AccountSelect accounts={choices} value={payment} onChange={setPayment}>
                   <option value={LATER}>Specify later</option>
                 </AccountSelect>
@@ -358,7 +420,7 @@ function EditExpense({ record, family, problems, pending, onSave }: {
         {record.canEdit && (
           <>
             <Field label="Category" errors={problems.category}>
-              <CategorySelect categories={shown} type="EXPENSE" value={categoryId} onChange={setCategoryId} />
+              <CategorySelect categories={shown} type={type} value={categoryId} onChange={setCategoryId} />
             </Field>
             <Field label="Comment (optional)" errors={problems.comment} className="wide">
               <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
@@ -370,11 +432,96 @@ function EditExpense({ record, family, problems, pending, onSave }: {
         <SplitEditor form={split} preview={{ ...preview, problems: splitProblems }} context={context} currency={currency}
           onChange={setSplit} byMember={problems.byMember} problems={problems.split} you={me} />
       )}
-      {needsAmounts && <p className="error small" role="alert">This expense is split by amounts: enter the new amounts with the new amount.</p>}
-      {followsSplit && <p className="muted small">When you save, the shares are split again as the expense is split now.</p>}
+      {needsAmounts && <p className="error small" role="alert">This {noun} is split by amounts: enter the new amounts with the new amount.</p>}
+      {followsSplit && <p className="muted small">When you save, the shares are split again as the {noun} is split now.</p>}
       <div className="actions">
         <button className="primary" disabled={!ready || pending}>Save the changes</button>
         {changed && <button type="button" onClick={undo}>Undo</button>}
+      </div>
+    </form>
+  )
+}
+
+/**
+ * What the reader may change of a settlement (D-24): its date, amount and comment when they recorded it
+ * (`canEditPayment`), and the account of their own side when they pay or receive it with an account
+ * (`yourPayment`), which moves the other side's part from "Payments without a specified account" to one of theirs.
+ * Only what changed is sent; the account alone changes nothing the other members see.
+ */
+function EditSettlement({ record, family, problems, pending, onSave }: EditProps) {
+  const accounts = useApi<Account[]>(record.yourPayment ? '/accounts' : null)
+  const { ledger } = family
+  const currency = record.currency
+  const me = ledger.memberId
+  const initialSide = record.yourPayment ? (record.yourPayment.later ? LATER : String(record.yourPayment.accountId)) : ''
+  const [date, setDate] = useState(record.date)
+  const [amountText, setAmountText] = useState(record.amount)
+  const [comment, setComment] = useState(record.comment ?? '')
+  const [side, setSide] = useState(initialSide)
+
+  const parsed = parseMinor(amountText, currency)
+  const amount = 'minor' in parsed ? parsed.minor : undefined
+  const patch: RecordPatch = {
+    ...(date !== record.date ? { date } : {}),
+    ...(amount !== undefined && amount !== toMinor(record.amount, currency) ? { amount: fromMinor(amount, currency) } : {}),
+    ...(comment.trim() !== (record.comment ?? '') ? { comment: comment.trim() || null } : {}),
+    ...(record.yourPayment ? accountPatch(side, initialSide) : {}),
+  }
+  const changed = Object.keys(patch).length > 0
+  const dateProblem = date === '' ? 'Enter a date.'
+    : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; a settlement can’t be earlier.` : undefined
+  const ready = changed && !dateProblem && amount !== undefined
+  const other = record.payer.memberId === me ? record.payee : record.payee?.memberId === me ? record.payer : undefined
+  const otherHasAccount = (ref?: { memberId: number }) => family.members.some((m) => m.id === ref?.memberId && m.hasAccount)
+  const moves = (patch.date !== undefined || patch.amount !== undefined)
+    && [record.payer, record.payee].some((m) => m && m.memberId !== me && otherHasAccount(m))
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (ready) onSave(patch)
+  }
+
+  return (
+    <form className="family-form settlement-form" onSubmit={submit}>
+      <h4>{record.canEditPayment ? 'Change this settlement' : 'Your side of this settlement'}</h4>
+      <div className="fields">
+        {record.canEditPayment && (
+          <>
+            <Field label="Date" errors={[...(dateProblem ? [dateProblem] : []), ...problems.date]}>
+              <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
+            </Field>
+            <Field label={`Amount (${currency})`}
+              errors={[...(amountText.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}>
+              <input className="amount" inputMode="decimal" value={amountText} autoComplete="off"
+                onChange={(e) => setAmountText(e.target.value)} />
+            </Field>
+            <Field label="Comment (optional)" errors={problems.comment} className="wide">
+              <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
+            </Field>
+          </>
+        )}
+        {record.yourPayment && (
+          <Field label={sideLabel(record.payer.memberId === me)} errors={problems.payment}
+            hint="Only you see it. “Specify later” keeps it under “Payments without a specified account”.">
+            <AccountSelect accounts={paymentAccounts(accounts.data ?? [])} value={side} onChange={setSide}>
+              <option value={LATER}>Specify later</option>
+            </AccountSelect>
+          </Field>
+        )}
+      </div>
+      {!record.canEditPayment && record.yourPayment?.later && other && (
+        <p className="muted small">
+          {other.displayName} recorded it; put your side on the account the money went {record.payer.memberId === me ? 'from' : 'into'}.
+        </p>
+      )}
+      {moves && (
+        <p className="muted small">
+          A new date or amount moves the other side’s part back to their “Payments without a specified account”, if they
+          had put it on an account: only they choose their own account.
+        </p>
+      )}
+      <div className="actions">
+        <button className="primary" disabled={!ready || pending}>Save the changes</button>
       </div>
     </form>
   )

@@ -3,60 +3,69 @@ import type { EntryForm, FieldErrors } from './entryForm'
 import { expenseProblems, splitRequest, type SplitContext, type SplitPreview } from './expenseForm'
 import { fromMinor, parseMinor } from './minorUnits'
 
-// A family expense from the personal entry form (C2) without React: the family budgets a new expense may go to, what
-// keeps it from being saved, the request that creates it, and where the server's objections go. The family budget's
-// rules are FamilyRecordService's; the server's answer is what counts.
+// A family expense or income from the personal entry form (C2, F4d) without React: the family budgets a new expense or
+// income may go to, what keeps it from being saved, the request that creates it, and where the server's objections go.
+// The family budget's rules are FamilyRecordService's; the server's answer is what counts.
+
+/** What the form's tab makes of it: an expense, or an income, which mirrors it. */
+const nounOf = (form: Pick<EntryForm, 'tab'>) => (form.tab === 'income' ? 'income' : 'expense')
 
 /** The family budgets whose base currency the entry is in: until other currencies come (F4e), the ones it may go to. */
 export const familiesFor = (families: FamilyLedger[], currency: string) =>
   families.filter((f) => f.baseCurrency === currency.trim().toUpperCase())
 
 /**
- * Why the entry can't be a family expense, or undefined if it can: the chosen family budget keeps another currency,
- * or, with none chosen yet, every family budget does.
+ * Why the entry can't be a family expense or income, or undefined if it can: the chosen family budget keeps another
+ * currency, or, with none chosen yet, every family budget does.
  */
-export function unavailable(families: FamilyLedger[], currency: string, chosen?: FamilyLedger): string | undefined {
+export function unavailable(families: FamilyLedger[], currency: string, chosen?: FamilyLedger, noun = 'expense'): string | undefined {
   const code = currency.trim().toUpperCase()
   const entry = code === '' ? 'this entry has no currency yet' : `this entry is in ${code}`
+  const plural = noun === 'income' ? 'Incomes' : 'Expenses'
   if (chosen) {
     return chosen.baseCurrency === code ? undefined
-      : `The family budget ${chosen.name} keeps its expenses in ${chosen.baseCurrency}, and ${entry}. Expenses in other currencies come later.`
+      : `The family budget ${chosen.name} keeps its ${plural.toLowerCase()} in ${chosen.baseCurrency}, and ${entry}. ${plural} in other currencies come later.`
   }
   if (familiesFor(families, code).length > 0) return undefined
   const currencies = [...new Set(families.map((f) => f.baseCurrency))].join(', ')
-  return `A family expense is in its family budget’s currency (${currencies}), and ${entry}. Expenses in other currencies come later.`
+  return `A family ${noun} is in its family budget’s currency (${currencies}), and ${entry}. ${plural} in other currencies come later.`
 }
 
-/** The split's context: who shares the entry's date, its amount in the minor unit, and the user, who paid. */
+/** The split's context: who shares the entry's date, its amount in the minor unit, and the user, who paid or received it. */
 export function splitContext(form: EntryForm, family: FamilyLedger, members: FamilyMember[]): SplitContext {
   const parsed = parseMinor(form.amount, family.baseCurrency)
-  return { ledger: family, members, date: form.date, amount: 'minor' in parsed ? parsed.minor : undefined, payerId: family.memberId }
+  return {
+    ledger: family, members, date: form.date, amount: 'minor' in parsed ? parsed.minor : undefined, payerId: family.memberId,
+    noun: nounOf(form),
+  }
 }
 
-/** What keeps the family expense from being saved, beyond the entry's own checks (`validate`). */
+/** What keeps the family expense or income from being saved, beyond the entry's own checks (`validate`). */
 export function familyProblems(form: EntryForm, family: FamilyLedger, preview: SplitPreview): FieldErrors {
   const errors: FieldErrors = {}
   const add = (field: string, message: string) => { (errors[field] ??= []).push(message) }
-  const reason = unavailable([family], form.currency, family)
+  const reason = unavailable([family], form.currency, family, nounOf(form))
   if (reason) add('', reason)
   const parsed = parseMinor(form.amount, family.baseCurrency)
   if (form.amount.trim() !== '' && 'problem' in parsed) add('amount', parsed.problem)
   if (form.date !== '' && form.date < family.startDate) {
-    add('date', `The family budget ${family.name} starts on ${family.startDate}; an expense can’t be earlier.`)
+    add('date', `The family budget ${family.name} starts on ${family.startDate}; an ${nounOf(form)} can’t be earlier.`)
   }
   preview.problems.forEach((p) => add('familySplit', p))
   return errors
 }
 
 /**
- * The request of POST /api/family-ledgers/{id}/records, as the family pages send it (C1): the user paid it from the
- * entry's account, and the memo is their private note, which only their payment entry keeps.
+ * The request of POST /api/family-ledgers/{id}/records, as the family pages send it (C1, C5): the user paid an expense
+ * from the entry's account, or received an income into it, and the memo is their private note, which only their own
+ * entry keeps.
  */
 export function familyRequest(form: EntryForm, family: FamilyLedger, preview: SplitPreview) {
   const currency = family.baseCurrency
   const parsed = parseMinor(form.amount, currency)
-  if (!('minor' in parsed)) throw new Error('A family expense needs a valid amount')
+  if (!('minor' in parsed)) throw new Error(`A family ${nounOf(form)} needs a valid amount`)
   return {
+    type: form.tab === 'income' ? 'INCOME' as const : 'EXPENSE' as const,
     date: form.date,
     categoryId: Number(form.familyCategoryId),
     amount: fromMinor(parsed.minor, currency),

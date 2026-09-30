@@ -1,7 +1,7 @@
 import { Link } from 'react-router'
 import { type FamilyBalances as Balances } from './api'
 import { Errors, Loading } from './components'
-import { balancePhrase, debtSentence, whoOwesWhom, yourBalance } from './family'
+import { balancePhrase, debtSentence, maySettle, settleUpOrder, whoOwesWhom, yourBalance, type Debt } from './family'
 import { useFamilyApi, type FamilyData } from './familyData'
 import { formatMoney, sum } from './money'
 
@@ -12,13 +12,17 @@ export function YourBalance({ balances }: { balances: Balances }) {
 
 /**
  * Every member's balance in words, marking the reader, members without an account and former members; together they
- * are zero. Then who owes whom (D1).
+ * are zero. Then who owes whom (D1), the reader's own debts first, each with "Settle up" where the reader may record
+ * that settlement: it opens the settlement's form with its members and amount (D2, D-24).
  */
 export default function FamilyBalances({ family }: { family: FamilyData }) {
   const balances = useFamilyApi<Balances>(family, `${family.path}/balances`)
   const data = balances.data
   if (!data) return balances.error ? <Errors messages={[balances.error]} /> : <Loading what="the balances" />
-  const debts = whoOwesWhom(data)
+  const debts = settleUpOrder(whoOwesWhom(data))
+  const me = family.ledger.memberId
+  const settleUp = (d: Debt) => maySettle(d.from, d.to, me, family.owner)
+    ? `${family.page}/settle?payer=${d.from.memberId}&payee=${d.to.memberId}&amount=${d.amount}` : undefined
   return (
     <section>
       <h3>Balances</h3>
@@ -47,14 +51,25 @@ export default function FamilyBalances({ family }: { family: FamilyData }) {
       </table>
       <p className="muted small">
         What some members owe, the others are owed, so the balances always add up to zero. A member owes when their
-        shares of the expenses are more than they paid.
+        shares of the expenses are more than they paid, less what they received or were paid back.
       </p>
       <h4>Who owes whom</h4>
       {debts.length === 0 ? <p>Everyone is settled.</p> : (
-        <ul>{debts.map((d) => <li key={`${d.from.memberId}-${d.to.memberId}`}>{debtSentence(d, data.currency)}</li>)}</ul>
+        <ul className="debts">
+          {debts.map((d) => {
+            const to = settleUp(d)
+            return (
+              <li key={`${d.from.memberId}-${d.to.memberId}`}>
+                {debtSentence(d, data.currency)}
+                {to && <> <Link className="button" to={to}>Settle up</Link></>}
+              </li>
+            )
+          })}
+        </ul>
       )}
       <p className="muted small">
-        Recording a settlement comes in a later version. <Link to={`${family.page}/expenses`}>See the expenses</Link>
+        A settlement records one member paying another. <Link to={`${family.page}/settle`}>Record a
+        settlement</Link> · <Link to={`${family.page}/expenses`}>See the activity</Link>
       </p>
     </section>
   )

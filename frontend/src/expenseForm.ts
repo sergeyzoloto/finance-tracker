@@ -3,10 +3,15 @@ import { basisPointsToPercent, equalShares, percentToBasisPoints, WHOLE } from '
 import { fromMinor, parseMinor, toMinor } from './minorUnits'
 import { equalSplit, oneMemberSplit, percentSplit, type SplitShare } from './shareSplit'
 
-// A family expense's form without React: who shares it, the split as typed and its preview, the request, and where
-// the server's objections go. The backend's rules are FamilyRecordService's; the server's answer is what counts.
+// A family expense's or income's form without React: who shares it, the split as typed and its preview, the request,
+// and where the server's objections go. The backend's rules are FamilyRecordService's; the server's answer is what
+// counts.
 
-export type SplitMode = RecordSplit['method']
+/**
+ * How the form splits: a request's method, or KEEP, a stored record's equal shares as they are (the F4c review): the
+ * server splits them again among the record's own members, whatever the budget's rule is now.
+ */
+export type SplitMode = RecordSplit['method'] | 'KEEP'
 
 /** A split as the form holds it: the mode, and what is typed per member id. */
 export interface SplitForm {
@@ -15,6 +20,12 @@ export interface SplitForm {
   amounts: Record<number, string>
   /** For ONE_MEMBER, the member's id, or '' until one is chosen. */
   member: string
+  /**
+   * For a stored record split equally: the members it is split among, and its date. KEEP shares it among them, less a
+   * member with an account who joined after a new date, plus one who joined after the stored date and by the new one,
+   * as FamilyRecordService.resplit does.
+   */
+  keep?: { among: number[]; since: string }
 }
 
 export const newSplit = (): SplitForm => ({ mode: 'RULE', percents: {}, amounts: {}, member: '' })
@@ -43,13 +54,23 @@ export interface SplitContext {
   ledger: FamilyLedger
   members: FamilyMember[]
   date: string
-  /** The expense's amount in the minor unit, or undefined while it isn't a valid one. */
+  /** The record's amount in the minor unit, or undefined while it isn't a valid one. */
   amount: bigint | undefined
+  /** Who paid an expense or received an income: D-12's tie goes to them. */
   payerId: number | null
+  /** What the messages call the record: "expense" (the default) or "income". */
+  noun?: string
 }
 
-/** The rows a mode splits among. The rule under custom percentages: the members with a share in it. */
+/**
+ * The rows a mode splits among. The rule under custom percentages: the members with a share in it. A stored equal split
+ * (KEEP): the record's own members as of the date.
+ */
 export function splitRows(form: SplitForm, { ledger, members, date }: SplitContext) {
+  if (form.mode === 'KEEP' && form.keep) {
+    const { among, since } = form.keep
+    return sharers(members, date).filter((m) => among.includes(m.id) || (m.hasAccount && m.joinDate > since))
+  }
   return form.mode === 'RULE' && ledger.splitRule === 'CUSTOM'
     ? members.filter((m) => m.status === 'ACTIVE' && m.share !== null)
     : sharers(members, date)
@@ -72,8 +93,11 @@ export function previewSplit(form: SplitForm, context: SplitContext, currency: s
   let amountTotal: bigint | null = null
   const rowProblems = new Map<number, string>()
 
-  if (members.length === 0) problems.push('Nobody shares an expense of this date.')
+  if (members.length === 0) problems.push(`Nobody shares ${context.noun === 'income' ? 'an income' : 'an expense'} of this date.`)
   switch (form.mode) {
+    case 'KEEP':
+      if (amount !== undefined && members.length > 0) shares = equalSplit(amount, members.map((m) => m.id), payerId)
+      break
     case 'RULE':
       if (context.ledger.splitRule === 'EQUAL') {
         if (amount !== undefined && members.length > 0) shares = equalSplit(amount, members.map((m) => m.id), payerId)
@@ -83,7 +107,9 @@ export function previewSplit(form: SplitForm, context: SplitContext, currency: s
             rowProblems.set(m.id, `${m.displayName} joined after this date.`)
           }
         }
-        if (rowProblems.size > 0) problems.push('Someone in the split rule joined after this date; split this expense another way.')
+        if (rowProblems.size > 0) {
+          problems.push(`Someone in the split rule joined after this date; split this ${context.noun ?? 'expense'} another way.`)
+        }
         if (amount !== undefined && members.length > 0) {
           shares = percentSplit(amount, members.map((m) => ({ memberId: m.id, basisPoints: m.share ?? 0 })), payerId)
         }
@@ -136,9 +162,11 @@ export function previewSplit(form: SplitForm, context: SplitContext, currency: s
   return { rows, percentTotal, amountTotal, problems }
 }
 
-/** The split as the API takes it. */
-export function splitRequest(form: SplitForm, preview: SplitPreview, currency: string): RecordSplit {
+/** The split as the API takes it; null for KEEP, which a change leaves out, so that the server keeps the stored split. */
+export function splitRequest(form: SplitForm, preview: SplitPreview, currency: string): RecordSplit | null {
   switch (form.mode) {
+    case 'KEEP':
+      return null
     case 'RULE':
       return { method: 'RULE' }
     case 'PERCENT': {
@@ -156,10 +184,11 @@ export function splitRequest(form: SplitForm, preview: SplitPreview, currency: s
 }
 
 /**
- * A stored expense's split as the form opens it: its own percentages or amounts, one member, or the budget's rule for
- * equal shares while the rule is still equal. Members who share its date but have no share get 0.
+ * A stored record's split as the form opens it: its own percentages or amounts, one member, or its equal shares as
+ * they are (KEEP), whatever the budget's rule is now (after the F4c review). Members who share its date but have no
+ * share get 0.
  */
-export function formFromRecord(record: FamilyRecord, ledger: FamilyLedger, members: FamilyMember[]): SplitForm {
+export function formFromRecord(record: FamilyRecord, members: FamilyMember[]): SplitForm {
   const shares = new Map(record.shares.map((s) => [s.member.memberId, s]))
   const rows = sharers(members, record.date)
   const form = newSplit()
@@ -167,7 +196,9 @@ export function formFromRecord(record: FamilyRecord, ledger: FamilyLedger, membe
     const on = record.shares.find((s) => s.amount === record.amount) ?? record.shares[0]
     return { ...form, mode: 'ONE_MEMBER', member: on ? String(on.member.memberId) : '' }
   }
-  if (record.splitMethod === 'EQUAL' && ledger.splitRule === 'EQUAL') return form
+  if (record.splitMethod === 'EQUAL') {
+    return { ...form, mode: 'KEEP', keep: { among: record.shares.map((s) => s.member.memberId), since: record.date } }
+  }
   if (record.splitMethod === 'PERCENT' && record.shares.every((s) => s.basisPoints !== null)) {
     return {
       ...form, mode: 'PERCENT',
@@ -191,12 +222,14 @@ export function formFromRecord(record: FamilyRecord, ledger: FamilyLedger, membe
 export const paymentAccounts = (accounts: Account[]) => accounts.filter((a) => (a.type === 'ASSET' || a.type === 'LIABILITY')
   && !a.system && !a.requiresCounterparty && !a.archived)
 
-/** Where the server's objections to an expense go on the form. */
+/** Where the server's objections to an expense, an income or a settlement go on the form. */
 export interface ExpenseProblems {
   date: string[]
   category: string[]
   amount: string[]
   payer: string[]
+  /** A settlement's receiver. */
+  payee: string[]
   payment: string[]
   comment: string[]
   split: string[]
@@ -207,22 +240,23 @@ export interface ExpenseProblems {
 }
 
 const FIELDS: Record<string, keyof Omit<ExpenseProblems, 'byMember' | 'other'>> = {
-  date: 'date', categoryId: 'category', amount: 'amount', payerMemberId: 'payer', paymentAccountId: 'payment',
-  paymentLater: 'payment', comment: 'comment',
+  date: 'date', categoryId: 'category', amount: 'amount', payerMemberId: 'payer', payeeMemberId: 'payee',
+  paymentAccountId: 'payment', paymentLater: 'payment', comment: 'comment',
 }
 const CODES: Record<string, keyof Omit<ExpenseProblems, 'byMember' | 'other'>> = {
-  CATEGORY: 'category', AMOUNT: 'amount', PAYER: 'payer', PAYMENT: 'payment',
+  CATEGORY: 'category', AMOUNT: 'amount', PAYER: 'payer', PAYEE: 'payee', PAYMENT: 'payment',
 }
 
 /**
  * The server's objections by the field or member they name: a 400's invalid fields, and a 422's violationDetails by
- * their code and member. A member of the split gets theirs next to their share; the payer's go to the payer. A 409 goes
+ * their code and member. A member of the split gets theirs next to their share; the payer's go to the payer, and a
+ * settlement's receiver's to the receiver. A 409 goes
  * to `conflict` (the date for a new expense, whose only 409 is D-27's start date), and anything else next to the action.
  */
 export function expenseProblems(failure: Error | undefined, splitMemberIds: number[], payerId: number | null,
-  conflict: 'date' | 'other' = 'other'): ExpenseProblems {
+  conflict: 'date' | 'other' = 'other', payeeId: number | null = null): ExpenseProblems {
   const problems: ExpenseProblems = {
-    date: [], category: [], amount: [], payer: [], payment: [], comment: [], split: [], byMember: new Map(), other: [],
+    date: [], category: [], amount: [], payer: [], payee: [], payment: [], comment: [], split: [], byMember: new Map(), other: [],
   }
   if (!failure) return problems
   const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1) + (/[.!?]$/.test(text) ? '' : '.')
@@ -252,6 +286,7 @@ export function expenseProblems(failure: Error | undefined, splitMemberIds: numb
     else if (memberId !== null && splitMemberIds.includes(memberId)) {
       problems.byMember.set(memberId, [...(problems.byMember.get(memberId) ?? []), text])
     } else if (memberId !== null && memberId === payerId) problems.payer.push(text)
+    else if (memberId !== null && memberId === payeeId) problems.payee.push(text)
     else problems.split.push(text)
   }
   return problems

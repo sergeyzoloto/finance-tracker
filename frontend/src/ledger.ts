@@ -56,6 +56,15 @@ export function kindLabel(kind: EntryKind): string {
     FAMILY_CORRECTION: 'Family correction',
   } as Partial<Record<EntryKind, string>>)[kind] ?? '—'
 }
+
+/** What an entry is, as kindLabel says, with a family income's receipt and shares named as such (F4d). */
+export function entryKindLabel(entry: Pick<Entry, 'kind' | 'family'>): string {
+  if (entry.family?.recordType === 'INCOME') {
+    if (entry.kind === 'FAMILY_PAYMENT') return 'Family income received'
+    if (entry.kind === 'FAMILY_SHARE') return 'Family income share'
+  }
+  return kindLabel(entry.kind)
+}
 export const counterpartyById = (ledger: Ledger, id: number | null | undefined) =>
   ledger.counterparties.find((c) => c.id === id)
 

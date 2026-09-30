@@ -151,8 +151,8 @@ describe('a new expense marked as family (C2)', () => {
 
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toEqual([{
       method: 'POST', url: '/api/family-ledgers/7/records', body: {
-        date: '2026-09-30', categoryId: 30, amount: '12.50', comment: 'Market', payerMemberId: 70, paymentAccountId: 1,
-        split: { method: 'RULE' }, privateNote: 'Card ending 4',
+        type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '12.50', comment: 'Market', payerMemberId: 70,
+        paymentAccountId: 1, split: { method: 'RULE' }, privateNote: 'Card ending 4',
       },
     }]))
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/entries'))

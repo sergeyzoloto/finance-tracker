@@ -63,9 +63,9 @@ export interface EntryForm {
   counterparty: string
   postings: PostingDraft[]
   /**
-   * A new expense: the family budget it is a family expense of (C2), or '' for the user's own. It then goes to the
-   * family budget as an expense the user paid from the account, with the family's category, split and comment; the
-   * memo is the user's private note on their payment.
+   * A new expense or income: the family budget it is a family expense or income of (C2, F4d), or '' for the user's
+   * own. It then goes to the family budget as an expense the user paid from the account, or an income they received
+   * into it, with the family's category, split and comment; the memo is the user's private note on their own entry.
    */
   familyId: string
   familyCategoryId: string
@@ -92,8 +92,8 @@ export function newForm(ledger: Ledger, date: string, tab: Tab = 'expense'): Ent
   }
 }
 
-/** Whether the form is a family expense (C2): an expense with a family budget chosen. */
-export const isFamilyExpense = (form: EntryForm) => form.tab === 'expense' && form.familyId !== ''
+/** Whether the form is a family expense or income (C2, F4d): an expense or an income with a family budget chosen. */
+export const isFamilyRecord = (form: EntryForm) => (form.tab === 'expense' || form.tab === 'income') && form.familyId !== ''
 
 /** The tab that edits entries of this kind. */
 export const tabOf = (kind: EntryKind): Tab => ({
@@ -224,12 +224,12 @@ export function accountChoices(ledger: Ledger, form: EntryForm, field: 'accountI
     if (a.system) return false
     switch (form.tab) {
       // Expense, income and exchange have no counterparty to give an account that needs one (rule 8).
-      // A family expense is paid with the user's own money or credit, as the backend takes it (C2).
+      // A family expense is paid with the user's own money or credit, and a family income received into it, as the
+      // backend takes it (C2, F4d).
       case 'expense':
-        return !a.requiresCounterparty && a.id !== unallocated
-          && (form.familyId === '' || a.type === 'ASSET' || a.type === 'LIABILITY')
       case 'income':
         return !a.requiresCounterparty && a.id !== unallocated
+          && (form.familyId === '' || a.type === 'ASSET' || a.type === 'LIABILITY')
       case 'exchange':
         return !a.requiresCounterparty
       case 'loan':
@@ -249,7 +249,12 @@ export const transferNeedsCounterparty = (form: EntryForm, ledger: Ledger) =>
 export function switchTab(form: EntryForm, tab: Tab, ledger: Ledger): EntryForm {
   const type = categoryById(ledger, idOrNull(form.categoryId))?.type
   const fits = tab === 'expense' ? type === 'EXPENSE' : tab === 'income' ? type === 'INCOME' : true
-  return { ...form, tab, categoryId: fits ? form.categoryId : '' }
+  // A family expense stays a family one as an income, and the other way round, but not its category or split, which
+  // are of the record's type; any other tab is the user's own.
+  const family = tab === form.tab ? {} : tab === 'expense' || tab === 'income'
+    ? { familyCategoryId: '', familySplit: newSplit() }
+    : { familyId: '', familyCategoryId: '', familySplit: newSplit() }
+  return { ...form, tab, categoryId: fits ? form.categoryId : '', ...family }
 }
 
 /**
@@ -328,7 +333,7 @@ export function validate(form: EntryForm, ledger: Ledger): FieldErrors {
 
   required('date', 'Choose a date.')
   if ([...form.memo].length > MEMO_MAX_LENGTH) add('memo', `Keep the memo to ${MEMO_MAX_LENGTH} characters.`)
-  if (isFamilyExpense(form)) {
+  if (isFamilyRecord(form)) {
     // The family budget's rules are the family expense's own (familyEntry.ts); these are the entry's.
     required('accountId', 'Choose an account.')
     money('amount', 'currency')

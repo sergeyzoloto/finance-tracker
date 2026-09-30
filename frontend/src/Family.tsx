@@ -8,15 +8,17 @@ import { Errors, Field, Loading } from './components'
 import { ROLE_LABELS } from './family'
 import FamilyBalances, { YourBalance } from './FamilyBalances'
 import FamilyCategories from './FamilyCategories'
-import NewExpense from './FamilyExpenseForm'
-import { ExpenseDetail, ExpenseTable, FamilyExpenses } from './FamilyExpenses'
+import NewRecord from './FamilyExpenseForm'
+import { AddButtons, FamilyRecords, RecordDetail, RecordTable } from './FamilyExpenses'
 import FamilyJournal from './FamilyJournal'
 import { FamilyMembers, FamilySplitRule } from './FamilyMembers'
+import NewSettlement from './FamilySettlement'
 import { useFamilyApi, useFamilyMutation, type CreationState, type FamilyData } from './familyData'
 
 /**
- * The pages of one family budget, under `/family/{ledgerId}` (ADR 0003, topic I): overview, expenses (a new one and
- * each one under it), balances, journal, members, split rule, categories and settings. A budget the user isn't an ACTIVE member of, or that doesn't exist, answers 404, and so
+ * The pages of one family budget, under `/family/{ledgerId}` (ADR 0003, topic I): overview, activity (expenses, incomes
+ * and settlements, under `expenses`, a new expense, a new income under `incomes/new`, and each record under
+ * `expenses`), a new settlement under `settle`, balances, journal, members, split rule, categories and settings. A budget the user isn't an ACTIVE member of, or that doesn't exist, answers 404, and so
  * does every request about it once it's gone: then the page says so, and the switcher's list is loaded again.
  *
  * @param onChanged loads the switcher's list again
@@ -55,7 +57,7 @@ export default function Family({ onChanged }: { onChanged: () => void }) {
       </div>
       <nav className="subnav" aria-label="Family budget">
         <NavLink to={family.page} end>Overview</NavLink>
-        <NavLink to={`${family.page}/expenses`}>Expenses</NavLink>
+        <NavLink to={`${family.page}/expenses`}>Activity</NavLink>
         <NavLink to={`${family.page}/balances`}>Balances</NavLink>
         <NavLink to={`${family.page}/journal`}>Journal</NavLink>
         <NavLink to={`${family.page}/members`}>Members</NavLink>
@@ -72,9 +74,11 @@ export default function Family({ onChanged }: { onChanged: () => void }) {
       <Errors messages={[error]} />
       <Routes>
         <Route index element={<Overview family={family} />} />
-        <Route path="expenses" element={<FamilyExpenses family={family} />} />
-        <Route path="expenses/new" element={<NewExpense family={family} />} />
-        <Route path="expenses/:recordId" element={<ExpenseDetail family={family} />} />
+        <Route path="expenses" element={<FamilyRecords family={family} />} />
+        <Route path="expenses/new" element={<NewRecord key="expense" family={family} />} />
+        <Route path="incomes/new" element={<NewRecord key="income" family={family} type="INCOME" />} />
+        <Route path="expenses/:recordId" element={<RecordDetail family={family} />} />
+        <Route path="settle" element={<NewSettlement family={family} />} />
         <Route path="balances" element={<FamilyBalances family={family} />} />
         <Route path="journal" element={<FamilyJournal family={family} />} />
         <Route path="members" element={<FamilyMembers family={family} />} />
@@ -112,16 +116,14 @@ function Overview({ family }: { family: FamilyData }) {
       </div>
       <Errors messages={[balances.error, records.error]} />
 
-      <div className="page-title">
-        <h3>Latest expenses</h3>
-        <Link className="button primary" to={`${family.page}/expenses/new`}>Add an expense</Link>
-      </div>
-      {records.data && records.data.totalElements === 0 && <p className="empty">No expenses yet.</p>}
+      <h3>Latest activity</h3>
+      <AddButtons family={family} />
+      {records.data && records.data.totalElements === 0 && <p className="empty">Nothing recorded yet.</p>}
       {records.data && records.data.content.length > 0 && (
         <>
-          <ExpenseTable records={records.data.content} family={family} />
+          <RecordTable records={records.data.content} family={family} />
           {records.data.totalElements > records.data.content.length && (
-            <p><Link to={`${family.page}/expenses`}>All {records.data.totalElements} expenses</Link></p>
+            <p><Link to={`${family.page}/expenses`}>All {records.data.totalElements} records</Link></p>
           )}
         </>
       )}
@@ -135,8 +137,8 @@ function Overview({ family }: { family: FamilyData }) {
         <dt>Split rule</dt><dd>{ledger.splitRule === 'EQUAL' ? 'Equal shares' : 'Custom percentages'}</dd>
       </dl>
       <p className="muted">
-        The other members see this budget’s members, categories and expenses, never your personal accounts, categories or
-        entries. Your share of each expense is posted into your personal ledger.
+        The other members see this budget’s members, categories, expenses, incomes and settlements, never your personal
+        accounts, categories or entries. Your share of each expense and income is posted into your personal ledger.
       </p>
     </section>
   )

@@ -147,7 +147,8 @@ describe('adding an expense', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7/expenses/6'))
     expect(calls.filter((c) => c.method === 'POST')).toEqual([{
       method: 'POST', url: '/api/family-ledgers/7/records', body: {
-        date: '2026-09-30', categoryId: 30, amount: '10.01', comment: null, payerMemberId: 71, split: { method: 'RULE' },
+        type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '10.01', comment: null, payerMemberId: 71,
+        split: { method: 'RULE' },
       },
     }])
   })
@@ -166,7 +167,7 @@ describe('adding an expense', () => {
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7/expenses/5'))
     expect(calls.find((c) => c.method === 'POST')!.body).toEqual({
-      date: '2026-09-30', categoryId: 30, amount: '10.01', comment: 'Weekly shop', payerMemberId: 70,
+      type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '10.01', comment: 'Weekly shop', payerMemberId: 70,
       paymentAccountId: 1, split: { method: 'RULE' },
     })
     cleanup()
@@ -373,12 +374,12 @@ describe('an expense’s page', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Delete the expense' }))
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7/expenses'))
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).toEqual(['/api/family-ledgers/7/records/5?version=0'])
-    expect(await screen.findByText('No expenses yet.')).toBeDefined()
+    expect(await screen.findByText('Nothing recorded yet.')).toBeDefined()
     cleanup()
 
     budget([anna, sam], { 'GET /api/family-ledgers/7/records/5': { status: 404, body: { status: 404, detail: 'Record 5 not found' } } })
     renderApp('/family/7/expenses/5')
-    expect(await screen.findByRole('heading', { name: 'Expense not found' })).toBeDefined()
+    expect(await screen.findByRole('heading', { name: 'Not found' })).toBeDefined()
     // The budget itself is still there.
     expect(screen.getByRole('heading', { name: 'Home' })).toBeDefined()
   })
@@ -442,7 +443,7 @@ describe('balances', () => {
       'All together€0.00',
     ])
     expect(within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.textContent))
-      .toEqual(['Sam owes you €40.00', 'Ben owes you €20.00'])
+      .toEqual(['Sam owes you €40.00 Settle up', 'Ben owes you €20.00 Settle up'])
   })
 })
 

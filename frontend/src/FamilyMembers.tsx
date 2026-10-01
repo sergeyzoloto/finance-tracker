@@ -5,6 +5,7 @@ import { basisPointsToPercent, equalShares, percentToBasisPoints, WHOLE } from '
 import { Errors } from './components'
 import { useFamilyMutation, type FamilyData } from './familyData'
 import { ROLE_LABELS, shareText, splitMembers, STATUS_LABELS, violationsByMember } from './family'
+import { FamilyInvites } from './FamilyInvites'
 
 /**
  * The members of a family budget (D-3, D-15). Owners add, rename and remove members without an account; every
@@ -14,6 +15,8 @@ import { ROLE_LABELS, shareText, splitMembers, STATUS_LABELS, violationsByMember
 export function FamilyMembers({ family }: { family: FamilyData }) {
   const custom = family.ledger.splitRule === 'CUSTOM'
   const [name, setName] = useState('')
+  // The member without an account whose place an owner is about to offer (F5).
+  const [seat, setSeat] = useState<FamilyMember | null>(null)
   const add = useFamilyMutation(family, () => setName(''))
 
   function submit(event: FormEvent) {
@@ -32,7 +35,9 @@ export function FamilyMembers({ family }: { family: FamilyData }) {
             </tr>
           </thead>
           <tbody>
-            {family.members.map((m) => <MemberRow key={m.id} member={m} family={family} custom={custom} />)}
+            {family.members.map((m) => (
+              <MemberRow key={m.id} member={m} family={family} custom={custom} onInvite={() => setSeat(m)} />
+            ))}
           </tbody>
         </table>
       </div>
@@ -54,11 +59,17 @@ export function FamilyMembers({ family }: { family: FamilyData }) {
         A member without an account is someone you keep the budget with who doesn’t use Finance Tracker, such as a
         partner or a child. Other members see every member’s name as it is here.
       </p>
+      {family.owner && <FamilyInvites family={family} seat={seat} onSeatDone={() => setSeat(null)} />}
     </section>
   )
 }
 
-function MemberRow({ member, family, custom }: { member: FamilyMember; family: FamilyData; custom: boolean }) {
+function MemberRow({ member, family, custom, onInvite }: {
+  member: FamilyMember
+  family: FamilyData
+  custom: boolean
+  onInvite: () => void
+}) {
   const [renaming, setRenaming] = useState(false)
   const [removing, setRemoving] = useState(false)
   const own = member.id === family.ledger.memberId
@@ -124,6 +135,7 @@ function MemberRow({ member, family, custom }: { member: FamilyMember; family: F
           <>
             <button type="button" onClick={() => { change.clear(); setRenaming(true) }}>Rename</button>
             <button type="button" disabled={change.pending} onClick={remove}>Remove</button>
+            {member.status === 'ACTIVE' && <button type="button" onClick={onInvite}>Invite to take this place</button>}
           </>
         )}
       </td>

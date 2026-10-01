@@ -127,6 +127,26 @@ describe('the entries', () => {
     expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
   })
 
+  it('opens the opening balance of a place taken in a family budget read-only, without a record (F5)', async () => {
+    const opening: Entry = {
+      ...share, id: 93, kind: 'FAMILY_OPENING', entryDate: '2026-09-15',
+      postings: [
+        { accountId: 30, currency: 'EUR', amount: '10.00', categoryId: null, counterpartyId: null },
+        { accountId: 7, currency: 'EUR', amount: '-10.00', categoryId: null, counterpartyId: null },
+      ],
+      family: { ledgerId: 7, ledgerName: 'Home', recordId: null, link: 'OPENING_BALANCE', readOnly: true },
+    }
+    stubApi({ ...reference, '/entries/93': opening })
+    renderAt('/entries/93', <EntryEditor />, '/entries/:id')
+
+    expect(await screen.findByRole('heading', { name: 'Family opening balance' })).toBeDefined()
+    expect(screen.getByText(/Your balance in the family budget/).textContent)
+      .toContain('from before the day you took your place in it')
+    expect(screen.queryByText(/Posted by the family budget/)).toBeNull()
+    expect(screen.queryByRole('link', { name: /Open the/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
+  })
+
   it('links a posted share and a payment to their expense in the family budget', async () => {
     stubApi({ ...reference, '/entries/90': share, '/entries/91': payment })
     renderAt('/entries/90', <EntryEditor />, '/entries/:id')

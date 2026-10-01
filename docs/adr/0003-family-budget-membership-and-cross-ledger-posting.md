@@ -1168,6 +1168,32 @@ the other side's page and its personal entry offer "Specify later" to unlock it.
 - Amounts go through `minorUnits.ts` per currency; the rate is shown to six significant digits with
   big.js; nothing goes through floating point.
 
+**F5 as built: invites in the interface.**
+
+- The token (`invite.ts`, no React): `main.tsx` takes it from the fragment of `/invite#<token>` before
+  anything else, the session's request included, removing the fragment from the address bar first
+  (`history.replaceState`), and keeps it in `localStorage` for 7 days at most. A link opened in a tab
+  that shows `/invite` already changes only the fragment: a `hashchange` takes it the same way and
+  reloads the page (found in the walk-through). Without a session the app starts the sign-in from
+  `/invite` as from any page; once it knows the user, a waiting token opens `/invite` wherever the app
+  opened, so the tab that a sign-in or a registration's verification email ends in finds it too. With
+  the switch off the token is erased and `/invite` ends on the dashboard. Logout erases it.
+- `/invite` (`Invite.tsx`): who invites, to which family budget and in which currency, the place a
+  claim takes and what of it becomes the user's, from which date the shares appear in the personal
+  budget, the opening balance of a claim, what the other members will and won't see, the categories
+  that merge (with both names), those that stay private, and those the user may bring; the name the
+  others see, prefilled from the account; Accept and Decline. The token is erased after any outcome:
+  accepted (the switcher's list loads again and the budget's overview opens), declined, invalid
+  (the one message and "Back to Personal") or a 409 the user can't get past. A 409 on accepting is
+  the name, shown at its field, unless a new lookup says the invite can't be used any more. A 429 keeps
+  the token and offers to try again.
+- The members page, for owners (`FamilyInvites.tsx`): "Invite someone new", and on each member without
+  an account "Invite to take this place" with the join date (from the start date to today). The new
+  link shows once, with a copy button and a line that it works once, for one person, until its expiry.
+  The invites below, newest first, with their status in words, and Revoke for a pending one. Members
+  see none of it.
+- A claimed seat's `FAMILY_OPENING` entry opens read-only in the personal pages, saying what it is.
+
 **Satisfies** D-5, A3, C6, C7.
 
 ### J. Migration and rollout, F2 to F7

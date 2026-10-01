@@ -2,8 +2,9 @@ import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import App from './App'
-import type { Me } from './api'
+import { familyLedgersOn, type Me } from './api'
 import { finishLogin, logIn, loginResult, logOut } from './auth'
+import { captureInvite, inviteRedirect, watchInviteLinks } from './invite'
 import Landing from './Landing'
 import './index.css'
 
@@ -15,6 +16,10 @@ const BACKEND_WAIT_MS = 8000
 createRoot(document.getElementById('root')!).render(await start())
 
 async function start(): Promise<ReactNode> {
+  // An invite link's token leaves the address bar before anything else happens (D-17), also for a link opened later in
+  // a tab that shows /invite already.
+  captureInvite()
+  watchInviteLinks()
   finishLogin()
   if (loginResult === 'failed') {
     return <Notice message="Signing in didn't work. The login service may be unavailable." action="Try again" onAction={logIn} />
@@ -23,6 +28,9 @@ async function start(): Promise<ReactNode> {
   const response = await fetch('/api/me', { signal: AbortSignal.timeout?.(BACKEND_WAIT_MS) }).catch(() => null)
   if (response?.ok) {
     const me: Me = await response.json()
+    // A token that waits for an outcome opens the invite page, also in the tab a sign-in or a registration ends in.
+    const toInvite = inviteRedirect(location.pathname, familyLedgersOn(me))
+    if (toInvite) history.replaceState(null, '', toInvite)
     return (
       <StrictMode>
         <BrowserRouter>

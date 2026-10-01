@@ -201,3 +201,12 @@ ol.journal > li { padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
 ol.journal p { margin: 0.15rem 0; }
 ol.journal ul { margin: 0.15rem 0; padding-left: 1.25rem; }
 table.balances-table { margin: 0.75rem 0; }
+
+/* Invites (F5): the new link, once, and the list. */
+.new-link p { margin: 0.25rem 0; }
+.link-copy { display: flex; gap: 0.4rem; }
+.link-copy input { flex: 1; min-width: 0; font-family: monospace; }
+ul.invite-list { list-style: none; padding: 0; margin: 0.75rem 0; }
+ul.invite-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); display: grid; gap: 0.2rem; }
+ul.invite-list li button { justify-self: start; }
+.invite ul.merges { margin: 0.25rem 0 0.75rem; }

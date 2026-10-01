@@ -387,7 +387,8 @@ describe('the members', () => {
     fireEvent.click(within(own).getByRole('button', { name: 'Save' }))
     expect(await within(own).findByText('The family budget has a member named kid already.')).toBeDefined()
     expect(within(own).queryByRole('link', { name: 'Change the split rule' })).toBeNull()
-    expect(calls.map((c) => [c.method, c.url])).toEqual([
+    // The writes; an owner's page also loads the invites (F5).
+    expect(calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.url])).toEqual([
       ['DELETE', '/api/family-ledgers/7/members/71'], ['PATCH', '/api/family-ledgers/7/members/me'],
     ])
   })

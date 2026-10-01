@@ -5,9 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-01 · Family budget: F4e's deploy and review, invites and taking a seat (F5)
 
-Committed locally on `feature/family-budget`: `29af12b` (documents) and "feat(family): invites and
-taking a seat", whose hash belongs here with the next change log commit. Not pushed, not merged, not
-deployed.
+Committed locally on `feature/family-budget` in three commits: `29af12b` (documents), `0a1f990`
+(invites and taking a seat) and "feat(frontend): invites and taking a seat", whose hash belongs here
+with the next change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - F4e's deploy and the decisions after its review (commit "docs(family-budget): F4e deploy, F5
@@ -70,6 +70,24 @@ deployed.
     `LedgerApiTest`'s owned rows include the invites.
   - `deploy/pg-backup/finance.conf`: `CHECK_FAMILY_INVITES`. The runbook: the restore test expects 19
     tables and migration 9; "Delete a user" says the release revokes pending invites.
+- Invites in the interface (commit "feat(frontend): invites and taking a seat"), ADR 0003 topic I ("F5
+  as built: invites in the interface"):
+  - `invite.ts` (no React): the token from `/invite#<token>`, the fragment removed from the address bar
+    before anything else, the token in `localStorage` for 7 days, `/invite` opened once the app knows
+    the user while a token waits (also in the tab a sign-in or a registration's verification email ends
+    in), erased with the switch off and at logout; a link opened in a tab on `/invite` already is taken
+    on `hashchange`. `main.tsx` and `auth.ts` call it.
+  - `Invite.tsx` (`/invite`, with the switch on): the lookup in words, what the others will and won't
+    see, the categories that merge, stay private or may come along, the name prefilled from the
+    account; Accept opens the budget and reloads the switcher; Decline; the one message for an invalid
+    token with "Back to Personal"; a taken name at its field; "Try again later" for a 429, keeping the
+    token. The token is erased after every other outcome.
+  - `FamilyInvites.tsx` on the members page, for owners: "Invite someone new", "Invite to take this
+    place" with a join date, the new link once with a copy button, the invites with their status and
+    Revoke. A claimed seat's opening balance reads as one in the personal pages (`EntryEditor.tsx`).
+  - Tests: new `invite.test.ts` (9) and `Invite.test.tsx` (12); `FamilyRows.test.tsx` (the opening
+    balance's entry); `Family.test.tsx`'s members test compares the writes only, since an owner's
+    members page also loads the invites.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`: `feature/family-budget`
@@ -88,9 +106,59 @@ deployed.
 - `invitesLetTheirHoldersIntoTheirOwnFamilyBudgetOnly` against a temporary mutation, from a file
   copy: the invite list open to any member made it fail ("GET /invites in A", 409 expected). The file
   restored.
+- Rollback evidence for V9: in a scratch worktree of `31419bd` with only V9 added (the same file by
+  SHA-256), that version's `./mvnw -B clean verify`: 346 tests, 344 passed, 2 failures, both in the
+  tests that pin the schema (`LedgerBackfillMigrationTests` expects version 8 as the latest,
+  `LedgerSchemaTests` the tables without `ledger_invite`). Flyway applied V9; every API, isolation,
+  delete-all, runbook, report and demo test passed. The worktree removed.
+- After the interface's commit: frontend `npm test` 20 files and 263 tests passed (241 before), `npm
+  run build` succeeded; the backend unchanged since its commit.
+- The walk-through in headless Chrome (playwright-core), against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true`, `ECB_RATES_ENABLED=false` and `APP_PUBLIC_URL=http://localhost:5173`
+  on a throwaway `postgres:17-alpine`, the Vite dev server, and the dev Keycloak's testuser with two
+  users created there for it (testuser2 and testuser3, with the client role `user`; nothing in the auth
+  repository changed):
+  1. testuser created "Home" in EUR from 2026-09-01 with Sam without an account: expenses on 09-05,
+     09-10 ($35.30 → €30.00, paid by Sam) and 09-20, Sam paying Anna 20.00 on 09-12, $52.94 → €45.00
+     paid by Sam on 09-22, a salary of 120.00 received by Sam on 09-24, Anna paying Sam 10.00 on 09-25.
+     Balances: Anna −87.50, Sam 87.50.
+  2. On the members page: "Invite to take this place" for Sam from 2026-09-15; the link shown once,
+     `http://localhost:5173/invite#…`.
+  3. testuser2 opened it signed out: the address went from `/invite#…` to `/invite` at once, then to
+     Keycloak and back to `/invite` after the sign-in; the acceptance screen; accepted as "Sam" with
+     Health brought; the budget's overview, the token gone from `localStorage`.
+  4. testuser2's personal ledger: the opening balance on 09-15 (debt −10.00, `OPENING_BALANCE` +10.00:
+     Sam's 45.00 + 15.00 − 30.00 − 20.00), the shares of 09-20, 09-22 and 09-24, the dollar payment on
+     the placeholder through `FX_EXCHANGE`, the receipt and the settlement side on the placeholder; the
+     debt account 87.50, both balance pages Anna −87.50 and Sam 87.50, the integrity check empty for
+     both; Groceries and Salary merged, Health a family category.
+  5. testuser3: a new-member invite declined ("Invite declined"); one revoked from the owner's list,
+     one moved past its expiry by SQL on the throwaway database, and one used twice: each "This invite
+     is not valid. Ask for a new one." with "Back to Personal", the token erased each time; the
+     switcher listing Home after joining; the owner's list with every status.
+  6. At 375 px the acceptance screen, the overview, the members page with invites and the invalid
+     page were 375 px wide. No URL the browser requested held a token, and the backend's, Vite's and
+     Keycloak's logs held none of the 29 invites' tokens (every 43-character base64url string in them
+     hashed and compared with the stored hashes).
+  Found and fixed: a link opened in a tab already on `/invite` changes only the fragment, so the token
+  stayed in the address bar and the page showed the earlier invite (now taken on `hashchange`, with a
+  test). Seen, not changed: right after accepting, the switcher shows its placeholder until its list
+  has loaded again; locally every browser reaches the api from 127.0.0.1 through Vite's proxy, so the
+  per-address limit is shared there, and StrictMode looks an invite up twice in development. The
+  instance, its database and the dev Keycloak were stopped; screenshots stay in the session's
+  scratchpad.
 
 **Open**
-- The interface (Part 4), the walk-through and the deploy checklist.
+- The owner's deploy of F5 with the switch off; the report has the checklist. V9 runs on deploy;
+  `finance.conf` changes (`CHECK_FAMILY_INVITES`), `finance.caddy` doesn't. Rollback: the `:previous`
+  images, `31419bd`, which the evidence above shows running on V9.
+- To confirm: the 409s of their own for a valid token the user can't use (an ACTIVE member, a member
+  who left, a taken seat), also for decline; the limits per user and per address (10 a minute, 50 an
+  hour each); and two rules found while building, recorded in ADR 0003 topic G: opening balances kept
+  in step with records before a member's join date, and a member who took a seat staying in the
+  records of their time without an account.
+- The privacy draft's legal review (F6 publishes it). Returning members (D-26) and new owners: F6.
+- The owner's invite list keeps every invite, newest first; a long history may want folding later.
 
 ## 2026-10-01 · Family budget: F4d's deploy and review, the settlement lock, other currencies (F4e)
 

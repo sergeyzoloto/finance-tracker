@@ -69,6 +69,51 @@ export interface FamilyMember {
   share: number | null
 }
 
+// Invites (F5, D-17): owners create, list and revoke them; whoever holds a link looks it up, accepts or declines it.
+export type InviteKind = 'NEW_MEMBER' | 'CLAIM'
+export type InviteStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED' | 'EXPIRED'
+/** An invite as the owners see it: never its token. */
+export interface FamilyInvite {
+  id: number
+  kind: InviteKind
+  /** The member without an account whose place a claim takes. */
+  seat?: MemberRef
+  /** A claim's join date; for an accepted invite of a new member, the day they joined. */
+  joinDate?: string
+  createdBy: MemberRef
+  createdAt: string
+  expiresAt: string
+  status: InviteStatus
+  acceptedBy?: MemberRef
+  acceptedAt?: string
+  declinedAt?: string
+  revokedAt?: string
+}
+/** The answer to creating an invite: the only one that holds its link, `…/invite#<token>`. */
+export interface CreatedInvite extends FamilyInvite { link: string }
+/** What an invite shows the signed-in user who holds its link, before they accept or decline it. */
+export interface InviteLookup {
+  ledgerName: string
+  baseCurrency: string
+  invitedBy: string
+  kind: InviteKind
+  /** The member without an account whose place a claim takes; null for a new member. */
+  seatName: string | null
+  /** From when the family's records are posted to the user: a claim's join date, or today. */
+  joinDate: string
+  expiresAt: string
+  /** The family's categories that aren't archived. */
+  categories: { code: string; name: string; type: CategoryType }[]
+  /** The user's categories that merge into the family's with their code and type, which keeps its name. */
+  merges: { categoryId: number; code: string; name: string; familyName: string; type: CategoryType }[]
+  /** The user's categories with a family category's code but of the other type: they stay private. */
+  keptPrivate: { categoryId: number; code: string; name: string; type: CategoryType; familyType: CategoryType }[]
+  /** The user's categories the family doesn't have, which they may bring. */
+  mayBring: { categoryId: number; code: string; name: string; type: CategoryType }[]
+  /** The account's name, to prefill the name the other members will see. */
+  displayName: string | null
+}
+
 // A family budget's expenses (F4a), incomes and settlements (F4d): the API calls them records. Amounts are in the
 // budget's base currency.
 /** A member as a record, a balance or the journal names them: "Former member" once they deleted their data. */

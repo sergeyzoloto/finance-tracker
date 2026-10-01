@@ -8,6 +8,7 @@ import Entries from './Entries'
 import EntryEditor from './EntryEditor'
 import Family from './Family'
 import Import from './Import'
+import InvitePage from './Invite'
 import LedgerSwitcher from './LedgerSwitcher'
 import { PRIVACY_URL, SOURCE_URL } from './links'
 import NewFamily from './NewFamily'
@@ -49,6 +50,7 @@ export default function App({ me }: { me: Me }) {
           <Route path="/settings" element={<Settings onDeleted={families.reload} />} />
           {familyOn && <Route path="/family/new" element={<NewFamily me={me} onCreated={families.reload} />} />}
           {familyOn && <Route path="/family/:ledgerId/*" element={<Family onChanged={families.reload} />} />}
+          {familyOn && <Route path="/invite" element={<InvitePage onJoined={families.reload} />} />}
           <Route path="/transactions" element={<Navigate to="/entries" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

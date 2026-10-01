@@ -130,7 +130,8 @@ function ReadOnlyEntry({ entry, ledger, onBack }: { entry: Entry; ledger: Ledger
         {family.link === 'PAYMENT' && noun === 'income' && <>What you received for an income of the family budget {budget}. To change it, change or delete the income there.</>}
         {family.link === 'PAYMENT' && noun !== 'income' && <>Your payment for an expense of the family budget {budget}. To change it, change or delete the expense there.</>}
         {family.link === 'SETTLEMENT' && <>Your side of a settlement in the family budget {budget}. It changes there.</>}
-        {family.link !== 'PAYMENT' && family.link !== 'SETTLEMENT' && <>Posted by the family budget {budget}. It changes only there.</>}
+        {family.link === 'OPENING_BALANCE' && <>Your balance in the family budget {budget} from before the day you took your place in it. It changes there, with the records before that day.</>}
+        {!['PAYMENT', 'SETTLEMENT', 'OPENING_BALANCE'].includes(family.link) && <>Posted by the family budget {budget}. It changes only there.</>}
         {page && <> <Link to={page}>Open the {noun}</Link></>}
       </p>
       <dl className="read-only">

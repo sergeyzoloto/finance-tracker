@@ -108,11 +108,13 @@ class FamilyInviteApiTests extends FamilyApiTest {
         assertThat(detail(post(alice, uri + "/invites", """
                 {"kind": "CLAIM", "seatMemberId": 9000000000, "joinDate": "2026-09-10"}"""), HttpStatus.NOT_FOUND))
                 .isEqualTo("Member 9000000000 not found.");
-        assertThat(details(post(alice, uri + "/invites", """
-                {"kind": "CLAIM", "seatMemberId": %d}""".formatted(kid)))).containsExactly(
-                "JOIN_DATE %d name the date from which Kid's records go to whoever takes their place".formatted(kid));
+        // A claim without a join date takes today's, the server's, as a start date does (F6a).
+        JsonNode today = created(post(alice, uri + "/invites", """
+                {"kind": "CLAIM", "seatMemberId": %d}""".formatted(kid)));
+        assertThat(today.get("joinDate").asText()).isEqualTo(today().toString());
+        assertThat(delete(alice, uri + "/invites/" + today.get("id").asLong())).hasStatus(HttpStatus.NO_CONTENT);
         String notBetween = "JOIN_DATE %d the join date %s is not between the family budget's start date 2026-09-01 "
-                + "and today";
+                + "and today, " + today();
         assertThat(details(post(alice, uri + "/invites", """
                 {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "2026-08-31"}""".formatted(kid))))
                 .containsExactly(notBetween.formatted(kid, "2026-08-31"));

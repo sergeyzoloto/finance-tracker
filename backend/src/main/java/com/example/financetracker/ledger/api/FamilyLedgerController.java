@@ -18,6 +18,7 @@ import com.example.financetracker.ledger.api.CategoryController.NewCategory;
 import com.example.financetracker.ledger.family.FamilyLedgerService;
 import com.example.financetracker.ledger.family.FamilyLedgerView;
 import com.example.financetracker.ledger.family.FamilyMemberView;
+import com.example.financetracker.ledger.family.FamilyMembershipService;
 import com.example.financetracker.ledger.family.FamilySwitch;
 import com.example.financetracker.ledger.family.SplitRule;
 import com.example.financetracker.security.CurrentUser;
@@ -85,11 +86,14 @@ class FamilyLedgerController {
     private final LedgerAccess access;
     private final FamilyLedgerService families;
     private final CategoryService categories;
+    private final FamilyMembershipService memberships;
 
-    FamilyLedgerController(LedgerAccess access, FamilyLedgerService families, CategoryService categories) {
+    FamilyLedgerController(LedgerAccess access, FamilyLedgerService families, CategoryService categories,
+            FamilyMembershipService memberships) {
         this.access = access;
         this.families = families;
         this.categories = categories;
+        this.memberships = memberships;
     }
 
     /** The family ledgers the user is an ACTIVE member of, by name, for the ledger switcher. */
@@ -163,11 +167,24 @@ class FamilyLedgerController {
         return families.renameMember(access.owner(user.id(), ledgerId), memberId, member.displayName().strip());
     }
 
-    /** Owners only, for a member without an account and without a custom share. */
+    /**
+     * Any member with an account leaves (D-19, F6a): LEFT, detached, reading nothing of the family budget afterwards.
+     * The last owner while another member with an account remains: 409 with the code {@code LAST_OWNER}.
+     */
+    @DeleteMapping("/{ledgerId}/members/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void leave(CurrentUser user, @PathVariable long ledgerId) {
+        memberships.leave(access.member(user.id(), ledgerId));
+    }
+
+    /**
+     * Owners only (D-15, D-19, F6a): removes a member, with or without an account, who becomes LEFT and is detached;
+     * a member without an account whom no record names, and without a custom share, is deleted.
+     */
     @DeleteMapping("/{ledgerId}/members/{memberId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void removeMember(CurrentUser user, @PathVariable long ledgerId, @PathVariable long memberId) {
-        families.removeMember(access.owner(user.id(), ledgerId), memberId);
+        memberships.remove(access.owner(user.id(), ledgerId), memberId);
     }
 
     /** The family's categories (D-11), archived ones included, by name. */

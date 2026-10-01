@@ -69,6 +69,8 @@ class FamilyClaimApiTests extends FamilyApiTest {
         assertThat(lookup.get("ledgerName").asText()).isEqualTo("Home");
         assertThat(lookup.get("baseCurrency").asText()).isEqualTo("EUR");
         assertThat(lookup.get("displayName").asText()).isEqualTo("User " + carol);
+        // The seat's balance before the join date, which she takes on (D-34): the family owed Kid 10.00.
+        assertThat(lookup.get("openingBalance").asText()).isEqualTo("-10.00");
 
         String token = kidsPlace("2026-09-15");
         JsonNode joined = accept(carol, token, "Carol");
@@ -304,5 +306,86 @@ class FamilyClaimApiTests extends FamilyApiTest {
         assertThat(ok(get(alice, uri + "/categories")).findValuesAsText("code")).contains("HEALTH");
         assertThat(ok(get(alice, uri + "/categories")).toString()).doesNotContain("Food");
         assertThat(ok(get(carol, "/api/reports/integrity"))).isEmpty();
+    }
+
+    /**
+     * D-31 (decided by the PM after F5): a record dated before a claimed member's join date stays editable, and every
+     * change keeps their opening balance in step (D-10). Mum paid 90.00 of groceries on 09-05 and 60.00 on 09-20, each
+     * split equally among Mum, Dad and Kid; Carol takes Kid's place from 09-15, with an opening balance of +30.00 and
+     * the share of 20.00.
+     * <ul>
+     * <li>The first amount goes to 120.00: Kid's third of it, 40.00, is the opening balance now.
+     * <li>The record moves to 09-18, after the join date: Carol stays in it (F5's rule for a member who was in it
+     * before taking the seat), its 40.00 is a share entry of hers, and the opening balance goes.
+     * <li>It moves back to 09-08: a record moved before a member's join date drops them, as F4c decided and F5 kept,
+     * so it is split between Mum and Dad, Carol's share entry goes, and her opening balance stays 0. Her own payment
+     * moved before her join date is refused (`JOINED_AFTER`).
+     * </ul>
+     * The journal names each change of the record and never an account; the invariants and the integrity check hold
+     * after each step.
+     */
+    @Test
+    void theOpeningBalanceFollowsRecordsAcrossTheJoinDate() throws IOException {
+        String later = "\"paymentLater\": true,";
+        long early = created(post(alice, uri + "/records", expense("2026-09-05", groceries, "90.00", mum, later)))
+                .get("id").asLong();
+        created(post(alice, uri + "/records", expense("2026-09-20", groceries, "60.00", mum, later)));
+        long kidPaid = created(post(alice, uri + "/records", expense("2026-09-22", rent, "30.00", kid, "")))
+                .get("id").asLong();
+        accept(carol, kidsPlace("2026-09-15"), "Carol");
+        long debt = accountId(carol, "FAMILY_DEBT_" + family);
+        long unallocated = accountId(carol, "UNALLOCATED");
+        long opening = accountId(carol, "OPENING_BALANCE");
+        long placeholder = accountId(carol, "UNSPECIFIED_PAYMENTS");
+        String rentShare = "FAMILY_SHARE SHARE %d:10.00:%d %d:-10.00:null".formatted(unallocated, rent, debt);
+        String kidsPayment = "FAMILY_PAYMENT PAYMENT %d:-30.00:null %d:30.00:null".formatted(placeholder, debt);
+        String lateShare = "FAMILY_SHARE SHARE %d:20.00:%d %d:-20.00:null".formatted(unallocated, groceries, debt);
+        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(
+                "FAMILY_OPENING OPENING_BALANCE %d:-30.00:null %d:30.00:null".formatted(debt, opening), lateShare,
+                rentShare, kidsPayment);
+        assertThat(balances(carol)).containsExactly("Mum -90.00", "Dad 60.00", "Carol 30.00 you");
+        everyonesIntegrity();
+
+        ok(patch(alice, uri + "/records/" + early + "?version=0", """
+                {"amount": "120.00"}"""));
+        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(
+                "FAMILY_OPENING OPENING_BALANCE %d:-40.00:null %d:40.00:null".formatted(debt, opening), lateShare,
+                rentShare, kidsPayment);
+        assertThat(balances(carol)).containsExactly("Mum -110.00", "Dad 70.00", "Carol 40.00 you");
+        everyonesIntegrity();
+
+        ok(patch(alice, uri + "/records/" + early + "?version=1", """
+                {"date": "2026-09-18"}"""));
+        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(
+                "FAMILY_SHARE SHARE %d:40.00:%d %d:-40.00:null".formatted(unallocated, groceries, debt), lateShare,
+                rentShare, kidsPayment);
+        assertThat(balances(carol)).containsExactly("Mum -110.00", "Dad 70.00", "Carol 40.00 you");
+        everyonesIntegrity();
+
+        JsonNode back = ok(patch(alice, uri + "/records/" + early + "?version=2", """
+                {"date": "2026-09-08"}"""));
+        assertThat(shares(back)).containsExactly("Mum 60.00 null", "Dad 60.00 null");
+        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(lateShare, rentShare, kidsPayment);
+        assertThat(balances(carol)).containsExactly("Mum -90.00", "Dad 90.00", "Carol 0.00 you");
+        assertThat(details(patch(carol, uri + "/records/" + kidPaid + "?version=0", """
+                {"date": "2026-09-10"}"""))).anyMatch(detail -> detail.startsWith("JOINED_AFTER " + kid));
+        everyonesIntegrity();
+
+        JsonNode journal = ok(get(alice, uri + "/journal?recordId=" + early));
+        assertThat(changes(journal).subList(0, 3)).containsExactly(
+                "UPDATE by Mum: date 2026-09-18→2026-09-08, share of Mum 40.00→60.00, share of Dad 40.00→60.00, "
+                        + "share of Carol 40.00→null",
+                "UPDATE by Mum: date 2026-09-05→2026-09-18",
+                "UPDATE by Mum: amount 90.00→120.00, share of Mum 30.00→40.00, share of Dad 30.00→40.00, "
+                        + "share of Carol 30.00→40.00");
+        assertThat(journal.toString().toLowerCase()).doesNotContain("account");
+    }
+
+    /** Nobody's integrity check finds anything, and the invariants hold. */
+    private void everyonesIntegrity() throws IOException {
+        for (String user : List.of(alice, bob, carol)) {
+            assertThat(ok(get(user, "/api/reports/integrity"))).as("integrity of %s", user).isEmpty();
+        }
+        com.example.financetracker.ledger.family.FamilyInvariants.check(jdbc, family);
     }
 }

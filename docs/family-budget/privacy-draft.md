@@ -44,6 +44,24 @@ An owner of a family budget invites people with a link. Whoever holds a link can
 only before it expires (after 72 hours, unless the owner chose a shorter or longer time of up to 7
 days). The owner can revoke a link before it is used. Keep a link you receive to yourself.
 
+Before you accept or decline, the invitation shows you:
+
+- the family budget's name and currency;
+- the display name of the owner who invites you;
+- whether you join as a new member or take the place of a member without an account, and that
+  member's name;
+- the date from which the family budget's records are added to your personal budget, and until when
+  the link works;
+- for a place, its balance in the family budget before that date, which becomes your opening
+  balance;
+- the family budget's categories;
+- which of your own categories will merge into the family budget's, which stay private, and which you
+  may bring along;
+- the name of your account, as a suggestion for the name the other members will see.
+
+Nothing else about the family budget or its members is shown before you accept: no member's name
+but the owner's and the place's, and no amount but that opening balance.
+
 The secret part of the link is never sent to our server with the address of a page, so it doesn't
 appear in server logs. We store only a hash of it, from which the link can't be rebuilt. To show you
 the invitation, you have to sign in first.
@@ -64,10 +82,22 @@ arrives as one opening balance.
 
 ## Leaving, removal and "Delete all my data"
 
-When you leave a family budget, or an owner removes you, you no longer see it, and nothing more is
-added to your personal budget. What was already added stays in your personal budget as your own
-entries. The family records stay in the family budget, because they make up the other members'
-balances.
+When you leave a family budget, or an owner removes you:
+
+- you no longer see the family budget, and nothing more is added to your personal budget;
+- what was already added stays in your personal budget as your own entries, which you can change or
+  delete; the family categories they use become personal categories of yours, with the names they
+  have at that moment; your balance with the family budget stays in your personal budget as an
+  account of yours;
+- the family records stay in the family budget, because they make up the other members' balances.
+  The other members keep seeing your display name in them, marked as a member who left, and the
+  records that involve you can no longer be changed;
+- if the family budget split its expenses by fixed percentages and you had a share, it goes back to
+  equal shares, and its change journal says that this happened when you left;
+- invite links you created that weren't used yet stop working.
+
+The last owner of a family budget hands ownership to another member first. When the last member with
+an account leaves, the family budget is closed and nobody sees it any more.
 
 When you use "Delete all my data", your personal budget is deleted entirely. In each family budget:
 

@@ -159,6 +159,19 @@ public class FamilyPostingService {
         openings(family);
     }
 
+    /**
+     * Detaches the member, who leaves or whom an owner removes (D-19, D-33; ADR 0003, topic E), while they are still
+     * ACTIVE: their links detached, the family categories their personal ledger refers to copied into it as personal
+     * ones, and their debt account an ordinary liability. Nothing is posted; everything posted stays as theirs.
+     *
+     * @param family the family ledger, as the member who acts: the one who leaves, or the owner who removes them
+     * @return the personal categories the references moved to, by the family category's id
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Map<Long, Long> detach(LedgerScope family, long memberId) {
+        return writer.detach(family, memberId);
+    }
+
     private void postRecord(LedgerScope family, long recordId, Payment payment) {
         record Record(String type, LocalDate date, boolean deleted, long payerId, Long payeeId, long authorId,
                 Long categoryId, BigDecimal amount, String currency, BigDecimal originalAmount,

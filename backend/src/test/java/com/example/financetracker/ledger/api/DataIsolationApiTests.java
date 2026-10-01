@@ -1256,6 +1256,122 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(get(erin, inB)).hasStatus(HttpStatus.NOT_FOUND);
     }
 
+    /**
+     * Leaving and removal (F6a; D-19, ADR 0003 topic J's "F6a plan"), with three users: Alice owns A, where Bob and
+     * Carol are members, and B alone. Bob, a member who isn't an owner, removes nobody: the owners' 409, and nothing
+     * of anyone's changes. DELETE /members/me answers Bob on B and on either personal ledger, and Carol on B and on
+     * Alice's personal ledger, as for a family budget that doesn't exist. Then Bob leaves and Alice removes Carol:
+     * from then on each gets the missing family budget's answer from every family endpoint of A, reads and writes
+     * alike, and their personal answers hold nothing of A any more, not even its new name: no family category, no
+     * family link, no debt account that names it.
+     */
+    @Test
+    void aMemberWhoLeftOrWasRemovedReadsNothingOfTheBudget() throws IOException {
+        String carol = newUser();
+        ok(get(carol, "/api/accounts"));
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01",
+                 "categoryIds": [%d]}""".formatted(categoryId(alice, "GROCERIES"))).get("id").asLong();
+        String inA = "/api/family-ledgers/" + familyA;
+        join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        long carolInA = join(familyA, carol, "Carol", "MEMBER", LocalDate.of(2026, 8, 1));
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long seat = created(post(alice, inA + "/members", """
+                {"displayName": "Sam"}"""));
+        long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
+        long record = created(post(alice, inA + "/records", """
+                {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(groceriesInA, mumInA, alicesBank)));
+        long invite = body(post(alice, inA + "/invites", """
+                {"kind": "NEW_MEMBER"}"""), HttpStatus.CREATED).get("id").asLong();
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice"}""").get("id").asLong();
+        String me = "/api/family-ledgers/%d/members/me";
+
+        SoftAssertions softly = new SoftAssertions();
+        String everyone = membershipsBut(-1);
+        for (long member : List.of(mumInA, carolInA, seat)) {
+            MvcTestResult answer = bobsRequest(HttpMethod.DELETE, inA + "/members/" + member, null);
+            softly.assertThat(answer.getResponse().getStatus()).as("Bob removes member %d", member).isEqualTo(409);
+        }
+        softly.assertThat(membershipsBut(-1)).as("the memberships after Bob's removals").isEqualTo(everyone);
+        for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+            answersAsIfMissing(softly, HttpMethod.DELETE, me, ledger, null);
+        }
+        for (long ledger : List.of(familyB, personalLedger(alice))) {
+            answersAsIfMissingTo(softly, carol, HttpMethod.DELETE, me.formatted(ledger), me.formatted(MISSING), null);
+        }
+        softly.assertAll();
+
+        assertThat(call(bob, HttpMethod.DELETE, inA + "/members/me", null)).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(delete(alice, inA + "/members/" + carolInA)).hasStatus(HttpStatus.NO_CONTENT);
+        ok(patch(alice, inA, """
+                {"name": "ALICE_RENAMED_HOME"}"""));
+
+        List<FamilyRequest> requests = List.of(
+                new FamilyRequest(HttpMethod.GET, "", null),
+                new FamilyRequest(HttpMethod.PATCH, "", """
+                        {"name": "Mine now"}"""),
+                new FamilyRequest(HttpMethod.PUT, "/split-rule", """
+                        {"rule": "EQUAL"}"""),
+                new FamilyRequest(HttpMethod.GET, "/members", null),
+                new FamilyRequest(HttpMethod.POST, "/members", """
+                        {"displayName": "Intruder"}"""),
+                new FamilyRequest(HttpMethod.PATCH, "/members/me", """
+                        {"displayName": "Intruder"}"""),
+                new FamilyRequest(HttpMethod.DELETE, "/members/me", null),
+                new FamilyRequest(HttpMethod.PATCH, "/members/" + seat, """
+                        {"displayName": "Intruder"}"""),
+                new FamilyRequest(HttpMethod.DELETE, "/members/" + seat, null),
+                new FamilyRequest(HttpMethod.GET, "/categories", null),
+                new FamilyRequest(HttpMethod.POST, "/categories", """
+                        {"code": "INTRUDER", "name": "Intruder", "type": "EXPENSE"}"""),
+                new FamilyRequest(HttpMethod.PATCH, "/categories/" + groceriesInA, """
+                        {"name": "Intruder"}"""),
+                new FamilyRequest(HttpMethod.DELETE, "/categories/" + groceriesInA, null),
+                new FamilyRequest(HttpMethod.GET, "/records", null),
+                new FamilyRequest(HttpMethod.POST, "/records", """
+                        {"date": "2026-08-12", "categoryId": %d, "amount": "1.00", "payerMemberId": %d}"""
+                        .formatted(groceriesInA, seat)),
+                new FamilyRequest(HttpMethod.POST, "/settlements", """
+                        {"date": "2026-08-12", "amount": "1.00", "payerMemberId": %d, "payeeMemberId": %d}"""
+                        .formatted(seat, mumInA)),
+                new FamilyRequest(HttpMethod.GET, "/records/" + record, null),
+                new FamilyRequest(HttpMethod.PATCH, "/records/" + record + "?version=0", """
+                        {"comment": "Intruder"}"""),
+                new FamilyRequest(HttpMethod.DELETE, "/records/" + record + "?version=0", null),
+                new FamilyRequest(HttpMethod.GET, "/balances", null),
+                new FamilyRequest(HttpMethod.GET, "/journal", null),
+                new FamilyRequest(HttpMethod.GET, "/conversion?amount=1&currency=USD&date=2026-08-12", null),
+                new FamilyRequest(HttpMethod.POST, "/invites", """
+                        {"kind": "NEW_MEMBER"}"""),
+                new FamilyRequest(HttpMethod.GET, "/invites", null),
+                new FamilyRequest(HttpMethod.DELETE, "/invites/" + invite, null));
+        SoftAssertions afterwards = new SoftAssertions();
+        for (FamilyRequest request : requests) {
+            String uri = "/api/family-ledgers/%d" + request.path();
+            answersAsIfMissing(afterwards, request.method(), uri, familyA, request.body());
+            answersAsIfMissingTo(afterwards, carol, request.method(), uri.formatted(familyA), uri.formatted(MISSING),
+                    request.body());
+        }
+        afterwards.assertAll();
+
+        for (String user : List.of(bob, carol)) {
+            assertThat(ok(get(user, "/api/family-ledgers"))).as("%s's family budgets", user).isEmpty();
+            Map<String, JsonNode> view = user.equals(bob) ? bobsView() : view(user);
+            assertThat(view.toString()).as("%s's personal answers", user)
+                    .doesNotContain("familyLedgerId", "familyLedgerName", "ALICE_RENAMED_HOME", "ALICE_SECRET_BUDGET");
+            assertThat(view.get("/api/entries?size=200").get("content").findValuesAsText("family")).containsOnly("null");
+            assertThat(jdbc.sql("""
+                    SELECT count(*) FROM account a JOIN ledger_member p ON p.ledger_id = a.ledger_id
+                    WHERE p.user_sub = ? AND p.ledger_type = 'PERSONAL' AND a.family_ledger_id IS NOT NULL""")
+                    .param(user).query(Long.class).single()).as("%s's debt accounts that name a family budget", user)
+                    .isZero();
+        }
+        assertThat(ok(get(alice, inA + "/members")).findValuesAsText("status"))
+                .containsExactly("ACTIVE", "LEFT", "LEFT", "ACTIVE");
+    }
+
     /** A new invite of the owner's to the family ledger at the path: its token. */
     private String invite(String owner, String familyPath, String request) throws IOException {
         String link = body(post(owner, familyPath + "/invites", request), HttpStatus.CREATED).get("link").asText();

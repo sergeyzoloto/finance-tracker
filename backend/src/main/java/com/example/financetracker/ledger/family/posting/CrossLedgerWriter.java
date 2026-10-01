@@ -3,7 +3,9 @@ package com.example.financetracker.ledger.family.posting;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -26,7 +28,8 @@ import org.springframework.stereotype.Component;
  * account", for a payment or a settlement; OPENING_BALANCE, for an opening balance or a correction; and the payer's
  * own account for their payment, and their FX_EXCHANGE for one in another currency than the base currency (F4e), only
  * when the payer is the member who acts (D-14). Nothing else: not another user's
- * cards, other accounts or personal categories. The database's triggers (V7) check the same while
+ * cards, other accounts or personal categories. Its one other operation is the detach of a member who leaves or is
+ * removed ({@link #detach}, D-19), which creates personal categories in their ledger and moves references to them. The database's triggers (V7) check the same while
  * {@code app.writer} is {@code family-posting}, which the writer sets for its own statements only.
  */
 @Component
@@ -38,6 +41,8 @@ class CrossLedgerWriter {
     static final String FX_CODE = "FX_EXCHANGE";
 
     private static final Set<LinkType> PAYMENTS = Set.of(LinkType.PAYMENT, LinkType.SETTLEMENT);
+    /** The longest category code (V2). */
+    private static final int CODE_LENGTH = 50;
 
     private final JdbcClient jdbc;
 
@@ -321,6 +326,85 @@ class CrossLedgerWriter {
                     .param("linkId", link.id()).param("familyId", family.ledgerId())
                     .update();
         });
+    }
+
+    /**
+     * Detaches the member from the family ledger (D-19, D-33; ADR 0003, topic E), while they are still ACTIVE: the
+     * only other thing this writer does besides records' entries. In their personal ledger:
+     * <ol>
+     * <li>their links to the family ledger are detached and no longer system-owned, so the posted entries become
+     * ordinary personal entries of theirs;
+     * <li>for every family category their personal ledger refers to, a personal category with its code and type and
+     * the family category's current name, unless they have one with that code and type already (the merged ones were
+     * deleted, D-33); if their code is taken by a personal category of the other type (D-30), the copy's code gets
+     * {@code _2}, {@code _3} and so on; then the references move to it;
+     * <li>their debt account for the family ledger stops naming it and is no longer a system account: an ordinary
+     * liability, named after the family, that keeps its balance.
+     * </ol>
+     * Afterwards no row of their personal ledger references the family ledger. Nothing is posted.
+     *
+     * @return the personal categories the references moved to, by the family category's id
+     */
+    Map<Long, Long> detach(LedgerScope family, long memberId) {
+        MemberLedger member = memberLedger(family, memberId);
+        asWriter(family, null, () -> jdbc.sql("""
+                UPDATE family_entry_link SET detached_at = now(), system_owned = FALSE
+                WHERE family_ledger_id = :familyId AND member_id = :memberId AND detached_at IS NULL""")
+                .param("familyId", family.ledgerId()).param("memberId", memberId)
+                .update());
+        record Used(long id, String code, String name, String type) {
+        }
+        List<Used> used = jdbc.sql("""
+                SELECT DISTINCT c.id, c.code, c.name, c.type
+                FROM posting p
+                JOIN journal_entry e ON e.id = p.entry_id
+                JOIN category c ON c.id = p.category_id
+                WHERE e.ledger_id = :personalId AND c.ledger_id = :familyId
+                ORDER BY c.code""")
+                .param("personalId", member.ledgerId()).param("familyId", family.ledgerId())
+                .query((row, n) -> new Used(row.getLong("id"), row.getString("code"), row.getString("name"),
+                        row.getString("type")))
+                .list();
+        Map<Long, Long> copies = new LinkedHashMap<>();
+        for (Used category : used) {
+            Long copy = jdbc.sql("""
+                    SELECT id FROM category WHERE ledger_id = :personalId AND code = :code AND type = :type""")
+                    .param("personalId", member.ledgerId()).param("code", category.code())
+                    .param("type", category.type())
+                    .query(Long.class).optional().orElse(null);
+            for (int n = 1; copy == null && n <= 100; n++) {
+                String suffix = n == 1 ? "" : "_" + n;
+                String code = category.code().substring(0, Math.min(category.code().length(),
+                        CODE_LENGTH - suffix.length())) + suffix;
+                copy = jdbc.sql("""
+                        INSERT INTO category (user_id, ledger_id, code, name, type)
+                        VALUES (:sub, :personalId, :code, :name, :type)
+                        ON CONFLICT DO NOTHING
+                        RETURNING id""")
+                        .param("sub", member.sub()).param("personalId", member.ledgerId()).param("code", code)
+                        .param("name", category.name()).param("type", category.type())
+                        .query(Long.class).optional().orElse(null);
+            }
+            if (copy == null) {
+                throw new IllegalStateException("No free code for the copy of category " + category.code());
+            }
+            // The links are detached by now, so these are ordinary personal entries: the posting guard (V7) lets
+            // anyone but the writer change them, and the writer only writes family kinds to family categories.
+            jdbc.sql("""
+                    UPDATE posting SET category_id = :copy
+                    WHERE category_id = :familyCategory
+                      AND entry_id IN (SELECT id FROM journal_entry WHERE ledger_id = :personalId)""")
+                    .param("copy", copy).param("familyCategory", category.id())
+                    .param("personalId", member.ledgerId())
+                    .update();
+            copies.put(category.id(), copy);
+        }
+        jdbc.sql("""
+                UPDATE account SET family_ledger_id = NULL, is_system = FALSE
+                WHERE ledger_id = :personalId AND family_ledger_id = :familyId""")
+                .param("personalId", member.ledgerId()).param("familyId", family.ledgerId())
+                .update();
+        return copies;
     }
 
     /**

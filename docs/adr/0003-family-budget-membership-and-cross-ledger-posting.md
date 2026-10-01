@@ -1434,6 +1434,62 @@ text, which each point names. Where the text leaves a gap, "F6a as built" below 
    sum to 0 over all its members, LEFT and FORMER included. A randomized test from a fixed seed leaves, removes,
    returns, makes owners and deletes all data among its operations.
 
+**F6a as built: leaving, removal, the rule back to EQUAL** (2026-10-01). As the plan says, with these decisions
+where the text above left a gap (each to be confirmed after the F6a review):
+
+- **Endpoints.** `DELETE /{ledgerId}/members/me` leaves: any ACTIVE member with an account (`LedgerAccess.member`).
+  `DELETE /{ledgerId}/members/{memberId}`, F3a's removal of a member without an account, now removes any member, with
+  or without an account: owners only (409 for a member, 404 for anyone else); one's own id is leaving. Both answer
+  204. A member who left already, or a FORMER one, is 409; a member of another ledger 404. The last owner while
+  another ACTIVE member with an account remains is 409 with `code` `LAST_OWNER`, a new additive property of a 409's
+  problem detail (`ConflictException` with a code). An owner may remove another owner, who becomes a MEMBER.
+- **A member without an account.** One whom no record names (payer, payee or a share, deleted records included) and
+  whose custom share is 0 or none is deleted, as F3a did; any other becomes LEFT, so that the frozen records and the
+  journal can name them. F3a's 409s for records and for a custom share above 0 are gone.
+- **The detach** (`CrossLedgerWriter.detach`, called by `FamilyPostingService.detach` while the member is still
+  ACTIVE): the links are detached first, as the writer; then, as an ordinary statement, the postings of the member's
+  personal ledger move from each family category to its copy, which V7's guard allows once the entries aren't posted
+  any more; then `Debt(L)` loses `family_ledger_id` and is no longer a system account, so that its owner can rename or
+  archive it; its name stays. A copy is created only for a category the personal ledger refers to (D-33). Where the
+  member has a personal category with the code and type already (the demo's personal twin of a merged starter
+  category, topic F), the references move to it and it keeps its name; where the code is taken by a category of the
+  other type (D-30), the copy's code gets `_2`, `_3` and so on. No migration.
+- **Invites.** Leaving or being removed revokes the member's pending invites, as "Delete all my data" does (D-20),
+  and those for a removed seat's place.
+- **The leave date** is today (`ledger.Today`, below). `FamilyMemberView` gains `leftDate` (additive).
+- **The last member with an account** leaving or removed archives the ledger (`ledger.archived_at`, which nothing reads
+  yet): its members without an account stay ACTIVE, nobody sees it, and nobody can invite into it, since an invite's
+  creator is an ACTIVE owner. `release_family_memberships` deletes it with the first "Delete all my data" of one of its
+  LEFT members, as it deletes a family ledger without an ACTIVE member with an account.
+- A LEFT member's display name stays taken (V6's unique index leaves out only FORMER members), since they may return
+  under it (D-26).
+- **"Today"** (the F5 follow-up). The start date (D-27), a new member's and a claim's join date (D-18) and the leave
+  date come from `ledger.Today`, the date in the api's time zone, which is also the database session's (the JDBC
+  driver gives the session the JVM's zone), so it is the `current_date` that V9's trigger and V7's start date use; in
+  production the api runs in UTC (`eclipse-temurin:21-jre` without a `TZ`). Records have no upper bound on their date.
+  Before F6a the services read `current_date` themselves: the same date, but not one a test could set. A browser a
+  time zone ahead, such as Amsterdam's between midnight and 02:00 in summer, is already on the next day: the start
+  date's form leaves its date out when it is the browser's today (F3b), and a claim's join date may now be left out
+  too, for the server's today (it was 422 `JOIN_DATE`); the members page leaves it out the same way. No migration.
+- **D-34.** The lookup gains `openingBalance` (additive): for a claim, the seat's family balance from the records before
+  the join date, in the base currency, positive when the seat owes the family; null for a new member. The invite page
+  shows it, and the privacy draft's "Invite links" lists what the lookup shows.
+- **The client address** (D-29's condition). Production's path for `/api/*` is Caddy → `finance-tracker-api` directly;
+  `finance-tracker-web` (`web.conf`) proxies nothing (the local image's `nginx.conf` does, with
+  `$proxy_add_x_forwarded_for`). Caddy 2.11, without `trusted_proxies` in the auth server's Caddyfile, sets
+  `X-Forwarded-For` to the address its connection came from and drops what a client sent. Tomcat's `RemoteIpValve`
+  (`server.forward-headers-strategy: native`, Spring Boot's default internal proxies: 10/8, 172.16/12, 192.168/16,
+  127/8, 169.254/16, 100.64/10 and IPv6 loopback and local) takes the right-most address that isn't a trusted proxy's,
+  from a trusted peer only. The api publishes no port, so Caddy on `edge` is its only peer. Nothing changed:
+  `ClientAddressTests` and `ClientAddressUntrustedPeerTests` pin it, through a real Tomcat. The sign-in's redirect URIs
+  and the forward-headers strategy are untouched. F7's checklist checks the `edge` network's subnet and the limit from
+  two places.
+- **D-31, a record moved before the join date.** A record that involves a claimed member and is moved from on or after
+  their join date to before it drops them from an equal split (F4c's rule, which F5 kept: "a record moved before a
+  member's join date still drops them"), and refuses their share or payment otherwise (`JOINED_AFTER`); so that
+  direction never changes their opening balance, while the other direction, and an amount changed before the join
+  date, do. Left as it is; the report asks whether it should change.
+
 ### K. Test strategy
 
 **Isolation, three users.** A new `FamilyIsolationApiTests` next to `DataIsolationApiTests`, which

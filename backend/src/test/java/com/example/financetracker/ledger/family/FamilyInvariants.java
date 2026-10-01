@@ -21,7 +21,11 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * balance of a member who took a seat (D-10, D-18);
  * <li>every posted entry balances in each currency, and every expense or income that isn't deleted has shares that
  * add up to its amount, and a settlement has none;
- * <li>the debt accounts hold postings in the family's base currency only (F4e).
+ * <li>the debt accounts hold postings in the family's base currency only (F4e);
+ * <li>a member who left (F6a, D-19) is detached: no row of their personal ledger references the family ledger (no
+ * debt account names it, no posting uses its categories), and none of their links is still attached; a member
+ * without an account who left has no attached link either. A member who returned is ACTIVE again and checked as
+ * every ACTIVE member is, from their new join date, their correction included (D-26).
  * </ul>
  */
 public final class FamilyInvariants {
@@ -93,6 +97,26 @@ public final class FamilyInvariants {
                     WHERE a.family_ledger_id = l.id AND p.currency <> l.base_currency""")
                     .param(family).query(Long.class).list()).as("postings to a debt account in another currency than "
                             + "the base currency").isEmpty();
+            assertThat(jdbc.sql("""
+                    SELECT a.id FROM ledger_member m
+                    JOIN ledger_member p ON p.user_sub = m.user_sub AND p.ledger_type = 'PERSONAL'
+                    JOIN account a ON a.ledger_id = p.ledger_id
+                    WHERE m.ledger_id = ? AND m.status = 'LEFT' AND a.family_ledger_id = m.ledger_id""")
+                    .param(family).query(Long.class).list()).as("debt accounts of members who left").isEmpty();
+            assertThat(jdbc.sql("""
+                    SELECT t.id FROM ledger_member m
+                    JOIN ledger_member p ON p.user_sub = m.user_sub AND p.ledger_type = 'PERSONAL'
+                    JOIN journal_entry e ON e.ledger_id = p.ledger_id
+                    JOIN posting t ON t.entry_id = e.id
+                    JOIN category c ON c.id = t.category_id
+                    WHERE m.ledger_id = ? AND m.status = 'LEFT' AND c.ledger_id = m.ledger_id""")
+                    .param(family).query(Long.class).list()).as("postings of members who left on a family category")
+                    .isEmpty();
+            assertThat(jdbc.sql("""
+                    SELECT l.id FROM family_entry_link l JOIN ledger_member m ON m.id = l.member_id
+                    WHERE l.family_ledger_id = ? AND m.status <> 'ACTIVE' AND l.detached_at IS NULL""")
+                    .param(family).query(Long.class).list()).as("attached links of members who left or deleted their "
+                            + "data").isEmpty();
         }
         return today;
     }

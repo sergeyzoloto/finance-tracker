@@ -19,9 +19,13 @@ import org.springframework.stereotype.Component;
  * token can't be guessed anyway; this keeps a script from trying. One api instance runs, as the sessions already
  * assume; a restart forgets the counts.
  * <p>
- * The client address is the request's, which Tomcat takes from {@code X-Forwarded-For} behind Caddy
- * ({@code server.forward-headers-strategy}). Only attempts that were let through count, so a caller who waits gets in
- * again.
+ * The client address is the request's. In production the auth server's Caddy proxies {@code /api/*} straight to
+ * the api (deploy/finance.caddy; the web container serves only the frontend), and sets {@code X-Forwarded-For} to the
+ * address its connection came from, replacing whatever the client sent (Caddy 2.11 without {@code trusted_proxies}).
+ * Tomcat's {@code RemoteIpValve} ({@code server.forward-headers-strategy: native}) takes the right-most address in it
+ * that isn't a trusted proxy's, and trusts private addresses such as Caddy's on the Docker network {@code edge}; the
+ * api publishes no port. So each browser counts on its own, and none picks its address ({@code ClientAddressTests}).
+ * Only attempts that were let through count, so a caller who waits gets in again.
  */
 @Component
 class InviteRateLimit {

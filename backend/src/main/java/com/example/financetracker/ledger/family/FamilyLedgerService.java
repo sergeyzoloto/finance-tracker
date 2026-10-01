@@ -18,6 +18,7 @@ import com.example.financetracker.ledger.LedgerCategoryRepository;
 import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.RuleViolationException.Violation;
+import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
@@ -51,17 +52,19 @@ public class FamilyLedgerService {
             FROM ledger l JOIN ledger_member m ON m.ledger_id = l.id
             WHERE l.id = :ledgerId AND m.id = :memberId""";
     private static final String MEMBERS = """
-            SELECT id, display_name, role, status, join_date, user_sub IS NOT NULL AS has_account, share_bp
+            SELECT id, display_name, role, status, join_date, user_sub IS NOT NULL AS has_account, share_bp, left_date
             FROM ledger_member WHERE ledger_id = :ledgerId""";
 
     private final JdbcClient jdbc;
     private final LedgerAccess access;
     private final LedgerCategoryRepository categories;
+    private final Today today;
 
-    FamilyLedgerService(JdbcClient jdbc, LedgerAccess access, LedgerCategoryRepository categories) {
+    FamilyLedgerService(JdbcClient jdbc, LedgerAccess access, LedgerCategoryRepository categories, Today today) {
         this.jdbc = jdbc;
         this.access = access;
         this.categories = categories;
+        this.today = today;
     }
 
     /**
@@ -85,9 +88,9 @@ public class FamilyLedgerService {
         if (personal.type() != LedgerType.PERSONAL) {
             throw new IllegalArgumentException("A family ledger is created from its creator's personal ledger");
         }
-        LocalDate today = jdbc.sql("SELECT current_date").query(LocalDate.class).single();
-        LocalDate starts = startDate == null ? today : startDate;
-        if (starts.isAfter(today)) {
+        LocalDate now = today.date();
+        LocalDate starts = startDate == null ? now : startDate;
+        if (starts.isAfter(now)) {
             throw RuleViolationException.of(List.of(new Violation(START_DATE, null,
                     "the start date %s is in the future; a family budget starts today or earlier".formatted(starts))));
         }
@@ -191,8 +194,8 @@ public class FamilyLedgerService {
         requireFreeName(owner, displayName, null);
         long memberId = jdbc.sql("""
                 INSERT INTO ledger_member (ledger_id, ledger_type, display_name, role, status, join_date, share_bp)
-                VALUES (:ledgerId, 'SHARED', :displayName, 'MEMBER', 'ACTIVE', current_date, :share) RETURNING id""")
-                .param("ledgerId", owner.ledgerId()).param("displayName", displayName)
+                VALUES (:ledgerId, 'SHARED', :displayName, 'MEMBER', 'ACTIVE', :today, :share) RETURNING id""")
+                .param("ledgerId", owner.ledgerId()).param("displayName", displayName).param("today", today.date())
                 .param("share", rule == SplitRule.CUSTOM ? 0 : null)
                 .query(Long.class).single();
         return member(owner, memberId);
@@ -233,36 +236,6 @@ public class FamilyLedgerService {
                 .param("ledgerId", self.ledgerId())
                 .update();
         return member(self, self.memberId());
-    }
-
-    /**
-     * Removes a member without an account, while no record names them, as payer or with a share, deleted records
-     * included (their journal does); under a CUSTOM split rule the member's share must be 0 first, so that the
-     * others' still sum to 10000.
-     *
-     * @param owner the ledger, as one of its owners
-     * @throws NotFoundException if the ledger has no such member
-     * @throws ConflictException if the member has an account or is FORMER, a custom share above 0, or records
-     */
-    @Transactional
-    public void removeMember(LedgerScope owner, long memberId) {
-        lock(owner);
-        FamilyMemberView member = member(owner, memberId);
-        requireMemberWithoutAccount(member, "only members without an account can be removed so far");
-        if (jdbc.sql("""
-                SELECT EXISTS (SELECT FROM family_record WHERE ledger_id = :ledgerId AND payer_member_id = :memberId)
-                    OR EXISTS (SELECT FROM family_share WHERE ledger_id = :ledgerId AND member_id = :memberId)""")
-                .param("ledgerId", owner.ledgerId()).param("memberId", memberId).query(Boolean.class).single()) {
-            throw new ConflictException(("%s paid or shares family records, so they stay a member of the family "
-                    + "budget").formatted(member.displayName()));
-        }
-        if (member.share() != null && member.share() > 0) {
-            throw new ConflictException(("%s has a share of %s in the custom split rule; change the rule to give them "
-                    + "0 first").formatted(member.displayName(), BasisPoints.percent(member.share())));
-        }
-        jdbc.sql("DELETE FROM ledger_member WHERE id = :memberId AND ledger_id = :ledgerId")
-                .param("memberId", memberId).param("ledgerId", owner.ledgerId())
-                .update();
     }
 
     /**
@@ -361,6 +334,9 @@ public class FamilyLedgerService {
         if (member.status() == MemberStatus.FORMER) {
             throw new ConflictException("A former member stays as they are");
         }
+        if (member.status() == MemberStatus.LEFT) {
+            throw new ConflictException(member.displayName() + " has left the family budget");
+        }
         if (member.hasAccount()) {
             throw new ConflictException(member.displayName() + " has an account: " + ifAccount);
         }
@@ -370,6 +346,6 @@ public class FamilyLedgerService {
         return new FamilyMemberView(row.getLong("id"), row.getString("display_name"),
                 MemberRole.valueOf(row.getString("role")), MemberStatus.valueOf(row.getString("status")),
                 row.getObject("join_date", LocalDate.class), row.getBoolean("has_account"),
-                row.getObject("share_bp", Integer.class));
+                row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class));
     }
 }

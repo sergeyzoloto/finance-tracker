@@ -144,12 +144,10 @@ class FamilyLedgerApiTests extends LedgerApiTest {
                 .isEqualTo("The family budget has a member named anna already.");
         assertThat(ok(patch(alice, kidUri, """
                 {"displayName": "kid"}""")).get("displayName").asText()).isEqualTo("kid");
-        // A member with an account chooses their own name, and isn't removed here.
+        // A member with an account chooses their own name. Removing one, and leaving, are FamilyMembershipApiTests'.
         String alicesUri = uri + "/members/" + alicesMembership;
         assertThat(detail(patch(alice, alicesUri, """
                 {"displayName": "Mum"}"""), HttpStatus.CONFLICT)).isEqualTo("Anna has an account: they choose their own name.");
-        assertThat(detail(delete(alice, alicesUri), HttpStatus.CONFLICT))
-                .isEqualTo("Anna has an account: only members without an account can be removed so far.");
         // A member of no ledger of hers, or of another one of hers, is missing.
         long other = newFamily(alice, """
                 {"name": "Allotment", "baseCurrency": "EUR", "displayName": "Anna"}""").get("id").asLong();
@@ -246,18 +244,18 @@ class FamilyLedgerApiTests extends LedgerApiTest {
                 .containsExactly("shares[0].share", "shares[1].share");
         assertThat(ok(get(alice, uri + "/members")).findValuesAsText("share")).containsExactly("6667", "3333", "0");
 
-        // A member with a share of the custom rule stays until an owner gives it to others.
-        assertThat(detail(delete(alice, uri + "/members/" + kid), HttpStatus.CONFLICT)).isEqualTo(
-                "Kid has a share of 33.33 % in the custom split rule; change the rule to give them 0 first.");
+        // A member with a share of 0 goes; the others' shares still sum to 100 %.
         assertThat(delete(alice, uri + "/members/" + baby)).hasStatus(HttpStatus.NO_CONTENT);
-        ok(put(alice, uri + "/split-rule", """
-                {"rule": "CUSTOM", "shares": [{"memberId": %d, "share": 10000}, {"memberId": %d, "share": 0}]}"""
-                .formatted(alicesMembership, kid)));
+        assertThat(ok(get(alice, uri + "/members")).findValuesAsText("share")).containsExactly("6667", "3333");
+        // One with a share above 0 stays as a member who left, and the rule goes back to equal shares (F6a; topic
+        // B), which FamilyMembershipApiTests follows into the journal.
         assertThat(delete(alice, uri + "/members/" + kid)).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(ok(get(alice, uri + "/members")).findValuesAsText("status")).containsExactly("ACTIVE", "LEFT");
+        assertThat(ok(get(alice, uri)).get("splitRule").asText()).isEqualTo("EQUAL");
 
         // Equal shares follow the members by themselves.
         assertThat(ok(put(alice, uri + "/split-rule", """
-                {"rule": "EQUAL"}""")).findValuesAsText("share")).containsExactly("null");
+                {"rule": "EQUAL"}""")).findValuesAsText("share")).containsExactly("null", "null");
         assertThat(ok(get(alice, uri)).get("splitRule").asText()).isEqualTo("EQUAL");
     }
 

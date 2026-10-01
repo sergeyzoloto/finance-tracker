@@ -11,7 +11,10 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -32,7 +35,18 @@ import org.testcontainers.containers.PostgreSQLContainer;
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = FamilySwitch.PROPERTY + "=true")
+@Import(IntegrationTest.Clocks.class)
 public abstract class IntegrationTest {
+
+    /** The clock of the application's dates ({@code ledger.Today}), which a test may set ({@link TestClock}). */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Clocks {
+
+        @Bean
+        TestClock testClock() {
+            return new TestClock();
+        }
+    }
 
     protected static final FakeKeycloak KEYCLOAK = FakeKeycloak.start();
 

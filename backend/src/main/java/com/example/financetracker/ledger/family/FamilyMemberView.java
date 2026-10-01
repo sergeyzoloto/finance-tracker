@@ -10,7 +10,9 @@ import com.example.financetracker.ledger.access.MemberRole;
  * @param hasAccount whether a user holds the membership; false for a member without an account and a FORMER one
  * @param share the member's share under a CUSTOM split rule, in basis points; null under EQUAL, and for LEFT and
  *        FORMER members
+ * @param leftDate the day a LEFT member left or was removed, or a FORMER one deleted their data (D-19, D-20); null
+ *        for an ACTIVE one (additive, F6a)
  */
 public record FamilyMemberView(long id, String displayName, MemberRole role, MemberStatus status, LocalDate joinDate,
-        boolean hasAccount, Integer share) {
+        boolean hasAccount, Integer share, LocalDate leftDate) {
 }

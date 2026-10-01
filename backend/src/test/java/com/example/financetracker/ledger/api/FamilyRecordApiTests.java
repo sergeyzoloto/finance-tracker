@@ -302,14 +302,11 @@ class FamilyRecordApiTests extends FamilyApiTest {
                 + "can't change once it has a record: its shares and balances are in it.");
         assertThat(ok(patch(alice, uri, """
                 {"baseCurrency": "EUR", "name": "Our home"}""")).get("name").asText()).isEqualTo("Our home");
-        assertThat(detail(delete(alice, uri + "/members/" + kid), HttpStatus.CONFLICT))
-                .isEqualTo("Kid paid or shares family records, so they stay a member of the family budget.");
         assertThat(detail(delete(alice, uri + "/categories/" + groceries), HttpStatus.CONFLICT))
                 .isEqualTo("The category GROCERIES is in use by family records or entries; archive it instead.");
         // Deleted, the record still names the category and the member.
         assertThat(delete(alice, record)).hasStatus(HttpStatus.NO_CONTENT);
         assertThat(delete(alice, uri + "/categories/" + groceries)).hasStatus(HttpStatus.CONFLICT);
-        assertThat(delete(alice, uri + "/members/" + kid)).hasStatus(HttpStatus.CONFLICT);
         assertThat(delete(alice, uri + "/categories/" + rent)).hasStatus(HttpStatus.NO_CONTENT);
 
         // Bob shares a record, then deletes all his data: it is frozen, and one without him isn't.

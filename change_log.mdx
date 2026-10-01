@@ -24,6 +24,34 @@ Not committed yet.
     G, the decisions D-29 to D-34; topic J, F6 split and the "F6a plan": who may leave, remove, return
     and make owners, which rows change in which ledgers, what posts, and how D-10 holds afterwards.
   - CLAUDE.md: production runs `e8f5ca0` on Flyway V9; decisions up to D-34; F6a and F6b.
+- Leaving, removal and the rule back to equal shares, with the F5 follow-ups (commit "feat(family):
+  leaving, removal, the rule back to EQUAL"), ADR 0003 topic J's "F6a as built". No migration.
+  - `DELETE /api/family-ledgers/{ledgerId}/members/me` (new): any member with an account leaves. `DELETE
+    /api/family-ledgers/{ledgerId}/members/{memberId}` now removes any member, with or without an
+    account (owners only). The member becomes LEFT on today's date, a MEMBER, without a custom share;
+    one without an account whom no record names, and without a custom share, is deleted as before. The
+    last owner while another member with an account remains: 409 with `code` `LAST_OWNER` (new additive
+    property of a 409). The last member with an account leaving archives the family budget.
+  - New `FamilyMembershipService`; the detach through `CrossLedgerWriter.detach` (links detached, a
+    personal category for each family category the member's personal ledger refers to, D-33, with
+    `_2` where D-30's private category has the code; `Debt(L)` an ordinary liability that keeps its
+    balance). Nothing is posted. Pending invites of the member and for a removed seat's place are
+    revoked. A custom share above 0 puts the rule back to EQUAL, journaled as `SPLIT_RULE_RESET`.
+    `FamilyMemberView.leftDate` (additive).
+  - "Today": new `ledger.Today` for the start date, the join dates and the leave date (the api's zone,
+    UTC in production, which is also the database session's); a claim's join date may be left out for
+    the server's today, as a start date may.
+  - D-34: the lookup's `openingBalance` for a claim. The privacy draft lists what the lookup shows, and
+    says what leaving and removal do.
+  - The client address: analysed (in the report and the ADR), no change needed; `InviteRateLimit`'s
+    Javadoc names the real path.
+  - Tests: new `FamilyMembershipApiTests` (7), `ClientAddressTests` (2) and
+    `ClientAddressUntrustedPeerTests` (1); `FamilyClaimApiTests.theOpeningBalanceFollowsRecordsAcrossTheJoinDate`
+    (new) and the lookup's opening balance; `DataIsolationApiTests.aMemberWhoLeftOrWasRemovedReadsNothingOfTheBudget`
+    (new; nothing else in the file changed); `FamilyInvariants` checks that a member who left is
+    detached; `IntegrationTest` has a `TestClock`; `FamilyLedgerApiTests`, `FamilyRecordApiTests` and
+    `FamilyInviteApiTests` expect the new removal and the optional join date; `ApiTests` and
+    `FamilySwitchOffApiTests` (31 endpoints) with the new endpoint.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker`: `feature/family-budget` checked out with a clean
@@ -31,6 +59,15 @@ Not committed yet.
   failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend: `npm ci`, `npm test` 20 files and 263 tests
   passed, `npm run build` succeeded.
 - After the documents' commit: documents only.
+- After the commit of leaving and removal: `./mvnw -B clean verify` 379 tests (367 and 12), 0 failures,
+  0 errors, 0 skipped, BUILD SUCCESS. `git diff --numstat e8f5ca0 -- '*DataIsolationApiTests.java'`:
+  only added lines.
+- Mutations from file copies, each restored and compared with `cmp`: the rule back to equal shares
+  skipped made `theRuleGoesBackToEqualSharesWhenAMemberWithAShareGoes` fail (the commit's split rule
+  check, 500); removal open to a member (the controller's owner check and the service's guard) made
+  `aMemberWhoLeftOrWasRemovedReadsNothingOfTheBudget` fail (Alice's rows changed by Bob's removal);
+  the detach's category copy skipped made five tests fail, `FamilyInvariants`' check of a member who
+  left among them.
 
 **Open**
 - The rest of F6a.

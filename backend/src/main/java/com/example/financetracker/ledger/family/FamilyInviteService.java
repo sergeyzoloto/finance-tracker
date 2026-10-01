@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.family;
 
+import java.math.RoundingMode;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -18,6 +19,7 @@ import com.example.financetracker.ledger.LedgerCategory;
 import com.example.financetracker.ledger.LedgerCategoryRepository;
 import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.RuleViolationException;
+import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.access.LedgerInvites;
 import com.example.financetracker.ledger.access.LedgerInvites.Invite;
@@ -82,21 +84,23 @@ public class FamilyInviteService {
     private final FamilyLedgerService families;
     private final LedgerCategoryRepository categories;
     private final FamilyPostingService posting;
+    private final Today today;
 
     FamilyInviteService(JdbcClient jdbc, LedgerInvites invites, FamilyLedgerService families,
-            LedgerCategoryRepository categories, FamilyPostingService posting) {
+            LedgerCategoryRepository categories, FamilyPostingService posting, Today today) {
         this.jdbc = jdbc;
         this.invites = invites;
         this.families = families;
         this.categories = categories;
         this.posting = posting;
+        this.today = today;
     }
 
     // --- The owners' side ---
 
     /**
      * Creates an invite: for a new member, or with {@code seatMemberId} to take the place of a member without an
-     * account from {@code joinDate}, on or after the start date and not after today (D-18).
+     * account from {@code joinDate}, on or after the start date and not after today (D-18); today if it is left out.
      *
      * @param owner the family ledger, as one of its owners
      * @param hours how long it lasts: 1 to 168, 72 if null (D-17)
@@ -106,13 +110,11 @@ public class FamilyInviteService {
      */
     @Transactional
     public CreatedInvite create(LedgerScope owner, Long seatMemberId, LocalDate joinDate, Integer hours) {
-        record Ledger(LocalDate startDate, LocalDate today) {
-        }
-        Ledger ledger = jdbc.sql("SELECT start_date, current_date AS today FROM ledger WHERE id = :ledgerId FOR UPDATE")
+        LocalDate startDate = jdbc.sql("SELECT start_date FROM ledger WHERE id = :ledgerId FOR UPDATE")
                 .param("ledgerId", owner.ledgerId())
-                .query((row, n) -> new Ledger(row.getObject("start_date", LocalDate.class),
-                        row.getObject("today", LocalDate.class)))
+                .query(LocalDate.class)
                 .single();
+        LocalDate now = today.date();
         int lifetime = hours == null ? DEFAULT_HOURS : hours;
         if (lifetime < 1 || lifetime > MAX_HOURS) {
             throw new IllegalArgumentException("An invite lasts from 1 to %d hours".formatted(MAX_HOURS));
@@ -121,18 +123,22 @@ public class FamilyInviteService {
         if (seatMemberId != null) {
             FamilyMemberView seat = families.members(owner).stream().filter(m -> m.id() == seatMemberId).findFirst()
                     .orElseThrow(() -> new NotFoundException("Member " + seatMemberId + " not found"));
+            if (seat.status() == MemberStatus.LEFT) {
+                throw new ConflictException(seat.displayName() + " has left the family budget, so nobody takes their "
+                        + "place");
+            }
             if (seat.status() != MemberStatus.ACTIVE) {
                 throw new ConflictException("A former member's place can't be taken");
             }
             if (seat.hasAccount()) {
                 throw new ConflictException(seat.displayName() + " has an account already, so nobody takes their place");
             }
-            if (joinDate == null) {
-                violations.add(new Violation(JOIN_DATE, seatMemberId, ("name the date from which %s's records go to "
-                        + "whoever takes their place").formatted(seat.displayName())));
-            } else if (joinDate.isBefore(ledger.startDate()) || joinDate.isAfter(ledger.today())) {
+            // Left out, it is today: the server's, as for a start date, so that a browser a time zone ahead, already
+            // on the next day, can offer its today without its being in the future here (F6a).
+            joinDate = joinDate == null ? now : joinDate;
+            if (joinDate.isBefore(startDate) || joinDate.isAfter(now)) {
                 violations.add(new Violation(JOIN_DATE, seatMemberId, ("the join date %s is not between the family "
-                        + "budget's start date %s and today").formatted(joinDate, ledger.startDate())));
+                        + "budget's start date %s and today, %s").formatted(joinDate, startDate, now)));
             }
         } else if (joinDate != null) {
             violations.add(new Violation(JOIN_DATE, null, "a new member joins on the day they accept; only taking the "
@@ -225,7 +231,10 @@ public class FamilyInviteService {
                 invite.claim() ? invite.joinDate() : preview.today(), invite.expiresAt(),
                 preview.categories().stream().filter(c -> !c.archived())
                         .map(c -> new FamilyCategory(c.code(), c.name(), c.type())).toList(),
-                matches.merges(), matches.kept(), matches.mayBring(), accountName);
+                matches.merges(), matches.kept(), matches.mayBring(), accountName,
+                preview.seatBalance() == null ? null
+                        : preview.seatBalance().setScale(ShareSplit.minorUnit(preview.baseCurrency()),
+                                RoundingMode.UNNECESSARY));
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.access;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -12,6 +13,7 @@ import java.util.Optional;
 
 import com.example.financetracker.ledger.ConflictException;
 import com.example.financetracker.ledger.NotFoundException;
+import com.example.financetracker.ledger.Today;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
@@ -38,6 +40,24 @@ public class LedgerInvites {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /**
+     * A member's family balance from the records dated before a day (ADR 0003, topic D): their expense shares − the
+     * expenses they paid + the incomes they received − their income shares − the settlements they paid + the
+     * settlements they received.
+     */
+    private static final String BALANCE_BEFORE = """
+            SELECT coalesce((SELECT sum(CASE r.type WHEN 'EXPENSE' THEN s.amount ELSE -s.amount END)
+                             FROM family_share s JOIN family_record r ON r.id = s.record_id
+                             WHERE s.member_id = :memberId AND r.ledger_id = :ledgerId AND r.deleted_at IS NULL
+                               AND r.record_date < :before), 0)
+                   - coalesce((SELECT sum(CASE r.type WHEN 'INCOME' THEN -r.base_amount ELSE r.base_amount END)
+                               FROM family_record r
+                               WHERE r.payer_member_id = :memberId AND r.ledger_id = :ledgerId AND r.deleted_at IS NULL
+                                 AND r.record_date < :before), 0)
+                   + coalesce((SELECT sum(r.base_amount) FROM family_record r
+                               WHERE r.payee_member_id = :memberId AND r.ledger_id = :ledgerId AND r.deleted_at IS NULL
+                                 AND r.record_date < :before), 0)""";
+
+    /**
      * A pending invite.
      *
      * @param seatMemberId the seat a claim takes; null for a new member
@@ -53,12 +73,15 @@ public class LedgerInvites {
 
     /**
      * What a pending invite shows its holder before they accept: the family ledger's name and base currency, who
-     * invites, the seat's name for a claim, and the family's categories. No member id, sub, account or record.
+     * invites, the seat's name and opening balance for a claim, and the family's categories. No member id, sub,
+     * account or record.
      *
-     * @param today the database's today, a new member's join date
+     * @param today today (the api's, {@link Today}), a new member's join date
+     * @param seatBalance a claim's seat's family balance from the records before its join date, which the user takes
+     *        on as an opening balance (D-18, D-34): positive when the seat owes the family; null for a new member
      */
     public record Preview(String ledgerName, String baseCurrency, String invitedBy, String seatName, LocalDate today,
-            List<FamilyCategory> categories) {
+            List<FamilyCategory> categories, BigDecimal seatBalance) {
     }
 
     /** A category of the family ledger, as the invite shows it: no id. */
@@ -77,10 +100,12 @@ public class LedgerInvites {
 
     private final JdbcClient jdbc;
     private final LedgerAccess access;
+    private final Today today;
 
-    LedgerInvites(JdbcClient jdbc, LedgerAccess access) {
+    LedgerInvites(JdbcClient jdbc, LedgerAccess access, Today today) {
         this.jdbc = jdbc;
         this.access = access;
+        this.today = today;
     }
 
     /** A new token, for the link only. */
@@ -128,11 +153,10 @@ public class LedgerInvites {
 
     /** What the invite shows before it is accepted. */
     public Preview preview(Invite invite) {
-        record Ledger(String name, String baseCurrency, String invitedBy, String seatName, LocalDate today) {
+        record Ledger(String name, String baseCurrency, String invitedBy, String seatName) {
         }
         Ledger ledger = jdbc.sql("""
-                SELECT l.name, l.base_currency, c.display_name AS invited_by, s.display_name AS seat_name,
-                       current_date AS today
+                SELECT l.name, l.base_currency, c.display_name AS invited_by, s.display_name AS seat_name
                 FROM ledger l
                 JOIN ledger_member c ON c.ledger_id = l.id AND c.id = :creatorId
                 LEFT JOIN ledger_member s ON s.ledger_id = l.id AND s.id = :seatId
@@ -140,8 +164,7 @@ public class LedgerInvites {
                 .param("ledgerId", invite.ledgerId()).param("creatorId", invite.createdByMemberId())
                 .param("seatId", invite.seatMemberId())
                 .query((row, n) -> new Ledger(row.getString("name"), row.getString("base_currency"),
-                        row.getString("invited_by"), row.getString("seat_name"),
-                        row.getObject("today", LocalDate.class)))
+                        row.getString("invited_by"), row.getString("seat_name")))
                 .single();
         List<FamilyCategory> categories = jdbc.sql("""
                 SELECT code, name, type, archived_at IS NOT NULL AS archived FROM category
@@ -150,8 +173,12 @@ public class LedgerInvites {
                 .query((row, n) -> new FamilyCategory(row.getString("code"), row.getString("name"),
                         row.getString("type"), row.getBoolean("archived")))
                 .list();
-        return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), ledger.today(),
-                categories);
+        BigDecimal seatBalance = invite.claim() ? jdbc.sql(BALANCE_BEFORE)
+                .param("ledgerId", invite.ledgerId()).param("memberId", invite.seatMemberId())
+                .param("before", invite.joinDate())
+                .query(BigDecimal.class).single() : null;
+        return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), today.date(),
+                categories, seatBalance);
     }
 
     /** The user's membership in the invite's family ledger, if any; a FORMER one has no sub any more (D-20). */
@@ -211,11 +238,12 @@ public class LedgerInvites {
             memberId = jdbc.sql("""
                     INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date,
                                                share_bp)
-                    SELECT id, 'SHARED', :userId, :name, 'MEMBER', 'ACTIVE', current_date,
+                    SELECT id, 'SHARED', :userId, :name, 'MEMBER', 'ACTIVE', :today,
                            CASE split_rule WHEN 'CUSTOM' THEN 0 END
                     FROM ledger WHERE id = :ledgerId
                     RETURNING id""")
                     .param("userId", userId).param("name", displayName).param("ledgerId", invite.ledgerId())
+                    .param("today", today.date())
                     .query(Long.class).single();
         }
         jdbc.sql("""

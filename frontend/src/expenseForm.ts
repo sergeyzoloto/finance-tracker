@@ -233,6 +233,12 @@ export interface ExpenseProblems {
   payment: string[]
   comment: string[]
   split: string[]
+  /** The original currency (F4e). */
+  currency: string[]
+  /** The base amount: entered, or missing a rate (RATE_MISSING, F4e). */
+  baseAmount: string[]
+  /** What the other side of a settlement names for their own account in another currency (F4e). */
+  accountAmount: string[]
   /** By the member of the split they name. */
   byMember: Map<number, string[]>
   /** Next to the action. */
@@ -241,10 +247,12 @@ export interface ExpenseProblems {
 
 const FIELDS: Record<string, keyof Omit<ExpenseProblems, 'byMember' | 'other'>> = {
   date: 'date', categoryId: 'category', amount: 'amount', payerMemberId: 'payer', payeeMemberId: 'payee',
-  paymentAccountId: 'payment', paymentLater: 'payment', comment: 'comment',
+  paymentAccountId: 'payment', paymentLater: 'payment', comment: 'comment', currency: 'currency',
+  baseAmount: 'baseAmount', accountAmount: 'accountAmount',
 }
 const CODES: Record<string, keyof Omit<ExpenseProblems, 'byMember' | 'other'>> = {
   CATEGORY: 'category', AMOUNT: 'amount', PAYER: 'payer', PAYEE: 'payee', PAYMENT: 'payment',
+  RATE_MISSING: 'baseAmount', BASE_AMOUNT: 'baseAmount', ACCOUNT_AMOUNT: 'accountAmount',
 }
 
 /**
@@ -256,7 +264,8 @@ const CODES: Record<string, keyof Omit<ExpenseProblems, 'byMember' | 'other'>> =
 export function expenseProblems(failure: Error | undefined, splitMemberIds: number[], payerId: number | null,
   conflict: 'date' | 'other' = 'other', payeeId: number | null = null): ExpenseProblems {
   const problems: ExpenseProblems = {
-    date: [], category: [], amount: [], payer: [], payee: [], payment: [], comment: [], split: [], byMember: new Map(), other: [],
+    date: [], category: [], amount: [], payer: [], payee: [], payment: [], comment: [], split: [], currency: [], baseAmount: [],
+    accountAmount: [], byMember: new Map(), other: [],
   }
   if (!failure) return problems
   const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1) + (/[.!?]$/.test(text) ? '' : '.')

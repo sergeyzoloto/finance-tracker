@@ -170,6 +170,13 @@ function createdSplit(changes: FamilyFieldChange[], currency: string) {
 }
 
 /** One entry of the change journal in words, "Alex changed the split of Groceries, Sep 12, 2026: …". */
+/** An original amount as the journal stores it, "9000.00 RUB", formatted: "RUB 9,000.00" in the reader's locale. */
+function originalMoney(value: string | null | undefined): string {
+  if (!value) return 'none'
+  const [amount, code] = value.split(' ')
+  return code ? formatMoney(amount, code) : value
+}
+
 export function journalLine(change: FamilyChange, currency: string): JournalLine {
   if (change.action === 'SPLIT_RULE_RESET') {
     return {
@@ -190,14 +197,17 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
       const commented = comment ? [`Comment: ${quoted(comment)}`] : []
       if (type === 'SETTLEMENT') {
         const payee = field('payee')?.new
+        const original = field('originalAmount')?.new
         return {
-          text: `${who} recorded ${name}: ${payer ?? 'someone'} paid ${payee ?? 'someone'} ${amount ? formatMoney(amount, currency) : ''}.`,
+          text: `${who} recorded ${name}: ${payer ?? 'someone'} paid ${payee ?? 'someone'} ${original ? `${originalMoney(original)} → ` : ''}${amount ? formatMoney(amount, currency) : ''}.`,
           details: commented,
         }
       }
       const how = type === 'INCOME' ? 'received by' : 'paid by'
+      const original = field('originalAmount')?.new
+      const money = `${original ? `${originalMoney(original)} → ` : ''}${amount ? formatMoney(amount, currency) : ''}`
       return {
-        text: `${who} added ${name}: ${amount ? formatMoney(amount, currency) : ''}${payer ? `, ${how} ${payer}` : ''}.`,
+        text: `${who} added ${name}: ${money}${payer ? `, ${how} ${payer}` : ''}.`,
         details: [`Split: ${createdSplit(change.changes, currency)}`, ...commented],
       }
     }
@@ -209,8 +219,13 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
       const date = field('date')
       if (date) parts.push(['the date', `${date.old ? formatDate(date.old) : 'none'} → ${date.new ? formatDate(date.new) : 'none'}`])
       const amount = field('amount')
+      const original = field('originalAmount')
+      if (original) {
+        parts.push(['the amount paid', `${originalMoney(original.old)} → ${originalMoney(original.new)}`])
+      }
       if (amount) {
-        parts.push(['the amount', `${amount.old ? formatMoney(amount.old, currency) : 'none'} → ${amount.new ? formatMoney(amount.new, currency) : 'none'}`])
+        parts.push([original ? `the amount in ${currency}` : 'the amount',
+          `${amount.old ? formatMoney(amount.old, currency) : 'none'} → ${amount.new ? formatMoney(amount.new, currency) : 'none'}`])
       }
       const payer = field('payer')
       if (payer) parts.push([type === 'INCOME' ? 'the receiver' : 'the payer', `${payer.old ?? 'none'} → ${payer.new ?? 'none'}`])

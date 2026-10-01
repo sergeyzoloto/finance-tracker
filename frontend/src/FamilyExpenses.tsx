@@ -10,6 +10,8 @@ import {
   expenseProblems, formFromRecord, paymentAccounts, previewSplit, sharers, splitRequest, type SplitContext,
   type SplitForm,
 } from './expenseForm'
+import { keptBase, recordAmount, recordRateLine } from './currency'
+import { BaseAmountField, CurrencyField, currencySuggestions, useBaseAmount } from './FamilyCurrency'
 import { RECORD_NOUNS, recordTitle, recordWho, settlementSentence } from './family'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { JournalList } from './FamilyJournal'
@@ -47,8 +49,8 @@ export function RecordTable({ records, family }: { records: FamilyRecord[]; fami
                 {r.frozen && <span className="badge" title="A member it involves has left; nobody can change it">Frozen</span>}
                 <div className="small muted">{recordWho(r, me)}</div>
               </td>
-              <td className="amount nowrap">
-                {formatMoney(r.amount, r.currency)}
+              <td className={r.originalCurrency && r.originalCurrency !== r.currency ? 'amount' : 'amount nowrap'}>
+                {recordAmount(r)}
                 {r.type !== 'SETTLEMENT' && (
                   <div className="small muted">Yours {yours ? formatMoney(yours.amount, r.currency) : '—'}</div>
                 )}
@@ -194,12 +196,16 @@ export function RecordDetail({ family }: { family: FamilyData }) {
       <dl className="facts">
         <dt>Date</dt><dd>{formatDate(r.date)}</dd>
         {r.category && <><dt>Category</dt><dd>{r.category.name}{r.category.archived && <span className="badge">Archived</span>}</dd></>}
-        <dt>Amount</dt><dd>{formatMoney(r.amount, r.currency)}</dd>
+        <dt>Amount</dt>
+        <dd>
+          {recordAmount(r)}
+          {recordRateLine(r) && <small className="muted block">{recordRateLine(r)}</small>}
+        </dd>
         <dt>{r.type === 'INCOME' ? 'Received by' : 'Paid by'}</dt>
         <dd>{r.payer.memberId === me ? `${r.payer.displayName} (you)` : r.payer.displayName}</dd>
         {r.payee && <><dt>Received by</dt><dd>{r.payee.memberId === me ? `${r.payee.displayName} (you)` : r.payee.displayName}</dd></>}
         {r.yourPayment && (
-          <YourSide payment={r.yourPayment}
+          <YourSide payment={r.yourPayment} currency={r.currency}
             label={settlement ? sideLabel(r.payer.memberId === me) : r.type === 'INCOME' ? 'Received into' : 'Paid from'} />
         )}
         <dt>Comment</dt><dd>{r.comment ?? <span className="muted">None</span>}</dd>
@@ -284,12 +290,13 @@ export function RecordDetail({ family }: { family: FamilyData }) {
  * The account of the reader's own side, for their eyes only: the other members never see it (D-16). The record's
  * answer carries it for them alone (`yourPayment`), with their entry in their own ledger.
  */
-function YourSide({ payment, label }: { payment: YourPayment; label: string }) {
+function YourSide({ payment, label, currency }: { payment: YourPayment; label: string; currency: string }) {
   return (
     <>
       <dt>{label}</dt>
       <dd>
         <Link to={`/entries/${payment.entryId}`}>{payment.later ? 'Specify later' : payment.accountName}</Link>
+        {payment.currency && payment.currency !== currency && <>, {formatMoney(payment.amount, payment.currency)}</>}
         <small className="muted block">
           {payment.later ? 'Kept under “Payments without a specified account” until you choose the account. ' : ''}
           Only you see which account it is.
@@ -303,7 +310,12 @@ function YourSide({ payment, label }: { payment: YourPayment; label: string }) {
 type RecordPatch = {
   categoryId?: number; comment?: string | null; split?: unknown
   date?: string; amount?: string; payerMemberId?: number; paymentAccountId?: number; paymentLater?: true
+  currency?: string; baseAmount?: string; accountAmount?: string
 }
+
+/** A record's original amount and currency as its form opens them: the base amount in the base currency (F4e). */
+const originalOf = (r: FamilyRecord) => !r.originalCurrency || r.originalCurrency === r.currency
+  ? { amount: r.amount, currency: r.currency } : { amount: r.originalAmount, currency: r.originalCurrency }
 
 interface EditProps {
   record: FamilyRecord
@@ -324,13 +336,16 @@ function accountPatch(payment: string, initial: string): RecordPatch {
  * (the date, the amount, who paid or received it, and the reader's own account, or "Specify later") when
  * `canEditPayment`, and its category, split and comment when `canEdit`. Only what changed is sent. A new amount, date or
  * payer is split again by the record's stored split on the server, which the preview follows: equal shares among its
- * own members (KEEP), its percentages, its member; one split by amounts needs the new amounts with a new amount.
+ * own members (KEEP), its percentages, its member; one split by amounts needs the new amounts with a new amount. The
+ * amount is the original one, in its currency, which a newly chosen account with a currency of its own decides; a new
+ * amount, currency or date converts the base amount again, which the user may type in instead (F4e).
  */
 function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const categories = useApi<Category[]>(record.canEdit ? `${family.path}/categories` : null)
   const accounts = useApi<Account[]>(record.canEditPayment ? '/accounts' : null)
   const { ledger, members } = family
-  const currency = record.currency
+  const base = record.currency
+  const original = originalOf(record)
   const me = ledger.memberId
   const income = record.type === 'INCOME'
   const noun = RECORD_NOUNS[record.type]
@@ -339,32 +354,50 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const initialPayment = record.yourPayment ? (record.yourPayment.later ? LATER : String(record.yourPayment.accountId)) : ''
   const initialCategory = String(record.category?.id ?? '')
   const [date, setDate] = useState(record.date)
-  const [amountText, setAmountText] = useState(record.amount)
+  const [amountText, setAmountText] = useState(original.amount)
+  const [chosenCurrency, setCurrency] = useState(original.currency)
+  const [entered, setEntered] = useState<string>()
   const [payer, setPayer] = useState(String(record.payer.memberId))
   const [payment, setPayment] = useState(initialPayment)
   const [categoryId, setCategoryId] = useState(initialCategory)
   const [split, setSplit] = useState<SplitForm>(initial)
   const [comment, setComment] = useState(record.comment ?? '')
 
-  const recordAmount = toMinor(record.amount, currency)
-  const parsed = parseMinor(amountText, currency)
-  const amount = 'minor' in parsed ? parsed.minor : undefined
+  const recordAmount = toMinor(record.amount, base)
   const payerId = Number(payer)
-  const context: SplitContext = { ledger, members, date, amount, payerId, noun }
-  const preview = previewSplit(split, context, currency)
-  const initialContext: SplitContext = { ledger, members, date: record.date, amount: recordAmount, payerId: record.payer.memberId, noun }
-  const request = splitRequest(split, preview, currency)
-  // The stored equal split isn't sent: the server splits again by it.
-  const splitChanged = request !== null
-    && JSON.stringify(request) !== JSON.stringify(splitRequest(initial, previewSplit(initial, initialContext, currency), currency))
-  const amountChanged = amount !== undefined && amount !== recordAmount
   const payerChanged = payerId !== record.payer.memberId
   const payerIsMe = payerId === me
+  // A newly chosen account with a currency of its own decides the amount's currency (D-13).
+  const newAccount = payerIsMe && payment !== LATER && payment !== initialPayment
+    ? (accounts.data ?? []).find((a) => String(a.id) === payment) : undefined
+  const currency = newAccount?.defaultCurrency ?? chosenCurrency
+  // The account the payment is on, new or as it is: with a currency of its own, it decides, and nothing is picked.
+  const payingAccount = payerIsMe && payment !== LATER ? (accounts.data ?? []).find((a) => String(a.id) === payment) : undefined
+  const currencyValid = /^[A-Z]{3}$/.test(currency)
+  const parsed = parseMinor(amountText, currencyValid ? currency : base)
+  const amount = 'minor' in parsed ? parsed.minor : undefined
+  const originalChanged = currency !== original.currency
+    || (amount !== undefined && amount !== toMinor(original.amount, original.currency))
+  const reconverts = originalChanged || (date !== record.date && currency !== base)
+  const converted = useBaseAmount(family.path, currency, base, reconverts || currency === base ? amount : undefined, date,
+    entered)
+  const baseAmount = reconverts || entered !== undefined || currency === base ? converted : keptBase(record)
+  const context: SplitContext = { ledger, members, date, amount: baseAmount.minor, payerId, noun }
+  const preview = previewSplit(split, context, base)
+  const initialContext: SplitContext = { ledger, members, date: record.date, amount: recordAmount, payerId: record.payer.memberId, noun }
+  const request = splitRequest(split, preview, base)
+  // The stored equal split isn't sent: the server splits again by it.
+  const splitChanged = request !== null
+    && JSON.stringify(request) !== JSON.stringify(splitRequest(initial, previewSplit(initial, initialContext, base), base))
+  // The base amount moves with a new amount, currency or date (F4e), or as typed in.
+  const amountChanged = baseAmount.minor !== recordAmount || baseAmount.state === 'PENDING'
   // A new amount of a record split by amounts needs the new amounts; any other split follows on the server.
   const needsAmounts = record.splitMethod === 'AMOUNT' && amountChanged && !splitChanged
   const patch: RecordPatch = {
     ...(date !== record.date ? { date } : {}),
-    ...(amountChanged ? { amount: fromMinor(amount, currency) } : {}),
+    ...(originalChanged && amount !== undefined ? { amount: fromMinor(amount, currency) } : {}),
+    ...(currency !== original.currency ? { currency } : {}),
+    ...(baseAmount.state === 'ENTERED' && baseAmount.minor !== undefined ? { baseAmount: fromMinor(baseAmount.minor, base) } : {}),
     ...(payerChanged ? { payerMemberId: payerId } : {}),
     ...(payerIsMe ? accountPatch(payment, payerChanged ? '' : initialPayment) : {}),
     ...(categoryId !== initialCategory ? { categoryId: Number(categoryId) } : {}),
@@ -375,8 +408,8 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const dateProblem = date === '' ? 'Enter a date.'
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${noun} can’t be earlier.` : undefined
   const splitProblems = splitChanged || needsAmounts || split.mode === 'KEEP' ? preview.problems : []
-  const ready = changed && !dateProblem && amount !== undefined && (!payerIsMe || payment !== '')
-    && splitProblems.length === 0 && !needsAmounts
+  const ready = changed && !dateProblem && amount !== undefined && currencyValid && (!payerIsMe || payment !== '')
+    && baseAmount.minor !== undefined && !baseAmount.problem && splitProblems.length === 0 && !needsAmounts
   const followsSplit = !splitChanged && (amountChanged || date !== record.date || payerChanged)
 
   function submit(event: FormEvent) {
@@ -385,7 +418,8 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   }
 
   function undo() {
-    setDate(record.date); setAmountText(record.amount); setPayer(String(record.payer.memberId)); setPayment(initialPayment)
+    setDate(record.date); setAmountText(original.amount); setCurrency(original.currency); setEntered(undefined)
+    setPayer(String(record.payer.memberId)); setPayment(initialPayment)
     setCategoryId(initialCategory); setSplit(initial); setComment(record.comment ?? '')
   }
 
@@ -408,6 +442,13 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
               <input className="amount" inputMode="decimal" value={amountText} autoComplete="off"
                 onChange={(e) => setAmountText(e.target.value)} />
             </Field>
+            {!payingAccount?.defaultCurrency && (
+              <CurrencyField value={chosenCurrency} errors={problems.currency}
+                suggestions={currencySuggestions(base, (accounts.data ?? []).map((a) => a.defaultCurrency))}
+                onChange={(code) => { setCurrency(code); setEntered(undefined) }} />
+            )}
+            <BaseAmountField base={baseAmount} currency={currency} baseCurrency={base} date={date} entered={entered}
+              onEntered={setEntered} errors={problems.baseAmount} />
             <Field label={income ? 'Received by' : 'Paid by'} errors={problems.payer}>
               <select value={payer} onChange={(e) => setPayer(e.target.value)}>
                 {payers.map((m) => <option key={m.id} value={m.id}>{m.id === me ? `${m.displayName} (you)` : m.displayName}</option>)}
@@ -435,7 +476,7 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
         )}
       </div>
       {(record.canEdit || record.splitMethod === 'AMOUNT') && (
-        <SplitEditor form={split} preview={{ ...preview, problems: splitProblems }} context={context} currency={currency}
+        <SplitEditor form={split} preview={{ ...preview, problems: splitProblems }} context={context} currency={base}
           onChange={setSplit} byMember={problems.byMember} problems={problems.split} you={me} />
       )}
       {needsAmounts && <p className="error small" role="alert">This {noun} is split by amounts: enter the new amounts with the new amount.</p>}
@@ -456,32 +497,58 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
  * Only what changed is sent; the account alone changes nothing the other members see.
  */
 function EditSettlement({ record, family, problems, pending, onSave }: EditProps) {
-  const accounts = useApi<Account[]>(record.yourPayment ? '/accounts' : null)
+  const accounts = useApi<Account[]>(record.yourPayment || record.canEditPayment ? '/accounts' : null)
   const { ledger } = family
-  const currency = record.currency
+  const base = record.currency
+  const original = originalOf(record)
   const me = ledger.memberId
   const initialSide = record.yourPayment ? (record.yourPayment.later ? LATER : String(record.yourPayment.accountId)) : ''
   const [date, setDate] = useState(record.date)
-  const [amountText, setAmountText] = useState(record.amount)
+  const [amountText, setAmountText] = useState(original.amount)
+  const [chosenCurrency, setCurrency] = useState(original.currency)
+  const [entered, setEntered] = useState<string>()
   const [comment, setComment] = useState(record.comment ?? '')
   const [side, setSide] = useState(initialSide)
+  const [ownText, setOwnText] = useState('')
 
-  const parsed = parseMinor(amountText, currency)
+  // The recorder's side follows the settlement's amount, in its currency; a newly chosen account with a currency of
+  // its own decides it (F4e).
+  const recorder = record.author.memberId === me
+  const sideAccount = side !== LATER ? (accounts.data ?? []).find((a) => String(a.id) === side) : undefined
+  const newAccount = recorder && side !== initialSide ? sideAccount : undefined
+  const currency = newAccount?.defaultCurrency ?? chosenCurrency
+  const currencyValid = /^[A-Z]{3}$/.test(currency)
+  const parsed = parseMinor(amountText, currencyValid ? currency : base)
   const amount = 'minor' in parsed ? parsed.minor : undefined
+  const originalChanged = currency !== original.currency
+    || (amount !== undefined && amount !== toMinor(original.amount, original.currency))
+  const reconverts = originalChanged || (date !== record.date && currency !== base)
+  const converted = useBaseAmount(family.path, currency, base, reconverts || currency === base ? amount : undefined, date,
+    entered)
+  const baseAmount = reconverts || entered !== undefined || currency === base ? converted : keptBase(record)
+  // The other side's own account in another currency than the base: what went from or into it, theirs alone (F4e).
+  const ownCurrency = !recorder && side !== initialSide && sideAccount?.defaultCurrency && sideAccount.defaultCurrency !== base
+    ? sideAccount.defaultCurrency : undefined
+  const own = ownCurrency ? parseMinor(ownText, ownCurrency) : undefined
   const patch: RecordPatch = {
     ...(date !== record.date ? { date } : {}),
-    ...(amount !== undefined && amount !== toMinor(record.amount, currency) ? { amount: fromMinor(amount, currency) } : {}),
+    ...(originalChanged && amount !== undefined ? { amount: fromMinor(amount, currency) } : {}),
+    ...(currency !== original.currency ? { currency } : {}),
+    ...(baseAmount.state === 'ENTERED' && baseAmount.minor !== undefined ? { baseAmount: fromMinor(baseAmount.minor, base) } : {}),
     ...(comment.trim() !== (record.comment ?? '') ? { comment: comment.trim() || null } : {}),
     ...(record.yourPayment ? accountPatch(side, initialSide) : {}),
+    ...(ownCurrency && own && 'minor' in own ? { accountAmount: fromMinor(own.minor, ownCurrency) } : {}),
   }
   const changed = Object.keys(patch).length > 0
   const dateProblem = date === '' ? 'Enter a date.'
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; a settlement can’t be earlier.` : undefined
-  const ready = changed && !dateProblem && amount !== undefined
+  const ready = changed && !dateProblem && amount !== undefined && currencyValid && baseAmount.minor !== undefined
+    && !baseAmount.problem && (!ownCurrency || (own !== undefined && 'minor' in own))
   const other = record.payer.memberId === me ? record.payee : record.payee?.memberId === me ? record.payer : undefined
   // The other side of a settlement someone else recorded: while the reader's side is on an account, it is locked (D-28).
   const recordedByOther = record.author.memberId !== me
   const holdsLock = recordedByOther && record.yourPayment !== undefined && !record.yourPayment.later
+  const pays = record.payer.memberId === me
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -502,6 +569,13 @@ function EditSettlement({ record, family, problems, pending, onSave }: EditProps
               <input className="amount" inputMode="decimal" value={amountText} autoComplete="off"
                 onChange={(e) => setAmountText(e.target.value)} />
             </Field>
+            {!(recorder && sideAccount?.defaultCurrency) && (
+              <CurrencyField value={chosenCurrency} errors={problems.currency}
+                suggestions={currencySuggestions(base, (accounts.data ?? []).map((a) => a.defaultCurrency))}
+                onChange={(code) => { setCurrency(code); setEntered(undefined) }} />
+            )}
+            <BaseAmountField base={baseAmount} currency={currency} baseCurrency={base} date={date} entered={entered}
+              onEntered={setEntered} errors={problems.baseAmount} />
           </>
         )}
         {record.canEdit && (
@@ -517,7 +591,16 @@ function EditSettlement({ record, family, problems, pending, onSave }: EditProps
             </AccountSelect>
           </Field>
         )}
+        {ownCurrency && (
+          <Field label={`Amount ${pays ? 'paid' : 'received'} in ${ownCurrency}`}
+            errors={[...(ownText.trim() !== '' && own && 'problem' in own ? [own.problem] : []), ...problems.accountAmount]}
+            hint={`The account is in ${ownCurrency}: the amount that went ${pays ? 'from' : 'into'} it. Only you see it; the settlement stays ${formatMoney(record.amount, base)}.`}>
+            <input className="amount" inputMode="decimal" value={ownText} autoComplete="off" placeholder="0.00"
+              onChange={(e) => setOwnText(e.target.value)} />
+          </Field>
+        )}
       </div>
+      {!ownCurrency && problems.accountAmount.length > 0 && <Errors messages={problems.accountAmount} />}
       {!record.canEditPayment && record.yourPayment?.later && other && (
         <p className="muted small">
           {other.displayName} recorded it; put your side on the account the money went {record.payer.memberId === me ? 'from' : 'into'}.

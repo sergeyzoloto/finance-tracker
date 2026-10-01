@@ -3,7 +3,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { api, formatDate, isoDate, useApi, type Account, type FamilyRecord } from './api'
 import { AccountSelect, Errors, Field } from './components'
 import { expenseProblems, paymentAccounts } from './expenseForm'
+import { accountCurrency } from './currency'
 import { maySettle } from './family'
+import { BaseAmountField, CurrencyField, currencySuggestions, useBaseAmount } from './FamilyCurrency'
 import { useFamilyMutation, type FamilyData } from './familyData'
 import { fromMinor, parseMinor } from './minorUnits'
 
@@ -35,14 +37,15 @@ export const sideLabel = (pays: boolean) => (pays ? 'Paid from' : 'Received into
  * own account or "Specify later" when they pay or receive it, and a comment. "Settle up" on the balances opens it with
  * `payer`, `payee` and `amount` in the URL, from who owes whom. A member records a settlement they pay or receive; an
  * owner also one between two members without an account. The other side's part goes to their "Payments without a
- * specified account", for them to put on an account of theirs.
+ * specified account", for them to put on an account of theirs. The amount is in the reader's account's currency, or
+ * as picked; its amount in the base currency, which settles, shows with its rate and source, editable (F4e).
  */
 export default function NewSettlement({ family }: { family: FamilyData }) {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const { ledger, members } = family
   const me = ledger.memberId
-  const currency = ledger.baseCurrency
+  const base = ledger.baseCurrency
   const active = members.filter((m) => m.status === 'ACTIVE')
   const given = (key: string) => {
     const value = params.get(key) ?? ''
@@ -52,10 +55,14 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
 
   const [payer, setPayer] = useState(given('payer') ?? String(me))
   const [payee, setPayee] = useState(given('payee') ?? '')
-  const [amountText, setAmountText] = useState(() => {
+  // "Settle up" prefills what settles, in the base currency.
+  const [prefilled] = useState(() => {
     const amount = params.get('amount') ?? ''
-    return 'minor' in parseMinor(amount, currency) ? amount : ''
+    return 'minor' in parseMinor(amount, base) ? amount : ''
   })
+  const [amountText, setAmountText] = useState(prefilled)
+  const [chosenCurrency, setCurrency] = useState(base)
+  const [entered, setEntered] = useState<string>()
   const [date, setDate] = useState(() => {
     const today = isoDate(new Date())
     return today < ledger.startDate ? ledger.startDate : today
@@ -76,12 +83,18 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
   const remembered = lastSide(ledger.id)
   const side = chosenSide ?? (remembered === LATER || eligible.some((a) => String(a.id) === remembered) ? remembered : '')
 
-  const parsed = parseMinor(amountText, currency)
+  // In the reader's account's currency, if it has one; else as picked (D-13, F4e).
+  const account = mine && side !== LATER ? eligible.find((a) => String(a.id) === side) : undefined
+  const currency = accountCurrency(account, chosenCurrency)
+  const currencyValid = /^[A-Z]{3}$/.test(currency)
+  const parsed = parseMinor(amountText, currencyValid ? currency : base)
   const amount = 'minor' in parsed ? parsed.minor : undefined
+  const baseAmount = useBaseAmount(family.path, currency, base, amount, date, entered)
   const dateProblem = date === '' ? 'Enter a date.'
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; a settlement can’t be earlier.` : undefined
   const sameMember = payer !== '' && payer === payee
-  const ready = !dateProblem && amount !== undefined && payerMember !== undefined && payeeMember !== undefined
+  const ready = !dateProblem && amount !== undefined && currencyValid && baseAmount.minor !== undefined
+    && !baseAmount.problem && payerMember !== undefined && payeeMember !== undefined
     && !sameMember && allowed && (!mine || side !== '')
   const problems = expenseProblems(save.failure, [], Number(payer), 'date', Number(payee))
 
@@ -89,10 +102,12 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
     event.preventDefault()
     if (!ready) return
     const how = mine ? (side === LATER ? { paymentLater: true } : { paymentAccountId: Number(side) }) : {}
+    const inCurrency = currency === base ? {} : { currency }
+    const typedBase = baseAmount.state === 'ENTERED' ? { baseAmount: fromMinor(baseAmount.minor!, base) } : {}
     void save.run(async () => {
       const created = await api<FamilyRecord>(`${family.path}/settlements`, 'POST', {
-        date, amount: fromMinor(amount!, currency), payerMemberId: Number(payer), payeeMemberId: Number(payee),
-        comment: comment.trim() || null, ...how,
+        date, amount: fromMinor(amount!, currency), ...inCurrency, ...typedBase, payerMemberId: Number(payer),
+        payeeMemberId: Number(payee), comment: comment.trim() || null, ...how,
       })
       if (mine) rememberSide(ledger.id, side)
       navigate(`${family.page}/expenses/${created.id}`)
@@ -124,6 +139,13 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
             <input className="amount" inputMode="decimal" value={amountText} autoComplete="off" placeholder="0.00"
               onChange={(e) => setAmountText(e.target.value)} />
           </Field>
+          {!account?.defaultCurrency && (
+            <CurrencyField value={chosenCurrency} errors={problems.currency}
+              suggestions={currencySuggestions(base, eligible.map((a) => a.defaultCurrency))}
+              onChange={(code) => { setCurrency(code); setEntered(undefined) }} />
+          )}
+          <BaseAmountField base={baseAmount} currency={currency} baseCurrency={base} date={date} entered={entered}
+            onEntered={setEntered} errors={problems.baseAmount} />
           <Field label="Date" errors={[...(dateProblem ? [dateProblem] : []), ...problems.date]}
             hint={`The family budget starts on ${formatDate(ledger.startDate)}.`}>
             <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
@@ -131,7 +153,15 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
           {mine && (
             <Field label={sideLabel(pays)} errors={problems.payment}
               hint="Only you see it. “Specify later” keeps it under “Payments without a specified account” in your ledger.">
-              <AccountSelect accounts={eligible} value={side} onChange={setSide}>
+              <AccountSelect accounts={eligible} value={side} onChange={(value) => {
+                setSide(value)
+                // An account in another currency: what settles stays the base amount, and the amount paid is asked.
+                const next = value !== LATER ? eligible.find((a) => String(a.id) === value) : undefined
+                if (prefilled !== '' && amountText === prefilled && next?.defaultCurrency && next.defaultCurrency !== base) {
+                  setAmountText('')
+                  setEntered(prefilled)
+                }
+              }}>
                 <option value={LATER}>Specify later</option>
               </AccountSelect>
             </Field>

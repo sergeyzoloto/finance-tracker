@@ -1039,7 +1039,32 @@ recorder is told why the date, the amount and deleting are locked, and what the 
 the other side's page and its personal entry offer "Specify later" to unlock it. The paths
 `expenses…` become `activity…` later, with redirects (requirements, "Later").
 
-**Satisfies** D-5, A3, C6.
+**F4e as built: other currencies in the interface.**
+
+- The expense and income forms, the settlement form and the edit forms on a record's page: the amount
+  is in the paying or receiving account's currency when it has one (it decides, and no currency is
+  picked); for a member without an account, "Specify later" or an account without a currency, a
+  currency field. In another currency than the base, "Amount in EUR" shows the server's conversion
+  (`GET /conversion`, the reader's own rates) with its rate and source, "1 USD = 0.851064 EUR, ECB rate
+  of Sep 30, 2026"; the user may type it instead ("Use the exchange rate" goes back). The split preview
+  is of the base amount. The request carries `currency` only outside the base currency and
+  `baseAmount` only when typed, so requests in the base currency are as before.
+- "Settle up" prefills what settles in the base currency; choosing an account in another currency
+  moves that figure into "Amount in EUR" and asks for the amount paid in the account's currency.
+- No rate: the field says why ("There is no exchange rate for RUB on or before …: enter the amount in
+  EUR, or add your own rate on the Rates page"), saving waits for a typed base amount, and a 422
+  `RATE_MISSING` lands at the field with the server's message.
+- The other side of a settlement choosing an account in another currency, on the record's page or its
+  own entry, is asked for the amount it got or paid there (`accountAmount`); its own side then shows
+  "Rouble account, RUB 3,300.00", for its eyes only.
+- Lists, the overview and a record's page show "$58.75 → €50.00" where the currencies differ, the base
+  amount alone otherwise; the page adds the rate line. The journal says "the amount paid" ("$56.00 →
+  $67.20") and "the amount in EUR".
+- The personal editor's family option (C2) takes any currency: the entry's, converted as above.
+- Amounts go through `minorUnits.ts` per currency; the rate is shown to six significant digits with
+  big.js; nothing goes through floating point.
+
+**Satisfies** D-5, A3, C6, C7.
 
 ### J. Migration and rollout, F2 to F7
 

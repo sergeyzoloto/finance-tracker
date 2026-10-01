@@ -71,6 +71,8 @@ export interface EntryForm {
   familyCategoryId: string
   familyComment: string
   familySplit: SplitForm
+  /** A family record's amount in its budget's base currency, as typed in; '' for the server's conversion (F4e). */
+  familyBaseAmount: string
 }
 
 /** Messages per field; '' holds those that belong to no field, `postings.<i>.<field>` those of a posting. */
@@ -88,7 +90,7 @@ export function newForm(ledger: Ledger, date: string, tab: Tab = 'expense'): Ent
     tab, date, payee: '', memo: '', accountId: '', toAccountId: '', currency, amount: '', toCurrency: '', toAmount: '',
     categoryId: '', refund: false, split: false, sharePercent: percentFromRatio(ledger.settings.defaultShareRatio),
     loan: 'given', counterparty: '', postings: [blankPosting(currency), blankPosting(currency)],
-    familyId: '', familyCategoryId: '', familyComment: '', familySplit: newSplit(),
+    familyId: '', familyCategoryId: '', familyComment: '', familySplit: newSplit(), familyBaseAmount: '',
   }
 }
 

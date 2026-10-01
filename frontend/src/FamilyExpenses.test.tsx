@@ -59,14 +59,15 @@ const accounts: Account[] = [
 const ref = (member: FamilyMember) => ({ memberId: member.id, displayName: member.displayName })
 const record: FamilyRecord = {
   id: 5, type: 'EXPENSE', date: '2026-09-12', category: { id: 30, code: 'GROCERIES', name: 'Groceries', archived: false },
-  amount: '10.01', currency: 'EUR', comment: 'Weekly shop', payer: ref(anna), splitMethod: 'EQUAL',
+  amount: '10.01', currency: 'EUR', originalAmount: '10.01', originalCurrency: 'EUR', comment: 'Weekly shop', payer: ref(anna),
+  splitMethod: 'EQUAL',
   shares: [
     { member: ref(anna), amount: '5.01', basisPoints: null, updatedBy: ref(anna), updatedAt: '2026-09-12T10:00:00Z' },
     { member: ref(sam), amount: '5.00', basisPoints: null, updatedBy: ref(anna), updatedAt: '2026-09-12T10:00:00Z' },
   ],
   author: ref(anna), createdAt: '2026-09-12T10:00:00Z', updatedBy: ref(anna), updatedAt: '2026-09-12T10:00:00Z',
   version: 0, frozen: false, canEdit: true, canDelete: true, canEditPayment: true,
-  yourPayment: { entryId: 90, accountId: 1, accountName: 'Cash', later: false },
+  yourPayment: { entryId: 90, accountId: 1, accountName: 'Cash', later: false, amount: '1.00', currency: 'EUR' },
 }
 
 /** The family budget's own requests, with its members; and anything else. */
@@ -302,7 +303,7 @@ describe('an expense’s page', () => {
   })
 
   it('shows “Specify later” to the payer, and no account to anyone else', async () => {
-    detail({ yourPayment: { entryId: 90, accountId: null, accountName: null, later: true } })
+    detail({ yourPayment: { entryId: 90, accountId: null, accountName: null, later: true, amount: '1.00', currency: 'EUR' } })
     renderApp('/family/7/expenses/5')
     expect((await screen.findByRole('link', { name: 'Specify later' })).getAttribute('href')).toBe('/entries/90')
     cleanup()

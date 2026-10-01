@@ -6,6 +6,8 @@ import {
   expenseProblems, newSplit, paymentAccounts, previewSplit, splitRequest, type SplitContext, type SplitForm,
 } from './expenseForm'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
+import { accountCurrency } from './currency'
+import { BaseAmountField, CurrencyField, currencySuggestions, useBaseAmount } from './FamilyCurrency'
 import { SplitEditor } from './FamilySplit'
 import { fromMinor, parseMinor } from './minorUnits'
 
@@ -50,15 +52,16 @@ function rememberPayment(ledgerId: number, type: RecordType, payment: string) {
 
 /**
  * A new family expense (C1) at `/family/{ledgerId}/expenses/new`, or a new family income (C5, F4d) at
- * `/family/{ledgerId}/incomes/new`, which mirrors it: the date, a family category of its type, the amount in the base
- * currency, who paid or received it, the user's account if it was them (D-14), the split with every member's amount
- * before saving (D-12, the tie to the payer or receiver), and a comment. The server's objections appear next to the
- * field or member they name.
+ * `/family/{ledgerId}/incomes/new`, which mirrors it: the date, a family category of its type, the amount in the paying
+ * or receiving account's currency (or, for a member without an account or "Specify later", a currency picked, F4e), its
+ * amount in the base currency with the rate and its source, editable, who paid or received it, the user's account if
+ * it was them (D-14), the split of the base amount with every member's amount before saving (D-12, the tie to the payer
+ * or receiver), and a comment. The server's objections appear next to the field or member they name.
  */
 export default function NewRecord({ family, type = 'EXPENSE' }: { family: FamilyData; type?: RecordType }) {
   const navigate = useNavigate()
   const { ledger, members } = family
-  const currency = ledger.baseCurrency
+  const base = ledger.baseCurrency
   const words = WORDS[type]
   const categories = useFamilyApi<Category[]>(family, `${family.path}/categories`)
   const accounts = useApi<Account[]>('/accounts')
@@ -73,6 +76,8 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   const [chosenPayment, setPayment] = useState<string>()
   const [split, setSplit] = useState<SplitForm>(newSplit)
   const [comment, setComment] = useState('')
+  const [chosenCurrency, setCurrency] = useState(base)
+  const [entered, setEntered] = useState<string>()
   const save = useFamilyMutation(family)
 
   const payers = members.filter((m) => m.status === 'ACTIVE' && (m.id === ledger.memberId || !m.hasAccount))
@@ -83,13 +88,19 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   const payment = chosenPayment
     ?? (remembered === LATER || eligible.some((a) => String(a.id) === remembered) ? remembered : '')
 
-  const parsed = parseMinor(amountText, currency)
+  // The amount is in the paying account's currency, if it has one; else as picked (D-13, F4e).
+  const account = payerIsMe && payment !== LATER ? eligible.find((a) => String(a.id) === payment) : undefined
+  const currency = accountCurrency(account, chosenCurrency)
+  const currencyValid = /^[A-Z]{3}$/.test(currency)
+  const parsed = parseMinor(amountText, currencyValid ? currency : base)
   const amount = 'minor' in parsed ? parsed.minor : undefined
-  const context: SplitContext = { ledger, members, date, amount, payerId: Number(payer), noun: words.noun }
-  const preview = previewSplit(split, context, currency)
+  const baseAmount = useBaseAmount(family.path, currency, base, amount, date, entered)
+  const context: SplitContext = { ledger, members, date, amount: baseAmount.minor, payerId: Number(payer), noun: words.noun }
+  const preview = previewSplit(split, context, base)
   const dateProblem = date === '' ? 'Enter a date.'
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${words.noun} can’t be earlier.` : undefined
-  const ready = !dateProblem && categoryId !== '' && amount !== undefined && payer !== ''
+  const ready = !dateProblem && categoryId !== '' && amount !== undefined && currencyValid && payer !== ''
+    && baseAmount.minor !== undefined && !baseAmount.problem
     && (!payerIsMe || payment !== '') && preview.problems.length === 0
 
   const problems = expenseProblems(save.failure, preview.rows.map((r) => r.member.id), Number(payer), 'date')
@@ -98,10 +109,13 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
     event.preventDefault()
     if (!ready) return
     const how = payerIsMe ? (payment === LATER ? { paymentLater: true } : { paymentAccountId: Number(payment) }) : {}
+    // The currency only when it isn't the base currency, the base amount only when typed in: else the server's.
+    const inCurrency = currency === base ? {} : { currency }
+    const typedBase = baseAmount.state === 'ENTERED' ? { baseAmount: fromMinor(baseAmount.minor!, base) } : {}
     void save.run(async () => {
       const created = await api<FamilyRecord>(`${family.path}/records`, 'POST', {
-        type, date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), comment: comment.trim() || null,
-        payerMemberId: Number(payer), ...how, split: splitRequest(split, preview, currency),
+        type, date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), ...inCurrency, ...typedBase,
+        comment: comment.trim() || null, payerMemberId: Number(payer), ...how, split: splitRequest(split, preview, base),
       })
       if (payerIsMe) rememberPayment(ledger.id, type, payment)
       navigate(`${family.page}/expenses/${created.id}`)
@@ -128,6 +142,13 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
             <input className="amount" inputMode="decimal" value={amountText} autoComplete="off" placeholder="0.00"
               onChange={(e) => setAmountText(e.target.value)} />
           </Field>
+          {!account?.defaultCurrency && (
+            <CurrencyField value={chosenCurrency} errors={problems.currency}
+              suggestions={currencySuggestions(base, eligible.map((a) => a.defaultCurrency))}
+              onChange={(code) => { setCurrency(code); setEntered(undefined) }} />
+          )}
+          <BaseAmountField base={baseAmount} currency={currency} baseCurrency={base} date={date} entered={entered}
+            onEntered={setEntered} errors={problems.baseAmount} />
           <Field label={words.by} errors={problems.payer}>
             <select value={payer} onChange={(e) => setPayer(e.target.value)}>
               {payers.map((m) => (
@@ -147,7 +168,7 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
             <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
           </Field>
         </div>
-        <SplitEditor form={split} preview={preview} context={context} currency={currency} onChange={setSplit}
+        <SplitEditor form={split} preview={preview} context={context} currency={base} onChange={setSplit}
           byMember={problems.byMember} problems={problems.split} you={ledger.memberId} />
         <div className="actions">
           <button className="primary" disabled={!ready || save.pending}>{save.pending ? 'Saving…' : words.add}</button>

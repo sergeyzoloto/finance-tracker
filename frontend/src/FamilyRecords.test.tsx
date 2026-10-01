@@ -61,15 +61,15 @@ const base = {
 }
 const expense: FamilyRecord = {
   ...base, id: 5, type: 'EXPENSE', date: '2026-09-12', category: { id: 30, code: 'GROCERIES', name: 'Groceries', archived: false },
-  amount: '72.40', payer: ref(anna), splitMethod: 'EQUAL', shares: [share(anna, '36.20'), share(sam, '36.20')],
-  yourPayment: { entryId: 90, accountId: 1, accountName: 'Cash', later: false },
+  amount: '72.40', originalAmount: '72.40', originalCurrency: 'EUR', payer: ref(anna), splitMethod: 'EQUAL', shares: [share(anna, '36.20'), share(sam, '36.20')],
+  yourPayment: { entryId: 90, accountId: 1, accountName: 'Cash', later: false, amount: '1.00', currency: 'EUR' },
 }
 const income: FamilyRecord = {
   ...base, id: 6, type: 'INCOME', date: '2026-09-13', category: { id: 33, code: 'SALARY', name: 'Salary', archived: false },
-  amount: '1000.00', payer: ref(sam), splitMethod: 'PERCENT', shares: [share(anna, '500.00', 5000), share(sam, '500.00', 5000)],
+  amount: '1000.00', originalAmount: '1000.00', originalCurrency: 'EUR', payer: ref(sam), splitMethod: 'PERCENT', shares: [share(anna, '500.00', 5000), share(sam, '500.00', 5000)],
 }
 const settlement: FamilyRecord = {
-  ...base, id: 7, type: 'SETTLEMENT', date: '2026-09-14', category: null, amount: '36.20', payer: ref(sam), payee: ref(anna),
+  ...base, id: 7, type: 'SETTLEMENT', date: '2026-09-14', category: null, amount: '36.20', originalAmount: '36.20', originalCurrency: 'EUR', payer: ref(sam), payee: ref(anna),
   splitMethod: null, shares: [],
 }
 const noJournal = { content: [], page: 0, size: 200, totalElements: 0, totalPages: 0 }
@@ -235,12 +235,12 @@ describe('a settlement’s page', () => {
   it('lets its other side put their part on an account, and nothing else', async () => {
     const theirs: FamilyRecord = {
       ...settlement, payer: ref(ben), author: ref(ben), canEdit: false, canDelete: false, canEditPayment: false,
-      yourPayment: { entryId: 95, accountId: null, accountName: null, later: true },
+      yourPayment: { entryId: 95, accountId: null, accountName: null, later: true, amount: '1.00', currency: 'EUR' },
     }
     const calls = app([anna, sam, ben], {
       'GET /api/family-ledgers/7/records/7': { status: 200, body: theirs },
       'GET /api/family-ledgers/7/journal?recordId=7&size=200': { status: 200, body: noJournal },
-      'PATCH /api/family-ledgers/7/records/7?version=0': { status: 200, body: { ...theirs, yourPayment: { entryId: 95, accountId: 2, accountName: 'Current account', later: false } } },
+      'PATCH /api/family-ledgers/7/records/7?version=0': { status: 200, body: { ...theirs, yourPayment: { entryId: 95, accountId: 2, accountName: 'Current account', later: false, amount: '1.00', currency: 'EUR' } } },
     })
     renderApp('/family/7/expenses/7')
     expect(await screen.findByRole('heading', { name: 'Settlement, Sep 14, 2026' })).toBeDefined()
@@ -260,7 +260,7 @@ describe('a settlement’s page', () => {
 
   it('lets its recorder change the date, amount and comment while the other side’s part waits', async () => {
     const mine: FamilyRecord = {
-      ...settlement, payer: ref(anna), payee: ref(ben), yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false },
+      ...settlement, payer: ref(anna), payee: ref(ben), yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false, amount: '1.00', currency: 'EUR' },
     }
     const calls = app([anna, sam, ben], {
       'GET /api/family-ledgers/7/records/7': { status: 200, body: mine },
@@ -281,7 +281,7 @@ describe('a settlement’s page', () => {
   it('tells its recorder why the date, amount and deleting are locked once the other side placed its part (D-28)', async () => {
     const locked: FamilyRecord = {
       ...settlement, payer: ref(anna), payee: ref(ben), canEditPayment: false, canDelete: false, lockedBy: ref(ben),
-      yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false },
+      yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false, amount: '1.00', currency: 'EUR' },
     }
     const calls = app([anna, sam, ben], {
       'GET /api/family-ledgers/7/records/7': { status: 200, body: locked },
@@ -304,12 +304,12 @@ describe('a settlement’s page', () => {
   it('tells the other side that their part on an account locks it, and offers “Specify later”', async () => {
     const theirs: FamilyRecord = {
       ...settlement, payer: ref(ben), author: ref(ben), canEdit: false, canDelete: false, canEditPayment: false,
-      yourPayment: { entryId: 95, accountId: 2, accountName: 'Current account', later: false },
+      yourPayment: { entryId: 95, accountId: 2, accountName: 'Current account', later: false, amount: '1.00', currency: 'EUR' },
     }
     const calls = app([anna, sam, ben], {
       'GET /api/family-ledgers/7/records/7': { status: 200, body: theirs },
       'GET /api/family-ledgers/7/journal?recordId=7&size=200': { status: 200, body: noJournal },
-      'PATCH /api/family-ledgers/7/records/7?version=0': { status: 200, body: { ...theirs, yourPayment: { entryId: 95, accountId: null, accountName: null, later: true } } },
+      'PATCH /api/family-ledgers/7/records/7?version=0': { status: 200, body: { ...theirs, yourPayment: { entryId: 95, accountId: null, accountName: null, later: true, amount: '1.00', currency: 'EUR' } } },
     })
     renderApp('/family/7/expenses/7')
     expect(await screen.findByText('While your side is on an account of yours, Ben can’t change the settlement’s date or '
@@ -385,7 +385,7 @@ describe('the personal side', () => {
     }
     const theirs: FamilyRecord = {
       ...settlement, payer: ref(ben), author: ref(ben), canEdit: false, canDelete: false, canEditPayment: false,
-      yourPayment: { entryId: 95, accountId: null, accountName: null, later: true },
+      yourPayment: { entryId: 95, accountId: null, accountName: null, later: true, amount: '1.00', currency: 'EUR' },
     }
     const calls = app([anna, sam, ben], {
       'GET /api/entries/95': { status: 200, body: side },
@@ -421,7 +421,7 @@ describe('the personal side', () => {
     }
     const locked: FamilyRecord = {
       ...settlement, payer: ref(anna), payee: ref(ben), canEditPayment: false, canDelete: false, lockedBy: ref(ben),
-      yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false },
+      yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false, amount: '1.00', currency: 'EUR' },
     }
     app([anna, sam, ben], {
       'GET /api/entries/96': { status: 200, body: side },
@@ -446,7 +446,7 @@ describe('the personal side', () => {
     }
     const theirs: FamilyRecord = {
       ...settlement, payer: ref(ben), author: ref(ben), canEdit: false, canDelete: false, canEditPayment: false,
-      yourPayment: { entryId: 95, accountId: 2, accountName: 'Current account', later: false },
+      yourPayment: { entryId: 95, accountId: 2, accountName: 'Current account', later: false, amount: '1.00', currency: 'EUR' },
     }
     app([anna, sam, ben], {
       'GET /api/entries/95': { status: 200, body: side },
@@ -469,7 +469,7 @@ describe('the personal side', () => {
     app([anna, sam], {
       'GET /api/entries?page=0&size=50': { status: 200, body: { content: [receipt], page: 0, size: 50, totalElements: 1, totalPages: 1 } },
       'GET /api/entries/97': { status: 200, body: receipt },
-      'GET /api/family-ledgers/7/records/6': { status: 200, body: { ...income, payer: ref(anna), yourPayment: { entryId: 97, accountId: 2, accountName: 'Current account', later: false } } },
+      'GET /api/family-ledgers/7/records/6': { status: 200, body: { ...income, payer: ref(anna), yourPayment: { entryId: 97, accountId: 2, accountName: 'Current account', later: false, amount: '1.00', currency: 'EUR' } } },
     })
     renderApp('/entries/97')
     expect(await screen.findByRole('heading', { name: 'Family income received' })).toBeDefined()

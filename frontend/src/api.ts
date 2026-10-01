@@ -121,6 +121,15 @@ export interface FamilyRecord {
    * later”, its date and amount don't change and it isn't deleted (D-28). Only for who would otherwise change it.
    */
   lockedBy?: MemberRef
+  /** The amount as paid, received or settled, in `originalCurrency` (F4e); `amount` is in the base currency. */
+  originalAmount: string
+  originalCurrency: string
+  /** Base units for one of the original currency, where the base amount was converted (F4e). */
+  rate?: string
+  /** ECB, MANUAL (the acting member's own rate) or ENTERED; missing in the base currency (F4e). */
+  rateSource?: RateSourceName
+  /** The day of the rate, on or before the record's date. */
+  rateDate?: string
   /**
    * How the reader paid it, or received an income: only for its payer or receiver with an account, and missing for
    * everyone else (D-16); for a settlement, the reader's own side.
@@ -128,7 +137,24 @@ export interface FamilyRecord {
   yourPayment?: YourPayment
 }
 /** The payer's own view of their payment: their payment entry, and the account, or "Specify later" with none. */
-export interface YourPayment { entryId: number; accountId: number | null; accountName: string | null; later: boolean }
+export interface YourPayment {
+  entryId: number; accountId: number | null; accountName: string | null; later: boolean
+  /** What went from or into the account or "Specify later", in `currency`: the reader's own side (F4e). */
+  amount: string; currency: string
+}
+/** Where a record's base amount came from (F4e, D-13). */
+export type RateSourceName = 'ECB' | 'MANUAL' | 'ENTERED'
+/** An amount as the family budget would take it on a day: GET /family-ledgers/{id}/conversion (F4e). */
+export interface FamilyConversion {
+  amount: string
+  currency: string
+  /** Null when no rate converts it: the record then needs it entered. */
+  baseAmount: string | null
+  baseCurrency: string
+  rate?: string
+  rateSource?: RateSourceName
+  rateDate?: string
+}
 export interface FamilyRecordPage { content: FamilyRecord[]; page: number; size: number; totalElements: number; totalPages: number }
 /** How a new or changed record is split (D-12). RULE is the budget's rule; percentages go in basis points. */
 export type RecordSplit =

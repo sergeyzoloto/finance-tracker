@@ -5,7 +5,10 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-01 · Family budget: F4d's deploy and review, the settlement lock, other currencies (F4e)
 
-Not committed yet: the documents are `7d5cef6`, the settlement lock `915fe30`.
+Committed locally on `feature/family-budget` in four commits: `7d5cef6` (documents), `915fe30`
+(the settlement lock), `97766c4` (other currencies) and "feat(frontend): other currencies in the
+family pages", whose hash belongs here with the next change log commit. Not pushed, not merged, not
+deployed.
 
 **Changes**
 - F4d's deploy and the decisions after its review (commit "docs(family-budget): F4d deploy,
@@ -88,6 +91,27 @@ Not committed yet: the documents are `7d5cef6`, the settlement lock `915fe30`.
     debt accounts' currency; `ApiTests` and `FamilySwitchOffApiTests` (24 endpoints) with the new
     endpoint; `FamilyPaymentApiTests` and `FamilySettlementApiTests` expect `yourPayment`'s new
     fields.
+- Other currencies in the interface (commit "feat(frontend): other currencies in the family pages"),
+  ADR 0003 topic I ("F4e as built: other currencies in the interface"):
+  - `currency.ts` (no React) and `FamilyCurrency.tsx`: the rate line ("1 USD = 0.851064 EUR, ECB rate
+    of Sep 30, 2026", six significant digits with big.js), a record's two amounts ("$58.75 →
+    €50.00"), the base amount of a form (the same currency, converted by `GET /conversion`, typed in,
+    missing or pending), "Amount in EUR" with its rate and source and "Use the exchange rate", and a
+    currency field.
+  - The expense and income forms, the settlement form, the edit forms of a record's page and of a
+    settlement, `PaymentEntry.tsx` and the personal editor's family option: the amount in the
+    account's currency (an account with a currency decides it; otherwise a currency field), the
+    split of the base amount, `currency` and `baseAmount` sent only when needed. Without a rate, the
+    field says why and saving waits; a 422 `RATE_MISSING` lands at the field.
+  - "Settle up" on an account in another currency keeps what settles as the base amount and asks
+    for the amount paid. The other side of a settlement choosing an account in another currency is
+    asked for its own amount (`accountAmount`), which its side then shows for its eyes only.
+  - Lists, the overview and record pages show both amounts and the rate; the journal names "the
+    amount paid" and "the amount in EUR". The personal editor's family option takes any currency
+    (F4c's "other currencies come later" line is gone).
+  - Tests: new `currency.test.ts` (8) and `FamilyCurrencies.test.tsx` (9); `FamilyPayer.test.tsx`
+    replaces the other-currency refusal with two tests (an entry in dollars converted, one in
+    roubles without a rate); fixtures gain the new fields.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -116,12 +140,49 @@ Not committed yet: the documents are `7d5cef6`, the settlement lock `915fe30`.
   that pins the schema: `LedgerBackfillMigrationTests` expects version 7 as the latest. Flyway applied
   V8; every API, isolation, delete-all, runbook, importer, report and demo test passed. (A first run
   had found V8's table check named like the column check of `base_rate`; renamed, then run again.)
+- After the interface's commit: frontend `npm test` 18 files and 241 tests passed (224 before),
+  `npm run build` succeeded; the backend unchanged since the currencies' commit.
+- The walk-through in headless Chrome (playwright-core), against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true` and `ECB_RATES_ENABLED=false` on a throwaway `postgres:17-alpine`
+  (with three ECB dollar rates inserted for 2026-09-26 to 09-30), the Vite dev server and the dev
+  Keycloak's testuser, after "Delete all my data" and the demo (its "US dollar account"), with
+  "Home" in EUR from 2026-09-01 (Groceries and Salary brought in), Sam without an account, a rouble
+  account and the user's own rate of 100 roubles to the euro:
+  1. An expense of 58.75 USD from the dollar account: "Amount in EUR" 50.00, "1 USD = 0.851064
+     EUR, ECB rate of Sep 30, 2026", no currency field; the page "$58.75 → €50.00"; the payment
+     dollar account −58.75 USD, `FX_EXCHANGE` +58.75 USD and −50.00 EUR, debt +50.00 EUR.
+  2. "Specify later" in USD, 23.50: €20.00, the placeholder through `FX_EXCHANGE` the same way.
+  3. "Settle up" (Sam owed 35.00) received into the dollar account: the 35.00 moved to "Amount in
+     EUR", the dollars asked; 41.13 USD recorded, "Sam paid you €35.00", both balances 0.00.
+  4. From the personal editor, a family income of 9000 RUB into the rouble account: €90.00 at the
+     user's own rate, shares 45.00 each, the receipt through `FX_EXCHANGE`.
+  5. The lock: Pat, a member with an account, added with plain SQL as the tests do; the user paid
+     Pat 10.00 from Cash; Pat's part moved from Pat's placeholder to a cash account of Pat's with SQL
+     as the posting service's writer would. The settlement page: the note naming Pat, no date,
+     amount or delete, the comment still changes; `PATCH` of the amount and `DELETE` 409 with D-28's
+     message; the user's own side entry with the date and amount disabled and no delete.
+  After each step `/api/reports/integrity` read `[]`. At 375 px the activity, the expense and income
+  forms, the settlement form, four record pages, balances, journal, overview, the personal editor
+  with the family income and the settlement side's entry were 375 px wide. Found and fixed: "Settle
+  up" read its base-currency amount as dollars on a dollar account (now it moves to "Amount in EUR",
+  with a test); the edit forms showed a currency field for a payment on an account with its own
+  currency. Rechecked. The console's errors: `/api/me`'s 401 before the sign-in and the script's own
+  two 409s. The instance, its database and the dev Keycloak were stopped; screenshots stay in the
+  session's scratchpad.
 
 **Open**
-- Other currencies in the interface (this stage's next commit).
+- The owner's deploy of F4e with the switch off; the report has the checklist. V8 runs on deploy; no
+  `finance.conf` or `finance.caddy` change. Rollback: the `:previous` images, `144ff6b`, which the
+  rollback evidence above shows running on V8.
 - The original currency is the request's, by default the base currency; the server doesn't take it
   from the paying account, whose currency is only a default in this data model, and an unchanged
   isolation check pays a EUR income into a USD account. The forms send the account's currency.
+- The other side of a settlement names an amount only for an account whose default currency isn't
+  the base; on an account without a currency its side is in the base currency.
+- An account change alone keeps a record's currency (it converts nothing) unless the form sends a
+  new currency with a new amount, as it does for an account with another currency.
+- A record's page says "manual rate" for a base amount converted at its author's own rate, to every
+  member, the author included; a form's conversion says "your own rate", since it is the reader's.
 
 ## 2026-10-01 · Family budget: F4c's deploy and review, settlements and incomes (F4d)
 

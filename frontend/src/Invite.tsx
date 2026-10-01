@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, ApiError, errorMessage, fieldMessages, formatDate, sentence, type FamilyLedger, type InviteLookup } from './api'
 import { Errors, Field, Loading } from './components'
+import { balanceSentence } from './family'
 import { clearPendingInvite, pendingInvite } from './invite'
+import { abs, formatMoney, signOf } from './money'
 
 /** What the page shows instead of the invite: the server's answer, and whether the token is spent. */
 interface Problem { message: string; again?: boolean }
@@ -133,8 +135,26 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onJoined }: {
       <h2>Join the family budget “{lookup.ledgerName}”</h2>
       <p>
         {lookup.invitedBy} invites you to the family budget “{lookup.ledgerName}”, kept in {lookup.baseCurrency}
-        {claim ? <>, to take the place of <strong>{lookup.seatName}</strong>.</> : ', as a new member.'}
+        {claim ? <>, to take the place of <strong>{lookup.seatName}</strong>.</>
+          : lookup.returning ? ', where you were a member before: you come back in your earlier place.' : ', as a new member.'}
       </p>
+      {claim && lookup.openingBalance != null && (
+        <p data-testid="opening-balance">
+          Before {formatDate(lookup.joinDate)}, <strong>{balanceSentence(lookup.openingBalance, lookup.baseCurrency,
+            lookup.seatName)}</strong>. That becomes your opening balance in the family budget, and in your personal
+          budget on that day.
+        </p>
+      )}
+      {lookup.returning && lookup.correction != null && (
+        <p data-testid="correction">
+          {signOf(lookup.correction) === 0
+            ? 'Your personal budget already shows your balance with the family budget as it is: no correction is needed.'
+            : <>One correction of <strong>{formatMoney(abs(lookup.correction), lookup.baseCurrency)}</strong> on that day
+              {signOf(lookup.correction) > 0 ? ' adds to' : ' takes from'} what your personal budget shows you owe the family
+              budget, so that it matches the family budget again: for example, for entries of it you changed or deleted
+              since you left, or records of before that changed meanwhile.</>}
+        </p>
+      )}
       {claim && (
         <p>
           The expenses, incomes and settlements recorded for {lookup.seatName} become yours, and so does what

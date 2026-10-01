@@ -360,10 +360,10 @@ describe('the split rule', () => {
 })
 
 describe('the members', () => {
-  it('lets an owner manage members without an account, and shows a 409 with the way to the split rule', async () => {
+  it('lets an owner manage members without an account, and shows the server’s 409', async () => {
     const calls = stubApi({
       'DELETE /api/family-ledgers/7/members/71': { status: 409, body: { status: 409,
-        detail: 'Kid has a share of 33.33 % in the custom split rule; change the rule to give them 0 first.' } },
+        detail: 'Kid has left the family budget already.' } },
       'PATCH /api/family-ledgers/7/members/me': { status: 409, body: { status: 409,
         detail: 'The family budget has a member named kid already.' } },
     })
@@ -374,19 +374,19 @@ describe('the members', () => {
     expect(within(kidsRow).getByText('No account')).toBeDefined()
     expect(within(kidsRow).getByText('33.33 %')).toBeDefined()
     expect(screen.getByLabelText('Add a member without an account')).toBeDefined()
+    // Removing asks first, saying what happens (F6a); the split rule goes back to equal shares with Kid's 33.33 %.
     fireEvent.click(within(kidsRow).getByRole('button', { name: 'Remove' }))
+    const confirmation = screen.getByRole('region', { name: 'Remove Kid' })
+    expect(within(confirmation).getByText('The split rule goes back to equal shares.')).toBeDefined()
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Remove Kid' }))
+    expect(await within(confirmation).findByText('Kid has left the family budget already.')).toBeDefined()
 
-    expect(await within(kidsRow).findByText(/Kid has a share of 33.33 % in the custom split rule; change the rule to give them 0 first./))
-      .toBeDefined()
-    expect(within(kidsRow).getByRole('link', { name: 'Change the split rule' }).getAttribute('href')).toBe('/family/7/split-rule')
-
-    // A clash of her own name is about the name, not the split rule, although her share is above 0 too.
+    // A clash of her own name is about her name.
     const own = screen.getByText('You').closest('tr')!
     fireEvent.click(within(own).getByRole('button', { name: 'Change my name' }))
     fireEvent.change(within(own).getByLabelText('Your name in this budget'), { target: { value: 'kid' } })
     fireEvent.click(within(own).getByRole('button', { name: 'Save' }))
     expect(await within(own).findByText('The family budget has a member named kid already.')).toBeDefined()
-    expect(within(own).queryByRole('link', { name: 'Change the split rule' })).toBeNull()
     // The writes; an owner's page also loads the invites (F5).
     expect(calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.url])).toEqual([
       ['DELETE', '/api/family-ledgers/7/members/71'], ['PATCH', '/api/family-ledgers/7/members/me'],
@@ -416,7 +416,8 @@ describe('the members', () => {
     fireEvent.change(within(own).getByLabelText('Your name in this budget'), { target: { value: 'Dad' } })
     fireEvent.click(within(own).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(within(own).queryByLabelText('Your name in this budget')).toBeNull())
-    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+    // The writes; the page also loads the balances, for its confirmations (F6a).
+    expect(calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.url, c.body])).toEqual([
       ['PATCH', '/api/family-ledgers/8/members/me', { displayName: 'anna' }],
       ['PATCH', '/api/family-ledgers/8/members/me', { displayName: 'Dad' }],
     ])

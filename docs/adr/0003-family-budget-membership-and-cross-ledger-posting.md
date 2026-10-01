@@ -1219,6 +1219,29 @@ the other side's page and its personal entry offer "Specify later" to unlock it.
   see none of it.
 - A claimed seat's `FAMILY_OPENING` entry opens read-only in the personal pages, saying what it is.
 
+**F6a as built: the interface.**
+
+- The members page: every member with an account has "Leave" on their own row; owners have "Remove" on every other
+  ACTIVE member's row, with or without an account, and "Make owner" on an ACTIVE member with an account who isn't one
+  (a browser confirmation). A member who left reads "Left on <date>", without actions. Leave and Remove open a
+  confirmation below the table (`family.ts` `departureNotes`, no React): the member's balance in words, where it stays
+  (for the reader, "Debt to family budget: <name>" as an account of theirs), what of their personal budget stays, the
+  records that freeze, the split rule back to equal shares, and a budget that closes when nobody else has an account.
+  The last owner is told to make another member an owner first (`lastOwner`), as the server's 409 `LAST_OWNER` says
+  too. After leaving, the switcher's list loads again and the personal dashboard opens. The page loads the balances
+  for the confirmations.
+- The invite page: a claim says the place's balance before the join date in words ("Before Sep 15, 2026, Sam is owed
+  €10.00. That becomes your opening balance …", D-34); a returning member's says they come back in their earlier place,
+  and the correction in words, or that none is needed (D-26).
+- "Invite to take this place" leaves the join date out of the request when it is the browser's today, so that the
+  server's today counts, as the creation of a family budget does for its start date.
+- "Delete all my data", with the switch on: before the confirmation, each family budget the user is in, with their role,
+  their balance in words and what happens to it (`deletionNotes`: deleted, who becomes its owner, its rule back to equal
+  shares, invites that stop working), and how many budgets they left. With the switch off the screen asks for nothing
+  and is as before.
+- `ApiError` carries a 409's `code` (additive). The members table keeps its actions in its horizontal scroll at 375 px,
+  as before; the row buttons stack (requirements, "Later").
+
 **Satisfies** D-5, A3, C6, C7.
 
 ### J. Migration and rollout, F2 to F7

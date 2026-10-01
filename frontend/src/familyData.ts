@@ -14,6 +14,8 @@ export interface FamilyData {
   page: string
   owner: boolean
   reload: () => void
+  /** After the reader left the budget (F6a): the switcher's list again, and their personal budget. */
+  left?: () => void
 }
 
 /** What creating a family budget couldn't finish, handed to its page (NewFamily). */

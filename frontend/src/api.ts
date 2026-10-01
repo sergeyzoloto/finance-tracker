@@ -67,6 +67,34 @@ export interface FamilyMember {
   hasAccount: boolean
   /** Under a custom split rule, in basis points (2500 is 25.00 %); null under an equal one. */
   share: number | null
+  /** When a member left or was removed, or a former member deleted their data (F6a); null while ACTIVE. */
+  leftDate?: string | null
+}
+
+/**
+ * What "Delete all my data" does to one of the user's family budgets (F6a, D-20), from GET /me/family-memberships:
+ * their role and balance there, and whether the budget stays, passes to another owner, or is deleted.
+ */
+export interface FamilyMembershipImpact {
+  ledgerId: number
+  name: string
+  role: MemberRole
+  baseCurrency: string
+  /** What the user owes the budget: positive if they owe, negative if they are owed. */
+  balance: string
+  outcome: 'STAYS' | 'OWNERSHIP_PASSES' | 'DELETED'
+  /** Who becomes an owner, by display name, when the ownership passes. */
+  newOwner: string | null
+  /** The user's invites that stop working. */
+  pendingInvites: number
+  /** Whether the custom split rule goes back to equal shares. */
+  splitRuleReset: boolean
+}
+
+export interface FamilyMemberships {
+  memberships: FamilyMembershipImpact[]
+  /** How many family budgets the user left: their name in those becomes "Former member". */
+  left: number
 }
 
 // Invites (F5, D-17): owners create, list and revoke them; whoever holds a link looks it up, accepts or declines it.
@@ -112,6 +140,12 @@ export interface InviteLookup {
   mayBring: { categoryId: number; code: string; name: string; type: CategoryType }[]
   /** The account's name, to prefill the name the other members will see. */
   displayName: string | null
+  /** A claim's opening balance: what the place owes the family before the join date, negative if owed (D-34). */
+  openingBalance?: string | null
+  /** Whether the user was a member before and comes back (D-26). */
+  returning?: boolean
+  /** For a returning member, the correction that brings their debt to the family budget in line (D-26). */
+  correction?: string | null
 }
 
 // A family budget's expenses (F4a), incomes and settlements (F4d): the API calls them records. Amounts are in the
@@ -414,14 +448,17 @@ export class ApiError extends Error {
   readonly violations: string[]
   /** 422 of a family budget's rule: the violations again, each with its code and member. */
   readonly violationDetails: ViolationDetail[]
+  /** 409 that the screens tell apart (F6a): `LAST_OWNER`. */
+  readonly code: string | undefined
 
   constructor(message: string, status: number, errors: InvalidField[] = [], violations: string[] = [],
-    violationDetails: ViolationDetail[] = []) {
+    violationDetails: ViolationDetail[] = [], code?: string) {
     super(message)
     this.status = status
     this.errors = errors
     this.violations = violations
     this.violationDetails = violationDetails
+    this.code = code
   }
 }
 
@@ -445,7 +482,8 @@ export async function api<T = void>(path: string, method = 'GET', body?: unknown
   if (!response.ok) {
     const problem = await response.json().catch(() => null)
     throw new ApiError(problem?.detail ?? problem?.title ?? `${response.status} ${response.statusText}`,
-      response.status, problem?.errors ?? [], problem?.violations ?? [], problem?.violationDetails ?? [])
+      response.status, problem?.errors ?? [], problem?.violations ?? [], problem?.violationDetails ?? [],
+      problem?.code ?? undefined)
   }
   return (response.status === 204 ? undefined : await response.json()) as T
 }

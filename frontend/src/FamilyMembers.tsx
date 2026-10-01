@@ -1,22 +1,25 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
-import { api, ApiError, fieldMessages, formatDate, sentence, type FamilyMember, type SplitRule } from './api'
+import { api, ApiError, fieldMessages, formatDate, sentence, type FamilyBalances, type FamilyMember, type SplitRule } from './api'
 import { basisPointsToPercent, equalShares, percentToBasisPoints, WHOLE } from './basisPoints'
 import { Errors } from './components'
-import { useFamilyMutation, type FamilyData } from './familyData'
-import { ROLE_LABELS, shareText, splitMembers, STATUS_LABELS, violationsByMember } from './family'
+import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
+import { departureNotes, lastOwner, ROLE_LABELS, shareText, splitMembers, STATUS_LABELS, violationsByMember } from './family'
 import { FamilyInvites } from './FamilyInvites'
 
 /**
- * The members of a family budget (D-3, D-15). Owners add, rename and remove members without an account; every
- * member with an account changes their own name. Removing a member whose custom share is above 0 answers 409, which
- * points to the split rule.
+ * The members of a family budget (D-3, D-15, D-19). Owners add and rename members without an account, remove any
+ * other member, and make a member with an account an owner; every member with an account changes their own name and
+ * may leave. Leaving and removal first show what happens: the member's balance, what stays in their personal budget,
+ * the records that freeze, the split rule going back to equal shares (F6a).
  */
 export function FamilyMembers({ family }: { family: FamilyData }) {
   const custom = family.ledger.splitRule === 'CUSTOM'
   const [name, setName] = useState('')
   // The member without an account whose place an owner is about to offer (F5).
   const [seat, setSeat] = useState<FamilyMember | null>(null)
+  // The member about to leave or be removed, whose confirmation shows below the table (F6a).
+  const [departing, setDeparting] = useState<FamilyMember | null>(null)
+  const balances = useFamilyApi<FamilyBalances>(family, `${family.path}/balances`)
   const add = useFamilyMutation(family, () => setName(''))
 
   function submit(event: FormEvent) {
@@ -36,11 +39,17 @@ export function FamilyMembers({ family }: { family: FamilyData }) {
           </thead>
           <tbody>
             {family.members.map((m) => (
-              <MemberRow key={m.id} member={m} family={family} custom={custom} onInvite={() => setSeat(m)} />
+              <MemberRow key={m.id} member={m} family={family} custom={custom} onInvite={() => setSeat(m)}
+                onDepart={() => setDeparting(m)} />
             ))}
           </tbody>
         </table>
       </div>
+      {departing && (
+        <Departure key={departing.id} member={departing} family={family}
+          balance={balances.data?.members.find((b) => b.memberId === departing.id)?.balance}
+          currency={balances.data?.currency ?? family.ledger.baseCurrency} onClose={() => setDeparting(null)} />
+      )}
       {family.owner ? (
         <form className="add" onSubmit={submit}>
           <label className="field">
@@ -64,40 +73,39 @@ export function FamilyMembers({ family }: { family: FamilyData }) {
   )
 }
 
-function MemberRow({ member, family, custom, onInvite }: {
+function MemberRow({ member, family, custom, onInvite, onDepart }: {
   member: FamilyMember
   family: FamilyData
   custom: boolean
   onInvite: () => void
+  onDepart: () => void
 }) {
   const [renaming, setRenaming] = useState(false)
-  const [removing, setRemoving] = useState(false)
   const own = member.id === family.ledger.memberId
+  const active = member.status === 'ACTIVE'
   const change = useFamilyMutation(family, () => setRenaming(false))
-  // Owners manage members without an account; a former member stays as they are.
-  const managed = family.owner && !member.hasAccount && member.status !== 'FORMER'
+  // Owners rename members without an account; a member who left or a former member stays as they are.
+  const renamable = family.owner && !member.hasAccount && active
+  const removable = family.owner && !own && active
+  const promotable = family.owner && active && member.hasAccount && member.role === 'MEMBER'
 
   function rename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const displayName = String(new FormData(event.currentTarget).get('name')).trim()
     if (displayName === member.displayName) return setRenaming(false)
     const path = own ? `${family.path}/members/me` : `${family.path}/members/${member.id}`
-    setRemoving(false)
     void change.run(() => api(path, 'PATCH', { displayName }))
   }
 
-  function remove() {
-    if (!confirm(`Remove “${member.displayName}” from the family budget?`)) return
-    setRemoving(true)
-    void change.run(() => api(`${family.path}/members/${member.id}`, 'DELETE'))
+  function makeOwner() {
+    if (!confirm(`Make “${member.displayName}” an owner of the family budget? Owners manage its members, invites, `
+      + 'split rule and categories.')) return
+    void change.run(() => api(`${family.path}/members/${member.id}/owner`, 'POST'))
   }
 
   const nameErrors = fieldMessages(change.failure, 'displayName')
-  // The server refuses to remove a member with a custom share above 0: the split rule is where to change that.
-  const blockedByShare = removing && change.failure instanceof ApiError && change.failure.status === 409
-    && (member.share ?? 0) > 0
   return (
-    <tr className={member.status === 'ACTIVE' ? '' : 'archived'}>
+    <tr className={active ? '' : 'archived'}>
       <td>
         {renaming ? (
           <form className="inline" onSubmit={rename}>
@@ -115,31 +123,77 @@ function MemberRow({ member, family, custom, onInvite }: {
           </>
         )}
         {change.message && (
-          <div>
-            <small className="error" role="alert">
-              {sentence(change.message)}
-              {blockedByShare && <> <Link to={`${family.page}/split-rule`}>Change the split rule</Link></>}
-            </small>
-          </div>
+          <div><small className="error" role="alert">{sentence(change.message)}</small></div>
         )}
       </td>
       <td>{ROLE_LABELS[member.role]}</td>
-      <td>{STATUS_LABELS[member.status]}</td>
+      <td className="nowrap">
+        {member.status === 'LEFT' && member.leftDate ? `Left on ${formatDate(member.leftDate)}` : STATUS_LABELS[member.status]}
+      </td>
       <td className="nowrap">{formatDate(member.joinDate)}</td>
       {custom && <td className="amount nowrap">{shareText(member) ?? '—'}</td>}
       <td className="actions nowrap">
-        {!renaming && own && member.hasAccount && (
-          <button type="button" onClick={() => { change.clear(); setRenaming(true) }}>Change my name</button>
-        )}
-        {!renaming && managed && (
+        {!renaming && own && active && member.hasAccount && (
           <>
-            <button type="button" onClick={() => { change.clear(); setRenaming(true) }}>Rename</button>
-            <button type="button" disabled={change.pending} onClick={remove}>Remove</button>
-            {member.status === 'ACTIVE' && <button type="button" onClick={onInvite}>Invite to take this place</button>}
+            <button type="button" onClick={() => { change.clear(); setRenaming(true) }}>Change my name</button>
+            <button type="button" onClick={onDepart}>Leave</button>
           </>
         )}
+        {!renaming && renamable && (
+          <button type="button" onClick={() => { change.clear(); setRenaming(true) }}>Rename</button>
+        )}
+        {!renaming && promotable && (
+          <button type="button" disabled={change.pending} onClick={makeOwner}>Make owner</button>
+        )}
+        {!renaming && removable && <button type="button" onClick={onDepart}>Remove</button>}
+        {!renaming && renamable && <button type="button" onClick={onInvite}>Invite to take this place</button>}
       </td>
     </tr>
+  )
+}
+
+/**
+ * The confirmation of leaving the family budget, or of an owner's removal of a member (D-19): what happens, then the
+ * request. The last owner is told to make another member an owner first, as the server's 409 `LAST_OWNER` says too.
+ * After leaving, the reader is taken to their personal budget.
+ */
+function Departure({ member, family, balance, currency, onClose }: {
+  member: FamilyMember
+  family: FamilyData
+  balance: string | undefined
+  currency: string
+  onClose: () => void
+}) {
+  const self = member.id === family.ledger.memberId
+  const blocked = self && lastOwner(family.members, family.ledger.memberId)
+  const go = useFamilyMutation(family, () => {
+    if (self) family.left?.()
+    else onClose()
+  })
+  const notes = departureNotes({ member, me: family.ledger.memberId, balance, currency, members: family.members,
+    splitRule: family.ledger.splitRule, budget: family.ledger.name })
+  const lastOwnerRefused = go.failure instanceof ApiError && go.failure.code === 'LAST_OWNER'
+  return (
+    <div className="card notice" role="region" aria-label={self ? 'Leave the family budget' : `Remove ${member.displayName}`}>
+      <h3>{self ? `Leave “${family.ledger.name}”?` : `Remove “${member.displayName}” from the family budget?`}</h3>
+      {blocked ? (
+        <p role="alert">You are the family budget’s last owner. Make another member with an account an owner first, then
+          leave.</p>
+      ) : (
+        <ul>{notes.map((note) => <li key={note}>{note}</li>)}</ul>
+      )}
+      <div className="actions">
+        {!blocked && (
+          <button type="button" className="danger" disabled={go.pending}
+            onClick={() => void go.run(() => api(`${family.path}/members/${self ? 'me' : member.id}`, 'DELETE'))}>
+            {self ? 'Leave the family budget' : `Remove ${member.displayName}`}
+          </button>
+        )}
+        <button type="button" onClick={onClose}>Cancel</button>
+      </div>
+      <Errors messages={[go.message && !lastOwnerRefused ? sentence(go.message) : undefined,
+        lastOwnerRefused ? sentence(go.message!) : undefined]} />
+    </div>
   )
 }
 

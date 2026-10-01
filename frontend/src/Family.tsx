@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router'
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router'
 import {
   api, fieldMessages, formatDate, sentence, useApi, type FamilyBalances as Balances, type FamilyLedger, type FamilyMember,
   type FamilyRecordPage,
@@ -30,6 +30,7 @@ export default function Family({ onChanged }: { onChanged: () => void }) {
   const ledger = useApi<FamilyLedger>(valid ? path : null)
   const members = useApi<FamilyMember[]>(valid ? `${path}/members` : null)
   const location = useLocation()
+  const navigate = useNavigate()
   const problems = (location.state as CreationState | null)?.creationProblems ?? []
   const notFound = !valid || ledger.status === 404 || members.status === 404
 
@@ -48,6 +49,7 @@ export default function Family({ onChanged }: { onChanged: () => void }) {
     page: `/family/${ledgerId}`,
     owner: ledger.data.role === 'OWNER',
     reload: () => { ledger.reload(); members.reload(); onChanged() },
+    left: () => { onChanged(); navigate('/', { replace: true }) },
   }
   return (
     <>

@@ -5,7 +5,10 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-01 · Family budget: F5's deploy, D-29 to D-34, the membership's lifecycle (F6a)
 
-Not committed yet.
+Committed locally on `feature/family-budget` in four commits: `12c0af3` (documents), `dc99b2b`
+(leaving, removal, the rule back to equal shares), `7dd43ea` (return, owners, what "Delete all my data"
+touches) and "feat(frontend): leaving, removal, return, owners", whose hash belongs here with the next
+change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - F5's deploy and the decisions after it (commit "docs(family-budget): F5 deploy, F6a scope, D-29 to
@@ -76,6 +79,19 @@ Not committed yet.
     `DataIsolationApiTests.theDeletionPreviewAndNewOwnersAreTheMembersOwn` (new; nothing else in the
     file changed); `FamilyInviteApiTests` expects a member who left to be returning, and a claim of
     theirs refused; `ApiTests` and `FamilySwitchOffApiTests` (33 endpoints) with the two new ones.
+- Leaving, removal, return and owners in the interface (commit "feat(frontend): leaving, removal,
+  return, owners"), ADR 0003 topic I ("F6a as built: the interface"):
+  - The members page: Leave on the reader's own row, Remove on other members' rows and Make owner for
+    owners, "Left on" for members who left; Leave and Remove open a confirmation with the member's
+    balance, what stays in their personal budget, the records that freeze, the split rule back to equal
+    shares and a budget that closes; the last owner is told to make another owner first, and the
+    server's 409 `LAST_OWNER` shows too. After leaving, the switcher reloads and the dashboard opens.
+  - The invite page: a claim's opening balance (D-34) and a returning member's correction (D-26).
+  - "Invite to take this place" leaves the join date out when it is the browser's today.
+  - "Delete all my data", with the switch on, lists each family budget the user is in, with role,
+    balance and what happens to it, and how many they left.
+  - Tests: new `FamilyLifecycle.test.tsx` (10); `family.test.ts` (5 new); `Family.test.tsx` and
+    `Invite.test.tsx` updated for the confirmation and the page's request for the balances.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker`: `feature/family-budget` checked out with a clean
@@ -103,9 +119,54 @@ Not committed yet.
   after each, no 500 or 404. A mutation of the correction (the whole balance before the join date,
   without what the debt account shows) made the return's worked example and the randomized test fail;
   claims were unaffected. The file restored.
+- After the interface's commit: frontend `npm test` 21 files and 278 tests passed (263 before), `npm run
+  build` succeeded; the backend unchanged since its commit.
+- The walk-through in headless Chrome (playwright-core) at 375 px, against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true`, `ECB_RATES_ENABLED=false` and `APP_PUBLIC_URL=http://localhost:5173` on a
+  throwaway `postgres:17-alpine`, the Vite dev server and the dev Keycloak's testuser, testuser2 and
+  testuser3:
+  1. testuser created "Home" from 2026-09-01 with Sam and Gran (no account); testuser2 joined through the
+     invite page as Ben. Records: 30.00 on 09-20 paid by Anna (Anna, Sam, Gran), and today 90.00 by Anna,
+     60.00 by Ben and 30.00 by Gran, split among the four. Balances Anna −65.00, Sam 55.00, Gran 25.00,
+     Ben −15.00.
+  2. Ben opened Leave: "You are owed €15.00. That stays in your personal budget, on “Debt to family
+     budget: Home” …", left, landed on the dashboard; the switcher dropped Home once its list had loaded
+     again; `GET` of Home answered 404 for him.
+  3. testuser saw "Left on Oct 1, 2026" for Ben and removed Sam after the confirmation.
+  4. Invited again, Ben's invite page said he comes back in his earlier place, and that no correction is
+     needed; accepted, his balance −15.00 again.
+  5. testuser made Ben an owner. testuser3's claim of Gran's place said "Before Oct 1, 2026, Gran owes
+     €10.00. That becomes your opening balance …", and testuser3 joined as Cleo.
+  6. testuser's delete screen listed Allotment (deleted, nobody else has an account) and Home (owed €65.00;
+     its records stay; Ben is an owner already, so no new owner).
+  7. Every page 375 px wide; the integrity check empty for all three.
+  Found and fixed: a return on the same day posted that day's records again beside the entries of before
+  leaving, so the personal cash flow counted those shares twice (the debt account was right); the re-attach
+  in the backend's commit fixes it, with a test. Seen, not changed: right after leaving, the switcher still
+  lists the budget until its list has loaded again, as after accepting an invite (F6b); the members table
+  keeps its actions in its horizontal scroll at 375 px, with the row buttons stacked, as before.
 
 **Open**
-- The rest of F6a.
+- The owner's deploy of F6a with the switch off; the report has the checklist. No migration: Flyway
+  stays at 9; `finance.conf` and `finance.caddy` unchanged. Rollback: the `:previous` images, `e8f5ca0`,
+  on the same schema.
+- To confirm, as recorded in ADR 0003's "F6a as built": a member without an account whom nothing names
+  is still deleted; leaving revokes the member's pending invites; the archived family budget of the last
+  member with an account; the leave date and every family "today" from `ledger.Today`, and a claim's
+  join date left out for the server's today; the detach's reuse of a personal category with the same
+  code and type and its `_2` beside D-30's; the debt account no longer a system account after leaving,
+  and renamed back on return; a returning member's correction kept in step, their entries of records
+  from the join date attached again, and their older entries on the debt account changing only with the
+  family budget; no endpoint to make an owner a member again; the deletion preview naming only how many
+  budgets the user left.
+- A question from D-31: a record moved from on or after a claimed member's join date to before it drops
+  them (F4c's rule), so that direction never changes their opening balance. Keep it, or keep them in it?
+- Not counted in a returning member's correction: an entry on their debt account dated after their
+  return that belongs to no record (one they made while away, dated in the future).
+- F7's checklist: the client address in production (the report has the check).
+- F6b: the privacy policy's publication, the demo family, the family report, H4, the owner's remarks,
+  the switcher's placeholder after accepting an invite or leaving.
+- `docs/family-budget/current-state.md` stays the F1 snapshot, unchanged, as at every stage since F1.
 
 ## 2026-10-01 · Family budget: F4e's deploy and review, invites and taking a seat (F5)
 

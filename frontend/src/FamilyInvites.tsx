@@ -35,7 +35,9 @@ export function FamilyInvites({ family, seat, onSeatDone }: {
 
   function claim(event: FormEvent) {
     event.preventDefault()
-    if (seat) invite({ kind: 'CLAIM', seatMemberId: seat.id, joinDate })
+    // Left out for today, so that the server's today counts, as for a start date: a browser a time zone ahead, already
+    // on the next day, isn't in the server's future (F6a).
+    if (seat) invite({ kind: 'CLAIM', seatMemberId: seat.id, ...(joinDate !== isoDate(new Date()) ? { joinDate } : {}) })
   }
 
   const today = isoDate(new Date())

@@ -264,6 +264,7 @@ describe('the owners’ invites', () => {
     renderMembers(familyData(home, [anna, sam]))
     expect(screen.queryByRole('heading', { name: 'Invites' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Invite to take this place' })).toBeNull()
-    expect(calls).toEqual([])
+    // The members page loads the balances for its confirmations (F6a), and nothing of the invites.
+    expect(calls.filter((c) => c.url.includes('invites'))).toEqual([])
   })
 })

@@ -47,7 +47,7 @@ export default function App({ me }: { me: Me }) {
           <Route path="/categories" element={<Categories />} />
           <Route path="/rates" element={<Rates />} />
           <Route path="/import" element={<Import />} />
-          <Route path="/settings" element={<Settings onDeleted={families.reload} />} />
+          <Route path="/settings" element={<Settings onDeleted={families.reload} familyOn={familyOn} />} />
           {familyOn && <Route path="/family/new" element={<NewFamily me={me} onCreated={families.reload} />} />}
           {familyOn && <Route path="/family/:ledgerId/*" element={<Family onChanged={families.reload} />} />}
           {familyOn && <Route path="/invite" element={<InvitePage onJoined={families.reload} />} />}

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { FamilyBalance, FamilyBalances, FamilyChange, MemberRef } from './api'
+import type { FamilyBalance, FamilyBalances, FamilyChange, FamilyMember, FamilyMembershipImpact, MemberRef } from './api'
 import {
-  balanceWords, debtSentence, journalLine, maySettle, settleUpOrder, violationsByMember, whoOwesWhom, yourBalance,
+  balanceSentence, balanceWords, debtSentence, deletionNotes, departureNotes, journalLine, lastOwner, maySettle,
+  settleUpOrder, violationsByMember, whoOwesWhom, yourBalance,
 } from './family'
 
 describe('violationsByMember', () => {
@@ -212,5 +213,72 @@ describe('settling up (F4d)', () => {
     const kid = balance(73, 'Kid', '-40.00')
     expect(maySettle(sam, kid, 70, true)).toBe(true)
     expect(maySettle(sam, kid, 70, false)).toBe(false)
+  })
+})
+
+describe('leaving, removal and Delete all my data (F6a)', () => {
+  const member = (id: number, displayName: string, extra: Partial<FamilyMember> = {}): FamilyMember => ({
+    id, displayName, role: 'MEMBER', status: 'ACTIVE', joinDate: '2026-09-01', hasAccount: true, share: null, ...extra,
+  })
+  const mum = member(70, 'Mum', { role: 'OWNER' })
+  const dad = member(72, 'Dad', { share: 3000 })
+  const kid = member(71, 'Kid', { hasAccount: false })
+
+  it('words a balance for the reader and for someone else', () => {
+    expect(balanceSentence('10.00', 'EUR', null)).toBe('you owe €10.00')
+    expect(balanceSentence('-10.00', 'EUR', null)).toBe('you are owed €10.00')
+    expect(balanceSentence('0.00', 'EUR', 'Kid')).toBe('Kid is settled')
+    expect(balanceSentence('-2.50', 'EUR', 'Kid')).toBe('Kid is owed €2.50')
+  })
+
+  it('knows the last owner while another member with an account remains', () => {
+    expect(lastOwner([mum, dad, kid], 70)).toBe(true)
+    expect(lastOwner([mum, { ...dad, role: 'OWNER' }, kid], 70)).toBe(false)
+    expect(lastOwner([mum, { ...dad, status: 'LEFT' }, kid], 70)).toBe(false)
+    expect(lastOwner([mum, dad, kid], 72)).toBe(false)
+  })
+
+  it('says what leaving does: the balance kept, the entries kept, the rule back to equal shares', () => {
+    expect(departureNotes({ member: dad, me: 72, balance: '-10.00', currency: 'EUR', members: [mum, dad, kid],
+      splitRule: 'CUSTOM', budget: 'Home' })).toEqual([
+      'You are owed €10.00. That stays in your personal budget, on “Debt to family budget: Home”, which becomes an '
+        + 'account of yours; after you leave, you and the others each record a settlement in your own budgets.',
+      'What this family budget added to your personal budget stays there as your own entries, which you can change or '
+        + 'delete; the family categories they use become personal categories of yours.',
+      'You won’t see this family budget any more. The others keep seeing your name in its records, which can no longer '
+        + 'be changed where they involve you.',
+      'The split rule goes back to equal shares.',
+    ])
+  })
+
+  it('says what a removal does, and that a budget closes without another member with an account', () => {
+    expect(departureNotes({ member: kid, me: 70, balance: '0.00', currency: 'EUR', members: [mum, kid],
+      splitRule: 'EQUAL', budget: 'Home' })).toEqual([
+      'Kid is settled.',
+      'If a record names Kid, they stay in it as a member who left, and those records can no longer be changed; '
+        + 'otherwise they are removed altogether. Invites to take their place stop working.',
+    ])
+    expect(departureNotes({ member: mum, me: 70, balance: undefined, currency: 'EUR', members: [mum, kid],
+      splitRule: 'EQUAL', budget: 'Home' })).toContain(
+      'Nobody else here has an account, so the family budget closes: nobody will see it any more.')
+    expect(departureNotes({ member: dad, me: 70, balance: '5.00', currency: 'EUR', members: [mum, dad],
+      splitRule: 'EQUAL', budget: 'Home' })[0]).toBe('Dad owes €5.00. That stays in their personal budget, on an '
+        + 'account of theirs.')
+  })
+
+  it('says what Delete all my data does to a family budget', () => {
+    const impact: FamilyMembershipImpact = { ledgerId: 7, name: 'Home', role: 'OWNER', baseCurrency: 'EUR',
+      balance: '-50.00', outcome: 'OWNERSHIP_PASSES', newOwner: 'Dad', pendingInvites: 2, splitRuleReset: true }
+    expect(deletionNotes(impact)).toEqual([
+      'You are owed €50.00.',
+      'Its records stay, with your name replaced by “Former member” and your comments erased; those that involve you '
+        + 'can no longer be changed.',
+      'Dad becomes its owner.',
+      'Its split rule goes back to equal shares.',
+      'Your 2 invites that weren’t used yet stop working.',
+    ])
+    expect(deletionNotes({ ...impact, outcome: 'DELETED', newOwner: null, balance: '0.00' })).toEqual([
+      'You are settled.', 'Nobody else in it has an account, so it is deleted with its records.',
+    ])
   })
 })

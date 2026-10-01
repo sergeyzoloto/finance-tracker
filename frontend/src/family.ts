@@ -1,6 +1,6 @@
 import type {
-  FamilyBalance, FamilyBalances, FamilyChange, FamilyFieldChange, FamilyMember, FamilyRecord, FamilyRecordType, MemberRef,
-  MemberRole, MemberStatus, SplitMethod, ViolationDetail,
+  FamilyBalance, FamilyBalances, FamilyChange, FamilyFieldChange, FamilyMember, FamilyMembershipImpact, FamilyRecord,
+  FamilyRecordType, MemberRef, MemberRole, MemberStatus, SplitMethod, SplitRule, ViolationDetail,
 } from './api'
 import { formatDate } from './api'
 import { basisPointsToPercent } from './basisPoints'
@@ -245,4 +245,93 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
       }
     }
   }
+}
+
+// Leaving, removal and "Delete all my data" (F6a; D-19, D-20). A member who leaves or is removed becomes one who left;
+// nothing is posted, and what was posted stays in their personal budget as their own.
+
+/** "you owe €40.00", "Sam is owed €12.50", "you are settled": a balance in words, for the confirmations. */
+export function balanceSentence(balance: string, currency: string, who: string | null) {
+  const sign = signOf(balance)
+  const amount = formatMoney(abs(balance), currency)
+  if (who === null) return sign === 0 ? 'you are settled' : sign > 0 ? `you owe ${amount}` : `you are owed ${amount}`
+  return sign === 0 ? `${who} is settled` : sign > 0 ? `${who} owes ${amount}` : `${who} is owed ${amount}`
+}
+
+/**
+ * Whether the reader is the family budget's last owner while another member with an account remains: then they make
+ * one an owner before they leave (D-19), and the server answers 409 `LAST_OWNER` otherwise.
+ */
+export function lastOwner(members: FamilyMember[], me: number) {
+  const self = members.find((m) => m.id === me)
+  return self?.role === 'OWNER'
+    && !members.some((m) => m.id !== me && m.role === 'OWNER')
+    && members.some((m) => m.id !== me && m.status === 'ACTIVE' && m.hasAccount)
+}
+
+/**
+ * What leaving, or an owner's removal of a member, does, for its confirmation (D-19): the member's balance, what stays
+ * in their personal budget, the records that freeze, the split rule back to equal shares, a budget that closes.
+ *
+ * @param balance the member's balance in the budget, if it has loaded
+ */
+export function departureNotes({ member, me, balance, currency, members, splitRule, budget }: {
+  member: FamilyMember
+  me: number
+  balance: string | undefined
+  currency: string
+  members: FamilyMember[]
+  splitRule: SplitRule
+  budget: string
+}): string[] {
+  const self = member.id === me
+  const notes: string[] = []
+  const name = member.displayName
+  if (balance !== undefined) {
+    notes.push(`${sentenceStart(balanceSentence(balance, currency, self ? null : name))}.${signOf(balance) === 0 ? ''
+      : self ? ` That stays in your personal budget, on “Debt to family budget: ${budget}”, which becomes an account of `
+        + 'yours; after you leave, you and the others each record a settlement in your own budgets.'
+        : member.hasAccount ? ' That stays in their personal budget, on an account of theirs.' : ''}`)
+  }
+  if (self) {
+    notes.push('What this family budget added to your personal budget stays there as your own entries, which you can '
+      + 'change or delete; the family categories they use become personal categories of yours.')
+    notes.push('You won’t see this family budget any more. The others keep seeing your name in its records, which can '
+      + 'no longer be changed where they involve you.')
+  } else if (member.hasAccount) {
+    notes.push(`What this family budget added to ${name}’s personal budget stays there as their own entries; the family `
+      + 'categories they use become personal categories of theirs.')
+    notes.push(`${name} won’t see this family budget any more, and the records that involve them can no longer be `
+      + 'changed.')
+  } else {
+    notes.push(`If a record names ${name}, they stay in it as a member who left, and those records can no longer be `
+      + 'changed; otherwise they are removed altogether. Invites to take their place stop working.')
+  }
+  if (splitRule === 'CUSTOM' && (member.share ?? 0) > 0) notes.push('The split rule goes back to equal shares.')
+  if (member.hasAccount && !members.some((m) => m.id !== member.id && m.status === 'ACTIVE' && m.hasAccount)) {
+    notes.push('Nobody else here has an account, so the family budget closes: nobody will see it any more.')
+  }
+  return notes
+}
+
+/** What "Delete all my data" does to one of the user's family budgets, in words (D-20). */
+export function deletionNotes(impact: FamilyMembershipImpact): string[] {
+  const notes = [`${sentenceStart(balanceSentence(impact.balance, impact.baseCurrency, null))}.`]
+  if (impact.outcome === 'DELETED') {
+    notes.push('Nobody else in it has an account, so it is deleted with its records.')
+    return notes
+  }
+  notes.push('Its records stay, with your name replaced by “Former member” and your comments erased; those that involve '
+    + 'you can no longer be changed.')
+  if (impact.outcome === 'OWNERSHIP_PASSES') notes.push(`${impact.newOwner} becomes its owner.`)
+  if (impact.splitRuleReset) notes.push('Its split rule goes back to equal shares.')
+  if (impact.pendingInvites > 0) {
+    notes.push(impact.pendingInvites === 1 ? 'Your invite that wasn’t used yet stops working.'
+      : `Your ${impact.pendingInvites} invites that weren’t used yet stop working.`)
+  }
+  return notes
+}
+
+function sentenceStart(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }

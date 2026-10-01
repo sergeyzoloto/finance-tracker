@@ -18,7 +18,9 @@ and F4c (topic J). F4a is deployed since 2026-09-30, from `71c3eb7` (parts 1 to 
 (parts 5 and 6), with the switch off; the decisions after its reviews are in topics D, E, F and H.
 F4b is deployed since 2026-09-30, from `4285d52`, with the switch off; the decisions after its review
 are in topics I and J. F4c is deployed since 2026-09-30, from `e7cdeb1`, with the switch off; the
-decisions after its review are in topics E and I. The requirements and decisions D-1 to D-27 are in
+decisions after its review are in topics E and I. F4d is deployed since 2026-10-01, from `144ff6b`, with
+the switch off; the decisions after its review, the settlement lock (D-28) among them, are in topics E
+and I. The requirements and decisions D-1 to D-28 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -584,6 +586,17 @@ settlement to the placeholder, and to an own account only in the acting member's
   `date`, `amount` and `comment`; the deletion. The journal's record summary gains `type`.
 - `yourPayment` is each side's own: their entry and account, or `later`, in their answers only.
 
+**Changed after the F4d review** (2026-10-01): the settlement lock (D-28) replaces the bullet "Only a
+member posts to their own account" above. Once the other side, a member with an account, has put its
+part on one of its accounts, the settlement's date and amount don't change and it isn't deleted: 409,
+naming that member and saying that they can move their part back to "Specify later" to allow it. While
+their part waits on their placeholder, the recorder changes and deletes it as before. So the posting
+service never moves, rewrites or deletes another member's side on an account of theirs: nobody's
+action changes another member's accounts (D-8). Nothing changes for members without an account.
+
+**Kept after the F4d review**, as built: `POST /settlements` records one, and it is read, changed and
+deleted through `/records`; a settlement side takes no private note.
+
 **F4d as built: incomes** (C5). No migration either.
 
 - `POST /records` takes `type`: `EXPENSE`, the default, or `INCOME`. An income mirrors an expense:
@@ -953,6 +966,12 @@ under `records` (topic E, "F4d as built: settlements").
 - The fix after the F4c review: an expense or income stored as equal shares opens its split as
   "Equal shares, as it is split now", previewed among its own members as the server splits it
   again, whatever the budget's rule is now; it isn't sent unless the user picks another split.
+
+**Changed after the F4d review** (2026-10-01): a settlement's page no longer says that a new date or
+amount moves the other side's part back to their placeholder. With the lock (D-28, topic E), the
+recorder is told why the date, the amount and deleting are locked, and what the other side can do;
+the other side's page and its personal entry offer "Specify later" to unlock it. The paths
+`expenses…` become `activity…` later, with redirects (requirements, "Later").
 
 **Satisfies** D-5, A3, C6.
 

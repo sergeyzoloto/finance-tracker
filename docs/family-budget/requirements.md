@@ -16,6 +16,8 @@ Amended after the review of F4a's parts 5 and 6 on 2026-09-30: the planned stage
 
 Amended after the F4b review on 2026-09-30: the planned stages (F4c split into F4c, F4d and F4e) and "Later".
 
+Amended after the F4d review on 2026-10-01: new D-28 (the settlement lock) and "Later".
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -128,6 +130,12 @@ Added after the F1 review (2026-09-29)
 Added after the F3b deploy (2026-09-30)
 - D-27. The start date: a family ledger has a start date, chosen at creation (today by default, earlier allowed, never in the future). It is also the creator's join date. A record dated before it answers 409 naming the rule. Family ledgers created before F4a get their creation date as start date. The create endpoint takes the start date as an optional additive field.
 
+Added after the F4d review (2026-10-01)
+- D-28. The settlement lock (replaces F4d's behaviour of moving the other side's part back to its placeholder): nobody's action ever changes another member's accounts (D-8).
+  - Once the other side of a settlement, a member with an account, has put its part on one of its accounts, the settlement's date and amount can no longer be changed, and the settlement can no longer be deleted. Both answer 409, naming that member and saying that they can move their part back to "Specify later" to allow it.
+  - While the other side's part waits under "Specify later", the recorder changes and deletes the settlement as before.
+  - Nothing changes for members without an account: a side without an account has no part to put anywhere.
+
 ## MVP user stories
 - A1 Create a family budget with a name and a base currency.
 - A2 Set a default split rule (equal or custom percentages).
@@ -174,4 +182,5 @@ Found along the way; not part of a stage yet.
 - Row buttons in category lists. The entry form's .actions flex rule also applies to td.actions, so the personal and family category lists stack their row buttons vertically. It predates F3b.
 - Sequential scans on posting. F2b's EXPLAIN showed the balance, integrity and rates statements reading all postings and hash-joining them with the ledger's entries, since posting has no ledger column; the same statements filtered by user_id had the same plan before F2b. Revisit after the Excel import, or when demo ledgers from open registration pile up. The options: a ledger_id on posting, checked by a trigger against its entry's; or statements that start from the ledger's entries and reach the postings through their index.
 - Minimal transfers (called D3 in the F4b review). "Who owes whom" pairs the largest debtor with the largest creditor, then the next, as a display only; the model fixes each member's balance, not the transfers. The fewest transfers that settle every balance stay for later.
+- The family paths (after the F4d review). The activity's paths `/family/{id}/expenses…` hold expenses, incomes and settlements; rename them to `/family/{id}/activity…`, with redirects from the old paths, which personal entries and the journal link to.
 - The personal entry list on a phone. At 375 px it is wider than the screen, with or without family rows: 573 px for a month of the demo without them, 664 px with them (found in F4a's walk-through).

@@ -641,6 +641,7 @@ changed since: `git -C /opt/finance-tracker log -1 --oneline` on the server.
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-01 | `144ff6b` (feat(frontend): incomes, settlements and settling up) | F4d: settlements and family incomes, switch off. Deployed with [Update the app](#update-the-app). Before, saved to a file: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 22 accounts, 33 categories, 10 counterparties, 138 entries, 0 import batches (the test account held the demo); every family count 0; nothing outside its ledger. A fresh backup, then the restore test: PASS with 18 tables, migration 7 and the same counts. Exactly the four F4d commits pulled; the deploy files unchanged; both images rebuilt; the api logging the schema as up to date and the switch as off; the server at `main`, `144ff6b`. After: the same numbers as before the deploy. Browser: no switcher; no family option on a new expense or income; the family paths ended on the dashboard; the new endpoints answered 404. Smoke test with the test account: an ordinary expense and an ordinary income created, edited and deleted; Delete all my data, then the demo in ledger 13 (12 accounts, 18 categories, 10 counterparties, 138 entries); Delete all my data again, leaving ledger 14 with the starter rows only; the family numbers as before. |
 | 2026-09-30 | `e7cdeb1` (feat(family): the payer's entry and family expenses from the personal editor) | F4c: the payer's side, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 22 accounts, 33 categories, 10 counterparties, 138 entries, 0 import batches (the test account held the demo); every family count 0; no row outside its user's personal ledger. A restore test against the previous evening's dump failed with mismatches: it ran without a fresh backup, and the test account had loaded the demo since. After a fresh backup it passed with 18 tables, migration 7 and the same counts. The three F4c commits pulled; `finance.caddy` and `finance.conf` unchanged; both images rebuilt; the api healthy, logging the schema as up to date and the switch as off; the server at `main`, `e7cdeb1`. After: the same counts, every family count 0; `/api/me` held `"features":{"familyLedgers":false}`; no switcher in the header; New entry → Expense without a "Family expense" option; `/api/entries/1/family-payment` answered 404. Smoke test with the test account: an ordinary expense created, edited and deleted; Delete all my data; the demo loaded (12 accounts, 18 categories, 10 counterparties, 138 entries in its ledger); Delete all my data again, back to the starter rows. |
 | 2026-09-30 | `4285d52` (feat(frontend): family expenses, balances and journal) | F4b: the family expenses interface, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; every family count 0; no row outside its user's personal ledger; restore test PASS with 18 tables, migration 7 and 0 for each of the four family counts. No migration: Flyway reported the schema up to date; the api logged the switch as off; both images new, with layers different from `:previous`; the server at `main`, `4285d52`. After: the same counts; every family count 0; `/api/me` held `"features":{"familyLedgers":false}`; no switcher in the header; `/family/7/expenses` ended on the dashboard; the personal pages as before; the smoke test with the test account passed. |
 | 2026-09-30 | `5f5af66` (feat(frontend): personal pages with family rows) | F4a parts 5 and 6: family categories in personal ledgers, personal pages with family rows, switch off. Deployed with [Update the app](#update-the-app). Before: Flyway at version 7; 2 users, 2 settings, 2 ledgers, 2 members, 20 accounts, 30 categories, 0 counterparties, 0 entries, 0 import batches; restore test PASS with 18 tables and migration 7. No migration: Flyway reported the schema up to date; the api logged the switch as off; both images new, with layers different from `:previous`; the server at `main`, `5f5af66`. The new `finance.conf` installed after the deploy; restore test PASS with 18 tables, migration 7 and 0 for each of the four family counts. After: the same counts; every family count 0; no row outside its user's personal ledger; the browser checks passed; smoke test with the test account: 18 categories, each with Rename and Archive; reports without family lines; archiving Unallocated refused; Delete all my data re-provisioned the ledger. |
@@ -668,12 +669,15 @@ rollback:
 # On the server
 systemctl start pg-backup@finance.service
 cd /opt/finance-tracker && git rev-parse HEAD > /root/finance-tracker.previous && git pull --ff-only
-git log --oneline "$(cat /root/finance-tracker.previous)"..HEAD
-git diff --stat "$(cat /root/finance-tracker.previous)" HEAD -- deploy/finance.caddy deploy/pg-backup
+previous=$(cat /root/finance-tracker.previous); echo "previous: $(git log -1 --oneline "$previous")"
+git log --oneline "$previous"..HEAD
+git diff --stat "$previous" HEAD -- deploy/finance.caddy deploy/pg-backup
 ```
 
-The last command lists `deploy/finance.caddy` or `deploy/pg-backup/finance.conf` if the update
-changed them; then also do the matching part below.
+The second line prints the commit that ran before, as `/root/finance-tracker.previous` now holds it
+for a rollback: the one in the first row of [Deployed revisions](#deployed-revisions). The next lists
+the update's commits. The last command lists `deploy/finance.caddy` or
+`deploy/pg-backup/finance.conf` if the update changed them; then also do the matching part below.
 
 Keep the running images as `:previous`, then build and restart:
 
@@ -778,11 +782,13 @@ note the running commit for a rollback, and pull:
 # On the server
 systemctl start pg-backup@finance.service
 cd /opt/finance-tracker && git rev-parse HEAD > /root/finance-tracker.previous && git pull --ff-only
-git log --oneline "$(cat /root/finance-tracker.previous)"..HEAD
-git diff --stat "$(cat /root/finance-tracker.previous)" HEAD -- deploy/finance.caddy deploy/pg-backup
+previous=$(cat /root/finance-tracker.previous); echo "previous: $(git log -1 --oneline "$previous")"
+git log --oneline "$previous"..HEAD
+git diff --stat "$previous" HEAD -- deploy/finance.caddy deploy/pg-backup
 ```
 
-You should see the release's commits, and the last command may list
+You should see the commit that ran before (`previous: …`, as in [Deployed
+revisions](#deployed-revisions)), the release's commits, and the last command may list
 `deploy/pg-backup/finance.conf` (step 7 installs it). If it lists `deploy/finance.caddy`, the
 release is more than a migration: stop, and follow [Update the app](#update-the-app) instead.
 
@@ -891,11 +897,21 @@ image runs on the schema as it was.
 > production. On 2026-09-29 it ran by mistake after F3a's successful deploy, and F3a had to be
 > deployed again. Before pasting the block below, make sure the update failed.
 
-To the commit and the images that ran before the last update:
+First the commit that ran before the last update, as the update wrote it down, read only:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && git log -1 --oneline "$(cat /root/finance-tracker.previous)"
+```
+
+It must be the commit that ran before the failed update: the newest row of [Deployed
+revisions](#deployed-revisions) that isn't that update. If it isn't, stop: the file is from another
+update. Then back to that commit and the images that ran with it:
 
 ```bash
 # On the server
-cd /opt/finance-tracker && git checkout --detach "$(cat /root/finance-tracker.previous)" && git log -1 --oneline
+cd /opt/finance-tracker && previous=$(cat /root/finance-tracker.previous); echo "previous: $previous"
+git checkout --detach "$previous" && git log -1 --oneline
 cd /opt/finance-tracker/deploy/app
 docker tag finance-tracker-api:previous finance-tracker-api && docker tag finance-tracker-web:previous finance-tracker-web
 docker compose up -d

@@ -3,11 +3,43 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-01 · Family budget: F5's deploy, D-29 to D-34, the membership's lifecycle (F6a)
+
+Not committed yet.
+
+**Changes**
+- F5's deploy and the decisions after it (commit "docs(family-budget): F5 deploy, F6a scope, D-29 to
+  D-34"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-10-01, `e8f5ca0` (F5, Flyway V9, switch
+    off), with the owner's checks. The F5 entry below got its commits and the deploy's record.
+  - `docs/family-budget/requirements.md`: new D-29 to D-34, each decided by the PM: the 409s for a valid
+    invite the user can't use and the rate limits, once the client address is shown to be real (D-29); a
+    joining member's category of the other type stays private (D-30); records before a claimed member's
+    join date stay editable, with the opening balances in step (D-31); a member who took a seat stays in
+    its earlier records (D-32); merged categories are deleted, so the detach creates personal copies
+    (D-33); a claim's opening balance on the invite (D-34). The planned stages: F6 split into F6a and
+    F6b. "Later": pending invites for a taken seat, folding a long invite history, one address for a
+    household.
+  - ADR 0003: the status line (F5 deployed from `e8f5ca0`); topic E's detach as D-33 changes it; topic
+    G, the decisions D-29 to D-34; topic J, F6 split and the "F6a plan": who may leave, remove, return
+    and make owners, which rows change in which ledgers, what posts, and how D-10 holds afterwards.
+  - CLAUDE.md: production runs `e8f5ca0` on Flyway V9; decisions up to D-34; F6a and F6b.
+
+**Verified**
+- Baseline, on the laptop in `~/dev/finance-tracker`: `feature/family-budget` checked out with a clean
+  tree; it, `main` and `origin/main` all at `e8f5ca0`. `./mvnw -B clean verify`: 367 tests, 0
+  failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend: `npm ci`, `npm test` 20 files and 263 tests
+  passed, `npm run build` succeeded.
+- After the documents' commit: documents only.
+
+**Open**
+- The rest of F6a.
+
 ## 2026-10-01 · Family budget: F4e's deploy and review, invites and taking a seat (F5)
 
-Committed locally on `feature/family-budget` in three commits: `29af12b` (documents), `0a1f990`
-(invites and taking a seat) and "feat(frontend): invites and taking a seat", whose hash belongs here
-with the next change log commit. Not pushed, not merged, not deployed.
+Commits `29af12b` (documents), `0a1f990` (invites and taking a seat) and `e8f5ca0` (invites in the
+interface), on `feature/family-budget`, merged into `main` and deployed on 2026-10-01; the deploy's
+records: "docs(family-budget): F5 deploy, F6a scope, D-29 to D-34".
 
 **Changes**
 - F4e's deploy and the decisions after its review (commit "docs(family-budget): F4e deploy, F5

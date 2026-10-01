@@ -23,7 +23,9 @@ the switch off; the decisions after its review, the settlement lock (D-28) among
 and I. F4e is deployed since 2026-10-01, from `31419bd`, with the switch off; the decisions after its
 review are in topics E, F and J: D-11 amended for joining members, and returning members (D-26) and
 making another member an owner moved from F5 to F6. F5, invites and taking a seat, is built as topic G's
-"F5 as built" says, where it also names what differs from that topic's sketch. The requirements and decisions D-1 to D-28 are in
+"F5 as built" says, where it also names what differs from that topic's sketch. F5 is deployed since 2026-10-01, from
+`e8f5ca0`, with the switch off; the decisions after it, D-29 to D-34, are in topics E, F and G, and F6 is split into
+F6a and F6b, with the F6a plan in topic J. The requirements and decisions D-1 to D-34 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -722,6 +724,11 @@ something other than a record):
 1. Every category of L that the member's postings use is copied into their personal ledger (the
    personal category that merged into it at joining, if any, is unarchived and takes the family
    name), and those postings are re-pointed to the copies.
+   **Changed after the F5 deploy** (D-33, decided by the PM): the personal categories that merge into
+   family categories, at creation (F4a) and at joining (F5), are deleted, not archived, so there is
+   nothing to unarchive. For every category of L that the member's personal ledger refers to, the
+   detach creates a personal category with the same code and type and the family category's current
+   name, and moves those references to it.
 2. Their links to records of L get `detached_at`, and `system_owned` becomes false: the posted
    entries are ordinary personal entries, which the member may edit or delete.
 3. `Debt(L)` stays with its balance and loses its `family_ledger_id`: an ordinary LIABILITY named
@@ -1005,6 +1012,24 @@ guessing is out of reach anyway.
 - **D-28 after a claim:** their settlement side posted on the placeholder is `system_owned` and locks
   nothing until they put it on an account of theirs. **D-14 after a claim:** records others entered keep
   their authors; the payment fields of what the seat paid or received are the new member's from now on.
+
+**Decided after the F5 deploy** (2026-10-01, by the PM; requirements D-29 to D-34). The points above where F5
+differed from the sketch stand, as decisions of their own:
+
+- D-29: the 409s of their own for a valid token the user can't use (an ACTIVE member, the creator included; a
+  member who left, until F6a makes an invite their way back, D-26; a seat another invite took), for decline
+  too; the limits per user and per client address, 10 a minute and 50 an hour each, over lookup, accept and
+  decline together, once F6a shows that the client address is the real one in production.
+- D-30: a joining member's category with a family code of the other type stays private beside it; bringing
+  it is 422 `CATEGORY`, and the acceptance screen lists it as staying private.
+- D-31: the opening balances kept in step with the records before a claimed member's join date, which stay
+  editable.
+- D-32: a member who took a seat stays in that seat's records from before the join date, their payment fields
+  theirs (D-14), an account for one 422 `PAYMENT`.
+- D-33: merged categories deleted, not archived (topic E's detach says what leaving does instead).
+- D-34 (new): before accepting a claim, the lookup and the invite page show the seat's opening balance as an
+  amount in the family's base currency, and the privacy draft's "Invite links" section lists what the lookup
+  shows, the same things. F5's lookup has no such amount; F6a adds it.
 
 ### H. The change journal
 
@@ -1338,12 +1363,76 @@ back").
   Returning members (D-26) and making another member an owner move to F6, next to leaving and
   removal, which they follow from. The privacy policy's draft is
   [docs/family-budget/privacy-draft.md](../family-budget/privacy-draft.md), which F6 publishes.
+- **F6 split after the F5 deploy** (2026-10-01, decided by the PM): F6a is the membership's lifecycle (leaving,
+  removal and the detach, the rule back to EQUAL, returning members, new owners) and what "Delete all my data"
+  shows; F6b the privacy policy's publication, the demo family (H1), the family report (E1, E3's check), H4,
+  the owner's remarks on the interface and the switcher's placeholder right after accepting.
 - **F7**: the switch goes on in production, then the check with two real accounts.
 - **The feature switch (D-25).** Stages merge into `main` as they are ready. Family features sit
   behind a configuration switch that is off in production until F7: the family endpoints answer 404
   and the family pages are hidden. Tests run with it on. Their migrations may reach production
   early; each is additive (D-22), so a fix to production never ships half a feature.
 - **The Excel import into a family ledger** (D-21) is its own stage after F7.
+
+**F6a plan** (2026-10-01). What each operation of F6a does, from D-19, D-20, D-26 and D-33 and from this ADR's own
+text, which each point names. Where the text leaves a gap, "F6a as built" below decides it.
+
+1. **Leaving** (D-19, story B5).
+   - Who: an ACTIVE member with an account, for themselves. The last owner can't leave while another member with
+     an account remains (D-19): 409.
+   - Rows, in one transaction that locks the family ledger's row first (topic B): the membership becomes LEFT
+     with the leave date; it becomes a MEMBER, since an owner is ACTIVE (topic B's check), and loses its custom
+     share, which only ACTIVE members have (topic B). The detach (topic E, as D-33 changed it), through
+     `CrossLedgerWriter`: in the member's personal ledger, a personal category for each category of L that the
+     ledger refers to, with those references moved to it; the member's links detached and no longer
+     system-owned, so the posted entries are ordinary personal entries; `Debt(L)` without `family_ledger_id`, an
+     ordinary liability that keeps its balance. Afterwards no row of their personal ledger references L (topic
+     E, topic K).
+   - Posts: nothing. Everything posted stays, as the member's own entries (D-19). No record changes; the records
+     whose payer, payee or a member with a share above 0 is LEFT are frozen (topic D).
+   - D-10: holds for every ACTIVE member as before, since nothing of theirs is posted or changed. It no longer
+     applies to the member who left (topic K checks ACTIVE members). Their debt account showed their family
+     balance when they left, and that balance can't change afterwards: every record that involves them is
+     frozen.
+   - Access: `LedgerAccess.member` needs an ACTIVE membership, so a LEFT member reads nothing of L (topic C), and
+     their personal category list no longer shows L's categories (topic F).
+   - The last member with an account may leave; the family ledger is then archived (D-19).
+2. **Removal** by an owner (D-15, D-19), of another member with or without an account. With an account: as
+   leaving, the detach running through `CrossLedgerWriter`, "the one case in which it writes into another
+   user's ledger for something other than a record" (topic E). Without an account: LEFT; nothing posts, since
+   such a member has no personal ledger, and the records that involve them freeze. D-10 as for leaving.
+3. **The rule back to EQUAL** (topic B, "it holds for a LEFT member too once F6 brings leaving and removal";
+   topic H). When the member who leaves or is removed has a custom share above 0, the rule becomes EQUAL, every
+   share is cleared, and the journal gets a system change `SPLIT_RULE_RESET` about that member, as
+   `release_family_memberships` does for D-20. Nothing posts, since the rule applies to new records only
+   (D-12). A share of 0 just goes; the others still sum to 10000.
+4. **Return** (D-26; topics B, E and G). An invite for a new member brings a LEFT member back: topic G's
+   acceptance "reactivates the LEFT membership of the same sub". D-29's 409 for a member who left becomes this
+   way back; the other 409s stay (an ACTIVE member; a claim, since members are never merged, D-18; a taken
+   seat).
+   - Rows: the same membership, ACTIVE again with the acceptance date as its join date (topic B's trigger allows
+     exactly this change), the chosen display name, a MEMBER; `Debt(L)` linked again, "found by its code" (topic
+     E); the user's categories matched by code as at the first join (topic F, D-11 as amended), D-33's copies
+     among them; the invite used.
+   - Posts: every record from the new join date, as for a claim (topic E), and one `CORRECTION` entry dated on
+     the join date, `Debt(L)` −d and OPENING_BALANCE +d, where d is the family balance less the displayed balance
+     of `Debt(L)` (topic E's table). The acceptance screen shows d beforehand (D-26).
+   - D-10: holds from the new join date, by construction of d.
+5. **Owners** (D-3: several owners; D-15). An owner makes another ACTIVE member with an account an owner. The
+   last owner hands ownership to such a member before leaving (D-19); leaving as the last owner while one exists
+   is 409 with a code of its own. Rows: the membership's role. Posts: nothing.
+6. **What "Delete all my data" touches** (D-20: "The confirmation screen lists the affected family ledgers and
+   their balances"; topic J left that list to F6). Before the user confirms, the screen lists every family
+   budget they are in: its name, their role, their balance in its base currency, and what will happen (the
+   ownership passing to the member with an account who joined earliest, named by display name; the budget
+   deleted when no other member with an account remains; their pending invites revoked). One new read endpoint,
+   for the signed-in user's own memberships only, behind the switch (D-25); with the switch off the screen is as
+   it is now. The deletion stays `release_family_memberships` (F3a, F4a, F5), changed only where D-33 or this
+   plan needs it. Nothing posts to anyone else, so D-10 holds for the other members.
+7. **Tests** (topic K). `FamilyInvariants` learns LEFT members (no row of their personal ledger references L)
+   and returned ones (D-10 from the new join date, with the correction); the balances of a family ledger still
+   sum to 0 over all its members, LEFT and FORMER included. A randomized test from a fixed seed leaves, removes,
+   returns, makes owners and deletes all data among its operations.
 
 ### K. Test strategy
 

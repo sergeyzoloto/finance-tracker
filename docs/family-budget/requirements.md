@@ -20,6 +20,8 @@ Amended after the F4d review on 2026-10-01: new D-28 (the settlement lock) and "
 
 Amended after the F4e review on 2026-10-01: D-11 (categories of a joining member) and the planned stages (F5 and F6).
 
+Amended after the F5 deploy on 2026-10-01: new D-29 to D-34 (decided by the PM), the planned stages (F6 split into F6a and F6b) and "Later".
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -139,6 +141,14 @@ Added after the F4d review (2026-10-01)
   - While the other side's part waits under "Specify later", the recorder changes and deletes the settlement as before.
   - Nothing changes for members without an account: a side without an account has no part to put anywhere.
 
+Added after the F5 deploy (2026-10-01)
+- D-29. Invites a user can't use (decided by the PM; with D-17 and D-18). A valid token that the signed-in user can't use gets a 409 of its own, not D-17's one answer for a token that lets nobody in: the user is an ACTIVE member already (the ledger's creator included), a member who left (until returning members, D-26, make that the way back), or the invite claims a seat another invite has taken meanwhile. Declining answers the same, so that a member who opens a link meant for someone else can't use it up. Lookup, accept and decline together are rate limited per user and per client address, at most 10 attempts a minute and 50 an hour each. The per-address limit holds only once it is shown that the client address the api sees in production is the browser's real one, not a proxy's and not one the client picks.
+- D-30. A joining member's category of the other type (decided by the PM). A personal category with a family category's code but the other type stays private beside the family category. Bringing it into the family is 422 `CATEGORY`, and the acceptance screen lists it as staying private.
+- D-31. Records before a claimed member's join date (decided by the PM). They stay editable by whoever D-14 lets edit them. Every re-post keeps the opening balances of the members who joined after the start date in step with them, so D-10 holds.
+- D-32. A member who took a seat, in the records of their time without an account (decided by the PM). They stay in that seat's records dated before their join date, as payer, receiver or with a share. The payment fields of those records are theirs (D-14); naming an account for one of them is 422 `PAYMENT`, since its payment is in their opening balance, not in an entry.
+- D-33. Merged categories and leaving (decided by the PM). The personal categories that merge into family categories, at creation and when a member joins, are deleted, not archived. So leaving or being removed (D-19) can't unarchive them: for every family category that the leaving member's personal ledger refers to, the detach creates a personal category with the same code and type and the family category's current name, and moves those references to it.
+- D-34. A claim's opening balance on the invite (decided by the PM). Before accepting a claim, the invite shows the seat's opening balance, the balance before the join date, as an amount in the family budget's currency, since the person who accepts takes it on. The lookup, the invite page and the "Invite links" section of the privacy policy's draft list exactly the same things.
+
 ## MVP user stories
 - A1 Create a family budget with a name and a base currency.
 - A2 Set a default split rule (equal or custom percentages).
@@ -178,6 +188,7 @@ Added after the F4d review (2026-10-01)
 - F5: invites, seat claiming, returning members (D-26). The privacy policy text is ready before F5 starts.
 - F6: leaving, removal and detach; delete-my-data for family data; the published privacy policy; the demo family; family reports and the personal-report filter; removing old SharedExpense creation from the UI. With the demo family, revisit the demo's personal twin of a starter category merged into a family budget (accepted after the review of F4a's parts 5 and 6).
 - After the F4e review (2026-10-01): F5 is invites and taking a seat (D-17, D-18). Returning members (D-26) and making another member an owner move to F6, next to leaving and removal. The privacy policy's draft is docs/family-budget/privacy-draft.md, which F6 publishes.
+- After the F5 deploy (2026-10-01, decided by the PM): F6 is split in two. F6a is the membership's lifecycle (leaving, removal and detach, the rule back to equal shares, returning members, making another member an owner) and what "Delete all my data" shows of the family budgets. F6b is the privacy policy's publication, the demo family (H1), the family report (E1, and E3's check), H4, the owner's remarks on the interface, and the switcher's placeholder right after accepting an invite.
 - F7: the switch goes on in production, followed by a check with two real accounts.
 - After F7: the Excel import, with Family rows going into a family ledger.
 
@@ -188,3 +199,6 @@ Found along the way; not part of a stage yet.
 - Minimal transfers (called D3 in the F4b review). "Who owes whom" pairs the largest debtor with the largest creditor, then the next, as a display only; the model fixes each member's balance, not the transfers. The fewest transfers that settle every balance stay for later.
 - The family paths (after the F4d review). The activity's paths `/family/{id}/expenses…` hold expenses, incomes and settlements; rename them to `/family/{id}/activity…`, with redirects from the old paths, which personal entries and the journal link to.
 - The personal entry list on a phone. At 375 px it is wider than the screen, with or without family rows: 573 px for a month of the demo without them, 664 px with them (found in F4a's walk-through).
+- Invites for a taken seat (after the F5 deploy). When an invite takes a seat, the other pending invites for that seat stay pending until they expire; accepting one answers 409 (D-29). Revoking them when the seat is taken stays for later.
+- A long invite history. The owners' invite list keeps every invite, newest first; folding the old ones away stays for later.
+- One address for a household. The per-address rate limit of invites (D-29) counts every device behind one NAT together, such as a household's router.

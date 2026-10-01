@@ -20,7 +20,9 @@ F4b is deployed since 2026-09-30, from `4285d52`, with the switch off; the decis
 are in topics I and J. F4c is deployed since 2026-09-30, from `e7cdeb1`, with the switch off; the
 decisions after its review are in topics E and I. F4d is deployed since 2026-10-01, from `144ff6b`, with
 the switch off; the decisions after its review, the settlement lock (D-28) among them, are in topics E
-and I. The requirements and decisions D-1 to D-28 are in
+and I. F4e is deployed since 2026-10-01, from `31419bd`, with the switch off; the decisions after its
+review are in topics E, F and J: D-11 amended for joining members, and returning members (D-26) and
+making another member an owner moved from F5 to F6. The requirements and decisions D-1 to D-28 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -682,6 +684,20 @@ is kept as it is when anyone else acts, and if a re-post would rewrite or delete
 - **Integrity.** The integrity check's family row counts the debt account in the base currency only, and
   a posting to it in another currency is a difference too; the test invariants check the same.
 
+**Kept after the F4e review** (2026-10-01), as built:
+
+- A base amount converted at the acting member's own manual rate shows to every member as "manual rate",
+  with the rate and its day; whose rate it was isn't said.
+- The original currency comes from the request, the base currency when it is left out; the forms send
+  the paying, receiving or recording account's currency. The server doesn't take it from the account.
+- A change of the account alone, in the same currency, converts nothing: the record keeps its base
+  amount and rate.
+- The settlement lock (D-28) also covers the currency and the base amount, not only the date and the
+  amount.
+- The other side of a settlement names its own amount (`accountAmount`) only for an account whose
+  currency isn't the base; on an account without a currency or in the base currency, its side is the
+  base amount.
+
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted
 entries for every eligible member from the record's stored shares, and compares them with the
@@ -776,6 +792,12 @@ D-18, D-19's detach, D-24, D-26.
   transaction: their postings are repointed to the family category, and the personal category is
   archived. On a name conflict the acceptance screen's choice renames the family category (the
   joining member isn't an owner; this is the one exception, as D-11 says).
+  **Amended after the F4e review** (2026-10-01, D-11 as the owner decided it): a joining member's
+  personal category with a family category's code merges into the family category, and the family
+  category's name stays; there is no exception to D-15, and renaming a family category stays an
+  owner's right. The acceptance screen shows each such merge in advance. The joining member may also
+  bring other personal categories into the family dictionary; the rest stay private. How the merge
+  is done (as at creation, or by archiving) is F5's, in topic G.
 - A family category is deleted only if no posting in any ledger and no family record uses it,
   otherwise archived (the foreign keys are `ON DELETE RESTRICT` already).
 - Reports: `cashFlow` and `cashFlowInBase` accept the categories that the ledger's own postings
@@ -1204,6 +1226,10 @@ back").
   F5 starts, even if F6 publishes it.
 - **F6**: leaving, removal and the detach (D-19), and the rest as planned, minus D-20's membership
   part.
+- **F5 and F6 after the F4e review** (2026-10-01): F5 is invites and taking a seat (D-17, D-18).
+  Returning members (D-26) and making another member an owner move to F6, next to leaving and
+  removal, which they follow from. The privacy policy's draft is
+  [docs/family-budget/privacy-draft.md](../family-budget/privacy-draft.md), which F6 publishes.
 - **F7**: the switch goes on in production, then the check with two real accounts.
 - **The feature switch (D-25).** Stages merge into `main` as they are ready. Family features sit
   behind a configuration switch that is off in production until F7: the family endpoints answer 404

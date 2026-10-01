@@ -18,6 +18,8 @@ Amended after the F4b review on 2026-09-30: the planned stages (F4c split into F
 
 Amended after the F4d review on 2026-10-01: new D-28 (the settlement lock) and "Later".
 
+Amended after the F4e review on 2026-10-01: D-11 (categories of a joining member) and the planned stages (F5 and F6).
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -53,6 +55,7 @@ Categories
 - D-11. Each family ledger has its own category dictionary. A family category is a single object shown in every member's personal category list; there are no synchronised copies. Members may also use a family category for their purely personal entries.
   - At creation, the creator chooses which of their categories form the initial dictionary.
   - When a member joins, their categories with the same code merge into the family ones automatically. On a name conflict, the joining member picks the name on the acceptance screen. They may bring more of their categories; the rest stay private.
+  - Amended after the F4e review (decided by the owner on 2026-10-01; replaces the bullet above): when a joining member has a personal category with a family category's code, it merges into the family category and the family category's name stays. Renaming a family category stays an owner's right (D-15). The acceptance screen shows each such merge in advance. The joining member may also bring other personal categories into the family dictionary; the rest stay private.
   - Any member can add a family category, including while entering a record. Only owners rename or archive.
   - A family category can be deleted only if no entry in any member's ledger or in the family ledger uses it; otherwise it can only be archived.
   - Balance-sheet accounts are never shared.
@@ -174,6 +177,7 @@ Added after the F4d review (2026-10-01)
 - F4e: other currencies (C7, D-13).
 - F5: invites, seat claiming, returning members (D-26). The privacy policy text is ready before F5 starts.
 - F6: leaving, removal and detach; delete-my-data for family data; the published privacy policy; the demo family; family reports and the personal-report filter; removing old SharedExpense creation from the UI. With the demo family, revisit the demo's personal twin of a starter category merged into a family budget (accepted after the review of F4a's parts 5 and 6).
+- After the F4e review (2026-10-01): F5 is invites and taking a seat (D-17, D-18). Returning members (D-26) and making another member an owner move to F6, next to leaving and removal. The privacy policy's draft is docs/family-budget/privacy-draft.md, which F6 publishes.
 - F7: the switch goes on in production, followed by a check with two real accounts.
 - After F7: the Excel import, with Family rows going into a family ledger.
 

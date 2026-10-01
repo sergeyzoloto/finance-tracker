@@ -3,12 +3,46 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-01 · Family budget: F4e's deploy and review, invites and taking a seat (F5)
+
+Not committed yet.
+
+**Changes**
+- F4e's deploy and the decisions after its review (commit "docs(family-budget): F4e deploy, F5
+  scope, privacy draft"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-10-01, `31419bd`, with the owner's
+    checks. The F4e entry below got its commit `31419bd` and the deploy's record.
+  - ADR 0003: the status line (F4e deployed from `31419bd`); topic E, kept after the F4e review: the
+    acting member's manual rate shown as "manual rate", the original currency from the request (the
+    forms send the account's), no conversion for an account change in the same currency, the lock
+    over the currency and the base amount, and `accountAmount` only for an account in another
+    currency than the base; topic F: D-11 amended for joining members; topic J: F5 is invites and
+    taking a seat, and returning members (D-26) and making another member an owner move to F6.
+  - `docs/family-budget/requirements.md`: D-11 amended (decided by the owner): a joining member's
+    personal category with a family category's code merges into it and the family name stays;
+    renaming stays an owner's right (D-15); the acceptance screen shows each merge in advance; other
+    personal categories may be brought, the rest stay private. The planned stages: F5 and F6 as
+    above.
+  - New `docs/family-budget/privacy-draft.md`, the privacy policy's draft for family budgets, to be
+    published in F6, with a visible TODO for a legal review.
+  - CLAUDE.md: production runs `31419bd`.
+
+**Verified**
+- Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`: `feature/family-budget`
+  checked out with a clean tree; it, `main` and `origin/main` all at `31419bd`. `./mvnw -B clean
+  verify`: 346 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend: `npm ci`, `npm test`
+  18 files and 241 tests passed, `npm run build` succeeded.
+- After the documents' commit: documents only.
+
+**Open**
+- The rest of F5.
+
 ## 2026-10-01 · Family budget: F4d's deploy and review, the settlement lock, other currencies (F4e)
 
-Committed locally on `feature/family-budget` in four commits: `7d5cef6` (documents), `915fe30`
-(the settlement lock), `97766c4` (other currencies) and "feat(frontend): other currencies in the
-family pages", whose hash belongs here with the next change log commit. Not pushed, not merged, not
-deployed.
+Commits `7d5cef6` (documents), `915fe30` (the settlement lock), `97766c4` (other currencies) and
+`31419bd` (other currencies in the family pages), on `feature/family-budget`, merged into `main` and
+deployed on 2026-10-01; the deploy's records: "docs(family-budget): F4e deploy, F5 scope, privacy
+draft".
 
 **Changes**
 - F4d's deploy and the decisions after its review (commit "docs(family-budget): F4d deploy,

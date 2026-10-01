@@ -23,7 +23,9 @@ import org.springframework.http.HttpStatus;
  * date, amount, payer or paying account, and settlements (F4d): recorded by a side with an account, changed by their
  * recorder (date, amount, comment, account) or put on an account by their other side, and deleted; while the other
  * side's part is on an account of theirs, the recorder's change of the date or amount and their deletion answer 409
- * (D-28). After every operation the family ledger's invariants hold
+ * (D-28). A quarter of the expenses, incomes and settlements are in dollars (F4e), converted at the acting member's own
+ * rate or with the base amount entered, some paid from Alice's dollar card. After every operation the family ledger's
+ * invariants hold
  * ({@link FamilyInvariants}): the balances sum to zero, each debt account shows its member's family balance on every
  * record's date, and every posted entry balances.
  */
@@ -36,8 +38,11 @@ class FamilyRecordRandomTests extends LedgerApiTest {
     private final String alice = newUser();
     private final String bob = newUser();
 
-    /** A record that isn't deleted: its type, who wrote it, who paid or received it, and its version. */
-    private record Live(long id, String type, String author, long payer, int version) {
+    /**
+     * A record that isn't deleted: its type, who wrote it, who paid or received it, its version, and its original
+     * currency.
+     */
+    private record Live(long id, String type, String author, long payer, int version, String currency) {
     }
 
     /**
@@ -69,6 +74,14 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         Map<String, List<Long>> accounts = Map.of(
                 alice, List.of(accountId(alice, "CASH"), accountId(alice, "CURRENT_ACCOUNT")),
                 bob, List.of(accountId(bob, "CASH")));
+        // Dollars (F4e): each member's own rate, and a dollar card of Alice's.
+        ok(post(alice, "/api/rates/manual", """
+                {"date": "2026-08-31", "base": "EUR", "quote": "USD", "rate": "1.10"}"""));
+        ok(post(bob, "/api/rates/manual", """
+                {"date": "2026-08-31", "base": "EUR", "quote": "USD", "rate": "1.20"}"""));
+        long dollarCard = body(post(alice, "/api/accounts", """
+                {"code": "USD_CARD", "name": "Dollar card", "type": "ASSET", "defaultCurrency": "USD"}"""),
+                HttpStatus.CREATED).get("id").asLong();
         Map<String, Long> self = Map.of(alice, mum, bob, dad);
 
         Map<Long, Live> live = new LinkedHashMap<>();
@@ -86,16 +99,27 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 done.merge("split rule", 1, Integer::sum);
             } else if (choice < 45 || live.isEmpty()) {
                 long payer = random.nextInt(3) == 0 ? kid : self.get(actor);
+                boolean dollars = random.nextInt(4) == 0;
                 String payment = payer == kid ? "" : random.nextInt(4) == 0 ? "\"paymentLater\": true,"
-                        : "\"paymentAccountId\": %d,".formatted(pick(accounts.get(actor)));
+                        : "\"paymentAccountId\": %d,".formatted(dollars && actor.equals(alice) && random.nextBoolean()
+                                ? dollarCard : pick(accounts.get(actor)));
                 BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
                 String type = random.nextInt(4) == 0 ? "INCOME" : "EXPENSE";
+                String split = split(members, amount);
+                // In dollars, a split by amounts needs the base amount they add up to; else now and then entered.
+                String currency = !dollars ? "" : split.contains("AMOUNT") || random.nextInt(4) == 0
+                        ? "\"currency\": \"USD\", \"baseAmount\": \"%s\",".formatted(amount)
+                        : "\"currency\": \"USD\",";
                 JsonNode record = body(post(actor, uri + "/records", """
-                        {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", %s "payerMemberId": %d,
+                        {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", %s %s "payerMemberId": %d,
                          "split": %s}""".formatted(type, LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)),
-                                pick(categories.get(type)), amount, payment, payer, split(members, amount))),
+                                pick(categories.get(type)), amount, currency, payment, payer, split)),
                         HttpStatus.CREATED);
-                live.put(record.get("id").asLong(), new Live(record.get("id").asLong(), type, actor, payer, 0));
+                live.put(record.get("id").asLong(), new Live(record.get("id").asLong(), type, actor, payer, 0,
+                        dollars ? "USD" : "EUR"));
+                if (dollars) {
+                    done.merge("in dollars", 1, Integer::sum);
+                }
                 done.merge(type.equals("INCOME") ? "income" : "create", 1, Integer::sum);
             } else if (choice < 55 || choice < 85 && choice >= 78 && settlements.isEmpty()) {
                 // The actor pays or receives, with one of the other two members.
@@ -103,10 +127,15 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 long other = pick(List.of(mum, dad, kid).stream().filter(m -> m != own).toList());
                 boolean pays = random.nextBoolean();
                 BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
+                boolean dollars = random.nextInt(4) == 0;
                 JsonNode settled = body(post(actor, uri + "/settlements", """
-                        {"date": "%s", "amount": "%s", "payerMemberId": %d, "payeeMemberId": %d, %s}"""
+                        {"date": "%s", "amount": "%s", "payerMemberId": %d, "payeeMemberId": %d, %s%s}"""
                         .formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)), amount, pays ? own : other,
-                                pays ? other : own, payment(accounts.get(actor)))), HttpStatus.CREATED);
+                                pays ? other : own, payment(accounts.get(actor)),
+                                dollars ? ", \"currency\": \"USD\"" : "")), HttpStatus.CREATED);
+                if (dollars) {
+                    done.merge("in dollars", 1, Integer::sum);
+                }
                 settlements.put(settled.get("id").asLong(), new Settlement(settled.get("id").asLong(), actor,
                         users.get(other), 0, false));
                 done.merge("settle", 1, Integer::sum);
@@ -119,7 +148,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                         {"categoryId": %d, "comment": "Change %d", "split": %s}""".formatted(
                                 pick(categories.get(record.type())), i, split(members, amount(uri, record.id())))));
                 live.put(record.id(), new Live(record.id(), record.type(), record.author(), record.payer(),
-                        changed.get("version").asInt()));
+                        changed.get("version").asInt(), record.currency()));
                 done.merge("change", 1, Integer::sum);
             } else if (choice >= 78 && choice < 85) {
                 Settlement settlement = pick(new ArrayList<>(settlements.values()));
@@ -175,20 +204,27 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 } else if (payer != kid && random.nextBoolean()) {
                     fields.add(payment(accounts.get(editor)));
                 }
-                if (random.nextBoolean()) {
+                boolean byAmounts = current.get("splitMethod").asText().equals("AMOUNT");
+                boolean dollars = record.currency().equals("USD");
+                boolean newDate = random.nextBoolean();
+                if (newDate) {
                     fields.add("\"date\": \"%s\"".formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30))));
                 }
-                if (fields.isEmpty() || random.nextBoolean()) {
+                // A new date of a record in dollars converts it again, which a split by amounts follows with new ones.
+                if (fields.isEmpty() || random.nextBoolean() || dollars && byAmounts && newDate) {
                     BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
                     fields.add("\"amount\": \"%s\"".formatted(amount));
-                    if (current.get("splitMethod").asText().equals("AMOUNT")) {
+                    if (dollars && byAmounts) {
+                        fields.add("\"baseAmount\": \"%s\"".formatted(amount));
+                    }
+                    if (byAmounts) {
                         fields.add("\"split\": " + amounts(members, amount));
                     }
                 }
                 JsonNode changed = ok(patch(editor, uri + "/records/" + record.id() + "?version=" + record.version(),
                         "{" + String.join(", ", fields) + "}"));
                 live.put(record.id(), new Live(record.id(), record.type(), record.author(), payer,
-                        changed.get("version").asInt()));
+                        changed.get("version").asInt(), record.currency()));
                 done.merge("payment", 1, Integer::sum);
             } else if (!settlements.isEmpty() && random.nextInt(4) == 0) {
                 // Its recorder deletes a settlement.
@@ -217,13 +253,14 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         }
 
         // What the seed gives: every kind of operation, many times.
-        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.ofEntries(Map.entry("create", 73),
-                Map.entry("income", 21), Map.entry("change", 34), Map.entry("payment", 23), Map.entry("delete", 29),
-                Map.entry("split rule", 12), Map.entry("settle", 20), Map.entry("settlement change", 16),
-                Map.entry("settlement delete", 8), Map.entry("locked", 4)));
-        assertThat(live).hasSize(65);
+        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.ofEntries(Map.entry("create", 74),
+                Map.entry("income", 29), Map.entry("change", 26), Map.entry("payment", 25), Map.entry("delete", 30),
+                Map.entry("split rule", 10), Map.entry("settle", 21), Map.entry("settlement change", 17),
+                Map.entry("settlement delete", 6), Map.entry("locked", 2), Map.entry("in dollars", 28)));
+        assertThat(live).hasSize(73);
+        assertThat(live.values()).filteredOn(record -> record.currency().equals("USD")).isNotEmpty();
         assertThat(live.values()).filteredOn(record -> record.type().equals("INCOME")).isNotEmpty();
-        assertThat(settlements).hasSize(12);
+        assertThat(settlements).hasSize(15);
         Map<Long, BigDecimal> balances = FamilyInvariants.check(jdbc, family);
         JsonNode answered = ok(get(bob, uri + "/balances")).get("members");
         for (JsonNode member : answered) {

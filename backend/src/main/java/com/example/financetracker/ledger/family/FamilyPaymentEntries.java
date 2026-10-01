@@ -36,13 +36,22 @@ public class FamilyPaymentEntries implements FamilyPayments {
      * A change of the payment: fields left null stay as they are; the note changes, also to none, when
      * {@code changesNote} is set.
      *
-     * @param amount in the family's base currency, which is the entry's currency
+     * @param amount the record's original amount, in its currency, which is the entry's account's (F4e)
      * @param accountId the account of the personal ledger it is paid from
      * @param later "Specify later": "Payments without a specified account"
      * @param note the payer's private note, on the entry only
+     * @param currency the original currency, where the account doesn't decide it (F4e)
+     * @param baseAmount the amount in the family's base currency, as entered (F4e)
+     * @param accountAmount for the other side of a settlement: what went from or into their account in another
+     *        currency than the base currency (F4e)
      */
     public record PaymentEdit(LocalDate date, BigDecimal amount, Long accountId, boolean later, boolean changesNote,
-            String note) {
+            String note, String currency, BigDecimal baseAmount, BigDecimal accountAmount) {
+
+        public PaymentEdit(LocalDate date, BigDecimal amount, Long accountId, boolean later, boolean changesNote,
+                String note) {
+            this(date, amount, accountId, later, changesNote, note, null, null, null);
+        }
     }
 
     /** The entry's link to the expense it pays. */
@@ -78,7 +87,8 @@ public class FamilyPaymentEntries implements FamilyPayments {
         }
         return records.update(familyOf(personal, payment), personal, payment.recordId(), null,
                 new FamilyRecordChanges(null, false, null, null, edit.date(), edit.amount(), null, edit.accountId(),
-                        edit.later(), edit.changesNote(), edit.note()));
+                        edit.later(), edit.changesNote(), edit.note(), edit.currency(), edit.baseAmount(),
+                        edit.accountAmount()));
     }
 
     /** {@inheritDoc} The caller has checked the entry's version. */

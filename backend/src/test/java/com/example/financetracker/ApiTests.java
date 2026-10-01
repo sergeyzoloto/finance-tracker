@@ -127,7 +127,8 @@ class ApiTests extends IntegrationTest {
                 new Object[] {PATCH, "/api/family-ledgers/1/records/1?version=0", "{}"},
                 new Object[] {DELETE, "/api/family-ledgers/1/records/1?version=0", null},
                 new Object[] {GET, "/api/family-ledgers/1/balances", null},
-                new Object[] {GET, "/api/family-ledgers/1/journal", null});
+                new Object[] {GET, "/api/family-ledgers/1/journal", null},
+                new Object[] {GET, "/api/family-ledgers/1/conversion?amount=1&currency=USD&date=2026-09-01", null});
 
         SoftAssertions softly = new SoftAssertions();
         invalidTokens.forEach((kind, token) -> endpoints.forEach(e -> softly
@@ -284,7 +285,8 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/family-ledgers/{ledgerId}/records/{recordId}", List.of("delete", "get", "patch")),
                 Map.entry("/api/family-ledgers/{ledgerId}/settlements", List.of("post")),
                 Map.entry("/api/family-ledgers/{ledgerId}/balances", List.of("get")),
-                Map.entry("/api/family-ledgers/{ledgerId}/journal", List.of("get"))));
+                Map.entry("/api/family-ledgers/{ledgerId}/journal", List.of("get")),
+                Map.entry("/api/family-ledgers/{ledgerId}/conversion", List.of("get"))));
 
         // The user comes from the token, not from a parameter; a family ledger comes by its id in the path only.
         assertThat(openApi.get("paths").get("/api/accounts").get("get").has("parameters")).isFalse();

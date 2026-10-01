@@ -19,7 +19,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * <li>for every ACTIVE member with an account, the displayed balance of their debt account for the family ledger
  * equals their family balance, today and on each record's date (D-10);
  * <li>every posted entry balances in each currency, and every expense or income that isn't deleted has shares that
- * add up to its amount, and a settlement has none.
+ * add up to its amount, and a settlement has none;
+ * <li>the debt accounts hold postings in the family's base currency only (F4e).
  * </ul>
  */
 public final class FamilyInvariants {
@@ -86,6 +87,11 @@ public final class FamilyInvariants {
                     SELECT l.id FROM family_entry_link l JOIN ledger_member m ON m.id = l.member_id
                     WHERE l.family_ledger_id = ? AND l.detached_at IS NULL AND l.entry_id IS NULL""")
                     .param(family).query(Long.class).list()).as("links without their entry").isEmpty();
+            assertThat(jdbc.sql("""
+                    SELECT p.id FROM account a JOIN posting p ON p.account_id = a.id JOIN ledger l ON l.id = ?
+                    WHERE a.family_ledger_id = l.id AND p.currency <> l.base_currency""")
+                    .param(family).query(Long.class).list()).as("postings to a debt account in another currency than "
+                            + "the base currency").isEmpty();
         }
         return today;
     }

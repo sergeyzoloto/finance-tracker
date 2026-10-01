@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.family.posting;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,8 @@ import org.springframework.stereotype.Component;
  * Before it writes an entry, it checks every line against the member's accounts that D-8 allows: their debt account for
  * this family ledger; UNALLOCATED with one of the family's categories, for a share; "Payments without a specified
  * account", for a payment or a settlement; OPENING_BALANCE, for an opening balance or a correction; and the payer's
- * own account for their payment, only when the payer is the member who acts (D-14). Nothing else: not another user's
+ * own account for their payment, and their FX_EXCHANGE for one in another currency than the base currency (F4e), only
+ * when the payer is the member who acts (D-14). Nothing else: not another user's
  * cards, other accounts or personal categories. The database's triggers (V7) check the same while
  * {@code app.writer} is {@code family-posting}, which the writer sets for its own statements only.
  */
@@ -33,6 +35,7 @@ class CrossLedgerWriter {
     static final String DEBT_CODE = "FAMILY_DEBT_";
     static final String PLACEHOLDER_CODE = "UNSPECIFIED_PAYMENTS";
     static final String PLACEHOLDER_NAME = "Payments without a specified account";
+    static final String FX_CODE = "FX_EXCHANGE";
 
     private static final Set<LinkType> PAYMENTS = Set.of(LinkType.PAYMENT, LinkType.SETTLEMENT);
 
@@ -43,7 +46,8 @@ class CrossLedgerWriter {
     }
 
     /** The personal ledger of an ACTIVE member with an account, and the accounts D-8 lets the writer post to there. */
-    record MemberLedger(long ledgerId, String sub, Long debt, Long placeholder, Long unallocated, Long openingBalance) {
+    record MemberLedger(long ledgerId, String sub, Long debt, Long placeholder, Long unallocated, Long openingBalance,
+            Long fxExchange) {
     }
 
     /** A link of a record that isn't detached, and its entry. */
@@ -70,7 +74,22 @@ class CrossLedgerWriter {
                 accountId(family, found.ledgerId(), "family_ledger_id = :familyId", null),
                 accountId(family, found.ledgerId(), "code = :code AND is_system", PLACEHOLDER_CODE),
                 accountId(family, found.ledgerId(), "code = :code", "UNALLOCATED"),
-                accountId(family, found.ledgerId(), "code = :code", "OPENING_BALANCE"));
+                accountId(family, found.ledgerId(), "code = :code", "OPENING_BALANCE"),
+                accountId(family, found.ledgerId(), "code = :code AND is_system", FX_CODE));
+    }
+
+    /**
+     * The member's FX_EXCHANGE, the system account of every personal ledger (rule 4), for a side in another currency
+     * than the base currency (rule 9).
+     *
+     * @throws IllegalStateException if their ledger has none
+     */
+    long fxExchange(LedgerScope family, long memberId) {
+        Long fx = memberLedger(family, memberId).fxExchange();
+        if (fx == null) {
+            throw new IllegalStateException("Member %d's personal ledger has no FX_EXCHANGE".formatted(memberId));
+        }
+        return fx;
     }
 
     /**
@@ -177,26 +196,32 @@ class CrossLedgerWriter {
     }
 
     /**
-     * A payment's side of the payer: the account it is paid from, or "Payments without a specified account", and the
-     * payer's note on it.
+     * A payment's side of the payer: the account it is paid from, or "Payments without a specified account", the
+     * payer's note on it, and the amount on that account in its currency (above 0; F4e).
      */
-    record PaymentSide(Long accountId, boolean later, String memo) {
+    record PaymentSide(Long accountId, boolean later, String memo, BigDecimal amount, String currency) {
     }
 
-    /** The side of the payment or settlement that the link names: the line that isn't on the debt account. */
+    /**
+     * The side of the payment or settlement that the link names: the line that is neither on the debt account nor on
+     * FX_EXCHANGE.
+     */
     PaymentSide paymentSide(LedgerScope family, Link link) {
         if (!PAYMENTS.contains(link.type()) || link.entryId() == null) {
             throw new IllegalStateException("Link %d is not a payment's".formatted(link.id()));
         }
         return jdbc.sql("""
-                SELECT a.id, a.code = :placeholder AND a.is_system AS later, e.memo
+                SELECT a.id, a.code = :placeholder AND a.is_system AS later, e.memo, abs(p.amount) AS amount, p.currency
                 FROM family_entry_link l
                 JOIN journal_entry e ON e.id = l.entry_id
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
-                WHERE l.id = :linkId AND l.family_ledger_id = :familyId AND a.family_ledger_id IS NULL""")
-                .param("placeholder", PLACEHOLDER_CODE).param("linkId", link.id()).param("familyId", family.ledgerId())
-                .query((row, n) -> new PaymentSide(row.getLong("id"), row.getBoolean("later"), row.getString("memo")))
+                WHERE l.id = :linkId AND l.family_ledger_id = :familyId AND a.family_ledger_id IS NULL
+                  AND NOT (a.code = :fx AND a.is_system)""")
+                .param("placeholder", PLACEHOLDER_CODE).param("fx", FX_CODE).param("linkId", link.id())
+                .param("familyId", family.ledgerId())
+                .query((row, n) -> new PaymentSide(row.getLong("id"), row.getBoolean("later"), row.getString("memo"),
+                        row.getBigDecimal("amount"), row.getString("currency")))
                 .single();
     }
 
@@ -347,6 +372,10 @@ class CrossLedgerWriter {
             } else if (Long.valueOf(account).equals(member.openingBalance())) {
                 allowed = (entry.link() == LinkType.OPENING_BALANCE || entry.link() == LinkType.CORRECTION)
                         && line.categoryId() == null;
+            } else if (Long.valueOf(account).equals(member.fxExchange())) {
+                // A side in another currency than the base currency, which only its member names (F4e, D-8).
+                allowed = PAYMENTS.contains(entry.link()) && entry.memberId() == family.memberId()
+                        && line.categoryId() == null;
             } else {
                 allowed = !entry.systemOwned() && line.categoryId() == null
                         && ownAccountLine(family, entry, member).filter(id -> id == account).isPresent();
@@ -371,7 +400,8 @@ class CrossLedgerWriter {
         }
         for (Line line : entry.lines()) {
             if (Long.valueOf(line.accountId()).equals(member.debt())
-                    || Long.valueOf(line.accountId()).equals(member.placeholder())) {
+                    || Long.valueOf(line.accountId()).equals(member.placeholder())
+                    || Long.valueOf(line.accountId()).equals(member.fxExchange())) {
                 continue;
             }
             boolean payable = jdbc.sql("""
@@ -387,9 +417,12 @@ class CrossLedgerWriter {
         return Optional.empty();
     }
 
-    /** The personal ledger the database lets take the payer's own account: theirs, when they are the one who acts. */
+    /**
+     * The personal ledger the database lets take the payer's own account and their FX_EXCHANGE: theirs, for their own
+     * payment or side when they are the one who acts; on "Specify later" only FX_EXCHANGE is of theirs (F4e).
+     */
     private Long ownLedger(LedgerScope family, PostedEntry entry, MemberLedger member) {
-        return !entry.systemOwned() && entry.memberId() == family.memberId() ? member.ledgerId() : null;
+        return PAYMENTS.contains(entry.link()) && entry.memberId() == family.memberId() ? member.ledgerId() : null;
     }
 
     private boolean familyCategory(LedgerScope family, long categoryId) {

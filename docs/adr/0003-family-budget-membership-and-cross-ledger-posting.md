@@ -383,6 +383,14 @@ CREATE TABLE family_share (
 - **The base currency** (D-13) can't change once the ledger has a record (service check and trigger).
   `base_amount` is the card's charge when the card is in the base currency, else the ECB rate of the
   record's date (`RateBook`, without the user's manual rates, which are private), editable.
+  **Decided for F4e** (2026-10-01, the owner's task; replaces "without the user's manual rates"): the
+  ECB's rate on the record's date or the latest before it; where the ECB has no rate for the currency
+  (RUB, which it no longer publishes), the acting member's own manual rate on or before the date; with
+  no rate at all the request gives the base amount (422 `RATE_MISSING`). A base amount in the request
+  always wins. The conversion rounds HALF_UP to the base currency's minor unit. Only the acting member's
+  own manual rate is ever used, and the record shows the rate it used and its source to every member:
+  as much as a base amount they typed would show. As built in topic E, "F4e as built: other
+  currencies".
 - E1 (report by category and month with each member's contribution) is one statement over
   `family_record` and `family_share`, like `ReportService.cashFlow`.
 - A family-owned account later (D-1): an `account` row in the family ledger, and a record whose
@@ -625,6 +633,54 @@ is kept as it is when anyone else acts, and if a re-post would rewrite or delete
   the owners. Deleting the receipt deletes the income. `yourPayment` is the receiver's view of
   their receipt. The messages say "income" and "received".
 - A personal entry's `family` gains `recordType` (additive), so that a receipt reads as one.
+
+**F4e as built: other currencies** (C7, D-13). Migration V8, additive (D-22).
+
+- **The original amount.** `POST /records` and `POST /settlements` take `currency` (additive) and
+  `baseAmount` (additive); `amount` is the original amount in `currency`, which is the base currency
+  when left out, as before. The forms send the paying, receiving or recording account's currency; the
+  server doesn't take the currency from the account, since an account's `default_currency` is only a
+  default (an account holds any currency, V2), and an existing isolation check pays a EUR income into an
+  account whose default is USD without naming a currency. With a payer without an account or "Specify
+  later", the form offers a currency picker.
+- **The base amount.** In the base currency it is the original amount (a `BASE_AMOUNT` 422 for another
+  one). Otherwise the request's `baseAmount` (source `ENTERED`), else the rate as decided in topic D
+  (`ECB` or `MANUAL`), else 422 `RATE_MISSING`, "there is no exchange rate from RUB to EUR on or before
+  2026-09-14: enter the amount in EUR, or add your own rate on the rates page". `RateService.recordRate`
+  takes each currency's euro rate (the ECB's at any age, else the member's own), and `RecordRate`
+  converts through the euro from the two rates, HALF_UP. V8 stores `base_rate` (base units per original
+  unit, 12 decimals), `base_rate_source` (`ECB`, `MANUAL` or `ENTERED`) and `base_rate_date` (the older
+  of the two euro rates' days): not derivable (rule 13), since rates are reloaded and manual ones change.
+  A trigger keeps a record in the base currency without a rate and with its original amount as base
+  amount, and one in another currency with its source.
+- **What is in which currency.** Shares, balances and the debt accounts stay in the base currency. The
+  payer's payment, the receiver's receipt and the recorder's side of a settlement are in the original
+  currency; in another currency than the base they go through the member's `FX_EXCHANGE` as rule 9
+  does: the account (or placeholder) and `FX_EXCHANGE` in the original currency, `FX_EXCHANGE` and
+  `Debt(L)` in the base currency, the account's line first. V8's guard lets the writer post to
+  `FX_EXCHANGE` only for a payment or a settlement side, only in the ledger it names as the acting
+  member's own (`app.own_ledger`, now set for their "Specify later" too); `CrossLedgerWriter` checks the
+  same before it writes.
+- **Settlements.** The base amount settles. The other side's part waits on their placeholder in the
+  base currency. Moving it to an account whose default currency isn't the base currency takes
+  `accountAmount`, what went from or into it in that currency (422 `ACCOUNT_AMOUNT` without it, with it
+  on "Specify later" or a base-currency account where it isn't the base amount); it lives only on their
+  entry and in their own `yourPayment`, never in the record. While it is there, the lock (D-28) holds the
+  recorder's date, amount, currency and base amount.
+- **Edits.** A new original amount, currency or date converts the base amount again, unless the request
+  gives `baseAmount`, which alone changes it too (by whoever edits the payment fields). A new currency
+  needs its amount (422 `AMOUNT`). Each splits again by the stored split and posts again; a split by
+  amounts needs new amounts whenever the base amount moves (`AMOUNTS_NEEDED`), also for a new date of a
+  record in another currency. An account change keeps the record's currency, so it converts nothing.
+- **Answers.** A record gains `originalAmount`, `originalCurrency`, and where converted `rate`,
+  `rateSource` and `rateDate` (additive; the rate left out for `ENTERED` and in the base currency).
+  `yourPayment` gains `amount` and `currency`, the side's own line. `GET /{ledgerId}/conversion?amount=
+  &currency=&date=` (new) answers the base amount, rate and source a record of the caller would get,
+  with the caller's own manual rates only; `baseAmount` null without a rate. The journal records
+  `amount` (the base amount) as before and `originalAmount` ("9000.00 RUB") when the original amount or
+  its currency changes outside the base currency; never an account or a side's own amount.
+- **Integrity.** The integrity check's family row counts the debt account in the base currency only, and
+  a posting to it in another currency is a difference too; the test invariants check the same.
 
 **Idempotent re-posting.** `FamilyPostingService.repost(record)` runs in the transaction that
 created, changed or deleted the record, after locking the record row. It computes the wanted posted

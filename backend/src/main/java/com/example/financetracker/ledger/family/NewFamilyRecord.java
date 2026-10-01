@@ -4,7 +4,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * A family expense or income as its author enters it (C1, C5; D-6, D-14), in the family ledger's base currency (F4a).
+ * A family expense or income as its author enters it (C1, C5; D-6, D-13, D-14): its original amount, and its amount in
+ * the family ledger's base currency (F4e).
  *
  * @param type EXPENSE or INCOME (F4d)
  * @param payerMemberId who paid an expense or received an income: the author themselves if they have an account, or a
@@ -15,9 +16,14 @@ import java.time.LocalDate;
  *        account" (D-14)
  * @param privateNote for the author who paid: a note that only their own payment entry holds, never the family's
  *        answers or journal (F4c, C2); or null
+ * @param amount the original amount, in {@code currency}
+ * @param currency the original currency (F4e): the paying account's if it has one; else as chosen, or null for the
+ *        base currency
+ * @param baseAmount the amount in the base currency, as entered (F4e); null for the rate's (D-13)
  */
 public record NewFamilyRecord(String type, LocalDate date, long categoryId, BigDecimal amount, String comment,
-        long payerMemberId, Long paymentAccountId, boolean paymentLater, RecordSplit split, String privateNote) {
+        long payerMemberId, Long paymentAccountId, boolean paymentLater, RecordSplit split, String privateNote,
+        String currency, BigDecimal baseAmount) {
 
     public NewFamilyRecord {
         if (!type.equals("EXPENSE") && !type.equals("INCOME")) {

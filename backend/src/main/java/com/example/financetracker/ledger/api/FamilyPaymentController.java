@@ -3,6 +3,7 @@ package com.example.financetracker.ledger.api;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+import com.example.financetracker.api.CurrencyCode;
 import com.example.financetracker.ledger.EntryService;
 import com.example.financetracker.ledger.EntryView;
 import com.example.financetracker.ledger.access.LedgerScope;
@@ -45,6 +46,10 @@ class FamilyPaymentController {
         @Size(max = 500)
         private String memo;
         private boolean changesMemo;
+        @CurrencyCode
+        private String currency;
+        private BigDecimal baseAmount;
+        private BigDecimal accountAmount;
 
         public LocalDate getDate() {
             return date;
@@ -54,7 +59,7 @@ class FamilyPaymentController {
             this.date = date;
         }
 
-        /** In the family's base currency, the entry's; above 0. */
+        /** The record's original amount, in its currency, which is the entry's account's (F4e); above 0. */
         public BigDecimal getAmount() {
             return amount;
         }
@@ -91,9 +96,39 @@ class FamilyPaymentController {
             this.changesMemo = true;
         }
 
+        /** The original currency, where the account doesn't decide it (F4e). */
+        public String getCurrency() {
+            return currency;
+        }
+
+        public void setCurrency(String currency) {
+            this.currency = currency;
+        }
+
+        /** The amount in the family's base currency, as entered (F4e). */
+        public BigDecimal getBaseAmount() {
+            return baseAmount;
+        }
+
+        public void setBaseAmount(BigDecimal baseAmount) {
+            this.baseAmount = baseAmount;
+        }
+
+        /**
+         * For the other side of a settlement: what went from or into the account, in its currency, when that isn't the
+         * family's base currency (F4e). Only this entry holds it.
+         */
+        public BigDecimal getAccountAmount() {
+            return accountAmount;
+        }
+
+        public void setAccountAmount(BigDecimal accountAmount) {
+            this.accountAmount = accountAmount;
+        }
+
         PaymentEdit edit() {
             return new PaymentEdit(date, amount, accountId, Boolean.TRUE.equals(later), changesMemo,
-                    memo == null || memo.isBlank() ? null : memo.strip());
+                    memo == null || memo.isBlank() ? null : memo.strip(), currency, baseAmount, accountAmount);
         }
     }
 

@@ -5,7 +5,7 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-01 · Family budget: F4d's deploy and review, the settlement lock, other currencies (F4e)
 
-Not committed yet: the documents are `7d5cef6`.
+Not committed yet: the documents are `7d5cef6`, the settlement lock `915fe30`.
 
 **Changes**
 - F4d's deploy and the decisions after its review (commit "docs(family-budget): F4d deploy,
@@ -55,6 +55,39 @@ Not committed yet: the documents are `7d5cef6`.
     (new); `DataIsolationApiTests.aSettlementsLockNamesItsOtherSideToItsRecorderOnly` (new; nothing
     else in the file changed); `FamilyRecordRandomTests` tracks whether the other side placed its
     part and expects the 409s; `FamilyRecords.test.tsx` (4 new or rewritten).
+- Other currencies in the backend (commit "feat(family): other currencies"), C7 and D-13, ADR 0003
+  topic D ("Decided for F4e") and topic E ("F4e as built: other currencies"). Migration V8, additive.
+  - Requests: `POST /records`, `POST /settlements` and `PATCH /records/{recordId}` take `currency`
+    and `baseAmount` (additive); `amount` is the original amount, in the base currency when
+    `currency` is left out, as before. The PATCH and `PATCH /api/entries/{id}/family-payment` also
+    take `accountAmount`, for the other side of a settlement whose account is in another currency.
+  - The base amount: the original amount in the base currency; else the request's `baseAmount`
+    (`ENTERED`); else the ECB's rate on the date or the latest before it (`ECB`), or where the ECB has
+    none, the acting member's own manual rate (`MANUAL`); else 422 `RATE_MISSING`. HALF_UP to the
+    base currency's minor unit, from the two euro rates (`RateService.recordRate`, `RecordRate`).
+    New codes: `RATE_MISSING`, `BASE_AMOUNT`, `ACCOUNT_AMOUNT`.
+  - Answers: a record adds `originalAmount`, `originalCurrency`, and where converted `rate`,
+    `rateSource` and `rateDate`; `yourPayment` adds the side's own `amount` and `currency`. New: `GET
+    /api/family-ledgers/{ledgerId}/conversion?amount=&currency=&date=`, the base amount a record of the
+    caller would get, with their own rates only.
+  - Posting: a payment, receipt or settlement side in another currency than the base goes through the
+    member's `FX_EXCHANGE` (rule 9), the debt account always in the base currency. The other side's
+    own amount on a foreign account lives only on its entry. V8's guard allows `FX_EXCHANGE` only for
+    those kinds and only in the acting member's own ledger; `CrossLedgerWriter` checks the same.
+  - Edits: a new original amount, currency or date converts the base amount again unless
+    `baseAmount` is given; a new currency needs its amount; splits and postings follow; the journal
+    adds `originalAmount` ("56.00 USD→67.20 USD"), never an account or a side's own amount.
+  - V8: `family_record.base_rate`, `base_rate_source`, `base_rate_date`, a check and a trigger
+    keeping them consistent with the currencies, and `posting_family_guard` with the `FX_EXCHANGE`
+    branch (otherwise V7's word for word).
+  - The integrity check's family row counts the debt account in the base currency only.
+  - Tests: new `FamilyCurrencyApiTests` (6); `LedgerSchemaTests.recordsInOtherCurrenciesAndTheirExchange`
+    (new); `LedgerBackfillMigrationTests` pins V7 and adds a V8 step;
+    `DataIsolationApiTests.aConversionAndASidesOwnAmountAreTheMembersOwn` (new; nothing else in the
+    file changed); `FamilyRecordRandomTests` with dollars in the mix; `FamilyInvariants` checks the
+    debt accounts' currency; `ApiTests` and `FamilySwitchOffApiTests` (24 endpoints) with the new
+    endpoint; `FamilyPaymentApiTests` and `FamilySettlementApiTests` expect `yourPayment`'s new
+    fields.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -70,9 +103,25 @@ Not committed yet: the documents are `7d5cef6`.
   `npm run build` succeeded.
 - `aSettlementsLockNamesItsOtherSideToItsRecorderOnly` against a temporary mutation, from a file
   copy: `lockedBy` computed for every reader made it fail (Bob's answer held it). The file restored.
+- After the currencies' commit: `./mvnw -B clean verify` 346 tests (338 and 8), 0 failures, 0
+  errors, 0 skipped, BUILD SUCCESS; the invariants after every family test and after each of the
+  random test's 240 operations (from the seed: 74 expenses and 29 incomes created, 26 changes, 25
+  payment edits, 30 deletes, 10 split rules, 21 settlements, 17 settlement changes, 6 settlement
+  deletes, 2 refused by the lock; 28 records and settlements in dollars).
+- `aConversionAndASidesOwnAmountAreTheMembersOwn` against a temporary mutation, from a file copy:
+  `findLatestManual` reading any user's manual rate made it fail (Bob's conversion used Alice's
+  rate). The file restored.
+- Rollback evidence for V8: in a scratch worktree of `144ff6b` with only V8 added (the same file by
+  SHA-256), that version's `./mvnw -B clean verify`: 335 tests, 334 passed, 1 failure, in the test
+  that pins the schema: `LedgerBackfillMigrationTests` expects version 7 as the latest. Flyway applied
+  V8; every API, isolation, delete-all, runbook, importer, report and demo test passed. (A first run
+  had found V8's table check named like the column check of `base_rate`; renamed, then run again.)
 
 **Open**
-- Other currencies in the backend and the interface (this stage's later commits).
+- Other currencies in the interface (this stage's next commit).
+- The original currency is the request's, by default the base currency; the server doesn't take it
+  from the paying account, whose currency is only a default in this data model, and an unchanged
+  isolation check pays a EUR income into a USD account. The forms send the account's currency.
 
 ## 2026-10-01 · Family budget: F4c's deploy and review, settlements and incomes (F4d)
 

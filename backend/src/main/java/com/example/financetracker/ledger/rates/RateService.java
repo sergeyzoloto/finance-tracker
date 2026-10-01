@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -116,6 +117,42 @@ public class RateService {
         days.forEach(day -> book.missing(day.currency(), base, day.date())
                 .ifPresent(currency -> missing.add(currency, day.date())));
         return missing.toList();
+    }
+
+    /**
+     * The rate of a family record's amount in {@code from} into the family's base currency {@code to} on the record's
+     * day (D-13; ADR 0003, topic D, as decided for F4e): for each currency that isn't EUR, the ECB's latest rate on or
+     * before the day, at any age; for a currency of which the ECB has none by then (RUB, which it no longer publishes),
+     * the acting member's own latest manual rate on or before the day. Nobody else's manual rate is ever used.
+     *
+     * @param userId the acting member's sub, whose manual rates stand in for the ECB's
+     * @return empty if a currency has neither by then
+     */
+    @Transactional(readOnly = true)
+    public Optional<RecordRate> recordRate(String userId, String from, String to, LocalDate day) {
+        if (from.equals(to)) {
+            throw new IllegalArgumentException("A record in its base currency " + to + " needs no rate");
+        }
+        Optional<RateBook.Rate> fromRate = euroRate(userId, from, day);
+        Optional<RateBook.Rate> toRate = euroRate(userId, to, day);
+        if (fromRate.isEmpty() || toRate.isEmpty()) {
+            return Optional.empty();
+        }
+        RateSource source = fromRate.get().source() == RateSource.MANUAL || toRate.get().source() == RateSource.MANUAL
+                ? RateSource.MANUAL : RateSource.ECB;
+        LocalDate date = fromRate.get().date().isBefore(toRate.get().date()) ? fromRate.get().date()
+                : toRate.get().date();
+        return Optional.of(new RecordRate(fromRate.get().perEuro(), toRate.get().perEuro(), source, date));
+    }
+
+    /** The currency's euro rate for a record on the day: EUR itself, else the ECB's, else the member's own. */
+    private Optional<RateBook.Rate> euroRate(String userId, String currency, LocalDate day) {
+        if (currency.equals(RateBook.EURO)) {
+            // Dated on the day itself, so that it never makes the other currency's rate look older.
+            return Optional.of(new RateBook.Rate(RateBook.EURO, LocalDate.MAX, BigDecimal.ONE, RateSource.ECB));
+        }
+        return rates.findLatestShared(currency, day).or(() -> rates.findLatestManual(userId, currency, day))
+                .map(RateService::rate);
     }
 
     /** The user's manual rates, newest first. */

@@ -34,8 +34,8 @@ class FamilyPaymentApiTests extends FamilyApiTest {
         String path = uri + "/records/" + id;
         long entryId = record.get("yourPayment").get("entryId").asLong();
         assertThat(record.get("yourPayment")).isEqualTo(json.readTree("""
-                {"entryId": %d, "accountId": %d, "accountName": "Current account", "later": false}"""
-                .formatted(entryId, current)));
+                {"entryId": %d, "accountId": %d, "accountName": "Current account", "later": false, "amount": "100.00",
+                 "currency": "EUR"}""".formatted(entryId, current)));
         assertThat(record.get("canEditPayment").asBoolean()).isTrue();
         JsonNode asBob = ok(get(bob, path));
         assertThat(asBob.has("yourPayment")).isFalse();
@@ -69,11 +69,13 @@ class FamilyPaymentApiTests extends FamilyApiTest {
                 {"paymentAccountId": %d}""".formatted(cash)));
         assertThat(withCash.get("version").asInt()).isOne();
         assertThat(withCash.get("yourPayment")).isEqualTo(json.readTree("""
-                {"entryId": %d, "accountId": %d, "accountName": "Cash", "later": false}""".formatted(entryId, cash)));
+                {"entryId": %d, "accountId": %d, "accountName": "Cash", "later": false, "amount": "120.00",
+                 "currency": "EUR"}""".formatted(entryId, cash)));
         JsonNode later = ok(patch(alice, path + "?version=1", """
                 {"paymentLater": true}"""));
         assertThat(later.get("yourPayment")).isEqualTo(json.readTree("""
-                {"entryId": %d, "accountId": null, "accountName": null, "later": true}""".formatted(entryId)));
+                {"entryId": %d, "accountId": null, "accountName": null, "later": true, "amount": "120.00",
+                 "currency": "EUR"}""".formatted(entryId)));
         long placeholder = accountId(alice, "UNSPECIFIED_PAYMENTS");
         assertThat(postedEntries(alice)).contains("FAMILY_PAYMENT PAYMENT %d:-120.00:null %d:120.00:null"
                 .formatted(placeholder, debt));

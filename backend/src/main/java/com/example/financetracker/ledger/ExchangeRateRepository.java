@@ -39,6 +39,20 @@ public interface ExchangeRateRepository extends Repository<ExchangeRate, Void> {
              ORDER BY quote_currency, source, rate_date DESC)""")
     List<ExchangeRate> findForPeriod(String userId, Collection<String> currencies, LocalDate from, LocalDate to);
 
+    /** The ECB's latest rate of the currency against EUR on or before the day, at any age. */
+    @Query("""
+            SELECT * FROM exchange_rate
+            WHERE base_currency = 'EUR' AND quote_currency = :currency AND user_id IS NULL AND rate_date <= :date
+            ORDER BY rate_date DESC LIMIT 1""")
+    Optional<ExchangeRate> findLatestShared(String currency, LocalDate date);
+
+    /** The user's own latest manual rate of the currency against EUR on or before the day, at any age. */
+    @Query("""
+            SELECT * FROM exchange_rate
+            WHERE base_currency = 'EUR' AND quote_currency = :currency AND user_id = :userId AND rate_date <= :date
+            ORDER BY rate_date DESC LIMIT 1""")
+    Optional<ExchangeRate> findLatestManual(String userId, String currency, LocalDate date);
+
     /** The latest rate of every currency against EUR, the user's own before the shared one on the same day. */
     @Query("""
             SELECT DISTINCT ON (quote_currency) * FROM exchange_rate

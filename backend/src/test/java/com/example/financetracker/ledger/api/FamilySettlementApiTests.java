@@ -49,7 +49,8 @@ class FamilySettlementApiTests extends FamilyApiTest {
         assertThat(settled.get("comment").asText()).isEqualTo("Groceries");
         long bobsEntry = settled.get("yourPayment").get("entryId").asLong();
         assertThat(settled.get("yourPayment")).isEqualTo(json.readTree("""
-                {"entryId": %d, "accountId": %d, "accountName": "Cash", "later": false}""".formatted(bobsEntry,
+                {"entryId": %d, "accountId": %d, "accountName": "Cash", "later": false, "amount": "36.20",
+                 "currency": "EUR"}""".formatted(bobsEntry,
                 bobsCash)));
         assertThat(List.of(settled.get("canEdit").asBoolean(), settled.get("canEditPayment").asBoolean(),
                 settled.get("canDelete").asBoolean())).containsOnly(true);
@@ -67,7 +68,8 @@ class FamilySettlementApiTests extends FamilyApiTest {
         JsonNode asAlice = ok(get(alice, path));
         long alicesEntry = asAlice.get("yourPayment").get("entryId").asLong();
         assertThat(asAlice.get("yourPayment")).isEqualTo(json.readTree("""
-                {"entryId": %d, "accountId": null, "accountName": null, "later": true}""".formatted(alicesEntry)));
+                {"entryId": %d, "accountId": null, "accountName": null, "later": true, "amount": "36.20",
+                 "currency": "EUR"}""".formatted(alicesEntry)));
         assertThat(asAlice.toString()).doesNotContain("Cash");
         assertThat(asAlice.findValuesAsText("accountId")).doesNotContain(String.valueOf(bobsCash));
         assertThat(List.of(asAlice.get("canEdit").asBoolean(), asAlice.get("canEditPayment").asBoolean(),

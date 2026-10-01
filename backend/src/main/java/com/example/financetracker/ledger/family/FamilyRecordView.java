@@ -14,7 +14,14 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  *
  * @param type EXPENSE (F4a), INCOME or SETTLEMENT (F4d)
  * @param category the family category; null for a settlement
- * @param amount in the family's base currency, with its minor unit's decimals
+ * @param amount in the family's base currency, with its minor unit's decimals: the base amount (D-13)
+ * @param originalAmount the amount as paid, received or settled, in {@code originalCurrency} (F4e, additive); the base
+ *        amount when that is the base currency
+ * @param rate units of the base currency for one of the original currency that the base amount was converted with;
+ *        left out when the base amount was entered or the currencies are the same (F4e, additive)
+ * @param rateSource ECB, MANUAL (the acting member's own rate, where the ECB has none) or ENTERED; left out when the
+ *        currencies are the same (F4e, additive)
+ * @param rateDate the day of the rate, on or before the record's date; left out with {@code rate}
  * @param payer who paid an expense, received an income, or paid in a settlement
  * @param splitMethod EQUAL, PERCENT, AMOUNT or ONE_MEMBER; null for a settlement
  * @param shares by the members' join order; none for a settlement
@@ -42,15 +49,22 @@ public record FamilyRecordView(long id, String type, LocalDate date, CategoryRef
         MemberRef author, Instant createdAt, MemberRef updatedBy, Instant updatedAt, int version, boolean frozen,
         boolean canEdit, boolean canDelete, boolean canEditPayment,
         @JsonInclude(Include.NON_NULL) YourPayment yourPayment, @JsonInclude(Include.NON_NULL) MemberRef payee,
-        @JsonInclude(Include.NON_NULL) MemberRef lockedBy) {
+        @JsonInclude(Include.NON_NULL) MemberRef lockedBy, BigDecimal originalAmount, String originalCurrency,
+        @JsonInclude(Include.NON_NULL) BigDecimal rate, @JsonInclude(Include.NON_NULL) String rateSource,
+        @JsonInclude(Include.NON_NULL) LocalDate rateDate) {
 
     /**
      * The payer's own view of their payment (D-16): their payment entry in their personal ledger, and the account they
      * paid with, or "Specify later" with both account fields null. Their private note stays in the entry. For a
      * settlement, the side of the member who reads: their entry, and the account they paid from or received into
      * (F4d).
+     *
+     * @param amount what went from or into the account or "Specify later", in {@code currency} (F4e): the original
+     *        amount for the payer, the receiver and a settlement's recorder; for a settlement's other side the base
+     *        amount, or on an account in another currency the amount they named, which nobody else sees
      */
-    public record YourPayment(long entryId, Long accountId, String accountName, boolean later) {
+    public record YourPayment(long entryId, Long accountId, String accountName, boolean later, BigDecimal amount,
+            String currency) {
     }
 
     /** A member as the others see them: "Former member" once they deleted their data (D-20). */

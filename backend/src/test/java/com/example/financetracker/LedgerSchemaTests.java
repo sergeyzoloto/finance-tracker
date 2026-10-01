@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
+import java.sql.Date;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -580,6 +582,93 @@ class LedgerSchemaTests {
         update("UPDATE family_record SET deleted_at = now(), deleted_by_member_id = ? WHERE id = ?", anna, mine);
         update("DELETE FROM family_share WHERE record_id = ? AND member_id = ?", mine, anna);
         db.commit();
+    }
+
+    /**
+     * Records in other currencies (V8; D-13, F4e). In the base currency a record's base amount is its original amount,
+     * without a rate; in another one it says where its base amount came from: a rate of the ECB or of the member, with
+     * the rate's day, or entered, without a rate. The writer posts a payment in another currency through the payer's
+     * FX_EXCHANGE, only in the ledger it names as the acting payer's own and only for a payment or a settlement side.
+     */
+    @Test
+    void recordsInOtherCurrenciesAndTheirExchange() throws SQLException {
+        long family = sharedLedger();
+        long anna = member(family, "SHARED", user, "OWNER", "Anna", null);
+        long groceriesOfFamily = familyCategory(family, "GROCERIES", "EXPENSE");
+        update("UPDATE account SET is_system = TRUE WHERE id = ?", fxExchange);
+        long ledger = personalLedger(user);
+        db.commit();
+        String insert = """
+                INSERT INTO family_record (ledger_id, type, record_date, category_id, payer_member_id, original_amount,
+                    original_currency, base_amount, base_rate, base_rate_source, base_rate_date, split_method,
+                    author_member_id, updated_by_member_id)
+                VALUES (?, 'EXPENSE', current_date, ?, ?, ?, ?, ?, ?, ?, ?, 'EQUAL', ?, ?)""";
+        BigDecimal ten = new BigDecimal("10.00");
+        BigDecimal nine = new BigDecimal("9.20");
+        BigDecimal rate = new BigDecimal("0.92");
+        Date day = Date.valueOf(LocalDate.of(2026, 9, 25));
+        assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "EUR", nine, null, null, null, anna,
+                anna), CHECK_VIOLATION, "in the base currency EUR, the base amount is the amount, without a rate");
+        db.rollback();
+        assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "EUR", ten, null, "ENTERED", null, anna,
+                anna), CHECK_VIOLATION, "in the base currency EUR, the base amount is the amount, without a rate");
+        db.rollback();
+        assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, null, null, null, anna,
+                anna), CHECK_VIOLATION, "an amount in USD needs the source of its base amount in EUR");
+        db.rollback();
+        assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, null, "ECB", null, anna,
+                anna), CHECK_VIOLATION, "family_record_rate_source_check");
+        db.rollback();
+        assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, rate, "ENTERED", day, anna,
+                anna), CHECK_VIOLATION, "family_record_rate_source_check");
+        db.rollback();
+        assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, rate, "MANUAL", null, anna,
+                anna), CHECK_VIOLATION, "family_record_rate_source_check");
+        db.rollback();
+        long converted = insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, rate, "ECB", day, anna, anna);
+        share(family, converted, anna, "9.20", anna);
+        long entered = insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, null, "ENTERED", null, anna,
+                anna);
+        share(family, entered, anna, "9.20", anna);
+        db.commit();
+        // A change back to the base currency drops the rate with it.
+        assertFails(() -> update("UPDATE family_record SET original_currency = 'EUR', original_amount = 9.20 "
+                + "WHERE id = ?", converted), CHECK_VIOLATION, "in the base currency EUR, the base amount is the amount");
+        db.rollback();
+        update("UPDATE family_record SET original_currency = 'EUR', original_amount = 9.20, base_rate = NULL, "
+                + "base_rate_source = NULL, base_rate_date = NULL WHERE id = ?", converted);
+        db.commit();
+
+        String debtAccount = "INSERT INTO account (user_id, ledger_id, code, name, type, is_system, family_ledger_id) "
+                + "VALUES (?, ?, ?, 'Debt to family budget: Family', 'LIABILITY', TRUE, ?)";
+        // FX_EXCHANGE only in the acting payer's own ledger, for a payment: not without it, and not in a share.
+        writer("family-posting");
+        long debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        long payment = familyEntry("FAMILY_PAYMENT");
+        assertFails(() -> post(payment, fxExchange, "USD", "10.00"), CHECK_VIOLATION,
+                "the family posting may not post FAMILY_PAYMENT to account FX_EXCHANGE");
+        db.rollback();
+        writer("family-posting");
+        number("SELECT length(set_config('app.own_ledger', ?, true))", String.valueOf(ledger));
+        debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        long share = familyEntry("FAMILY_SHARE");
+        assertFails(() -> post(share, fxExchange, "USD", "10.00"), CHECK_VIOLATION,
+                "the family posting may not post FAMILY_SHARE to account FX_EXCHANGE");
+        db.rollback();
+        writer("family-posting");
+        number("SELECT length(set_config('app.own_ledger', ?, true))", String.valueOf(ledger));
+        debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        long ownPayment = familyEntry("FAMILY_PAYMENT");
+        post(ownPayment, cash, "USD", "-10.00");
+        post(ownPayment, fxExchange, "USD", "10.00");
+        post(ownPayment, fxExchange, "EUR", "-9.20");
+        post(ownPayment, debt, "EUR", "9.20");
+        insert("INSERT INTO family_entry_link (entry_id, family_ledger_id, member_id, record_id, link_type, "
+                + "system_owned) VALUES (?, ?, ?, ?, 'PAYMENT', FALSE)", ownPayment, family, anna, entered);
+        writer("");
+        db.commit();
+        assertThat(strings("SELECT currency || ' ' || sum(amount) FROM posting WHERE entry_id = ? GROUP BY currency "
+                + "ORDER BY currency", ownPayment)).containsExactly("EUR 0.0000", "USD 0.0000");
     }
 
     /**

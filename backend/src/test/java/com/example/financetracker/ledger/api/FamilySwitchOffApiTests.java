@@ -38,8 +38,8 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     @Test
     void everyFamilyEndpointAnswers404LikeAnUnknownPath() throws IOException {
         List<String[]> endpoints = familyEndpoints();
-        // 22 until F4c; POST /settlements since F4d.
-        assertThat(endpoints).hasSize(23);
+        // 22 until F4c; POST /settlements since F4d; GET /conversion since F4e.
+        assertThat(endpoints).hasSize(24);
         assertThat(context.getBeanNamesForType(FamilyLedgerController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyRecordController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyPaymentController.class)).isEmpty();

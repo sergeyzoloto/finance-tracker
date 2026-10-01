@@ -1047,6 +1047,67 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(digestOf(bob)).isEqualTo(bobsRows);
     }
 
+    /**
+     * Other currencies (F4e): {@code GET /conversion} answers Bob on B and on either personal ledger, and Carol on A, B
+     * and Alice's personal ledger, as a missing family ledger does. In A it converts with the caller's own manual rate
+     * only: Alice's roubles convert at her rate, Bob's at none. Alice settles in dollars with Bob, who puts his side on
+     * his rouble account with the roubles he got: that amount, his account and its currency are in his answers only,
+     * and Carol's view stays as it was.
+     */
+    @Test
+    void aConversionAndASidesOwnAmountAreTheMembersOwn() throws IOException {
+        String carol = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        ok(post(alice, "/api/rates/manual", """
+                {"date": "2026-08-01", "base": "EUR", "quote": "RUB", "rate": "100"}"""));
+        ok(post(alice, "/api/rates/manual", """
+                {"date": "2026-08-01", "base": "EUR", "quote": "USD", "rate": "1.12"}"""));
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01"}""")
+                .get("id").asLong();
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        String inA = "/api/family-ledgers/" + familyA;
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice",
+                 "startDate": "2026-08-01"}""").get("id").asLong();
+
+        String conversion = "/api/family-ledgers/%d/conversion?amount=9000&currency=RUB&date=2026-08-20";
+        SoftAssertions softly = new SoftAssertions();
+        for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+            answersAsIfMissing(softly, HttpMethod.GET, conversion, ledger, null);
+        }
+        for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
+            answersAsIfMissingTo(softly, carol, HttpMethod.GET, conversion.formatted(ledger),
+                    conversion.formatted(MISSING), null);
+        }
+        softly.assertAll();
+        // In A, each with their own rate: Alice's converts, and Bob gets none of hers.
+        assertThat(ok(get(alice, conversion.formatted(familyA))).get("baseAmount").asText()).isEqualTo("90.00");
+        JsonNode bobs = bobReads(conversion.formatted(familyA));
+        assertThat(bobs.get("baseAmount").isNull()).isTrue();
+        assertThat(fieldNames(bobs)).doesNotContain("rate", "rateSource", "rateDate");
+
+        long bobsRoubles = created(post(bob, "/api/accounts", """
+                {"code": "BOB_RUB", "name": "BOB_PRIVATE_ROUBLES", "type": "ASSET", "defaultCurrency": "RUB"}"""));
+        JsonNode paid = body(post(alice, inA + "/settlements", """
+                {"date": "2026-08-20", "amount": "56.00", "currency": "USD", "payerMemberId": %d, "payeeMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(mumInA, bobInA, alicesBank)), HttpStatus.CREATED);
+        String path = inA + "/records/" + paid.get("id").asLong();
+        assertThat(paid.get("amount").asText()).isEqualTo("50.00");
+        // His own write: his side on his rouble account, with what he got.
+        JsonNode his = ok(patch(bob, path + "?version=0", """
+                {"paymentAccountId": %d, "accountAmount": "4321.98"}""".formatted(bobsRoubles)));
+        assertThat(his.get("yourPayment").get("amount").asText()).isEqualTo("4321.98");
+        assertThat(his.get("yourPayment").get("currency").asText()).isEqualTo("RUB");
+        for (String read : List.of("/records", "/records/" + paid.get("id").asLong(), "/journal", "/balances")) {
+            JsonNode alices = ok(get(alice, inA + read));
+            assertThat(alices.toString()).as(read).doesNotContain("4321", "RUB", "BOB_");
+            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsRoubles));
+        }
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+    }
+
     /** Every field name in the JSON, at any depth. */
     private static Set<String> fieldNames(JsonNode node) {
         Set<String> names = new TreeSet<>();

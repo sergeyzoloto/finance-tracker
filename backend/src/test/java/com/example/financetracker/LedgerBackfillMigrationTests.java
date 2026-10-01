@@ -125,7 +125,7 @@ class LedgerBackfillMigrationTests {
                         || (SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m)""";
             String before = strings(everything).getFirst();
             Map<String, Long> rowsWithFamily = rows();
-            MigrateResult v7 = flyway(null).migrate();
+            MigrateResult v7 = flyway("7").migrate();
             assertThat(v7.success).isTrue();
             assertThat(v7.targetSchemaVersion).isEqualTo("7");
             assertThat(rows()).isEqualTo(rowsWithFamily);
@@ -138,6 +138,30 @@ class LedgerBackfillMigrationTests {
                     .containsExactly("PERSONAL -", "PERSONAL -", "PERSONAL -", "PERSONAL -", "PERSONAL -",
                             "SHARED " + created);
             assertThat(number("SELECT count(*) FROM account WHERE family_ledger_id IS NOT NULL")).isZero();
+
+            // A settlement in the family ledger as the code of V7 writes one, in the base currency with the base
+            // amount as its original amount: V8 (F4e) changes no row, and gives it no rate.
+            db.createStatement().execute("""
+                    INSERT INTO ledger_member (ledger_id, ledger_type, display_name, role, status, join_date)
+                    SELECT max(id), 'SHARED', 'Sam', 'MEMBER', 'ACTIVE', DATE '2026-09-28' FROM ledger""");
+            db.createStatement().execute("""
+                    INSERT INTO family_record (ledger_id, type, record_date, payer_member_id, payee_member_id,
+                        original_amount, original_currency, base_amount, author_member_id, updated_by_member_id,
+                        updated_at)
+                    SELECT l.id, 'SETTLEMENT', l.start_date, sam.id, olive.id, 5, 'EUR', 5, olive.id, olive.id, now()
+                    FROM ledger l JOIN ledger_member sam ON sam.ledger_id = l.id AND sam.display_name = 'Sam'
+                    JOIN ledger_member olive ON olive.ledger_id = l.id AND olive.display_name = 'Olive'""");
+            String records = "SELECT string_agg(r::text, '|' ORDER BY r.id) FROM family_record r";
+            String beforeV8 = strings(everything).getFirst() + strings(records).getFirst();
+            Map<String, Long> rowsBeforeV8 = rows();
+            MigrateResult v8 = flyway(null).migrate();
+            assertThat(v8.success).isTrue();
+            assertThat(v8.targetSchemaVersion).isEqualTo("8");
+            assertThat(rows()).isEqualTo(rowsBeforeV8);
+            // The record gains three empty columns: the rate, its source and its day.
+            assertThat((strings(everything).getFirst() + strings(records).getFirst()).replace(",,,)", ")"))
+                    .isEqualTo(beforeV8);
+            assertThat(number("SELECT count(*) FROM family_record WHERE base_rate_source IS NULL")).isOne();
         } finally {
             db.close();
         }

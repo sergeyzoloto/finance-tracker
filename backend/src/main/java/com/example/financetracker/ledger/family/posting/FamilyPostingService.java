@@ -43,6 +43,11 @@ import org.springframework.transaction.annotation.Transactional;
  * side of a settlement is in the base currency on their placeholder, or in their own account's currency with the
  * amount they name for it, which only their entry holds.
  * <p>
+ * A member who joined after the family ledger's start date by taking a seat (F5, D-18) has a family balance from the
+ * records before their join date, which they shared as a member without an account: it arrives as one opening balance
+ * ({@code FAMILY_OPENING}), dated on their join date, their debt account −balance and OPENING_BALANCE +balance, kept in
+ * step whenever a record changes.
+ * <p>
  * So a member's debt account always shows their family balance (D-10). Re-posting is idempotent, keyed by record,
  * member and link type: an entry as wanted stays, a different one is replaced (same entry, new version), a missing one
  * is written and one no longer wanted is deleted. A payment or a side follows the record's date and amount (F4c): it is
@@ -118,6 +123,43 @@ public class FamilyPostingService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void post(LedgerScope family, long recordId, Payment payment) {
+        postRecord(family, recordId, payment);
+        openings(family);
+    }
+
+    /**
+     * Posts the family ledger to the member the scope stands for, who has just joined (F5; D-18, ADR 0003 topic E):
+     * their debt account; every record dated on or after their join date in which they have a share, or which they paid,
+     * received or settled while they had no account, their side of it on their "Payments without a specified account"
+     * (D-24); and their balance before their join date as an opening balance. A new member, who joins today, has
+     * none of those yet, only the debt account. Records are never split again (D-18).
+     *
+     * @param family the family ledger, as the member who joined
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void join(LedgerScope family) {
+        long memberId = family.memberId();
+        writer.debtAccount(family, memberId);
+        record Involved(long id, boolean pays) {
+        }
+        List<Involved> records = jdbc.sql("""
+                SELECT r.id, r.type <> 'SETTLEMENT' AND r.payer_member_id = :memberId AS pays
+                FROM family_record r
+                JOIN ledger_member m ON m.id = :memberId AND m.ledger_id = r.ledger_id
+                WHERE r.ledger_id = :familyId AND r.deleted_at IS NULL AND r.record_date >= m.join_date
+                  AND (r.payer_member_id = :memberId OR r.payee_member_id = :memberId
+                       OR EXISTS (SELECT FROM family_share s
+                                  WHERE s.record_id = r.id AND s.member_id = :memberId AND s.amount > 0))
+                ORDER BY r.record_date, r.id""")
+                .param("memberId", memberId).param("familyId", family.ledgerId())
+                .query((row, n) -> new Involved(row.getLong("id"), row.getBoolean("pays")))
+                .list();
+        // What they paid or received themselves goes to their placeholder, for them to put on an account (D-18).
+        records.forEach(record -> postRecord(family, record.id(), record.pays() ? new Later(null) : new Unchanged()));
+        openings(family);
+    }
+
+    private void postRecord(LedgerScope family, long recordId, Payment payment) {
         record Record(String type, LocalDate date, boolean deleted, long payerId, Long payeeId, long authorId,
                 Long categoryId, BigDecimal amount, String currency, BigDecimal originalAmount,
                 String originalCurrency) {
@@ -196,6 +238,59 @@ public class FamilyPostingService {
             }
         }
         wanted.values().forEach(entry -> writer.write(family, entry));
+    }
+
+    /**
+     * The opening balances (F5; D-18, ADR 0003 topic E) of the members with an account who joined after the start
+     * date: each one's family balance from the records dated before their join date, as one entry on their join date,
+     * their debt account −balance and OPENING_BALANCE +balance; none for a balance of 0. Like a record's entries, an
+     * equal one stays, a different one is replaced and one no longer wanted goes, so a change of a record before a
+     * member's join date reaches their opening balance (D-10).
+     */
+    private void openings(LedgerScope family) {
+        record Joined(long memberId, LocalDate joinDate, String currency, BigDecimal before) {
+        }
+        List<Joined> joined = jdbc.sql("""
+                SELECT m.id, m.join_date, l.base_currency,
+                       coalesce((SELECT sum(CASE r.type WHEN 'EXPENSE' THEN s.amount ELSE -s.amount END)
+                                 FROM family_share s JOIN family_record r ON r.id = s.record_id
+                                 WHERE s.member_id = m.id AND r.ledger_id = l.id AND r.deleted_at IS NULL
+                                   AND r.record_date < m.join_date), 0)
+                       - coalesce((SELECT sum(CASE r.type WHEN 'INCOME' THEN -r.base_amount ELSE r.base_amount END)
+                                   FROM family_record r
+                                   WHERE r.payer_member_id = m.id AND r.ledger_id = l.id AND r.deleted_at IS NULL
+                                     AND r.record_date < m.join_date), 0)
+                       + coalesce((SELECT sum(r.base_amount) FROM family_record r
+                                   WHERE r.payee_member_id = m.id AND r.ledger_id = l.id AND r.deleted_at IS NULL
+                                     AND r.record_date < m.join_date), 0) AS before
+                FROM ledger_member m JOIN ledger l ON l.id = m.ledger_id
+                WHERE m.ledger_id = :familyId AND m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
+                  AND m.join_date > l.start_date
+                ORDER BY m.id""")
+                .param("familyId", family.ledgerId())
+                .query((row, n) -> new Joined(row.getLong("id"), row.getObject("join_date", LocalDate.class),
+                        row.getString("base_currency"), row.getBigDecimal("before")))
+                .list();
+        for (Joined member : joined) {
+            Link existing = writer.openingLink(family, member.memberId());
+            if (member.before().signum() == 0) {
+                if (existing != null) {
+                    writer.delete(family, existing);
+                }
+                continue;
+            }
+            PostedEntry wanted = new PostedEntry(member.memberId(), null, LinkType.OPENING_BALANCE,
+                    EntryKind.FAMILY_OPENING, true, member.joinDate(), List.of(
+                            new Line(writer.debtAccount(family, member.memberId()), member.currency(),
+                                    member.before().negate(), null),
+                            new Line(writer.openingBalance(family, member.memberId()), member.currency(),
+                                    member.before(), null)), null);
+            if (existing == null) {
+                writer.write(family, wanted);
+            } else if (!writer.holds(family, existing, wanted)) {
+                writer.replace(family, existing, wanted);
+            }
+        }
     }
 
     /**

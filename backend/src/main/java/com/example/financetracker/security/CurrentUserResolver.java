@@ -65,7 +65,7 @@ class CurrentUserResolver implements HandlerMethodArgumentResolver {
             userData.provision(jwt.getSubject(), jwt.getClaimAsString("email"), displayName(jwt));
             provisioned.add(jwt.getSubject());
         }
-        return new CurrentUser(jwt.getSubject());
+        return new CurrentUser(jwt.getSubject(), displayName(jwt));
     }
 
     /** The user deleted all their data: their next request provisions them again, as on their first. */

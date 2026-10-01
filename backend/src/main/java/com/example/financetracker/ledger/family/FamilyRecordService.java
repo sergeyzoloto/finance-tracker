@@ -146,7 +146,7 @@ public class FamilyRecordService {
                 request.baseAmount(), violations) : null;
         List<Share> shares = base == null ? List.of()
                 : split(request.split(), base.amount(), scale, request.date(), request.payerMemberId(), ledger,
-                        members, violations, type);
+                        members, Set.of(), violations, type);
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
         }
@@ -281,7 +281,10 @@ public class FamilyRecordService {
             violations.add(new Violation(ACCOUNT_AMOUNT, family.memberId(), "only the other side of a settlement names "
                     + "an amount for their account; the %s's amount is its own".formatted(noun(type))));
         }
-        Payment payment = changedPayment(family, personal, record, changes, date, payerId, members, violations);
+        Map<Long, ShareRow> oldShares = shares(family, List.of(recordId)).getOrDefault(recordId, Map.of());
+        Set<Long> guests = guests(record, oldShares, members);
+        Payment payment = changedPayment(family, personal, record, changes, date, payerId, members, guests,
+                violations);
         // The original amount in its currency, as the payer paid it (D-13).
         String currency = changes.currency() == null ? record.originalCurrency() : changes.currency();
         BigDecimal original = changes.amount() == null ? record.originalAmount() : changes.amount();
@@ -299,17 +302,16 @@ public class FamilyRecordService {
         BigDecimal amount = base.amount();
         boolean amountChanged = amount.compareTo(record.amount()) != 0;
         String comment = changes.changesComment() ? changes.comment() : record.comment();
-        Map<Long, ShareRow> oldShares = shares(family, List.of(recordId)).getOrDefault(recordId, Map.of());
         List<Share> newShares = null;
         String method = record.splitMethod();
         boolean amountValid = violations.stream().noneMatch(v -> v.code().equals(AMOUNT));
         if (changes.split() != null) {
-            newShares = amountValid ? split(changes.split(), amount, scale, date, payerId, ledger, members, violations,
-                    type) : List.of();
+            newShares = amountValid ? split(changes.split(), amount, scale, date, payerId, ledger, members, guests,
+                    violations, type) : List.of();
             method = method(changes.split(), ledger);
         } else if (amountChanged || !date.equals(record.date()) || payerId != record.payerId()) {
             newShares = amountValid ? resplit(record, oldShares, amount, amountChanged, scale, date, payerId, members,
-                    violations) : List.of();
+                    guests, violations) : List.of();
         }
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
@@ -649,14 +651,18 @@ public class FamilyRecordService {
         if (changes.changesNote()) {
             violations.add(new Violation(PAYMENT, family.memberId(), "a settlement takes no private note"));
         }
+        Set<Long> guests = guests(record, Map.of(), members);
         for (long sideId : List.of(record.payerId(), record.payeeId())) {
             Member side = members.get(sideId);
-            if (!date.equals(record.date()) && side.hasAccount() && side.joinDate().isAfter(date)) {
+            if (!date.equals(record.date()) && side.hasAccount() && side.joinDate().isAfter(date)
+                    && !guests.contains(sideId)) {
                 violations.add(joinedAfter(side, date, SETTLEMENT));
             }
         }
         Payment payment = new FamilyPostingService.Unchanged();
-        if (changes.namesAccount() && ownSide) {
+        if (changes.namesAccount() && ownSide && members.get(family.memberId()).joinDate().isAfter(date)) {
+            violations.add(beforeJoining(members.get(family.memberId()), SETTLEMENT));
+        } else if (changes.namesAccount() && ownSide) {
             payment = paidWith(personal, family.memberId(), changes.paymentAccountId(), changes.paymentLater(), null,
                     violations, SETTLEMENT);
         } else if (changes.namesAccount()) {
@@ -907,7 +913,7 @@ public class FamilyRecordService {
      * become a payer with an account.
      */
     private Payment changedPayment(LedgerScope family, LedgerScope personal, RecordRow record,
-            FamilyRecordChanges changes, LocalDate date, long payerId, Map<Long, Member> members,
+            FamilyRecordChanges changes, LocalDate date, long payerId, Map<Long, Member> members, Set<Long> guests,
             List<Violation> violations) {
         Member payer = members.get(payerId);
         String type = record.type();
@@ -947,10 +953,18 @@ public class FamilyRecordService {
         }
         // The payer with an account stays, and is the caller: only they change the payment fields.
         if (payer.joinDate().isAfter(date)) {
-            violations.add(joinedAfter(payer, date, type));
+            // Paid before they took their seat (F5, D-18): in their opening balance, with no payment entry.
+            if (!guests.contains(payerId)) {
+                violations.add(joinedAfter(payer, date, type));
+            } else if (changes.namesAccount() || changes.changesNote()) {
+                violations.add(beforeJoining(payer, type));
+            }
+            return new FamilyPostingService.Unchanged();
         }
         if (!changes.namesAccount() && !changes.changesNote()) {
-            return new FamilyPostingService.Unchanged();
+            // Moved from before their join date to it or after: posted now, to "Specify later" (D-18).
+            return guests.contains(payerId) && record.date().isBefore(payer.joinDate())
+                    ? new FamilyPostingService.Later(null) : new FamilyPostingService.Unchanged();
         }
         OwnPayment current = posting.ownPayments(family, List.of(record.id())).get(record.id());
         String note = changes.changesNote() ? changes.note() : current == null ? null : current.note();
@@ -1183,7 +1197,8 @@ public class FamilyRecordService {
      * needs the new amounts with it.
      */
     private List<Share> resplit(RecordRow record, Map<Long, ShareRow> old, BigDecimal amount, boolean amountChanged,
-            int scale, LocalDate date, long payerId, Map<Long, Member> members, List<Violation> violations) {
+            int scale, LocalDate date, long payerId, Map<Long, Member> members, Set<Long> guests,
+            List<Violation> violations) {
         List<Member> byJoinDate = members.values().stream()
                 .sorted(Comparator.comparing(Member::joinDate).thenComparing(Member::id)).toList();
         int before = violations.size();
@@ -1191,8 +1206,8 @@ public class FamilyRecordService {
         switch (record.splitMethod()) {
             case "EQUAL" -> {
                 List<Long> participants = byJoinDate.stream()
-                        .filter(m -> m.status() == MemberStatus.ACTIVE && joinedBy(m, date) && (old.containsKey(m.id())
-                                || m.hasAccount() && m.joinDate().isAfter(record.date())))
+                        .filter(m -> m.status() == MemberStatus.ACTIVE && sharesOn(m, date, guests)
+                                && (old.containsKey(m.id()) || m.hasAccount() && m.joinDate().isAfter(record.date())))
                         .map(Member::id).toList();
                 if (participants.isEmpty()) {
                     violations.add(new Violation(NO_MEMBERS, null, "no active member shares %s of %s"
@@ -1209,7 +1224,7 @@ public class FamilyRecordService {
                         continue;
                     }
                     int basisPoints = share.basisPoints() == null ? 0 : share.basisPoints();
-                    if (basisPoints > 0 && !joinedBy(member, date)) {
+                    if (basisPoints > 0 && !sharesOn(member, date, guests)) {
                         violations.add(joinedAfter(member, date, type));
                     }
                     weights.add(new Weight(member.id(), basisPoints, basisPoints));
@@ -1219,7 +1234,7 @@ public class FamilyRecordService {
             case "ONE_MEMBER" -> {
                 ShareRow on = old.values().stream().max(Comparator.comparing(ShareRow::amount)).orElseThrow();
                 Member member = members.get(on.memberId());
-                if (!joinedBy(member, date)) {
+                if (!sharesOn(member, date, guests)) {
                     violations.add(joinedAfter(member, date, type));
                     return List.of();
                 }
@@ -1237,7 +1252,7 @@ public class FamilyRecordService {
                     if (share == null) {
                         continue;
                     }
-                    if (share.amount().signum() > 0 && !joinedBy(member, date)) {
+                    if (share.amount().signum() > 0 && !sharesOn(member, date, guests)) {
                         violations.add(joinedAfter(member, date, type));
                     }
                     shares.add(new Share(member.id(), share.amount(), null));
@@ -1253,7 +1268,7 @@ public class FamilyRecordService {
      * record on or after their join date, which is when records are posted to them (D-7, D-18).
      */
     private List<Share> split(RecordSplit split, BigDecimal amount, int scale, LocalDate date, long payerId,
-            Ledger ledger, Map<Long, Member> members, List<Violation> violations, String type) {
+            Ledger ledger, Map<Long, Member> members, Set<Long> guests, List<Violation> violations, String type) {
         RecordSplit wanted = split == null ? RecordSplit.rule() : split;
         List<Member> byJoinDate = members.values().stream()
                 .sorted(Comparator.comparing(Member::joinDate).thenComparing(Member::id)).toList();
@@ -1262,8 +1277,8 @@ public class FamilyRecordService {
             case RULE -> {
                 if (ledger.splitRule() == SplitRule.EQUAL) {
                     List<Long> participants = byJoinDate.stream()
-                            .filter(m -> m.status() == MemberStatus.ACTIVE && joinedBy(m, date)).map(Member::id)
-                            .toList();
+                            .filter(m -> m.status() == MemberStatus.ACTIVE && sharesOn(m, date, guests))
+                            .map(Member::id).toList();
                     if (participants.isEmpty()) {
                         violations.add(new Violation(NO_MEMBERS, null, "no active member shares %s of %s"
                                 .formatted(article(type), date)));
@@ -1274,7 +1289,7 @@ public class FamilyRecordService {
                 List<Weight> weights = new ArrayList<>();
                 for (Member member : byJoinDate) {
                     if (member.status() == MemberStatus.ACTIVE && member.share() != null) {
-                        if (member.share() > 0 && !joinedBy(member, date)) {
+                        if (member.share() > 0 && !sharesOn(member, date, guests)) {
                             violations.add(joinedAfter(member, date, type));
                         }
                         weights.add(new Weight(member.id(), member.share(), member.share()));
@@ -1283,7 +1298,7 @@ public class FamilyRecordService {
                 return violations.size() > before ? List.of() : ShareSplit.percent(amount, scale, weights, payerId);
             }
             case PERCENT -> {
-                Map<Long, ShareInput> inputs = inputs(wanted, members, date, violations, true, type);
+                Map<Long, ShareInput> inputs = inputs(wanted, members, date, guests, violations, true, type);
                 long total = 0;
                 boolean valid = true;
                 for (ShareInput input : inputs.values()) {
@@ -1307,7 +1322,7 @@ public class FamilyRecordService {
                 return ShareSplit.percent(amount, scale, weights, payerId);
             }
             case AMOUNT -> {
-                Map<Long, ShareInput> inputs = inputs(wanted, members, date, violations, false, type);
+                Map<Long, ShareInput> inputs = inputs(wanted, members, date, guests, violations, false, type);
                 boolean valid = true;
                 for (ShareInput input : inputs.values()) {
                     BigDecimal share = input.amount();
@@ -1343,7 +1358,7 @@ public class FamilyRecordService {
                             : FamilyLedgerService.notActive(memberId));
                     return List.of();
                 }
-                if (!joinedBy(member, date)) {
+                if (!sharesOn(member, date, guests)) {
                     violations.add(joinedAfter(member, date, type));
                     return List.of();
                 }
@@ -1355,7 +1370,7 @@ public class FamilyRecordService {
 
     /** The shares as entered, by member, each of an ACTIVE member who shares records of the date, once. */
     private static Map<Long, ShareInput> inputs(RecordSplit split, Map<Long, Member> members, LocalDate date,
-            List<Violation> violations, boolean percent, String type) {
+            Set<Long> guests, List<Violation> violations, boolean percent, String type) {
         Map<Long, ShareInput> inputs = new LinkedHashMap<>();
         Set<Long> reported = new HashSet<>();
         for (ShareInput input : split.shares()) {
@@ -1367,7 +1382,7 @@ public class FamilyRecordService {
                 }
             } else if (member == null || member.status() != MemberStatus.ACTIVE) {
                 violations.add(FamilyLedgerService.notActive(input.memberId()));
-            } else if (!joinedBy(member, date) && (percent ? input.basisPoints() != null && input.basisPoints() > 0
+            } else if (!sharesOn(member, date, guests) && (percent ? input.basisPoints() != null && input.basisPoints() > 0
                     : input.amount() != null && input.amount().signum() > 0)) {
                 violations.add(joinedAfter(member, date, type));
             }
@@ -1381,6 +1396,43 @@ public class FamilyRecordService {
     /** A member without an account shares any record; one with an account those on or after their join date. */
     private static boolean joinedBy(Member member, LocalDate date) {
         return !member.hasAccount() || !member.joinDate().isAfter(date);
+    }
+
+    /**
+     * Whether the member may have a share of a record of the date: as {@link #joinedBy}, or as one of the record's
+     * {@link #guests}, who keeps their part in it.
+     */
+    private static boolean sharesOn(Member member, LocalDate date, Set<Long> guests) {
+        return joinedBy(member, date) || guests.contains(member.id());
+    }
+
+    /**
+     * The record's members from before they had an account (F5, D-18): members with an account who took their seat
+     * after the record's date, and who were in it already, as its payer, its receiver or with a share. They stay in it
+     * as they were, through any change that keeps it before their join date: their part of it is in their opening
+     * balance (FamilyPostingService). Nobody else with an account comes into a record dated before their join date.
+     */
+    private static Set<Long> guests(RecordRow record, Map<Long, ShareRow> shares, Map<Long, Member> members) {
+        Set<Long> involved = new HashSet<>(shares.keySet());
+        involved.add(record.payerId());
+        if (record.payeeId() != null) {
+            involved.add(record.payeeId());
+        }
+        Set<Long> guests = new HashSet<>();
+        for (long memberId : involved) {
+            Member member = members.get(memberId);
+            if (member != null && member.hasAccount() && member.joinDate().isAfter(record.date())) {
+                guests.add(memberId);
+            }
+        }
+        return guests;
+    }
+
+    /** A member's own part of a record dated before they took their seat, which no entry of theirs holds (D-18). */
+    private static Violation beforeJoining(Member member, String type) {
+        return new Violation(PAYMENT, member.id(), ("this %s is dated before %s took their place in the family budget "
+                + "on %s, so it is part of their opening balance and has no account of theirs")
+                .formatted(noun(type), member.displayName(), member.joinDate()));
     }
 
     private static Violation joinedAfter(Member member, LocalDate date, String type) {

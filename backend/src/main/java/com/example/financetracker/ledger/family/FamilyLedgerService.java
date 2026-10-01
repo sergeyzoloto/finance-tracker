@@ -121,10 +121,11 @@ public class FamilyLedgerService {
     }
 
     /**
-     * Moves the creator's postings from their personal category to the family category that replaces it, and deletes
-     * the personal one (D-11). The posting trigger lets them use it: the creator is an ACTIVE member by now (V7).
+     * Moves the member's postings from their personal category to the family category that replaces it, and deletes
+     * the personal one (D-11): the creator's at creation, and a joining member's at acceptance (F5). The posting
+     * trigger lets them use it: the member is ACTIVE by now (V7).
      */
-    private void merge(LedgerScope personal, LedgerCategory mine, LedgerCategory family) {
+    void merge(LedgerScope personal, LedgerCategory mine, LedgerCategory family) {
         jdbc.sql("""
                 UPDATE posting SET category_id = :family
                 WHERE category_id = :mine AND entry_id IN (SELECT id FROM journal_entry WHERE ledger_id = :ledgerId)""")

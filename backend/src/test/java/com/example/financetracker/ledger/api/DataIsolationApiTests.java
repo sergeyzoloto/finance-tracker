@@ -1108,6 +1108,172 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
+    /**
+     * Invites (F5; D-17, D-18; ADR 0003, topics G and K), with four users: Alice owns A, where Bob is a member and Sam
+     * has no account, and B alone; Carol and Dave belong to neither. The owners' invite endpoints answer Bob on B, and
+     * on either personal ledger, and Carol on A and B, as for a family ledger that doesn't exist; Bob, a member of A,
+     * gets 409, not A's invites. A token lets nobody into anything but its own family budget: before Carol accepts it,
+     * she reads nothing of B but the lookup, which holds no sub, email address, account, record or category of
+     * Alice's; a used, revoked or guessed token gets the one invalid answer, also for Carol holding the one Dave used;
+     * and Bob can't take a second place in A. Taking Sam's place posts into Dave's personal ledger only: Alice's and
+     * Bob's personal rows stay as they were (D-8).
+     */
+    @Test
+    void invitesLetTheirHoldersIntoTheirOwnFamilyBudgetOnly() throws IOException {
+        String carol = newUser();
+        String dave = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01"}""")
+                .get("id").asLong();
+        join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        String inA = "/api/family-ledgers/" + familyA;
+        long sam = created(post(alice, inA + "/members", """
+                {"displayName": "Sam"}"""));
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long rentInA = created(post(alice, inA + "/categories", """
+                {"code": "RENT", "name": "Rent", "type": "EXPENSE"}"""));
+        created(post(alice, inA + "/records", """
+                {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(rentInA, mumInA, alicesBank)));
+        created(post(alice, inA + "/records", """
+                {"date": "2026-08-20", "categoryId": %d, "amount": "30.00", "payerMemberId": %d}"""
+                .formatted(rentInA, sam)));
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice", "categoryIds": [%d],
+                 "startDate": "2026-08-01"}""".formatted(alicesGifts)).get("id").asLong();
+        String inB = "/api/family-ledgers/" + familyB;
+        long aliceInB = find(ok(get(alice, inB + "/members")), "displayName", "Alice").get("id").asLong();
+        long giftsInB = find(ok(get(alice, inB + "/categories")), "code", "ALICE_GIFTS").get("id").asLong();
+        created(post(alice, inB + "/records", """
+                {"type": "INCOME", "date": "2026-08-12", "categoryId": %d, "amount": "77.77", "payerMemberId": %d,
+                 "paymentAccountId": %d, "comment": "ALICE_PRIVATE_COMMENT"}""".formatted(giftsInB, aliceInB,
+                alicesBank)));
+        String tokenOfB = invite(alice, inB, """
+                {"kind": "NEW_MEMBER"}""");
+        long inviteOfB = ok(get(alice, inB + "/invites")).get(0).get("id").asLong();
+        String usedOfA = invite(alice, inA, """
+                {"kind": "NEW_MEMBER"}""");
+        assertThat(inviteCall(dave, "accept", "{\"token\": \"%s\", \"displayName\": \"Dave\"}".formatted(usedOfA)))
+                .hasStatus(HttpStatus.OK);
+        String newMemberOfA = invite(alice, inA, """
+                {"kind": "NEW_MEMBER"}""");
+        String revokedOfB = invite(alice, inB, """
+                {"kind": "NEW_MEMBER"}""");
+        assertThat(delete(alice, inB + "/invites/" + ok(get(alice, inB + "/invites")).get(0).get("id").asLong()))
+                .hasStatus(HttpStatus.NO_CONTENT);
+
+        // The owners' endpoints.
+        List<FamilyRequest> requests = List.of(
+                new FamilyRequest(HttpMethod.POST, "/invites", """
+                        {"kind": "NEW_MEMBER"}"""),
+                new FamilyRequest(HttpMethod.GET, "/invites", null),
+                new FamilyRequest(HttpMethod.DELETE, "/invites/" + inviteOfB, null));
+        SoftAssertions softly = new SoftAssertions();
+        for (FamilyRequest request : requests) {
+            String uri = "/api/family-ledgers/%d" + request.path();
+            for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+                answersAsIfMissing(softly, request.method(), uri, ledger, request.body());
+            }
+            for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
+                answersAsIfMissingTo(softly, carol, request.method(), uri.formatted(ledger), uri.formatted(MISSING),
+                        request.body());
+            }
+            // A member of A who isn't its owner gets the owners' rule, not its invites.
+            MvcTestResult asMember = bobsRequest(request.method(), uri.formatted(familyA), request.body());
+            softly.assertThat(asMember.getResponse().getStatus()).as("%s %s in A", request.method(), request.path())
+                    .isEqualTo(409);
+            softly.assertThat(asMember.getResponse().getContentAsString()).doesNotContain("createdBy", "Sam");
+        }
+        // B's invite through A's path is missing, even for A's owner.
+        softly.assertThat(delete(alice, inA + "/invites/" + inviteOfB).getResponse().getStatus()).isEqualTo(404);
+
+        // The holders' endpoints: Bob's token of A can't make him a second member; the others let nobody in, with one
+        // answer, word for word.
+        String guessed = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        List<String> invalid = new ArrayList<>();
+        // Ten requests of Bob's, the most a minute (InviteRateLimit).
+        Map<String, List<String>> tokens = Map.of("lookup", List.of(guessed, usedOfA, revokedOfB),
+                "accept", List.of(usedOfA, revokedOfB), "decline", List.of(guessed, revokedOfB));
+        for (String action : List.of("lookup", "accept", "decline")) {
+            String bodyFor = "{\"token\": \"%s\", \"displayName\": \"Bob\"}";
+            MvcTestResult second = bobsRequest(() -> inviteCall(bob, action, bodyFor.formatted(newMemberOfA)));
+            softly.assertThat(second.getResponse().getStatus()).as(action + " of A's").isEqualTo(409);
+            for (String token : tokens.get(action)) {
+                MvcTestResult answer = bobsRequest(() -> inviteCall(bob, action, bodyFor.formatted(token)));
+                softly.assertThat(answer.getResponse().getStatus()).as(action).isEqualTo(404);
+                invalid.add(answer.getResponse().getContentAsString());
+            }
+            MvcTestResult carols = inviteCall(carol, action, bodyFor.formatted(usedOfA));
+            softly.assertThat(carols.getResponse().getStatus()).as("Carol's " + action).isEqualTo(404);
+            invalid.add(carols.getResponse().getContentAsString());
+        }
+        softly.assertThat(invalid.stream().map(answer -> answer.replaceAll("/api/invites/\\w+", "PATH")))
+                .containsOnly(invalid.getFirst().replaceAll("/api/invites/\\w+", "PATH"));
+        softly.assertThat(invalid.getFirst()).contains("This invite is not valid. Ask for a new one.");
+        softly.assertThat(ok(get(alice, inA + "/members")).findValuesAsText("displayName"))
+                .containsExactly("Mum", "Dad", "Sam", "Dave");
+        softly.assertAll();
+
+        // Carol holds a valid token of B: before accepting it, she reads nothing of B but its lookup.
+        JsonNode lookup = ok(inviteCall(carol, "lookup", "{\"token\": \"%s\"}".formatted(tokenOfB)));
+        assertThat(lookup.get("ledgerName").asText()).isEqualTo("ALICE_SECRET_BUDGET");
+        assertThat(lookup.toString()).doesNotContain(alice, alice + "@example.com", "ALICE_BANK", "ALICE_PRIVATE",
+                "77.77").doesNotContain(String.valueOf(alicesBank));
+        assertThat(fieldNames(lookup)).doesNotContain("memberId", "accountId", "id", "sub", "email", "records",
+                "ledgerId");
+        assertThat(lookup.findValuesAsText("categoryId")).isSubsetOf(ok(get(carol, "/api/categories"))
+                .findValuesAsText("id"));
+        SoftAssertions carols = new SoftAssertions();
+        for (String path : List.of("", "/members", "/categories", "/records", "/balances", "/journal", "/invites",
+                "/conversion?amount=1&currency=USD&date=2026-08-12")) {
+            answersAsIfMissingTo(carols, carol, HttpMethod.GET, inB + path, "/api/family-ledgers/" + MISSING + path,
+                    null);
+        }
+        answersAsIfMissingTo(carols, carol, HttpMethod.POST, inB + "/records", "/api/family-ledgers/" + MISSING
+                + "/records", """
+                {"type": "INCOME", "date": "2026-08-12", "categoryId": %d, "amount": "1.00", "payerMemberId": %d}"""
+                .formatted(giftsInB, aliceInB));
+        carols.assertAll();
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+
+        // Taking Sam's place writes only into Dave's own personal ledger (D-8).
+        Map<String, String> alicesPersonal = digestOf(alice);
+        Map<String, String> bobsPersonal = digestOf(bob);
+        alicesPersonal.keySet().removeAll(FAMILY_ROWS);
+        bobsPersonal.keySet().removeAll(FAMILY_ROWS);
+        String samsPlace = invite(alice, inA, """
+                {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "2026-08-15"}""".formatted(sam));
+        String erin = newUser();
+        ok(inviteCall(erin, "accept", "{\"token\": \"%s\", \"displayName\": \"Erin\"}".formatted(samsPlace)));
+        Map<String, String> alicesAfter = digestOf(alice);
+        Map<String, String> bobsAfter = digestOf(bob);
+        alicesAfter.keySet().removeAll(FAMILY_ROWS);
+        bobsAfter.keySet().removeAll(FAMILY_ROWS);
+        assertThat(alicesAfter).isEqualTo(alicesPersonal);
+        assertThat(bobsAfter).isEqualTo(bobsPersonal);
+        assertThat(ok(get(erin, inA + "/records")).toString()).doesNotContain("ALICE_BANK", "Alice's bank");
+        assertThat(get(erin, inB)).hasStatus(HttpStatus.NOT_FOUND);
+    }
+
+    /** A new invite of the owner's to the family ledger at the path: its token. */
+    private String invite(String owner, String familyPath, String request) throws IOException {
+        String link = body(post(owner, familyPath + "/invites", request), HttpStatus.CREATED).get("link").asText();
+        return link.substring(link.indexOf('#') + 1);
+    }
+
+    /** POST /api/invites/{action}, from an address of its own (InviteRateLimit counts per address). */
+    private MvcTestResult inviteCall(String user, String action, String body) {
+        String address = "198.18.0." + (INVITE_ADDRESSES.incrementAndGet() % 250 + 1);
+        return mvc.post().uri("/api/invites/" + action).with(member(user)).with(request -> {
+            request.setRemoteAddr(address);
+            return request;
+        }).contentType("application/json").content(body).exchange();
+    }
+
+    private static final java.util.concurrent.atomic.AtomicInteger INVITE_ADDRESSES =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     /** Every field name in the JSON, at any depth. */
     private static Set<String> fieldNames(JsonNode node) {
         Set<String> names = new TreeSet<>();

@@ -31,6 +31,8 @@ services:
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}
       # The family budget's feature switch (D-25): on for local runs, off in production (deploy/app) until F7.
       FAMILY_LEDGERS_ENABLED: "true"
+      # Where the browser reaches this stack, for the links the api hands out (invites); production's is the default.
+      APP_PUBLIC_URL: http://localhost:${FRONTEND_PORT}
     depends_on:
       postgres:
         condition: service_healthy

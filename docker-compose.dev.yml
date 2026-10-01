@@ -11,3 +11,7 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+  backend:
+    environment:
+      # The pages come from the Vite dev server here, so the links the api hands out (invites) point to it.
+      APP_PUBLIC_URL: http://localhost:5173

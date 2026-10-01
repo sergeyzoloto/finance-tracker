@@ -22,7 +22,8 @@ decisions after its review are in topics E and I. F4d is deployed since 2026-10-
 the switch off; the decisions after its review, the settlement lock (D-28) among them, are in topics E
 and I. F4e is deployed since 2026-10-01, from `31419bd`, with the switch off; the decisions after its
 review are in topics E, F and J: D-11 amended for joining members, and returning members (D-26) and
-making another member an owner moved from F5 to F6. The requirements and decisions D-1 to D-28 are in
+making another member an owner moved from F5 to F6. F5, invites and taking a seat, is built as topic G's
+"F5 as built" says, where it also names what differs from that topic's sketch. The requirements and decisions D-1 to D-28 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -730,6 +731,9 @@ Afterwards no row of the member's personal ledger references L. The link rows, m
 as the family side's record of what was posted, also after the member deletes those entries or all
 their data: the link then loses its reference to the entry, never the other way round.
 
+**Taking a seat (F5).** As built in topic G, "F5 as built": `join` posts a claimed seat's records from
+the join date and its opening balance, and every re-post keeps the opening balances in step.
+
 **Returning members (D-26).** Reactivation (topic G) links the same `Debt(L)` again (found by its
 code), matches categories by code as at the first join, and posts every record from the new join
 date. If the displayed balance of `Debt(L)` then differs from the member's family balance B(m), one
@@ -923,6 +927,84 @@ One api instance runs, as the sessions already assume. With 256-bit tokens this 
 guessing is out of reach anyway.
 
 **Satisfies** D-17 (every point), D-18, D-11's acceptance-screen matching, and Keycloak unchanged.
+
+**F5 as built** (2026-10-01; the owner's task decided the points where it differs from the sketch above).
+
+- **Storage (V9).** `ledger_invite` as sketched: a claim is an invite with `seat_member_id` and
+  `join_date`, a new member's has neither; `used_at` with `used_by_member_id`, `declined_at` and
+  `revoked_at`, at most one of them and each final; `expires_at` after `created_at` and at most 7 days
+  later; `token_hash` 32 bytes, unique. A trigger checks that the creator is an ACTIVE owner with an
+  account, that a claim's seat is an ACTIVE member without one with a join date from the start date to
+  today, and that nothing of an invite changes but its one end. The seat's foreign key is `ON DELETE
+  CASCADE`: an owner who removes a member without an account removes the invites for their place.
+  `release_family_memberships` revokes the member's pending invites and deletes a family ledger's
+  invites with it (D-20).
+- **The owners' endpoints** (`FamilyInviteController`, behind the switch): `POST
+  /api/family-ledgers/{ledgerId}/invites` with `kind` (`NEW_MEMBER` or `CLAIM`), `seatMemberId` and
+  `joinDate` for a claim, and `lifetimeHours` (1 to 168, 72 by default) answers 201 with the invite and
+  `link`, `<app.public-url>/invite#<token>` (`APP_PUBLIC_URL`, production's address by default; local
+  runs set theirs), the only answer that ever holds the token. `GET …/invites` lists every invite,
+  newest first: `kind`, `seat`, `joinDate`, `createdBy`, `createdAt`, `expiresAt`, `status` (`PENDING`,
+  `ACCEPTED`, `DECLINED`, `REVOKED`, `EXPIRED`), and `acceptedBy` with `acceptedAt`, `declinedAt` or
+  `revokedAt`. `DELETE …/invites/{inviteId}` revokes a pending one (409 for any other). Owners only
+  (409 for a member, 404 for anyone else, as for every family path). At most 20 pending invites per
+  family ledger (409). A seat with an account, or FORMER, is 409; a missing join date, one before the
+  start date or after today, or one for a new member is 422 `JOIN_DATE`.
+- **The holder's endpoints**: `POST /api/invites/lookup`, `/accept` and `/decline`, the token in the
+  body only. A token that is unknown, expired, revoked, used or declined, and a missing, blank or
+  overlong one, gets one answer, 404 "This invite is not valid. Ask for a new one." The token isn't
+  validated as a field: a validation error would carry the rejected value into Spring's DEBUG log, as
+  would a request record's `toString`, which leaves the token out. **Differs from the sketch:** a
+  valid token that the user can't use gets a 409 of its own, for lookup, accept and decline alike: an
+  ACTIVE member already (the ledger's creator among them), a member who left (until F6 brings
+  returning members, D-26), or a seat taken meanwhile by another invite for it. Decline needs the
+  same, so that a member who opens a link meant for someone else doesn't use it up.
+- **The lookup** answers the ledger's name and base currency, `invitedBy` (the creator's display
+  name), `kind`, `seatName`, `joinDate` (the claim's, or today), `expiresAt`, the family's categories
+  that aren't archived (code, name, type), `merges` (the user's categories with a family category's
+  code and type, with both names), `keptPrivate` (the same code with the other type), `mayBring` (the
+  user's categories, not archived, whose code the family doesn't have) and `displayName`, the account's
+  name to prefill. **Differs from the sketch:** no other member's display name; and no ledger id,
+  member id, sub, email address, account or record.
+- **Accepting** locks the family ledger's row, then the invite's, and checks it again, so that of two
+  acceptances of one token, or of two invites for one seat, the second gets the invalid answer or the
+  409. Then, in one transaction: the membership (a claim's seat gets the sub, the name and the
+  invite's join date; a new member joins today as a MEMBER, with a share of 0 under a CUSTOM rule); the
+  invite used by it; the categories (D-11 as amended): the user's categories with a family category's
+  code and type merge into it as at creation (their postings move, the personal row goes; the family's
+  name stays), the brought ones become family categories with their postings, and one with a family
+  code of the other type stays private and can't be brought (422 `CATEGORY`); then
+  `FamilyPostingService.join`. A display name another member has is 409, as everywhere.
+- **Access.** `ledger.access.LedgerInvites` finds an invite by its token's hash and lets its holder
+  in, before there is a membership; it is an `ArchitectureTests` exception next to `LedgerAccess`, with
+  its reason, and the only code that reads a family ledger for someone who isn't its member: what the
+  lookup shows. After joining, `LedgerAccess.member` gives the scope as for any member.
+- **Rate limit. Differs from the sketch:** per user and per client address (Tomcat takes it from
+  `X-Forwarded-For` behind Caddy), each at most 10 attempts in any minute and 50 in any hour, over
+  lookup, accept and decline together; only attempts let through count. 429 with `Retry-After`.
+- **What a claim posts** (topic E, D-18): `FamilyPostingService.join` creates the member's `Debt(L)`,
+  posts every record dated on or after the join date in which they have a share or which they paid,
+  received or settled (their side on their "Payments without a specified account", in the record's
+  original currency for a payment or receipt, through their `FX_EXCHANGE`, as the acting member), and
+  their balance before the join date as one `FAMILY_OPENING` entry dated on it, `Debt(L)` −B and
+  `OPENING_BALANCE` +B. A new member has only the debt account.
+- **Opening balances stay in step** (found while building F5; not in the sketch): a record dated before
+  a claimed member's join date stays a family record that its author, an owner or its payer may still
+  change or delete, and its change moves that member's family balance before the join date. So every
+  re-post (`post`) also re-posts the opening balance of each member with an account who joined after
+  the start date: an equal one stays, a different one is replaced, one of 0 goes. D-10 holds from the
+  join date on, which is what the test invariants and the integrity check compare.
+- **The records of a member's time without an account** (not in the sketch): a member with an account
+  who took a seat after a record's date, and is in it already (its payer, its receiver or with a share),
+  stays in it through any change that keeps it before their join date: an equal split again keeps them,
+  and their share or payment isn't `JOINED_AFTER`. They change their own payment fields of it (D-14),
+  which moves their opening balance; naming an account for it is 422 `PAYMENT` (it is in the opening
+  balance, with no entry). Nobody else with an account comes into a record dated before their join
+  date, and a record moved before a member's join date still drops them, as F4c decided. A record of
+  theirs moved from before their join date to after it is posted to their placeholder.
+- **D-28 after a claim:** their settlement side posted on the placeholder is `system_owned` and locks
+  nothing until they put it on an account of theirs. **D-14 after a claim:** records others entered keep
+  their authors; the payment fields of what the seat paid or received are the new member's from now on.
 
 ### H. The change journal
 

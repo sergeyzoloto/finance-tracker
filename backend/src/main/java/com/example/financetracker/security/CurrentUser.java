@@ -6,6 +6,7 @@ package com.example.financetracker.security;
  *
  * @param id the Keycloak "sub" claim of the request's access token, which every row the user owns is keyed by
  *        (rule 11)
+ * @param name the account's name, for display only, such as prefilling a name the user chooses (F5); may be null
  */
-public record CurrentUser(String id) {
+public record CurrentUser(String id, String name) {
 }

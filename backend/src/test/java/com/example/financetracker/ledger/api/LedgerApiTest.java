@@ -55,11 +55,15 @@ abstract class LedgerApiTest extends IntegrationTest {
         }
         OWNED_ROWS.put("family family_entry_link", "FROM family_entry_link t WHERE t.family_ledger_id IN "
                 + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
+        // Their invites (V9).
+        OWNED_ROWS.put("family ledger_invite", "FROM ledger_invite t WHERE t.ledger_id IN "
+                + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
     }
 
     /** The tables of {@link #OWNED_ROWS} that only a user in a family ledger has rows in. */
     protected static final Set<String> FAMILY_ROWS = Set.of("family ledger_member", "family category",
-            "family family_record", "family family_share", "family family_record_change", "family family_entry_link");
+            "family family_record", "family family_share", "family family_record_change", "family family_entry_link",
+            "family ledger_invite");
 
     @Autowired
     protected JdbcClient jdbc;

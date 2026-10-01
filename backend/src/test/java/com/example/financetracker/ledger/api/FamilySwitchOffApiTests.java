@@ -23,8 +23,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 /**
  * With the feature switch off (D-25), as in production until F7: every family endpoint answers 404 exactly like an
  * unknown path, since it doesn't exist, the personal endpoints work as before, and {@code /api/me} tells the frontend.
- * The family endpoints come from the own mappings of {@link FamilyLedgerController}, {@link FamilyRecordController}
- * and {@link FamilyPaymentController} (F4c, a payer's payment entry), so a new one can't be left out. The one change of
+ * The family endpoints come from the own mappings of {@link FamilyLedgerController}, {@link FamilyRecordController},
+ * {@link FamilyPaymentController} (F4c, a payer's payment entry) and {@link FamilyInviteController} (F5, invites), so
+ * a new one can't be left out. The one change of
  * the personal endpoints: UNALLOCATED can't be archived (F4a, D-8).
  */
 @TestPropertySource(properties = FamilySwitch.PROPERTY + "=false")
@@ -38,24 +39,25 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     @Test
     void everyFamilyEndpointAnswers404LikeAnUnknownPath() throws IOException {
         List<String[]> endpoints = familyEndpoints();
-        // 22 until F4c; POST /settlements since F4d; GET /conversion since F4e.
-        assertThat(endpoints).hasSize(24);
+        // 22 until F4c; POST /settlements since F4d; GET /conversion since F4e; six for invites since F5.
+        assertThat(endpoints).hasSize(30);
         assertThat(context.getBeanNamesForType(FamilyLedgerController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyRecordController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyPaymentController.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(FamilyInviteController.class)).isEmpty();
         // Without it, a payment entry's deletion answers 409 as before (EntryService).
         assertThat(context.getBeanNamesForType(FamilyPayments.class)).isEmpty();
         String body = """
                 {"name": "Home", "baseCurrency": "EUR", "displayName": "Anna", "rule": "EQUAL", "code": "RENT",
                  "type": "EXPENSE", "date": "2026-09-01", "categoryId": 1, "amount": "1", "payerMemberId": 1,
-                 "accountId": 1}""";
+                 "accountId": 1, "kind": "NEW_MEMBER", "token": "AAAA"}""";
 
         SoftAssertions softly = new SoftAssertions();
         for (String[] endpoint : endpoints) {
             HttpMethod method = HttpMethod.valueOf(endpoint[0]);
             String path = endpoint[1];
             String unknown = path.replace("/api/family-ledgers", "/api/no-such-thing")
-                    .replace("/family-payment", "/no-such-thing");
+                    .replace("/family-payment", "/no-such-thing").replace("/api/invites", "/api/no-such-thing");
             MvcTestResult answer = call(user, method, path, body);
             MvcTestResult unknownAnswer = call(user, method, unknown, body);
             softly.assertThat(answer.getResponse().getStatus()).as("%s %s", method, path).isEqualTo(404);
@@ -118,14 +120,16 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     private static List<String[]> familyEndpoints() {
         List<String[]> endpoints = new ArrayList<>();
         for (Class<?> controller : List.of(FamilyLedgerController.class, FamilyRecordController.class,
-                FamilyPaymentController.class)) {
+                FamilyPaymentController.class, FamilyInviteController.class)) {
             endpoints.addAll(endpoints(controller));
         }
         return endpoints;
     }
 
     private static List<String[]> endpoints(Class<?> controller) {
-        String base = controller.getAnnotation(RequestMapping.class).value()[0];
+        // FamilyInviteController maps whole paths, under two bases.
+        RequestMapping root = controller.getAnnotation(RequestMapping.class);
+        String base = root == null ? "" : root.value()[0];
         List<String[]> endpoints = new ArrayList<>();
         for (Method method : controller.getDeclaredMethods()) {
             RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class);

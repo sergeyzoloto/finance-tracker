@@ -1,0 +1,263 @@
+package com.example.financetracker.ledger.access;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Base64;
+import java.util.List;
+import java.util.Optional;
+
+import com.example.financetracker.ledger.ConflictException;
+import com.example.financetracker.ledger.NotFoundException;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Service;
+
+/**
+ * The way into a family ledger before there is a membership (D-17, D-18; ADR 0003, topics C and G): an invite, found by
+ * its token's hash. Next to {@link LedgerAccess}, which decides access by membership, this decides it by invite: the
+ * only reads of a family ledger for someone who isn't its member are here ({@link #preview}), and they are what the
+ * invite shows before it is accepted; joining makes the membership, after which LedgerAccess gives the scope.
+ * <p>
+ * The token is 32 random bytes from a {@link SecureRandom}, base64url without padding; only its SHA-256 is stored. A
+ * token that is unknown, expired, revoked, used or declined gets one answer, {@link #INVALID}, with the same status
+ * (404) every time. Nothing here logs a token, puts one in an exception, or returns one.
+ */
+@Service
+public class LedgerInvites {
+
+    /** The one answer for a token that lets nobody in (D-17). */
+    public static final String INVALID = "This invite is not valid. Ask for a new one";
+
+    /** The seat of a claim was taken meanwhile, by another invite. */
+    public static final String SEAT_TAKEN = "Someone has taken this place in the family budget already. Ask for a new "
+            + "invite";
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    /**
+     * A pending invite.
+     *
+     * @param seatMemberId the seat a claim takes; null for a new member
+     * @param joinDate the seat's join date; null for a new member, who joins on the day they accept (D-18)
+     */
+    public record Invite(long id, long ledgerId, Long seatMemberId, LocalDate joinDate, long createdByMemberId,
+            Instant expiresAt) {
+
+        public boolean claim() {
+            return seatMemberId != null;
+        }
+    }
+
+    /**
+     * What a pending invite shows its holder before they accept: the family ledger's name and base currency, who
+     * invites, the seat's name for a claim, and the family's categories. No member id, sub, account or record.
+     *
+     * @param today the database's today, a new member's join date
+     */
+    public record Preview(String ledgerName, String baseCurrency, String invitedBy, String seatName, LocalDate today,
+            List<FamilyCategory> categories) {
+    }
+
+    /** A category of the family ledger, as the invite shows it: no id. */
+    public record FamilyCategory(String code, String name, String type, boolean archived) {
+    }
+
+    /** How the user stands in the invite's family ledger. */
+    public enum Standing {
+        /** Not a member: the invite may let them in. */
+        NONE,
+        /** An ACTIVE member already, the ledger's creator among them. */
+        ACTIVE,
+        /** A member who left, whom an invite brings back from F6 on (D-26). */
+        LEFT
+    }
+
+    private final JdbcClient jdbc;
+    private final LedgerAccess access;
+
+    LedgerInvites(JdbcClient jdbc, LedgerAccess access) {
+        this.jdbc = jdbc;
+        this.access = access;
+    }
+
+    /** A new token, for the link only. */
+    public static String newToken() {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** The SHA-256 of the token, which is all that is stored of it; null for what can't be one. */
+    public static byte[] hash(String token) {
+        if (token == null || token.isBlank() || token.length() > LONGEST) {
+            return null;
+        }
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is missing", e);
+        }
+    }
+
+    /**
+     * The pending invite the token stands for, unlocked: for a look before accepting.
+     *
+     * @throws NotFoundException {@link #INVALID}, for a token that is unknown, expired, revoked, used or declined
+     */
+    public Invite pending(String token) {
+        return find(hash(token), "").orElseThrow(LedgerInvites::invalid);
+    }
+
+    /**
+     * The pending invite the token stands for, with its family ledger's row locked FOR UPDATE and then the invite's,
+     * until the transaction ends: the order in which owners' changes lock them too. Checked again after the locks, so
+     * that of two acceptances of one token, or an acceptance and a revocation, the second sees the first.
+     *
+     * @throws NotFoundException {@link #INVALID}, as {@link #pending}
+     */
+    public Invite lock(String token) {
+        byte[] hash = hash(token);
+        Invite found = find(hash, "").orElseThrow(LedgerInvites::invalid);
+        jdbc.sql("SELECT id FROM ledger WHERE id = :ledgerId FOR UPDATE").param("ledgerId", found.ledgerId())
+                .query(Long.class).optional();
+        return find(hash, " FOR UPDATE").orElseThrow(LedgerInvites::invalid);
+    }
+
+    /** What the invite shows before it is accepted. */
+    public Preview preview(Invite invite) {
+        record Ledger(String name, String baseCurrency, String invitedBy, String seatName, LocalDate today) {
+        }
+        Ledger ledger = jdbc.sql("""
+                SELECT l.name, l.base_currency, c.display_name AS invited_by, s.display_name AS seat_name,
+                       current_date AS today
+                FROM ledger l
+                JOIN ledger_member c ON c.ledger_id = l.id AND c.id = :creatorId
+                LEFT JOIN ledger_member s ON s.ledger_id = l.id AND s.id = :seatId
+                WHERE l.id = :ledgerId AND l.type = 'SHARED'""")
+                .param("ledgerId", invite.ledgerId()).param("creatorId", invite.createdByMemberId())
+                .param("seatId", invite.seatMemberId())
+                .query((row, n) -> new Ledger(row.getString("name"), row.getString("base_currency"),
+                        row.getString("invited_by"), row.getString("seat_name"),
+                        row.getObject("today", LocalDate.class)))
+                .single();
+        List<FamilyCategory> categories = jdbc.sql("""
+                SELECT code, name, type, archived_at IS NOT NULL AS archived FROM category
+                WHERE ledger_id = :ledgerId ORDER BY name, code""")
+                .param("ledgerId", invite.ledgerId())
+                .query((row, n) -> new FamilyCategory(row.getString("code"), row.getString("name"),
+                        row.getString("type"), row.getBoolean("archived")))
+                .list();
+        return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), ledger.today(),
+                categories);
+    }
+
+    /** The user's membership in the invite's family ledger, if any; a FORMER one has no sub any more (D-20). */
+    public Standing standing(String userId, Invite invite) {
+        return jdbc.sql("SELECT status FROM ledger_member WHERE ledger_id = :ledgerId AND user_sub = :userId")
+                .param("ledgerId", invite.ledgerId()).param("userId", userId)
+                .query(String.class).optional()
+                .map(status -> status.equals("ACTIVE") ? Standing.ACTIVE : Standing.LEFT)
+                .orElse(Standing.NONE);
+    }
+
+    /** Whether a claim's seat is still a member without an account, ACTIVE: nobody took it meanwhile. */
+    public boolean seatFree(Invite invite) {
+        return invite.claim() && jdbc.sql("""
+                SELECT EXISTS (SELECT FROM ledger_member
+                               WHERE id = :seatId AND ledger_id = :ledgerId AND status = 'ACTIVE' AND user_sub IS NULL)""")
+                .param("seatId", invite.seatMemberId()).param("ledgerId", invite.ledgerId())
+                .query(Boolean.class).single();
+    }
+
+    /**
+     * Whether a member who isn't FORMER has the name, whatever its case, other than the seat the invite claims (D-3).
+     */
+    public boolean nameTaken(Invite invite, String displayName) {
+        return jdbc.sql("""
+                SELECT EXISTS (SELECT FROM ledger_member
+                               WHERE ledger_id = :ledgerId AND status <> 'FORMER' AND lower(display_name) = lower(:name)
+                                 AND id IS DISTINCT FROM :seatId)""")
+                .param("ledgerId", invite.ledgerId()).param("name", displayName)
+                .param("seatId", invite.seatMemberId())
+                .query(Boolean.class).single();
+    }
+
+    /**
+     * Lets the user in by the invite, which {@link #lock} locked, and marks it used by their membership: a claim gives
+     * the seat the user's sub, the chosen name and the invite's join date, and the seat keeps its history (D-18); a new
+     * member is a MEMBER, ACTIVE, joined today, with a share of 0 under a CUSTOM split rule (D-12). The caller checked
+     * the user's {@link #standing}, the seat and the name first; the database refuses what slipped past them.
+     *
+     * @return the family ledger, as the new member
+     * @throws ConflictException if the seat was taken after all
+     */
+    public LedgerScope join(String userId, Invite invite, String displayName) {
+        long memberId;
+        if (invite.claim()) {
+            int claimed = jdbc.sql("""
+                    UPDATE ledger_member SET user_sub = :userId, display_name = :name, join_date = :joinDate
+                    WHERE id = :seatId AND ledger_id = :ledgerId AND status = 'ACTIVE' AND user_sub IS NULL""")
+                    .param("userId", userId).param("name", displayName).param("joinDate", invite.joinDate())
+                    .param("seatId", invite.seatMemberId()).param("ledgerId", invite.ledgerId())
+                    .update();
+            if (claimed != 1) {
+                throw new ConflictException(SEAT_TAKEN);
+            }
+            memberId = invite.seatMemberId();
+        } else {
+            memberId = jdbc.sql("""
+                    INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date,
+                                               share_bp)
+                    SELECT id, 'SHARED', :userId, :name, 'MEMBER', 'ACTIVE', current_date,
+                           CASE split_rule WHEN 'CUSTOM' THEN 0 END
+                    FROM ledger WHERE id = :ledgerId
+                    RETURNING id""")
+                    .param("userId", userId).param("name", displayName).param("ledgerId", invite.ledgerId())
+                    .query(Long.class).single();
+        }
+        jdbc.sql("""
+                UPDATE ledger_invite SET used_at = now(), used_by_member_id = :memberId
+                WHERE id = :inviteId AND ledger_id = :ledgerId""")
+                .param("memberId", memberId).param("inviteId", invite.id()).param("ledgerId", invite.ledgerId())
+                .update();
+        return access.member(userId, invite.ledgerId());
+    }
+
+    /** Declines the invite, which {@link #lock} locked: it is used up, and only the time is kept (D-17). */
+    public void decline(Invite invite) {
+        jdbc.sql("UPDATE ledger_invite SET declined_at = now() WHERE id = :inviteId AND ledger_id = :ledgerId")
+                .param("inviteId", invite.id()).param("ledgerId", invite.ledgerId())
+                .update();
+    }
+
+    /** The longest token looked up; a token is 43 characters, and a longer one is unknown. */
+    private static final int LONGEST = 200;
+
+    /** The pending invite with the token's hash, if there is one. */
+    private Optional<Invite> find(byte[] hash, String lock) {
+        if (hash == null) {
+            return Optional.empty();
+        }
+        record Row(Invite invite, boolean pending) {
+        }
+        return jdbc.sql("""
+                SELECT id, ledger_id, seat_member_id, join_date, created_by_member_id, expires_at,
+                       revoked_at IS NULL AND used_at IS NULL AND declined_at IS NULL AND expires_at > now() AS pending
+                FROM ledger_invite WHERE token_hash = :hash""" + lock)
+                .param("hash", hash)
+                .query((row, n) -> new Row(new Invite(row.getLong("id"), row.getLong("ledger_id"),
+                        row.getObject("seat_member_id", Long.class), row.getObject("join_date", LocalDate.class),
+                        row.getLong("created_by_member_id"), row.getTimestamp("expires_at").toInstant()),
+                        row.getBoolean("pending")))
+                .optional()
+                .filter(Row::pending)
+                .map(Row::invite);
+    }
+
+    private static NotFoundException invalid() {
+        return new NotFoundException(INVALID);
+    }
+}

@@ -154,7 +154,7 @@ class LedgerBackfillMigrationTests {
             String records = "SELECT string_agg(r::text, '|' ORDER BY r.id) FROM family_record r";
             String beforeV8 = strings(everything).getFirst() + strings(records).getFirst();
             Map<String, Long> rowsBeforeV8 = rows();
-            MigrateResult v8 = flyway(null).migrate();
+            MigrateResult v8 = flyway("8").migrate();
             assertThat(v8.success).isTrue();
             assertThat(v8.targetSchemaVersion).isEqualTo("8");
             assertThat(rows()).isEqualTo(rowsBeforeV8);
@@ -162,6 +162,16 @@ class LedgerBackfillMigrationTests {
             assertThat((strings(everything).getFirst() + strings(records).getFirst()).replace(",,,)", ")"))
                     .isEqualTo(beforeV8);
             assertThat(number("SELECT count(*) FROM family_record WHERE base_rate_source IS NULL")).isOne();
+
+            // V9 (F5) adds the invites' table and changes no row; the release of a membership runs as before.
+            String beforeV9 = strings(everything).getFirst() + strings(records).getFirst();
+            Map<String, Long> rowsBeforeV9 = rows();
+            MigrateResult v9 = flyway(null).migrate();
+            assertThat(v9.success).isTrue();
+            assertThat(v9.targetSchemaVersion).isEqualTo("9");
+            assertThat(rows()).isEqualTo(rowsBeforeV9);
+            assertThat(strings(everything).getFirst() + strings(records).getFirst()).isEqualTo(beforeV9);
+            assertThat(number("SELECT count(*) FROM ledger_invite")).isZero();
         } finally {
             db.close();
         }

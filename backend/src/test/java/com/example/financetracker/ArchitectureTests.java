@@ -15,6 +15,7 @@ import com.example.financetracker.ledger.LedgerScopedRepository;
 import com.example.financetracker.ledger.UserDataService;
 import com.example.financetracker.ledger.UserSettingsRepository;
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.access.LedgerInvites;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService;
 import com.example.financetracker.ledger.rates.EcbRateLoader;
@@ -51,6 +52,9 @@ class ArchitectureTests {
     static final Map<Class<?>, String> PERSON_LEVEL = Map.of(
             LedgerAccess.class,
             "decides access itself: finds the user's memberships by the sub, before there is a scope",
+            LedgerInvites.class,
+            "decides access by invite (F5): finds an invite by its token's hash and lets its holder in, before they "
+                    + "have a membership; the only reads of a family ledger for a non-member, what the invite shows",
             UserDataService.class,
             "the person as a whole: provisions the users row, and deletes all of a user's data by the sub",
             UserSettingsRepository.class,

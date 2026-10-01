@@ -5,7 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-01 · Family budget: F4e's deploy and review, invites and taking a seat (F5)
 
-Not committed yet.
+Committed locally on `feature/family-budget`: `29af12b` (documents) and "feat(family): invites and
+taking a seat", whose hash belongs here with the next change log commit. Not pushed, not merged, not
+deployed.
 
 **Changes**
 - F4e's deploy and the decisions after its review (commit "docs(family-budget): F4e deploy, F5
@@ -26,6 +28,48 @@ Not committed yet.
   - New `docs/family-budget/privacy-draft.md`, the privacy policy's draft for family budgets, to be
     published in F6, with a visible TODO for a legal review.
   - CLAUDE.md: production runs `31419bd`.
+- Invites and taking a seat in the backend (commit "feat(family): invites and taking a seat"), D-17
+  and D-18 as the task decided them, ADR 0003 topic G ("F5 as built"), with what differs from that
+  topic's sketch. Part 3 of the task, what a claim does to existing records, is in the same commit:
+  the claim's posting can't be split from the acceptance. Migration V9, additive.
+  - V9: `ledger_invite` (the token's SHA-256 only, a claim's seat and join date, the creator, the
+    expiry at most 7 days on, and one final end: revoked, used by a membership, or declined), its
+    trigger, and `release_family_memberships` again, which revokes the member's pending invites and
+    deletes a family ledger's invites with it (D-20).
+  - Owners (`FamilyInviteController`, behind the switch): POST, GET and DELETE
+    `/api/family-ledgers/{ledgerId}/invites`. The creation's answer alone holds the link,
+    `<app.public-url>/invite#<token>` (new property `app.public-url`, env `APP_PUBLIC_URL`, production's
+    address by default; the local compose files set theirs). At most 20 pending; 409 for a seat with an
+    account; 422 `JOIN_DATE`.
+  - The holder: POST `/api/invites/lookup`, `/accept` and `/decline`, the token in the body only. One
+    404 for a token that lets nobody in, whatever the reason; 409 for a valid one the user can't use
+    (a member already, a member who left, the seat taken). Rate limited per user and per client
+    address, 10 a minute and 50 an hour each (`InviteRateLimit`, 429 with `Retry-After`, new
+    `api.TooManyRequestsException`).
+  - `ledger.access.LedgerInvites`: the way in by invite, before there is a membership, and the only read
+    of a family ledger for a non-member (what the lookup shows); a new `ArchitectureTests` exception
+    with its reason. `CurrentUser` gains the account's `name`, which prefills the display name.
+  - Accepting (`FamilyInviteService`): the membership (a claim's seat with its history, or a new
+    member today), the categories as D-11 now says (same code and type merged as at creation, the
+    family name kept; the other type kept private; the brought ones made family categories), then
+    `FamilyPostingService.join`: the debt account, every record from the join date (shares; payments,
+    receipts and settlement sides of the seat on the placeholder, in dollars through `FX_EXCHANGE`),
+    and the balance before the join date as one `FAMILY_OPENING` entry.
+  - Found while building it, decided and recorded in topic G: every re-post keeps the opening balances
+    of members who joined after the start date in step, since a record before a member's join date can
+    still change; and a member who took a seat stays in the records of their time without an account
+    (their payment fields theirs, an account for them 422 `PAYMENT`), where `JOINED_AFTER` would have
+    frozen those records for everyone.
+  - Tests: new `FamilyInviteApiTests` (10), `FamilyClaimApiTests` (4), `FamilyClaimRandomTests` and
+    `InviteRateLimitTests` (3); `LedgerSchemaTests.invitesFitTheirFamilyLedger` (new);
+    `LedgerBackfillMigrationTests` pins V8 and adds a V9 step;
+    `DataIsolationApiTests.invitesLetTheirHoldersIntoTheirOwnFamilyBudgetOnly` (new; nothing else in
+    the file changed); `UserDataApiTests.deletingAllMyDataRevokesMyPendingInvites` (new); `ApiTests`
+    and `FamilySwitchOffApiTests` (30 endpoints) with the six new endpoints; `FamilyInvariants`
+    compares a debt account with the family balance from the member's join date on (D-10);
+    `LedgerApiTest`'s owned rows include the invites.
+  - `deploy/pg-backup/finance.conf`: `CHECK_FAMILY_INVITES`. The runbook: the restore test expects 19
+    tables and migration 9; "Delete a user" says the release revokes pending invites.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`: `feature/family-budget`
@@ -33,9 +77,20 @@ Not committed yet.
   verify`: 346 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend: `npm ci`, `npm test`
   18 files and 241 tests passed, `npm run build` succeeded.
 - After the documents' commit: documents only.
+- After the backend's commit: `./mvnw -B clean verify` 367 tests (346 and 21), 0 failures, 0 errors,
+  0 skipped, BUILD SUCCESS. The invariants after every family test, and in `FamilyClaimRandomTests`
+  after each claim and each of 150 operations (from the seed: 6 claims, 43 creates, 6 amounts and 5
+  by the claimer, 4 dates, 10 comments, 4 accounts, 12 deletes, 39 tried on records before the join
+  date, 66 refused with 409 or 422), with the integrity check empty for all three users each time.
+- Two findings of the new tests, fixed before the commit: Spring MVC logged the request body
+  record's `toString` at DEBUG, and a field validation error the rejected token; the records leave the
+  token out, and the token is no longer validated as a field (an overlong one is an unknown one).
+- `invitesLetTheirHoldersIntoTheirOwnFamilyBudgetOnly` against a temporary mutation, from a file
+  copy: the invite list open to any member made it fail ("GET /invites in A", 409 expected). The file
+  restored.
 
 **Open**
-- The rest of F5.
+- The interface (Part 4), the walk-through and the deploy checklist.
 
 ## 2026-10-01 · Family budget: F4d's deploy and review, the settlement lock, other currencies (F4e)
 

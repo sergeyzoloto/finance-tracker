@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.StreamSupport;
 
 import com.example.financetracker.ledger.family.FamilyInvariants;
@@ -13,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
@@ -21,6 +23,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * before F5; Kid has no account. After every test, the family ledger's invariants hold ({@link FamilyInvariants}).
  */
 abstract class FamilyApiTest extends LedgerApiTest {
+
+    /** The last octet of the next client address of {@link #inviteCall}. */
+    private static final AtomicInteger ADDRESSES = new AtomicInteger();
 
     protected final String alice = newUser();
     protected final String bob = newUser();
@@ -147,6 +152,54 @@ abstract class FamilyApiTest extends LedgerApiTest {
                 .map(record -> record.get("date").asText() + " " + record.get("category").asText() + " "
                         + record.get("amount").asText() + (record.get("deleted").asBoolean() ? " deleted" : " live"))
                 .toList();
+    }
+
+    /**
+     * A new invite of the owner's to the family ledger, which must be valid: the token from its link's fragment.
+     *
+     * @param request the body of POST /invites
+     */
+    protected String newInvite(String owner, String request) throws IOException {
+        String link = created(post(owner, uri + "/invites", request)).get("link").asText();
+        assertThat(link).startsWith("https://app.finance-nl.com/invite#");
+        return link.substring(link.indexOf('#') + 1);
+    }
+
+    /** An invite of Alice's to take Kid's place from the date: its token. */
+    protected String kidsPlace(String joinDate) throws IOException {
+        return newInvite(alice, """
+                {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "%s"}""".formatted(kid, joinDate));
+    }
+
+    /**
+     * POST /api/invites/{action} as the user, from an address of its own, so that the limit per client address
+     * doesn't add up across tests (InviteRateLimit).
+     */
+    protected MvcTestResult inviteCall(String user, String action, String body) {
+        return inviteCall(user, action, body, "198.51.100." + (ADDRESSES.incrementAndGet() % 250 + 1));
+    }
+
+    protected MvcTestResult inviteCall(String user, String action, String body, String address) {
+        return mvc.post().uri("/api/invites/" + action).with(member(user)).with(request -> {
+            request.setRemoteAddr(address);
+            return request;
+        }).contentType(MediaType.APPLICATION_JSON).content(body).exchange();
+    }
+
+    /** The body {"token": …}, with more fields if not null. */
+    protected static String token(String token, String more) {
+        return "{\"token\": \"%s\"%s}".formatted(token, more == null ? "" : ", " + more);
+    }
+
+    /** Accepts the invite with the display name and the categories to bring, which must work. */
+    protected JsonNode accept(String user, String token, String displayName, Long... categoryIds) throws IOException {
+        return ok(inviteCall(user, "accept", token(token, "\"displayName\": \"%s\", \"categoryIds\": %s"
+                .formatted(displayName, List.of(categoryIds)))));
+    }
+
+    /** The database's today, which a new member joins on and which a claim's join date can't pass. */
+    protected LocalDate today() {
+        return jdbc.sql("SELECT current_date").query(LocalDate.class).single();
     }
 
     protected static List<Long> ids(JsonNode array) {

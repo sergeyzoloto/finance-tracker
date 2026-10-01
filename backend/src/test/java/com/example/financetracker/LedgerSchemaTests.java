@@ -99,7 +99,8 @@ class LedgerSchemaTests {
                         "account", "category", "counterparty", "journal_entry", "posting", "exchange_rate",
                         "import_batch", "user_settings", // V2 to V4
                         "ledger", "ledger_member", // V5
-                        "family_record", "family_share", "family_entry_link", "family_record_change"); // V7
+                        "family_record", "family_share", "family_entry_link", "family_record_change", // V7
+                        "ledger_invite"); // V9
     }
 
     /** A shared expense (rule 7): 10.01 paid in cash, 5.00 of it the user's groceries and 5.01 the family's. */
@@ -999,6 +1000,89 @@ class LedgerSchemaTests {
         }
         assertThat(number("SELECT count(*) FROM ledger_member WHERE user_sub = ?", dave)).isOne();
         assertThat(number("SELECT count(*) FROM ledger")).isEqualTo(ledgersBefore + 1);
+    }
+
+    /**
+     * V9's invites (F5; D-17, D-18, D-20): a token's hash of 32 bytes, once; created by an ACTIVE owner with an account
+     * of a family ledger, never of a personal one; a claim's seat an ACTIVE member without an account, with a join
+     * date from the start date to today; at most seven days; revoked, used or declined once, for good, and nothing else
+     * of it ever changes. Releasing the creator's memberships revokes their pending invites.
+     */
+    @Test
+    void invitesFitTheirFamilyLedger() throws SQLException {
+        long family = sharedLedger();
+        long owner = member(family, "SHARED", user, "OWNER");
+        long other = member(family, "SHARED", UUID.randomUUID().toString(), "OWNER");
+        long member = member(family, "SHARED", UUID.randomUUID().toString(), "MEMBER");
+        long seat = seat(family);
+        db.commit();
+        String insert = """
+                INSERT INTO ledger_invite (ledger_id, token_hash, seat_member_id, join_date, created_by_member_id,
+                                           expires_at)
+                VALUES (?, ?, ?, ?, ?, now() + interval '72 hours')""";
+        LocalDate today = LocalDate.parse(strings("SELECT current_date::text").getFirst());
+        long invite = insert(insert, family, hash(1), null, null, owner);
+        long claim = insert(insert, family, hash(2), seat, today, owner);
+        db.commit();
+
+        assertFails(() -> insert(insert, family, new byte[16], null, null, owner), CHECK_VIOLATION,
+                "ledger_invite_token_hash_check");
+        db.rollback();
+        assertFails(() -> insert(insert, family, hash(1), null, null, owner), UNIQUE_VIOLATION,
+                "ledger_invite_token_hash_key");
+        db.rollback();
+        assertFails(() -> insert(insert, family, hash(3), null, null, member), CHECK_VIOLATION,
+                "is not an active owner");
+        db.rollback();
+        assertFails(() -> insert(insert, family, hash(3), member, today, owner), CHECK_VIOLATION,
+                "is not a seat without an account");
+        db.rollback();
+        assertFails(() -> insert(insert, family, hash(3), seat, null, owner), CHECK_VIOLATION, "ledger_invite_check");
+        db.rollback();
+        for (LocalDate outside : List.of(today.minusDays(1), today.plusDays(1))) {
+            assertFails(() -> insert(insert, family, hash(3), seat, outside, owner), CHECK_VIOLATION,
+                    "is not between the start of family ledger");
+            db.rollback();
+        }
+        assertFails(() -> insert(insert.replace("72 hours", "169 hours"), family, hash(3), null, null, owner),
+                CHECK_VIOLATION, "ledger_invite_check");
+        db.rollback();
+        long personal = personalLedger(user);
+        long personalOwner = number("SELECT id FROM ledger_member WHERE ledger_id = ?", personal);
+        assertFails(() -> insert(insert, personal, hash(3), null, null, personalOwner), FOREIGN_KEY_VIOLATION,
+                "ledger_invite_ledger_id_ledger_type_fkey");
+        db.rollback();
+
+        update("UPDATE ledger_invite SET revoked_at = now() WHERE id = ?", invite);
+        db.commit();
+        assertFails(() -> update("UPDATE ledger_invite SET revoked_at = NULL WHERE id = ?", invite), CHECK_VIOLATION,
+                "only a pending invite changes");
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger_invite SET declined_at = now(), revoked_at = NULL WHERE id = ?",
+                invite), CHECK_VIOLATION, "only a pending invite changes");
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger_invite SET expires_at = expires_at + interval '1 hour' WHERE id = ?",
+                claim), CHECK_VIOLATION, "only a pending invite changes");
+        db.rollback();
+        assertFails(() -> update("UPDATE ledger_invite SET used_at = now() WHERE id = ?", claim), CHECK_VIOLATION,
+                "ledger_invite_check");
+        db.rollback();
+
+        // The owner's data goes: their pending claim is revoked; the revoked one keeps its time.
+        String revokedAt = strings("SELECT revoked_at::text FROM ledger_invite WHERE id = ?", invite).getFirst();
+        writer("delete-all");
+        number("SELECT release_family_memberships(?)", user);
+        db.commit();
+        assertThat(strings("SELECT revoked_at::text FROM ledger_invite WHERE id = ?", invite)).containsExactly(revokedAt);
+        assertThat(number("SELECT count(*) FROM ledger_invite WHERE id = ? AND revoked_at IS NOT NULL", claim)).isOne();
+        assertThat(number("SELECT count(*) FROM ledger_member WHERE id = ? AND role = 'OWNER'", other)).isOne();
+    }
+
+    /** A token's hash as the test makes it up: 32 bytes of n. */
+    private static byte[] hash(int n) {
+        byte[] hash = new byte[32];
+        java.util.Arrays.fill(hash, (byte) n);
+        return hash;
     }
 
     private static void assertFails(ThrowingCallable call, String sqlState, String message) {

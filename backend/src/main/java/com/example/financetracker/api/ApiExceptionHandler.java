@@ -53,6 +53,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * <li>400: a malformed request. {@code errors} lists each invalid field or parameter with what is wrong with it.
  * <li>404: an object the user doesn't have, whether it doesn't exist or belongs to someone else (rule 11).
  * <li>409: a stale version, or a change that the object's state rules out.
+ * <li>429: too many attempts of a rate-limited kind, such as looking up invites, with {@code Retry-After}.
  * <li>422: an entry or setting that breaks the ledger's rules. {@code violations} lists every rule it breaks, and
  * for the family budget's rules {@code violationDetails} lists them again with a code and the member each names.
  * <li>500: anything else, which is logged.
@@ -104,6 +105,14 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ResponseStatus(HttpStatus.CONFLICT)
     ProblemDetail conflict(ConflictException e) {
         return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage() + ".");
+    }
+
+    @ExceptionHandler(TooManyRequestsException.class)
+    @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+    ResponseEntity<ProblemDetail> tooManyRequests(TooManyRequestsException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(Math.max(1, e.retryAfter().toSeconds())))
+                .body(problem(HttpStatus.TOO_MANY_REQUESTS, "Too many requests", e.getMessage() + "."));
     }
 
     /** A backstop: the services check what users can run into before the database does. */

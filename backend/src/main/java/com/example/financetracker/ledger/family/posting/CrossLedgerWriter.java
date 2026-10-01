@@ -93,6 +93,19 @@ class CrossLedgerWriter {
     }
 
     /**
+     * The member's OPENING_BALANCE, the system account of every personal ledger, for an opening balance (F5, D-18).
+     *
+     * @throws IllegalStateException if their ledger has none
+     */
+    long openingBalance(LedgerScope family, long memberId) {
+        Long opening = memberLedger(family, memberId).openingBalance();
+        if (opening == null) {
+            throw new IllegalStateException("Member %d's personal ledger has no OPENING_BALANCE".formatted(memberId));
+        }
+        return opening;
+    }
+
+    /**
      * The member's "Debt to family budget" for this family ledger, created on first need: a system LIABILITY in the
      * family's base currency, code {@code FAMILY_DEBT_<ledger id>}, named after the family (topic E). If the member
      * has an account of their own with that code, the next free {@code _2}, {@code _3} and so on.
@@ -165,6 +178,19 @@ class CrossLedgerWriter {
                         row.getLong("member_id"), LinkType.valueOf(row.getString("link_type")),
                         row.getBoolean("system_owned")))
                 .list();
+    }
+
+    /** The member's opening balance's link that isn't detached (F5), or null. */
+    Link openingLink(LedgerScope family, long memberId) {
+        return jdbc.sql("""
+                SELECT id, entry_id, member_id, link_type, system_owned FROM family_entry_link
+                WHERE family_ledger_id = :familyId AND member_id = :memberId AND link_type = 'OPENING_BALANCE'
+                  AND detached_at IS NULL""")
+                .param("familyId", family.ledgerId()).param("memberId", memberId)
+                .query((row, n) -> new Link(row.getLong("id"), row.getObject("entry_id", Long.class),
+                        row.getLong("member_id"), LinkType.valueOf(row.getString("link_type")),
+                        row.getBoolean("system_owned")))
+                .optional().orElse(null);
     }
 
     /**

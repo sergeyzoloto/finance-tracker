@@ -17,7 +17,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * <ul>
  * <li>the members' family balances add up to zero (D-1);
  * <li>for every ACTIVE member with an account, the displayed balance of their debt account for the family ledger
- * equals their family balance, today and on each record's date (D-10);
+ * equals their family balance, today and on each record's date from their join date on, counted with the opening
+ * balance of a member who took a seat (D-10, D-18);
  * <li>every posted entry balances in each currency, and every expense or income that isn't deleted has shares that
  * add up to its amount, and a settlement has none;
  * <li>the debt accounts hold postings in the family's base currency only (F4e).
@@ -31,7 +32,7 @@ public final class FamilyInvariants {
      * received.
      */
     private static final String BALANCES = """
-            SELECT m.id, m.user_sub, m.status,
+            SELECT m.id, m.user_sub, m.status, m.join_date,
                    coalesce((SELECT sum(s.amount) FROM family_share s JOIN family_record r ON r.id = s.record_id
                              WHERE s.member_id = m.id AND r.deleted_at IS NULL AND r.type = 'EXPENSE'
                                AND r.record_date <= :day), 0)
@@ -97,18 +98,18 @@ public final class FamilyInvariants {
     }
 
     private static Map<Long, BigDecimal> checkOn(JdbcClient jdbc, long family, LocalDate day) {
-        record Member(long id, String sub, String status, BigDecimal balance) {
+        record Member(long id, String sub, String status, LocalDate joinDate, BigDecimal balance) {
         }
         List<Member> members = jdbc.sql(BALANCES).param("family", family).param("day", day)
                 .query((row, n) -> new Member(row.getLong("id"), row.getString("user_sub"), row.getString("status"),
-                        row.getBigDecimal("balance")))
+                        row.getObject("join_date", LocalDate.class), row.getBigDecimal("balance")))
                 .list();
         assertThat(members.stream().map(Member::balance).reduce(BigDecimal.ZERO, BigDecimal::add))
                 .as("the balances of family ledger %d on %s", family, day).isEqualByComparingTo(BigDecimal.ZERO);
         Map<Long, BigDecimal> balances = new LinkedHashMap<>();
         for (Member member : members) {
             balances.put(member.id(), member.balance());
-            if (member.sub() == null || !member.status().equals("ACTIVE")) {
+            if (member.sub() == null || !member.status().equals("ACTIVE") || day.isBefore(member.joinDate())) {
                 continue;
             }
             BigDecimal debt = jdbc.sql("""

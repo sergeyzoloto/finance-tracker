@@ -266,6 +266,50 @@ class UserDataApiTests extends LedgerApiTest {
         assertThat(familyRows(family)).isEqualTo("ledgers 0, members 0, categories 0");
     }
 
+    /**
+     * "Delete all my data" revokes the user's invites that are still pending (D-20; F5), through the API and through
+     * the runbook's "Delete a user"; an accepted one stays as it was, and a family ledger that goes takes its invites.
+     */
+    @Test
+    void deletingAllMyDataRevokesMyPendingInvites() throws IOException {
+        Scenario byApi = scenario();
+        Scenario byRunbook = scenario();
+        String soleOwner = newUser();
+        long soleFamily = newFamily(soleOwner, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Anna"}""").get("id").asLong();
+        for (Scenario scenario : List.of(byApi, byRunbook)) {
+            String path = "/api/family-ledgers/" + scenario.family() + "/invites";
+            body(post(scenario.alice(), path, """
+                    {"kind": "NEW_MEMBER"}"""), HttpStatus.CREATED);
+            String link = body(post(scenario.alice(), path, """
+                    {"kind": "NEW_MEMBER"}"""), HttpStatus.CREATED).get("link").asText();
+            assertThat(mvc.post().uri("/api/invites/accept").with(member(newUser())).with(request -> {
+                request.setRemoteAddr("198.18.1." + (scenario.family() % 250 + 1));
+                return request;
+            }).contentType("application/json").content("{\"token\": \"%s\", \"displayName\": \"Erin\"}"
+                    .formatted(link.substring(link.indexOf('#') + 1)))).hasStatus(HttpStatus.OK);
+            body(post(scenario.alice(), path, """
+                    {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "%s"}""".formatted(jdbc.sql(
+                    "SELECT id FROM ledger_member WHERE ledger_id = ? AND display_name = 'Kid'")
+                    .param(scenario.family()).query(Long.class).single(),
+                    jdbc.sql("SELECT current_date").query(LocalDate.class).single())), HttpStatus.CREATED);
+        }
+        body(post(soleOwner, "/api/family-ledgers/" + soleFamily + "/invites", """
+                {"kind": "NEW_MEMBER"}"""), HttpStatus.CREATED);
+
+        assertThat(delete(byApi.alice(), "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        runbooksDeleteAUser(byRunbook.alice());
+        runbooksDeleteAUser(soleOwner);
+
+        for (Scenario scenario : List.of(byApi, byRunbook)) {
+            JsonNode invites = ok(get(scenario.bob(), "/api/family-ledgers/" + scenario.family() + "/invites"));
+            assertThat(invites.findValuesAsText("status")).containsExactly("REVOKED", "ACCEPTED", "REVOKED");
+            assertThat(invites.findValuesAsText("displayName")).contains("Former member", "Erin");
+        }
+        assertThat(jdbc.sql("SELECT count(*) FROM ledger_invite WHERE ledger_id = ?").param(soleFamily)
+                .query(Long.class).single()).isZero();
+    }
+
     /** The runbook's "Delete a user" ends where "Delete all my data" does, for the family ledgers too. */
     @Test
     void theRunbooksDeleteAUserReleasesFamilyMembershipsLikeDeleteAll() throws IOException {

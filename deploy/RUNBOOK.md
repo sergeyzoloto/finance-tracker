@@ -552,10 +552,12 @@ fresh backup, in the same block, so that the newest dump is the live database as
 systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
 ```
 
-You should see `Restored in …s`, then a table in which every line ends with `ok`: `tables` 14 and
-`migration` 5 (since V5; 12 and 4 before), and the numbers of users, settings, ledgers, members,
-accounts, categories, counterparties, entries and postings, the sum of all posted amounts,
-`unbalanced` 0 and the manual rates. Then
+You should see `Restored in …s`, then a table in which every line ends with `ok`: `tables` 19 and
+`migration` 9 (since V9, F5; 18 and 8 since V8, 18 and 7 since V7, 14 and 5 since V5, 12 and 4
+before), and the numbers of users, settings, ledgers, members, accounts, categories,
+counterparties, entries and postings, the sum of all posted amounts, `unbalanced` 0, the manual
+rates, the family records, shares, links and journal rows, and the invites (`family_invites`, since
+V9). Then
 `No test container left` and `PASS`. A `MISMATCH` right after a sign-in or a new entry means the
 database changed between the backup and the test: run the block again.
 
@@ -724,8 +726,9 @@ systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
 You should see `PASS`. The new backup comes first: the dump taken before the update has the old
 schema, which the new checks may not fit (V5's ledgers, for one; V7's family tables, for another).
 Since F4a's parts 5 and 6 the checks also count the family records, shares, links and journal rows
-(`family_records`, `family_shares`, `family_links`, `family_journal`); in production they read 0
-until the switch goes on (F7).
+(`family_records`, `family_shares`, `family_links`, `family_journal`), and since F5 the invites
+(`family_invites`, V9's `ledger_invite`); in production they read 0 until the switch goes on (F7).
+Install the version with `family_invites` only once the api that migrates to V9 runs.
 
 ## Deploy a release whose only change is a migration
 
@@ -1131,12 +1134,13 @@ block, `family memberships released n`, with the `family ledgers` of the first b
 the ledger, and `ledgers left 0`. The first statement lets the entries that a family budget posted
 into the user's ledger go with the rest (V7's guard; `UserDataService.deleteAll` sets the same), for
 this transaction only. The statement after the entries is the membership part of "Delete all my
-data" (D-20), the database function `release_family_memberships` (V6, V7) that
+data" (D-20), the database function `release_family_memberships` (V6, V7, V9) that
 `UserDataService.deleteAll` calls too, after the user's entries, so that none of their postings uses
 a family category any more: in each family ledger the user becomes a FORMER member without a sub,
-named "Former member", their comments are erased from the records and the journal, and their links
-to records are detached; a family ledger without another ACTIVE member with an account is deleted
-with its records, categories and members; otherwise its records and the others' balances stay, if
+named "Former member", their comments are erased from the records and the journal, their links
+to records are detached, and their invites that are still pending are revoked (V9, F5); a family
+ledger without another ACTIVE member with an account is deleted with its records, categories,
+invites and members; otherwise its records and the others' balances stay, if
 the user was its last owner, the ACTIVE member with an account who joined earliest becomes owner,
 and a custom share of the user's above 0 turns the split rule into EQUAL, which the family's journal
 shows. Deleting the personal ledger deletes its member with it (`ON

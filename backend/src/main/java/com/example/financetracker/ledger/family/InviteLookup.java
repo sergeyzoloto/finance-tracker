@@ -25,10 +25,15 @@ import com.example.financetracker.ledger.family.FamilyInviteView.InviteKind;
  * @param openingBalance for a claim, the seat's family balance before the join date, in the base currency, which the
  *        user takes on as their opening balance (D-18, D-34): positive when the seat owes the family, negative when the
  *        family owes it; null for a new member (additive, F6a)
+ * @param returning whether the user was a member who left and comes back by this invite (D-26; additive, F6a)
+ * @param correction for a returning member, the one correction dated on the join date that makes their debt to the
+ *        family budget show their family balance: their balance before the join date less what their former debt
+ *        account shows (D-26), positive when it adds to what they owe; null otherwise (additive, F6a)
  */
 public record InviteLookup(String ledgerName, String baseCurrency, String invitedBy, InviteKind kind, String seatName,
         LocalDate joinDate, Instant expiresAt, List<FamilyCategory> categories, List<CategoryMerge> merges,
-        List<CategoryKept> keptPrivate, List<CategoryChoice> mayBring, String displayName, BigDecimal openingBalance) {
+        List<CategoryKept> keptPrivate, List<CategoryChoice> mayBring, String displayName, BigDecimal openingBalance,
+        boolean returning, BigDecimal correction) {
 
     /** A category of the family, without its id. */
     public record FamilyCategory(String code, String name, String type) {

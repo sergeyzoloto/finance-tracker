@@ -154,8 +154,16 @@ public class FamilyPostingService {
                 .param("memberId", memberId).param("familyId", family.ledgerId())
                 .query((row, n) -> new Involved(row.getLong("id"), row.getBoolean("pays")))
                 .list();
-        // What they paid or received themselves goes to their placeholder, for them to put on an account (D-18).
-        records.forEach(record -> postRecord(family, record.id(), record.pays() ? new Later(null) : new Unchanged()));
+        // What they paid or received themselves goes to their placeholder, for them to put on an account (D-18), unless
+        // it is their own payment of before they left, attached again (F6a, D-26), which stays as they left it.
+        Set<Long> attached = new HashSet<>(jdbc.sql("""
+                SELECT record_id FROM family_entry_link
+                WHERE family_ledger_id = :familyId AND member_id = :memberId AND link_type = 'PAYMENT'
+                  AND detached_at IS NULL""")
+                .param("familyId", family.ledgerId()).param("memberId", memberId)
+                .query(Long.class).list());
+        records.forEach(record -> postRecord(family, record.id(),
+                record.pays() && !attached.contains(record.id()) ? new Later(null) : new Unchanged()));
         openings(family);
     }
 
@@ -255,13 +263,17 @@ public class FamilyPostingService {
 
     /**
      * The opening balances (F5; D-18, ADR 0003 topic E) of the members with an account who joined after the start
-     * date: each one's family balance from the records dated before their join date, as one entry on their join date,
-     * their debt account −balance and OPENING_BALANCE +balance; none for a balance of 0. Like a record's entries, an
-     * equal one stays, a different one is replaced and one no longer wanted goes, so a change of a record before a
-     * member's join date reaches their opening balance (D-10).
+     * date: each one's family balance from the records dated before their join date, less what their debt account
+     * shows already on that date from entries that aren't posted for this membership (a returning member's entries of
+     * before they left, and whatever they posted to the account while it was theirs; F6a, D-26), as one entry on their
+     * join date, their debt account −amount and OPENING_BALANCE +amount; none for an amount of 0. For a member who took
+     * a seat that is the whole balance before their join date, an opening balance ({@code FAMILY_OPENING}); for one who
+     * returned, the correction ({@code FAMILY_CORRECTION}). Like a record's entries, an equal one stays, a different one
+     * is replaced and one no longer wanted goes, so a change of a record before a member's join date reaches it (D-10,
+     * D-31).
      */
     private void openings(LedgerScope family) {
-        record Joined(long memberId, LocalDate joinDate, String currency, BigDecimal before) {
+        record Joined(long memberId, LocalDate joinDate, String currency, BigDecimal before, boolean returned) {
         }
         List<Joined> joined = jdbc.sql("""
                 SELECT m.id, m.join_date, l.base_currency,
@@ -275,35 +287,104 @@ public class FamilyPostingService {
                                      AND r.record_date < m.join_date), 0)
                        + coalesce((SELECT sum(r.base_amount) FROM family_record r
                                    WHERE r.payee_member_id = m.id AND r.ledger_id = l.id AND r.deleted_at IS NULL
-                                     AND r.record_date < m.join_date), 0) AS before
+                                     AND r.record_date < m.join_date), 0) AS before,
+                       EXISTS (SELECT FROM family_entry_link d
+                               WHERE d.family_ledger_id = l.id AND d.member_id = m.id AND d.detached_at IS NOT NULL)
+                           AS returned
                 FROM ledger_member m JOIN ledger l ON l.id = m.ledger_id
                 WHERE m.ledger_id = :familyId AND m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
                   AND m.join_date > l.start_date
                 ORDER BY m.id""")
                 .param("familyId", family.ledgerId())
                 .query((row, n) -> new Joined(row.getLong("id"), row.getObject("join_date", LocalDate.class),
-                        row.getString("base_currency"), row.getBigDecimal("before")))
+                        row.getString("base_currency"), row.getBigDecimal("before"), row.getBoolean("returned")))
                 .list();
         for (Joined member : joined) {
-            Link existing = writer.openingLink(family, member.memberId());
-            if (member.before().signum() == 0) {
+            LinkType type = member.returned() ? LinkType.CORRECTION : LinkType.OPENING_BALANCE;
+            Link existing = writer.openingLink(family, member.memberId(), type);
+            long debt = writer.debtAccount(family, member.memberId());
+            BigDecimal amount = member.before().subtract(shown(family, member.memberId(), debt, member.joinDate(),
+                    member.currency()));
+            if (amount.signum() == 0) {
                 if (existing != null) {
                     writer.delete(family, existing);
                 }
                 continue;
             }
-            PostedEntry wanted = new PostedEntry(member.memberId(), null, LinkType.OPENING_BALANCE,
-                    EntryKind.FAMILY_OPENING, true, member.joinDate(), List.of(
-                            new Line(writer.debtAccount(family, member.memberId()), member.currency(),
-                                    member.before().negate(), null),
-                            new Line(writer.openingBalance(family, member.memberId()), member.currency(),
-                                    member.before(), null)), null);
+            PostedEntry wanted = new PostedEntry(member.memberId(), null, type,
+                    member.returned() ? EntryKind.FAMILY_CORRECTION : EntryKind.FAMILY_OPENING, true,
+                    member.joinDate(), List.of(
+                            new Line(debt, member.currency(), amount.negate(), null),
+                            new Line(writer.openingBalance(family, member.memberId()), member.currency(), amount,
+                                    null)), null);
             if (existing == null) {
                 writer.write(family, wanted);
             } else if (!writer.holds(family, existing, wanted)) {
                 writer.replace(family, existing, wanted);
             }
         }
+    }
+
+    /**
+     * What the member's debt account shows on the day, in the base currency, from entries that aren't posted for their
+     * membership now: 0 for a member who took a seat, whose account has only those; for a member who returned, their
+     * entries of before they left and whatever they posted to the account while it was theirs (D-26).
+     */
+    private BigDecimal shown(LedgerScope family, long memberId, long debt, LocalDate day, String currency) {
+        return jdbc.sql("""
+                SELECT coalesce(-sum(p.amount), 0)
+                FROM posting p JOIN journal_entry e ON e.id = p.entry_id
+                WHERE p.account_id = :debt AND p.currency = :currency AND e.entry_date <= :day
+                  AND NOT EXISTS (SELECT FROM family_entry_link l
+                                  WHERE l.entry_id = e.id AND l.family_ledger_id = :familyId AND l.member_id = :memberId
+                                    AND l.detached_at IS NULL)""")
+                .param("debt", debt).param("currency", currency).param("day", day)
+                .param("familyId", family.ledgerId()).param("memberId", memberId)
+                .query(BigDecimal.class).single();
+    }
+
+    /**
+     * Posts the family ledger to the member the scope stands for, who has just come back (F6a, D-26): their debt
+     * account named after the family ledger again ({@link CrossLedgerWriter#relinkDebt}), their entries of before they
+     * left for records dated from their new join date attached again ({@link CrossLedgerWriter#reattach}), then as
+     * {@link #join}: every record from their new join date that involves them, and one correction dated on it that makes
+     * the debt account show their family balance.
+     *
+     * @param family the family ledger, as the member who returned
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void rejoin(LedgerScope family) {
+        writer.relinkDebt(family, family.memberId());
+        writer.reattach(family, family.memberId());
+        join(family);
+    }
+
+    /**
+     * What the debt account that a member's detach left in their personal ledger shows on the day, in the family's base
+     * currency: for the correction a returning member's invite shows before they accept (D-26). 0 if they have none.
+     *
+     * @param personal the personal ledger of the member who left
+     */
+    @Transactional(readOnly = true)
+    public BigDecimal formerDebtBalance(LedgerScope personal, long familyLedgerId, long memberId, String baseCurrency,
+            LocalDate day) {
+        Long former = writer.formerDebt(personal, personal.ledgerId(), familyLedgerId, memberId);
+        if (former == null) {
+            return BigDecimal.ZERO;
+        }
+        // Not the entries that come back attached to their records, which the return posts again (reattach).
+        return jdbc.sql("""
+                SELECT coalesce(-sum(p.amount), 0)
+                FROM posting p JOIN journal_entry e ON e.id = p.entry_id
+                WHERE p.account_id = :debt AND e.ledger_id = :ledgerId AND p.currency = :currency
+                  AND e.entry_date <= :day
+                  AND NOT EXISTS (SELECT FROM family_entry_link l JOIN family_record r ON r.id = l.record_id
+                                  WHERE l.entry_id = e.id AND l.family_ledger_id = :familyId AND l.member_id = :memberId
+                                    AND r.deleted_at IS NULL AND r.record_date >= :day
+                                    AND e.kind LIKE 'FAMILY\\_%')""")
+                .param("debt", former).param("ledgerId", personal.ledgerId()).param("currency", baseCurrency)
+                .param("day", day).param("familyId", familyLedgerId).param("memberId", memberId)
+                .query(BigDecimal.class).single();
     }
 
     /**

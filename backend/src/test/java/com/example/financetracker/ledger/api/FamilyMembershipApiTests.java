@@ -346,6 +346,214 @@ class FamilyMembershipApiTests extends FamilyApiTest {
         FamilyInvariants.check(jdbc, summer.get("id").asLong());
     }
 
+    /**
+     * The worked example of a return (D-26). Mum paid 90.00 on 09-05 and Dad 60.00 on 09-10, each split among the
+     * three: Dad −10.00. He leaves; his debt account keeps −10.00, and then he deletes what was his payment, so it shows
+     * +50.00 (his two shares, 30.00 and 20.00). Mum pays 30.00 on 09-20 for herself and Kid. Invited back as a new
+     * member, he is told the correction beforehand: −10.00 less +50.00 = −60.00, which posts on his join date, today, as
+     * debt account +60.00 and OPENING_BALANCE −60.00, so the account shows −10.00 again (D-10). The records that involve
+     * him aren't frozen any more; a change of one before his join date moves the correction, and the entries of before
+     * he left, which post to the debt account again, change only with the family budget.
+     */
+    @Test
+    void aMemberWhoLeftComesBackWithOneCorrection() throws IOException {
+        long early = created(post(alice, uri + "/records", expense("2026-09-05", groceries, "90.00", mum, LATER)))
+                .get("id").asLong();
+        created(post(bob, uri + "/records", expense("2026-09-10", groceries, "60.00", dad, LATER)));
+        long debt = accountId(bob, "FAMILY_DEBT_" + family);
+        long opening = accountId(bob, "OPENING_BALANCE");
+        assertThat(delete(bob, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+        JsonNode payment = Arrays.stream(elements(ok(get(bob, "/api/entries?size=200")).get("content")))
+                .filter(e -> e.get("kind").asText().equals("FAMILY_PAYMENT")).findFirst().orElseThrow();
+        assertThat(delete(bob, "/api/entries/" + payment.get("id").asLong() + "?version="
+                + payment.get("version").asInt())).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(debtShown(bob, debt)).isEqualByComparingTo("50.00");
+        created(post(alice, uri + "/records", expense("2026-09-20", groceries, "30.00", mum, LATER)));
+        assertThat(balances(alice)).containsExactly("Mum -55.00 you", "Dad -10.00", "Kid 65.00");
+
+        // A place isn't the way back: members are never merged (D-18).
+        assertThat(detail(inviteCall(bob, "lookup", token(kidsPlace("2026-09-15"), null)), HttpStatus.CONFLICT))
+                .isEqualTo("You were a member of this family budget before, so you can't take someone else's place; an "
+                        + "invite as a new member brings you back.");
+        String token = newInvite(alice, """
+                {"kind": "NEW_MEMBER"}""");
+        JsonNode lookup = ok(inviteCall(bob, "lookup", token(token, null)));
+        assertThat(lookup.get("returning").asBoolean()).isTrue();
+        assertThat(lookup.get("correction").asText()).isEqualTo("-60.00");
+        assertThat(lookup.get("joinDate").asText()).isEqualTo(today().toString());
+        assertThat(lookup.get("openingBalance").isNull()).isTrue();
+
+        JsonNode back = accept(bob, token, "Dad");
+        assertThat(back.get("memberId").asLong()).isEqualTo(dad);
+        JsonNode dadNow = find(ok(get(alice, uri + "/members")), "displayName", "Dad");
+        assertThat(dadNow.get("status").asText()).isEqualTo("ACTIVE");
+        assertThat(dadNow.get("joinDate").asText()).isEqualTo(today().toString());
+        assertThat(dadNow.get("leftDate").isNull()).isTrue();
+        assertThat(dadNow.get("role").asText()).isEqualTo("MEMBER");
+        assertThat(accountId(bob, "FAMILY_DEBT_" + family)).isEqualTo(debt);
+        JsonNode account = find(ok(get(bob, "/api/accounts")), "id", String.valueOf(debt));
+        assertThat(account.get("system").asBoolean()).isTrue();
+        assertThat(account.get("name").asText()).isEqualTo("Debt to family budget: Home");
+        assertThat(postedEntries(bob)).containsExactly(
+                "FAMILY_CORRECTION CORRECTION %d:60.00:null %d:-60.00:null".formatted(debt, opening));
+        assertThat(debtShown(bob, debt)).isEqualByComparingTo("-10.00");
+        assertThat(balances(bob)).containsExactly("Mum -55.00", "Dad -10.00 you", "Kid 65.00");
+        // His GROCERIES, his own again since he left, merged back into the family's (D-11, D-26).
+        JsonNode categories = ok(get(bob, "/api/categories"));
+        assertThat(find(categories, "code", "GROCERIES").get("familyLedgerId").asLong()).isEqualTo(family);
+        assertThat(categories.findValuesAsText("code").stream().filter(code -> code.equals("GROCERIES"))).hasSize(1);
+        everyonesIntegrity();
+
+        // Not frozen any more: a change before his join date moves the correction (D-31).
+        assertThat(shares(ok(patch(alice, uri + "/records/" + early + "?version=0", """
+                {"amount": "120.00"}""")))).containsExactly("Mum 40.00 null", "Dad 40.00 null", "Kid 40.00 null");
+        assertThat(postedEntries(bob)).containsExactly(
+                "FAMILY_CORRECTION CORRECTION %d:50.00:null %d:-50.00:null".formatted(debt, opening));
+        assertThat(balances(bob)).containsExactly("Mum -75.00", "Dad 0.00 you", "Kid 75.00");
+        everyonesIntegrity();
+        // From today he shares as anyone does.
+        assertThat(shares(created(post(alice, uri + "/records", expense(today().toString(), groceries, "30.00", mum,
+                LATER))))).containsExactly("Mum 10.00 null", "Dad 10.00 null", "Kid 10.00 null");
+        everyonesIntegrity();
+        // His entries of before he left post to the debt account again: they change with the family budget only.
+        JsonNode oldShare = Arrays.stream(elements(ok(get(bob, "/api/entries?size=200")).get("content")))
+                .filter(e -> e.get("family").isNull() && e.get("kind").asText().equals("FAMILY_SHARE")).findFirst()
+                .orElseThrow();
+        assertThat(detail(delete(bob, "/api/entries/" + oldShare.get("id").asLong() + "?version="
+                + oldShare.get("version").asInt()), HttpStatus.CONFLICT)).isEqualTo(("Entry %d posts to your debt to "
+                        + "the family budget \"Home\", which changes only through the family budget.")
+                        .formatted(oldShare.get("id").asLong()));
+        assertThat(inviteCall(bob, "lookup", token(newInvite(alice, """
+                {"kind": "NEW_MEMBER"}"""), null))).hasStatus(HttpStatus.CONFLICT);
+    }
+
+    /**
+     * A member who leaves and returns on the same day (found in F6a's walk-through): the records of that day are posted
+     * to them again, and their entries of before they left for those records come back attached to them, rather than
+     * staying beside new ones. So nothing counts twice in their personal reports, and no correction is needed. Mum
+     * paid 60.00 today and Dad 30.00, each split among the three: Dad's shares 20.00 and 10.00, his payment 30.00.
+     */
+    @Test
+    void aMemberWhoReturnsTheSameDayIsntPostedTwice() throws IOException {
+        String today = today().toString();
+        created(post(alice, uri + "/records", expense(today, groceries, "60.00", mum, LATER)));
+        created(post(bob, uri + "/records", expense(today, groceries, "30.00", dad, LATER)));
+        List<String> before = postedEntries(bob);
+        assertThat(before).hasSize(3);
+        assertThat(delete(bob, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+        String token = newInvite(alice, """
+                {"kind": "NEW_MEMBER"}""");
+        assertThat(ok(inviteCall(bob, "lookup", token(token, null))).get("correction").asText()).isEqualTo("0.00");
+
+        accept(bob, token, "Dad");
+
+        assertThat(postedEntries(bob)).containsExactlyInAnyOrderElementsOf(before);
+        assertThat(ok(get(bob, "/api/entries?size=200")).get("content")).hasSize(3);
+        assertThat(balances(bob)).containsExactly("Mum -30.00", "Dad 0.00 you", "Kid 30.00");
+        JsonNode groceriesRow = find(ok(get(bob, "/api/reports/cash-flow?from=" + today + "&to=" + today)),
+                "categoryCode", "GROCERIES");
+        assertThat(new BigDecimal(groceriesRow.get("total").asText())).isEqualByComparingTo("30.00");
+        everyonesIntegrity();
+    }
+
+    /**
+     * Owners (D-3, D-15, D-19): an owner makes a member with an account an owner, after which the former last owner may
+     * leave; nobody else may, and only an ACTIVE member with an account becomes one.
+     */
+    @Test
+    void anOwnerMakesAnotherMemberAnOwner() throws IOException {
+        String carol = newUser();
+        String erin = newUser();
+        ok(get(erin, "/api/accounts"));
+        long erinsSeat = join(family, erin, "Erin", "MEMBER", LocalDate.of(2026, 9, 1));
+        assertThat(delete(erin, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        String owner = uri + "/members/%d/owner";
+
+        assertThat(detail(post(bob, owner.formatted(dad), null), HttpStatus.CONFLICT)).startsWith("Only an owner");
+        assertThat(detail(post(carol, owner.formatted(dad), null), HttpStatus.NOT_FOUND))
+                .isEqualTo("Family budget %d not found.".formatted(family));
+        assertThat(detail(post(alice, owner.formatted(kid), null), HttpStatus.CONFLICT))
+                .isEqualTo("Kid has no account: only a member with an account can be an owner.");
+        assertThat(detail(post(alice, owner.formatted(erinsSeat), null), HttpStatus.CONFLICT))
+                .isEqualTo("A former member stays as they are.");
+        assertThat(detail(post(alice, owner.formatted(mum), null), HttpStatus.CONFLICT))
+                .isEqualTo("Mum is an owner already.");
+        assertThat(detail(post(alice, owner.formatted(9_000_000_000L), null), HttpStatus.NOT_FOUND))
+                .isEqualTo("Member 9000000000 not found.");
+
+        JsonNode dadNow = ok(post(alice, owner.formatted(dad), null));
+        assertThat(dadNow.get("role").asText()).isEqualTo("OWNER");
+        assertThat(ok(get(bob, uri)).get("role").asText()).isEqualTo("OWNER");
+        assertThat(delete(alice, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(find(ok(get(bob, uri + "/members")), "displayName", "Mum").get("status").asText()).isEqualTo("LEFT");
+        assertThat(detail(post(bob, owner.formatted(mum), null), HttpStatus.CONFLICT))
+                .isEqualTo("Mum has left the family budget.");
+        assertThat(post(alice, owner.formatted(dad), null)).hasStatus(HttpStatus.NOT_FOUND);
+    }
+
+    /**
+     * What "Delete all my data" would touch (D-20), for its confirmation screen: each family budget the caller is an
+     * ACTIVE member of, with their role and balance, and what becomes of it; of those they left, only how many.
+     */
+    @Test
+    void theDeletionPreviewListsTheCallersOwnMembershipsOnly() throws IOException {
+        ok(put(alice, uri + "/split-rule", """
+                {"rule": "CUSTOM", "shares": [{"memberId": %d, "share": 5000}, {"memberId": %d, "share": 3000},
+                 {"memberId": %d, "share": 2000}]}""".formatted(mum, dad, kid)));
+        created(post(alice, uri + "/records", expense("2026-09-05", groceries, "100.00", mum, LATER)));
+        newInvite(alice, """
+                {"kind": "NEW_MEMBER"}""");
+        long allotment = newFamily(alice, """
+                {"name": "Allotment", "baseCurrency": "USD", "displayName": "Anna"}""").get("id").asLong();
+        long away = newFamily(bob, """
+                {"name": "Bob's club", "baseCurrency": "EUR", "displayName": "Bob"}""").get("id").asLong();
+        join(away, alice, "Anna", "MEMBER", today());
+        assertThat(delete(alice, "/api/family-ledgers/" + away + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+
+        JsonNode alices = ok(get(alice, "/api/me/family-memberships"));
+        assertThat(alices.get("left").asLong()).isEqualTo(1);
+        assertThat(alices.get("memberships").findValuesAsText("name")).containsExactly("Allotment", "Home");
+        JsonNode inAllotment = alices.get("memberships").get(0);
+        assertThat(inAllotment.get("ledgerId").asLong()).isEqualTo(allotment);
+        assertThat(inAllotment.get("outcome").asText()).isEqualTo("DELETED");
+        assertThat(inAllotment.get("baseCurrency").asText()).isEqualTo("USD");
+        JsonNode inHome = alices.get("memberships").get(1);
+        assertThat(inHome.get("role").asText()).isEqualTo("OWNER");
+        assertThat(inHome.get("balance").asText()).isEqualTo("-50.00");
+        assertThat(inHome.get("outcome").asText()).isEqualTo("OWNERSHIP_PASSES");
+        assertThat(inHome.get("newOwner").asText()).isEqualTo("Dad");
+        assertThat(inHome.get("pendingInvites").asInt()).isEqualTo(1);
+        assertThat(inHome.get("splitRuleReset").asBoolean()).isTrue();
+
+        JsonNode bobs = ok(get(bob, "/api/me/family-memberships"));
+        assertThat(bobs.get("left").asLong()).isZero();
+        assertThat(bobs.get("memberships").findValuesAsText("name")).containsExactly("Bob's club", "Home");
+        JsonNode bobInHome = bobs.get("memberships").get(1);
+        assertThat(bobInHome.get("role").asText()).isEqualTo("MEMBER");
+        assertThat(bobInHome.get("balance").asText()).isEqualTo("30.00");
+        assertThat(bobInHome.get("outcome").asText()).isEqualTo("STAYS");
+        assertThat(bobInHome.get("newOwner").isNull()).isTrue();
+        assertThat(bobInHome.get("pendingInvites").asInt()).isZero();
+        assertThat(bobInHome.get("splitRuleReset").asBoolean()).isTrue();
+        assertThat(bobs.get("memberships").get(0).get("outcome").asText()).isEqualTo("DELETED");
+        assertThat(ok(get(newUser(), "/api/me/family-memberships")).toString())
+                .isEqualTo("{\"memberships\":[],\"left\":0}");
+    }
+
+    /** What the debt account shows today, as the balances report says it. */
+    private BigDecimal debtShown(String user, long debt) throws IOException {
+        return new BigDecimal(find(ok(get(user, "/api/reports/balances?asOf=" + today())), "accountId",
+                String.valueOf(debt)).get("balance").asText());
+    }
+
+    /** Nobody's integrity check finds anything, and the invariants hold. */
+    private void everyonesIntegrity() throws IOException {
+        for (String user : List.of(alice, bob)) {
+            assertThat(ok(get(user, "/api/reports/integrity"))).as("integrity of %s", user).isEmpty();
+        }
+        FamilyInvariants.check(jdbc, family);
+    }
+
     private String members() {
         return jdbc.sql("SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m WHERE m.ledger_id = ?")
                 .param(family).query(String.class).single();

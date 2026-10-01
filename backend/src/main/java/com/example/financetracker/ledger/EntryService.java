@@ -291,6 +291,21 @@ public class EntryService {
     private void requireOwn(LedgerScope ledger, JournalEntry entry) {
         EntryFamily family = families(ledger, List.of(entry.id())).get(entry.id());
         if (family == null) {
+            // An entry of the member's that a family budget posted before they left, which posts to the debt account
+            // that names the budget again since they returned (F6a, D-26): the budget's correction counts it, so it
+            // changes only with the budget's records (D-10).
+            jdbc.sql("""
+                    SELECT f.name FROM posting p
+                    JOIN account a ON a.id = p.account_id AND a.ledger_id = :ledgerId
+                    JOIN ledger f ON f.id = a.family_ledger_id
+                    WHERE p.entry_id = :entryId
+                    LIMIT 1""")
+                    .param("ledgerId", ledger.ledgerId()).param("entryId", entry.id())
+                    .query(String.class).optional()
+                    .ifPresent(name -> {
+                        throw new ConflictException(("Entry %d posts to your debt to the family budget \"%s\", which "
+                                + "changes only through the family budget").formatted(entry.id(), name));
+                    });
             return;
         }
         throw new ConflictException(switch (family.link()) {

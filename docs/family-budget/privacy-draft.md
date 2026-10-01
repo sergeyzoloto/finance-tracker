@@ -54,13 +54,15 @@ Before you accept or decline, the invitation shows you:
   the link works;
 - for a place, its balance in the family budget before that date, which becomes your opening
   balance;
+- if you were a member before and come back, the one correction that brings what your personal budget
+  shows as your balance with the family budget in line with the family budget's;
 - the family budget's categories;
 - which of your own categories will merge into the family budget's, which stay private, and which you
   may bring along;
 - the name of your account, as a suggestion for the name the other members will see.
 
 Nothing else about the family budget or its members is shown before you accept: no member's name
-but the owner's and the place's, and no amount but that opening balance.
+but the owner's and the place's, and no amount but that opening balance or correction.
 
 The secret part of the link is never sent to our server with the address of a page, so it doesn't
 appear in server logs. We store only a hash of it, from which the link can't be rebuilt. To show you
@@ -99,12 +101,24 @@ When you leave a family budget, or an owner removes you:
 The last owner of a family budget hands ownership to another member first. When the last member with
 an account leaves, the family budget is closed and nobody sees it any more.
 
+If an owner invites you again, you come back in your earlier place, from the day you accept. The
+family budget's categories you use become the family's again, and one correction on that day brings
+your balance with the family budget in your personal budget in line with the family budget's: for
+example, if you changed or deleted entries it had added, or records of before you left changed while
+you were away. The invitation shows the correction before you accept.
+
+Before you confirm "Delete all my data", the screen lists every family budget you are in: your role
+and balance there, and what will happen to it, such as which member becomes its owner, or that it
+will be deleted. Of family budgets you left, it says only how many there are.
+
 When you use "Delete all my data", your personal budget is deleted entirely. In each family budget:
 
 - the records that affect other members' balances stay, with their amounts, dates, categories and
   shares, but your name in them is replaced by "Former member";
 - the comments you wrote are erased, also from the change journal;
 - invite links you created and that weren't used yet stop working;
+- if it split its expenses by fixed percentages and you had a share, it goes back to equal shares;
+- if you were its last owner, the member with an account who joined earliest becomes its owner;
 - if no other member with an account is left, the family budget is deleted.
 
 Your login account at auth.finance-nl.com stays until you ask us to delete it, as the published policy

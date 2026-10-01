@@ -242,10 +242,16 @@ class FamilyInviteApiTests extends FamilyApiTest {
         // A name another member has, whatever its case: the seat's own doesn't count.
         assertThat(detail(inviteCall(dave, "accept", token(newMember, "\"displayName\": \"mum\"")),
                 HttpStatus.CONFLICT)).isEqualTo("The family budget has a member named mum already.");
-        // A member who left comes back only from F6 on (D-26).
+        // A member who left comes back by an invite for a new member since F6a (D-26), never into a place (D-18).
         jdbc.sql("UPDATE ledger_member SET status = 'LEFT', left_date = current_date WHERE id = ?").param(dad).update();
-        assertThat(detail(inviteCall(bob, "lookup", token(newMember, null)), HttpStatus.CONFLICT))
-                .isEqualTo("You were a member of this family budget before; coming back by an invite isn't possible yet.");
+        assertThat(ok(inviteCall(bob, "lookup", token(newMember, null))).get("returning").asBoolean()).isTrue();
+        long gran = created(post(alice, uri + "/members", """
+                {"displayName": "Gran"}""")).get("id").asLong();
+        assertThat(detail(inviteCall(bob, "lookup", token(newInvite(alice, """
+                {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "2026-09-10"}""".formatted(gran)), null)),
+                HttpStatus.CONFLICT))
+                .isEqualTo("You were a member of this family budget before, so you can't take someone else's place; an "
+                        + "invite as a new member brings you back.");
         // The token still lets Dave in, as a new member.
         assertThat(accept(dave, newMember, "Dave").get("role").asText()).isEqualTo("MEMBER");
     }

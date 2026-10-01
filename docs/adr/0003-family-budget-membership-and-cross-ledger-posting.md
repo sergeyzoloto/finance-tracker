@@ -1490,6 +1490,50 @@ where the text above left a gap (each to be confirmed after the F6a review):
   direction never changes their opening balance, while the other direction, and an amount changed before the join
   date, do. Left as it is; the report asks whether it should change.
 
+**F6a as built: return, owners, what "Delete all my data" touches** (2026-10-01). As the plan says, with these
+decisions (each to be confirmed after the F6a review):
+
+- **Return.** No new endpoint: an invite for a new member (`kind` `NEW_MEMBER`) whose holder has a LEFT membership in
+  the ledger brings it back (`LedgerInvites.rejoin`): ACTIVE, joined today, the chosen display name (their own former
+  one isn't taken by themselves), a MEMBER, with a share of 0 under a custom rule; the invite used by it. A claim held
+  by a member who left stays 409, with a message that says an invite as a new member brings them back; an ACTIVE member
+  and a taken seat stay 409 too (D-29). The lookup gains `returning` and `correction` (additive): d as below, computed
+  for the lookup's today. Declining works as for anyone.
+- **The correction** is kept in step as the opening balances are (D-31): every re-post computes, for each ACTIVE member
+  with an account who joined after the start date, their family balance from the records before their join date less
+  what their debt account shows on the join date from entries that aren't posted for their membership now (in the base
+  currency), and posts the difference on the join date: a `CORRECTION` (`FAMILY_CORRECTION`, `Debt(L)` −d,
+  OPENING_BALANCE +d) for a member who returned (one with detached links), an `OPENING_BALANCE` as before for one who
+  took a seat, whose debt account holds nothing else. So a change of a record before a returned member's join date,
+  which isn't frozen any more, moves their correction, and D-10 holds from the join date.
+- **Entries of records from the join date** (found in F6a's walk-through, a member leaving and returning on the same
+  day): before the records are posted, `CrossLedgerWriter.reattach` attaches again the member's detached links of
+  records dated on or after their new join date, while the entry is still of a family kind; the re-post then brings
+  each in line with its record. Posted anew beside the old ones, those records would count twice in the member's
+  personal reports (the debt account was right either way). Their own payment on an account of theirs stays theirs. Not
+  counted, and not attached: an entry the member changed into an ordinary kind, or one on the debt account that
+  belongs to no record, dated after the join date (the report asks about it).
+- **`Debt(L)` linked again** (`CrossLedgerWriter.relinkDebt`): the liability that the member's detached links posted to,
+  else the one with the code `FAMILY_DEBT_<ledger id>`, becomes the debt account again: `family_ledger_id` set, a system
+  account, not archived, named "Debt to family budget: <the family's name now>" (a name the member gave it while away
+  goes). With none, the posting creates a new one.
+- **Entries of before leaving.** Once their debt account names the family budget again, those of a returned member's
+  entries that post to it change only with the family budget: `PUT` and `DELETE` answer 409 ("Entry n posts to your
+  debt to the family budget "Home", which changes only through the family budget"), since the correction counts them.
+- **The categories** of a returning member merge as at the first join (D-11 as amended): their D-33 copies have the
+  family's codes and merge back; a `_2` copy stays personal.
+- **Owners.** `POST /{ledgerId}/members/{memberId}/owner` (new, owners only; 409 for a member, 404 for anyone else)
+  makes an ACTIVE member with an account an owner and answers the member; 409 for one without an account, one who left,
+  a FORMER one or an owner already. There is no way to make an owner a member again but their leaving (not asked for).
+- **What "Delete all my data" touches.** `GET /api/me/family-memberships` (new, behind the switch): for each family
+  ledger the caller is an ACTIVE member of, by name, `ledgerId`, `name`, `role`, `baseCurrency`, their `balance`, the
+  `outcome` (`DELETED` when no other ACTIVE member with an account remains, `OWNERSHIP_PASSES` when they are its last
+  owner, with `newOwner`, the display name of the ACTIVE member with an account who joined earliest, else `STAYS`),
+  `pendingInvites` (theirs that the deletion revokes) and `splitRuleReset`; and `left`, how many family ledgers they left,
+  of which it says nothing else, since a member who left reads nothing of the budget. It reads as
+  `release_family_memberships` acts, which is unchanged: the personal ledger goes as a whole, so D-33's copies don't
+  matter there.
+
 ### K. Test strategy
 
 **Isolation, three users.** A new `FamilyIsolationApiTests` next to `DataIsolationApiTests`, which

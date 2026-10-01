@@ -147,6 +147,88 @@ class CrossLedgerWriter {
     }
 
     /**
+     * Links the debt account of a member who returns (F6a, D-26) to the family ledger again, while they are ACTIVE: the
+     * account their detach left as an ordinary liability ({@link #formerDebt}), a system account again, not archived,
+     * named after the family as it is called now. With none, the next {@link #debtAccount} creates one.
+     */
+    void relinkDebt(LedgerScope family, long memberId) {
+        MemberLedger member = memberLedger(family, memberId);
+        if (member.debt() != null) {
+            return;
+        }
+        Long former = formerDebt(family, member.ledgerId(), family.ledgerId(), memberId);
+        if (former == null) {
+            return;
+        }
+        String familyName = jdbc.sql("SELECT name FROM ledger WHERE id = :familyId")
+                .param("familyId", family.ledgerId()).query(String.class).single();
+        String name = "Debt to family budget: " + familyName;
+        asWriter(family, null, () -> jdbc.sql("""
+                UPDATE account SET family_ledger_id = :familyId, is_system = TRUE, archived_at = NULL, name = :name
+                WHERE id = :accountId AND ledger_id = :ledgerId""")
+                .param("familyId", family.ledgerId()).param("name", name.length() > 100 ? name.substring(0, 100) : name)
+                .param("accountId", former).param("ledgerId", member.ledgerId())
+                .update());
+    }
+
+    /**
+     * Attaches again the links of a member who returns (F6a, D-26) that are for records dated on or after their new
+     * join date, which isn't deleted, while their entry is still a family kind in their personal ledger: their own
+     * entries of before they left for records that the family ledger now posts to them again (records of the day they
+     * returned, or dated later). Posting them anew would count those records twice in their personal reports; attached,
+     * the re-post brings each in line with its record. A link on one of their own accounts stays theirs (not
+     * system-owned). Called while the member is ACTIVE, before the records are posted.
+     */
+    void reattach(LedgerScope family, long memberId) {
+        MemberLedger member = memberLedger(family, memberId);
+        asWriter(family, null, () -> jdbc.sql("""
+                UPDATE family_entry_link l
+                SET detached_at = NULL,
+                    system_owned = NOT EXISTS (
+                        SELECT FROM posting p JOIN account a ON a.id = p.account_id
+                        WHERE p.entry_id = l.entry_id AND a.family_ledger_id IS NULL AND a.code <> 'UNALLOCATED'
+                          AND NOT (a.is_system AND a.code IN (:placeholder, :fx, 'OPENING_BALANCE'))
+                          AND NOT (a.type = 'LIABILITY' AND a.id = :debt))
+                FROM family_record r, journal_entry e
+                WHERE l.family_ledger_id = :familyId AND l.member_id = :memberId AND l.detached_at IS NOT NULL
+                  AND l.record_id = r.id AND r.ledger_id = :familyId AND r.deleted_at IS NULL
+                  AND r.record_date >= (SELECT join_date FROM ledger_member WHERE id = :memberId)
+                  AND e.id = l.entry_id AND e.ledger_id = :personalId AND e.kind LIKE 'FAMILY\\_%'
+                  AND NOT EXISTS (SELECT FROM family_entry_link o
+                                  WHERE o.record_id = l.record_id AND o.member_id = l.member_id
+                                    AND o.link_type = l.link_type AND o.detached_at IS NULL)""")
+                .param("placeholder", PLACEHOLDER_CODE).param("fx", FX_CODE)
+                .param("debt", member.debt() == null ? -1L : member.debt())
+                .param("familyId", family.ledgerId()).param("memberId", memberId)
+                .param("personalId", member.ledgerId())
+                .update());
+    }
+
+    /**
+     * The debt account that a member's detach left in their personal ledger (D-19): the liability their family entries
+     * of the family ledger posted to, else the one with the debt account's code ({@code FAMILY_DEBT_<ledger id>},
+     * topic E, "found by its code"); null if there is none.
+     *
+     * @param scope a scope of the caller's: the family ledger's of the member who returns, or before they accept, their
+     *        personal ledger
+     */
+    Long formerDebt(LedgerScope scope, long personalLedgerId, long familyLedgerId, long memberId) {
+        return jdbc.sql("""
+                SELECT a.id FROM account a
+                WHERE a.ledger_id = :personalId AND a.family_ledger_id IS NULL AND a.type = 'LIABILITY'
+                  AND (a.code = :code OR EXISTS (SELECT FROM family_entry_link l JOIN posting p ON p.entry_id = l.entry_id
+                                                 WHERE p.account_id = a.id AND l.family_ledger_id = :familyId
+                                                   AND l.member_id = :memberId))
+                ORDER BY EXISTS (SELECT FROM family_entry_link l JOIN posting p ON p.entry_id = l.entry_id
+                                 WHERE p.account_id = a.id AND l.family_ledger_id = :familyId
+                                   AND l.member_id = :memberId) DESC, a.id
+                LIMIT 1""")
+                .param("personalId", personalLedgerId).param("code", DEBT_CODE + familyLedgerId)
+                .param("familyId", familyLedgerId).param("memberId", memberId)
+                .query(Long.class).optional().orElse(null);
+    }
+
+    /**
      * The member's "Payments without a specified account", created on first need: a system ASSET, code
      * {@code UNSPECIFIED_PAYMENTS} (topic E).
      *
@@ -185,13 +267,19 @@ class CrossLedgerWriter {
                 .list();
     }
 
-    /** The member's opening balance's link that isn't detached (F5), or null. */
-    Link openingLink(LedgerScope family, long memberId) {
+    /**
+     * The member's opening balance's link (F5), or their correction's (a returning member's, F6a, D-26), that isn't
+     * detached, or null.
+     */
+    Link openingLink(LedgerScope family, long memberId, LinkType type) {
+        if (type != LinkType.OPENING_BALANCE && type != LinkType.CORRECTION) {
+            throw new IllegalArgumentException("Not an opening balance's link type: " + type);
+        }
         return jdbc.sql("""
                 SELECT id, entry_id, member_id, link_type, system_owned FROM family_entry_link
-                WHERE family_ledger_id = :familyId AND member_id = :memberId AND link_type = 'OPENING_BALANCE'
+                WHERE family_ledger_id = :familyId AND member_id = :memberId AND link_type = :type
                   AND detached_at IS NULL""")
-                .param("familyId", family.ledgerId()).param("memberId", memberId)
+                .param("familyId", family.ledgerId()).param("memberId", memberId).param("type", type.name())
                 .query((row, n) -> new Link(row.getLong("id"), row.getObject("entry_id", Long.class),
                         row.getLong("member_id"), LinkType.valueOf(row.getString("link_type")),
                         row.getBoolean("system_owned")))

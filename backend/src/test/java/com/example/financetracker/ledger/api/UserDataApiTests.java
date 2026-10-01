@@ -310,6 +310,61 @@ class UserDataApiTests extends LedgerApiTest {
                 .query(Long.class).single()).isZero();
     }
 
+    /**
+     * "Delete all my data" does what its confirmation screen said (F6a, D-20; GET /api/me/family-memberships). Alice is
+     * the last owner of Home, where Bob is a member with an account and a custom share of 30 %, and the only member with
+     * an account of Allotment; Bob owns Club, where Alice has a custom share of 40 %. Her preview: Home passes to Dad,
+     * Allotment is deleted, Club stays with its rule back to equal shares. After her deletion, exactly so: Dad owns
+     * Home, Allotment is gone, Club's rule is EQUAL with the reset in its journal, about the former member.
+     */
+    @Test
+    void deletingAllMyDataDoesWhatItsPreviewSaid() throws IOException {
+        String alice = newUser();
+        String bob = newUser();
+        ok(get(bob, "/api/accounts"));
+        long home = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-09-01",
+                 "splitRule": "CUSTOM"}""").get("id").asLong();
+        long dad = join(home, bob, "Dad", "MEMBER", LocalDate.of(2026, 9, 1));
+        long mum = jdbc.sql("SELECT id FROM ledger_member WHERE ledger_id = ? AND user_sub = ?").params(home, alice)
+                .query(Long.class).single();
+        ok(put(alice, "/api/family-ledgers/" + home + "/split-rule", """
+                {"rule": "CUSTOM", "shares": [{"memberId": %d, "share": 7000}, {"memberId": %d, "share": 3000}]}"""
+                .formatted(mum, dad)));
+        long allotment = newFamily(alice, """
+                {"name": "Allotment", "baseCurrency": "EUR", "displayName": "Anna"}""").get("id").asLong();
+        long club = newFamily(bob, """
+                {"name": "Club", "baseCurrency": "EUR", "displayName": "Bob", "splitRule": "CUSTOM"}""")
+                .get("id").asLong();
+        long aliceInClub = join(club, alice, "Anna", "MEMBER", LocalDate.now());
+        long bobInClub = jdbc.sql("SELECT id FROM ledger_member WHERE ledger_id = ? AND user_sub = ?").params(club, bob)
+                .query(Long.class).single();
+        ok(put(bob, "/api/family-ledgers/" + club + "/split-rule", """
+                {"rule": "CUSTOM", "shares": [{"memberId": %d, "share": 6000}, {"memberId": %d, "share": 4000}]}"""
+                .formatted(bobInClub, aliceInClub)));
+
+        JsonNode preview = ok(get(alice, "/api/me/family-memberships")).get("memberships");
+        assertThat(preview.findValuesAsText("name")).containsExactly("Allotment", "Club", "Home");
+        assertThat(preview.findValuesAsText("outcome")).containsExactly("DELETED", "STAYS", "OWNERSHIP_PASSES");
+        assertThat(preview.get(2).get("newOwner").asText()).isEqualTo("Dad");
+        assertThat(preview.findValuesAsText("splitRuleReset")).containsExactly("false", "true", "true");
+
+        assertThat(delete(alice, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+
+        assertThat(jdbc.sql("SELECT count(*) FROM ledger WHERE id = ?").param(allotment).query(Long.class).single())
+                .isZero();
+        JsonNode homeMembers = ok(get(bob, "/api/family-ledgers/" + home + "/members"));
+        assertThat(homeMembers.findValuesAsText("displayName")).containsExactly("Former member", "Dad");
+        assertThat(find(homeMembers, "displayName", "Dad").get("role").asText()).isEqualTo("OWNER");
+        assertThat(ok(get(bob, "/api/family-ledgers/" + home)).get("splitRule").asText()).isEqualTo("EQUAL");
+        assertThat(ok(get(bob, "/api/family-ledgers/" + club)).get("splitRule").asText()).isEqualTo("EQUAL");
+        JsonNode reset = ok(get(bob, "/api/family-ledgers/" + club + "/journal")).get("content").get(0);
+        assertThat(reset.get("action").asText()).isEqualTo("SPLIT_RULE_RESET");
+        assertThat(reset.get("about").get("displayName").asText()).isEqualTo("Former member");
+        assertThat(ok(get(bob, "/api/me/family-memberships")).get("memberships").findValuesAsText("outcome"))
+                .containsExactly("DELETED", "DELETED");
+    }
+
     /** The runbook's "Delete a user" ends where "Delete all my data" does, for the family ledgers too. */
     @Test
     void theRunbooksDeleteAUserReleasesFamilyMembershipsLikeDeleteAll() throws IOException {

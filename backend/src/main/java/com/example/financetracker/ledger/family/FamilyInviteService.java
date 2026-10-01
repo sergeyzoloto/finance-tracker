@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.family;
 
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -223,18 +224,22 @@ public class FamilyInviteService {
     public InviteLookup lookup(LedgerScope personal, String token, String accountName) {
         requirePersonal(personal);
         Invite invite = invites.pending(token);
-        requireAcceptable(personal, invite);
+        Long returning = requireAcceptable(personal, invite);
         Preview preview = invites.preview(invite);
         Matches matches = matches(personal, preview.categories());
+        int scale = ShareSplit.minorUnit(preview.baseCurrency());
+        BigDecimal correction = returning == null ? null : invites.leftMemberBalance(invite, returning, preview.today())
+                .subtract(posting.formerDebtBalance(personal, invite.ledgerId(), returning, preview.baseCurrency(),
+                        preview.today()))
+                .setScale(scale, RoundingMode.UNNECESSARY);
         return new InviteLookup(preview.ledgerName(), preview.baseCurrency(), preview.invitedBy(),
                 invite.claim() ? InviteKind.CLAIM : InviteKind.NEW_MEMBER, preview.seatName(),
                 invite.claim() ? invite.joinDate() : preview.today(), invite.expiresAt(),
                 preview.categories().stream().filter(c -> !c.archived())
                         .map(c -> new FamilyCategory(c.code(), c.name(), c.type())).toList(),
                 matches.merges(), matches.kept(), matches.mayBring(), accountName,
-                preview.seatBalance() == null ? null
-                        : preview.seatBalance().setScale(ShareSplit.minorUnit(preview.baseCurrency()),
-                                RoundingMode.UNNECESSARY));
+                preview.seatBalance() == null ? null : preview.seatBalance().setScale(scale, RoundingMode.UNNECESSARY),
+                returning != null, correction);
     }
 
     /**
@@ -252,8 +257,8 @@ public class FamilyInviteService {
     public FamilyLedgerView accept(LedgerScope personal, String token, String displayName, List<Long> categoryIds) {
         requirePersonal(personal);
         Invite invite = invites.lock(token);
-        requireAcceptable(personal, invite);
-        if (invites.nameTaken(invite, displayName)) {
+        Long returning = requireAcceptable(personal, invite);
+        if (invites.nameTaken(invite, displayName, returning)) {
             throw new ConflictException("The family budget has a member named %s already".formatted(displayName));
         }
         Preview preview = invites.preview(invite);
@@ -280,7 +285,8 @@ public class FamilyInviteService {
             throw RuleViolationException.of(violations);
         }
 
-        LedgerScope member = invites.join(personal.userId(), invite, displayName);
+        LedgerScope member = returning != null ? invites.rejoin(personal.userId(), invite, displayName)
+                : invites.join(personal.userId(), invite, displayName);
         Map<String, LedgerCategory> familyCategories = new HashMap<>();
         categories.findAll(member).forEach(c -> familyCategories.put(c.code(), c));
         // Same code and type: merged into the family's, which keeps its name (D-11 as amended).
@@ -298,7 +304,11 @@ public class FamilyInviteService {
                 .forEach(category -> families.merge(personal, category, categories.save(new LedgerCategory(null,
                         member.rowUserId(), member.ledgerId(), category.code(), category.name(), category.type(),
                         null))));
-        posting.join(member);
+        if (returning != null) {
+            posting.rejoin(member);
+        } else {
+            posting.join(member);
+        }
         return families.get(member);
     }
 
@@ -318,20 +328,31 @@ public class FamilyInviteService {
     }
 
     /**
-     * @throws ConflictException if the user is a member of the ledger already, its creator among them, has left it,
-     *         or a claim's seat was taken meanwhile
+     * Whether the user may use the invite: not a member yet, or a member who left and comes back by an invite for a new
+     * member (D-26; D-29's 409 for a member who left is their way back now).
+     *
+     * @return the user's LEFT membership if they come back, else null
+     * @throws ConflictException if the user is a member of the ledger already, its creator among them, has left it
+     *         and the invite claims a seat (members are never merged, D-18), or a claim's seat was taken meanwhile
      */
-    private void requireAcceptable(LedgerScope personal, Invite invite) {
+    private Long requireAcceptable(LedgerScope personal, Invite invite) {
+        Long returning = null;
         switch (invites.standing(personal.userId(), invite)) {
             case ACTIVE -> throw new ConflictException("You are a member of this family budget already");
-            case LEFT -> throw new ConflictException("You were a member of this family budget before; coming back "
-                    + "by an invite isn't possible yet");
+            case LEFT -> {
+                if (invite.claim()) {
+                    throw new ConflictException("You were a member of this family budget before, so you can't take "
+                            + "someone else's place; an invite as a new member brings you back");
+                }
+                returning = invites.leftMembership(personal.userId(), invite);
+            }
             case NONE -> {
             }
         }
         if (invite.claim() && !invites.seatFree(invite)) {
             throw new ConflictException(LedgerInvites.SEAT_TAKEN);
         }
+        return returning;
     }
 
     private static void requirePersonal(LedgerScope personal) {

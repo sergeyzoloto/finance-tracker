@@ -52,6 +52,30 @@ Not committed yet.
     detached; `IntegrationTest` has a `TestClock`; `FamilyLedgerApiTests`, `FamilyRecordApiTests` and
     `FamilyInviteApiTests` expect the new removal and the optional join date; `ApiTests` and
     `FamilySwitchOffApiTests` (31 endpoints) with the new endpoint.
+- Return, owners and what "Delete all my data" touches (commit "feat(family): return, owners, what
+  Delete all my data touches"), ADR 0003 topic J's second "F6a as built". No migration.
+  - Return (D-26): an invite for a new member brings a member who left back, ACTIVE from today, with
+    the same debt account linked again (`CrossLedgerWriter.relinkDebt`), their categories merged as at
+    the first join, every record from today, and one `FAMILY_CORRECTION` on the join date: their family
+    balance before it less what their debt account shows from entries not posted now. Every re-post
+    keeps it in step, as it keeps a claimed member's opening balance. Their entries of before they left
+    for records dated from the join date (the same day, or later) are attached again
+    (`CrossLedgerWriter.reattach`) rather than posted anew, so nothing counts twice. A claim held by a
+    member who left stays 409. The lookup gains `returning` and `correction` (additive).
+  - `EntryService`: `PUT` and `DELETE` of an entry that posts to a debt account naming a family budget
+    (a returned member's entries of before they left) answer 409.
+  - `POST /api/family-ledgers/{ledgerId}/members/{memberId}/owner` (new, owners only).
+  - `GET /api/me/family-memberships` (new, behind the switch, `FamilyMembershipsController`): each family
+    budget the caller is an ACTIVE member of, with role, balance, outcome (`STAYS`, `OWNERSHIP_PASSES`
+    with the new owner's name, `DELETED`), pending invites and the split rule's reset; how many they
+    left. The deletion itself is unchanged.
+  - The privacy draft: coming back, and what the confirmation screen lists.
+  - Tests: `FamilyMembershipApiTests` (4 new: the return's worked example, a return on the same day,
+    owners, the preview); new
+    `FamilyLifecycleRandomTests`; `UserDataApiTests.deletingAllMyDataDoesWhatItsPreviewSaid` (new);
+    `DataIsolationApiTests.theDeletionPreviewAndNewOwnersAreTheMembersOwn` (new; nothing else in the
+    file changed); `FamilyInviteApiTests` expects a member who left to be returning, and a claim of
+    theirs refused; `ApiTests` and `FamilySwitchOffApiTests` (33 endpoints) with the two new ones.
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker`: `feature/family-budget` checked out with a clean
@@ -68,6 +92,17 @@ Not committed yet.
   `aMemberWhoLeftOrWasRemovedReadsNothingOfTheBudget` fail (Alice's rows changed by Bob's removal);
   the detach's category copy skipped made five tests fail, `FamilyInvariants`' check of a member who
   left among them.
+- After the commit of return, owners and the deletion preview: `./mvnw -B clean verify` 386 tests (379
+  and 7), 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. The re-attach of a returning member's entries
+  of records from their join date came from the walk-through (a return on the same day counted that
+  day's shares twice in the personal reports) and went into this commit before the interface's;
+  skipping it made `aMemberWhoReturnsTheSameDayIsntPostedTwice` fail, the file restored. `FamilyLifecycleRandomTests` from the seed
+  20261002: 6 rounds, 214 operations (51 records, 4 amounts, 5 deletes, 11 leaves, 20 removals, 7 new
+  owners, 15 split rules, 25 returns, 3 deletions of all data, 73 refused with 409 or 422, two rounds
+  ending with an archived family budget), the invariants and all four users' integrity checks empty
+  after each, no 500 or 404. A mutation of the correction (the whole balance before the join date,
+  without what the debt account shows) made the return's worked example and the randomized test fail;
+  claims were unaffected. The file restored.
 
 **Open**
 - The rest of F6a.

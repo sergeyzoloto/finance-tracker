@@ -1372,6 +1372,66 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .containsExactly("ACTIVE", "LEFT", "LEFT", "ACTIVE");
     }
 
+    /**
+     * What "Delete all my data" touches, and new owners (F6a; D-20, D-15), with three users: Alice owns A, where Bob is
+     * a member, and B alone; Carol is in neither. Bob's preview lists A, with his own role and balance, and nothing of B
+     * or of Alice's own; Carol's lists nothing; neither holds a sub or an email address. Making an owner answers Bob on
+     * B and on either personal ledger, and Carol on A and B, as for a family budget that doesn't exist; Bob in A, a
+     * member, gets the owners' 409 and makes nobody an owner, himself included.
+     */
+    @Test
+    void theDeletionPreviewAndNewOwnersAreTheMembersOwn() throws IOException {
+        String carol = newUser();
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01"}""")
+                .get("id").asLong();
+        String inA = "/api/family-ledgers/" + familyA;
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long sam = created(post(alice, inA + "/members", """
+                {"displayName": "Sam"}"""));
+        created(post(alice, inA + "/records", """
+                {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(created(post(alice, inA + "/categories", """
+                        {"code": "RENT", "name": "Rent", "type": "EXPENSE"}""")), mumInA, alicesBank)));
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice"}""").get("id").asLong();
+        body(post(alice, "/api/family-ledgers/" + familyB + "/invites", """
+                {"kind": "NEW_MEMBER"}"""), HttpStatus.CREATED);
+
+        JsonNode bobs = bobReads("/api/me/family-memberships");
+        assertThat(bobs.get("memberships").findValuesAsText("ledgerId")).containsExactly(String.valueOf(familyA));
+        JsonNode bobInHome = bobs.get("memberships").get(0);
+        assertThat(bobInHome.get("role").asText()).isEqualTo("MEMBER");
+        assertThat(bobInHome.get("balance").asText()).isEqualTo("30.00");
+        assertThat(bobInHome.get("pendingInvites").asInt()).isZero();
+        assertThat(bobs.get("left").asLong()).isZero();
+        JsonNode carols = ok(get(carol, "/api/me/family-memberships"));
+        assertThat(carols.get("memberships")).isEmpty();
+        for (JsonNode preview : List.of(bobs, carols, ok(get(alice, "/api/me/family-memberships")))) {
+            assertThat(preview.toString()).doesNotContain(alice, bob, carol, "@example.com", "ALICE_BANK",
+                    String.valueOf(alicesBank));
+        }
+        assertThat(bobs.toString()).doesNotContain("ALICE_SECRET_BUDGET", String.valueOf(familyB), "Sam");
+
+        String owner = "/api/family-ledgers/%d/members/" + sam + "/owner";
+        SoftAssertions softly = new SoftAssertions();
+        for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+            answersAsIfMissing(softly, HttpMethod.POST, owner, ledger, null);
+        }
+        for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
+            answersAsIfMissingTo(softly, carol, HttpMethod.POST, owner.formatted(ledger), owner.formatted(MISSING), null);
+        }
+        String memberships = membershipsBut(-1);
+        for (long member : List.of(bobInA, mumInA, sam)) {
+            MvcTestResult answer = bobsRequest(HttpMethod.POST, inA + "/members/" + member + "/owner", null);
+            softly.assertThat(answer.getResponse().getStatus()).as("Bob makes member %d an owner", member)
+                    .isEqualTo(409);
+        }
+        softly.assertThat(membershipsBut(-1)).as("the memberships after Bob's requests").isEqualTo(memberships);
+        softly.assertAll();
+    }
+
     /** A new invite of the owner's to the family ledger at the path: its token. */
     private String invite(String owner, String familyPath, String request) throws IOException {
         String link = body(post(owner, familyPath + "/invites", request), HttpStatus.CREATED).get("link").asText();

@@ -187,6 +187,15 @@ class FamilyLedgerController {
         memberships.remove(access.owner(user.id(), ledgerId), memberId);
     }
 
+    /**
+     * Owners only (D-3, D-15, F6a): makes another ACTIVE member with an account an owner, as the last owner does before
+     * leaving (D-19). 409 for a member without an account, one who isn't ACTIVE, or an owner.
+     */
+    @PostMapping("/{ledgerId}/members/{memberId}/owner")
+    FamilyMemberView makeOwner(CurrentUser user, @PathVariable long ledgerId, @PathVariable long memberId) {
+        return memberships.makeOwner(access.owner(user.id(), ledgerId), memberId);
+    }
+
     /** The family's categories (D-11), archived ones included, by name. */
     @GetMapping("/{ledgerId}/categories")
     List<CategoryView> categories(CurrentUser user, @PathVariable long ledgerId) {

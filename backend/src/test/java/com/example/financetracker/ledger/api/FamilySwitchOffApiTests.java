@@ -40,12 +40,13 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     void everyFamilyEndpointAnswers404LikeAnUnknownPath() throws IOException {
         List<String[]> endpoints = familyEndpoints();
         // 22 until F4c; POST /settlements since F4d; GET /conversion since F4e; six for invites since F5; leaving
-        // (DELETE /members/me) since F6a.
-        assertThat(endpoints).hasSize(31);
+        // (DELETE /members/me), making an owner and what "Delete all my data" touches since F6a.
+        assertThat(endpoints).hasSize(33);
         assertThat(context.getBeanNamesForType(FamilyLedgerController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyRecordController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyPaymentController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyInviteController.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(FamilyMembershipsController.class)).isEmpty();
         // Without it, a payment entry's deletion answers 409 as before (EntryService).
         assertThat(context.getBeanNamesForType(FamilyPayments.class)).isEmpty();
         String body = """
@@ -58,7 +59,8 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
             HttpMethod method = HttpMethod.valueOf(endpoint[0]);
             String path = endpoint[1];
             String unknown = path.replace("/api/family-ledgers", "/api/no-such-thing")
-                    .replace("/family-payment", "/no-such-thing").replace("/api/invites", "/api/no-such-thing");
+                    .replace("/family-payment", "/no-such-thing").replace("/api/invites", "/api/no-such-thing")
+                    .replace("/api/me/family-memberships", "/api/me/no-such-thing");
             MvcTestResult answer = call(user, method, path, body);
             MvcTestResult unknownAnswer = call(user, method, unknown, body);
             softly.assertThat(answer.getResponse().getStatus()).as("%s %s", method, path).isEqualTo(404);
@@ -121,7 +123,7 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     private static List<String[]> familyEndpoints() {
         List<String[]> endpoints = new ArrayList<>();
         for (Class<?> controller : List.of(FamilyLedgerController.class, FamilyRecordController.class,
-                FamilyPaymentController.class, FamilyInviteController.class)) {
+                FamilyPaymentController.class, FamilyInviteController.class, FamilyMembershipsController.class)) {
             endpoints.addAll(endpoints(controller));
         }
         return endpoints;

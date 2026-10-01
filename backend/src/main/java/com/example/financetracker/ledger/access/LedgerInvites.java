@@ -94,7 +94,7 @@ public class LedgerInvites {
         NONE,
         /** An ACTIVE member already, the ledger's creator among them. */
         ACTIVE,
-        /** A member who left, whom an invite brings back from F6 on (D-26). */
+        /** A member who left, whom an invite for a new member brings back (F6a, D-26). */
         LEFT
     }
 
@@ -200,15 +200,37 @@ public class LedgerInvites {
     }
 
     /**
-     * Whether a member who isn't FORMER has the name, whatever its case, other than the seat the invite claims (D-3).
+     * The user's membership in the invite's family ledger that is LEFT, which an invite for a new member brings back
+     * (D-26), or null.
      */
-    public boolean nameTaken(Invite invite, String displayName) {
+    public Long leftMembership(String userId, Invite invite) {
+        return jdbc.sql("""
+                SELECT id FROM ledger_member WHERE ledger_id = :ledgerId AND user_sub = :userId AND status = 'LEFT'""")
+                .param("ledgerId", invite.ledgerId()).param("userId", userId)
+                .query(Long.class).optional().orElse(null);
+    }
+
+    /**
+     * The family balance of the user's LEFT membership from the records dated before the day (D-26): what the
+     * correction of their return starts from. Read for the invite's holder, who isn't an ACTIVE member.
+     */
+    public BigDecimal leftMemberBalance(Invite invite, long memberId, LocalDate before) {
+        return jdbc.sql(BALANCE_BEFORE).param("ledgerId", invite.ledgerId()).param("memberId", memberId)
+                .param("before", before)
+                .query(BigDecimal.class).single();
+    }
+
+    /**
+     * Whether a member who isn't FORMER has the name, whatever its case, other than the seat the invite claims or the
+     * returning user's own membership (D-3).
+     */
+    public boolean nameTaken(Invite invite, String displayName, Long ownMembership) {
         return jdbc.sql("""
                 SELECT EXISTS (SELECT FROM ledger_member
                                WHERE ledger_id = :ledgerId AND status <> 'FORMER' AND lower(display_name) = lower(:name)
-                                 AND id IS DISTINCT FROM :seatId)""")
+                                 AND id IS DISTINCT FROM :seatId AND id IS DISTINCT FROM :own)""")
                 .param("ledgerId", invite.ledgerId()).param("name", displayName)
-                .param("seatId", invite.seatMemberId())
+                .param("seatId", invite.seatMemberId()).param("own", ownMembership)
                 .query(Boolean.class).single();
     }
 
@@ -246,6 +268,36 @@ public class LedgerInvites {
                     .param("today", today.date())
                     .query(Long.class).single();
         }
+        jdbc.sql("""
+                UPDATE ledger_invite SET used_at = now(), used_by_member_id = :memberId
+                WHERE id = :inviteId AND ledger_id = :ledgerId""")
+                .param("memberId", memberId).param("inviteId", invite.id()).param("ledgerId", invite.ledgerId())
+                .update();
+        return access.member(userId, invite.ledgerId());
+    }
+
+    /**
+     * Brings the user's LEFT membership back by the invite for a new member, which {@link #lock} locked (D-26; ADR
+     * 0003, topic G): ACTIVE again, joined today, with the chosen name, a MEMBER with a share of 0 under a CUSTOM split
+     * rule; the invite used by it. The database lets a LEFT member's join date change only so (V5).
+     *
+     * @return the family ledger, as the member who returned
+     * @throws ConflictException if the membership isn't LEFT any more
+     */
+    public LedgerScope rejoin(String userId, Invite invite, String displayName) {
+        if (invite.claim()) {
+            throw new IllegalArgumentException("A member who left comes back as a new member, never into a seat");
+        }
+        Long memberId = jdbc.sql("""
+                UPDATE ledger_member m
+                SET status = 'ACTIVE', left_date = NULL, join_date = :today, display_name = :name, role = 'MEMBER',
+                    share_bp = (SELECT CASE split_rule WHEN 'CUSTOM' THEN 0 END FROM ledger WHERE id = m.ledger_id)
+                WHERE ledger_id = :ledgerId AND user_sub = :userId AND status = 'LEFT'
+                RETURNING id""")
+                .param("today", today.date()).param("name", displayName).param("ledgerId", invite.ledgerId())
+                .param("userId", userId)
+                .query(Long.class).optional()
+                .orElseThrow(() -> new ConflictException("You are not a member who left this family budget"));
         jdbc.sql("""
                 UPDATE ledger_invite SET used_at = now(), used_by_member_id = :memberId
                 WHERE id = :inviteId AND ledger_id = :ledgerId""")

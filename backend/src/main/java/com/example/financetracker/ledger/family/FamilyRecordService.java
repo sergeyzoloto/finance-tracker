@@ -377,6 +377,9 @@ public class FamilyRecordService {
                             noun(record.type())));
         }
         requireNotFrozen(family, record, members);
+        if (record.type().equals(SETTLEMENT)) {
+            requireNotPlaced(family, record, members, "it can't be deleted");
+        }
         jdbc.sql("""
                 UPDATE family_record
                 SET deleted_at = now(), deleted_by_member_id = :memberId, updated_by_member_id = :memberId,
@@ -566,6 +569,9 @@ public class FamilyRecordService {
         requireNotFrozen(family, record, members);
         LocalDate date = changes.date() == null ? record.date() : changes.date();
         BigDecimal amount = changes.amount() == null ? record.amount() : changes.amount();
+        if (!date.equals(record.date()) || amount.compareTo(record.amount()) != 0) {
+            requireNotPlaced(family, record, members, "its date and amount can't change");
+        }
         if (!date.equals(record.date())) {
             requireStarted(ledger, date, SETTLEMENT);
         }
@@ -644,6 +650,44 @@ public class FamilyRecordService {
         boolean bySide = settlement.authorId() == settlement.payerId()
                 || Objects.equals(settlement.authorId(), settlement.payeeId());
         return settlement.authorId() == family.memberId() || !bySide && family.role() == MemberRole.OWNER;
+    }
+
+    /**
+     * The settlement lock (D-28): once the other side, a member with an account, has put its part on an account of
+     * theirs, only they could move it, so the settlement's date and amount don't change and it isn't deleted. They
+     * move it back to "Specify later" to allow it. Nobody's action changes another member's accounts (D-8).
+     *
+     * @throws ConflictException naming the other side, if their part is on an account of theirs
+     */
+    private void requireNotPlaced(LedgerScope family, RecordRow settlement, Map<Long, Member> members, String what) {
+        Long placedBy = placedSides(family, List.of(settlement.id())).get(settlement.id());
+        if (placedBy != null) {
+            String name = name(members, placedBy);
+            throw new ConflictException(("%s has put their side of this settlement on an account of theirs, so %s; %s "
+                    + "can move it back to \"Specify later\" to allow it").formatted(name, what, name));
+        }
+    }
+
+    /**
+     * Of these settlements, those whose other side, the side that didn't record it, has put its part on an account of
+     * theirs: by settlement, that side. Their link is then their own, not the family budget's (D-24, D-28).
+     */
+    private Map<Long, Long> placedSides(LedgerScope family, List<Long> recordIds) {
+        Map<Long, Long> placed = new HashMap<>();
+        if (recordIds.isEmpty()) {
+            return placed;
+        }
+        jdbc.sql("""
+                SELECT l.record_id, l.member_id
+                FROM family_entry_link l JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
+                WHERE l.family_ledger_id = :ledgerId AND l.record_id IN (:recordIds) AND r.type = 'SETTLEMENT'
+                  AND l.link_type = 'SETTLEMENT' AND l.detached_at IS NULL AND NOT l.system_owned
+                  AND l.member_id <> r.author_member_id""")
+                .param("ledgerId", family.ledgerId()).param("recordIds", recordIds)
+                .query(row -> {
+                    placed.put(row.getLong("record_id"), row.getLong("member_id"));
+                });
+        return placed;
     }
 
     private static String notRecorder(RecordRow settlement, Map<Long, Member> members, String what) {
@@ -1255,6 +1299,9 @@ public class FamilyRecordService {
                 .filter(row -> (row.payerId() == family.memberId() || Objects.equals(row.payeeId(), family.memberId()))
                         && members.get(family.memberId()).hasAccount())
                 .map(RecordRow::id).toList());
+        // The settlements locked by their other side (D-28), for who would otherwise change them.
+        Map<Long, Long> placed = placedSides(family, rows.stream()
+                .filter(row -> row.type().equals(SETTLEMENT) && maySettle(family, row)).map(RecordRow::id).toList());
         List<Long> joinOrder = new ArrayList<>(members.keySet());
         return rows.stream().map(row -> {
             Map<Long, ShareRow> recordShares = shares.getOrDefault(row.id(), Map.of());
@@ -1265,6 +1312,8 @@ public class FamilyRecordService {
             boolean mayDelete = row.type().equals(SETTLEMENT) ? mayEdit
                     : payer.hasAccount() ? row.payerId() == family.memberId() : mayEdit;
             OwnPayment payment = own.get(row.id());
+            Long lockedBy = placed.get(row.id());
+            boolean mayEditPayment = mayDelete && lockedBy == null;
             return new FamilyRecordView(row.id(), row.type(), row.date(),
                     row.categoryId() == null ? null : categories.get(row.categoryId()),
                     row.amount().setScale(scale, RoundingMode.UNNECESSARY), currency, row.comment(),
@@ -1275,10 +1324,10 @@ public class FamilyRecordService {
                                     ref(members, s.updatedById()), s.updatedAt()))
                             .toList(),
                     ref(members, row.authorId()), row.createdAt(), ref(members, row.updatedById()), row.updatedAt(),
-                    row.version(), frozen, mayEdit && !frozen, mayDelete && !frozen, mayDelete && !frozen,
+                    row.version(), frozen, mayEdit && !frozen, mayEditPayment && !frozen, mayEditPayment && !frozen,
                     payment == null ? null : new FamilyRecordView.YourPayment(payment.entryId(), payment.accountId(),
                             payment.accountName(), payment.later()),
-                    ref(members, row.payeeId()));
+                    ref(members, row.payeeId()), lockedBy == null ? null : ref(members, lockedBy));
         }).toList();
     }
 

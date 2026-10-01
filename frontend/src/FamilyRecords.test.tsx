@@ -258,7 +258,7 @@ describe('a settlement’s page', () => {
     }]))
   })
 
-  it('lets its recorder change the date, amount and comment, warning that the other side’s part moves back', async () => {
+  it('lets its recorder change the date, amount and comment while the other side’s part waits', async () => {
     const mine: FamilyRecord = {
       ...settlement, payer: ref(anna), payee: ref(ben), yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false },
     }
@@ -270,11 +270,53 @@ describe('a settlement’s page', () => {
     })
     renderApp('/family/7/expenses/7')
     expect(await screen.findByText('You paid Ben €36.20.')).toBeDefined()
+    expect(screen.queryByText(/moves the other side’s part back/)).toBeNull()
     fireEvent.change(screen.getByLabelText(/^Amount/), { target: { value: '40' } })
-    expect(screen.getByText(/moves the other side’s part back to their “Payments without a specified account”/)).toBeDefined()
+    expect(screen.queryByRole('note')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Save the changes' }))
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ amount: '40.00' }]))
     expect(screen.getByRole('button', { name: 'Delete the settlement' })).toBeDefined()
+  })
+
+  it('tells its recorder why the date, amount and deleting are locked once the other side placed its part (D-28)', async () => {
+    const locked: FamilyRecord = {
+      ...settlement, payer: ref(anna), payee: ref(ben), canEditPayment: false, canDelete: false, lockedBy: ref(ben),
+      yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false },
+    }
+    const calls = app([anna, sam, ben], {
+      'GET /api/family-ledgers/7/records/7': { status: 200, body: locked },
+      'GET /api/family-ledgers/7/journal?recordId=7&size=200': { status: 200, body: noJournal },
+      'PATCH /api/family-ledgers/7/records/7?version=0': { status: 200, body: { ...locked, comment: 'Jar', version: 1 } },
+    })
+    renderApp('/family/7/expenses/7')
+    const note = await screen.findByRole('note')
+    expect(note.textContent).toBe('Ben has put their side of this settlement on an account of theirs, so its date and amount '
+      + 'can’t change and it can’t be deleted. Ben can move it back to “Specify later” to allow it.')
+    expect(screen.queryByLabelText(/^Date/)).toBeNull()
+    expect(screen.queryByLabelText(/^Amount/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete the settlement' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Change this settlement' })).toBeDefined()
+    fireEvent.change(screen.getByLabelText(/^Comment/), { target: { value: 'Jar' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save the changes' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ comment: 'Jar' }]))
+  })
+
+  it('tells the other side that their part on an account locks it, and offers “Specify later”', async () => {
+    const theirs: FamilyRecord = {
+      ...settlement, payer: ref(ben), author: ref(ben), canEdit: false, canDelete: false, canEditPayment: false,
+      yourPayment: { entryId: 95, accountId: 2, accountName: 'Current account', later: false },
+    }
+    const calls = app([anna, sam, ben], {
+      'GET /api/family-ledgers/7/records/7': { status: 200, body: theirs },
+      'GET /api/family-ledgers/7/journal?recordId=7&size=200': { status: 200, body: noJournal },
+      'PATCH /api/family-ledgers/7/records/7?version=0': { status: 200, body: { ...theirs, yourPayment: { entryId: 95, accountId: null, accountName: null, later: true } } },
+    })
+    renderApp('/family/7/expenses/7')
+    expect(await screen.findByText('While your side is on an account of yours, Ben can’t change the settlement’s date or '
+      + 'amount, or delete it. Choose “Specify later” to let them.')).toBeDefined()
+    fireEvent.change(await screen.findByLabelText(/^Received into/), { target: { value: 'later' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save the changes' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ paymentLater: true }]))
   })
 })
 
@@ -366,6 +408,53 @@ describe('the personal side', () => {
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toEqual([{
       method: 'PATCH', url: '/api/entries/95/family-payment?version=1', body: { accountId: 2 },
     }]))
+  })
+
+  it('locks a settlement side’s date and amount for its recorder while the other side’s part is on their account', async () => {
+    const side: Entry = {
+      id: 96, version: 0, entryDate: '2026-09-14', kind: 'FAMILY_SETTLEMENT', payeeId: null, memo: null,
+      postings: [
+        { accountId: 1, currency: 'EUR', amount: '-36.20', categoryId: null, counterpartyId: null },
+        { accountId: 40, currency: 'EUR', amount: '36.20', categoryId: null, counterpartyId: null },
+      ],
+      family: { ledgerId: 7, ledgerName: 'Home', recordId: 7, link: 'SETTLEMENT', readOnly: true, recordType: 'SETTLEMENT' },
+    }
+    const locked: FamilyRecord = {
+      ...settlement, payer: ref(anna), payee: ref(ben), canEditPayment: false, canDelete: false, lockedBy: ref(ben),
+      yourPayment: { entryId: 96, accountId: 1, accountName: 'Cash', later: false },
+    }
+    app([anna, sam, ben], {
+      'GET /api/entries/96': { status: 200, body: side },
+      'GET /api/family-ledgers/7/records/7': { status: 200, body: locked },
+    })
+    renderApp('/entries/96')
+    expect(await screen.findByText(/Ben has put their side of this settlement on an account of theirs/)).toBeDefined()
+    expect(screen.getByLabelText(/^Date/)).toHaveProperty('disabled', true)
+    expect(screen.getByLabelText(/^Amount/)).toHaveProperty('disabled', true)
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
+    expect(screen.getByLabelText(/^Paid from/)).toHaveProperty('disabled', false)
+  })
+
+  it('tells the other side on their own entry that their account locks the settlement', async () => {
+    const side: Entry = {
+      id: 95, version: 2, entryDate: '2026-09-14', kind: 'FAMILY_SETTLEMENT', payeeId: null, memo: null,
+      postings: [
+        { accountId: 2, currency: 'EUR', amount: '36.20', categoryId: null, counterpartyId: null },
+        { accountId: 40, currency: 'EUR', amount: '-36.20', categoryId: null, counterpartyId: null },
+      ],
+      family: { ledgerId: 7, ledgerName: 'Home', recordId: 7, link: 'SETTLEMENT', readOnly: false, recordType: 'SETTLEMENT' },
+    }
+    const theirs: FamilyRecord = {
+      ...settlement, payer: ref(ben), author: ref(ben), canEdit: false, canDelete: false, canEditPayment: false,
+      yourPayment: { entryId: 95, accountId: 2, accountName: 'Current account', later: false },
+    }
+    app([anna, sam, ben], {
+      'GET /api/entries/95': { status: 200, body: side },
+      'GET /api/family-ledgers/7/records/7': { status: 200, body: theirs },
+    })
+    renderApp('/entries/95')
+    expect(await screen.findByText(/While your side is on an account of yours, Ben can’t change them or delete the settlement; choose “Specify later” to let them\./)).toBeDefined()
+    expect(screen.getByLabelText(/^Received into/)).toHaveProperty('value', '2')
   })
 
   it('names a family income’s receipt and shares in the entry list', async () => {

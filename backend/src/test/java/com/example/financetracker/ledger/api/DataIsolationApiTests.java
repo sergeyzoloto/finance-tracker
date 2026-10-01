@@ -990,6 +990,63 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
+    /**
+     * The settlement lock (D-28): Alice records a settlement with Bob in A, and Bob puts his side on his wallet. Only
+     * Alice, who recorded it, reads who locked it ({@code lockedBy}), as Bob's display name and nothing of his
+     * accounts; Bob and Gran, another member with an account, don't. Her changes of the date and amount and her
+     * deletion are refused without naming anything of his, and his rows are the same afterwards.
+     */
+    @Test
+    void aSettlementsLockNamesItsOtherSideToItsRecorderOnly() throws IOException {
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01"}""")
+                .get("id").asLong();
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        String dave = newUser();
+        ok(get(dave, "/api/accounts"));
+        join(familyA, dave, "Gran", "MEMBER", LocalDate.of(2026, 8, 1));
+        String inA = "/api/family-ledgers/" + familyA;
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long bobsWallet = created(post(bob, "/api/accounts", """
+                {"code": "BOB_WALLET", "name": "BOB_PRIVATE_WALLET", "type": "ASSET"}"""));
+        JsonNode paid = body(post(alice, inA + "/settlements", """
+                {"date": "2026-08-20", "amount": "40", "payerMemberId": %d, "payeeMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(mumInA, bobInA, alicesBank)), HttpStatus.CREATED);
+        String path = inA + "/records/" + paid.get("id").asLong();
+        assertThat(paid.has("lockedBy")).isFalse();
+        ok(patch(bob, path + "?version=0", """
+                {"paymentAccountId": %d}""".formatted(bobsWallet)));
+        Map<String, String> bobsRows = digestOf(bob);
+
+        JsonNode hers = ok(get(alice, path));
+        assertThat(hers.get("lockedBy")).isEqualTo(json.readTree("""
+                {"memberId": %d, "displayName": "Dad"}""".formatted(bobInA)));
+        for (String read : List.of("/records", "/records/" + paid.get("id").asLong(), "/journal", "/balances")) {
+            JsonNode alices = ok(get(alice, inA + read));
+            assertThat(alices.toString()).as(read).doesNotContain("BOB_PRIVATE", "BOB_WALLET");
+            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsWallet));
+            for (String other : List.of(bob, dave)) {
+                assertThat(fieldNames(ok(get(other, inA + read)))).as(read).doesNotContain("lockedBy");
+            }
+        }
+        long alicesSide = hers.get("yourPayment").get("entryId").asLong();
+        int alicesVersion = ok(get(alice, "/api/entries/" + alicesSide)).get("version").asInt();
+        for (MvcTestResult refused : List.of(
+                patch(alice, path + "?version=0", """
+                        {"amount": "41"}"""),
+                patch(alice, path + "?version=0", """
+                        {"date": "2026-08-21"}"""),
+                delete(alice, path + "?version=0"),
+                patch(alice, "/api/entries/%d/family-payment?version=%d".formatted(alicesSide, alicesVersion), """
+                        {"amount": "41"}"""),
+                delete(alice, "/api/entries/%d?version=%d".formatted(alicesSide, alicesVersion)))) {
+            assertThat(refused).hasStatus(HttpStatus.CONFLICT);
+            assertThat(body(refused, HttpStatus.CONFLICT).get("detail").asText()).startsWith("Dad has put their side")
+                    .doesNotContain("BOB_", String.valueOf(bobsWallet));
+        }
+        assertThat(digestOf(bob)).isEqualTo(bobsRows);
+    }
+
     /** Every field name in the JSON, at any depth. */
     private static Set<String> fieldNames(JsonNode node) {
         Set<String> names = new TreeSet<>();

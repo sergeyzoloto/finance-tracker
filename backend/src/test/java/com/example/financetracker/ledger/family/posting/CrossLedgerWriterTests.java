@@ -43,6 +43,9 @@ class CrossLedgerWriterTests extends IntegrationTest {
     @Autowired
     private TransactionTemplate transaction;
 
+    @Autowired
+    private FamilyPostingService posting;
+
     private final String alice = UUID.randomUUID().toString();
     private final String bob = UUID.randomUUID().toString();
     private long family;
@@ -146,6 +149,65 @@ class CrossLedgerWriterTests extends IntegrationTest {
                     line(alicesUnallocated, "1.00", familyCategory), line(alicesDebt, "-1.00", null)), null));
             status.setRollbackOnly();
         });
+        assertThat(alicesRows()).isEqualTo(alicesRows);
+    }
+
+    /**
+     * The settlement lock (D-28) at the writer: once Alice has put her side of Bob's settlement on her cash, nothing
+     * Bob does reaches it. The writer refuses to replace or delete it as his, and the posting service refuses to
+     * re-post a settlement whose amount or date changed past the record service's lock, or that was deleted; her rows
+     * stay as they were.
+     */
+    @Test
+    void anotherMembersSideOnTheirOwnAccountIsBeyondReach() throws IOException {
+        long bobs = jdbc.sql("SELECT id FROM ledger_member WHERE ledger_id = ? AND user_sub = ?").params(family, bob)
+                .query(Long.class).single();
+        JsonNode settled = call(bob, HttpMethod.POST, "/api/family-ledgers/%d/settlements".formatted(family), """
+                {"date": "2026-09-12", "amount": "10", "payerMemberId": %d, "payeeMemberId": %d, "paymentLater": true}"""
+                .formatted(bobs, alicesMembership));
+        long settlement = settled.get("id").asLong();
+        String path = "/api/family-ledgers/%d/records/%d".formatted(family, settlement);
+        long alicesCash = accountOf(alice, "CASH");
+        call(alice, HttpMethod.PATCH, path + "?version=0", """
+                {"paymentAccountId": %d}""".formatted(alicesCash));
+        LedgerScope bobInHome = access.member(bob, family);
+        CrossLedgerWriter.Link hers = writer.links(bobInHome, settlement).stream()
+                .filter(link -> link.memberId() == alicesMembership).findFirst().orElseThrow();
+        assertThat(hers.systemOwned()).isFalse();
+        String alicesRows = alicesRows();
+        String own = "it is member %d's own, on an account of theirs, and member %d acts".formatted(alicesMembership,
+                bobs);
+
+        // The writer itself: neither a replacement nor a deletion of her side, as Bob.
+        long alicesDebt = accountOf(alice, "FAMILY_DEBT_" + family);
+        long alicesPlaceholder = accountOf(alice, "UNSPECIFIED_PAYMENTS");
+        PostedEntry back = new PostedEntry(alicesMembership, settlement, LinkType.SETTLEMENT,
+                EntryKind.FAMILY_SETTLEMENT, true, LocalDate.of(2026, 9, 12), List.of(
+                line(alicesPlaceholder, "10.00", null), line(alicesDebt, "-10.00", null)), null);
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> writer.replace(bobInHome, hers, back)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining(own);
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> writer.delete(bobInHome, hers)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining(own);
+
+        // The posting service: a new amount, a new date or a deletion that got past the lock would move her side.
+        String wouldChange = "member %d's side on an account of theirs would change through member %d's change"
+                .formatted(alicesMembership, bobs);
+        for (String change : List.of("base_amount = 12, original_amount = 12", "record_date = DATE '2026-09-13'",
+                "deleted_at = now(), deleted_by_member_id = updated_by_member_id")) {
+            assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+                jdbc.sql("UPDATE family_record SET " + change + " WHERE id = ?").param(settlement).update();
+                posting.post(bobInHome, settlement, new FamilyPostingService.Unchanged());
+            })).as(change).isInstanceOf(IllegalStateException.class).hasMessageContaining(wouldChange);
+        }
+        assertThat(alicesRows()).isEqualTo(alicesRows);
+
+        // Through the API, the lock answers first, and her side stays on her cash.
+        var answer = mvc.method(HttpMethod.PATCH).uri(path + "?version=0").with(member(bob))
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"amount": "12"}""").exchange();
+        assertThat(answer.getResponse().getStatus()).isEqualTo(409);
+        assertThat(mvc.method(HttpMethod.DELETE).uri(path + "?version=0").with(member(bob)).exchange()
+                .getResponse().getStatus()).isEqualTo(409);
         assertThat(alicesRows()).isEqualTo(alicesRows);
     }
 

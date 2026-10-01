@@ -148,8 +148,19 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
           {record.data.shares.filter((s) => signOf(s.amount) > 0).map((s) => s.member.displayName).join(', ')}.
         </p>
       )}
-      {settlement && record.data && !mayChangeRecord && (
-        <p className="muted small">Only {record.data.author.displayName}, who recorded it, changes its date and amount.</p>
+      {settlement && record.data?.lockedBy && (
+        <p className="muted small">
+          {record.data.lockedBy.displayName} has put their side of this settlement on an account of theirs, so its date
+          and amount can’t change and it can’t be deleted. {record.data.lockedBy.displayName} can move it back to
+          “Specify later” to allow it.
+        </p>
+      )}
+      {settlement && record.data && !record.data.lockedBy && !mayChangeRecord && (
+        <p className="muted small">
+          Only {record.data.author.displayName}, who recorded it, changes its date and amount.
+          {initialPayment !== LATER && <> While your side is on an account of yours, {record.data.author.displayName} can’t
+            change them or delete the settlement; choose “Specify later” to let them.</>}
+        </p>
       )}
       <form className="entry-form payment-entry" onSubmit={submit} noValidate>
         <div className="fields">

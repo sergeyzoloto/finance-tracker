@@ -10,7 +10,7 @@ import {
   expenseProblems, formFromRecord, paymentAccounts, previewSplit, sharers, splitRequest, type SplitContext,
   type SplitForm,
 } from './expenseForm'
-import { memberName, RECORD_NOUNS, recordTitle, recordWho, settlementSentence } from './family'
+import { RECORD_NOUNS, recordTitle, recordWho, settlementSentence } from './family'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { JournalList } from './FamilyJournal'
 import { LATER, sideLabel } from './FamilySettlement'
@@ -232,7 +232,7 @@ export function RecordDetail({ family }: { family: FamilyData }) {
         </>
       )}
 
-      {settlement && (r.canEditPayment || r.yourPayment) && !r.frozen && (
+      {settlement && (r.canEdit || r.canEditPayment || r.yourPayment) && !r.frozen && (
         <EditSettlement key={editKey} record={r} family={family} problems={problems} pending={change.pending} onSave={save} />
       )}
       {!settlement && (r.canEdit || r.canEditPayment) && (
@@ -251,10 +251,16 @@ export function RecordDetail({ family }: { family: FamilyData }) {
             : `Only ${r.payer.displayName}, who paid it, changes its date, amount and payer.`}
         </p>
       )}
-      {settlement && !r.canEditPayment && !r.frozen && (
+      {settlement && r.lockedBy && !r.frozen && (
+        <p className="notice" role="note">
+          {r.lockedBy.displayName} has put their side of this settlement on an account of theirs, so its date and amount
+          can’t change and it can’t be deleted. {r.lockedBy.displayName} can move it back to “Specify later” to allow it.
+        </p>
+      )}
+      {settlement && !r.canEdit && !r.frozen && (
         <p className="muted small">
-          Only {memberName(r.author, me) === 'you' ? 'you' : r.author.displayName}, who recorded it, changes its date,
-          amount and comment{r.yourPayment ? '; you put your own side on an account' : ''}.
+          Only {r.author.displayName}, who recorded it, changes its date, amount and comment
+          {r.yourPayment ? '; you put your own side on an account' : ''}.
         </p>
       )}
       {saved && <p className="success" role="status">Saved.</p>}
@@ -443,8 +449,9 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
 }
 
 /**
- * What the reader may change of a settlement (D-24): its date, amount and comment when they recorded it
- * (`canEditPayment`), and the account of their own side when they pay or receive it with an account
+ * What the reader may change of a settlement (D-24): its date and amount when they recorded it (`canEditPayment`),
+ * unless the other side has put their part on an account of theirs (`lockedBy`, D-28); its comment when they
+ * recorded it (`canEdit`); and the account of their own side when they pay or receive it with an account
  * (`yourPayment`), which moves the other side's part from "Payments without a specified account" to one of theirs.
  * Only what changed is sent; the account alone changes nothing the other members see.
  */
@@ -472,9 +479,9 @@ function EditSettlement({ record, family, problems, pending, onSave }: EditProps
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; a settlement can’t be earlier.` : undefined
   const ready = changed && !dateProblem && amount !== undefined
   const other = record.payer.memberId === me ? record.payee : record.payee?.memberId === me ? record.payer : undefined
-  const otherHasAccount = (ref?: { memberId: number }) => family.members.some((m) => m.id === ref?.memberId && m.hasAccount)
-  const moves = (patch.date !== undefined || patch.amount !== undefined)
-    && [record.payer, record.payee].some((m) => m && m.memberId !== me && otherHasAccount(m))
+  // The other side of a settlement someone else recorded: while the reader's side is on an account, it is locked (D-28).
+  const recordedByOther = record.author.memberId !== me
+  const holdsLock = recordedByOther && record.yourPayment !== undefined && !record.yourPayment.later
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -483,7 +490,7 @@ function EditSettlement({ record, family, problems, pending, onSave }: EditProps
 
   return (
     <form className="family-form settlement-form" onSubmit={submit}>
-      <h4>{record.canEditPayment ? 'Change this settlement' : 'Your side of this settlement'}</h4>
+      <h4>{record.canEdit ? 'Change this settlement' : 'Your side of this settlement'}</h4>
       <div className="fields">
         {record.canEditPayment && (
           <>
@@ -495,10 +502,12 @@ function EditSettlement({ record, family, problems, pending, onSave }: EditProps
               <input className="amount" inputMode="decimal" value={amountText} autoComplete="off"
                 onChange={(e) => setAmountText(e.target.value)} />
             </Field>
-            <Field label="Comment (optional)" errors={problems.comment} className="wide">
-              <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
-            </Field>
           </>
+        )}
+        {record.canEdit && (
+          <Field label="Comment (optional)" errors={problems.comment} className="wide">
+            <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
+          </Field>
         )}
         {record.yourPayment && (
           <Field label={sideLabel(record.payer.memberId === me)} errors={problems.payment}
@@ -514,10 +523,10 @@ function EditSettlement({ record, family, problems, pending, onSave }: EditProps
           {other.displayName} recorded it; put your side on the account the money went {record.payer.memberId === me ? 'from' : 'into'}.
         </p>
       )}
-      {moves && (
+      {holdsLock && (
         <p className="muted small">
-          A new date or amount moves the other side’s part back to their “Payments without a specified account”, if they
-          had put it on an account: only they choose their own account.
+          While your side is on an account of yours, {record.author.displayName} can’t change the settlement’s date or
+          amount, or delete it. Choose “Specify later” to let them.
         </p>
       )}
       <div className="actions">

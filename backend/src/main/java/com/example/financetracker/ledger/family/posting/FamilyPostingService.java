@@ -39,9 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
  * So a member's debt account always shows their family balance (D-10). Re-posting is idempotent, keyed by record,
  * member and link type: an entry as wanted stays, a different one is replaced (same entry, new version), a missing one
  * is written and one no longer wanted is deleted. A payment or a side follows the record's date and amount (F4c): it is
- * re-posted with the account its member chose, or kept as it is. Only its own member posts to their own account (D-8):
- * when another member's change moves the date or the amount of a side that its member put on an account of theirs, it
- * goes back to their "Payments without a specified account", for them to put on an account again.
+ * re-posted with the account its member chose, or kept as it is. Only its own member changes a side on an account of
+ * theirs (D-8, D-28): another member's change never moves, rewrites or deletes it, and the record service refuses the
+ * changes that would need to (a settlement's date, amount and deletion once its other side has placed its part).
  */
 @Service
 public class FamilyPostingService {
@@ -159,6 +159,12 @@ public class FamilyPostingService {
         for (var entry : existing.entrySet()) {
             Link link = entry.getValue();
             PostedEntry want = wanted.remove(entry.getKey());
+            if (!link.systemOwned() && link.memberId() != family.memberId()
+                    && (want == null || !writer.holds(family, link, want))) {
+                throw new IllegalStateException(("Record %d: member %d's side on an account of theirs would change "
+                        + "through member %d's change; only they change it (D-8, D-28)").formatted(recordId,
+                        link.memberId(), family.memberId()));
+            }
             if (want == null) {
                 writer.delete(family, link);
             } else if (!writer.holds(family, link, want)) {
@@ -180,7 +186,8 @@ public class FamilyPostingService {
     /**
      * The side as it is wanted now: as the member who acts names it for their own side, else as it is, with the
      * record's date and amount. A new side of a settlement's other member goes to their "Payments without a specified
-     * account" (D-24); so does one on their own account that someone else's change would move (D-8).
+     * account" (D-24). A side on its member's own account that someone else's change would move is refused in
+     * {@link #post}: only its member changes it (D-8, D-28).
      */
     private PostedEntry side(LedgerScope family, Side side, Link existing, Payment payment, long recordId,
             LocalDate date, BigDecimal amount, String currency) {
@@ -202,11 +209,9 @@ public class FamilyPostingService {
         if (current.later()) {
             return placeholderSide(family, side, recordId, date, amount, currency, current.memo());
         }
-        PostedEntry asItIs = ownSide(family, side, recordId, date, current.accountId(), amount, currency,
-                current.memo());
-        return acting || writer.holds(family, existing, asItIs) ? asItIs
-                : placeholderSide(family, side, recordId, date, amount, currency, null);
+        return ownSide(family, side, recordId, date, current.accountId(), amount, currency, current.memo());
     }
+
     /**
      * The caller's own payments for these records, by record: only those of records they paid with an account, and
      * their own sides of settlements (F4d), from their own personal ledger (D-16).

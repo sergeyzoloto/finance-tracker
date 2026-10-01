@@ -5,7 +5,7 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-01 · Family budget: F4d's deploy and review, the settlement lock, other currencies (F4e)
 
-Not committed yet.
+Not committed yet: the documents are `7d5cef6`.
 
 **Changes**
 - F4d's deploy and the decisions after its review (commit "docs(family-budget): F4d deploy,
@@ -30,6 +30,31 @@ Not committed yet.
     the commands the agent runs and writes into deploy checklists, where commits are explicit,
     while the runbook's generic blocks for the human operator may read
     `/root/finance-tracker.previous`; decisions up to D-28.
+- The settlement lock, D-28 (commit "feat(family): lock a settlement once the other side has placed
+  its part"), ADR 0003 topic E ("F4e as built: the settlement lock"). No migration.
+  - A settlement's new date or amount, and its deletion, answer 409 while its other side (the side
+    that didn't record it, a member with an account) has its part on an account of theirs: "Dad has
+    put their side of this settlement on an account of theirs, so its date and amount can't change;
+    Dad can move it back to "Specify later" to allow it." (or "so it can't be deleted"), also through
+    the recorder's own side's entry. Its comment still changes; the recorder's own account and a side
+    without an account never lock it.
+  - The record's answer gains `lockedBy` (the other side, additive), only for who would otherwise
+    change it; `canEditPayment` and `canDelete` are false while it is set.
+  - No path writes another member's own account any more: `FamilyPostingService.post` keeps a side
+    on its member's own account as it is when anyone else acts and throws if a re-post would rewrite
+    or delete it, and `CrossLedgerWriter.replace` and `delete` refuse an entry that isn't
+    `system_owned` unless its member acts. F4d's move of the other side's part back to the
+    placeholder is gone.
+  - The interface: the recorder's settlement page says who locked it and why, without the date,
+    amount and delete; the comment stays. The other side's page and their personal entry say that
+    their account locks it and that "Specify later" unlocks it. The recorder's side entry shows the
+    lock with the date and amount disabled and no delete. F4d's line about the other side's part
+    moving back is gone.
+  - Tests: `FamilySettlementApiTests` (the first test now expects the lock and its release, and the
+    new `theLockFollowsTheOtherSidesPartOnly`); `CrossLedgerWriterTests.anotherMembersSideOnTheirOwnAccountIsBeyondReach`
+    (new); `DataIsolationApiTests.aSettlementsLockNamesItsOtherSideToItsRecorderOnly` (new; nothing
+    else in the file changed); `FamilyRecordRandomTests` tracks whether the other side placed its
+    part and expects the 409s; `FamilyRecords.test.tsx` (4 new or rewritten).
 
 **Verified**
 - Baseline, on the laptop in `~/dev/finance-tracker` after `git fetch origin`:
@@ -37,10 +62,17 @@ Not committed yet.
   `144ff6b`. `./mvnw -B clean verify`: 335 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS.
   Frontend: `npm ci`, `npm test` 16 files and 220 tests passed, `npm run build` succeeded.
 - After the documents' commit: documents only.
+- After the lock's commit: `./mvnw -B clean verify` 338 tests (335 and 3), 0 failures, 0 errors, 0
+  skipped, BUILD SUCCESS; the invariants after every family test and after each of the random
+  test's 240 operations (from the seed: 73 expenses and 21 incomes created, 34 changes, 23 payment
+  edits, 29 deletes, 12 split rules, 20 settlements, 16 settlement changes, 8 settlement deletes,
+  and 4 refused by the lock). Frontend: `npm test` 16 files and 224 tests passed (220 before),
+  `npm run build` succeeded.
+- `aSettlementsLockNamesItsOtherSideToItsRecorderOnly` against a temporary mutation, from a file
+  copy: `lockedBy` computed for every reader made it fail (Bob's answer held it). The file restored.
 
 **Open**
-- The settlement lock, and other currencies in the backend and the interface (this stage's later
-  commits).
+- Other currencies in the backend and the interface (this stage's later commits).
 
 ## 2026-10-01 · Family budget: F4c's deploy and review, settlements and incomes (F4d)
 

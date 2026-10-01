@@ -232,6 +232,7 @@ class CrossLedgerWriter {
         if (link.memberId() != entry.memberId() || link.type() != entry.link() || link.entryId() == null) {
             throw new IllegalStateException("Link %d is not for this entry".formatted(link.id()));
         }
+        requireOwnIfTheirs(family, link);
         check(family, entry, member);
         asWriter(family, ownLedger(family, entry, member), () -> {
             jdbc.sql("""
@@ -256,6 +257,7 @@ class CrossLedgerWriter {
 
     /** Deletes the link and its entry, with the entry's postings. */
     void delete(LedgerScope family, Link link) {
+        requireOwnIfTheirs(family, link);
         asWriter(family, null, () -> {
             if (link.entryId() != null) {
                 jdbc.sql("""
@@ -268,6 +270,20 @@ class CrossLedgerWriter {
                     .param("linkId", link.id()).param("familyId", family.ledgerId())
                     .update();
         });
+    }
+
+    /**
+     * An entry on a member's own account is theirs (not system-owned): only that member, acting, changes or deletes it
+     * (D-8, D-28). Another member's change never reaches it.
+     *
+     * @throws IllegalStateException if the link's entry is another member's own: a bug, never a user's mistake
+     */
+    private static void requireOwnIfTheirs(LedgerScope family, Link link) {
+        if (!link.systemOwned() && link.memberId() != family.memberId()) {
+            throw new IllegalStateException(("The family posting refuses to change the entry of link %d: it is member "
+                    + "%d's own, on an account of theirs, and member %d acts").formatted(link.id(), link.memberId(),
+                    family.memberId()));
+        }
     }
 
     private void insertLines(LedgerScope family, long entryId, PostedEntry entry) {

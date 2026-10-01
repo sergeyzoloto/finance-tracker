@@ -21,8 +21,8 @@ class FamilySettlementApiTests extends FamilyApiTest {
      * Alice paid 72.40, half Bob's, so Bob owes her 36.20. Bob pays it from his cash: his side goes from his cash, hers
      * to her "Payments without a specified account" (D-24), and both balances are zero. She puts her side on her current
      * account, through her entry and through the settlement, which changes nothing the family sees. Only Bob, who
-     * recorded it, changes its amount and date, and deletes it; a new amount moves her side back to her placeholder,
-     * since only she posts to her own account (D-8).
+     * recorded it, changes its amount and date, and deletes it; while her side is on her account, neither (D-28): she
+     * moves it back to "Specify later" to let him, since only she changes her own account (D-8).
      */
     @Test
     void aSettlementPostsBothSidesAndTheOtherSidePutsItsPartOnAnAccount() throws IOException {
@@ -111,11 +111,43 @@ class FamilySettlementApiTests extends FamilyApiTest {
                 HttpStatus.CONFLICT)).isEqualTo("Entry %d is your side of a settlement in the family budget \"Home\"; "
                         .formatted(alicesEntry) + "change it there.");
 
-        // Bob pays 40 instead: 3.80 more than he owed, so the balances flip. Alice's side follows the amount, back on
-        // her placeholder, since only she posts to her own account.
-        JsonNode more = ok(patch(bob, path + "?version=0", """
+        // The lock (D-28): her side is on her account, so Bob changes neither the date nor the amount, nor deletes it.
+        // His comment still changes, and her side stays as it is.
+        String locked = "Mum has put their side of this settlement on an account of theirs, so %s; Mum can move it "
+                + "back to \"Specify later\" to allow it.";
+        JsonNode asBob = ok(get(bob, path));
+        assertThat(asBob.get("lockedBy").get("displayName").asText()).isEqualTo("Mum");
+        assertThat(List.of(asBob.get("canEdit").asBoolean(), asBob.get("canEditPayment").asBoolean(),
+                asBob.get("canDelete").asBoolean())).containsExactly(true, false, false);
+        assertThat(ok(get(alice, path)).has("lockedBy")).isFalse();
+        assertThat(detail(patch(bob, path + "?version=0", """
+                {"amount": "40", "date": "2026-09-13"}"""), HttpStatus.CONFLICT))
+                .isEqualTo(locked.formatted("its date and amount can't change"));
+        assertThat(detail(patch(bob, path + "?version=0", """
+                {"date": "2026-09-13"}"""), HttpStatus.CONFLICT))
+                .isEqualTo(locked.formatted("its date and amount can't change"));
+        assertThat(detail(patch(bob, "/api/entries/%d/family-payment?version=0".formatted(bobsEntry), """
+                {"amount": "40"}"""), HttpStatus.CONFLICT)).isEqualTo(locked.formatted("its date and amount can't change"));
+        assertThat(detail(delete(bob, path + "?version=0"), HttpStatus.CONFLICT))
+                .isEqualTo(locked.formatted("it can't be deleted"));
+        assertThat(detail(delete(bob, "/api/entries/%d?version=0".formatted(bobsEntry)), HttpStatus.CONFLICT))
+                .isEqualTo(locked.formatted("it can't be deleted"));
+        List<String> alicesBefore = postedEntries(alice);
+        JsonNode commented = ok(patch(bob, path + "?version=0", """
+                {"comment": "Groceries, Sep"}"""));
+        assertThat(commented.get("version").asInt()).isOne();
+        assertThat(postedEntries(alice)).isEqualTo(alicesBefore);
+
+        // She moves her side back to "Specify later": the lock is gone.
+        assertThat(ok(patch(alice, path + "?version=1", """
+                {"paymentLater": true}""")).get("yourPayment").get("later").asBoolean()).isTrue();
+        assertThat(ok(get(bob, path)).has("lockedBy")).isFalse();
+        assertThat(ok(get(bob, path)).get("canEditPayment").asBoolean()).isTrue();
+
+        // Bob pays 40 instead: 3.80 more than he owed, so the balances flip. Alice's side follows on her placeholder.
+        JsonNode more = ok(patch(bob, path + "?version=1", """
                 {"amount": "40", "date": "2026-09-13"}"""));
-        assertThat(more.get("version").asInt()).isOne();
+        assertThat(more.get("version").asInt()).isEqualTo(2);
         assertThat(more.get("yourPayment").get("accountId").asLong()).isEqualTo(bobsCash);
         assertThat(balances(alice)).containsExactly("Mum 3.80 you", "Dad -3.80", "Kid 0.00");
         assertThat(postedEntries(bob)).endsWith("FAMILY_SETTLEMENT SETTLEMENT %d:-40.00:null %d:40.00:null"
@@ -127,8 +159,16 @@ class FamilySettlementApiTests extends FamilyApiTest {
         assertThat(changes(ok(get(alice, uri + "/journal?recordId=" + id))).getFirst())
                 .isEqualTo("UPDATE by Dad: date 2026-09-12→2026-09-13, amount 36.20→40.00");
 
-        // Bob deletes it: both sides go, and the balances are what they were before it.
-        assertThat(delete(bob, path + "?version=1")).hasStatus(HttpStatus.NO_CONTENT);
+        // She puts it on her account again, and Bob can't delete it; back on "Specify later", he deletes it: both sides
+        // go, and the balances are what they were before it.
+        ok(patch(alice, path + "?version=2", """
+                {"paymentAccountId": %d}""".formatted(alicesCurrent)));
+        assertThat(detail(delete(bob, path + "?version=2"), HttpStatus.CONFLICT))
+                .isEqualTo(locked.formatted("it can't be deleted"));
+        ok(patch(alice, "/api/entries/%d/family-payment?version=%d".formatted(alicesEntry,
+                ok(get(alice, "/api/entries/" + alicesEntry)).get("version").asInt()), """
+                {"later": true}"""));
+        assertThat(delete(bob, path + "?version=2")).hasStatus(HttpStatus.NO_CONTENT);
         assertThat(balances(alice)).containsExactly("Mum -36.20 you", "Dad 36.20", "Kid 0.00");
         assertThat(postedEntries(alice)).noneMatch(entry -> entry.startsWith("FAMILY_SETTLEMENT"));
         assertThat(postedEntries(bob)).noneMatch(entry -> entry.startsWith("FAMILY_SETTLEMENT"));
@@ -282,5 +322,57 @@ class FamilySettlementApiTests extends FamilyApiTest {
                 {"amount": "8"}"""), HttpStatus.CONFLICT)).isEqualTo(frozen);
         assertThat(detail(delete(alice, withBobsPath + "?version=0"), HttpStatus.CONFLICT)).isEqualTo(frozen);
         assertThat(balances(alice)).containsExactly("Mum -7.00 you", "Former member 7.00", "Kid 0.00");
+    }
+
+    /**
+     * The lock (D-28) follows the other side's part only: the recorder's own side on their account doesn't lock it, a
+     * recorder who receives is locked as one who pays, and a side without an account, or a settlement between two
+     * members without an account, never locks anything.
+     */
+    @Test
+    void theLockFollowsTheOtherSidesPartOnly() throws IOException {
+        long alicesCurrent = accountId(alice, "CURRENT_ACCOUNT");
+        long bobsCash = accountId(bob, "CASH");
+        // Alice receives 30 from Bob, into her current account: her own side doesn't lock it.
+        JsonNode received = created(post(alice, uri + "/settlements", """
+                {"date": "2026-09-12", "amount": "30", "payerMemberId": %d, "payeeMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(dad, mum, alicesCurrent)));
+        String path = uri + "/records/" + received.get("id").asLong();
+        assertThat(received.has("lockedBy")).isFalse();
+        assertThat(ok(patch(alice, path + "?version=0", """
+                {"amount": "31"}""")).get("version").asInt()).isOne();
+
+        // Bob, who paid, puts his part on his cash: now Alice, who received, is locked.
+        ok(patch(bob, path + "?version=1", """
+                {"paymentAccountId": %d}""".formatted(bobsCash)));
+        JsonNode asAlice = ok(get(alice, path));
+        assertThat(asAlice.get("lockedBy").get("memberId").asLong()).isEqualTo(dad);
+        assertThat(List.of(asAlice.get("canEditPayment").asBoolean(), asAlice.get("canDelete").asBoolean()))
+                .containsOnly(false);
+        assertThat(ok(get(bob, path)).has("lockedBy")).isFalse();
+        assertThat(detail(patch(alice, path + "?version=1", """
+                {"amount": "32"}"""), HttpStatus.CONFLICT)).isEqualTo("Dad has put their side of this settlement on an "
+                        + "account of theirs, so its date and amount can't change; Dad can move it back to \"Specify "
+                        + "later\" to allow it.");
+        // The same date and amount aren't a change, and her own account still moves.
+        assertThat(ok(patch(alice, path + "?version=1", """
+                {"amount": "31.00", "date": "2026-09-12", "paymentLater": true}""")).get("version").asInt()).isOne();
+        assertThat(balances(alice)).containsExactly("Mum 31.00 you", "Dad -31.00", "Kid 0.00");
+
+        // With Kid, who has no account, nothing locks it; nor between Kid and Gran, an owner's.
+        JsonNode withKid = created(post(alice, uri + "/settlements", """
+                {"date": "2026-09-13", "amount": "4", "payerMemberId": %d, "payeeMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(kid, mum, alicesCurrent)));
+        String kidsPath = uri + "/records/" + withKid.get("id").asLong();
+        assertThat(ok(patch(alice, kidsPath + "?version=0", """
+                {"amount": "5"}""")).has("lockedBy")).isFalse();
+        assertThat(delete(alice, kidsPath + "?version=1")).hasStatus(HttpStatus.NO_CONTENT);
+        long gran = body(post(alice, uri + "/members", """
+                {"displayName": "Gran"}"""), HttpStatus.CREATED).get("id").asLong();
+        JsonNode between = created(post(alice, uri + "/settlements", """
+                {"date": "2026-09-13", "amount": "3", "payerMemberId": %d, "payeeMemberId": %d}""".formatted(kid,
+                gran)));
+        assertThat(delete(alice, uri + "/records/" + between.get("id").asLong() + "?version=0"))
+                .hasStatus(HttpStatus.NO_CONTENT);
     }
 }

@@ -117,6 +117,11 @@ export interface FamilyRecord {
    */
   canEditPayment: boolean
   /**
+   * A settlement's other side, who has put their part on an account of theirs: until they move it back to “Specify
+   * later”, its date and amount don't change and it isn't deleted (D-28). Only for who would otherwise change it.
+   */
+  lockedBy?: MemberRef
+  /**
    * How the reader paid it, or received an income: only for its payer or receiver with an account, and missing for
    * everyone else (D-16); for a settlement, the reader's own side.
    */

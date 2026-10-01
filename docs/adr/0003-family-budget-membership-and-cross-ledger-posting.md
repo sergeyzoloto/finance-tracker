@@ -597,6 +597,16 @@ action changes another member's accounts (D-8). Nothing changes for members with
 **Kept after the F4d review**, as built: `POST /settlements` records one, and it is read, changed and
 deleted through `/records`; a settlement side takes no private note.
 
+**F4e as built: the settlement lock** (D-28). No migration. The record service refuses a settlement's
+new date or amount and its deletion with 409 while its other side's link, the side that didn't record
+it, isn't `system_owned` (their part is on an account of theirs); the recorder's own side and a side
+without an account never lock it. The record's answer gains `lockedBy` (that member, additive), only
+for who would otherwise change it, and `canEditPayment` and `canDelete` are false while it is set. The
+posting service no longer moves such a side back to the placeholder: a side on its member's own account
+is kept as it is when anyone else acts, and if a re-post would rewrite or delete it, it throws instead
+(a bug, never a user's mistake). `CrossLedgerWriter.replace` and `delete` refuse an entry that isn't
+`system_owned` unless its member acts. So no path writes another member's own account.
+
 **F4d as built: incomes** (C5). No migration either.
 
 - `POST /records` takes `type`: `EXPENSE`, the default, or `INCOME`. An income mirrors an expense:

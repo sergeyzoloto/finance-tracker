@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Rolls the app back one step, to the commit that the current one's deploy replaced: only for a deploy that failed its
-# checks
+# Rolls the app back to the last good deploy before the current one: only for a deploy that failed its checks
 # (deploy/RUNBOOK.md, "Roll back with rollback.sh"). Run as root, on the server, from /opt/finance-tracker, in a block
 # of its own, never in one with a deploy:
 #
 #   deploy/rollback.sh <commit>
 #
-# <commit> must be the commit that HEAD's deploy replaced, as that run of deploy/deploy.sh recorded it, with its images
-# still under finance-tracker-api:<commit> and finance-tracker-web:<commit> (F6c, decided by the PM: one step back; a
-# deploy on top of a commit means the owner accepted it, so its finish's answers don't matter here). It shows what it will do, and does it only once
+# <commit> must be the last good deploy before the current one, as deploy/deploy.sh recorded it, with its images still
+# under finance-tracker-api:<commit> and finance-tracker-web:<commit>. It shows what it will do, and does it only once
 # "ROLLBACK <first 7 characters>" is typed at the terminal. Then, as the runbook's "Roll an update back": the clone to
 # that commit (detached), its images retagged, api and web started, health checked. The database and
 # /etc/pg-backup/finance.conf stay as they are. Going back below V7 while production holds family records is refused
@@ -21,7 +19,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 usage() {
-  echo "usage: deploy/rollback.sh <commit>   (the commit HEAD's deploy replaced, 7 to 40 hex characters)" >&2
+  echo "usage: deploy/rollback.sh <commit>   (the last good deploy before the current one, 7 to 40 hex characters)" >&2
   exit 2
 }
 
@@ -46,7 +44,7 @@ on_exit_rollback() {
 }
 
 cmd_rollback() {
-  local arg=$1 head sha api_now web_now id target_max family flyway problem
+  local arg=$1 head sha api_now web_now id target_max family flyway
   [[ $arg =~ ^[0-9a-f]{7,40}$ ]] || usage
   PHASE=refusing
   trap on_exit_rollback EXIT
@@ -56,14 +54,7 @@ cmd_rollback() {
 
   heading "1. The tools, the read-only role and the clone"
   check_tools git docker flock
-  # Without the read-only role this script can't check the database (D-22): the way back is then the runbook's manual
-  # one (F6c).
-  problem=$(role_problem)
-  if [ -n "$problem" ]; then
-    role_command
-    fail "$problem; without it, roll back by hand: deploy/RUNBOOK.md, \"Roll an update back\""
-  fi
-  say "The checks run as $CHECKS_ROLE: $ROLE_OK"
+  require_checks_role
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
   head=$(git rev-parse HEAD)
@@ -73,11 +64,10 @@ cmd_rollback() {
 
   heading "2. The commit"
   sha=$(git rev-parse --verify --quiet "$arg^{commit}") || fail "$arg is no commit of this clone"
-  rollback_target "$head" \
-    || fail "no good deploy before $(git rev-parse --short HEAD): no run of deploy.sh that brought it names the commit it replaced with its images (deploy/RUNBOOK.md, \"Roll an update back\", by hand)"
+  rollback_target "$head" || fail "no good deploy before $(git rev-parse --short HEAD) is recorded in $STATE_DIR/history"
   [ "$sha" = "$RT_COMMIT" ] \
-    || fail "rollback.sh goes only one step back, to the commit HEAD's deploy replaced, $(git log -1 --format='%h %s' "$RT_COMMIT"), not ${sha:0:7}"
-  say "Target: $(git log -1 --format='%h %s' "$sha"), the commit HEAD's deploy replaced ($(basename "$DR_DIR")); its status, its newest line in the history: $(commit_status "$sha")"
+    || fail "rollback.sh goes only to the last good deploy before the current one, $(git log -1 --format='%h %s' "$RT_COMMIT"), not ${sha:0:7}"
+  say "Target: $(git log -1 --format='%h %s' "$sha"), the last good deploy before the current one"
 
   heading "3. Its images"
   id=$(docker image inspect -f '{{.Id}}' "finance-tracker-api:$sha" 2>/dev/null) || fail "no image finance-tracker-api:$sha"

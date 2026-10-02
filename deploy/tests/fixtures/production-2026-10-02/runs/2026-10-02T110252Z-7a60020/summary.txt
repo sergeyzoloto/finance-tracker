@@ -1,0 +1,19 @@
+Deploy of 7a60020 (stage F6b): deployed
+Date: 2026-10-02; run folder /var/lib/finance-deploy/runs/2026-10-02T110252Z-7a60020
+Previous commit: 46dedcd (docs: deploying with deploy.sh), HEAD with its images at deploy.sh's first run (no record before)
+New commit: 7a60020 (ops: a read-only role for checks, deploy.sh adopt)
+Commits: 9cefaf4, 58779f5, 5f00946, 7a60020 (46dedcd to 7a60020)
+Migrations added: V10__claimed_seats_and_family_deletion.sql; under deploy/ changed: see the run's log
+CI: 8 check runs, every one completed with success
+Before: dump 2026-10-02T1105Z, 1444128 bytes; restore test PASS (tables 19, migration 9)
+Flyway: version 10 (10 claimed seats and family deletion true); "Successfully applied 1 migration to schema "app", now at version v10 (execution time 00:00.019s)" at 2026-10-02T11:07:01Z
+Started: "Started FinanceTrackerApplication in 8.3 seconds" at 2026-10-02T11:07:03Z
+D-25: "Family ledgers (D-25): off; the family endpoints answer 404", as production sets it (FAMILY_LEDGERS_ENABLED absent, so off)
+Numbers: the same before and after
+Stage checks (F6b): the same as deploy/checks/F6b.expected (16 lines)
+finance.conf: not installed (unchanged)
+After: dump 2026-10-02T1107Z, 1446365 bytes; restore test PASS (migration 10)
+Images: api sha256:4e96fa0c00000000000000000000000000000000000000000000000000000000, web sha256:5c11c27f00000000000000000000000000000000000000000000000000000000 (recorded in last-good); before the build, the last good deploy's kept as :46dedcd and :previous
+Browser checks: NOT passed (answered "# On the server"), answered at 2026-10-02T11:08:09Z
+Smoke test: NOT passed (answered "cd /opt/finance-tracker && deploy/deploy.sh finish"), answered at 2026-10-02T11:08:09Z
+Family numbers after the smoke test: the family lines as before the deploy

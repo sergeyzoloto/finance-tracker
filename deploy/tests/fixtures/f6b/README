@@ -1,0 +1,4 @@
+F6b's deploy/deploy.sh, rollback.sh and common.sh as committed in 7a60020, the version on the server before F6c.
+F6c's run executes this deploy.sh (bash read it before the merge) on production's state after F6b's deploy
+(fixtures/production-2026-10-02), and F6c's finish, adopt and rollback.sh then read the state it wrote:
+deploy/tests/run.sh, cases f6b_run_on_production_state and the ones after it. Never edit these copies.

@@ -5,8 +5,7 @@
 #   deploy/deploy.sh run <commit> <stage>   preflight (changes nothing but a fresh backup), one confirmation typed at
 #                                           the terminal, the deploy, postflight; prints a summary
 #   deploy/deploy.sh finish                 after the browser checks and the smoke test: asks how they went, compares
-#                                           the family numbers, writes the final summary; may run again, and the
-#                                           latest answers count (F6c)
+#                                           the family numbers, writes the final summary
 #   deploy/deploy.sh verify <stage>         read only, any time: health, Flyway, the stage's checks, the D-25 line, the
 #                                           numbers; no backup, no change
 #   deploy/deploy.sh adopt                  after a manual deploy, or a stopped run the operator judged harmless:
@@ -15,9 +14,6 @@
 #
 # Every check, the numbers and Flyway's row are read as the read-only database role finance_checks (F6b;
 # deploy/RUNBOOK.md, "A read-only role for the deploy checks"); preflight, finish and verify stop without it.
-#
-# Every question is answered at the terminal, after it is asked: lines waiting there before it, such as a block pasted
-# ahead, are discarded first, and a yes or no question asks again until yes or no is typed (F6c; deploy/common.sh).
 #
 # It never rolls back by itself: a failure after the merge prints the command of deploy/rollback.sh, for the operator.
 # Everything it prints also goes to the run's folder under /var/lib/finance-deploy/runs (deploy/common.sh).
@@ -317,7 +313,6 @@ cmd_run() {
   say "Running images: api $api_now, web $web_now"
   if read_last_good; then
     say "Last good deploy: $(git log -1 --format='%h %s' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT") at $LG_TIME ($LG_SOURCE)"
-    say "Its status, its newest line in the history: $(commit_status "$LG_COMMIT")"
     PREVIOUS_LINE="$(git log -1 --format='%h (%s)' "$LG_COMMIT"), the last good deploy"
   else
     say "No record of a last good deploy: deploy.sh's first run. The running revision, HEAD, with its current images,"
@@ -328,8 +323,7 @@ cmd_run() {
 
   heading "1.3 Preflight: git fetch, the commit and what it brings"
   git fetch origin
-  SHA=$(git rev-parse --verify --quiet "$arg^{commit}") \
-    || fail "$arg is no commit of this clone after git fetch: push it from the laptop first (deploy/RUNBOOK.md, \"Deploying with deploy.sh\", step 1), then run this again"
+  SHA=$(git rev-parse --verify --quiet "$arg^{commit}") || fail "$arg is no commit of this clone after git fetch"
   [ "$SHA" = "$(git rev-parse --verify origin/main)" ] \
     || fail "$arg is not origin/main ($(git log -1 --format='%h %s' origin/main))"
   git merge-base --is-ancestor HEAD "$SHA" || fail "$arg is not a fast-forward of HEAD ($(git rev-parse --short HEAD))"
@@ -507,14 +501,11 @@ cmd_run() {
 # ---------------------------------------------------------------------------------------------------------------------
 # finish
 
-# The exit status of a finish whose answers or family numbers say not passed: not an error of the script (F6c).
-NOT_PASSED=3
-
 # shellcheck disable=SC2329  # the EXIT trap
 on_exit_finish() {
   local rc=$?
   trap - EXIT
-  if [ "$rc" -ne 0 ] && [ "$rc" -ne "$NOT_PASSED" ]; then
+  if [ "$rc" -ne 0 ]; then
     say ""
     say "finish stopped at \"$STEP\": ${REASON:-an unexpected error, exit code $rc}"
   fi
@@ -525,35 +516,18 @@ on_exit_finish() {
 # meta_value KEY: a value of the run's meta file (written by this script, parsed, never sourced).
 meta_value() { sed -n "s/^$1=//p" "$RUN_DIR/meta"; }
 
-# latest_deployed_run: the latest run that isn't refused (F6c: a refused run, or a refused adopt, doesn't count), into
-# LATEST; it must be a deploy that reached its end (deployed), or one finished before (finished, finish-failed), whose
-# finish may run again.
-latest_deployed_run() {
-  local dir status
-  LATEST=''
-  while IFS= read -r dir; do
-    status=$(cat "$dir/status" 2>/dev/null || echo 'without a status')
-    [ "$status" != refused ] || continue
-    LATEST=$dir
-    case $status in
-      deployed | finished | finish-failed) [ -f "$dir/meta" ] && return 0 ;;
-    esac
-    fail "the latest run that isn't refused, $dir, is $status, not deployed: nothing to finish"
-  done < <(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r)
-  fail "no deployed run in $STATE_DIR/runs: nothing to finish"
-}
-
 cmd_finish() {
-  local browser smoke browser_at smoke_at family api web problems=()
+  local latest browser smoke browser_at smoke_at family problems=()
   trap on_exit_finish EXIT
   take_lock exclusive
-  STEP="the latest deployed run"
-  latest_deployed_run
-  RUN_DIR=$LATEST
+  latest=$(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1 || true)
+  [ -n "$latest" ] || fail "no run in $STATE_DIR/runs"
+  [ "$(cat "$latest/status" 2>/dev/null)" = deployed ] \
+    || fail "the latest run, $latest, is $(cat "$latest/status" 2>/dev/null || echo 'without a status'), not deployed: nothing to finish"
+  RUN_DIR=$latest
   exec > >(tee -a "$RUN_DIR/log") 2>&1
   TEE_PID=$!
   heading "Finish of $RUN_DIR"
-  [ "$(cat "$RUN_DIR/status")" = deployed ] || say "Its finish ran before ($(cat "$RUN_DIR/status")): the answers now replace those."
   check_tools git docker flock diff
   require_checks_role
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
@@ -562,10 +536,9 @@ cmd_finish() {
   [ "$(git rev-parse HEAD)" = "$SHA" ] || fail "HEAD is no longer the run's commit ${SHA:0:7}"
 
   heading "The browser checks and the smoke test"
-  say "Answer only once both are done; type each answer after its question."
-  ask_yes_no "Did the browser checks pass? Type yes or no: "
+  ask "Did the browser checks pass? Type yes or no: "
   browser=$ANSWER browser_at=$(now)
-  ask_yes_no "Did the smoke test pass? Type yes or no: "
+  ask "Did the smoke test pass? Type yes or no: "
   smoke=$ANSWER smoke_at=$(now)
 
   heading "The family numbers after the smoke test"
@@ -582,7 +555,7 @@ cmd_finish() {
   [ "$smoke" = yes ] || problems+=("the smoke test")
 
   {
-    grep -Ev '^(Browser checks|Smoke test|Family numbers after the smoke test): ' "$RUN_DIR/summary.txt" || true
+    grep -Ev '^(Browser checks|Smoke test): ' "$RUN_DIR/summary.txt" || true
     say "Browser checks: $([ "$browser" = yes ] && echo passed || echo "NOT passed (answered \"$browser\")"), answered at $browser_at"
     say "Smoke test: $([ "$smoke" = yes ] && echo passed || echo "NOT passed (answered \"$smoke\")"), answered at $smoke_at"
     say "Family numbers after the smoke test: $family"
@@ -590,24 +563,16 @@ cmd_finish() {
   mv -f "$RUN_DIR/summary.tmp" "$RUN_DIR/summary.txt"
   heading "Final summary"
   cat "$RUN_DIR/summary.txt"
-  # The latest answers count in last-good and the history too (F6c): the running revision stays the last good deploy,
-  # with how its finish went, and the history's newest line for it is good or finish-failed.
-  api=$(container_image finance-tracker-api)
-  web=$(container_image finance-tracker-web)
-  read_last_good || true
   if [ ${#problems[@]} -gt 0 ]; then
     set_status finish-failed
-    write_last_good "$SHA" "$api" "$web" "${LG_SOURCE:-deploy}" "not passed $(now)"
-    add_history finish-failed "$SHA" "$api" "$web"
+    read_last_good || true
+    add_history finish-failed "$SHA" "${LG_API:-none}" "${LG_WEB:-none}"
     say ""
-    say "NOT PASSED: ${problems[*]}. Recorded as finish-failed; nothing was rolled back."
-    say "If the cause is fixed, or an answer was wrong, run deploy/deploy.sh finish again: the latest answers count."
+    say "Not passed: ${problems[*]}."
     print_rollback_command "$SHA"
-    exit "$NOT_PASSED"
+    exit 1
   fi
   set_status finished
-  write_last_good "$SHA" "$api" "$web" "${LG_SOURCE:-deploy}" "passed $(now)"
-  add_history good "$SHA" "$api" "$web"
   say ""
   say "Done. Add the summary above as a row of \"Deployed revisions\" in deploy/RUNBOOK.md."
 }
@@ -719,7 +684,7 @@ on_exit_adopt() {
 # app") or a stopped run the operator judged harmless, such as numbers changed by users during the deploy. It reads
 # git and Docker, and writes only last-good, a history line and its run folder.
 cmd_adopt() {
-  local head api web latest status
+  local head api web latest
   PHASE=refusing
   trap on_exit_adopt EXIT
   take_lock exclusive
@@ -746,17 +711,9 @@ cmd_adopt() {
   else
     say "No record of a last good deploy"
   fi
-  status=$(commit_status "$head")
-  say "HEAD's status, its newest line in the history: ${status:-none}"
-  # F6c: the newest line decides. A finish-failed HEAD may be adopted, with a good, adopted or baseline one there is
-  # nothing to adopt, as long as last-good names it with the running images.
-  case $status in
-    good | adopted | baseline)
-      if [ "$LG_COMMIT" = "$head" ] && [ "$LG_API" = "$api" ] && [ "$LG_WEB" = "$web" ]; then
-        fail "nothing to adopt: HEAD ${head:0:7} with the running images is the last good deploy already ($status)"
-      fi
-      ;;
-  esac
+  if [ "$LG_COMMIT" = "$head" ] && [ "$LG_API" = "$api" ] && [ "$LG_WEB" = "$web" ]; then
+    fail "nothing to adopt: HEAD ${head:0:7} with the running images is the last good deploy already"
+  fi
 
   heading "2. Confirmation"
   say "This records HEAD ${head:0:7} with the running images as the last good deploy, the one the next deploy.sh run"

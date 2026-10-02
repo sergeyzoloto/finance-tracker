@@ -6,8 +6,7 @@
 #   runs/<UTC time>-<commit>/   one folder per run: log, meta, status, numbers, stage diff, restore tests, summary.txt
 #   last-good                   the last good deploy: commit, time, image IDs, how it became good (key=value lines)
 #   history                     one line per event: <UTC time> <event> <commit> <api image> <web image>; events are
-#                               baseline, good, finish-failed, rolled-back-from, rollback-to, adopted (F6b). A
-#                               commit's status is its newest line (F6c); a finish that passed adds good again
+#                               baseline, good, finish-failed, rolled-back-from, rollback-to, adopted (F6b)
 # Both files are written only by these scripts and parsed, never sourced or run.
 # shellcheck disable=SC2034  # the settings are read by the scripts that source this file
 
@@ -98,42 +97,16 @@ stop_log() {
 
 set_status() { printf '%s\n' "$1" >"$RUN_DIR/status"; }
 
-# ask PROMPT: one line typed at the terminal ($TTY) after the question, into ANSWER; ANSWER_EOF=1 when the terminal
-# closed instead. Never from stdin, so a pipe can't answer it, and (F6c) never from lines that were waiting at the
-# terminal before the question: those are discarded first, so that a block pasted ahead (F6b's finish took the next
-# block's lines as its answers) is never taken for an answer.
+# ask PROMPT: one line typed at the terminal ($TTY), into ANSWER. Never from stdin, so a pasted block or a pipe can't
+# answer it.
 ask() {
   if [ -z "${TTY_FD:-}" ]; then
     exec {TTY_FD}<"$TTY" || fail "can't read $TTY: run this in a terminal on the server"
   fi
-  discard_waiting
   printf '%s' "$1"
-  ANSWER='' ANSWER_EOF=0
-  IFS= read -r ANSWER <&"$TTY_FD" || ANSWER_EOF=1
+  ANSWER=
+  IFS= read -r ANSWER <&"$TTY_FD" || true
   printf '\n(typed: %s)\n' "$ANSWER"
-}
-
-# discard_waiting: reads and drops every line already waiting at the terminal, and says how many there were.
-discard_waiting() {
-  local line n=0
-  while [ "$n" -lt 10000 ] && IFS= read -r -t 0.2 line <&"$TTY_FD"; do n=$((n + 1)); done
-  if [ "$n" -gt 0 ]; then
-    say "($n line(s) were waiting at the terminal before this question, pasted ahead: discarded. Type the answer"
-    say "after the question.)"
-  fi
-}
-
-# ask_yes_no PROMPT: asks until the answer typed is exactly yes or no (F6c), into ANSWER; stops when the terminal
-# closes without one.
-ask_yes_no() {
-  while :; do
-    ask "$1"
-    case $ANSWER in
-      yes | no) return 0 ;;
-    esac
-    [ "$ANSWER_EOF" = 0 ] || fail "no answer of yes or no was typed at $TTY"
-    say "Only yes or no counts as an answer; asking again."
-  done
 }
 
 # psql_ro ARG...: psql as the read-only role finance_checks (F6b; deploy/RUNBOOK.md, "A read-only role for the deploy
@@ -259,78 +232,56 @@ read_last_good() {
   fi
 }
 
-# write_last_good COMMIT API WEB SOURCE [FINISH]: FINISH, "passed <time>" or "not passed <time>", is the latest answer
-# of finish for that deploy (F6c); read_last_good ignores it.
+# write_last_good COMMIT API WEB SOURCE
 write_last_good() {
   local tmp=$STATE_DIR/.last-good.tmp
   printf 'commit=%s\ntime=%s\napi_image=%s\nweb_image=%s\nsource=%s\n' "$1" "$(now)" "$2" "$3" "$4" >"$tmp"
-  [ -z "${5:-}" ] || printf 'finish=%s\n' "$5" >>"$tmp"
   mv -f "$tmp" "$STATE_DIR/last-good"
 }
 
 # add_history EVENT COMMIT API WEB
 add_history() { printf '%s %s %s %s %s\n' "$(now)" "$1" "$2" "$3" "$4" >>"$STATE_DIR/history"; }
 
-# commit_status COMMIT: the commit's status, its newest line in the history (F6c), or nothing when it has none.
-commit_status() {
-  local _time ev c _rest status=''
-  [ -f "$STATE_DIR/history" ] || return 0
-  while read -r _time ev c _rest; do
-    [ "$c" = "$1" ] && status=$ev
-  done <"$STATE_DIR/history"
-  printf '%s' "$status"
-}
-
-# deploy_run_of COMMIT: the newest run folder of a deploy of COMMIT that went past preflight (status not refused) and
-# replaced another commit, into DR_DIR and DR_BASE; returns 1 if none. A repeated run of the same commit records the
-# commit that the first one replaced as its base, as deploy.sh's preflight works it out.
-deploy_run_of() {
-  local dir status commit base
-  DR_DIR='' DR_BASE=''
-  [ -d "$STATE_DIR/runs" ] || return 1
-  while IFS= read -r dir; do
-    [ -f "$dir/meta" ] || continue
-    status=$(cat "$dir/status" 2>/dev/null || true)
-    [ "$status" != refused ] || continue
-    [ "$(sed -n 's/^kind=//p' "$dir/meta")" = deploy ] || continue
-    commit=$(sed -n 's/^commit=//p' "$dir/meta")
-    base=$(sed -n 's/^base=//p' "$dir/meta")
-    if [ "$commit" = "$1" ] && valid_commit "$base" && [ "$base" != "$1" ]; then
-      DR_DIR=$dir DR_BASE=$base
-      return 0
-    fi
-  done < <(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d | sort -r)
-  return 1
-}
-
-# rollback_target HEAD: one step back (F6c, decided by the PM; replaces OPS-1's rule, which skipped a commit whose
-# finish failed): the commit that HEAD's deploy replaced, as that run recorded it, with the images its newest line of
-# the history names (not a rolled-back-from line, which names the images rolled back from), into RT_COMMIT, RT_API and
-# RT_WEB; returns 1 if there is none. A deploy on top of a commit means the owner accepted it, whatever its finish said.
+# rollback_target HEAD: the last good deploy before HEAD, into RT_COMMIT, RT_API and RT_WEB; returns 1 if none.
+# That is the newest commit of the history whose latest event is good, baseline, rollback-to or adopted (not
+# finish-failed or rolled-back-from) and which is an ancestor of HEAD other than HEAD itself.
 rollback_target() {
-  local head=$1 _time ev c a w
+  local head=$1 i _time ev c a w
+  local -a evs=() cs=() as=() ws=()
+  local -A last=()
   RT_COMMIT='' RT_API='' RT_WEB=''
-  deploy_run_of "$head" || return 1
-  git merge-base --is-ancestor "$DR_BASE" "$head" 2>/dev/null || return 1
   [ -f "$STATE_DIR/history" ] || return 1
   while read -r _time ev c a w; do
-    if [ "$c" = "$DR_BASE" ] && [ "$ev" != rolled-back-from ] && valid_image "$a" && valid_image "$w"; then
-      RT_API=$a RT_WEB=$w
-    fi
+    valid_commit "$c" || continue
+    evs+=("$ev") cs+=("$c") as+=("$a") ws+=("$w")
+    last[$c]=$ev
   done <"$STATE_DIR/history"
-  [ -n "$RT_API" ] || return 1
-  RT_COMMIT=$DR_BASE
+  for ((i = ${#cs[@]} - 1; i >= 0; i--)); do
+    case ${evs[i]} in
+      good | baseline | rollback-to | adopted) ;;
+      *) continue ;;
+    esac
+    case ${last[${cs[i]}]} in
+      good | baseline | rollback-to | adopted) ;;
+      *) continue ;;
+    esac
+    [ "${cs[i]}" != "$head" ] || continue
+    git merge-base --is-ancestor "${cs[i]}" "$head" 2>/dev/null || continue
+    if ! valid_image "${as[i]}" || ! valid_image "${ws[i]}"; then continue; fi
+    RT_COMMIT=${cs[i]} RT_API=${as[i]} RT_WEB=${ws[i]}
+    return 0
+  done
+  return 1
 }
 
 # print_rollback_command HEAD: the exact command, for the operator to judge; nothing here runs it.
 print_rollback_command() {
   if rollback_target "$1"; then
     say "Nothing was rolled back. If the deploy failed (deploy/RUNBOOK.md, \"Roll back with rollback.sh\"), roll back"
-    say "to $(git log -1 --format='%h %s' "$RT_COMMIT"), the commit this deploy replaced, with, on the server, alone in"
-    say "its block:"
+    say "to the last good deploy $(git log -1 --format='%h %s' "$RT_COMMIT") with, on the server, alone in its block:"
     say "  cd $REPO_DIR && deploy/rollback.sh $RT_COMMIT"
   else
-    say "Nothing was rolled back, and no deploy of $(git rev-parse --short "$1") recorded in $STATE_DIR names a commit"
-    say "it replaced with its images: follow deploy/RUNBOOK.md, \"Roll an update back\", by hand."
+    say "Nothing was rolled back, and no earlier good deploy is recorded in $STATE_DIR/history to roll back to:"
+    say "follow deploy/RUNBOOK.md, \"Roll an update back\", by hand."
   fi
 }

@@ -85,6 +85,48 @@ mutation "let adopt accept anything" \
   '[ "$ANSWER" = "ADOPT ${head:0:7}" ] || fail "not confirmed"' ': accepts "$ANSWER"' \
   adopt_after_a_harmless_stop
 
+# F6c: lines pasted ahead taken as answers.
+mutation_in common.sh "keep the lines pasted ahead" \
+  $'  discard_waiting\n  printf \'%s\' "$1"\n' $'  printf \'%s\' "$1"\n' \
+  pasted_ahead_is_discarded
+
+# F6c: a yes or no question taking anything.
+mutation_in common.sh "let yes or no take anything" \
+  '      yes | no) return 0 ;;' '      *) return 0 ;;' \
+  yes_no_asks_again
+
+# F6c: finish counting refused runs, as F6b's did.
+mutation "let finish count refused runs" \
+  '    [ "$status" != refused ] || continue
+    LATEST=$dir' '    LATEST=$dir' \
+  finish_skips_refused_runs f6c_scripts_on_production_state
+
+# F6c: a commit's status by its oldest line.
+mutation_in common.sh "take a commit's status from its oldest line" \
+  '    [ "$c" = "$1" ] && status=$ev' '    [ "$c" = "$1" ] && [ -z "$status" ] && status=$ev' \
+  newest_line_decides_status f6c_scripts_on_production_state
+
+# F6c: OPS-1's rollback target, which skips a commit whose finish failed.
+mutation_in common.sh "skip a finish-failed commit as the rollback target" \
+  '  [ -n "$RT_API" ] || return 1
+  RT_COMMIT=$DR_BASE' '  [ -n "$RT_API" ] || return 1
+  [ "$(commit_status "$DR_BASE")" != finish-failed ] || return 1
+  RT_COMMIT=$DR_BASE' \
+  f6b_run_on_production_state finish_after_the_f6c_run
+
+# F6c: adopt refusing a finish-failed HEAD.
+mutation "let adopt refuse a finish-failed HEAD" \
+  '    good | adopted | baseline)' '    good | adopted | baseline | finish-failed)' \
+  newest_line_decides_status f6c_scripts_on_production_state
+
+# F6c: the two hints.
+mutation "drop the hint to push first" \
+  ': push it from the laptop first (deploy/RUNBOOK.md, \"Deploying with deploy.sh\", step 1), then run this again"' '"' \
+  step_1_3_says_push_first
+mutation_in rollback.sh "drop the hint of the manual rollback" \
+  '; without it, roll back by hand: deploy/RUNBOOK.md, \"Roll an update back\""' '"' \
+  refuse_role_missing
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

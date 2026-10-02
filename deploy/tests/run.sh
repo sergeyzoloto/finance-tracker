@@ -130,7 +130,10 @@ EOF
   export DEPLOY_REPO_DIR=$C/server DEPLOY_STATE_DIR=$C/state DEPLOY_LOCK=$C/lock DEPLOY_TTY=$C/tty
   export DEPLOY_BACKUP_DIR=$C/backups DEPLOY_PREVIOUS_FILE=$C/previous
   export DEPLOY_CI_WAIT=2 DEPLOY_CI_INTERVAL=1 DEPLOY_HEALTH_TRIES=3 DEPLOY_HEALTH_INTERVAL=0
-  : >"$C/tty"
+  # The terminal (F6c): a FIFO that terminal_feeder writes into, as the operator would type and paste.
+  mkfifo "$C/tty"
+  : >"$C/typed"
+  : >"$C/pasted"
   cp "$C/state/last-good" "$C/last-good.orig"
   cp "$C/state/history" "$C/history.orig"
 }
@@ -180,17 +183,50 @@ new_target() {
   SHA_E=$(git -C "$C/work" rev-parse HEAD)
 }
 
-run_deploy() {
-  (cd "$C/server" && ./deploy/deploy.sh "$@") >"$C/out" 2>&1 </dev/null
+# run_script SCRIPT ARG...: runs a script in the server's clone, as the operator does, while terminal_feeder plays the
+# terminal; its output in $C/out, its exit code in RC.
+run_script() {
+  local feeder
+  rm -f "$C/done"
+  : >"$C/out"
+  terminal_feeder &
+  feeder=$!
+  (cd "$C/server" && "$@") >"$C/out" 2>&1 </dev/null
   RC=$?
+  : >"$C/done"
+  wait "$feeder" 2>/dev/null
   cat "$C/out" >>"$C/all-out"
 }
-run_rollback() {
-  (cd "$C/server" && ./deploy/rollback.sh "$@") >"$C/out" 2>&1 </dev/null
-  RC=$?
-  cat "$C/out" >>"$C/all-out"
+run_deploy() { run_script ./deploy/deploy.sh "$@"; }
+run_rollback() { run_script ./deploy/rollback.sh "$@"; }
+
+# The terminal (F6c): the lines of type_at_terminal answer the questions one by one, each written only once its
+# question is in the output, as an operator types; the lines of paste_ahead are written at once, before any question,
+# as a block pasted while the script runs. After the last answer, the terminal closes at the next question.
+type_at_terminal() { if [ $# -gt 0 ]; then printf '%s\n' "$@" >"$C/typed"; else : >"$C/typed"; fi; }
+paste_ahead() { if [ $# -gt 0 ]; then printf '%s\n' "$@" >"$C/pasted"; else : >"$C/pasted"; fi; }
+questions() { grep -oE 'Type (the first 7|yes or no|ADOPT|ROLLBACK)' "$C/out" 2>/dev/null | wc -l; }
+wait_for_question() {
+  local i
+  for ((i = 0; i < 600; i++)); do
+    [ "$(questions)" -ge "$1" ] && return 0
+    [ -e "$C/done" ] && return 1
+    sleep 0.05
+  done
+  return 1
 }
-type_at_terminal() { printf '%s\n' "$@" >"$C/tty"; }
+terminal_feeder() {
+  local answer n=0
+  exec 3<>"$C/tty"
+  if [ -s "$C/pasted" ]; then cat "$C/pasted" >&3; fi
+  while IFS= read -r answer; do
+    n=$((n + 1))
+    wait_for_question "$n" || break
+    printf '%s\n' "$answer" >&3
+  done <"$C/typed"
+  wait_for_question $((n + 1)) || true
+  exec 3>&-
+}
 fixture() { printf '%s\n' "$2" >"$STUB_STATE/fixtures/$1"; }
 
 # deploy_e: deploys E, typing its first 7 characters.
@@ -465,7 +501,7 @@ case_wrong_confirmation() {
   run_deploy run "$SHA_E" OPS-1
   refused "not confirmed"
   check "no run is deploying" status_is refused
-  : >"$C/tty"
+  type_at_terminal
   run_deploy run "$SHA_E" OPS-1
   refused "not confirmed"
 }
@@ -648,8 +684,23 @@ case_finish_records_answers() {
   check "family numbers as before" file_has "$summary" "Family numbers after the smoke test: the family lines as before the deploy"
   check "no 'not yet' left" bash -c "! grep -q 'not yet' '$summary'"
   check "status finished" status_is finished
+  check "history: good E as its newest line" bash -c "tail -n 1 '$C/state/history' | grep -q ' good $SHA_E '"
+  check "last-good: finish passed" file_has "$C/state/last-good" "finish=passed 20"
+  # F6c: finish may run again for that run, and the latest answers count, in the summary, last-good and history.
+  type_at_terminal yes no
   run_deploy finish
-  check "a second finish refused" out_has "not deployed: nothing to finish"
+  check "again: exit code 3" rc_is 3
+  check "again: a clear not passed" out_has "NOT PASSED: the smoke test. Recorded as finish-failed"
+  check "again: not an unexpected error" out_lacks "unexpected error"
+  check "again: the summary has the new answer, once" bash -c "grep -c '^Smoke test: ' '$summary' | grep -qx 1 && grep -q '^Smoke test: NOT passed (answered \"no\")' '$summary' && grep -c '^Family numbers after' '$summary' | grep -qx 1"
+  check "again: status finish-failed" status_is finish-failed
+  check "again: history's newest line finish-failed E" bash -c "tail -n 1 '$C/state/history' | grep -q ' finish-failed $SHA_E '"
+  check "again: last-good still E, finish not passed" bash -c "grep -qx 'commit=$SHA_E' '$C/state/last-good' && grep -q '^finish=not passed' '$C/state/last-good'"
+  type_at_terminal yes yes
+  run_deploy finish
+  check "a third time: passed" rc_is 0
+  check "a third time: good E newest" bash -c "tail -n 1 '$C/state/history' | grep -q ' good $SHA_E '"
+  check "a third time: status finished" status_is finished
 }
 
 case_finish_reports_family_difference() {
@@ -666,6 +717,8 @@ case_finish_reports_family_difference() {
   check "the rollback command printed" out_has "deploy/rollback.sh $SHA_D"
   check "nothing rolled back" head_is "$SHA_E"
   check "history: finish-failed" file_has "$C/state/history" " finish-failed $SHA_E "
+  check "its own exit code, 3" rc_is 3
+  check "not an unexpected error" out_lacks "unexpected error"
 }
 
 case_verify_read_only() {
@@ -721,6 +774,7 @@ case_refuse_role_missing() {
   type_at_terminal "ROLLBACK ${SHA_C:0:7}"
   run_rollback "${SHA_C:0:7}"
   check "rollback.sh refuses too" out_has "the read-only role finance_checks is missing"
+  check "and names the manual rollback (F6c)" out_has 'without it, roll back by hand: deploy/RUNBOOK.md, "Roll an update back"'
   nothing_changed
 }
 
@@ -814,8 +868,9 @@ case_finish_on_an_ops1_run() {
   rm "$C/state/last-good" "$C/state/history"
   new_target
   type_at_terminal "${SHA_E:0:7}"
-  (cd "$C/server" && STUB_ALLOW_FINANCE=1 "$HERE/fixtures/ops-1/deploy.sh" run "$SHA_E" OPS-1) >"$C/out" 2>&1 </dev/null
-  RC=$?
+  export STUB_ALLOW_FINANCE=1
+  run_script "$HERE/fixtures/ops-1/deploy.sh" run "$SHA_E" OPS-1
+  unset STUB_ALLOW_FINANCE
   check "OPS-1's run deployed E" rc_is 0
   check "OPS-1's run said it was the first" out_has "No record of a last good deploy: deploy.sh's first run"
   check "OPS-1's run queried as finance" calls_have ' -U finance -d finance'
@@ -867,7 +922,7 @@ case_rollback_refusals() {
   run_rollback deadbee
   rollback_refused "deadbee is no commit of this clone"
   run_rollback "${SHA_E:0:7}"
-  rollback_refused "only to the last good deploy before the current one, ${SHA_D:0:7} revision D, not ${SHA_E:0:7}"
+  rollback_refused "only one step back, to the commit HEAD's deploy replaced, ${SHA_D:0:7} revision D, not ${SHA_E:0:7}"
   run_rollback "${SHA_C:0:7}"
   rollback_refused "not ${SHA_C:0:7}"
   rm "$STUB_STATE/images/finance-tracker-web/$SHA_D"
@@ -941,6 +996,214 @@ case_old_tags_removed() {
   check "said so" out_has "Removed finance-tracker-api:$SHA_A, older than the last three revisions"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# F6c: answers typed after their question, finish again, a commit's status by its newest line, the rollback target one
+# step back, and production's state after F6b's deploy.
+
+# Lines pasted ahead are never answers: the confirmation and finish's questions discard them, and take what is typed.
+case_pasted_ahead_is_discarded() {
+  setup_case
+  new_target
+  paste_ahead "${SHA_E:0:7}"
+  type_at_terminal
+  run_deploy run "$SHA_E" OPS-1
+  refused "not confirmed"
+  check "says what it discarded" out_has "1 line(s) were waiting at the terminal before this question, pasted ahead: discarded"
+  paste_ahead "${SHA_E:0:7}" "# On the server" "cd /opt/finance-tracker && deploy/deploy.sh finish"
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  check "typed after the question: deployed" rc_is 0
+  check "three lines discarded" out_has "3 line(s) were waiting at the terminal"
+  paste_ahead yes yes
+  type_at_terminal no no
+  run_deploy finish
+  check "finish took the typed answers" rc_is 3
+  check "browser checks: the typed no" file_has "$(latest_run)/summary.txt" 'Browser checks: NOT passed (answered "no")'
+  check "smoke test: the typed no" file_has "$(latest_run)/summary.txt" 'Smoke test: NOT passed (answered "no")'
+}
+
+# A yes or no question asks again until yes or no is typed; a terminal that closes first records nothing.
+case_yes_no_asks_again() {
+  setup_case
+  new_target
+  deploy_e
+  cp "$C/state/history" "$C/history.deployed"
+  type_at_terminal y
+  run_deploy finish
+  check "no answer: stopped" rc_is 1
+  check "says so" out_has "no answer of yes or no was typed"
+  check "asked again first" out_has "Only yes or no counts as an answer; asking again."
+  check "nothing recorded" status_is deployed
+  check "history unchanged" same_file "$C/state/history" "$C/history.deployed"
+  type_at_terminal y maybe yes YES yes
+  run_deploy finish
+  check "then passed" rc_is 0
+  check "asked again three times" [ "$(grep -c '^Only yes or no counts as an answer; asking again\.$' "$C/out")" -eq 3 ]
+  check "both recorded as passed" bash -c "grep -q '^Browser checks: passed' '$(latest_run)/summary.txt' && grep -q '^Smoke test: passed' '$(latest_run)/summary.txt'"
+}
+
+# finish works on the latest deployed run: refused runs and refused adopts after it don't count. F6b's finish didn't.
+case_finish_skips_refused_runs() {
+  setup_case
+  new_target
+  deploy_e
+  local deployed
+  deployed=$(latest_run)
+  type_at_terminal wrong
+  run_deploy run "$SHA_E" OPS-1
+  check "a refused run after it" status_is refused
+  run_deploy adopt
+  check "a refused adopt after it" out_has "nothing to adopt"
+  run_script "$HERE/fixtures/f6b/deploy.sh" finish
+  check "F6b's finish stopped at the refused adopt" out_has "not deployed: nothing to finish"
+  type_at_terminal yes yes
+  run_deploy finish
+  check "F6c's finish: exit code 0" rc_is 0
+  check "it finished the deployed run" bash -c "grep -qx finished '$deployed/status'"
+  check "said which" out_has "Finish of $deployed"
+}
+
+# A commit's status is its newest line in the history: adopt takes HEAD when that is finish-failed, and has nothing to
+# adopt when it is good, adopted or baseline, whatever came before.
+case_newest_line_decides_status() {
+  setup_case
+  printf '2026-10-01T17:00:00Z finish-failed %s %s %s\n' "$SHA_D" "$API_D" "$WEB_D" >>"$C/state/history"
+  type_at_terminal "ADOPT ${SHA_D:0:7}"
+  run_deploy adopt
+  check "finish-failed newest: adopted" rc_is 0
+  check "showed the status" out_has "HEAD's status, its newest line in the history: finish-failed"
+  check "history: adopted newest" bash -c "tail -n 1 '$C/state/history' | grep -q ' adopted $SHA_D '"
+  run_deploy adopt
+  check "adopted newest: nothing to adopt" out_has "nothing to adopt: HEAD ${SHA_D:0:7} with the running images is the last good deploy already (adopted)"
+  printf '2026-10-01T18:00:00Z finish-failed %s %s %s\n2026-10-01T19:00:00Z good %s %s %s\n' "$SHA_D" "$API_D" "$WEB_D" \
+    "$SHA_D" "$API_D" "$WEB_D" >>"$C/state/history"
+  run_deploy adopt
+  check "good after finish-failed: nothing to adopt" out_has "last good deploy already (good)"
+  new_target
+  type_at_terminal no
+  run_deploy run "$SHA_E" OPS-1
+  check "step 1.2 shows the last good deploy's status" out_has "Its status, its newest line in the history: good"
+}
+
+# Step 1.3: a commit the clone doesn't have after git fetch is to be pushed from the laptop first.
+case_step_1_3_says_push_first() {
+  setup_case
+  (cd "$C/work" && echo F >README && git commit -qam "revision F, not pushed")
+  local unpushed
+  unpushed=$(git -C "$C/work" rev-parse HEAD)
+  type_at_terminal "${unpushed:0:7}"
+  run_deploy run "$unpushed" OPS-1
+  refused "is no commit of this clone after git fetch: push it from the laptop first"
+}
+
+PROD_C=46dedcdd519bedcb8c77bf82106d479881cde867
+PROD_D=7a60020264a1b448fad865270bb602789a142054
+
+# production_state: production's state after F6b's deploy (fixtures/production-2026-10-02), with 46dedcd as C and
+# 7a60020 as D: its last-good, history and run folders; D's images running, as latest; C's under C's tag and
+# :previous, as F6b's run kept them.
+production_state() {
+  local f dir
+  rm -rf "$C/state"
+  mkdir "$C/state"
+  chmod 700 "$C/state"
+  cp -a "$HERE/fixtures/production-2026-10-02/." "$C/state/"
+  rm "$C/state/README"
+  for dir in "$C"/state/runs/*7a60020*; do mv "$dir" "${dir//7a60020/${SHA_D:0:7}}"; done
+  find "$C/state" -type f -exec sed -i "s/$PROD_C/$SHA_C/g; s/$PROD_D/$SHA_D/g" {} +
+  read -r _ _ _ PAPI_C PWEB_C < <(grep ' baseline ' "$C/state/history")
+  read -r _ _ _ PAPI_D PWEB_D < <(grep ' good ' "$C/state/history")
+  for f in api web; do
+    local c=$PAPI_C d=$PAPI_D
+    [ $f = web ] && c=$PWEB_C d=$PWEB_D
+    echo "$d" >"$STUB_STATE/containers/finance-tracker-$f/image"
+    echo "$d" >"$STUB_STATE/images/finance-tracker-$f/latest"
+    echo "$c" >"$STUB_STATE/images/finance-tracker-$f/$SHA_C"
+    echo "$c" >"$STUB_STATE/images/finance-tracker-$f/previous"
+  done
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+}
+
+# F6c's run executes F6b's deploy.sh on production's state. What it says at step 1.2, whether step 3.2 keeps D's
+# images under D's tag before the build, and which rollback command it prints after a failure: C's, which F6c's
+# rollback.sh refuses, since the deploy replaced D; F6c's rollback.sh goes back to D, with D's images.
+case_f6b_run_on_production_state() {
+  setup_case
+  production_state
+  new_target
+  sed 's/^family_records 0$/family_records 1/' "$ROOT/deploy/checks/OPS-1.expected" >"$STUB_STATE/fixtures/stage"
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$HERE/fixtures/f6b/deploy.sh" run "$SHA_E" OPS-1
+  check "F6b's run failed after the merge" out_has "FAILED at \"4.4 Postflight: the stage's checks (OPS-1)\""
+  check "step 1.2: the last good deploy D, by its record" out_has "Last good deploy: ${SHA_D:0:7} revision D at 2026-10-02T11:07:47Z (deploy)"
+  check "step 3.2: D's images kept under D's tag" out_has "The running images, the last good deploy's, kept as :$SHA_D and :previous"
+  check "D's api image under D's tag" image_is finance-tracker-api "$SHA_D" "$PAPI_D"
+  check "D's web image under D's tag" image_is finance-tracker-web "$SHA_D" "$PWEB_D"
+  check "D's images as :previous" image_is finance-tracker-api previous "$PAPI_D"
+  check "kept before the build" in_order "^docker tag $PAPI_D finance-tracker-api:$SHA_D$" '^docker compose build api$'
+  check "F6b's script prints the rollback to C" out_has "deploy/rollback.sh $SHA_C"
+  check "and not to D" out_lacks "deploy/rollback.sh $SHA_D"
+  cp "$C/out" "$C/out-f6b-run"
+  cp "$C/state/history" "$C/history.orig"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  : >"$STUB_STATE/calls"
+
+  type_at_terminal "ROLLBACK ${SHA_C:0:7}"
+  run_rollback "${SHA_C:0:7}"
+  rollback_refused "only one step back, to the commit HEAD's deploy replaced, ${SHA_D:0:7} revision D, not ${SHA_C:0:7}"
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  check "F6c's rollback.sh to D: exit code 0" rc_is 0
+  check "its target D, the commit E's deploy replaced" out_has "Target: ${SHA_D:0:7} revision D, the commit HEAD's deploy replaced"
+  check "D's status shown" out_has "its newest line in the history: finish-failed"
+  check "HEAD detached at D" head_is "$SHA_D"
+  check "D's images run" image_is finance-tracker-api latest "$PAPI_D"
+}
+
+# F6c's scripts on production's state as it is: adopt takes 7a60020, whose newest line is finish-failed; finish skips
+# the refused adopt, finds F6b's run and may answer it again.
+case_f6c_scripts_on_production_state() {
+  setup_case
+  production_state
+  type_at_terminal "ADOPT ${SHA_D:0:7}"
+  run_deploy adopt
+  check "adopt takes D: exit code 0" rc_is 0
+  check "after finish-failed" out_has "HEAD's status, its newest line in the history: finish-failed"
+  check "history: adopted D newest" bash -c "tail -n 1 '$C/state/history' | grep -q ' adopted $SHA_D $PAPI_D $PWEB_D'"
+  check "last-good D, adopted" bash -c "grep -qx 'commit=$SHA_D' '$C/state/last-good' && grep -qx 'source=adopt' '$C/state/last-good'"
+
+  production_state
+  type_at_terminal yes yes
+  run_deploy finish
+  check "finish answers F6b's run again: exit code 0" rc_is 0
+  check "it is F6b's run" out_has "Finish of $C/state/runs/2026-10-02T110252Z-${SHA_D:0:7}"
+  check "said its finish ran before" out_has "Its finish ran before (finish-failed)"
+  check "the run finished" bash -c "grep -qx finished '$C/state/runs/2026-10-02T110252Z-${SHA_D:0:7}/status'"
+  check "history: good D newest" bash -c "tail -n 1 '$C/state/history' | grep -q ' good $SHA_D '"
+  check "its summary: passed, once" bash -c "grep -c '^Browser checks: ' '$C/state/runs/2026-10-02T110252Z-${SHA_D:0:7}/summary.txt' | grep -qx 1 && grep -q '^Browser checks: passed' '$C/state/runs/2026-10-02T110252Z-${SHA_D:0:7}/summary.txt'"
+}
+
+# F6c's run by F6b's deploy.sh, then F6c's finish: it finishes that run; the rollback target is D.
+case_finish_after_the_f6c_run() {
+  setup_case
+  production_state
+  new_target
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$HERE/fixtures/f6b/deploy.sh" run "$SHA_E" OPS-1
+  check "F6b's run deployed E" rc_is 0
+  type_at_terminal yes yes
+  run_deploy finish
+  check "F6c's finish: exit code 0" rc_is 0
+  check "finished E's run" status_is finished
+  check "history: good E newest" bash -c "tail -n 1 '$C/state/history' | grep -q ' good $SHA_E '"
+  check "last-good E, finish passed" bash -c "grep -qx 'commit=$SHA_E' '$C/state/last-good' && grep -q '^finish=passed' '$C/state/last-good'"
+  type_at_terminal no
+  run_rollback "${SHA_D:0:7}"
+  check "the rollback target is D" out_has "Target: ${SHA_D:0:7} revision D, the commit HEAD's deploy replaced"
+  check "not confirmed: nothing rolled back" head_is "$SHA_E"
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -961,6 +1224,9 @@ CASES=(
   finish_on_an_ops1_run
   rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7
   old_tags_removed
+  pasted_ahead_is_discarded yes_no_asks_again finish_skips_refused_runs newest_line_decides_status
+  step_1_3_says_push_first
+  f6b_run_on_production_state f6c_scripts_on_production_state finish_after_the_f6c_run
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

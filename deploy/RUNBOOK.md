@@ -685,8 +685,9 @@ You should see the push, then the commit to deploy, in full, as the checklist na
 fast-forward`, stop: `main` has commits the release doesn't.
 
 **2. On the server: the deploy.** In a root shell on the server with a terminal (a plain `ssh root@2.28.108.199`):
-the confirmation is read from the terminal, never from what was pasted. The block asks for the commit and the
-stage, as the checklist names them:
+the confirmation is read from the terminal. Paste this block alone, and type each answer after its question: since
+F6c, lines that wait at the terminal before a question (a block pasted ahead) are discarded, never taken as answers;
+the script of F6b and before took them. The block asks for the commit and the stage, as the checklist names them:
 
 ```bash
 # On the server
@@ -698,8 +699,8 @@ It prints each step under a `==` heading:
 | Step | What it does | You should see |
 | --- | --- | --- |
 | 1.1 | The tools it needs, and the terminal | `Tools present: …` |
-| 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy, and (from F6b) the read-only role of the checks | `HEAD: …`, `Running images: …`, `Last good deploy: …`, `The checks run as finance_checks: superuser=false read_all_data=true writes=0 read_only=true` |
-| 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD` | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
+| 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy (from F6c with its status, its newest line in `history`), and (from F6b) the read-only role of the checks | `HEAD: …`, `Running images: …`, `Last good deploy: …`, `Its status, its newest line in the history: …`, `The checks run as finance_checks: superuser=false read_all_data=true writes=0 read_only=true` |
+| 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD`; a commit the clone doesn't have says to push it from the laptop first | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
 | 1.4 | `deploy/finance.caddy`, the postgres service and `postgres-init.sh` unchanged | `deploy/finance.caddy and the postgres service unchanged` |
 | 1.5 | CI's check runs of the commit, through GitHub's API | one line per check run, then `CI: N check runs, every one completed with success (…)`; while CI runs, `CI still runs; checking again in 60 s` |
 | 1.6 | The stage's check files in the commit | `deploy/checks/<stage>.sql and <stage>.expected are in …` |
@@ -718,18 +719,22 @@ It prints each step under a `==` heading:
 | 4.6 | A fresh backup, then the restore test | `PASS` |
 | 5 | The summary | the text for [Deployed revisions](#deployed-revisions), then `Left for you: …` |
 
-**3. The browser checks and the smoke test** of the stage's checklist.
+**3. The browser checks and the smoke test** of the stage's checklist. Finish them before step 4.
 
-**4. On the server: finish.**
+**4. On the server: finish**, only after the browser checks and the smoke test. Paste the block alone, then type the
+two answers after their questions.
 
 ```bash
-# On the server
+# On the server: only after the browser checks and the smoke test
 cd /opt/finance-tracker && deploy/deploy.sh finish
 ```
 
-It asks whether the browser checks and the smoke test passed (type `yes` or `no`), compares the family numbers with
-those before the deploy, and prints the final summary with your answers and their times: add it as the row of
-[Deployed revisions](#deployed-revisions).
+It finishes the latest deployed run (refused runs, refused adopts included, don't count), asks whether the browser
+checks and the smoke test passed (only `yes` or `no` counts; anything else asks again), compares the family numbers
+with those before the deploy, and prints the final summary with your answers and their times: add it as the row of
+[Deployed revisions](#deployed-revisions). It may run again for the same run (an answer was wrong, or the cause is
+fixed): the latest answers count in the summary, in `last-good` (`finish=passed …` or `finish=not passed …`) and in
+`history` (`good` or `finish-failed`). Not passed ends with `NOT PASSED: …`, exit status 3, and the rollback command.
 
 **When it stops.**
 
@@ -763,7 +768,8 @@ those before the deploy, and prints the final summary with your answers and thei
   - After fixing the cause, run the deploy again, with the same commit or a newer one. A failed or repeated run never
     replaces the last good deploy's images or its record: the summary then counts the commits from the last good
     deploy.
-- `finish` with a `no` or different family numbers: it prints the rollback command too; judge as above.
+- `finish` with a `no` or different family numbers: `NOT PASSED`, and the rollback command; judge as above, and run
+  `finish` again once the answers are right.
 
 **Where things are.** `/var/lib/finance-deploy/` (mode 700, created by the first run):
 
@@ -774,9 +780,10 @@ those before the deploy, and prints the final summary with your answers and thei
   `summary.txt`. A rollback's folder is `<UTC time>-rollback-<commit>/`, an adoption's `<UTC time>-adopt-<commit>/`
   (status `adopted`, or `refused`).
 - `last-good`: the commit, time and image IDs of the last good deploy, and how it became one (`source`: `baseline`,
-  `deploy`, `rollback`, `adopt`). `history`: one line per event (`baseline`, `good`, `finish-failed`,
-  `rolled-back-from`, `rollback-to`, `adopted`). Both are written by the scripts only; F6b's scripts read what OPS-1's
-  wrote.
+  `deploy`, `rollback`, `adopt`), and since F6c `finish`, its finish's latest answer. `history`: one line per event
+  (`baseline`, `good`, `finish-failed`, `rolled-back-from`, `rollback-to`, `adopted`); a commit's status is its newest
+  line (F6c), and a finish that passes adds `good`. Both are written by the scripts only; F6b's scripts read what
+  OPS-1's wrote, F6c's what F6b's wrote.
 - The images: `finance-tracker-api:<commit>` and `finance-tracker-web:<commit>` for the last three revisions, and
   `:previous` for the last good deploy's, whose commit `/root/finance-tracker.previous` names, as
   [Update the app](#update-the-app) did. The lock: `/run/lock/finance-deploy.lock`.
@@ -859,8 +866,9 @@ deploy: after a manual deploy with [Update the app](#update-the-app), or after a
 judged harmless (numbers changed by users during the deploy, for example) and whose `verify`, browser checks and smoke
 test passed. It shows the commit, the running images with their health, the last run's status and the last good
 deploy, asks you to type `ADOPT` and the commit's first 7 characters, and then writes `last-good` and an `adopted` line
-in `history`. It changes no git, image or container, and reads no database. It refuses when that revision is the last
-good deploy already. The next `deploy.sh run` keeps its images under its commit's tag and `:previous`, and
+in `history`. It changes no git, image or container, and reads no database. Since F6c it goes by HEAD's status, its
+newest line in `history`: it adopts HEAD after a `finish-failed`, and has nothing to adopt only when that line is
+`good`, `adopted` or `baseline` and `last-good` names HEAD with the running images. The next `deploy.sh run` keeps its images under its commit's tag and `:previous`, and
 `rollback.sh` can go back to it.
 
 ```bash
@@ -874,17 +882,19 @@ cd /opt/finance-tracker && deploy/deploy.sh adopt
 > passed its checks, a rollback repairs nothing: it puts the previous commit and images back into production (as on
 > 2026-09-29, after F3a). Before the block, make sure the deploy failed.
 
-`deploy/rollback.sh <commit>` goes back only to the last good deploy before the current one, as `deploy.sh` recorded
-it and printed it after the failure, and only while its images are still there under their commit's tag. The block
-asks for the commit:
+`deploy/rollback.sh <commit>` goes one step back: to the commit that HEAD's deploy replaced, as that run of `deploy.sh`
+recorded it and printed it after the failure, and only while its images are still there under their commit's tag
+(F6c, decided by the PM; OPS-1's rule skipped a commit whose `finish` failed: a deploy on top of a commit means you
+accepted it). The block asks for the commit:
 
 ```bash
 # On the server: only for a deploy that failed its checks
 cd /opt/finance-tracker && IFS= read -r -p 'Commit to roll back to, as deploy.sh printed it: ' commit && deploy/rollback.sh "$commit"
 ```
 
-It refuses, changing nothing, a commit the clone doesn't know, any commit but the last good deploy before the current
-one (it names that one), a commit whose images are missing or aren't the recorded ones, and, by D-22, a commit below
+It refuses, changing nothing, a commit the clone doesn't know, any commit but the one HEAD's deploy replaced (it names
+that one), a commit whose images are missing or aren't the recorded ones, without the read-only role (then it names
+[Roll an update back](#roll-an-update-back), the manual way), and, by D-22, a commit below
 V7 while production holds family records: the code before F4a can't read the entry kinds the family budget posts, so
 that needs [Restore from a backup](#restore-from-a-backup) of the dump taken before the deploy. Otherwise every
 migration is additive (D-22): the previous image runs on the newer schema, and Flyway in it ignores the migrations

@@ -1,0 +1,5 @@
+== 1. What runs
+ERROR: nothing to adopt: HEAD 7a60020 with the running images is the last good deploy already
+
+REFUSED at "1. What runs": nothing to adopt: HEAD 7a60020 with the running images is the last good deploy already
+Nothing changed.

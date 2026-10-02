@@ -1,0 +1,7 @@
+Run folder: /var/lib/finance-deploy/runs/2026-10-02T105812Z-7a60020
+
+== 1.3 Preflight: git fetch, the commit and what it brings
+ERROR: 7a60020 is no commit of this clone after git fetch
+
+REFUSED at "1.3 Preflight: git fetch, the commit and what it brings": 7a60020 is no commit of this clone after git fetch
+Nothing changed: no merge, no image tagged, built or started.

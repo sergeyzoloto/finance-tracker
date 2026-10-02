@@ -1432,6 +1432,76 @@ class DataIsolationApiTests extends LedgerApiTest {
         softly.assertAll();
     }
 
+    /**
+     * A return's own entries and a claimed seat (F6b; D-37, D-35), with three users: Alice owns A, where Bob was a
+     * member and left, and Sam has no account; Carol belongs to it only once she takes Sam's place. While away, Bob puts
+     * an entry of his own on his former debt account, dated after today. His lookup of an invite back lists that entry,
+     * his own data, and nothing of Alice's personal ledger; accepting answers 409 and changes none of Alice's rows. The
+     * entry is in no answer to Alice or to Carol, whose lookup lists no entries at all. Once Carol has taken Sam's place,
+     * the members' answers name her as a claimed seat, and hold no sub or email address.
+     */
+    @Test
+    void aReturnsOwnEntriesAndAClaimedSeatAreTheMembersOwn() throws IOException {
+        String carol = newUser();
+        ok(get(carol, "/api/accounts"));
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01"}""")
+                .get("id").asLong();
+        String inA = "/api/family-ledgers/" + familyA;
+        join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long sam = created(post(alice, inA + "/members", """
+                {"displayName": "Sam"}"""));
+        long rentInA = created(post(alice, inA + "/categories", """
+                {"code": "RENT", "name": "Rent", "type": "EXPENSE"}"""));
+        created(post(alice, inA + "/records", """
+                {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
+                 "paymentAccountId": %d, "privateNote": "ALICE_PRIVATE_RENT"}""".formatted(rentInA, mumInA,
+                alicesBank)));
+        assertThat(call(bob, HttpMethod.DELETE, inA + "/members/me", null)).hasStatus(HttpStatus.NO_CONTENT);
+        LocalDate later = jdbc.sql("SELECT current_date + 3").query(LocalDate.class).single();
+        long bobsEntry = created(post(bob, "/api/entries", """
+                {"kind": "MANUAL", "entryDate": "%s", "memo": "BOB_AFTER_RETURN", "postings": [
+                  {"accountId": %d, "currency": "EUR", "amount": "-7.00"},
+                  {"accountId": %d, "currency": "EUR", "amount": "7.00"}]}""".formatted(later,
+                accountId(bob, "FAMILY_DEBT_" + familyA), accountId(bob, "CASH"))));
+        String backToA = invite(alice, inA, """
+                {"kind": "NEW_MEMBER"}""");
+
+        JsonNode bobs = body(bobsRequest(() -> inviteCall(bob, "lookup", "{\"token\": \"%s\"}".formatted(backToA))),
+                HttpStatus.OK);
+        assertThat(bobs.get("entriesAfterReturn").findValuesAsText("entryId"))
+                .containsExactly(String.valueOf(bobsEntry));
+        assertThat(bobs.get("entriesAfterReturn").get(0).get("memo").asText()).isEqualTo("BOB_AFTER_RETURN");
+        assertThat(bobs.toString()).doesNotContain("ALICE_", String.valueOf(alicesBank), alice, "@example.com");
+        String memberships = membershipsBut(-1);
+        MvcTestResult refused = bobsRequest(() -> inviteCall(bob, "accept",
+                "{\"token\": \"%s\", \"displayName\": \"Dad\", \"categoryIds\": []}".formatted(backToA)));
+        assertThat(body(refused, HttpStatus.CONFLICT).toString()).doesNotContain("ALICE_", alice);
+        assertThat(membershipsBut(-1)).isEqualTo(memberships);
+
+        JsonNode carols = ok(inviteCall(carol, "lookup", "{\"token\": \"%s\"}".formatted(invite(alice, inA, """
+                {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "2026-08-15"}""".formatted(sam)))));
+        assertThat(carols.get("entriesAfterReturn").isNull()).isTrue();
+        assertThat(carols.toString()).doesNotContain("BOB_AFTER_RETURN", String.valueOf(bobsEntry));
+        for (String read : List.of("", "/members", "/records", "/journal", "/balances", "/invites")) {
+            assertThat(ok(get(alice, inA + read)).toString()).as(read).doesNotContain("BOB_AFTER_RETURN");
+        }
+
+        String token = invite(alice, inA, """
+                {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "2026-08-15"}""".formatted(sam));
+        ok(inviteCall(carol, "accept", "{\"token\": \"%s\", \"displayName\": \"Carol\", \"categoryIds\": []}"
+                .formatted(token)));
+        for (String user : List.of(alice, carol)) {
+            JsonNode members = ok(get(user, inA + "/members"));
+            assertThat(find(members, "displayName", "Carol").get("claimedSeat").asBoolean()).as(user).isTrue();
+            assertThat(find(members, "displayName", "Mum").get("claimedSeat").asBoolean()).as(user).isFalse();
+            assertThat(fieldNames(members)).as(user).containsExactlyInAnyOrder("id", "displayName", "role", "status",
+                    "joinDate", "hasAccount", "share", "leftDate", "claimedSeat");
+            assertThat(members.toString()).as(user).doesNotContain(alice, bob, carol, "@example.com", "BOB_");
+        }
+    }
+
     /** A new invite of the owner's to the family ledger at the path: its token. */
     private String invite(String owner, String familyPath, String request) throws IOException {
         String link = body(post(owner, familyPath + "/invites", request), HttpStatus.CREATED).get("link").asText();

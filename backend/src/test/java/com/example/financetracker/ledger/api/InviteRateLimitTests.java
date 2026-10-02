@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.api;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -7,6 +8,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 
 import com.example.financetracker.api.TooManyRequestsException;
 import org.junit.jupiter.api.Test;
@@ -68,6 +70,34 @@ class InviteRateLimitTests {
                         e -> org.assertj.core.api.Assertions.assertThat(e.retryAfter()).isEqualTo(Duration.ofMinutes(10)));
         clock.advance(Duration.ofMinutes(10));
         assertThatCode(() -> limit.attempt("someone new", "198.51.100.7")).doesNotThrowAnyException();
+    }
+
+    /** D-38: only a public address names a client; any other is limited by the user alone. */
+    @Test
+    void onlyAPublicAddressHasALimitOfItsOwn() {
+        for (String address : List.of("203.0.113.1", "8.8.8.8", "2001:db8::1", "2a01:4f8::1", "::ffff:203.0.113.1")) {
+            assertThat(InviteRateLimit.isPublic(address)).as(address).isTrue();
+        }
+        for (String address : List.of("10.0.0.1", "172.16.0.1", "172.19.0.1", "172.31.255.255", "192.168.1.1",
+                "127.0.0.1", "169.254.1.1", "100.64.0.1", "100.127.255.255", "0.0.0.0", "::1", "::", "fe80::1",
+                "fe80::1%eth0", "fc00::1", "fd12:3456::1", "::ffff:172.19.0.1", "224.0.0.1", "ff02::1", "", "  ",
+                "localhost", "example.com", "unknown", "1.2.3", "300.1.1.1")) {
+            assertThat(InviteRateLimit.isPublic(address)).as(address).isFalse();
+        }
+        assertThat(InviteRateLimit.isPublic(null)).isFalse();
+        // Next to them, 172.15/16 and 172.32/16 and 100.63/16 and 100.128/16 are public.
+        for (String address : List.of("172.15.0.1", "172.32.0.1", "100.63.0.1", "100.128.0.1")) {
+            assertThat(InviteRateLimit.isPublic(address)).as(address).isTrue();
+        }
+
+        for (int i = 0; i < 60; i++) {
+            limit.attempt("user " + i, "172.19.0.1");
+        }
+        for (int i = 0; i < 10; i++) {
+            limit.attempt("anna", "172.19.0.1");
+        }
+        assertThatThrownBy(() -> limit.attempt("anna", "172.19.0.1")).isInstanceOf(TooManyRequestsException.class);
+        assertThatCode(() -> limit.attempt("boris", "172.19.0.1")).doesNotThrowAnyException();
     }
 
     @Test

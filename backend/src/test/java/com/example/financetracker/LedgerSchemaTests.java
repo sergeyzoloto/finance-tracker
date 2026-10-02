@@ -1078,6 +1078,71 @@ class LedgerSchemaTests {
         assertThat(number("SELECT count(*) FROM ledger_member WHERE id = ? AND role = 'OWNER'", other)).isOne();
     }
 
+    /**
+     * V10 (F6b). Whether a member took a seat (D-35) is the database's to keep, whichever code writes the membership:
+     * never a new member, set when a seat gets its sub (a claim), cleared when a member who left comes back (D-39), and
+     * nothing else changes it. {@code delete_family_ledger} (D-36) refuses a family ledger that still has an ACTIVE
+     * member with an account, and deletes one without, with its members, categories, records, shares, journal and
+     * invites; it refuses a personal ledger too.
+     */
+    @Test
+    void claimedSeatsAndTheDeletionOfAFamilyLedger() throws SQLException {
+        long family = sharedLedger();
+        long owner = member(family, "SHARED", user, "OWNER");
+        long seat = seat(family);
+        long told = insert("""
+                INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date,
+                                           claimed_seat)
+                VALUES (?, 'SHARED', ?, 'Told so', 'MEMBER', 'ACTIVE', DATE '2026-01-01', TRUE)""", family,
+                UUID.randomUUID().toString());
+        db.commit();
+        String claimed = "SELECT claimed_seat::text FROM ledger_member WHERE id = ?";
+        assertThat(strings(claimed, told)).containsExactly("false");
+        update("UPDATE ledger_member SET claimed_seat = TRUE WHERE id = ?", owner);
+        assertThat(strings(claimed, owner)).containsExactly("false");
+
+        update("UPDATE ledger_member SET user_sub = ?, display_name = 'Carol', join_date = DATE '2026-02-01' "
+                + "WHERE id = ?", UUID.randomUUID().toString(), seat);
+        assertThat(strings(claimed, seat)).containsExactly("true");
+        update("UPDATE ledger_member SET claimed_seat = FALSE WHERE id = ?", seat);
+        assertThat(strings(claimed, seat)).containsExactly("true");
+        update("UPDATE ledger_member SET status = 'LEFT', left_date = DATE '2026-03-01' WHERE id = ?", seat);
+        assertThat(strings(claimed, seat)).containsExactly("true");
+        update("UPDATE ledger_member SET status = 'ACTIVE', left_date = NULL, join_date = DATE '2026-04-01' "
+                + "WHERE id = ?", seat);
+        assertThat(strings(claimed, seat)).containsExactly("false");
+        long personalMember = number("SELECT id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'",
+                user);
+        update("UPDATE ledger_member SET claimed_seat = TRUE WHERE id = ?", personalMember);
+        assertThat(strings(claimed, personalMember)).containsExactly("false");
+        db.commit();
+
+        long category = familyCategory(family, "RENT", "EXPENSE");
+        long rent = record(family, "current_date", category, owner, "10.00");
+        share(family, rent, owner, "10.00", owner);
+        journal(family, rent, owner, "CREATE", "[]");
+        insert("""
+                INSERT INTO ledger_invite (ledger_id, token_hash, created_by_member_id, expires_at)
+                VALUES (?, ?, ?, now() + interval '1 hour')""", family, hash(9), owner);
+        db.commit();
+        String delete = "SELECT 'deleted' FROM (SELECT delete_family_ledger(?)) AS d";
+        assertFails(() -> strings(delete, family), CHECK_VIOLATION, "has an active member with an account");
+        db.rollback();
+        assertFails(() -> strings(delete, personalLedger(user)), CHECK_VIOLATION, "is no family ledger");
+        db.rollback();
+
+        update("UPDATE ledger_member SET status = 'LEFT', role = 'MEMBER', left_date = current_date "
+                + "WHERE ledger_id = ? AND user_sub IS NOT NULL", family);
+        assertThat(strings(delete, family)).containsExactly("deleted");
+        db.commit();
+        for (String table : List.of("ledger WHERE id", "ledger_member WHERE ledger_id", "category WHERE ledger_id",
+                "family_record WHERE ledger_id", "family_share WHERE ledger_id", "family_record_change WHERE ledger_id",
+                "ledger_invite WHERE ledger_id")) {
+            assertThat(number("SELECT count(*) FROM " + table + " = ?", family)).as(table).isZero();
+        }
+        assertThat(strings("SELECT current_setting('app.writer', true)")).containsExactly("");
+    }
+
     /** A token's hash as the test makes it up: 32 bytes of n. */
     private static byte[] hash(int n) {
         byte[] hash = new byte[32];

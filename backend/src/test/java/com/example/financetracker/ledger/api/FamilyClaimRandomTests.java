@@ -26,15 +26,27 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * refused (409, 422) and none fails. After the claim and after every operation the family's invariants hold
  * ({@link FamilyInvariants}, with the opening balance from the join date) and the integrity check finds nothing for
  * any of the three.
+ * <p>
+ * Since F6b (D-35) a claim changes nothing about who takes part: after it, half the new records name the seat (all of
+ * it on them, or half), the claimer's own records before the join date go without an account three times in four, and
+ * three date changes in four cross the join date, either way. Each moves the record's effect between the
+ * claimer's opening balance and their entries; the counts show that every kind went through.
  */
 class FamilyClaimRandomTests extends LedgerApiTest {
 
     private static final long SEED = 20_261_001L;
     private static final int ROUNDS = 6;
     private static final int BEFORE = 20;
-    private static final int AFTER = 25;
+    private static final int AFTER = 35;
 
     private final Random random = new Random(SEED);
+
+    /** The round's claimed seat and its join date, once taken; null before. */
+    private Long seat;
+    private LocalDate claimDate;
+    /** The date of the last record {@link #record} asked for, and whether it named the seat. */
+    private LocalDate lastDate;
+    private boolean lastNamesSeat;
 
     @Test
     void randomClaimsKeepTheInvariants() throws IOException {
@@ -43,13 +55,19 @@ class FamilyClaimRandomTests extends LedgerApiTest {
             round(done);
         }
         // What the seed made of it, so that a change of the mix shows here.
-        assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.ofEntries(Map.entry("claims", 6),
-                Map.entry("creates", 43), Map.entry("amounts", 6), Map.entry("amounts by the claimer", 5),
-                Map.entry("dates", 4), Map.entry("comments", 10), Map.entry("accounts", 4), Map.entry("deletes", 12),
-                Map.entry("tried before the join date", 39), Map.entry("refused", 66)));
+        assertThat(done).containsExactlyInAnyOrderEntriesOf(EXPECTED_COUNTS);
     }
 
+    /** What the seed makes of six rounds. */
+    private static final Map<String, Integer> EXPECTED_COUNTS = Map.ofEntries(Map.entry("claims", 6),
+            Map.entry("creates", 72), Map.entry("creates before the join date naming the seat", 23),
+            Map.entry("amounts", 16), Map.entry("amounts by the claimer", 16), Map.entry("dates", 5),
+            Map.entry("dates across the join date", 8), Map.entry("comments", 6), Map.entry("accounts", 7),
+            Map.entry("deletes", 7), Map.entry("tried before the join date", 44), Map.entry("refused", 73));
+
     private void round(Map<String, Integer> done) throws IOException {
+        seat = null;
+        claimDate = null;
         String alice = newUser();
         String bob = newUser();
         String claimer = newUser();
@@ -86,6 +104,8 @@ class FamilyClaimRandomTests extends LedgerApiTest {
 
         long seat = random.nextBoolean() ? kid : gran;
         LocalDate joinDate = LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30));
+        this.seat = seat;
+        this.claimDate = joinDate;
         String link = body(post(alice, uri + "/invites", """
                 {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "%s"}""".formatted(seat, joinDate)),
                 HttpStatus.CREATED).get("link").asText();
@@ -110,6 +130,9 @@ class FamilyClaimRandomTests extends LedgerApiTest {
                         : record(actor, uri, payer, self.get(actor), cash.get(actor), category);
                 if (answer.getResponse().getStatus() == 201) {
                     records.add(body(answer, HttpStatus.CREATED).get("id").asLong());
+                    if (lastNamesSeat && lastDate.isBefore(joinDate)) {
+                        done.merge("creates before the join date naming the seat", 1, Integer::sum);
+                    }
                 }
                 count(done, answer, "creates");
             } else {
@@ -135,11 +158,16 @@ class FamilyClaimRandomTests extends LedgerApiTest {
                             : "{\"amount\": \"%s\", \"currency\": \"USD\", \"baseAmount\": \"%s\"}".formatted(amount,
                                     amount));
                     count(done, answer, actor.equals(claimer) ? "amounts by the claimer" : "amounts");
-                } else if (choice < 70) {
-                    answer = patch(actor, path, "{\"date\": \"%s\"}".formatted(LocalDate.of(2026, 9, 1)
-                            .plusDays(random.nextInt(30))));
-                    count(done, answer, "dates");
-                } else if (choice < 85) {
+                } else if (choice < 78) {
+                    LocalDate date = LocalDate.parse(record.get("date").asText());
+                    boolean across = random.nextInt(4) > 0 && joinDate.isAfter(LocalDate.of(2026, 9, 1));
+                    LocalDate next = !across ? LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30))
+                            : date.isBefore(joinDate)
+                                    ? joinDate.plusDays(random.nextInt(31 - joinDate.getDayOfMonth()))
+                                    : LocalDate.of(2026, 9, 1).plusDays(random.nextInt(joinDate.getDayOfMonth() - 1));
+                    answer = patch(actor, path, "{\"date\": \"%s\"}".formatted(next));
+                    count(done, answer, across ? "dates across the join date" : "dates");
+                } else if (choice < 86) {
                     answer = patch(actor, path, "{\"comment\": \"Note %d\"}".formatted(i));
                     count(done, answer, "comments");
                 } else if (choice < 92 && record.has("yourPayment")) {
@@ -171,18 +199,32 @@ class FamilyClaimRandomTests extends LedgerApiTest {
         }
     }
 
-    /** An expense or an income of the rule, a quarter in dollars with the base amount entered. */
+    /**
+     * An expense or an income, a quarter in dollars with the base amount entered; of the rule, or after the claim half
+     * the time all on the seat or half on it. The claimer's own record before their join date goes without an
+     * account three times in four (D-32, D-35).
+     */
     private MvcTestResult record(String actor, String uri, long payer, long own, long cash, Map<String, Long> category) {
         String type = random.nextInt(4) == 0 ? "INCOME" : "EXPENSE";
         BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(30_000), 2);
         String currency = random.nextInt(4) == 0
                 ? "\"currency\": \"USD\", \"baseAmount\": \"%s\",".formatted(amount) : "";
-        String payment = payer != own ? "" : random.nextInt(3) == 0 ? "\"paymentLater\": true,"
+        LocalDate date = LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30));
+        boolean seatsOwnBefore = seat != null && own == seat && date.isBefore(claimDate) && random.nextInt(4) > 0;
+        String payment = payer != own || seatsOwnBefore ? "" : random.nextInt(3) == 0 ? "\"paymentLater\": true,"
                 : "\"paymentAccountId\": %d,".formatted(cash);
+        String split = "";
+        if (seat != null && random.nextBoolean()) {
+            split = own == seat || random.nextBoolean()
+                    ? ", \"split\": {\"method\": \"ONE_MEMBER\", \"memberId\": %d}".formatted(seat)
+                    : (", \"split\": {\"method\": \"PERCENT\", \"shares\": [{\"memberId\": %d, \"basisPoints\": 5000}, "
+                            + "{\"memberId\": %d, \"basisPoints\": 5000}]}").formatted(seat, own);
+        }
+        lastDate = date;
+        lastNamesSeat = seat != null && (!split.isEmpty() || payer == seat);
         return post(actor, uri + "/records", """
-                {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", %s %s "payerMemberId": %d}"""
-                .formatted(type, LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)), category.get(type), amount,
-                        currency, payment, payer));
+                {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", %s %s "payerMemberId": %d%s}"""
+                .formatted(type, date, category.get(type), amount, currency, payment, payer, split));
     }
 
     /** A settlement between the actor and someone else, either way. */

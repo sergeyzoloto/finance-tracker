@@ -29,7 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
  * liability. Nothing is posted, to them or to anyone else, so D-10 holds for the ACTIVE members as it did; the records
  * that involve the member who left are frozen, so their family balance stays what their debt account showed. Their
  * pending invites, and those for their place, are revoked. A member without an account whom nothing names, as payer,
- * payee or with a share, and whose custom share is 0 or none, is deleted instead, as before F6a.
+ * payee or with a share, and whose custom share is 0 or none, is deleted instead, as before F6a. When the last member
+ * with an account goes, the family ledger is deleted with its records, as {@code release_family_memberships} deletes it
+ * for "Delete all my data" (D-36, F6b; F6a archived it).
  */
 @Service
 public class FamilyMembershipService {
@@ -172,19 +174,21 @@ public class FamilyMembershipService {
 
     private FamilyMemberView member(LedgerScope family, long memberId) {
         return jdbc.sql("""
-                SELECT id, display_name, role, status, join_date, user_sub IS NOT NULL AS has_account, share_bp, left_date
+                SELECT id, display_name, role, status, join_date, user_sub IS NOT NULL AS has_account, share_bp, left_date,
+                       claimed_seat
                 FROM ledger_member WHERE ledger_id = :ledgerId AND id = :memberId""")
                 .param("ledgerId", family.ledgerId()).param("memberId", memberId)
                 .query((row, n) -> new FamilyMemberView(row.getLong("id"), row.getString("display_name"),
                         MemberRole.valueOf(row.getString("role")), MemberStatus.valueOf(row.getString("status")),
                         row.getObject("join_date", LocalDate.class), row.getBoolean("has_account"),
-                        row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class)))
+                        row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class), row.getBoolean("claimed_seat")))
                 .optional()
                 .orElseThrow(() -> new NotFoundException("Member " + memberId + " not found"));
     }
 
     /**
-     * The member the scope stands for leaves the family ledger (D-19, story B5).
+     * The member the scope stands for leaves the family ledger (D-19, story B5). The last member with an account who
+     * leaves deletes it (D-36).
      *
      * @param self the family ledger, as the member who leaves
      * @throws ConflictException with {@link #LAST_OWNER} if they are its last owner while another member with an
@@ -280,9 +284,10 @@ public class FamilyMembershipService {
                 .param("today", today.date()).param("memberId", memberId).param("ledgerId", family.ledgerId())
                 .update();
         if (!othersWithAccount) {
-            // Nobody with an account is left to see it (D-19).
-            jdbc.sql("UPDATE ledger SET archived_at = now() WHERE id = :ledgerId")
-                    .param("ledgerId", family.ledgerId()).update();
+            // Nobody with an account is left to see it: it is deleted with its records, as "Delete all my data" deletes
+            // it (D-36, D-20; V10). The member was detached above, so nothing of theirs refers to it any more.
+            jdbc.sql("SELECT delete_family_ledger(:ledgerId)").param("ledgerId", family.ledgerId())
+                    .query().listOfRows();
         }
     }
 

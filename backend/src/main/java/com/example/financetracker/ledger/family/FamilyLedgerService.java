@@ -52,7 +52,8 @@ public class FamilyLedgerService {
             FROM ledger l JOIN ledger_member m ON m.ledger_id = l.id
             WHERE l.id = :ledgerId AND m.id = :memberId""";
     private static final String MEMBERS = """
-            SELECT id, display_name, role, status, join_date, user_sub IS NOT NULL AS has_account, share_bp, left_date
+            SELECT id, display_name, role, status, join_date, user_sub IS NOT NULL AS has_account, share_bp, left_date,
+                   claimed_seat
             FROM ledger_member WHERE ledger_id = :ledgerId""";
 
     private final JdbcClient jdbc;
@@ -346,6 +347,6 @@ public class FamilyLedgerService {
         return new FamilyMemberView(row.getLong("id"), row.getString("display_name"),
                 MemberRole.valueOf(row.getString("role")), MemberStatus.valueOf(row.getString("status")),
                 row.getObject("join_date", LocalDate.class), row.getBoolean("has_account"),
-                row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class));
+                row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class), row.getBoolean("claimed_seat"));
     }
 }

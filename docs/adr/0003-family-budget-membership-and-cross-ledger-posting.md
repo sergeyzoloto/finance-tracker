@@ -1610,6 +1610,42 @@ reach the api as the bridge's address, and share one per-address limit (D-29).
   `deploy.sh adopt`). F6c: the privacy policy's publication, the demo family (H1), the family report (E1, E3's check),
   H4 and the owner's remarks from the manual check. F7 stays as it is.
 
+**F6b as built: D-35 to D-39** (2026-10-02). As the decisions above say, with these details (each to be confirmed after
+the F6b review):
+
+- **D-35, the claimed seat.** V10 adds `ledger_member.claimed_seat` (BOOLEAN NOT NULL DEFAULT FALSE, only in a SHARED
+  ledger), which a trigger keeps whichever code writes the membership: false on insert, true when a seat gets its sub (a
+  claim), false again when a LEFT member returns (D-39), and nothing else changes it, so the image before V10 marks its
+  claims too. The fill: members with a sub whose latest used invite took their own seat; production has no family row.
+  The claim's date stays the member's `join_date`, which only posting reads: records before it go into the opening
+  balance, from it into entries (unchanged). `FamilyRecordService.joinedBy` lets a claimed seat take part in any record
+  from the start date, as a seat without an account does: the rule's equal shares and custom shares, PERCENT, AMOUNT and
+  ONE_MEMBER naming them, payer and receiver, settlement sides and `JOINED_AFTER` all follow it, and a record moved
+  before the claim's date keeps them (F6a's drop is gone). Their own part of a record before the claim's date has no
+  entry, so naming an account for it, or "Specify later", is 422 `PAYMENT` (D-32), for a new record, a change and a
+  settlement alike; moved to the claim's date or later, their payment goes to "Specify later" as before. The equal
+  re-split doesn't bring a claimed seat into a record they weren't in (a seat added after it) when it moves across the
+  claim's date. `FamilyMemberView.claimedSeat` (additive) tells the interface.
+- **D-36, no archived state.** V10's `delete_family_ledger(ledger)` deletes a family ledger with its invites, journal,
+  links, records (shares cascade), categories and members, as `release_family_memberships` did inline, and refuses one
+  with an ACTIVE member with an account, or a personal ledger; the release calls it now, otherwise unchanged.
+  `FamilyMembershipService` calls it when the last member with an account leaves, after their detach, in the same
+  transaction. `ledger.archived_at` (V5) stays, as D-22 wants; F6a's archive was its only writer, and nothing reads it.
+  The deletion preview's `DELETED` is unchanged, and leaving now does what it says.
+- **D-37.** The lookup of a returning member gains `entriesAfterReturn` (additive; null for anyone else): their own
+  entries on the debt account their detach left them, dated after the join date (today), that the return doesn't attach
+  again (an entry of a family kind linked to a live record dated from the join date is attached and re-posted), with
+  the entry id, date, what it adds to the debt, currency and memo. Accepting answers 409 `ENTRIES_AFTER_RETURN` while one
+  is left, before anything changes. Entries dated on the join date stay in the correction, as F6a counts them.
+- **D-38.** `InviteRateLimit` counts per address only a public one: not private (10/8, 172.16/12, 192.168/16, fc00::/7),
+  loopback, link-local, 100.64/10 (which Tomcat trusts as a proxy), unspecified, multicast, or anything that isn't an IP
+  literal (never looked up). The per-user limit is unchanged. `ClientAddressUntrustedPeerTests` now shows the header
+  ignored by the per-address limit's absence for its loopback peer.
+- **D-39**, as built in F6a: a returning member's `join_date` is the return date and `claimed_seat` false, so they take
+  part from it as a new member does (equal shares leave them out of an earlier record, and bring them in when it moves to
+  the return date or later, F4c's rule); records that included them keep them (their "guests"), whose effect before the
+  return goes into the correction.
+
 ### K. Test strategy
 
 **Isolation, three users.** A new `FamilyIsolationApiTests` next to `DataIsolationApiTests`, which

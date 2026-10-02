@@ -388,6 +388,52 @@ public class FamilyPostingService {
     }
 
     /**
+     * An entry of the returning member's own on the debt account their detach left them, dated after the day they
+     * return (D-37).
+     *
+     * @param amount what it adds to the debt that account shows, in {@code currency}: positive when it adds to what they
+     *        owe
+     * @param memo the entry's memo, their own; null for none
+     */
+    public record EntryAfterReturn(long entryId, LocalDate date, BigDecimal amount, String currency, String memo) {
+    }
+
+    /**
+     * The entries on the debt account that a member's detach left in their personal ledger, dated after the day they
+     * would return, that belong to no record the return posts again (D-37): entries they made on it themselves while
+     * away, or ones of the family kinds they changed. The correction counts what the account shows up to the join date
+     * (D-26), so these would make it differ from their family balance from their date on (D-10); and once the account
+     * is the debt account again, they would change only with the family budget (F6a). A return waits until they are
+     * moved or deleted. Empty if there is no such account.
+     *
+     * @param personal the personal ledger of the member who left
+     */
+    @Transactional(readOnly = true)
+    public List<EntryAfterReturn> entriesAfterReturn(LedgerScope personal, long familyLedgerId, long memberId,
+            LocalDate day) {
+        Long former = writer.formerDebt(personal, personal.ledgerId(), familyLedgerId, memberId);
+        if (former == null) {
+            return List.of();
+        }
+        // Not the entries that come back attached to their records, which the return posts again (reattach).
+        return jdbc.sql("""
+                SELECT e.id, e.entry_date, -sum(p.amount) AS amount, p.currency, e.memo
+                FROM posting p JOIN journal_entry e ON e.id = p.entry_id
+                WHERE p.account_id = :debt AND e.ledger_id = :ledgerId AND e.entry_date > :day
+                  AND NOT EXISTS (SELECT FROM family_entry_link l JOIN family_record r ON r.id = l.record_id
+                                  WHERE l.entry_id = e.id AND l.family_ledger_id = :familyId AND l.member_id = :memberId
+                                    AND r.deleted_at IS NULL AND r.record_date >= :day
+                                    AND e.kind LIKE 'FAMILY\\_%')
+                GROUP BY e.id, e.entry_date, p.currency, e.memo
+                ORDER BY e.entry_date, e.id""")
+                .param("debt", former).param("ledgerId", personal.ledgerId()).param("day", day)
+                .param("familyId", familyLedgerId).param("memberId", memberId)
+                .query((row, n) -> new EntryAfterReturn(row.getLong("id"), row.getObject("entry_date", LocalDate.class),
+                        row.getBigDecimal("amount"), row.getString("currency"), row.getString("memo")))
+                .list();
+    }
+
+    /**
      * A member's side of a record: the payer's payment of an expense, the receiver's receipt of an income, or a side of
      * a settlement.
      *

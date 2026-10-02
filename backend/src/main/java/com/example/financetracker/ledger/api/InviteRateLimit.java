@@ -1,9 +1,13 @@
 package com.example.financetracker.ledger.api;
 
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
@@ -26,6 +30,11 @@ import org.springframework.stereotype.Component;
  * that isn't a trusted proxy's, and trusts private addresses such as Caddy's on the Docker network {@code edge}; the
  * api publishes no port. So each browser counts on its own, and none picks its address ({@code ClientAddressTests}).
  * Only attempts that were let through count, so a caller who waits gets in again.
+ * <p>
+ * The per-address limit applies only to a public address (D-38). A private, loopback, link-local or shared (CGNAT)
+ * address after Tomcat's resolution means the real client is unknown: an IPv6 client reaches Caddy through
+ * docker-proxy from the {@code edge} bridge's gateway, which Caddy then names in {@code X-Forwarded-For}. Counting it
+ * would put every such client under one limit, so for such an address only the per-user limit applies.
  */
 @Component
 class InviteRateLimit {
@@ -60,18 +69,54 @@ class InviteRateLimit {
     synchronized void attempt(String userId, String address) {
         Instant now = clock.instant();
         String user = "user " + userId;
-        String from = "address " + address;
-        Duration wait = max(waitFor(user, now), waitFor(from, now));
+        String from = isPublic(address) ? "address " + address : null;
+        Duration wait = from == null ? waitFor(user, now) : max(waitFor(user, now), waitFor(from, now));
         if (!wait.isZero()) {
             throw new TooManyRequestsException("Too many attempts with invite links. Try again in a few minutes",
                     wait);
         }
         attempts.computeIfAbsent(user, key -> new ArrayDeque<>()).addLast(now);
-        attempts.computeIfAbsent(from, key -> new ArrayDeque<>()).addLast(now);
+        if (from != null) {
+            attempts.computeIfAbsent(from, key -> new ArrayDeque<>()).addLast(now);
+        }
         if (attempts.size() > SWEEP_AT) {
             attempts.values().forEach(times -> forget(times, now));
             attempts.values().removeIf(Deque::isEmpty);
         }
+    }
+
+    /**
+     * Whether the address, an IP literal as Tomcat gives it, is a public one, which names the client (D-38): not
+     * private (10/8, 172.16/12, 192.168/16, fc00::/7), loopback, link-local, shared (100.64/10, Tomcat trusts it as a
+     * proxy's), unspecified or multicast. Anything that isn't an IP literal names no client either, and is never
+     * looked up.
+     */
+    static boolean isPublic(String address) {
+        if (address == null || !address.matches("[0-9A-Fa-f:.%]+")) {
+            return false;
+        }
+        if (!address.contains(":") && (!address.matches("\\d{1,3}(\\.\\d{1,3}){3}")
+                || Arrays.stream(address.split("\\.")).anyMatch(octet -> Integer.parseInt(octet) > 255))) {
+            return false;
+        }
+        InetAddress ip;
+        try {
+            // An IP literal, checked above: IPv4 as four octets, or IPv6, which is never looked up either.
+            ip = InetAddress.getByName(address);
+        } catch (UnknownHostException e) {
+            return false;
+        }
+        if (ip.isLoopbackAddress() || ip.isLinkLocalAddress() || ip.isSiteLocalAddress() || ip.isAnyLocalAddress()
+                || ip.isMulticastAddress()) {
+            return false;
+        }
+        byte[] bytes = ip.getAddress();
+        if (ip instanceof Inet4Address) {
+            // 100.64.0.0/10, shared address space.
+            return !((bytes[0] & 0xFF) == 100 && (bytes[1] & 0xC0) == 64);
+        }
+        // fc00::/7, unique local.
+        return (bytes[0] & 0xFE) != 0xFC;
     }
 
     /** How long the caller waits before the next attempt; zero if it may come now. */

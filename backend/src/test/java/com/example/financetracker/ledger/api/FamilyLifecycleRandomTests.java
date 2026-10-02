@@ -27,7 +27,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * back, or deletes all their data. Some are refused (409, 422); none fails, and none answers 404, since every actor is
  * an ACTIVE member. After every operation the family's invariants hold, those of members who left and returned
  * included ({@link FamilyInvariants}), and the integrity check finds nothing for any of the four. A round ends early
- * when the family budget is gone or archived. Records are dated in September 2026 or today, so that the seed draws the
+ * when the family budget is gone: since F6b the last member with an account who leaves deletes it, as deleting their
+ * data does (D-36), so it is never left without one. Records are dated in September 2026 or today, so that the seed draws the
  * same numbers on any day after September.
  */
 class FamilyLifecycleRandomTests extends LedgerApiTest {
@@ -49,11 +50,11 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
         assertThat(done).containsExactlyInAnyOrderEntriesOf(EXPECTED);
     }
 
-    /** What the seed makes of six rounds: 214 operations, two rounds ending with an archived family budget. */
+    /** What the seed makes of six rounds: 214 operations, two rounds ending with the family budget gone (D-36). */
     private static final Map<String, Integer> EXPECTED = Map.ofEntries(Map.entry("records", 51),
             Map.entry("amounts", 4), Map.entry("deletes", 5), Map.entry("leaves", 11), Map.entry("removals", 20),
             Map.entry("owners", 7), Map.entry("split rules", 15), Map.entry("returns", 25),
-            Map.entry("deletions of all data", 3), Map.entry("refused", 73), Map.entry("budgets archived", 2));
+            Map.entry("deletions of all data", 3), Map.entry("refused", 73), Map.entry("budgets gone", 2));
 
     private void round(Map<String, Integer> done) throws IOException {
         List<String> users = List.of(newUser(), newUser(), newUser(), newUser());
@@ -84,10 +85,7 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
                 return;
             }
             List<Member> active = members.stream().filter(m -> m.status().equals("ACTIVE") && m.sub() != null).toList();
-            if (active.isEmpty()) {
-                done.merge("budgets archived", 1, Integer::sum);
-                return;
-            }
+            assertThat(active).as("a family budget without an active member with an account (D-36)").isNotEmpty();
             Member actor = pick(active);
             List<Member> owners = active.stream().filter(m -> m.role().equals("OWNER")).toList();
             int choice = random.nextInt(100);

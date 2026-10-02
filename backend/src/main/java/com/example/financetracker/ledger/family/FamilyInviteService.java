@@ -23,6 +23,7 @@ import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.access.LedgerInvites;
+import com.example.financetracker.ledger.domain.Money;
 import com.example.financetracker.ledger.access.LedgerInvites.Invite;
 import com.example.financetracker.ledger.access.LedgerInvites.Preview;
 import com.example.financetracker.ledger.access.LedgerScope;
@@ -64,6 +65,11 @@ public class FamilyInviteService {
     public static final String JOIN_DATE = "JOIN_DATE";
     public static final String SEAT = "SEAT";
     public static final String CATEGORY = FamilyRecordService.CATEGORY;
+    /**
+     * The code of the 409 for a return while the returning member's former debt account holds entries of their own
+     * dated after the join date (D-37).
+     */
+    public static final String ENTRIES_AFTER_RETURN = "ENTRIES_AFTER_RETURN";
 
     private static final String INVITES = """
             SELECT i.id, i.seat_member_id, s.display_name AS seat_name, coalesce(i.join_date, u.join_date) AS join_date,
@@ -232,6 +238,11 @@ public class FamilyInviteService {
                 .subtract(posting.formerDebtBalance(personal, invite.ledgerId(), returning, preview.baseCurrency(),
                         preview.today()))
                 .setScale(scale, RoundingMode.UNNECESSARY);
+        List<InviteLookup.EntryAfterReturn> after = returning == null ? null
+                : posting.entriesAfterReturn(personal, invite.ledgerId(), returning, preview.today()).stream()
+                        .map(e -> new InviteLookup.EntryAfterReturn(e.entryId(), e.date(), Money.normalize(e.amount()),
+                                e.currency(), e.memo()))
+                        .toList();
         return new InviteLookup(preview.ledgerName(), preview.baseCurrency(), preview.invitedBy(),
                 invite.claim() ? InviteKind.CLAIM : InviteKind.NEW_MEMBER, preview.seatName(),
                 invite.claim() ? invite.joinDate() : preview.today(), invite.expiresAt(),
@@ -239,7 +250,7 @@ public class FamilyInviteService {
                         .map(c -> new FamilyCategory(c.code(), c.name(), c.type())).toList(),
                 matches.merges(), matches.kept(), matches.mayBring(), accountName,
                 preview.seatBalance() == null ? null : preview.seatBalance().setScale(scale, RoundingMode.UNNECESSARY),
-                returning != null, correction);
+                returning != null, correction, after);
     }
 
     /**
@@ -262,6 +273,15 @@ public class FamilyInviteService {
             throw new ConflictException("The family budget has a member named %s already".formatted(displayName));
         }
         Preview preview = invites.preview(invite);
+        if (returning != null) {
+            int entries = posting.entriesAfterReturn(personal, invite.ledgerId(), returning, preview.today()).size();
+            if (entries > 0) {
+                throw new ConflictException(("Your former debt to this family budget has %d %s dated after today that "
+                        + "belong to none of its records. Move %s to another account or delete %s, then accept again")
+                        .formatted(entries, entries == 1 ? "entry" : "entries", entries == 1 ? "it" : "them",
+                                entries == 1 ? "it" : "them"), ENTRIES_AFTER_RETURN);
+            }
+        }
         Map<String, LedgerInvites.FamilyCategory> family = new HashMap<>();
         preview.categories().forEach(c -> family.put(c.code(), c));
         Set<Long> wanted = new LinkedHashSet<>(categoryIds);

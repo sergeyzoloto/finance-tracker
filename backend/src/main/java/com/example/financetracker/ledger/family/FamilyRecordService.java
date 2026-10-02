@@ -551,12 +551,19 @@ public class FamilyRecordService {
             Member recorder = members.get(family.memberId());
             if (recorder.id() == payer.id() || recorder.id() == payee.id()) {
                 for (Member side : List.of(payer, payee)) {
-                    if (side.hasAccount() && side.joinDate().isAfter(request.date())) {
+                    if (!joinedBy(side, request.date())) {
                         violations.add(joinedAfter(side, request.date(), SETTLEMENT));
                     }
                 }
-                payment = paidWith(personal, recorder.id(), request.paymentAccountId(), request.paymentLater(), null,
-                        violations, SETTLEMENT);
+                if (joinedBy(recorder, request.date()) && recorder.joinDate().isAfter(request.date())) {
+                    // A claimed seat's settlement before the claim's date (D-35): in their opening balance (D-32).
+                    if (namesAccount) {
+                        violations.add(beforeJoining(recorder, SETTLEMENT));
+                    }
+                } else if (joinedBy(recorder, request.date())) {
+                    payment = paidWith(personal, recorder.id(), request.paymentAccountId(), request.paymentLater(),
+                            null, violations, SETTLEMENT);
+                }
             } else if (payer.hasAccount() || payee.hasAccount()) {
                 Member side = payer.hasAccount() ? payer : payee;
                 violations.add(new Violation(side == payer ? PAYER : PAYEE, side.id(), ("%s has an account: only they "
@@ -654,8 +661,7 @@ public class FamilyRecordService {
         Set<Long> guests = guests(record, Map.of(), members);
         for (long sideId : List.of(record.payerId(), record.payeeId())) {
             Member side = members.get(sideId);
-            if (!date.equals(record.date()) && side.hasAccount() && side.joinDate().isAfter(date)
-                    && !guests.contains(sideId)) {
+            if (!date.equals(record.date()) && !sharesOn(side, date, guests)) {
                 violations.add(joinedAfter(side, date, SETTLEMENT));
             }
         }
@@ -899,8 +905,15 @@ public class FamilyRecordService {
             violations.add(notYou(payer, type));
             return new FamilyPostingService.Unchanged();
         }
-        if (payer.joinDate().isAfter(request.date())) {
+        if (!joinedBy(payer, request.date())) {
             violations.add(joinedAfter(payer, request.date(), type));
+        } else if (payer.joinDate().isAfter(request.date())) {
+            // A claimed seat's record before the claim's date (D-35): in their opening balance, with no payment entry
+            // and no account of theirs (D-32).
+            if (named || request.privateNote() != null) {
+                violations.add(beforeJoining(payer, type));
+            }
+            return new FamilyPostingService.Unchanged();
         }
         return paidWith(personal, payerId, request.paymentAccountId(), request.paymentLater(), request.privateNote(),
                 violations, type);
@@ -936,8 +949,14 @@ public class FamilyRecordService {
                 violations.add(notYou(payer, type));
                 return new FamilyPostingService.Unchanged();
             }
-            if (payer.joinDate().isAfter(date)) {
+            if (!joinedBy(payer, date)) {
                 violations.add(joinedAfter(payer, date, type));
+            } else if (payer.joinDate().isAfter(date)) {
+                // A claimed seat paid before the claim's date (D-35): in their opening balance (D-32).
+                if (changes.namesAccount() || changes.changesNote()) {
+                    violations.add(beforeJoining(payer, type));
+                }
+                return new FamilyPostingService.Unchanged();
             }
             return paidWith(personal, payerId, changes.paymentAccountId(), changes.paymentLater(), changes.note(),
                     violations, type);
@@ -953,8 +972,8 @@ public class FamilyRecordService {
         }
         // The payer with an account stays, and is the caller: only they change the payment fields.
         if (payer.joinDate().isAfter(date)) {
-            // Paid before they took their seat (F5, D-18): in their opening balance, with no payment entry.
-            if (!guests.contains(payerId)) {
+            // Paid before they took their seat (F5, D-18; D-35): in their opening balance, with no payment entry.
+            if (!sharesOn(payer, date, guests)) {
                 violations.add(joinedAfter(payer, date, type));
             } else if (changes.namesAccount() || changes.changesNote()) {
                 violations.add(beforeJoining(payer, type));
@@ -1192,7 +1211,8 @@ public class FamilyRecordService {
      * The shares after a new amount, date or payer, by the record's stored split (D-12, D-14): equal shares among its
      * members as of the new date, the same percentages, the same member, or the same amounts. Among the members of
      * equal shares, a member with an account drops out when the date moves before their join date, and comes in when it
-     * moves from before their join date to it or after, so that their share entry appears or goes (D-7); a member added
+     * moves from before their join date to it or after, so that their share entry appears or goes (D-7); not one who
+     * took a seat, who takes part either way, their part moving between the opening balance and an entry (D-35); a member added
      * since doesn't come in (D-18: records are never split again for a new member). A new amount of a split by amounts
      * needs the new amounts with it.
      */
@@ -1207,7 +1227,8 @@ public class FamilyRecordService {
             case "EQUAL" -> {
                 List<Long> participants = byJoinDate.stream()
                         .filter(m -> m.status() == MemberStatus.ACTIVE && sharesOn(m, date, guests)
-                                && (old.containsKey(m.id()) || m.hasAccount() && m.joinDate().isAfter(record.date())))
+                                && (old.containsKey(m.id()) || m.hasAccount() && !m.claimedSeat()
+                                        && m.joinDate().isAfter(record.date())))
                         .map(Member::id).toList();
                 if (participants.isEmpty()) {
                     violations.add(new Violation(NO_MEMBERS, null, "no active member shares %s of %s"
@@ -1393,9 +1414,15 @@ public class FamilyRecordService {
         return inputs;
     }
 
-    /** A member without an account shares any record; one with an account those on or after their join date. */
+    /**
+     * Whether the member takes part in a record of the date (D-18 as amended, D-35, D-39): a member without an account,
+     * and a member who took a seat, in any record from the family ledger's start date (a claim changes nothing about who
+     * takes part, only where the claimer's postings go); a new member and one who returned, in those on or after their
+     * join date. Records are posted to a member with an account only from their join date (FamilyPostingService), so a
+     * claimed seat's part of a record before its claim's date is in their opening balance.
+     */
     private static boolean joinedBy(Member member, LocalDate date) {
-        return !member.hasAccount() || !member.joinDate().isAfter(date);
+        return !member.hasAccount() || member.claimedSeat() || !member.joinDate().isAfter(date);
     }
 
     /**
@@ -1407,10 +1434,12 @@ public class FamilyRecordService {
     }
 
     /**
-     * The record's members from before they had an account (F5, D-18): members with an account who took their seat
-     * after the record's date, and who were in it already, as its payer, its receiver or with a share. They stay in it
-     * as they were, through any change that keeps it before their join date: their part of it is in their opening
-     * balance (FamilyPostingService). Nobody else with an account comes into a record dated before their join date.
+     * The record's members from before their join date (F5, D-18; D-39): members with an account who joined after the
+     * record's date, and who were in it already, as its payer, its receiver or with a share. They stay in it as they
+     * were, through any change that keeps it before their join date: their part of it is in their opening balance, or
+     * for a member who returned in their correction (FamilyPostingService). A member who took a seat takes part in any
+     * record anyway ({@link #joinedBy}, D-35); for them this says only that the record has no payment entry of theirs.
+     * Nobody else with an account comes into a record dated before their join date.
      */
     private static Set<Long> guests(RecordRow record, Map<Long, ShareRow> shares, Map<Long, Member> members) {
         Set<Long> involved = new HashSet<>(shares.keySet());
@@ -1471,8 +1500,9 @@ public class FamilyRecordService {
     private record Ledger(LocalDate startDate, String baseCurrency, SplitRule splitRule) {
     }
 
+    /** @param claimedSeat whether the member took a seat by a claim and hasn't left and returned since (D-35, V10) */
     private record Member(long id, String displayName, MemberStatus status, boolean hasAccount, LocalDate joinDate,
-            Integer share) {
+            Integer share, boolean claimedSeat) {
     }
 
     /**
@@ -1519,13 +1549,14 @@ public class FamilyRecordService {
     private Map<Long, Member> members(LedgerScope family) {
         Map<Long, Member> members = new LinkedHashMap<>();
         jdbc.sql("""
-                SELECT id, display_name, status, user_sub IS NOT NULL AS has_account, join_date, share_bp
+                SELECT id, display_name, status, user_sub IS NOT NULL AS has_account, join_date, share_bp, claimed_seat
                 FROM ledger_member WHERE ledger_id = :ledgerId ORDER BY join_date, id""")
                 .param("ledgerId", family.ledgerId())
                 .query(row -> {
                     members.put(row.getLong("id"), new Member(row.getLong("id"), row.getString("display_name"),
                             MemberStatus.valueOf(row.getString("status")), row.getBoolean("has_account"),
-                            row.getObject("join_date", LocalDate.class), row.getObject("share_bp", Integer.class)));
+                            row.getObject("join_date", LocalDate.class), row.getObject("share_bp", Integer.class),
+                            row.getBoolean("claimed_seat")));
                 });
         return members;
     }

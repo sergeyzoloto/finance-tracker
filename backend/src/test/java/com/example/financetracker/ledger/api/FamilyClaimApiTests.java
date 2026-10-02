@@ -162,32 +162,61 @@ class FamilyClaimApiTests extends FamilyApiTest {
     }
 
     /**
-     * Shares before and after the join date of a claim, under the rule: Kid's share before it stays Kid's, now Carol's,
-     * in her opening balance; a new record before the join date has her no more, since members with an account share
-     * from their join date (D-18); one on or after it splits her in.
+     * D-35, a new record before the claim's date, split equally: a claim changes nothing about who takes part, so the
+     * rule splits Carol in from the start date, as it split Kid; the claim's date, 09-20, only divides her opening
+     * balance from her entries. Mum paid 30.00 on 09-05 (a third Kid's), then after the claim:
+     * <ul>
+     * <li>30.00 on 09-10, by the rule: Mum, Dad and Carol 10.00 each; her opening balance goes from +10.00 to +20.00;
+     * <li>30.00 on 09-20: the same three, and her 10.00 is a share entry;
+     * <li>that one moved to 09-19, before the claim's date: she stays in it, the share entry goes, the opening balance
+     * is +30.00; moved on to 09-25, the other way: the share entry is back, the opening balance +20.00 again.
+     * </ul>
+     * Nobody's balance moves with a date. F6a dropped her from the new record and from the moved one.
      */
     @Test
-    void afterTheClaimTheRuleSplitsHerInFromHerJoinDate() throws IOException {
+    void aClaimedSeatTakesPartFromTheStartDateUnderTheRule() throws IOException {
         long alicesCurrent = accountId(alice, "CURRENT_ACCOUNT");
-        created(post(alice, uri + "/records", expense("2026-09-05", groceries, "30.00", mum,
-                "\"paymentAccountId\": %d,".formatted(alicesCurrent))));
+        String paid = "\"paymentAccountId\": %d,".formatted(alicesCurrent);
+        created(post(alice, uri + "/records", expense("2026-09-05", groceries, "30.00", mum, paid)));
         accept(carol, kidsPlace("2026-09-20"), "Carol");
-        assertThat(balances(carol)).containsExactly("Mum -20.00", "Dad 10.00", "Carol 10.00 you");
-
-        JsonNode before = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "30.00", mum,
-                "\"paymentAccountId\": %d,".formatted(alicesCurrent))));
-        assertThat(shares(before)).containsExactly("Mum 15.00 null", "Dad 15.00 null");
-        JsonNode after = created(post(alice, uri + "/records", expense("2026-09-20", groceries, "30.00", mum,
-                "\"paymentAccountId\": %d,".formatted(alicesCurrent))));
-        assertThat(shares(after)).containsExactly("Mum 10.00 null", "Dad 10.00 null", "Carol 10.00 null");
-        // Moving a record of hers before her join date: she drops out, as any member with an account would.
-        JsonNode moved = ok(patch(alice, uri + "/records/" + after.get("id").asLong() + "?version=0", """
-                {"date": "2026-09-19"}"""));
-        assertThat(shares(moved)).containsExactly("Mum 15.00 null", "Dad 15.00 null");
-        assertThat(balances(carol)).containsExactly("Mum -50.00", "Dad 40.00", "Carol 10.00 you");
         long debt = accountId(carol, "FAMILY_DEBT_" + family);
+        long opening = accountId(carol, "OPENING_BALANCE");
+        long unallocated = accountId(carol, "UNALLOCATED");
+        assertThat(balances(carol)).containsExactly("Mum -20.00", "Dad 10.00", "Carol 10.00 you");
         assertThat(postedEntries(carol)).containsExactly("FAMILY_OPENING OPENING_BALANCE %d:-10.00:null %d:10.00:null"
-                .formatted(debt, accountId(carol, "OPENING_BALANCE")));
+                .formatted(debt, opening));
+
+        JsonNode before = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "30.00", mum, paid)));
+        assertThat(shares(before)).containsExactly("Mum 10.00 null", "Dad 10.00 null", "Carol 10.00 null");
+        assertThat(postedEntries(carol)).containsExactly("FAMILY_OPENING OPENING_BALANCE %d:-20.00:null %d:20.00:null"
+                .formatted(debt, opening));
+        assertThat(balances(carol)).containsExactly("Mum -40.00", "Dad 20.00", "Carol 20.00 you");
+
+        JsonNode after = created(post(alice, uri + "/records", expense("2026-09-20", groceries, "30.00", mum, paid)));
+        assertThat(shares(after)).containsExactly("Mum 10.00 null", "Dad 10.00 null", "Carol 10.00 null");
+        String share = "FAMILY_SHARE SHARE %d:10.00:%d %d:-10.00:null".formatted(unallocated, groceries, debt);
+        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(
+                "FAMILY_OPENING OPENING_BALANCE %d:-20.00:null %d:20.00:null".formatted(debt, opening), share);
+
+        long moved = after.get("id").asLong();
+        assertThat(shares(ok(patch(alice, uri + "/records/" + moved + "?version=0", """
+                {"date": "2026-09-19"}""")))).containsExactly("Mum 10.00 null", "Dad 10.00 null", "Carol 10.00 null");
+        assertThat(postedEntries(carol)).containsExactly("FAMILY_OPENING OPENING_BALANCE %d:-30.00:null %d:30.00:null"
+                .formatted(debt, opening));
+        assertThat(balances(carol)).containsExactly("Mum -60.00", "Dad 30.00", "Carol 30.00 you");
+        everyonesIntegrity();
+
+        ok(patch(alice, uri + "/records/" + moved + "?version=1", """
+                {"date": "2026-09-25"}"""));
+        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(
+                "FAMILY_OPENING OPENING_BALANCE %d:-20.00:null %d:20.00:null".formatted(debt, opening), share);
+        assertThat(balances(carol)).containsExactly("Mum -60.00", "Dad 30.00", "Carol 30.00 you");
+        everyonesIntegrity();
+        assertThat(changes(ok(get(carol, uri + "/journal?recordId=" + moved)))).containsExactly(
+                "UPDATE by Mum: date 2026-09-19→2026-09-25", "UPDATE by Mum: date 2026-09-20→2026-09-19",
+                "CREATE by Mum: date null→2026-09-20, category null→Groceries, amount null→30.00, payer null→Mum, "
+                        + "splitMethod null→EQUAL, share of Mum null→10.00, share of Dad null→10.00, "
+                        + "share of Carol null→10.00");
     }
 
     /**
@@ -317,9 +346,11 @@ class FamilyClaimApiTests extends FamilyApiTest {
      * <li>The first amount goes to 120.00: Kid's third of it, 40.00, is the opening balance now.
      * <li>The record moves to 09-18, after the join date: Carol stays in it (F5's rule for a member who was in it
      * before taking the seat), its 40.00 is a share entry of hers, and the opening balance goes.
-     * <li>It moves back to 09-08: a record moved before a member's join date drops them, as F4c decided and F5 kept,
-     * so it is split between Mum and Dad, Carol's share entry goes, and her opening balance stays 0. Her own payment
-     * moved before her join date is refused (`JOINED_AFTER`).
+     * <li>It moves back to 09-08: Carol stays in it, since a claim changes nothing about who takes part (D-35, which
+     * replaced F6a's drop of her): her share entry of 40.00 goes, and her opening balance is +40.00 again.
+     * <li>Carol moves what Kid paid, 30.00 of rent on 09-22 with a third of it hers, to 09-10 (D-35; F6a refused it,
+     * `JOINED_AFTER`): its share entry and its payment on her placeholder go, and her opening balance is 40.00 + 10.00
+     * − 30.00 = +20.00. An account for it is 422 `PAYMENT` (D-32). Nobody's balance moves.
      * </ul>
      * The journal names each change of the record and never an account; the invariants and the integrity check hold
      * after each step.
@@ -364,17 +395,26 @@ class FamilyClaimApiTests extends FamilyApiTest {
 
         JsonNode back = ok(patch(alice, uri + "/records/" + early + "?version=2", """
                 {"date": "2026-09-08"}"""));
-        assertThat(shares(back)).containsExactly("Mum 60.00 null", "Dad 60.00 null");
-        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(lateShare, rentShare, kidsPayment);
-        assertThat(balances(carol)).containsExactly("Mum -90.00", "Dad 90.00", "Carol 0.00 you");
-        assertThat(details(patch(carol, uri + "/records/" + kidPaid + "?version=0", """
-                {"date": "2026-09-10"}"""))).anyMatch(detail -> detail.startsWith("JOINED_AFTER " + kid));
+        assertThat(shares(back)).containsExactly("Mum 40.00 null", "Dad 40.00 null", "Carol 40.00 null");
+        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(
+                "FAMILY_OPENING OPENING_BALANCE %d:-40.00:null %d:40.00:null".formatted(debt, opening), lateShare,
+                rentShare, kidsPayment);
+        assertThat(balances(carol)).containsExactly("Mum -110.00", "Dad 70.00", "Carol 40.00 you");
+        everyonesIntegrity();
+
+        ok(patch(carol, uri + "/records/" + kidPaid + "?version=0", """
+                {"date": "2026-09-10"}"""));
+        assertThat(postedEntries(carol)).containsExactlyInAnyOrder(
+                "FAMILY_OPENING OPENING_BALANCE %d:-20.00:null %d:20.00:null".formatted(debt, opening), lateShare);
+        assertThat(balances(carol)).containsExactly("Mum -110.00", "Dad 70.00", "Carol 40.00 you");
+        assertThat(details(patch(carol, uri + "/records/" + kidPaid + "?version=1", """
+                {"paymentAccountId": %d}""".formatted(accountId(carol, "CASH")))))
+                .allMatch(detail -> detail.startsWith("PAYMENT " + kid));
         everyonesIntegrity();
 
         JsonNode journal = ok(get(alice, uri + "/journal?recordId=" + early));
         assertThat(changes(journal).subList(0, 3)).containsExactly(
-                "UPDATE by Mum: date 2026-09-18→2026-09-08, share of Mum 40.00→60.00, share of Dad 40.00→60.00, "
-                        + "share of Carol 40.00→null",
+                "UPDATE by Mum: date 2026-09-18→2026-09-08",
                 "UPDATE by Mum: date 2026-09-05→2026-09-18",
                 "UPDATE by Mum: amount 90.00→120.00, share of Mum 30.00→40.00, share of Dad 30.00→40.00, "
                         + "share of Carol 30.00→40.00");

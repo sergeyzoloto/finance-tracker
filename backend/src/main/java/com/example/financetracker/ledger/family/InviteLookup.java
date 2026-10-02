@@ -29,11 +29,23 @@ import com.example.financetracker.ledger.family.FamilyInviteView.InviteKind;
  * @param correction for a returning member, the one correction dated on the join date that makes their debt to the
  *        family budget show their family balance: their balance before the join date less what their former debt
  *        account shows (D-26), positive when it adds to what they owe; null otherwise (additive, F6a)
+ * @param entriesAfterReturn for a returning member, their own entries on their former debt account dated after the
+ *        join date that belong to no record of the family budget, oldest first: while there is one, accepting answers
+ *        409 {@code ENTRIES_AFTER_RETURN}, and they move or delete them first (D-37); null otherwise (additive, F6b)
  */
 public record InviteLookup(String ledgerName, String baseCurrency, String invitedBy, InviteKind kind, String seatName,
         LocalDate joinDate, Instant expiresAt, List<FamilyCategory> categories, List<CategoryMerge> merges,
         List<CategoryKept> keptPrivate, List<CategoryChoice> mayBring, String displayName, BigDecimal openingBalance,
-        boolean returning, BigDecimal correction) {
+        boolean returning, BigDecimal correction, List<EntryAfterReturn> entriesAfterReturn) {
+
+    /**
+     * One of the user's own entries on their former debt account, dated after the join date (D-37).
+     *
+     * @param amount what it adds to the debt that account shows, in {@code currency}: positive when it adds to what
+     *        they owe
+     */
+    public record EntryAfterReturn(long entryId, LocalDate date, BigDecimal amount, String currency, String memo) {
+    }
 
     /** A category of the family, without its id. */
     public record FamilyCategory(String code, String name, String type) {

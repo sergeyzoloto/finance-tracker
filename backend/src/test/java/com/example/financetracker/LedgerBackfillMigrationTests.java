@@ -166,12 +166,46 @@ class LedgerBackfillMigrationTests {
             // V9 (F5) adds the invites' table and changes no row; the release of a membership runs as before.
             String beforeV9 = strings(everything).getFirst() + strings(records).getFirst();
             Map<String, Long> rowsBeforeV9 = rows();
-            MigrateResult v9 = flyway(null).migrate();
+            MigrateResult v9 = flyway("9").migrate();
             assertThat(v9.success).isTrue();
             assertThat(v9.targetSchemaVersion).isEqualTo("9");
             assertThat(rows()).isEqualTo(rowsBeforeV9);
             assertThat(strings(everything).getFirst() + strings(records).getFirst()).isEqualTo(beforeV9);
             assertThat(number("SELECT count(*) FROM ledger_invite")).isZero();
+
+            // A claim of Sam's place as F5's code makes one: the invite, the seat taking the user's sub and the
+            // invite's join date, the invite used. Then V10 (F6b) changes no row and marks that member, and only that
+            // one, as a claimed seat (D-35).
+            db.createStatement().execute("""
+                    INSERT INTO ledger_invite (ledger_id, token_hash, seat_member_id, join_date, created_by_member_id,
+                                               expires_at)
+                    SELECT l.id, sha256('a token'::bytea), sam.id, l.start_date, olive.id, now() + interval '1 day'
+                    FROM ledger l JOIN ledger_member sam ON sam.ledger_id = l.id AND sam.display_name = 'Sam'
+                    JOIN ledger_member olive ON olive.ledger_id = l.id AND olive.display_name = 'Olive'""");
+            db.createStatement().execute("""
+                    UPDATE ledger_member m SET user_sub = '%s', display_name = 'Una', join_date = l.start_date
+                    FROM ledger l WHERE l.id = m.ledger_id AND m.display_name = 'Sam'""".formatted(USERS_ONLY));
+            db.createStatement().execute("""
+                    UPDATE ledger_invite SET used_at = now(),
+                        used_by_member_id = (SELECT id FROM ledger_member WHERE display_name = 'Una')""");
+            String unchanged = """
+                    SELECT (SELECT string_agg(a::text, '|' ORDER BY a.id) FROM account a)
+                        || (SELECT string_agg(c::text, '|' ORDER BY c.id) FROM category c)
+                        || (SELECT string_agg(e::text, '|' ORDER BY e.id) FROM journal_entry e)
+                        || (SELECT string_agg(p::text, '|' ORDER BY p.id) FROM posting p)
+                        || (SELECT string_agg(r::text, '|' ORDER BY r.id) FROM family_record r)
+                        || (SELECT string_agg(i::text, '|' ORDER BY i.id) FROM ledger_invite i)
+                        || (SELECT string_agg((to_jsonb(m) - 'claimed_seat')::text, '|' ORDER BY m.id)
+                            FROM ledger_member m)""";
+            String beforeV10 = strings(unchanged).getFirst();
+            Map<String, Long> rowsBeforeV10 = rows();
+            MigrateResult v10 = flyway(null).migrate();
+            assertThat(v10.success).isTrue();
+            assertThat(v10.targetSchemaVersion).isEqualTo("10");
+            assertThat(rows()).isEqualTo(rowsBeforeV10);
+            assertThat(strings(unchanged).getFirst()).isEqualTo(beforeV10);
+            assertThat(strings("SELECT display_name FROM ledger_member WHERE claimed_seat ORDER BY id"))
+                    .containsExactly("Una");
         } finally {
             db.close();
         }

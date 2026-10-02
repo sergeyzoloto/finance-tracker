@@ -189,7 +189,8 @@ class FamilyMembershipApiTests extends FamilyApiTest {
     /**
      * The last owner can't leave while another member with an account remains (D-19): 409 with its own code. Once an
      * owner has removed Bob, which detaches him through the posting service's writer, she is the last member with an
-     * account and may leave; the family budget is then archived, Kid in it.
+     * account and may leave. The family budget is then deleted with its records, Kid with it, as "Delete all my data"
+     * deletes it (D-36, replacing F6a's archived budget), which her deletion preview said beforehand: {@code DELETED}.
      */
     @Test
     void theLastOwnerStaysWhileAnotherMemberWithAnAccountRemains() throws IOException {
@@ -206,14 +207,25 @@ class FamilyMembershipApiTests extends FamilyApiTest {
         assertThat(get(bob, uri)).hasStatus(HttpStatus.NOT_FOUND);
         assertThat(postedEntries(bob)).isEmpty();
         assertThat(find(ok(get(bob, "/api/accounts")), "id", String.valueOf(debt)).get("system").asBoolean()).isFalse();
-        assertThat(archived()).isFalse();
+        assertThat(familyRows()).isNotEqualTo("0 0 0 0 0 0 0");
+        JsonNode preview = ok(get(alice, "/api/me/family-memberships")).get("memberships");
+        assertThat(find(preview, "ledgerId", String.valueOf(family)).get("outcome").asText()).isEqualTo("DELETED");
+        long alicesDebt = accountId(alice, "FAMILY_DEBT_" + family);
+        List<String> alicesEntries = postedEntries(alice);
 
         assertThat(delete(alice, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
         assertThat(get(alice, uri)).hasStatus(HttpStatus.NOT_FOUND);
         assertThat(ok(get(alice, "/api/family-ledgers"))).isEmpty();
-        assertThat(archived()).isTrue();
-        assertThat(jdbc.sql("SELECT status FROM ledger_member WHERE ledger_id = ? ORDER BY id").param(family)
-                .query(String.class).list()).containsExactly("LEFT", "LEFT", "ACTIVE");
+        // Gone with everything of it, Kid and Bob's membership included; what was posted stays as each one's own.
+        assertThat(familyRows()).isEqualTo("0 0 0 0 0 0 0");
+        assertThat(postedEntries(alice)).isEmpty();
+        assertThat(ok(get(alice, "/api/entries?size=200")).get("content")).hasSize(alicesEntries.size());
+        assertThat(find(ok(get(alice, "/api/accounts")), "id", String.valueOf(alicesDebt)).get("system").asBoolean())
+                .isFalse();
+        assertThat(ok(get(alice, "/api/me/family-memberships")).get("left").asInt()).isZero();
+        for (String user : List.of(alice, bob)) {
+            assertThat(ok(get(user, "/api/reports/integrity"))).as("integrity of %s", user).isEmpty();
+        }
     }
 
     /**
@@ -559,8 +571,16 @@ class FamilyMembershipApiTests extends FamilyApiTest {
                 .param(family).query(String.class).single();
     }
 
-    private boolean archived() {
-        return jdbc.sql("SELECT archived_at IS NOT NULL FROM ledger WHERE id = ?").param(family).query(Boolean.class)
-                .single();
+    /** The family ledger's rows: the ledger, members, categories, records, links, journal and invites. */
+    private String familyRows() {
+        return jdbc.sql("""
+                SELECT concat_ws(' ', (SELECT count(*) FROM ledger WHERE id = :f),
+                    (SELECT count(*) FROM ledger_member WHERE ledger_id = :f),
+                    (SELECT count(*) FROM category WHERE ledger_id = :f),
+                    (SELECT count(*) FROM family_record WHERE ledger_id = :f),
+                    (SELECT count(*) FROM family_entry_link WHERE family_ledger_id = :f),
+                    (SELECT count(*) FROM family_record_change WHERE ledger_id = :f),
+                    (SELECT count(*) FROM ledger_invite WHERE ledger_id = :f))""")
+                .param("f", family).query(String.class).single();
     }
 }

@@ -26,6 +26,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * debt account names it, no posting uses its categories), and none of their links is still attached; a member
  * without an account who left has no attached link either. A member who returned is ACTIVE again and checked as
  * every ACTIVE member is, from their new join date, their correction included (D-26).
+ * <li>a family ledger that exists has an ACTIVE member with an account: the last one who leaves, or deletes their data,
+ * deletes it (D-36, D-20).
  * </ul>
  */
 public final class FamilyInvariants {
@@ -68,6 +70,13 @@ public final class FamilyInvariants {
     public static Map<Long, BigDecimal> check(JdbcClient jdbc, long... families) {
         Map<Long, BigDecimal> today = Map.of();
         for (long family : families) {
+            assertThat(jdbc.sql("""
+                    SELECT l.id FROM ledger l
+                    WHERE l.id = ? AND NOT EXISTS (SELECT FROM ledger_member m
+                                                   WHERE m.ledger_id = l.id AND m.status = 'ACTIVE'
+                                                     AND m.user_sub IS NOT NULL)""")
+                    .param(family).query(Long.class).list()).as("a family ledger without an active member with an "
+                            + "account").isEmpty();
             List<LocalDate> days = new ArrayList<>(jdbc.sql("""
                     SELECT DISTINCT record_date FROM family_record WHERE ledger_id = ? ORDER BY record_date""")
                     .param(family).query(LocalDate.class).list());

@@ -1,0 +1,16 @@
+flyway latest 10 claimed seats and family deletion true
+family_accounts 0
+family_invites 0
+family_journal 0
+family_ledgers 0
+family_links 0
+family_members 0
+family_members_claimed_seat 0
+family_records 0
+family_shares 0
+column ledger_member.claimed_seat boolean nullable NO default false
+trigger ledger_member_claimed_seat on app.ledger_member true
+function delete_family_ledger 1
+release_family_memberships calls delete_family_ledger true
+trigger ledger_invite_check on app.ledger_invite true
+release_family_memberships refers to ledger_invite true

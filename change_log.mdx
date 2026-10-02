@@ -40,6 +40,25 @@ Not committed yet.
     `FamilyRecordRandomTests` and `FamilyLifecycleRandomTests` check the report after every operation;
     `UserDataApiTests` and `FamilyCategoryApiTests` count the demo family's rows (the twin is gone); `ApiTests` lists
     the new path.
+- The interface and the privacy policy (commit "feat(frontend): the family report, the demo family, H4, the privacy
+  policy"), ADR 0003 topic J's "F6c as built":
+  - The report: the family page's tab "Report" (`FamilyReport.tsx`, `familyReport.ts`), the period as `from` and `to` in
+    the URL; each member's totals in words, then month by month each category with every member's share and what they
+    paid or received, as wrapping lines, so that it fits 375 px.
+  - H4: with the switch on, "Split with family" (the old shared expense) only for an expense that is one already, which
+    opens and saves as before; with the switch off nothing changes.
+  - The demo: with the switch on, the empty dashboard says it comes with "Demo household", and the switcher lists it
+    once it is created.
+  - The privacy policy: `frontend/public/privacy.html` gains the section "Family budgets" (after "What data is
+    processed"), generated from `docs/family-budget/privacy-draft.md`, which keeps the published text: its TODO replaced
+    by "Reviewed by the owner on 2026-10-02"; fixed for what F6b and F6c built (the budget deleted when its last member
+    with an account leaves, D-36; a return's own entries after it, D-37; the report; the demo family; a claimed seat's
+    earlier records, D-35; how long family records are kept), with a line that it describes family budgets ahead of
+    their launch. Besides the section: "Last updated: 2 October 2026", "No other user of the app can see it, apart
+    from what you record in a family budget", and a line in "How long it is kept". The draft's questions for a legal
+    review stay in it, marked as not published.
+  - Tests: new `FamilyF6c.test.tsx` (8), `familyReport.test.ts` (4), `privacy.test.ts` (4); `Family.test.tsx` lists
+    the new tab; `FamilyPayer.test.tsx`: no "Split with family" on a new expense with the switch on.
 
 **Verified**
 - Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `7a60020`, the tree clean. In a
@@ -56,6 +75,24 @@ Not committed yet.
   first line's expense share left out of the totals failed `FamilyReportApiTests` (2), `FamilyRecordRandomTests` and
   the demo family's test; the demo creating its family with the switch off failed
   `FamilySwitchOffApiTests.theDemoCreatesNoFamilyBudget` and `personalAnswersHoldNoFamilyFieldsForAUserWithoutFamilies`.
+- After the interface's commit: frontend `npm test`: 25 files, 301 tests passed (285 and 16), six runs in a row; `npm
+  run build` succeeded. In two earlier full runs, while the laptop's load average was about 45 (other programs),
+  `CashFlowTable.test.tsx`, `EntryForms.test.tsx` and `FamilyRecords.test.tsx` each failed once at a wait and passed
+  on every run since; the baseline at `7a60020` passed four runs under the same load. Mutations from a file copy,
+  restored and compared with `cmp`: "Split with family" offered with the switch on failed `FamilyF6c.test.tsx` and
+  `FamilyPayer.test.tsx`; the published text of D-36 put back to the reviewed one failed `privacy.test.ts` (2).
+- The walk-through in headless Chrome (playwright-core) at 375 px, against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true` and `ECB_RATES_ENABLED=false` on a throwaway `postgres:17-alpine`, the Vite dev server
+  and the dev Keycloak's testuser: the empty dashboard named "Demo household"; after loading the demo the switcher
+  listed it at once; the report: "You owe €83.15 more", "Sam is owed €83.15 more", six months from April 2026, a
+  period from 2026-09-01 showing September only; balances "You owe Sam €83.15."; a new expense with "Family expense"
+  and without "Split with family"; an old shared expense of the demo opening with its split; one Groceries row in the
+  categories; `/privacy` with the new date and section; the integrity check empty; every page (the dashboards, the
+  report, the family tabs, the new entry, the policy) 375 px wide. "Delete all my data" in Settings, then the database:
+  0 family ledgers, members, categories, records, shares, links and journal rows. Then the backend with the switch
+  off on the same database: no switcher and no family line on the empty dashboard, the demo's 138 entries,
+  `/api/family-ledgers` and the report 404, "Split with family" on a new expense, `/family/2/report` ending on `/`;
+  `F6c.sql` on that database (read only): exactly `F6c.expected`.
 - `F6c.sql` on a throwaway `postgres:17.11` (production's digest) with `postgres-init.sh`, migrated to V10 by Flyway
   11.7.2, as `finance_checks` made by the runbook's command: exactly `F6c.expected`; `numbers.sql` its 21 keys.
 
@@ -63,7 +100,7 @@ Not committed yet.
 - E3: a member whose personal categories merged into the family's (D-11) sees their own entries and their shares
   together in the family line of their personal cash flow; separating them is for the owner to decide (ADR 0003, "F6c
   as built").
-- To do in this task: the interface and the privacy policy, the deploy scripts' typed answers.
+- To do in this task: the deploy scripts' typed answers.
 
 ## 2026-10-02 · Family budget: OPS-1's deploy, D-35 to D-39, a read-only role for the deploy checks (F6b)
 

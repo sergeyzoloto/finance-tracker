@@ -17,7 +17,7 @@
     </header>
     <main>
       <h1>Privacy policy</h1>
-      <p class="updated">Last updated: 28 September 2026</p>
+      <p class="updated">Last updated: 2 October 2026</p>
 
       <p>
         Finance Tracker, at app.finance-nl.com, is a personal, non-commercial portfolio project. This page explains
@@ -49,7 +49,8 @@
       <p>
         Everything you enter in the app, import into it or load as demo data: accounts, categories, counterparties
         (such as the shops you pay or a friend you lend money to), entries with their dates, amounts and notes,
-        exchange rates you enter, and your settings. No other user of the app can see it. As the operator, I have
+        exchange rates you enter, and your settings. No other user of the app can see it, apart from what you record
+        in a family budget, which its members see (<a href="#family">Family budgets</a>). As the operator, I have
         technical access to the database and its backups, and I use it only to run the service, to fix a problem you
         report, or when the law requires it. If you write down other people’s names, for example as someone you lent
         money to, they are part of your data and not visible to other users.
@@ -67,6 +68,181 @@
         When you use the app or the login service, the web server and the login server log your IP address and the
         details of your requests. The login service also records login and account events, such as signing in or
         changing a password, and administrative events.
+      </p>
+
+      <h2 id="family">Family budgets</h2>
+      <p>
+        Family budgets aren’t available yet: this section describes them ahead of their launch.
+      </p>
+      <p>
+        A family budget is a budget you keep with other people, such as a partner or your children. You can belong to
+        several. Each member keeps their own personal budget, which stays private. What the family spends and earns
+        together is recorded in the family budget, and each member’s share of it appears in their personal budget.
+      </p>
+      <h3 id="family-seen">What other members of a family budget see</h3>
+      <p>
+        Everyone who is a member of a family budget sees, for that budget:
+      </p>
+      <ul>
+        <li>
+          every member’s display name: the name you choose when you join, which you can change at any time, and the
+          names given to members without an account;
+        </li>
+        <li>
+          the family records: expenses, incomes and settlements between members, with their dates, amounts (and the
+          original amount and currency, with the exchange rate used), who paid or received them, and each member’s
+          share;
+        </li>
+        <li>the family categories, such as “Groceries”;</li>
+        <li>the family comments written on records;</li>
+        <li>each member’s balance in the family budget, and who owes whom;</li>
+        <li>
+          the family report: the family’s expenses and incomes by month and category, with each member’s share and what
+          they paid or received;
+        </li>
+        <li>
+          the change journal: who added, changed or deleted which record, when, and what the values were before and
+          after.
+        </li>
+      </ul>
+      <h3 id="family-unseen">What other members never see</h3>
+      <p>
+        Other members never see anything of your personal budget:
+      </p>
+      <ul>
+        <li>your accounts, such as which card you paid with, and their balances;</li>
+        <li>your personal categories;</li>
+        <li>your personal entries, including the entries a family budget adds to your personal budget;</li>
+        <li>your private notes on your own payments;</li>
+        <li>your email address and your account id.</li>
+      </ul>
+      <h3 id="family-invites">Invite links</h3>
+      <p>
+        An owner of a family budget invites people with a link. Whoever holds a link can use it once, and only before it
+        expires (after 72 hours, unless the owner chose a shorter or longer time of up to 7 days). The owner can revoke
+        a link before it is used. Keep a link you receive to yourself.
+      </p>
+      <p>
+        Before you accept or decline, the invitation shows you:
+      </p>
+      <ul>
+        <li>the family budget’s name and currency;</li>
+        <li>the display name of the owner who invites you;</li>
+        <li>
+          whether you join as a new member or take the place of a member without an account, and that member’s name;
+        </li>
+        <li>
+          the date from which the family budget’s records are added to your personal budget, and until when the link
+          works;
+        </li>
+        <li>for a place, its balance in the family budget before that date, which becomes your opening balance;</li>
+        <li>
+          if you were a member before and come back, the one correction that brings what your personal budget shows as
+          your balance with the family budget in line with the family budget’s;
+        </li>
+        <li>the family budget’s categories;</li>
+        <li>
+          which of your own categories will merge into the family budget’s, which stay private, and which you may bring
+          along;
+        </li>
+        <li>
+          if you come back, the entries of your own on your earlier balance with the family budget that are dated after
+          the day you come back, with their dates, amounts and notes: you move or delete them before you accept;
+        </li>
+        <li>the name of your account, as a suggestion for the name the other members will see.</li>
+      </ul>
+      <p>
+        Nothing else about the family budget or its members is shown before you accept: no member’s name but the owner’s
+        and the place’s, and no amount of the family budget’s but that opening balance or correction.
+      </p>
+      <p>
+        The secret part of the link is never sent to our server with the address of a page, so it doesn’t appear in
+        server logs. We store only a hash of it, from which the link can’t be rebuilt. To show you the invitation, you
+        have to sign in first.
+      </p>
+      <p>
+        When you accept, the owners see your display name and when you accepted. When you decline, they see only that
+        the invite was declined, and when; nothing about you is stored.
+      </p>
+      <h3 id="family-no-account">Members without an account</h3>
+      <p>
+        A family budget can include people who don’t use Finance Tracker, such as a child. Their names are entered by
+        the budget’s owners, and other members record expenses, incomes and settlements for them. If you enter someone’s
+        name, enter only what they would be happy for the other members to see: a first name or a nickname is enough.
+      </p>
+      <p>
+        Such a person can later be invited to take their place in the budget. From the date chosen in the invite, their
+        shares then appear in their own personal budget, and their balance before that date arrives as one opening
+        balance. They keep their place in the records of before that date, which can still be changed, and such a change
+        moves their opening balance.
+      </p>
+      <h3 id="family-leaving">Leaving, removal and “Delete all my data”</h3>
+      <p>
+        When you leave a family budget, or an owner removes you:
+      </p>
+      <ul>
+        <li>you no longer see the family budget, and nothing more is added to your personal budget;</li>
+        <li>
+          what was already added stays in your personal budget as your own entries, which you can change or delete; the
+          family categories they use become personal categories of yours, with the names they have at that moment; your
+          balance with the family budget stays in your personal budget as an account of yours;
+        </li>
+        <li>
+          the family records stay in the family budget, because they make up the other members’ balances. The other
+          members keep seeing your display name in them, marked as a member who left, and the records that involve you
+          can no longer be changed;
+        </li>
+        <li>
+          if the family budget split its expenses by fixed percentages and you had a share, it goes back to equal
+          shares, and its change journal says that this happened when you left;
+        </li>
+        <li>invite links you created that weren’t used yet stop working.</li>
+      </ul>
+      <p>
+        The last owner of a family budget hands ownership to another member first. When the last member with an account
+        leaves, the family budget is deleted, with its records; the confirmation says so before.
+      </p>
+      <p>
+        If an owner invites you again, you come back in your earlier place, from the day you accept. The family budget’s
+        categories you use become the family’s again, and one correction on that day brings your balance with the family
+        budget in your personal budget in line with the family budget’s: for example, if you changed or deleted entries
+        it had added, or records of before you left changed while you were away. The invitation shows the correction
+        before you accept. Entries of your own on that balance dated after the day you come back aren’t part of the
+        family budget: the invitation lists them, and you move or delete them first.
+      </p>
+      <p>
+        Before you confirm “Delete all my data”, the screen lists every family budget you are in: your role and balance
+        there, and what will happen to it, such as which member becomes its owner, or that it will be deleted. Of family
+        budgets you left, it says only how many there are.
+      </p>
+      <p>
+        When you use “Delete all my data”, your personal budget is deleted entirely. In each family budget:
+      </p>
+      <ul>
+        <li>
+          the records that affect other members’ balances stay, with their amounts, dates, categories and shares, but
+          your name in them is replaced by “Former member”;
+        </li>
+        <li>the comments you wrote are erased, also from the change journal;</li>
+        <li>invite links you created and that weren’t used yet stop working;</li>
+        <li>if it split its expenses by fixed percentages and you had a share, it goes back to equal shares;</li>
+        <li>if you were its last owner, the member with an account who joined earliest becomes its owner;</li>
+        <li>if no other member with an account is left, the family budget is deleted.</li>
+      </ul>
+      <p>
+        Your login account at auth.finance-nl.com stays until you ask us to delete it, as the published policy says.
+      </p>
+      <h3 id="family-retention">How long family records are kept</h3>
+      <p>
+        The records of a family budget are kept as long as the family budget exists, also after a member leaves or
+        deletes their data, since they make up the other members’ balances. A family budget is deleted when no member
+        with an account is left in it, and with it its records, its categories and its change journal.
+      </p>
+      <h3 id="family-demo">The demo family budget</h3>
+      <p>
+        Once family budgets are available, the demo data comes with a family budget, “Demo household”, which you share
+        with Sam, an invented partner without an account. Nobody else is in it, and “Delete all my data” deletes it with
+        the rest.
       </p>
 
       <h2 id="purposes">Why, and on what legal basis</h2>
@@ -134,6 +310,10 @@
           Your account and your data are kept until you delete them or ask for your account to be deleted.
           <strong>Delete all my data</strong>, in the app’s Settings, deletes everything you have in the app
           immediately. Your login account stays until you ask for it to be deleted by email.
+        </li>
+        <li>
+          The records of a family budget are kept as long as the family budget exists, also after you leave it or
+          delete your data (<a href="#family-retention">How long family records are kept</a>).
         </li>
         <li>Login and account events are kept for 30 days, administrative events for 90 days.</li>
         <li>

@@ -22,16 +22,20 @@ const IncomeExpenseChart = lazyWithReload(() => import('./IncomeExpenseChart'))
 /**
  * The home page. A ledger without any entry gets the choice of the demo data or a start from scratch; once the demo
  * is loaded, the dashboard shows its whole period.
+ *
+ * @param familyOn whether the family budget is switched on (D-25): the demo then comes with its family budget (H1)
+ * @param onFamilyCreated called once the demo created its family budget, for the switcher to list it
  */
-export default function Dashboard() {
+export default function Dashboard({ familyOn = false, onFamilyCreated }: { familyOn?: boolean; onFamilyCreated?: () => void }) {
   const navigate = useNavigate()
   const deleted = (useLocation().state as { dataDeleted?: boolean } | null)?.dataDeleted ?? false
   const entries = useApi<EntryPage>('/entries?size=1')
   const [demoLoaded, setDemoLoaded] = useState(false)
   if (entries.data?.totalElements === 0 && !demoLoaded) {
     return (
-      <EmptyLedger deleted={deleted} onLoaded={(demo) => {
+      <EmptyLedger deleted={deleted} familyOn={familyOn} onLoaded={(demo) => {
         setDemoLoaded(true)
+        if (demo.familyLedgerId !== undefined) onFamilyCreated?.()
         navigate(`/?from=${demo.from}&to=${demo.to}`)
       }} />
     )

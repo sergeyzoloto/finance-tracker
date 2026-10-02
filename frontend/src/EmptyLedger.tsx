@@ -6,8 +6,13 @@ import { Errors } from './components'
  * The dashboard of a ledger without entries: load the demo ledger (POST /api/demo-data), or start from scratch.
  *
  * @param deleted whether the user just deleted all their data
+ * @param familyOn whether the family budget is switched on (D-25): the demo then creates a family budget too (H1)
  */
-export default function EmptyLedger({ onLoaded, deleted = false }: { onLoaded: (demo: DemoLedger) => void; deleted?: boolean }) {
+export default function EmptyLedger({ onLoaded, deleted = false, familyOn = false }: {
+  onLoaded: (demo: DemoLedger) => void
+  deleted?: boolean
+  familyOn?: boolean
+}) {
   const demo = useMutation()
   const load = () => demo.run(async () => onLoaded(await api<DemoLedger>('/demo-data', 'POST')))
   return (
@@ -23,6 +28,13 @@ export default function EmptyLedger({ onLoaded, deleted = false }: { onLoaded: (
             groceries shared with a partner, a loan to a friend, a currency exchange and more — which you can delete
             again in Settings.
           </p>
+          {familyOn && (
+            <p>
+              It also creates the family budget “Demo household”, which you share with Sam, an invented partner without
+              an account: six months of groceries, bills, a weekend away, the sale of an old bike and Sam paying you
+              back.
+            </p>
+          )}
           <button type="button" className="primary" onClick={() => void load()} disabled={demo.pending}>
             {demo.pending ? 'Loading demo data…' : 'Load demo data'}
           </button>

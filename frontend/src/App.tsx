@@ -53,7 +53,7 @@ export default function App({ me }: { me: Me }) {
       </header>
       <main>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<Dashboard familyOn={familyOn} onFamilyCreated={families.reload} />} />
           <Route path="/entries" element={<Entries />} />
           <Route path="/entries/new" element={<EntryEditor key="new" families={familyOn ? families.data ?? [] : undefined} />} />
           <Route path="/entries/:id" element={<EntryEditor families={familyOn ? families.data ?? [] : undefined} />} />

@@ -124,8 +124,10 @@ describe('a new expense marked as family (C2)', () => {
     ledger([])
     renderApp('/entries/new')
     await screen.findByLabelText(/^Paid from/)
-    await waitFor(() => expect(screen.getByRole('switch', { name: 'Split with family' })).toBeDefined())
+    await waitFor(() => expect(screen.getByLabelText(/^Category/)).toBeDefined())
     expect(familyOption()).toBeNull()
+    // With the switch on, the old "Split with family" isn't offered for a new expense either (H4, F6c).
+    expect(screen.queryByRole('switch', { name: 'Split with family' })).toBeNull()
   })
 
   it('creates the expense in the family budget, paid from the entry’s account, with the note on the payment only', async () => {

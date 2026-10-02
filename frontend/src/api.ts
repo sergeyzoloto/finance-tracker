@@ -266,6 +266,39 @@ export interface FamilyBalance {
 }
 /** Every member's balance, by join order; they sum to zero. */
 export interface FamilyBalances { currency: string; members: FamilyBalance[] }
+/**
+ * The family report (E1, F6c): the expenses and incomes by month and category, each member's share and what they paid
+ * (an expense) or received (an income), and each member's totals with the settlements, in the base currency.
+ */
+export interface FamilyReport {
+  currency: string
+  from: string | null
+  to: string | null
+  members: { memberId: number; displayName: string; status: MemberStatus; hasAccount: boolean; you: boolean }[]
+  rows: FamilyReportRow[]
+  totals: FamilyReportTotal[]
+}
+export interface FamilyReportRow {
+  /** "2026-09" */
+  month: string
+  categoryId: number
+  categoryName: string
+  categoryType: CategoryType
+  archived: boolean
+  total: string
+  members: { memberId: number; share: string; paid: string }[]
+}
+/** {@code net} is how much the member's balance moved: positive means they owe the family more. */
+export interface FamilyReportTotal {
+  memberId: number
+  expenseShares: string
+  expensesPaid: string
+  incomeShares: string
+  incomesReceived: string
+  settlementsPaid: string
+  settlementsReceived: string
+  net: string
+}
 /** One change of a field, as text; members and categories by their names now. Null where there was none, or erased. */
 export interface FamilyFieldChange { field: string; member: MemberRef | null; old: string | null; new: string | null }
 /** An entry of the change journal (D-16): a member's change of a record, or a system change without an author. */
@@ -441,6 +474,8 @@ export interface DemoLedger {
   from: string
   /** The day of the last entries: the day it was loaded. */
   to: string
+  /** The demo's family budget (H1, F6c), only while the family budget is switched on. */
+  familyLedgerId?: number
 }
 
 /** One invalid field of a request (400), such as `amount` or `postings[1].amount`. */

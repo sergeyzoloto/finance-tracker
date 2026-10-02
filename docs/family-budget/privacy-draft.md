@@ -1,12 +1,13 @@
-# Privacy policy: family budgets (draft)
+# Privacy policy: family budgets
 
-> **TODO: legal review.** This is a draft written for F5, to be reviewed and published with the
-> privacy policy in stage F6 (requirements D-20, story H2). Until then the published policy at
-> `/privacy` is unchanged, and family budgets are switched off in production (D-25). The sections
-> below are meant to be added to the published policy, next to "What data is processed" and "How
-> long it is kept".
+> Reviewed by the owner on 2026-10-02 (the draft as of `7a60020`), and published in F6c as the
+> section "Family budgets" of the policy at `/privacy` (`frontend/public/privacy.html`), after "What
+> data is processed". This file keeps the section's text as published, word for word
+> (`frontend/src/privacy.test.ts` compares them), so its history shows every change since the review.
 
 ## Family budgets
+
+Family budgets aren't available yet: this section describes them ahead of their launch.
 
 A family budget is a budget you keep with other people, such as a partner or your children. You can
 belong to several. Each member keeps their own personal budget, which stays private. What the family
@@ -25,6 +26,8 @@ Everyone who is a member of a family budget sees, for that budget:
 - the family categories, such as "Groceries";
 - the family comments written on records;
 - each member's balance in the family budget, and who owes whom;
+- the family report: the family's expenses and incomes by month and category, with each member's
+  share and what they paid or received;
 - the change journal: who added, changed or deleted which record, when, and what the values were
   before and after.
 
@@ -59,10 +62,14 @@ Before you accept or decline, the invitation shows you:
 - the family budget's categories;
 - which of your own categories will merge into the family budget's, which stay private, and which you
   may bring along;
+- if you come back, the entries of your own on your earlier balance with the family budget that are
+  dated after the day you come back, with their dates, amounts and notes: you move or delete them
+  before you accept;
 - the name of your account, as a suggestion for the name the other members will see.
 
 Nothing else about the family budget or its members is shown before you accept: no member's name
-but the owner's and the place's, and no amount but that opening balance or correction.
+but the owner's and the place's, and no amount of the family budget's but that opening balance or
+correction.
 
 The secret part of the link is never sent to our server with the address of a page, so it doesn't
 appear in server logs. We store only a hash of it, from which the link can't be rebuilt. To show you
@@ -80,7 +87,8 @@ first name or a nickname is enough.
 
 Such a person can later be invited to take their place in the budget. From the date chosen in the
 invite, their shares then appear in their own personal budget, and their balance before that date
-arrives as one opening balance.
+arrives as one opening balance. They keep their place in the records of before that date, which
+can still be changed, and such a change moves their opening balance.
 
 ## Leaving, removal and "Delete all my data"
 
@@ -99,13 +107,15 @@ When you leave a family budget, or an owner removes you:
 - invite links you created that weren't used yet stop working.
 
 The last owner of a family budget hands ownership to another member first. When the last member with
-an account leaves, the family budget is closed and nobody sees it any more.
+an account leaves, the family budget is deleted, with its records; the confirmation says so before.
 
 If an owner invites you again, you come back in your earlier place, from the day you accept. The
 family budget's categories you use become the family's again, and one correction on that day brings
 your balance with the family budget in your personal budget in line with the family budget's: for
 example, if you changed or deleted entries it had added, or records of before you left changed while
-you were away. The invitation shows the correction before you accept.
+you were away. The invitation shows the correction before you accept. Entries of your own on that
+balance dated after the day you come back aren't part of the family budget: the invitation lists them,
+and you move or delete them first.
 
 Before you confirm "Delete all my data", the screen lists every family budget you are in: your role
 and balance there, and what will happen to it, such as which member becomes its owner, or that it
@@ -124,6 +134,20 @@ When you use "Delete all my data", your personal budget is deleted entirely. In 
 Your login account at auth.finance-nl.com stays until you ask us to delete it, as the published policy
 says.
 
-> **TODO: legal review.** To check: the legal basis for processing the names of members without an
-> account, which other members enter; how long the records of a former member are kept; and whether
-> the change journal counts as personal data of the members it names.
+## How long family records are kept
+
+The records of a family budget are kept as long as the family budget exists, also after a member
+leaves or deletes their data, since they make up the other members' balances. A family budget is
+deleted when no member with an account is left in it, and with it its records, its categories and its
+change journal.
+
+## The demo family budget
+
+Once family budgets are available, the demo data comes with a family budget, "Demo household", which
+you share with Sam, an invented partner without an account. Nobody else is in it, and "Delete all my
+data" deletes it with the rest.
+
+> **Not published: questions for a legal review**, kept from the draft as reviewed: the legal basis for
+> processing the names of members without an account, which other members enter; how long the records
+> of a former member are kept; and whether the change journal counts as personal data of the members it
+> names.

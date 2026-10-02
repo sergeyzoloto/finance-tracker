@@ -262,7 +262,7 @@ describe('a family budget’s page', () => {
     const tabs = within(screen.getByRole('navigation', { name: 'Family budget' })).getAllByRole('link')
     expect(tabs.map((t) => [t.textContent, t.getAttribute('href')])).toEqual([
       ['Overview', '/family/7'], ['Activity', '/family/7/expenses'], ['Balances', '/family/7/balances'],
-      ['Journal', '/family/7/journal'], ['Members', '/family/7/members'], ['Split rule', '/family/7/split-rule'],
+      ['Journal', '/family/7/journal'], ['Report', '/family/7/report'], ['Members', '/family/7/members'], ['Split rule', '/family/7/split-rule'],
       ['Categories', '/family/7/categories'], ['Settings', '/family/7/settings'],
     ])
     expect(await screen.findByRole('option', { name: 'Home', selected: true })).toBeDefined()
@@ -278,7 +278,7 @@ describe('a family budget’s page', () => {
 
     const nav = within(await screen.findByRole('navigation', { name: 'Family budget' }))
     expect(nav.getAllByRole('link').map((t) => t.getAttribute('href'))).toEqual(['/family/7', '/family/7/expenses',
-      '/family/7/balances', '/family/7/journal', '/family/7/members', '/family/7/split-rule', '/family/7/categories',
+      '/family/7/balances', '/family/7/journal', '/family/7/report', '/family/7/members', '/family/7/split-rule', '/family/7/categories',
       '/family/7/settings'])
     expect(nav.getAllByRole('link').filter((t) => t.getAttribute('aria-current') === 'page').map((t) => t.textContent))
       .toEqual(['Split rule'])

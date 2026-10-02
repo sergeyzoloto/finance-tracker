@@ -98,6 +98,7 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
         onCancel={() => navigate(back)}
         families={entry.data ? undefined : families}
         onSaveFamily={entry.data || !families ? undefined : saveFamily}
+        familyBudgets={families !== undefined}
         notice={!simple && (
           <p className="notice">
             This entry doesn’t fit the {TABS.find((t) => t.tab === tabOf(entry.data!.kind))?.label} form, so it opens

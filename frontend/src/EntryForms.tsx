@@ -34,6 +34,11 @@ interface Props {
   families?: FamilyLedger[]
   /** Creates a family expense or income in the budget with the request; rejects with the server's answer. */
   onSaveFamily?: (ledgerId: number, request: ReturnType<typeof familyRequest>, andNew: boolean) => Promise<void>
+  /**
+   * Whether the family budget is switched on (D-25). Then the form no longer creates the old shared expense (H4, F6c):
+   * "Split with family" stays only for an entry that is one already, which opens and saves as before (D-21).
+   */
+  familyBudgets?: boolean
 }
 
 /** A family expense's or income's budget as the form has chosen it, with what its split needs. */
@@ -68,7 +73,7 @@ function useFamilyExpense(form: EntryForm, families?: FamilyLedger[]): FamilyExp
 }
 
 /** The entry form with its tabs. It checks what it can before saving, and shows the server's messages at the fields. */
-export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, notice, families, onSaveFamily }: Props) {
+export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, notice, families, onSaveFamily, familyBudgets = false }: Props) {
   const [form, setForm] = useState(initial)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [busy, setBusy] = useState(false)
@@ -155,7 +160,8 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
         <Field label="Date" errors={errors.date}>
           <input type="date" value={form.date} required onChange={(e) => set({ date: e.target.value })} />
         </Field>
-        {form.tab === 'expense' && <ExpenseFields {...fields} families={onSaveFamily ? families : undefined} family={family} />}
+        {form.tab === 'expense' && <ExpenseFields {...fields} families={onSaveFamily ? families : undefined} family={family}
+          oldSplit={!familyBudgets || initial.split} />}
         {form.tab === 'income' && <IncomeFields {...fields} families={onSaveFamily ? families : undefined} family={family} />}
         {form.tab === 'transfer' && <TransferFields {...fields} />}
         {form.tab === 'loan' && <LoanFields {...fields} />}
@@ -244,8 +250,12 @@ function AmountFields({ form, ledger, errors, set, amount = 'amount', currency =
   )
 }
 
-function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?: FamilyExpense }) {
-  const { form, ledger, errors, set, families, family } = props
+/**
+ * @param oldSplit whether the form offers the old "Split with family" (rule 7): always while the family budget is
+ *        switched off, and with it on only for an entry that is a shared expense already (H4, F6c)
+ */
+function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?: FamilyExpense; oldSplit: boolean }) {
+  const { form, ledger, errors, set, families, family, oldSplit } = props
   const parts = sharePreview(form)
   const shared = sharedAccount(ledger)
   const familyOn = isFamilyRecord(form)
@@ -268,11 +278,13 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
               <input type="checkbox" checked={form.refund} onChange={(e) => set({ refund: e.target.checked })} />
               Refund: the money came back
             </label>
-            <label className="check">
-              <input type="checkbox" role="switch" checked={form.split} disabled={!shared}
-                onChange={(e) => set({ split: e.target.checked })} />
-              Split with family
-            </label>
+            {oldSplit && (
+              <label className="check">
+                <input type="checkbox" role="switch" checked={form.split} disabled={!shared}
+                  onChange={(e) => set({ split: e.target.checked })} />
+                Split with family
+              </label>
+            )}
           </>
         )}
         {families && families.length > 0 && <FamilyOption {...props} families={families} reason={reason} />}

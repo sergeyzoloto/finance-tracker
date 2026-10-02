@@ -1752,6 +1752,15 @@ confirmed after the F6c review):
   (`DemoDataApiTests`, `UserDataApiTests`, `FamilyCategoryApiTests`, whose twin is gone); `FamilySwitchOffApiTests`
   keeps the demo's numbers of before with the switch off.
 
+**F6c as built: the interface and the privacy policy** (2026-10-02). The report is the family page's tab "Report"
+(`FamilyReport.tsx`), its period two optional dates in the URL; it shows each member's totals in words, then month by
+month each category with every member's share and what they paid or received, as wrapping lines rather than a table, so
+that it fits 375 px. H4: `EntryFormView` takes `familyBudgets` (the switch) and then offers "Split with family" only
+for an expense that is an old shared expense already. The demo's family budget is in the switcher right after loading
+the demo. The privacy policy's section "Family budgets" is generated from the draft's text, and a test keeps them word
+for word; besides the section, the policy changes its date, the sentence that no other user sees anything of yours, and
+gains a line in "How long it is kept".
+
 ### K. Test strategy
 
 **Isolation, three users.** A new `FamilyIsolationApiTests` next to `DataIsolationApiTests`, which

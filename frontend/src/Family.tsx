@@ -11,6 +11,7 @@ import FamilyCategories from './FamilyCategories'
 import NewRecord from './FamilyExpenseForm'
 import { AddButtons, FamilyRecords, RecordDetail, RecordTable } from './FamilyExpenses'
 import FamilyJournal from './FamilyJournal'
+import FamilyReport from './FamilyReport'
 import { FamilyMembers, FamilySplitRule } from './FamilyMembers'
 import NewSettlement from './FamilySettlement'
 import { useFamilyApi, useFamilyMutation, type CreationState, type FamilyData } from './familyData'
@@ -68,6 +69,7 @@ export default function Family({ onChanged, onLeft }: { onChanged: () => void; o
         <NavLink to={`${family.page}/expenses`}>Activity</NavLink>
         <NavLink to={`${family.page}/balances`}>Balances</NavLink>
         <NavLink to={`${family.page}/journal`}>Journal</NavLink>
+        <NavLink to={`${family.page}/report`}>Report</NavLink>
         <NavLink to={`${family.page}/members`}>Members</NavLink>
         <NavLink to={`${family.page}/split-rule`}>Split rule</NavLink>
         <NavLink to={`${family.page}/categories`}>Categories</NavLink>
@@ -89,6 +91,7 @@ export default function Family({ onChanged, onLeft }: { onChanged: () => void; o
         <Route path="settle" element={<NewSettlement family={family} />} />
         <Route path="balances" element={<FamilyBalances family={family} />} />
         <Route path="journal" element={<FamilyJournal family={family} />} />
+        <Route path="report" element={<FamilyReport family={family} />} />
         <Route path="members" element={<FamilyMembers family={family} />} />
         <Route path="split-rule" element={<FamilySplitRule family={family} />} />
         <Route path="categories" element={<FamilyCategories family={family} />} />

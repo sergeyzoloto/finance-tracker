@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.example.financetracker.ledger.EntryService;
 import com.example.financetracker.ledger.domain.EntryCommand;
+import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -20,7 +21,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
  * POST /api/demo-data: the demo ledger for a new user, in one transaction, and only into an empty ledger. The entries
- * go through {@link EntryService}, spied on here so that one test can make it fail halfway.
+ * go through {@link EntryService}, spied on here so that one test can make it fail halfway. With the family budget
+ * switched on, as here, the demo also creates its family budget (H1, F6c); {@code FamilySwitchOffApiTests} checks the
+ * demo without it.
  */
 class DemoDataApiTests extends LedgerApiTest {
 
@@ -49,7 +52,8 @@ class DemoDataApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/entries?to=" + from.minusDays(1))).get("totalElements").asInt()).isZero();
         assertThat(ok(get(user, "/api/entries?to=" + from)).get("content").findValuesAsText("kind"))
                 .filteredOn("OPENING_BALANCE"::equals).hasSize(5);
-        assertThat(ok(get(user, "/api/entries?size=1")).get("totalElements").asInt()).isEqualTo(total);
+        // The demo family's entries in the personal ledger: 15 shares, 8 payments and receipts, 3 settlement sides.
+        assertThat(ok(get(user, "/api/entries?size=1")).get("totalElements").asInt()).isEqualTo(total + 26);
         assertThat(ok(get(user, "/api/settings")).get("baseCurrency").asText()).isEqualTo("EUR");
         assertThat(ok(get(user, "/api/accounts")).findValuesAsText("code")).contains("CREDIT_CARD", "USD_ACCOUNT");
         assertThat(ok(get(user, "/api/counterparties")).findValuesAsText("name")).contains("Landlord", "Robin");
@@ -57,8 +61,10 @@ class DemoDataApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
         String period = "?from=%s&to=%s".formatted(demo.get("from").asText(), demo.get("to").asText());
         JsonNode balances = ok(get(user, "/api/reports/balances"));
-        assertThat(find(balances, "accountCode", "CURRENT_ACCOUNT").get("balance").asText()).isEqualTo("6054.12");
-        assertThat(find(balances, "accountCode", "USD_ACCOUNT").get("balance").asText()).isEqualTo("1247.00");
+        // Without the demo family 6054.12 and 1247.00: the six shops (378.40) paid, the bike's 120.00 and Sam's 145.00
+        // received; the weekend's 240 dollars paid.
+        assertThat(find(balances, "accountCode", "CURRENT_ACCOUNT").get("balance").asText()).isEqualTo("5940.72");
+        assertThat(find(balances, "accountCode", "USD_ACCOUNT").get("balance").asText()).isEqualTo("1007.00");
         assertThat(find(balances, "accountCode", "CREDIT_CARD").get("balance").asText()).isEqualTo("94.69");
         assertThat(ok(get(user, "/api/reports/net-worth")).findValuesAsText("currency"))
                 .containsExactlyInAnyOrder("EUR", "USD");
@@ -83,6 +89,51 @@ class DemoDataApiTests extends LedgerApiTest {
         assertThat(baseCashFlow.get("rows").findValues("total")).isNotEmpty().noneMatch(JsonNode::isNull);
         assertThat(baseCashFlow.findValues("missingRates")).allMatch(JsonNode::isEmpty);
         assertThat(ok(get(user, "/api/rates")).get("missing")).isEmpty();
+    }
+
+    /**
+     * H1 (F6c): the demo's family budget, made through the family budget's services, is one like any other: its owner
+     * is the user under their account's name, Sam has no account, its four categories are the demo's own, merged
+     * (D-11), so no personal twin of them remains, and its records are posted into the user's ledger. The numbers: the
+     * user's shares are 461.65 and their income share 60.00; they paid 583.50 and received the bike's 120.00 and Sam's
+     * 145.00, so they owe the family 83.15, which Sam is owed. The invariants, E1's report against the balances and the
+     * integrity check hold. E3's check of the personal cash flow doesn't apply: the merged categories hold the demo's
+     * own entries too, beside the shares.
+     */
+    @Test
+    void theDemoFamilyIsAFamilyBudgetLikeAnyOther() throws IOException {
+        String user = newUser();
+
+        JsonNode demo = ok(post(user, "/api/demo-data", null));
+
+        long family = demo.get("familyLedgerId").asLong();
+        String uri = "/api/family-ledgers/" + family;
+        JsonNode budget = find(ok(get(user, "/api/family-ledgers")), "id", String.valueOf(family));
+        assertThat(budget.get("name").asText()).isEqualTo("Demo household");
+        assertThat(budget.get("baseCurrency").asText()).isEqualTo("EUR");
+        assertThat(budget.get("role").asText()).isEqualTo("OWNER");
+        assertThat(budget.get("startDate").asText()).isEqualTo(demo.get("from").asText());
+        assertThat(ok(get(user, uri + "/members")).findValuesAsText("displayName"))
+                .containsExactly("User " + user, "Sam");
+        assertThat(ok(get(user, uri + "/members")).findValuesAsText("hasAccount")).containsExactly("true", "false");
+        JsonNode records = ok(get(user, uri + "/records?size=200"));
+        assertThat(records.get("totalElements").asInt()).isEqualTo(18);
+        assertThat(records.get("content").findValuesAsText("type")).containsOnly("EXPENSE", "INCOME", "SETTLEMENT");
+        assertThat(records.get("content").findValuesAsText("originalCurrency")).contains("USD");
+        JsonNode categories = ok(get(user, "/api/categories"));
+        for (String code : List.of("GROCERIES", "OTHER_INCOME", "TRAVEL", "UTILITIES")) {
+            assertThat(categories.findValues("code")).as(code).filteredOn(c -> c.asText().equals(code)).hasSize(1);
+            assertThat(find(categories, "code", code).get("familyLedgerId").asLong()).as(code).isEqualTo(family);
+        }
+        assertThat(ok(get(user, uri + "/balances")).get("members").findValuesAsText("balance"))
+                .containsExactly("83.15", "-83.15");
+
+        FamilyInvariants.check(jdbc, family);
+        JsonNode report = checkFamilyReport(user, family, Map.of());
+        assertThat(report.get("totals").get(0).get("expenseShares").asText()).isEqualTo("461.65");
+        assertThat(report.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("583.50");
+        assertThat(report.get("totals").get(1).get("settlementsPaid").asText()).isEqualTo("145.00");
+        assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
     }
 
     @Test

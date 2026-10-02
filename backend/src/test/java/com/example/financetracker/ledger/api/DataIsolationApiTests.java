@@ -1606,6 +1606,62 @@ class DataIsolationApiTests extends LedgerApiTest {
         return ids;
     }
 
+    /**
+     * The family report (E1, F6c): it answers Bob on B and on either personal ledger, and Carol on A, B and Alice's
+     * personal ledger, as a missing family ledger does. In A, Bob's report names Alice by her display name only and holds
+     * none of her accounts, private notes, subs, email addresses or entries. Once Bob left A, it answers him on A as a
+     * missing family ledger too; Carol's view stays as it was, and Alice's rows don't change through Bob's requests.
+     */
+    @Test
+    void theFamilyReportIsReadByItsActiveMembersOnly() throws IOException {
+        String carol = newUser();
+        Map<String, JsonNode> carolsViewBefore = view(carol);
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01",
+                 "categoryIds": [%d]}""".formatted(categoryId(alice, "GROCERIES"))).get("id").asLong();
+        String inA = "/api/family-ledgers/" + familyA;
+        join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
+        long record = created(post(alice, inA + "/records", """
+                {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
+                 "paymentAccountId": %d, "currency": "USD", "baseAmount": "90.00",
+                 "privateNote": "ALICE_PRIVATE_NOTE"}"""
+                .formatted(groceriesInA, mumInA, alicesBank)));
+        long familyB = newFamily(alice, """
+                {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice",
+                 "startDate": "2026-08-01"}""").get("id").asLong();
+        String report = "/api/family-ledgers/%d/report";
+
+        SoftAssertions softly = new SoftAssertions();
+        for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
+            answersAsIfMissing(softly, HttpMethod.GET, report, ledger, null);
+        }
+        for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
+            answersAsIfMissingTo(softly, carol, HttpMethod.GET, report.formatted(ledger), report.formatted(MISSING),
+                    null);
+        }
+        softly.assertAll();
+
+        Map<String, String> alicesRows = digestOf(alice);
+        JsonNode bobs = bobReads(report.formatted(familyA));
+        assertThat(bobs.get("rows").get(0).get("total").asText()).isEqualTo("90.00");
+        assertThat(bobs.get("members").findValuesAsText("displayName")).containsExactly("Mum", "Dad");
+        assertThat(bobs.toString()).doesNotContain(alice, "@example.com", "ALICE_PRIVATE_NOTE", "ALICE_",
+                "Alice's bank");
+        assertThat(fieldNames(bobs)).doesNotContain("accountId", "entryId", "userSub", "sub", "email",
+                "paymentAccountId", "yourPayment");
+        List<String> numbers = bobs.findValues("memberId").stream().map(JsonNode::asText).toList();
+        assertThat(numbers).doesNotContain(String.valueOf(alicesBank), String.valueOf(record));
+        assertThat(digestOf(alice)).isEqualTo(alicesRows);
+
+        assertThat(delete(bob, inA + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+        softly = new SoftAssertions();
+        answersAsIfMissing(softly, HttpMethod.GET, report, familyA, null);
+        softly.assertAll();
+        assertThat(view(carol)).isEqualTo(carolsViewBefore);
+    }
+
     /** Every membership of every ledger but one, as text, to compare before and after. */
     private String membershipsBut(long memberId) {
         return jdbc.sql("SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m WHERE m.id <> ?")

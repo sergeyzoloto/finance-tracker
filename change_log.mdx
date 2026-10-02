@@ -17,13 +17,53 @@ Not committed yet.
     the switch off leaves unchanged, and the plan's own decisions to confirm).
   - CLAUDE.md, "Deploy checklists": F6b's lesson; a server command that asks a question stands alone in its block, its
     answer is typed, never pasted, and `finish` comes only after the browser checks and the smoke test.
+- The family report and the demo family in the backend (commit "feat(family): the family report (E1, E3) and the demo
+  family (H1)"), ADR 0003 topic J's "F6c as built":
+  - E1: `GET /api/family-ledgers/{ledgerId}/report` with optional `from` and `to` (`FamilyReportService`,
+    `FamilyReport`): by month and category, each member's share and what they paid or received, each member's totals
+    with the settlements and the net, in the base currency; ACTIVE members only, 404 for the rest and with the switch
+    off. No migration.
+  - E3's check: `LedgerApiTest.checkFamilyReport` (the rows' shares and payments against their totals, the members'
+    totals against the rows, the nets against the balances, and each member's personal cash flow of the family's
+    categories against their shares from their join date).
+  - H1: with the switch on, the demo creates "Demo household" with Sam, a partner without an account, through
+    `FamilyLedgerService` and `FamilyRecordService` (`DemoFamily` plans it): the demo's Groceries, Utilities, Travel
+    and Other income, and any personal twin of another family budget's category, merged (D-11); 15 records and 3
+    settlements. `DemoLedgerView.familyLedgerId` (additive, left out with the switch off). With the switch off the
+    demo is as before.
+  - `deploy/checks/F6c.sql` and `F6c.expected` (15 lines: Flyway V10, the family counts 0 also after the smoke test's
+    demo, V10's column and functions). `numbers.sql` unchanged (no table added).
+  - Tests: new `FamilyReportApiTests` (3: the worked example, the bounds, who may read), `DemoFamilyTests` (2);
+    `DemoDataApiTests.theDemoFamilyIsAFamilyBudgetLikeAnyOther` (new) and its first test's numbers with the family;
+    `FamilySwitchOffApiTests.theDemoCreatesNoFamilyBudget` (new: the numbers of before) and 34 endpoints;
+    `DataIsolationApiTests.theFamilyReportIsReadByItsActiveMembersOnly` (new; nothing else in the file changed);
+    `FamilyRecordRandomTests` and `FamilyLifecycleRandomTests` check the report after every operation;
+    `UserDataApiTests` and `FamilyCategoryApiTests` count the demo family's rows (the twin is gone); `ApiTests` lists
+    the new path.
 
 **Verified**
-- Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `7a60020`, the tree clean.
+- Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `7a60020`, the tree clean. In a
+  scratch worktree at `7a60020`: `./mvnw -B clean verify`: 396 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS;
+  frontend `npm ci`, `npm test`: 22 files, 285 tests passed; `npm run build` succeeded.
+- After the backend's commit: `./mvnw -B clean verify`: 404 tests (396 and 8), 0 failures, 0 errors, 0 skipped, BUILD
+  SUCCESS.
+- The worked example of the report (`FamilyReportApiTests.theWorkedExample`): Mum 58.33 − 90.00 − 100.00 + 300.00 +
+  20.00 = 188.33, Dad (left) 58.33 − 50.00 − 100.00 − 20.00 = −111.67, Kid 33.35 − 10.01 − 100.00 = −76.66, the dollar
+  rent as its 50.00 euros, the deleted record left out; each net is the balance. The demo family: the user 83.15, Sam
+  −83.15.
+- Mutations, each from a file copy, restored and compared with `cmp`: `LedgerAccess` taking LEFT members (the report
+  open to a member who left) failed `FamilyReportApiTests.onlyActiveMembersReadIt` and the new isolation test; the
+  first line's expense share left out of the totals failed `FamilyReportApiTests` (2), `FamilyRecordRandomTests` and
+  the demo family's test; the demo creating its family with the switch off failed
+  `FamilySwitchOffApiTests.theDemoCreatesNoFamilyBudget` and `personalAnswersHoldNoFamilyFieldsForAUserWithoutFamilies`.
+- `F6c.sql` on a throwaway `postgres:17.11` (production's digest) with `postgres-init.sh`, migrated to V10 by Flyway
+  11.7.2, as `finance_checks` made by the runbook's command: exactly `F6c.expected`; `numbers.sql` its 21 keys.
 
 **Open**
-- To do in this task: the family report and the demo family, the interface and the privacy policy, the deploy
-  scripts' typed answers.
+- E3: a member whose personal categories merged into the family's (D-11) sees their own entries and their shares
+  together in the family line of their personal cash flow; separating them is for the owner to decide (ADR 0003, "F6c
+  as built").
+- To do in this task: the interface and the privacy policy, the deploy scripts' typed answers.
 
 ## 2026-10-02 · Family budget: OPS-1's deploy, D-35 to D-39, a read-only role for the deploy checks (F6b)
 

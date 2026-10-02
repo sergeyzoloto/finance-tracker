@@ -3,13 +3,16 @@ package com.example.financetracker.ledger.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 
@@ -205,6 +208,88 @@ abstract class LedgerApiTest extends IntegrationTest {
                 SELECT id, 'SHARED', ?, ?, ?, 'ACTIVE', ?, CASE split_rule WHEN 'CUSTOM' THEN 0 END
                 FROM ledger WHERE id = ? RETURNING id""")
                 .params(sub, displayName, role, joinDate, familyId).query(Long.class).single();
+    }
+
+    /**
+     * E1's family report against the balances, and E3's check (F6c; ADR 0003 topic J, "F6c plan"), as {@code reader}
+     * reads the family ledger: in every row the members' shares, and what they paid or received, add up to its total;
+     * each member's totals are the sums of their rows, and their net over every record is their balance; and for each
+     * member with an account in {@code personal} (their sub, and their join date), their personal cash flow's lines of
+     * the family's categories are, month by month and category by category, their shares in the report of the records
+     * from their join date.
+     *
+     * @return the report of every record, as {@code reader} reads it
+     */
+    protected JsonNode checkFamilyReport(String reader, long familyId, Map<String, LocalDate> personal)
+            throws IOException {
+        String uri = "/api/family-ledgers/" + familyId;
+        JsonNode report = ok(get(reader, uri + "/report"));
+        Map<Long, BigDecimal[]> sums = new HashMap<>();
+        for (JsonNode row : report.get("rows")) {
+            String what = row.get("month").asText() + " " + row.get("categoryName").asText();
+            int at = row.get("categoryType").asText().equals("EXPENSE") ? 0 : 2;
+            BigDecimal shares = BigDecimal.ZERO;
+            BigDecimal paid = BigDecimal.ZERO;
+            for (JsonNode contribution : row.get("members")) {
+                BigDecimal share = new BigDecimal(contribution.get("share").asText());
+                BigDecimal itsPaid = new BigDecimal(contribution.get("paid").asText());
+                shares = shares.add(share);
+                paid = paid.add(itsPaid);
+                BigDecimal[] sum = sums.computeIfAbsent(contribution.get("memberId").asLong(),
+                        id -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                sum[at] = sum[at].add(share);
+                sum[at + 1] = sum[at + 1].add(itsPaid);
+            }
+            assertThat(shares).as("the shares of " + what).isEqualByComparingTo(row.get("total").asText());
+            assertThat(paid).as("what was paid or received of " + what)
+                    .isEqualByComparingTo(row.get("total").asText());
+        }
+        Map<Long, String> balances = new HashMap<>();
+        ok(get(reader, uri + "/balances")).get("members").forEach(member -> balances.put(
+                member.get("memberId").asLong(), member.get("balance").asText()));
+        assertThat(report.get("totals")).hasSameSizeAs(balances.keySet());
+        for (JsonNode total : report.get("totals")) {
+            long member = total.get("memberId").asLong();
+            BigDecimal[] sum = sums.getOrDefault(member,
+                    new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+            String[] fields = {"expenseShares", "expensesPaid", "incomeShares", "incomesReceived"};
+            for (int i = 0; i < fields.length; i++) {
+                assertThat(new BigDecimal(total.get(fields[i]).asText())).as(fields[i] + " of member " + member)
+                        .isEqualByComparingTo(sum[i]);
+            }
+            BigDecimal net = sum[0].subtract(sum[1]).subtract(sum[2]).add(sum[3])
+                    .subtract(new BigDecimal(total.get("settlementsPaid").asText()))
+                    .add(new BigDecimal(total.get("settlementsReceived").asText()));
+            assertThat(new BigDecimal(total.get("net").asText())).as("the net of member " + member)
+                    .isEqualByComparingTo(net).isEqualByComparingTo(balances.get(member));
+        }
+        for (Map.Entry<String, LocalDate> member : personal.entrySet()) {
+            String user = member.getKey();
+            JsonNode own = ok(get(user, uri + "/report?from=" + member.getValue()));
+            long me = StreamSupport.stream(own.get("members").spliterator(), false)
+                    .filter(m -> m.get("you").asBoolean()).findFirst().orElseThrow().get("memberId").asLong();
+            Map<String, String> shares = new TreeMap<>();
+            for (JsonNode row : own.get("rows")) {
+                for (JsonNode contribution : row.get("members")) {
+                    BigDecimal share = new BigDecimal(contribution.get("share").asText());
+                    if (contribution.get("memberId").asLong() == me && share.signum() != 0) {
+                        shares.put(row.get("month").asText() + " " + row.get("categoryName").asText(),
+                                share.stripTrailingZeros().toPlainString());
+                    }
+                }
+            }
+            Map<String, String> cashFlow = new TreeMap<>();
+            for (JsonNode row : ok(get(user, "/api/reports/cash-flow?from=" + member.getValue() + "&to=2100-12-31"))) {
+                if (row.path("familyLedgerId").asLong() == familyId) {
+                    cashFlow.merge(row.get("month").asText() + " " + row.get("categoryName").asText(),
+                            new BigDecimal(row.get("total").asText()).stripTrailingZeros().toPlainString(),
+                            (a, b) -> new BigDecimal(a).add(new BigDecimal(b)).stripTrailingZeros().toPlainString());
+                }
+            }
+            assertThat(cashFlow).as("E3: the family's lines of the personal cash flow of member " + me)
+                    .isEqualTo(shares);
+        }
+        return report;
     }
 
     /** The element of the array whose field has the value. */

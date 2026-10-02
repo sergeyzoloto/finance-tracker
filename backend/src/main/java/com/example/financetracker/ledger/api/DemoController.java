@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.demo.DemoLedgerService;
 import com.example.financetracker.ledger.demo.DemoLedgerView;
+import com.example.financetracker.security.CurrentUser;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,11 +21,12 @@ class DemoController {
 
     /**
      * Fills the user's empty ledger with six months of invented entries in euros and US dollars, ending today, in one
-     * transaction. A ledger with entries, counterparties, or accounts or categories other than the starter ledger's is
-     * refused with 409.
+     * transaction, and while the family budget is switched on also creates the demo's family budget with an invented
+     * partner (H1), in which the user's name is their account's. A ledger with entries, counterparties, or accounts or
+     * categories other than the starter ledger's is refused with 409.
      */
     @PostMapping("/api/demo-data")
-    DemoLedgerView load(LedgerScope ledger) {
-        return demo.load(ledger, LocalDate.now());
+    DemoLedgerView load(CurrentUser user, LedgerScope ledger) {
+        return demo.load(ledger, LocalDate.now(), user.name());
     }
 }

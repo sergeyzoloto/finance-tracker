@@ -146,6 +146,17 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
                 assertThat(ok(get(user, "/api/reports/integrity"))).as("integrity of %s after operation %d (%s)",
                         names.get(user), i, what).isEmpty();
             }
+            // F6c: the family report agrees with the balances (E1), and only ACTIVE members read it.
+            List<Member> now = members(family);
+            for (String user : users) {
+                boolean member = now.stream().anyMatch(m -> user.equals(m.sub()) && m.status().equals("ACTIVE"));
+                if (member) {
+                    checkFamilyReport(user, family, Map.of());
+                } else {
+                    assertThat(get(user, uri + "/report")).as("the report for %s after operation %d (%s)",
+                            names.get(user), i, what).hasStatus(HttpStatus.NOT_FOUND);
+                }
+            }
         }
     }
 

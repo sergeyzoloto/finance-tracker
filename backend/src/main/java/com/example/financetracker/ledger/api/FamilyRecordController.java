@@ -12,6 +12,8 @@ import com.example.financetracker.ledger.family.FamilyConversion;
 import com.example.financetracker.ledger.family.FamilyJournalPage;
 import com.example.financetracker.ledger.family.FamilyRecordChanges;
 import com.example.financetracker.ledger.family.FamilyRecordPage;
+import com.example.financetracker.ledger.family.FamilyReport;
+import com.example.financetracker.ledger.family.FamilyReportService;
 import com.example.financetracker.ledger.family.FamilyRecordService;
 import com.example.financetracker.ledger.family.FamilyRecordView;
 import com.example.financetracker.ledger.family.FamilySwitch;
@@ -268,10 +270,12 @@ class FamilyRecordController {
 
     private final LedgerAccess access;
     private final FamilyRecordService records;
+    private final FamilyReportService reports;
 
-    FamilyRecordController(LedgerAccess access, FamilyRecordService records) {
+    FamilyRecordController(LedgerAccess access, FamilyRecordService records, FamilyReportService reports) {
         this.access = access;
         this.records = records;
+        this.reports = reports;
     }
 
     /** The records, newest first: by date, then by id. */
@@ -363,6 +367,17 @@ class FamilyRecordController {
     @GetMapping("/balances")
     FamilyBalances balances(CurrentUser user, @PathVariable long ledgerId) {
         return records.balances(access.member(user.id(), ledgerId));
+    }
+
+    /**
+     * The family report (E1, F6c): the expenses and incomes by month and category, with each member's share and what
+     * they paid or received, and each member's totals with the settlements, in the base currency. Records dated from
+     * {@code from} to {@code to}, both included; either left out is open.
+     */
+    @GetMapping("/report")
+    FamilyReport report(CurrentUser user, @PathVariable long ledgerId, @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to) {
+        return reports.report(access.member(user.id(), ledgerId), from, to);
     }
 
     /**

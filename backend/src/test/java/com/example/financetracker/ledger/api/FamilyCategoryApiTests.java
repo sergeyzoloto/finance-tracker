@@ -172,12 +172,13 @@ class FamilyCategoryApiTests extends LedgerApiTest {
     }
 
     /**
-     * The demo loads for an ACTIVE member of a family budget whose ledger is otherwise empty, and touches no family
-     * data. Its categories are always personal ones: a starter category that became a family category at a merge comes
-     * back as a personal one beside it, and no demo entry uses a family category.
+     * The demo loads for an ACTIVE member of a family budget whose ledger is otherwise empty, and touches no data of
+     * their family budgets. Since F6c (H1) it creates its own family budget, which brings the demo's categories with a
+     * family category's code and type, merged (D-11): the starter category that came back beside a merged one is the
+     * demo family's now, so no personal twin remains, and no demo entry uses the other budgets' categories.
      */
     @Test
-    void theDemoLoadsForAFamilyMemberAndKeepsItsCategoriesPersonal() throws IOException {
+    void theDemoLoadsForAFamilyMemberAndLeavesNoTwin() throws IOException {
         String dave = newUser();
         ok(get(dave, "/api/accounts"));
         JsonNode davesFamily = newFamily(dave, """
@@ -191,16 +192,18 @@ class FamilyCategoryApiTests extends LedgerApiTest {
                 {"date": "2026-09-10", "categoryId": %d, "amount": "9", "payerMemberId": %d, "paymentLater": true,
                  "split": {"method": "ONE_MEMBER", "memberId": %d}}""".formatted(groceries, mum, daveInHome)),
                 HttpStatus.CREATED);
-        Map<String, String> familyRows = familyDigest();
+        List<Long> theirs = List.of(family, davesFamily.get("id").asLong());
+        Map<String, String> familyRows = familyDigest(theirs);
         long postedToDave = jdbc.sql("""
                 SELECT count(*) FROM family_entry_link l JOIN journal_entry e ON e.id = l.entry_id WHERE e.user_id = ?""")
                 .param(dave).query(Long.class).single();
         assertThat(postedToDave).isOne();
 
-        ok(post(dave, "/api/demo-data", null));
+        long demoFamily = ok(post(dave, "/api/demo-data", null)).get("familyLedgerId").asLong();
 
-        assertThat(familyDigest()).isEqualTo(familyRows);
+        assertThat(familyDigest(theirs)).isEqualTo(familyRows);
         FamilyInvariants.check(jdbc, family);
+        FamilyInvariants.check(jdbc, demoFamily);
         JsonNode categories = ok(get(dave, "/api/categories"));
         List<String> groceryLines = new ArrayList<>();
         categories.forEach(c -> {
@@ -208,7 +211,7 @@ class FamilyCategoryApiTests extends LedgerApiTest {
                 groceryLines.add(c.path("familyLedgerName").asText("personal"));
             }
         });
-        assertThat(groceryLines).containsExactlyInAnyOrder("personal", "Dave's home", "Home");
+        assertThat(groceryLines).containsExactlyInAnyOrder("Dave's home", "Home", "Demo household");
         List<Long> familyCategories = List.of(groceries, davesGroceries);
         assertThat(jdbc.sql("""
                 SELECT count(*) FROM posting p JOIN journal_entry e ON e.id = p.entry_id
@@ -216,8 +219,9 @@ class FamilyCategoryApiTests extends LedgerApiTest {
                   AND NOT EXISTS (SELECT FROM family_entry_link l WHERE l.entry_id = e.id)""")
                 .params(dave, familyCategories.get(0), familyCategories.get(1)).query(Long.class).single()).isZero();
         assertThat(jdbc.sql("""
-                SELECT count(*) FROM family_entry_link l JOIN journal_entry e ON e.id = l.entry_id WHERE e.user_id = ?""")
-                .param(dave).query(Long.class).single()).isOne();
+                SELECT count(*) FROM family_entry_link l JOIN journal_entry e ON e.id = l.entry_id
+                JOIN family_record r ON r.id = l.record_id WHERE e.user_id = ? AND r.ledger_id = ?""")
+                .params(dave, family).query(Long.class).single()).isOne();
         assertThat(ok(get(dave, "/api/reports/integrity"))).isEmpty();
         // Loaded once, the ledger has entries of his own: a second load is refused as before.
         assertThat(post(dave, "/api/demo-data", null)).hasStatus(HttpStatus.CONFLICT);
@@ -269,17 +273,19 @@ class FamilyCategoryApiTests extends LedgerApiTest {
     }
 
     /** Every family table's rows, as text, to compare before and after. */
-    private Map<String, String> familyDigest() {
+    /** A digest of each table's rows of these family ledgers. */
+    private Map<String, String> familyDigest(List<Long> ledgers) {
         Map<String, String> digests = new java.util.LinkedHashMap<>();
+        Map<String, String> rows = Map.of("ledger", "t.id IN (:ledgers)", "ledger_member", "t.ledger_id IN (:ledgers)",
+                "family_record", "t.ledger_id IN (:ledgers)",
+                "family_share", "t.record_id IN (SELECT id FROM family_record WHERE ledger_id IN (:ledgers))",
+                "family_entry_link", "t.record_id IN (SELECT id FROM family_record WHERE ledger_id IN (:ledgers))",
+                "family_record_change", "t.ledger_id IN (:ledgers)", "category", "t.ledger_id IN (:ledgers)");
         for (String table : List.of("ledger", "ledger_member", "family_record", "family_share", "family_entry_link",
-                "family_record_change")) {
+                "family_record_change", "category")) {
             digests.put(table, jdbc.sql("SELECT md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) FROM "
-                    + table + " t").query(String.class).single());
+                    + table + " t WHERE " + rows.get(table)).param("ledgers", ledgers).query(String.class).single());
         }
-        digests.put("family category", jdbc.sql("""
-                SELECT md5(coalesce(string_agg(c::text, '|' ORDER BY c.id), ''))
-                FROM category c JOIN ledger l ON l.id = c.ledger_id WHERE l.type = 'SHARED'""")
-                .query(String.class).single());
         return digests;
     }
 }

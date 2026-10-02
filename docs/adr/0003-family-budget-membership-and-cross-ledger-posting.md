@@ -1724,6 +1724,34 @@ gap, the plan decides, and the decisions are listed at its end for the owner to 
   H4 for creation only, with the API unchanged; the draft's last note (questions for a legal review) kept in the draft
   and not published.
 
+**F6c as built: the family report and the demo family** (2026-10-02). As the plan says, with these details (each to be
+confirmed after the F6c review):
+
+- **E1.** `GET /api/family-ledgers/{ledgerId}/report?from=&to=` (`FamilyRecordController`, `FamilyReportService`, one
+  statement over the records and shares of the period, `REPEATABLE READ`): `FamilyReport` with `currency`, `from`,
+  `to`, `members` (as the balances: id, display name, status, `hasAccount`, `you`), `rows` (`month`, `categoryId`,
+  `categoryName`, `categoryType`, `archived`, `total`, and per member with a share or a payment `share` and `paid`, which
+  is what they received for an income) and `totals` per member (`expenseShares`, `expensesPaid`, `incomeShares`,
+  `incomesReceived`, `settlementsPaid`, `settlementsReceived`, `net`). Rows by month, expenses before incomes, then by
+  category name. A row's `total` is what its payers paid, which its shares add up to. `from` after `to` is a 400.
+- **E3's check** is `LedgerApiTest.checkFamilyReport`, run by the report's tests and after every operation of
+  `FamilyRecordRandomTests` (with both members' personal cash flow) and `FamilyLifecycleRandomTests` (the report against
+  the balances, and 404 for everyone who isn't ACTIVE). **Found:** the check's personal part holds only for a member who
+  uses the family's categories through the family budget alone. A member whose personal categories merged into the
+  family's (D-11) keeps their own entries in them, and the personal cash flow's line of such a category holds those
+  entries and the shares together: the line is marked as the family's, but the shares aren't apart from the member's
+  own purchases. The demo shows it (its groceries). Separating them would need a part of each family line that the
+  shares make up (an additive field of the cash flow, and a line of the dashboard); not built, for the owner to decide.
+- **H1.** `DemoFamily` (plain Java, like `DemoLedger`) plans the records; `DemoLedgerService` records them through
+  `FamilyLedgerService.create` and `addMember`, and `FamilyRecordService.create` and `settle`, only while the switch is
+  on. 15 records (six shops paid by the user from the current account, six water bills paid by Sam, a weekend away of
+  240.00 dollars with 205.10 euros given, a party's food split 60/40 and paid by Sam, the sale of a bike received by the
+  user) and Sam's 3 settlements, 26 entries in the user's ledger. The user's name is their account's (`CurrentUser`),
+  "Me" without one; Sam is "Sam (partner)" if the user is called Sam. `DemoLedgerView.familyLedgerId` is left out with
+  the switch off. Tests that loaded the demo with the switch on and assumed no family rows now count them
+  (`DemoDataApiTests`, `UserDataApiTests`, `FamilyCategoryApiTests`, whose twin is gone); `FamilySwitchOffApiTests`
+  keeps the demo's numbers of before with the switch off.
+
 ### K. Test strategy
 
 **Isolation, three users.** A new `FamilyIsolationApiTests` next to `DataIsolationApiTests`, which

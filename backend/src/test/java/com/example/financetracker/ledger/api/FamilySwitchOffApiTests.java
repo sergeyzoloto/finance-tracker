@@ -8,7 +8,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.example.financetracker.ledger.FamilyPayments;
+import com.example.financetracker.ledger.demo.DemoFamily;
 import com.example.financetracker.ledger.family.FamilySwitch;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,8 +42,8 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     void everyFamilyEndpointAnswers404LikeAnUnknownPath() throws IOException {
         List<String[]> endpoints = familyEndpoints();
         // 22 until F4c; POST /settlements since F4d; GET /conversion since F4e; six for invites since F5; leaving
-        // (DELETE /members/me), making an owner and what "Delete all my data" touches since F6a.
-        assertThat(endpoints).hasSize(33);
+        // (DELETE /members/me), making an owner and what "Delete all my data" touches since F6a; the report since F6c.
+        assertThat(endpoints).hasSize(34);
         assertThat(context.getBeanNamesForType(FamilyLedgerController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyRecordController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyPaymentController.class)).isEmpty();
@@ -117,6 +119,33 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
         assertThat(ok(get(user, "/api/entries?size=200")).get("content").findValues("family"))
                 .allSatisfy(family -> assertThat(family.isNull()).isTrue());
+    }
+
+    /**
+     * The demo with the switch off is exactly as before F6c (H1): no family budget, no new field in its answer, the
+     * same entries and balances as {@code DemoDataApiTests} counted before the demo family, and the categories that the
+     * demo family would bring stay personal.
+     */
+    @Test
+    void theDemoCreatesNoFamilyBudget() throws IOException {
+        JsonNode demo = ok(post(user, "/api/demo-data", null));
+
+        assertThat(demo.has("familyLedgerId")).isFalse();
+        int total = demo.get("entriesByKind").properties().stream().mapToInt(kind -> kind.getValue().asInt()).sum();
+        assertThat(total).isEqualTo(138);
+        assertThat(ok(get(user, "/api/entries?size=1")).get("totalElements").asInt()).isEqualTo(total);
+        JsonNode balances = ok(get(user, "/api/reports/balances"));
+        assertThat(find(balances, "accountCode", "CURRENT_ACCOUNT").get("balance").asText()).isEqualTo("6054.12");
+        assertThat(find(balances, "accountCode", "USD_ACCOUNT").get("balance").asText()).isEqualTo("1247.00");
+        assertThat(find(balances, "accountCode", "CREDIT_CARD").get("balance").asText()).isEqualTo("94.69");
+        assertThat(ok(get(user, "/api/reports/shared-settlement")).get(0).get("balance").asText()).isEqualTo("-88.60");
+        JsonNode categories = ok(get(user, "/api/categories"));
+        for (String code : DemoFamily.CATEGORIES) {
+            assertThat(find(categories, "code", code).has("familyLedgerId")).as(code).isFalse();
+        }
+        assertThat(jdbc.sql("SELECT count(*) FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED'")
+                .param(user).query(Long.class).single()).isZero();
+        assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
     }
 
     /** Each endpoint of the family controllers as {method, path}, with 1 for every id in the path. */

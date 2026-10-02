@@ -27,7 +27,8 @@ import org.springframework.http.HttpStatus;
  * rate or with the base amount entered, some paid from Alice's dollar card. After every operation the family ledger's
  * invariants hold
  * ({@link FamilyInvariants}): the balances sum to zero, each debt account shows its member's family balance on every
- * record's date, and every posted entry balances.
+ * record's date, and every posted entry balances; and since F6c the family report agrees with the balances and with each
+ * member's personal cash flow (E1, E3; {@link #checkFamilyReport}).
  */
 class FamilyRecordRandomTests extends LedgerApiTest {
 
@@ -250,6 +251,9 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 done.merge("delete", 1, Integer::sum);
             }
             FamilyInvariants.check(jdbc, family);
+            // E1's report against the balances, and E3's check for both members with an account (F6c).
+            checkFamilyReport(i % 2 == 0 ? alice : bob, family,
+                    Map.of(alice, LocalDate.of(2026, 9, 1), bob, LocalDate.of(2026, 9, 1)));
         }
 
         // What the seed gives: every kind of operation, many times.

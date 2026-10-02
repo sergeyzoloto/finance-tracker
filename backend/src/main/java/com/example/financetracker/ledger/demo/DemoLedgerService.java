@@ -3,7 +3,9 @@ package com.example.financetracker.ledger.demo;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.EnumMap;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -14,20 +16,29 @@ import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.StarterLedger;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
+import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.demo.DemoLedger.DemoAccount;
 import com.example.financetracker.ledger.demo.DemoLedger.DemoCategory;
 import com.example.financetracker.ledger.demo.DemoLedger.DemoCounterparty;
 import com.example.financetracker.ledger.domain.EntryCommand;
 import com.example.financetracker.ledger.domain.EntryKind;
+import com.example.financetracker.ledger.family.FamilyLedgerService;
+import com.example.financetracker.ledger.family.FamilyLedgerView;
+import com.example.financetracker.ledger.family.FamilyRecordService;
+import com.example.financetracker.ledger.family.FamilySwitch;
+import com.example.financetracker.ledger.family.NewFamilyRecord;
+import com.example.financetracker.ledger.family.NewSettlement;
+import com.example.financetracker.ledger.family.RecordSplit;
+import com.example.financetracker.ledger.family.SplitRule;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Fills a user's empty personal ledger with the {@link DemoLedger}. Callers pass the {@link LedgerScope} that
- * LedgerAccess resolved (rule 11). Everything happens in one transaction, so a user gets the whole demo or nothing of
- * it.
+ * Fills a user's empty personal ledger with the {@link DemoLedger} and, while the family budget is switched on (D-25),
+ * creates the {@link DemoFamily} (H1). Callers pass the {@link LedgerScope} that LedgerAccess resolved (rule 11).
+ * Everything happens in one transaction, so a user gets the whole demo or nothing of it.
  */
 @Service
 public class DemoLedgerService {
@@ -39,13 +50,22 @@ public class DemoLedgerService {
     private final StarterLedger starterLedger;
     private final EntryService entries;
     private final UserSettingsRepository settings;
+    private final FamilySwitch familySwitch;
+    private final LedgerAccess access;
+    private final FamilyLedgerService families;
+    private final FamilyRecordService familyRecords;
 
     DemoLedgerService(JdbcClient jdbc, StarterLedger starterLedger, EntryService entries,
-            UserSettingsRepository settings) {
+            UserSettingsRepository settings, FamilySwitch familySwitch, LedgerAccess access,
+            FamilyLedgerService families, FamilyRecordService familyRecords) {
         this.jdbc = jdbc;
         this.starterLedger = starterLedger;
         this.entries = entries;
         this.settings = settings;
+        this.familySwitch = familySwitch;
+        this.access = access;
+        this.families = families;
+        this.familyRecords = familyRecords;
     }
 
     /**
@@ -54,18 +74,26 @@ public class DemoLedgerService {
      * FAMILY_DEBT for shared expenses and a share of 0.50. Every entry goes through {@link EntryService}, so the
      * ledger's rules hold for it as for any other.
      * <p>
-     * For a member of family budgets (F4a) the demo touches no family data: the family budget's entries in the ledger
-     * stay, and the demo's categories are always personal ones. A starter category that became a family category
-     * when a family budget was created (D-11's merge) is created again in the personal ledger, beside the family one
-     * with the same code, which the category list marks with its family budget; no demo entry uses a family category.
+     * For a member of family budgets (F4a) the demo touches none of their family data: their family budgets' entries
+     * in the ledger stay. A starter category that became a family category when a family budget was created (D-11's
+     * merge) is created again in the personal ledger, beside the family one with the same code. While the family
+     * budget is switched off, it stays so, and no demo entry uses a family category.
+     * <p>
+     * While it is switched on, the demo then creates its family budget (H1), through the family budget's own services:
+     * {@link DemoFamily#NAME} in euros, from the demo's first day, with the user as its owner and the invented partner
+     * {@link DemoFamily#PARTNER} without an account. It brings the demo's categories of {@link DemoFamily#CATEGORIES}
+     * and every personal category with the code and type of a family category of the user's other family budgets, and
+     * D-11's merge moves their postings to the family's categories and deletes the personal ones, so that no personal
+     * twin of a family category remains. Its records and settlements are posted as for any family budget.
      *
      * @param personalLedger the user's personal ledger, whose member the settings belong to
+     * @param displayName the user's name in the demo family budget; null or blank for {@link DemoFamily#YOU}
      * @throws ConflictException if the ledger has any entries or counterparties, or accounts or categories other than
      *         the starter ledger's
      * @throws NotFoundException if the ledger was deleted meanwhile, with all the user's data
      */
     @Transactional
-    public DemoLedgerView load(LedgerScope personalLedger, LocalDate today) {
+    public DemoLedgerView load(LedgerScope personalLedger, LocalDate today, String displayName) {
         // The settings row serializes this with a concurrent load into the same ledger, and with the deletion of all
         // the user's data, which deletes that row first. After such a deletion the ledger is gone.
         jdbc.sql("SELECT user_id FROM user_settings WHERE user_id = :userId FOR UPDATE")
@@ -122,8 +150,70 @@ public class DemoLedgerService {
             entries.create(personalLedger, command);
             byKind.merge(command.kind(), 1, Integer::sum);
         }
+        LocalDate from = commands.getFirst().entryDate();
+        Long familyLedgerId = familySwitch.enabled() ? family(personalLedger, from, today, displayName) : null;
         return new DemoLedgerView(byKind, DemoLedger.ACCOUNTS.size(), DemoLedger.CATEGORIES.size(),
-                DemoLedger.COUNTERPARTIES.size(), commands.getFirst().entryDate(), commands.getLast().entryDate());
+                DemoLedger.COUNTERPARTIES.size(), from, commands.getLast().entryDate(), familyLedgerId);
+    }
+
+    /** Creates the demo's family budget (H1) and records {@link DemoFamily#plan}; returns its id. */
+    private long family(LedgerScope personalLedger, LocalDate start, LocalDate today, String displayName) {
+        Map<String, Long> personalCategories = idsBy(personalLedger,
+                "SELECT code AS key, id FROM category WHERE ledger_id = :ledgerId");
+        LinkedHashSet<Long> brought = new LinkedHashSet<>();
+        DemoFamily.CATEGORIES.forEach(code -> brought.add(Objects.requireNonNull(personalCategories.get(code),
+                () -> "No category " + code)));
+        brought.addAll(twins(personalLedger));
+        String you = displayName == null || displayName.isBlank() ? DemoFamily.YOU : displayName.strip();
+        FamilyLedgerView created = families.create(personalLedger, DemoFamily.NAME, DemoLedger.BASE_CURRENCY, start,
+                you, SplitRule.EQUAL, new ArrayList<>(brought));
+        LedgerScope owner = access.owner(personalLedger.userId(), created.id());
+        long partner = families.addMember(owner, you.equalsIgnoreCase(DemoFamily.PARTNER)
+                ? DemoFamily.PARTNER + " (partner)" : DemoFamily.PARTNER).id();
+        long me = created.memberId();
+        Map<String, Long> familyCategories = idsBy(owner,
+                "SELECT code AS key, id FROM category WHERE ledger_id = :ledgerId");
+        Map<String, Long> accounts = idsBy(personalLedger,
+                "SELECT code AS key, id FROM account WHERE ledger_id = :ledgerId");
+
+        DemoFamily.Plan plan = DemoFamily.plan(start, today);
+        for (DemoFamily.Record record : plan.records()) {
+            boolean mine = record.payer() == DemoFamily.Who.YOU;
+            RecordSplit split = record.yourBasisPoints() == null ? RecordSplit.rule()
+                    : new RecordSplit(RecordSplit.Method.PERCENT, List.of(
+                            new RecordSplit.ShareInput(me, record.yourBasisPoints(), null),
+                            new RecordSplit.ShareInput(partner, 10_000 - record.yourBasisPoints(), null)), null);
+            familyRecords.create(owner, personalLedger, new NewFamilyRecord(record.type(), record.date(),
+                    familyCategories.get(record.category()), record.amountValue(), record.comment(),
+                    mine ? me : partner, mine ? accounts.get(record.account()) : null, false, split, null,
+                    record.currency(), record.baseAmountValue()));
+        }
+        for (DemoFamily.Settlement settlement : plan.settlements()) {
+            familyRecords.settle(owner, personalLedger, new NewSettlement(settlement.date(), settlement.amountValue(),
+                    partner, me, settlement.comment(), accounts.get(settlement.account()), false, null, null));
+        }
+        return created.id();
+    }
+
+    /**
+     * The user's personal categories with the code and type of a family category of a family budget they are an
+     * ACTIVE member of: the starter categories that {@link StarterLedger#restore} brought back beside a merged one.
+     */
+    private List<Long> twins(LedgerScope personalLedger) {
+        List<Long> families = access.families(personalLedger.userId()).stream().map(LedgerScope::ledgerId).toList();
+        if (families.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("""
+                SELECT p.id FROM category p
+                WHERE p.ledger_id = :ledgerId
+                  AND EXISTS (SELECT FROM category f WHERE f.ledger_id IN (:families) AND f.code = p.code
+                              AND f.type = p.type)
+                ORDER BY p.code""")
+                .param("ledgerId", personalLedger.ledgerId())
+                .param("families", families)
+                .query(Long.class)
+                .list();
     }
 
     /**

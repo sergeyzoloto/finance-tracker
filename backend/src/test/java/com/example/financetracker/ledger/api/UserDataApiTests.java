@@ -29,18 +29,22 @@ class UserDataApiTests extends LedgerApiTest {
     @Test
     void deletesADemoLedgerAndTheUserCanLoadTheDemoAgain() throws IOException {
         String user = newUser();
-        ok(post(user, "/api/demo-data", null));
+        long family = ok(post(user, "/api/demo-data", null)).get("familyLedgerId").asLong();
         ok(post(user, "/api/rates/manual", """
                 {"date": "2026-08-01", "base": "EUR", "quote": "USD", "rate": "1.10"}"""));
         ok(put(user, "/api/settings", """
                 {"baseCurrency": "USD", "defaultShareRatio": "0.4"}"""));
-        // Rows in every table but import_batch, and those of family ledgers, which the user has none of.
+        // Rows in every table but import_batch, and, with the demo's family budget (H1, F6c), in those of family
+        // ledgers but the invites.
         assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows > 0).as(table)
-                .isEqualTo(!table.equals("import_batch") && !FAMILY_ROWS.contains(table)));
+                .isEqualTo(!table.equals("import_batch") && !table.equals("family ledger_invite")));
 
         assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
 
         assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+        // The demo family went with it (D-20): no row of it is left.
+        assertThat(familyRows(family)).isEqualTo("ledgers 0, members 0, categories 0");
+        assertThat(recordRows(family)).isEqualTo("records 0, shares 0, links 0, journal 0, invites 0");
         startsAgainAsANewUser(user);
         ok(post(user, "/api/demo-data", null));
         assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
@@ -83,14 +87,17 @@ class UserDataApiTests extends LedgerApiTest {
     void theRunbooksDeleteAUserLeavesNothingOfTheUserAndChangesNobodyElses() throws IOException {
         String user = newUser();
         String other = newUser();
-        ok(post(user, "/api/demo-data", null));
+        long family = ok(post(user, "/api/demo-data", null)).get("familyLedgerId").asLong();
         ok(post(other, "/api/demo-data", null));
-        assertThat(rowsOf(user)).containsEntry("ledger", 1L).containsEntry("ledger_member", 1L);
+        // The personal ledger and the demo's family budget (H1, F6c), with a membership in each.
+        assertThat(rowsOf(user)).containsEntry("ledger", 2L).containsEntry("ledger_member", 2L);
         Map<String, String> othersRows = digestOf(other);
 
         runbooksDeleteAUser(user);
 
         assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
+        assertThat(familyRows(family)).isEqualTo("ledgers 0, members 0, categories 0");
+        assertThat(recordRows(family)).isEqualTo("records 0, shares 0, links 0, journal 0, invites 0");
         assertThat(digestOf(other)).isEqualTo(othersRows);
     }
 
@@ -448,6 +455,17 @@ class UserDataApiTests extends LedgerApiTest {
                     CASE WHEN user_sub IS NULL THEN 'no account' ELSE 'account' END)
                 FROM ledger_member WHERE ledger_id = ? ORDER BY join_date, id""").param(family)
                 .query(String.class).list();
+    }
+
+    /** A family ledger's records, their shares and links, its journal and invites, by its id. */
+    private String recordRows(long family) {
+        return jdbc.sql("""
+                SELECT 'records ' || (SELECT count(*) FROM family_record WHERE ledger_id = :family)
+                    || ', shares ' || (SELECT count(*) FROM family_share WHERE ledger_id = :family)
+                    || ', links ' || (SELECT count(*) FROM family_entry_link WHERE family_ledger_id = :family)
+                    || ', journal ' || (SELECT count(*) FROM family_record_change WHERE ledger_id = :family)
+                    || ', invites ' || (SELECT count(*) FROM ledger_invite WHERE ledger_id = :family)""")
+                .param("family", family).query(String.class).single();
     }
 
     private String familyRows(long family) {

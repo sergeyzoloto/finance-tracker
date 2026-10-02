@@ -30,9 +30,51 @@ Not committed yet.
     check proves nothing beyond the trusted range and is dropped. ADR 0003's F6a paragraph that planned it says so.
   - CLAUDE.md: production runs `f0425c0` on V10, with the switch off "until F7b's deploy".
   - The F7 change log entry below: `f0425c0`, its deploy record, its "Open" items.
+- The web image readable whatever the checkout's modes (commit "fix: the web image readable whatever the checkout's
+  modes"):
+  - `frontend/Dockerfile`: the build stage sets every folder of `dist` to 0755 and every file to 0644 after
+    `npm run build` (Vite copies `public/` with each file's mode); the `web` stage copies `web.conf` with
+    `--chmod=0644`. `COPY` makes both root's. A single `--chmod` would give folders 0644 too, so `dist` gets its modes
+    in the build stage. BuildKit, which `--chmod` needs, is what CI and the server (`docker compose build`, through
+    bake) use; the api's Dockerfile needs it already, for `RUN --mount`.
+  - `.github/scripts/check-web-image.sh` (new): builds the `web` target from a folder as it is, or with
+    `--server-modes` from a copy whose files are 600 and folders 700, then checks the image inside as its own user
+    (everything under `/usr/share/nginx/html` and `/etc/nginx/conf.d` readable by others, every file read through, the
+    files root's) and through its own nginx: F7's checks of `/privacy`, `/privacy.html`, `/`, an SPA path, `/assets/`
+    and the favicons, and no `Permission denied` in its log. Every failure is printed, not only the first.
+  - CI's job "Web image" runs it twice, from the checkout and with `--server-modes`; ShellCheck covers it.
+  - The audit of every file from the repository that a non-root process reads in production, built from a tree of
+    600 files and 700 folders:
+    - web (uid 101): before the fix, `/etc/nginx/conf.d/default.conf` (`web.conf`) `-rw------- root`, so nginx
+      stops at start (`[emerg] open() "/etc/nginx/conf.d/default.conf" failed (13: Permission denied)`) and web would
+      never be healthy; `privacy.html`, `privacy.css`, `favicon.ico` and `favicon.svg` `-rw-------`; `index.html` and
+      `assets/` (written inside the build container) 644 and 755. After it, all 644, folders 755, root's.
+    - api (`app`, uid 999): it reads `/app/app.jar` only, written by Maven inside the build container: `-rw-r--r--
+      root` either way; the sources' modes never reach the image.
+    - Bind mounts of `deploy/app/docker-compose.yml`: only `postgres-init.sh`, which the postgres image reads as
+      uid 999 when it initializes a new volume. At 600: `docker-entrypoint.sh: line 188:
+      /docker-entrypoint-initdb.d/10-finance.sh: Permission denied`, and the container exits 1. It is read only for a
+      new volume, `deploy.sh` refuses a change to it, and it has been unchanged since the clone of 2026-09-28; from
+      F7b's scripts on, no merge or checkout of theirs writes a file as 600.
 
 **Verified**
 - Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `f0425c0`, the tree clean.
+- The web image, with `.github/scripts/check-web-image.sh` as CI runs it:
+  - `f0425c0`'s `frontend` (`git archive`) with `--server-modes`: 2 problems. Inside, `default.conf`, `privacy.html`,
+    `privacy.css` and both favicons not readable by nginx; nginx didn't start, exit code 1, `open()
+    "/etc/nginx/conf.d/default.conf" failed (13: Permission denied)`.
+  - `f0425c0`'s `frontend` as the server had it, `privacy.html` alone 600: 4 problems. Inside, `privacy.html` not
+    readable by nginx (`-rw------- root root`, 20328 bytes, as on the server); `/privacy` and `/privacy.html` 403;
+    nginx logged `open() "/usr/share/nginx/html/privacy.html" failed (13: Permission denied)`, as in production; `/`,
+    the SPA path, `/assets/`, `/assets/missing.js` 404 and both favicons as expected.
+  - The fix, from the checkout and with `--server-modes`: every check passed, everything under
+    `/usr/share/nginx/html` 644 or 755 and root's, `default.conf` `-rw-r--r-- root`.
+  - The server's way: `docker compose -p f7b-bake build --no-cache api web` (bake) from a copy of `deploy/app`,
+    `frontend` and `backend` with files 600 and folders 700: web as above, the api's `/app/app.jar` `-rw-r--r-- root`,
+    read by `app`.
+  - `postgres:17.11` (production's digest) with that copy's `postgres-init.sh` (600) on a new volume: exit 1,
+    `Permission denied` (the audit above).
+  - ShellCheck 0.11.0 on the script: clean. The workflow parses as YAML.
 
 **Open**
 - The `switch off` summary isn't in "Deployed revisions" yet: it wasn't given with the task; copy it from its run

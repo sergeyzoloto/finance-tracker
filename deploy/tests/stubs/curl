@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Stub of curl for deploy/tests/run.sh: records the call and answers GitHub's check runs from fixtures/ci.<n> (the n-th
+# call) or fixtures/ci. No network.
+set -euo pipefail
+S=${STUB_STATE:?}
+printf 'curl %s\n' "$*" >>"$S/calls"
+url=${*: -1}
+case $url in
+  https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/*/check-runs\?per_page=100) ;;
+  *) echo "curl stub: unexpected URL $url" >&2; exit 99 ;;
+esac
+n=$(($(cat "$S/count-ci" 2>/dev/null || echo 0) + 1))
+echo "$n" >"$S/count-ci"
+f=$S/fixtures/ci
+[ -f "$f.$n" ] && f=$f.$n
+cat "$f"

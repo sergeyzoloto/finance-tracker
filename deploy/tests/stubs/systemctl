@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Stub of systemctl for deploy/tests/run.sh: records every call; "start pg-backup@finance.service" writes a fake dump
+# and last-success into $DEPLOY_BACKUP_DIR, as the auth server's pg-backup does, unless fixtures/backup-fails exists.
+set -euo pipefail
+S=${STUB_STATE:?}
+printf 'systemctl %s\n' "$*" >>"$S/calls"
+if [ "$*" = "start pg-backup@finance.service" ]; then
+  [ -f "$S/fixtures/backup-fails" ] && exit 1
+  dir=${DEPLOY_BACKUP_DIR:?}
+  n=$(($(find "$dir" -name 'finance-*.dump' 2>/dev/null | wc -l) + 1))
+  file=finance-$(date -u +%Y-%m-%dT%H%MZ)-$n.dump
+  head -c $((1449000 + n)) /dev/zero >"$dir/$file"
+  printf 'last_success=%s\nlast_success_epoch=%s\nfile=%s\nsize_bytes=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date +%s)" "$file" $((1449000 + n)) >"$dir/last-success"
+fi

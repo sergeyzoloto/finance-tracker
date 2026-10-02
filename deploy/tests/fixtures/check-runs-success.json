@@ -1,0 +1,59 @@
+{
+ "total_count": 6,
+ "check_runs": [
+  {
+   "id": 110706054161,
+   "head_sha": "c26cff6fc3f22dba2d278431ed54ea1ebc8c985e",
+   "name": "Dependency updates",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-10-02T04:29:40Z",
+   "completed_at": "2026-10-02T04:29:56Z"
+  },
+  {
+   "id": 110706054155,
+   "head_sha": "c26cff6fc3f22dba2d278431ed54ea1ebc8c985e",
+   "name": "Backend",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-10-02T04:29:40Z",
+   "completed_at": "2026-10-02T04:32:30Z"
+  },
+  {
+   "id": 110706054033,
+   "head_sha": "c26cff6fc3f22dba2d278431ed54ea1ebc8c985e",
+   "name": "Frontend",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-10-02T04:29:40Z",
+   "completed_at": "2026-10-02T04:30:11Z"
+  },
+  {
+   "id": 110706053782,
+   "head_sha": "c26cff6fc3f22dba2d278431ed54ea1ebc8c985e",
+   "name": "Backend",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-10-02T04:29:40Z",
+   "completed_at": "2026-10-02T04:32:27Z"
+  },
+  {
+   "id": 110706053770,
+   "head_sha": "c26cff6fc3f22dba2d278431ed54ea1ebc8c985e",
+   "name": "Frontend",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-10-02T04:29:40Z",
+   "completed_at": "2026-10-02T04:30:09Z"
+  },
+  {
+   "id": 110706053634,
+   "head_sha": "c26cff6fc3f22dba2d278431ed54ea1ebc8c985e",
+   "name": "Dependency updates",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-10-02T04:29:40Z",
+   "completed_at": "2026-10-02T04:29:51Z"
+  }
+ ]
+}

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stub of install for deploy/tests/run.sh: records the call and changes nothing.
+set -euo pipefail
+printf 'install %s\n' "$*" >>"${STUB_STATE:?}/calls"

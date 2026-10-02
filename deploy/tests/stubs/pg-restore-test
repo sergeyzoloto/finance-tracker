@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Stub of the auth server's pg-restore-test for deploy/tests/run.sh: records the call, runs fixtures/on-restore-test
+# once if present, and prints the real one's table with PASS, or FAIL when fixtures/restore.<n> (the n-th call) or
+# fixtures/restore says FAIL.
+set -euo pipefail
+S=${STUB_STATE:?}
+printf 'pg-restore-test %s\n' "$*" >>"$S/calls"
+n=$(($(cat "$S/count-restore" 2>/dev/null || echo 0) + 1))
+echo "$n" >"$S/count-restore"
+if [ -x "$S/fixtures/on-restore-test" ]; then "$S/fixtures/on-restore-test"; rm -f "$S/fixtures/on-restore-test"; fi
+result=PASS
+if [ -f "$S/fixtures/restore.$n" ]; then result=$(cat "$S/fixtures/restore.$n"); elif [ -f "$S/fixtures/restore" ]; then result=$(cat "$S/fixtures/restore"); fi
+dump=$(find "${DEPLOY_BACKUP_DIR:?}" -name 'finance-*.dump' -printf '%T@ %p\n' | sort -rn | head -n 1 | cut -d' ' -f2-)
+mark=ok
+[ "$result" = PASS ] || mark=MISMATCH
+cat <<OUT
+Restore test for 'finance'
+Dump:      $dump ($(stat -c %s "$dump") bytes)
+Image:     postgres:17.11 (the image production runs)
+Container: pg-restore-test-finance (--network none, no published ports, data on tmpfs)
+Restored in 1s
+
+check                      production     restored
+tables                             19           19  ok
+migration                           9            9  ok
+users                               2            2  $mark
+family_records                      0            0  ok
+family_shares                       0            0  ok
+family_links                        0            0  ok
+family_journal                      0            0  ok
+family_invites                      0            0  ok
+
+No test container left (pg-restore-test-finance).
+$result
+OUT
+[ "$result" = PASS ]

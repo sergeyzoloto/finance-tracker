@@ -59,6 +59,26 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  deploy-scripts:
+    name: Deploy scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The scripts that deploy to production (deploy/deploy.sh, deploy/rollback.sh), their tests and stubs.
+      - name: ShellCheck
+        run: >-
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 -x
+          deploy/deploy.sh deploy/rollback.sh deploy/common.sh
+          deploy/tests/run.sh deploy/tests/mutate.sh deploy/tests/stubs/*
+
+      # Against stubs of docker, systemctl, pg-restore-test, curl and install, in a temp folder: no container, no network.
+      - name: Tests
+        run: deploy/tests/run.sh
+
+      - name: Mutations
+        run: deploy/tests/mutate.sh
+
   dependencies:
     name: Dependency updates
     runs-on: ubuntu-latest

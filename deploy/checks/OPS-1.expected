@@ -1,0 +1,11 @@
+flyway latest 9 family invites true
+family_accounts 0
+family_invites 0
+family_journal 0
+family_ledgers 0
+family_links 0
+family_members 0
+family_records 0
+family_shares 0
+trigger ledger_invite_check on app.ledger_invite true
+release_family_memberships refers to ledger_invite true

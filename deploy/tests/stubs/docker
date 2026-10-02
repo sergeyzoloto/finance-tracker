@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Stub of docker for deploy/tests/run.sh: records every call in $STUB_STATE/calls and answers from $STUB_STATE, a
+# fake image store and two fake containers. It never runs the real docker; an unknown call fails with 99.
+#   images/<repo>/<tag>            an image ID per tag ("latest" for a bare repo name)
+#   containers/<name>/image        the ID of the image the container runs
+#   containers/<name>/started      its .State.StartedAt
+#   containers/<name>/health       health states, one per line; each inspect takes the first, the last one stays
+#   containers/<name>/env          its environment, KEY=value lines (holds a fake secret)
+#   log-api                        the api's log, "<timestamp> <line>"
+#   fixtures/                      what psql, a build and a start answer (deploy/tests/run.sh, setup_case)
+set -euo pipefail
+S=${STUB_STATE:?}
+printf 'docker %s\n' "$*" >>"$S/calls"
+
+now() { date -u +%Y-%m-%dT%H:%M:%S.%NZ; }
+new_id() { printf 'sha256:%s' "$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)"; }
+
+# next_fixture NAME: fixtures/NAME.<n> for the n-th call of NAME, else fixtures/NAME.
+next_fixture() {
+  local n=0
+  [ -f "$S/count-$1" ] && n=$(cat "$S/count-$1")
+  n=$((n + 1))
+  echo "$n" >"$S/count-$1"
+  if [ -f "$S/fixtures/$1.$n" ]; then echo "$S/fixtures/$1.$n"; else echo "$S/fixtures/$1"; fi
+}
+
+resolve() {
+  local ref=$1 repo tag
+  if [[ $ref == sha256:* ]]; then echo "$ref"; return; fi
+  repo=${ref%%:*}
+  tag=latest
+  [[ $ref == *:* ]] && tag=${ref#*:}
+  [ -f "$S/images/$repo/$tag" ] || { echo "Error response from daemon: No such image: $ref" >&2; return 1; }
+  cat "$S/images/$repo/$tag"
+}
+
+container() {
+  [ -d "$S/containers/$1" ] || { echo "Error: No such object: $1" >&2; exit 1; }
+}
+
+inspect() {
+  local template=$3 name=$4 f
+  container "$name"
+  case $template in
+    '{{.Image}}') cat "$S/containers/$name/image" ;;
+    '{{.State.StartedAt}}') cat "$S/containers/$name/started" ;;
+    '{{.State.Health.Status}}')
+      f=$S/containers/$name/health
+      head -n 1 "$f"
+      if [ "$(wc -l <"$f")" -gt 1 ]; then sed -i 1d "$f"; fi
+      ;;
+    *.Config.Env*FAMILY_LEDGERS_ENABLED*)
+      # What the real template prints: that one variable, or nothing.
+      grep '^FAMILY_LEDGERS_ENABLED=' "$S/containers/$name/env" || true
+      ;;
+    *.Config.Env*) cat "$S/containers/$name/env" ;;   # the whole environment, secret included
+    *) echo "docker stub: unknown inspect template: $template" >&2; exit 99 ;;
+  esac
+}
+
+psql_call() {
+  local args=$* sql f
+  [[ $args == *"PGOPTIONS=-c default_transaction_read_only=on"* ]] \
+    || { echo "docker stub: psql without default_transaction_read_only=on: $args" >&2; exit 97; }
+  if [[ $args == *" -f -"* ]]; then
+    sql=$(cat)
+    case $sql in
+      *"'outside_their_ledger'"*) f=$(next_fixture numbers) ;;
+      *"'flyway latest '"*) f=$(next_fixture stage) ;;
+      *) echo "docker stub: unknown SQL file" >&2; exit 99 ;;
+    esac
+  else
+    case $args in
+      *flyway_schema_history*) f=$(next_fixture flyway) ;;
+      *app.family_record*) f=$(next_fixture family_records) ;;
+      *) echo "docker stub: unknown query: $args" >&2; exit 99 ;;
+    esac
+  fi
+  cat "$f"
+}
+
+up() {
+  local svc name id t line
+  for svc in api web; do
+    name=finance-tracker-$svc
+    id=$(cat "$S/images/$name/latest")
+    [ "$id" != "$(cat "$S/containers/$name/image")" ] || continue   # Compose leaves an unchanged container running
+    echo "$id" >"$S/containers/$name/image"
+    t=$(now)
+    echo "$t" >"$S/containers/$name/started"
+    cp "$S/fixtures/health-$svc" "$S/containers/$name/health"
+    if [ "$svc" = api ]; then
+      while IFS= read -r line; do printf '%s %s\n' "$(now)" "$line" >>"$S/log-api"; done <"$S/fixtures/start-log"
+    fi
+    echo " Container $name  Started"
+  done
+}
+
+logs() {
+  local since=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --since) since=$2; shift ;;
+    esac
+    shift
+  done
+  awk -v since="$since" 'since == "" || $1 >= since' "$S/log-api"
+}
+
+compose() {
+  case $1 in
+    version) echo "Docker Compose version v2.40.0 (stub)" ;;
+    build)
+      [ -f "$S/fixtures/build-fails" ] && { echo "build failed (stub)" >&2; exit 1; }
+      [ -x "$S/fixtures/on-build" ] && "$S/fixtures/on-build"
+      new_id >"$S/images/finance-tracker-$2/latest"
+      echo " Image finance-tracker-$2 Built"
+      ;;
+    up) up ;;
+    ps) printf 'NAME\tSTATUS\nfinance-tracker-api\tUp (%s)\nfinance-tracker-web\tUp (healthy)\n' "$(head -n 1 "$S/containers/finance-tracker-api/health")" ;;
+    logs) shift; logs "$@" ;;
+    exec) shift; psql_call "$@" ;;
+    config) cat "$S/containers/finance-tracker-api/env" ;;   # the real one prints the secrets too
+    *) echo "docker stub: unknown compose command: $*" >&2; exit 99 ;;
+  esac
+}
+
+case $1 in
+  compose) shift; compose "$@" ;;
+  inspect) [ "$2" = -f ] || exit 99; inspect "$@" ;;
+  image)
+    case $2 in
+      inspect) [ "$3" = -f ] && [ "$4" = '{{.Id}}' ] || exit 99; resolve "$5" ;;
+      ls) [ "$3" = --format ] && [ "$4" = '{{.Tag}}' ] || exit 99; ls "$S/images/$5" 2>/dev/null || true ;;
+      prune) echo "Total reclaimed space: 0B" ;;
+      *) echo "docker stub: unknown image command: $*" >&2; exit 99 ;;
+    esac
+    ;;
+  tag)
+    id=$(resolve "$2")
+    repo=${3%%:*} tag=latest
+    [[ $3 == *:* ]] && tag=${3#*:}
+    mkdir -p "$S/images/$repo"
+    echo "$id" >"$S/images/$repo/$tag"
+    ;;
+  rmi)
+    repo=${2%%:*} tag=${2#*:}
+    rm "$S/images/$repo/$tag"
+    echo "Untagged: $2"
+    ;;
+  exec) cat "$S/containers/finance-tracker-api/env" ;;   # docker exec … env or printenv would print the secret
+  *) echo "docker stub: unknown command: $*" >&2; exit 99 ;;
+esac

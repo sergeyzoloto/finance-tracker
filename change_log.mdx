@@ -5,8 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-02 · Family budget: OPS-1's deploy, D-35 to D-39, a read-only role for the deploy checks (F6b)
 
-Commits `9cefaf4` (documents) and `58779f5` (the backend), then "feat(frontend): D-35 to D-39, two fixes", whose hash
-belongs here with the next change log commit. Not pushed, not merged, not deployed.
+Commits `9cefaf4` (documents), `58779f5` (the backend) and `5f00946` (the interface), then "ops: a read-only role for
+checks, deploy.sh adopt", whose hash belongs here with the next change log commit. Committed locally on
+`feature/family-budget`; not pushed, not merged, not deployed.
 
 **Changes**
 - OPS-1's deploy and the decisions after it (commit "docs: OPS-1 deploy, F6b scope, D-38 and D-39"):
@@ -61,6 +62,22 @@ belongs here with the next change log commit. Not pushed, not merged, not deploy
   - The members table at 375 px: under 40rem each member is a block of labelled lines (`data-label`), with the actions
     wrapping below.
   - Tests: new `FamilyF6b.test.tsx` (7); `family.test.ts`: D-36's sentence and `closesBudget`.
+- The deploy scripts (commit "ops: a read-only role for checks, deploy.sh adopt"):
+  - `deploy/common.sh`: every check, the numbers and Flyway's row are read as the role `finance_checks`
+    (`PGOPTIONS` still asks for read-only transactions too); `require_checks_role` reads the role's own description
+    (superuser, member of `pg_read_all_data`, tables of `app` it may write, `default_transaction_read_only` on it) and
+    stops with the runbook's one-time command printed when it is missing, a superuser, may write, or isn't read-only.
+    The backslash refusal stays.
+  - `deploy/deploy.sh`: the role in preflight (step 1.2, before CI and the backup), in `finish`, and in `verify`, which
+    reports it and skips the database's checks; new `adopt`; `finish` no longer stops with an unexplained error when the
+    state folder has no run yet. `deploy/rollback.sh`: the role in its first step; `adopted` counts as a good deploy
+    in `history`.
+  - `deploy/RUNBOOK.md`: "A read-only role for the deploy checks" (the one-time command, the read-only proof, and how to
+    drop a wrong role), "Adopt the running revision", and the role and `adopt` where the deploy section names them.
+    CLAUDE.md: the exception in "Production safety" as built, `adopt` in "Deploy checklists", the project map.
+  - `deploy/tests/`: 6 new cases in `run.sh` (45), OPS-1's three scripts as fixtures (`fixtures/ops-1/`, from
+    `46dedcd`), the `docker` stub answering `psql` only as `finance_checks` (or, for OPS-1's script, as `finance`) and
+    the role's description from a fixture; 3 new mutations in `mutate.sh` (8), which now mutates `common.sh` too.
 
 **Verified**
 - Baseline, on the laptop: `feature/family-budget` with a clean tree, it, `main` and `origin/main` at `46dedcd`.
@@ -112,8 +129,43 @@ belongs here with the next change log commit. Not pushed, not merged, not deploy
      the switcher never showed a placeholder (the first build showed one for a frame: fixed by the transition).
   7. Every page 375 px wide; the integrity check empty for all three.
 
+- The role, before writing the scripts: `finance`, the login the scripts used, is no superuser (`postgres-init.sh`
+  creates it as the database's owner; `rolsuper` false on the throwaway database). On the throwaway `postgres:17.11`
+  at V10, after the runbook's one-time command: as `finance_checks`, `SET default_transaction_read_only = off` and then
+  an `INSERT`, and `BEGIN READ WRITE` with a `DELETE`: "permission denied for table users"; `COPY (SELECT 1) TO PROGRAM
+  'true'`: "permission denied to COPY to or from an external program"; `CREATE TABLE app.x` and a temporary table:
+  refused; `release_family_memberships` and `personal_ledger_id` as it: "permission denied for table ledger". The role's
+  description read `superuser=false read_all_data=true writes=0 read_only=true` (as `finance`: `read_all_data=false
+  writes=19`; as `postgres`: `superuser=true`); with `INSERT` on `app.users` granted, `writes=1`; with
+  `pg_write_all_data`, `writes=19`; with the setting reset, `read_only=false`. `pg_dump -Fc` as `pg-backup` makes it,
+  and a plain `pg_dump`, never mention `finance_checks` (only `pg_dump --create` does, for the database's `CONNECT`
+  grant); that dump restored with `pg_restore --exit-on-error --single-transaction` into a fresh `postgres:17.11` without
+  the role, as `pg-restore-test` restores: exit 0, at V10. Dropping the role with `DROP OWNED BY` and `DROP ROLE` and
+  creating it again worked. `F6b.sql` and `numbers.sql` as `finance_checks`: as expected.
+- After the scripts' commit: ShellCheck 0.11.0 on the scripts, `run.sh`, `mutate.sh` and the stubs, as CI runs it: no
+  finding. `deploy/tests/run.sh`: 45 of 45 cases passed. `deploy/tests/mutate.sh`: every mutation caught, the three
+  new ones by `happy_path`, `verify_read_only` and `finish_records_answers` (checks as `finance`), the role's three
+  refusals (no role check in preflight) and `adopt_after_a_harmless_stop` (any confirmation). Found and fixed while
+  testing: `find` of a state folder without runs stopped `adopt`, and `finish`, under `pipefail` without a message;
+  `verify` without the role counted Flyway's unread row as a second problem.
+- At the end: `./mvnw -B clean verify`: 396 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS; frontend `npm
+  test`: 22 files, 285 tests passed; `npm run build` succeeded. `git diff --numstat 46dedcd HEAD --
+  '*DataIsolationApiTests.java'`: 70 added, 0 deleted. `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
+
 **Open**
-- The rest of F6b.
+- The owner's deploy of F6b, the first one through `deploy.sh`; the report has the checklist: the role's one-time
+  command and its proof, then `deploy/deploy.sh run <commit> F6b`, which runs OPS-1's script (its first run, recording
+  the baseline, as `finance`), then F6b's `finish` and `verify F6b` as `finance_checks`. V10 is additive; the rollback
+  is `deploy/rollback.sh 46dedcd`, whose image runs on V10 (the rollback evidence above).
+- To confirm, as ADR 0003's "F6b as built" records it: "Specify later" is 422 `PAYMENT` too for a claimed seat's own
+  record before the claim's date; the equal re-split doesn't bring a claimed seat into a record they weren't in;
+  `ledger.archived_at` stays unused; D-37 lists the entries the return doesn't attach again, and leaves entries dated
+  on the join date to the correction; D-38's non-public addresses include 100.64/10 and multicast; `PGOPTIONS` kept
+  beside the role; `adopt` writes a run folder of its own.
+- Tried only against stubs: the role and `adopt` on the server; OPS-1's script with F6b's merge on the server.
+- F6c: the privacy policy's publication, the demo family (H1), the family report (E1, E3's check), H4 and the owner's
+  remarks from the manual check.
+- `docs/family-budget/current-state.md` stays the F1 snapshot, unchanged.
 
 ## 2026-10-02 · Deploy scripts: deploy.sh and rollback.sh (OPS-1)
 

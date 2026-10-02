@@ -29,7 +29,7 @@ F6a and F6b, with the F6a plan in topic J. F6a is deployed since 2026-10-02, fro
 the owner confirmed it as built, and the decisions after it, D-35 to D-37 for F6b, are at the end of topic J. OPS-1,
 the deploy scripts without an application change, is deployed since 2026-10-02, from `46dedcd`, with the images built
 from `c26cff6`; the decisions after it (D-35 clarified, D-38 and D-39, F6 split into F6b and F6c) are in topics G and
-J. The requirements and decisions D-1 to D-39 are in
+J. F6b, D-35 to D-39, is built as topic J's "F6b as built" says. The requirements and decisions D-1 to D-39 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 

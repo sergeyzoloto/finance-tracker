@@ -122,6 +122,7 @@ EOF
   cp "$ROOT/deploy/checks/OPS-1.expected" "$s/fixtures/stage"
   numbers 0 >"$s/fixtures/numbers"
   cp "$HERE/fixtures/check-runs-success.json" "$s/fixtures/ci"
+  echo "$ROLE_OK" >"$s/fixtures/role"
 
   for name in docker systemctl pg-restore-test curl install; do ln -s "$HERE/stubs/$name" "$C/bin/$name"; done
 
@@ -134,6 +135,8 @@ EOF
   cp "$C/state/history" "$C/history.orig"
 }
 BASE_PATH=$PATH
+# The read-only role as the runbook makes it, as it reads itself (deploy/common.sh, ROLE_SQL).
+ROLE_OK="superuser=false read_all_data=true writes=0 read_only=true"
 
 # numbers FAMILY_RECORDS: numbers.sql's answer, as the stub's psql gives it.
 numbers() {
@@ -698,6 +701,144 @@ case_verify_reports_stage_diff() {
   check "no state-changing call" calls_lack "$STATE_CHANGING|^systemctl|^pg-restore-test"
 }
 
+# The read-only role (F6b): preflight refuses without it, with the runbook's one-time command, before CI or a backup;
+# verify reports it and skips the database's checks.
+case_refuse_role_missing() {
+  setup_case
+  new_target
+  fixture role missing
+  deploy_e
+  refused "the read-only role finance_checks is missing or cannot log in"
+  check "the one-time command printed" out_has "GRANT pg_read_all_data TO finance_checks"
+  check "before CI and the backup" calls_lack '^curl |^systemctl|^pg-restore-test'
+  check "no other query" [ "$(count_calls 'psql')" -eq 1 ]
+  run_deploy verify OPS-1
+  check "verify: exit code 1" rc_is 1
+  check "verify names it" out_has "PROBLEM: the read-only role finance_checks is missing"
+  check "verify prints the command" out_has "CREATE ROLE finance_checks LOGIN NOSUPERUSER"
+  check "verify: one problem" out_has "verify OPS-1: 1 problem(s)"
+  check "verify reads nothing else of the database" [ "$(count_calls 'psql')" -eq 2 ]
+  type_at_terminal "ROLLBACK ${SHA_C:0:7}"
+  run_rollback "${SHA_C:0:7}"
+  check "rollback.sh refuses too" out_has "the read-only role finance_checks is missing"
+  nothing_changed
+}
+
+case_refuse_role_superuser() {
+  setup_case
+  new_target
+  fixture role "superuser=true read_all_data=true writes=19 read_only=false"
+  deploy_e
+  refused "finance_checks is a superuser"
+  check "the one-time command printed" out_has "ALTER ROLE finance_checks SET default_transaction_read_only = on"
+}
+
+case_refuse_role_may_write() {
+  setup_case
+  new_target
+  fixture role "superuser=false read_all_data=true writes=3 read_only=true"
+  deploy_e
+  refused "finance_checks may insert, update or delete in 3 tables of app"
+  fixture role "superuser=false read_all_data=true writes=0 read_only=false"
+  deploy_e
+  refused "finance_checks is not as the runbook makes it"
+}
+
+# adopt (F6b): a run stopped by numbers that users' activity changed, judged harmless; a wrong confirmation changes
+# nothing; the right one records E with its running images, and touches no git, image or container.
+case_adopt_after_a_harmless_stop() {
+  setup_case
+  new_target
+  numbers 0 | sed 's/^users=2$/users=3/' >"$STUB_STATE/fixtures/numbers.2"
+  deploy_e
+  check "the run stopped after the merge" out_has "the numbers differ from preflight's"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+  : >"$STUB_STATE/calls"
+  local running
+  running=$(cat "$STUB_STATE/containers/finance-tracker-api/image")
+
+  type_at_terminal "ADOPT ${SHA_D:0:7}"
+  run_deploy adopt
+  check "exit code not 0" rc_not
+  check "says not confirmed" out_has 'REFUSED at "2. Confirmation": not confirmed'
+  check "shows the commit" out_has "HEAD: ${SHA_E:0:7} revision E"
+  check "shows the running images" out_has "Running images: api $running"
+  check "shows the last run's status" out_has "-${SHA_E:0:7}, failed"
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "history unchanged" same_file "$C/state/history" "$C/history.orig"
+
+  type_at_terminal "ADOPT ${SHA_E:0:7}"
+  run_deploy adopt
+  check "exit code 0" rc_is 0
+  check "last-good is E" last_good_is "$SHA_E"
+  check "with E's running api image" file_has "$C/state/last-good" "api_image=$running"
+  check "recorded as adopted" file_has "$C/state/last-good" "source=adopt"
+  check "history: adopted E" file_has "$C/state/history" " adopted $SHA_E $running "
+  check "HEAD still E" head_is "$SHA_E"
+  check "no git, image or container change" calls_lack "$STATE_CHANGING|^docker compose (build|up)"
+  check "no database query" calls_lack 'psql'
+  check "its run folder says adopted" grep -qx adopted "$(find "$C/state/runs" -name "*-adopt-${SHA_E:0:7}*" | sort -V | tail -n 1)/status"
+  run_deploy finish
+  check "finish has nothing to finish after it" out_has "nothing to finish"
+  # A rollback from E goes to D, the last good deploy before it.
+  type_at_terminal no
+  run_rollback "${SHA_D:0:7}"
+  check "rollback.sh offers D" out_has "Target: ${SHA_D:0:7} revision D"
+  # And the next deploy keeps E's images as the last good deploy's.
+  (cd "$C/work" && echo F >README && git commit -qam "revision F" && git push -q origin main)
+  local f
+  f=$(git -C "$C/work" rev-parse HEAD)
+  type_at_terminal "${f:0:7}"
+  run_deploy run "$f" OPS-1
+  check "the next run deployed" rc_is 0
+  check "E's images kept under E's commit" image_is finance-tracker-api "$SHA_E" "$running"
+}
+
+case_adopt_nothing_to_adopt() {
+  setup_case
+  type_at_terminal "ADOPT ${SHA_D:0:7}"
+  run_deploy adopt
+  check "exit code not 0" rc_not
+  check "says nothing to adopt" out_has "nothing to adopt: HEAD ${SHA_D:0:7} with the running images is the last good deploy already"
+  check "not asked" out_lacks "Type ADOPT"
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "history unchanged" same_file "$C/state/history" "$C/history.orig"
+}
+
+# F6b's deploy runs OPS-1's deploy.sh, which bash has read before the merge, as the server has it: its first run,
+# recording the baseline, as the app's login. Then F6b's finish and verify, from the merged clone, read the run folder,
+# last-good and history that OPS-1's script wrote, and run their checks as the read-only role.
+case_finish_on_an_ops1_run() {
+  setup_case
+  rm "$C/state/last-good" "$C/state/history"
+  new_target
+  type_at_terminal "${SHA_E:0:7}"
+  (cd "$C/server" && STUB_ALLOW_FINANCE=1 "$HERE/fixtures/ops-1/deploy.sh" run "$SHA_E" OPS-1) >"$C/out" 2>&1 </dev/null
+  RC=$?
+  check "OPS-1's run deployed E" rc_is 0
+  check "OPS-1's run said it was the first" out_has "No record of a last good deploy: deploy.sh's first run"
+  check "OPS-1's run queried as finance" calls_have ' -U finance -d finance'
+  check "OPS-1's run asked for no role" calls_lack 'pg_read_all_data'
+  check "the clone has F6b's scripts now" file_has "$C/server/deploy/common.sh" "CHECKS_ROLE=finance_checks"
+  check "history: OPS-1's baseline and good" in_order_file "$C/state/history" " baseline $SHA_D " " good $SHA_E "
+  : >"$STUB_STATE/calls"
+
+  type_at_terminal yes yes
+  run_deploy finish
+  check "F6b's finish: exit code 0" rc_is 0
+  check "it checked the role" out_has "The checks run as finance_checks"
+  check "finished OPS-1's run" status_is finished
+  check "the family lines as before" file_has "$(latest_run)/summary.txt" "Family numbers after the smoke test: the family lines as before the deploy"
+  check "OPS-1's summary lines kept" file_has "$(latest_run)/summary.txt" "Previous commit: ${SHA_D:0:7} (revision D), HEAD with its images at deploy.sh's first run"
+  check "every query as finance_checks" calls_lack ' -U finance -d finance'
+  run_deploy verify OPS-1
+  check "F6b's verify: OK" out_has "verify OPS-1: OK"
+  type_at_terminal no
+  run_rollback "${SHA_D:0:7}"
+  check "F6b's rollback.sh reads OPS-1's history: D before E" out_has "Target: ${SHA_D:0:7} revision D"
+}
+
 # rollback_setup: E deployed after D, so D is the last good deploy before the current one.
 rollback_setup() {
   setup_case "$@"
@@ -755,7 +896,8 @@ case_rollback_rolls_back() {
     '^docker compose up -d --no-deps api web$' '^docker inspect -f \{\{\.State\.Health\.Status\}\} finance-tracker-api$'
   check "D's images run" image_is finance-tracker-api latest "$API_D"
   check "the database left alone: only read-only queries, no backup or restore" calls_lack '^systemctl|^pg-restore-test|^install '
-  check "no psql but the read-only Flyway row" [ "$(count_calls 'psql')" -eq "$(count_calls 'psql .*flyway_schema_history')" ]
+  check "no psql but the role's check and the read-only Flyway row" \
+    [ "$(count_calls 'psql')" -eq "$(($(count_calls 'psql .*flyway_schema_history') + $(count_calls 'psql .*pg_read_all_data')))" ]
   check "last-good is D again" last_good_is "$SHA_D"
   check "history: rolled back from E to D" in_order_file "$C/state/history" " rolled-back-from $SHA_E " " rollback-to $SHA_D "
   check "says how to go forward" out_has "git checkout main, then deploy/deploy.sh run"
@@ -814,6 +956,9 @@ CASES=(
   secret_never_printed
   finish_records_answers finish_reports_family_difference
   verify_read_only verify_warns_without_switch_line verify_reports_stage_diff
+  refuse_role_missing refuse_role_superuser refuse_role_may_write
+  adopt_after_a_harmless_stop adopt_nothing_to_adopt
+  finish_on_an_ops1_run
   rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7
   old_tags_removed
 )

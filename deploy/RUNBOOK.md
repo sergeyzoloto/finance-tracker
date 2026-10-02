@@ -697,7 +697,7 @@ It prints each step under a `==` heading:
 | Step | What it does | You should see |
 | --- | --- | --- |
 | 1.1 | The tools it needs, and the terminal | `Tools present: …` |
-| 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy | `HEAD: …`, `Running images: …`, `Last good deploy: …` |
+| 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy, and (from F6b) the read-only role of the checks | `HEAD: …`, `Running images: …`, `Last good deploy: …`, `The checks run as finance_checks: superuser=false read_all_data=true writes=0 read_only=true` |
 | 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD` | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
 | 1.4 | `deploy/finance.caddy`, the postgres service and `postgres-init.sh` unchanged | `deploy/finance.caddy and the postgres service unchanged` |
 | 1.5 | CI's check runs of the commit, through GitHub's API | one line per check run, then `CI: N check runs, every one completed with success (…)`; while CI runs, `CI still runs; checking again in 60 s` |
@@ -745,13 +745,17 @@ those before the deploy, and prints the final summary with your answers and thei
   - `the restore test did not PASS`: a `MISMATCH` right after someone signed in or wrote; run the block again.
   - `missing on this server: …`, `can't read /dev/tty` (ssh without a terminal), `another deploy.sh or rollback.sh
     holds …`, or `the clone isn't on main` (after a rollback: `git checkout main`): fix that, and run it again.
+  - `the read-only role finance_checks is missing or cannot log in`, `finance_checks is a superuser`, `may insert,
+    update or delete in …` or `is not as the runbook makes it`: see
+    [A read-only role for the deploy checks](#a-read-only-role-for-the-deploy-checks), then run it again.
 - `FAILED at "<step>": <why>`, after the merge: the deploy is half done, and the last lines are the exact rollback
   command. Nothing was rolled back. Judge first:
   - Health, Flyway, the D-25 line: the new release doesn't run as it should. Look at
     `cd /opt/finance-tracker/deploy/app && docker compose logs --tail 100 api`, then roll back.
   - The numbers differ: the diff is printed and kept as `numbers.diff` in the run folder. Someone signing up or writing
     during the deploy shows up here too; if that explains every line, the release is fine: check it with
-    `deploy/deploy.sh verify <stage>`, and note it in the row. Otherwise roll back.
+    `deploy/deploy.sh verify <stage>`, do the browser checks and the smoke test, then record it with
+    [Adopt the running revision](#adopt-the-running-revision), and note it in the row. Otherwise roll back.
   - The stage's checks differ (`stage.diff`): roll back, unless `<stage>.expected` is what's wrong.
   - The restore test after the deploy: run `systemctl start pg-backup@finance.service && pg-restore-test finance
     </dev/null` again; a `MISMATCH` after activity passes the second time.
@@ -766,32 +770,41 @@ those before the deploy, and prints the final summary with your answers and thei
   `deploying`, `failed`, `deployed`, `finished`, `finish-failed`), `numbers.sql` (the text it ran before and after),
   `numbers-before.txt`, `numbers-after.txt`, `numbers-finish.txt`, `numbers.diff`, `stage-<stage>.sql`,
   `stage-<stage>.expected`, `stage-<stage>.txt`, `stage.diff`, `restore-test-before.txt`, `restore-test-after.txt`,
-  `summary.txt`. A rollback's folder is `<UTC time>-rollback-<commit>/`.
-- `last-good`: the commit, time and image IDs of the last good deploy. `history`: one line per event (`baseline`,
-  `good`, `finish-failed`, `rolled-back-from`, `rollback-to`). Both are written by the scripts only.
+  `summary.txt`. A rollback's folder is `<UTC time>-rollback-<commit>/`, an adoption's `<UTC time>-adopt-<commit>/`
+  (status `adopted`, or `refused`).
+- `last-good`: the commit, time and image IDs of the last good deploy, and how it became one (`source`: `baseline`,
+  `deploy`, `rollback`, `adopt`). `history`: one line per event (`baseline`, `good`, `finish-failed`,
+  `rolled-back-from`, `rollback-to`, `adopted`). Both are written by the scripts only; F6b's scripts read what OPS-1's
+  wrote.
 - The images: `finance-tracker-api:<commit>` and `finance-tracker-web:<commit>` for the last three revisions, and
   `:previous` for the last good deploy's, whose commit `/root/finance-tracker.previous` names, as
   [Update the app](#update-the-app) did. The lock: `/run/lock/finance-deploy.lock`.
 
-**Checking at any time, read only:** `cd /opt/finance-tracker && deploy/deploy.sh verify <stage>` prints the health of
-api and web, Flyway's latest row against the highest migration, the stage's checks against `<stage>.expected`, the
+**Checking at any time, read only:** `cd /opt/finance-tracker && deploy/deploy.sh verify <stage>` prints whether the
+read-only role is as this runbook makes it (without it, a problem, and the database's checks below are skipped), the
+health of api and web, Flyway's latest row against the highest migration, the stage's checks against `<stage>.expected`, the
 D-25 line (a warning if it is no longer in the retained log), and the numbers, then `verify <stage>: OK` or the
 problems. It takes no backup and changes nothing.
 
 **What the server needs:** `git`, `docker` with its Compose plugin, `flock`, `curl`, `python3`, `systemctl`,
 `pg-restore-test` (the auth server's `deploy/backup/install.sh server`), `install`, `diff` and `paste`, which step 1.1
 checks and names when one is missing; a terminal; HTTPS to `api.github.com` (unauthenticated: 60 requests an hour
-from the server's address, one a minute while CI runs); `/var/lib` for the state folder and `/run/lock`.
+from the server's address, one a minute while CI runs); `/var/lib` for the state folder and `/run/lock`; and from F6b
+the database role `finance_checks` ([A read-only role for the deploy checks](#a-read-only-role-for-the-deploy-checks)).
+Every check, the numbers and Flyway's row are read as that role, through `docker compose exec -T postgres psql -U
+finance_checks`, with read-only transactions asked for by `PGOPTIONS` too, as before F6b; `deploy.sh`, `finish`,
+`verify` and `rollback.sh` stop without it (before F6b they read as `finance`).
 
 **The first run** finds no `last-good`: it says so, and once you confirm, it records `HEAD` with the running images as
 the last good deploy (`baseline` in `history`). For F6b that is OPS-1's commit with the images built from `c26cff6`,
 the same application code.
 
-**After a manual deploy** with [Update the app](#update-the-app), `deploy.sh`'s record is behind: its next run takes
-the running images for a failed run's and tags nothing, and `rollback.sh` offers the last deploy that `deploy.sh`
-made. Bring it back in step by deploying the next release with `deploy.sh`, and roll back by hand until then.
+**After a manual deploy** with [Update the app](#update-the-app), `deploy.sh`'s record is behind: its next run would
+take the running images for a failed run's and tag nothing, and `rollback.sh` would offer the last deploy that
+`deploy.sh` made. Once the manual deploy has passed its checks, record it with
+[Adopt the running revision](#adopt-the-running-revision) (F6b).
 
-**Decided after OPS-1's review** (2026-10-02, by the PM; built in F6b):
+**Decided after OPS-1's review** (2026-10-02, by the PM; built in F6b, as the sections below say):
 
 - The exception in CLAUDE.md's "Production safety" for these scripts stays. Read-only becomes a property of a database
   role rather than of `PGOPTIONS`: the checks and the numbers run as the role `finance_checks` (no superuser, a member
@@ -801,6 +814,58 @@ made. Bring it back in step by deploying the next release with `deploy.sh`, and 
 - A stop the owner judges harmless (for example numbers changed by users' activity during the deploy) and a manual
   deploy are both closed with `deploy.sh adopt`, which records the running revision as the last good deploy and
   changes nothing else.
+
+## A read-only role for the deploy checks
+
+Since F6b, `deploy.sh` and `rollback.sh` read the database as the role `finance_checks`: a login without a password
+(the container's socket trusts local logins, as it does for `finance`), no superuser, a member of `pg_read_all_data`
+(SELECT on every table, nothing else), allowed to connect to `finance`, and `default_transaction_read_only = on` set on
+the role. A check can't write even if it turns that setting off, since the role has no privilege to write, and it
+can't run a program (`COPY … TO PROGRAM`). Roles aren't part of `pg_dump`'s dump of the database, so the nightly
+backup and `pg-restore-test` don't change. The app's own login `finance` owns the database and is no superuser
+(`deploy/app/postgres-init.sh`); `postgres` is the container's superuser, for maintenance only.
+
+**Once, before the first deploy that needs it (F6b):** create it, as the superuser. Then the read-only proof: the
+first two commands must each answer `ERROR:  permission denied …`; the third
+`finance_checks|f|t|on`; the fourth `0`, no proof row anywhere.
+
+```bash
+# On the server
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d finance -c "CREATE ROLE finance_checks LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; GRANT pg_read_all_data TO finance_checks; GRANT CONNECT ON DATABASE finance TO finance_checks; ALTER ROLE finance_checks SET default_transaction_read_only = on" </dev/null
+```
+
+```bash
+# On the server (read only: every write here is refused, and the transaction rolls back anyway)
+cd /opt/finance-tracker/deploy/app
+docker compose exec -T postgres psql -X -U finance_checks -d finance -c "BEGIN READ WRITE; INSERT INTO app.users (keycloak_id, email, display_name) VALUES ('read-only-proof', 'proof@example.invalid', 'proof'); ROLLBACK" </dev/null
+docker compose exec -T postgres psql -X -U finance_checks -d finance -c "COPY (SELECT 1) TO PROGRAM 'true'" </dev/null
+docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT current_user, rolsuper, pg_has_role(oid, 'pg_read_all_data', 'MEMBER'), current_setting('default_transaction_read_only') FROM pg_roles WHERE rolname = current_user" </dev/null
+docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT count(*) FROM app.users WHERE keycloak_id = 'read-only-proof'" </dev/null
+```
+
+**If `deploy.sh` says the role is wrong** (a superuser, a privilege to write, not read-only): drop it, then create it
+again with the first block above.
+
+```bash
+# On the server: only if deploy.sh or verify said finance_checks is wrong
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d finance -c "DROP OWNED BY finance_checks; DROP ROLE finance_checks" </dev/null
+```
+
+## Adopt the running revision
+
+`deploy/deploy.sh adopt` (F6b) records the revision that runs, `HEAD` with the running images, as the last good
+deploy: after a manual deploy with [Update the app](#update-the-app), or after a run that stopped for a reason you
+judged harmless (numbers changed by users during the deploy, for example) and whose `verify`, browser checks and smoke
+test passed. It shows the commit, the running images with their health, the last run's status and the last good
+deploy, asks you to type `ADOPT` and the commit's first 7 characters, and then writes `last-good` and an `adopted` line
+in `history`. It changes no git, image or container, and reads no database. It refuses when that revision is the last
+good deploy already. The next `deploy.sh run` keeps its images under its commit's tag and `:previous`, and
+`rollback.sh` can go back to it.
+
+```bash
+# On the server: only after a manual deploy, or a stopped run you judged harmless and checked
+cd /opt/finance-tracker && deploy/deploy.sh adopt
+```
 
 ## Roll back with rollback.sh
 

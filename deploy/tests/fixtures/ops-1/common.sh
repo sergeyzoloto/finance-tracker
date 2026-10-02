@@ -6,7 +6,7 @@
 #   runs/<UTC time>-<commit>/   one folder per run: log, meta, status, numbers, stage diff, restore tests, summary.txt
 #   last-good                   the last good deploy: commit, time, image IDs, how it became good (key=value lines)
 #   history                     one line per event: <UTC time> <event> <commit> <api image> <web image>; events are
-#                               baseline, good, finish-failed, rolled-back-from, rollback-to, adopted (F6b)
+#                               baseline, good, finish-failed, rolled-back-from, rollback-to
 # Both files are written only by these scripts and parsed, never sourced or run.
 # shellcheck disable=SC2034  # the settings are read by the scripts that source this file
 
@@ -109,64 +109,11 @@ ask() {
   printf '\n(typed: %s)\n' "$ANSWER"
 }
 
-# psql_ro ARG...: psql as the read-only role finance_checks (F6b; deploy/RUNBOOK.md, "A read-only role for the deploy
-# checks"): no superuser, a member of pg_read_all_data and nothing else, with default_transaction_read_only on, so a
-# check can't write even if it turns that off. PGOPTIONS asks for read-only transactions too, as before F6b, when the
-# checks ran as the app's own login "finance". The api's container environment is never printed.
+# psql_ro ARG...: psql as the app's login, every statement in a read-only transaction, as pg-restore-test reads
+# production (its q_prod). The api's container environment is never printed.
 psql_ro() {
   (cd "$APP_DIR" && docker compose exec -T -e PGOPTIONS='-c default_transaction_read_only=on' postgres \
-    psql -X -q -v ON_ERROR_STOP=1 -At -U "$CHECKS_ROLE" -d finance "$@")
-}
-
-CHECKS_ROLE=finance_checks
-
-# What the role is, as it reads itself: superuser, member of pg_read_all_data, how many tables of app it may insert
-# into, update or delete from (directly or through a role it belongs to), and default_transaction_read_only on it.
-ROLE_SQL="SELECT 'superuser=' || r.rolsuper || ' read_all_data=' || pg_has_role(r.oid, 'pg_read_all_data', 'MEMBER')
-  || ' writes=' || (SELECT count(*) FROM pg_tables t WHERE t.schemaname = 'app'
-                    AND (has_table_privilege(r.oid, format('%I.%I', t.schemaname, t.tablename), 'INSERT')
-                         OR has_table_privilege(r.oid, format('%I.%I', t.schemaname, t.tablename), 'UPDATE')
-                         OR has_table_privilege(r.oid, format('%I.%I', t.schemaname, t.tablename), 'DELETE')))
-  || ' read_only=' || coalesce((SELECT bool_or(s = 'default_transaction_read_only=on')
-                                FROM pg_db_role_setting d CROSS JOIN unnest(d.setconfig) AS s
-                                WHERE d.setrole = r.oid), false)
-FROM pg_roles r WHERE r.rolname = current_user"
-ROLE_OK="superuser=false read_all_data=true writes=0 read_only=true"
-
-# The runbook's one-time command, printed for the operator when the role is missing or wrong; nothing here runs it.
-role_command() {
-  say "The checks run as the read-only role $CHECKS_ROLE, which deploy/RUNBOOK.md, \"A read-only role for the deploy"
-  say "checks\", creates once, on the server, as the database's superuser:"
-  say "  cd $APP_DIR && docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d finance -c \"CREATE ROLE $CHECKS_ROLE LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; GRANT pg_read_all_data TO $CHECKS_ROLE; GRANT CONNECT ON DATABASE finance TO $CHECKS_ROLE; ALTER ROLE $CHECKS_ROLE SET default_transaction_read_only = on\" </dev/null"
-  say "If it exists but is wrong, the runbook says how to drop it first."
-}
-
-# role_problem: why the read-only role can't run the checks, or nothing when it can (ROLE_LINE says what it is).
-role_problem() {
-  local writes
-  ROLE_LINE=$(sql_query "$ROLE_SQL" 2>&1) || { printf 'the read-only role %s is missing or cannot log in (%s)' \
-    "$CHECKS_ROLE" "$(printf '%s' "$ROLE_LINE" | tail -n 1)"; return 0; }
-  [ "$ROLE_LINE" != "$ROLE_OK" ] || return 0
-  case $ROLE_LINE in
-    superuser=true*) printf '%s is a superuser' "$CHECKS_ROLE" ;;
-    *' writes=0 '*) printf '%s is not as the runbook makes it (%s)' "$CHECKS_ROLE" "$ROLE_LINE" ;;
-    *' writes='*)
-      writes=${ROLE_LINE#* writes=}
-      printf '%s may insert, update or delete in %s tables of app (%s)' "$CHECKS_ROLE" "${writes%% *}" "$ROLE_LINE"
-      ;;
-    *) printf '%s answered something else than its description: %s' "$CHECKS_ROLE" "$ROLE_LINE" ;;
-  esac
-}
-
-# require_checks_role: stops (fail) unless the read-only role is as the runbook makes it.
-require_checks_role() {
-  local problem
-  problem=$(role_problem)
-  if [ -n "$problem" ]; then
-    role_command
-    fail "$problem"
-  fi
-  say "The checks run as $CHECKS_ROLE: $ROLE_OK"
+    psql -X -q -v ON_ERROR_STOP=1 -At -U finance -d finance "$@")
 }
 
 sql_query() { psql_ro -c "$1" </dev/null; }
@@ -243,8 +190,8 @@ write_last_good() {
 add_history() { printf '%s %s %s %s %s\n' "$(now)" "$1" "$2" "$3" "$4" >>"$STATE_DIR/history"; }
 
 # rollback_target HEAD: the last good deploy before HEAD, into RT_COMMIT, RT_API and RT_WEB; returns 1 if none.
-# That is the newest commit of the history whose latest event is good, baseline, rollback-to or adopted (not
-# finish-failed or rolled-back-from) and which is an ancestor of HEAD other than HEAD itself.
+# That is the newest commit of the history whose latest event is good, baseline or rollback-to (not finish-failed or
+# rolled-back-from) and which is an ancestor of HEAD other than HEAD itself.
 rollback_target() {
   local head=$1 i _time ev c a w
   local -a evs=() cs=() as=() ws=()
@@ -258,11 +205,11 @@ rollback_target() {
   done <"$STATE_DIR/history"
   for ((i = ${#cs[@]} - 1; i >= 0; i--)); do
     case ${evs[i]} in
-      good | baseline | rollback-to | adopted) ;;
+      good | baseline | rollback-to) ;;
       *) continue ;;
     esac
     case ${last[${cs[i]}]} in
-      good | baseline | rollback-to | adopted) ;;
+      good | baseline | rollback-to) ;;
       *) continue ;;
     esac
     [ "${cs[i]}" != "$head" ] || continue

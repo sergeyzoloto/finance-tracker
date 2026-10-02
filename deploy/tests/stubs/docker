@@ -7,7 +7,8 @@
 #   containers/<name>/health       health states, one per line; each inspect takes the first, the last one stays
 #   containers/<name>/env          its environment, KEY=value lines (holds a fake secret)
 #   log-api                        the api's log, "<timestamp> <line>"
-#   fixtures/                      what psql, a build and a start answer (deploy/tests/run.sh, setup_case)
+#   fixtures/                      what psql, a build and a start answer (deploy/tests/run.sh, setup_case); psql answers
+#                                  only as finance_checks (or, with STUB_ALLOW_FINANCE=1, as OPS-1's finance)
 set -euo pipefail
 S=${STUB_STATE:?}
 printf 'docker %s\n' "$*" >>"$S/calls"
@@ -62,6 +63,22 @@ psql_call() {
   local args=$* sql f
   [[ $args == *"PGOPTIONS=-c default_transaction_read_only=on"* ]] \
     || { echo "docker stub: psql without default_transaction_read_only=on: $args" >&2; exit 97; }
+  # Since F6b every check runs as the read-only role; OPS-1's scripts, which a case runs as the server had them, ran as
+  # the app's login (STUB_ALLOW_FINANCE=1).
+  if [[ $args != *" -U finance_checks "* ]] && ! { [ "${STUB_ALLOW_FINANCE:-}" = 1 ] && [[ $args == *" -U finance "* ]]; }; then
+    echo "docker stub: psql not as finance_checks: $args" >&2
+    exit 97
+  fi
+  if [[ $args == *pg_read_all_data* ]]; then
+    # The role as it reads itself (fixtures/role), or "missing": psql can't log in.
+    f=$(next_fixture role)
+    if [ "$(cat "$f")" = missing ]; then
+      echo 'psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "finance_checks" does not exist' >&2
+      exit 2
+    fi
+    cat "$f"
+    return
+  fi
   if [[ $args == *" -f -"* ]]; then
     sql=$(cat)
     case $sql in

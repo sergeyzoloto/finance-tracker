@@ -15,17 +15,22 @@ survived=0
 
 # mutation NAME "OLD" "NEW" CASE...: deploy.sh with OLD (which must occur exactly once) replaced by NEW.
 mutation() {
-  local name=$1 old=$2 new=$3 dir=$WORK/$1 out
-  shift 3
+  mutation_in deploy.sh "$@"
+}
+
+# mutation_in FILE NAME "OLD" "NEW" CASE...: as mutation, in deploy/FILE (deploy.sh, rollback.sh or common.sh).
+mutation_in() {
+  local file=$1 name=$2 old=$3 new=$4 dir=$WORK/$2 out
+  shift 4
   mkdir -p "$dir"
   cp "$ROOT/deploy/deploy.sh" "$ROOT/deploy/rollback.sh" "$ROOT/deploy/common.sh" "$dir/"
-  OLD=$old NEW=$new python3 - "$dir/deploy.sh" <<'PY'
+  OLD=$old NEW=$new python3 - "$dir/$file" <<'PY'
 import os, sys
 path = sys.argv[1]
 text = open(path).read()
 old, new = os.environ["OLD"], os.environ["NEW"]
 if text.count(old) != 1:
-    sys.exit("the mutation's text occurs %d times in deploy.sh; update deploy/tests/mutate.sh" % text.count(old))
+    sys.exit("the mutation's text occurs %d times in %s; update deploy/tests/mutate.sh" % (text.count(old), path))
 open(path, "w").write(text.replace(old, new))
 PY
   if out=$(DEPLOY_TEST_SCRIPTS=$dir "$HERE/run.sh" "$@" 2>&1); then
@@ -64,6 +69,21 @@ mutation "print the environment" \
 mutation "run on past main (no exit after it)" \
   $'main "$@"; exit $?\n' $'main "$@"\n' \
   script_replaced_mid_run
+
+# F6b: every check as the read-only role, never as the app's login.
+mutation_in common.sh "run the checks as finance" \
+  '-At -U "$CHECKS_ROLE" -d finance "$@")' '-At -U finance -d finance "$@")' \
+  happy_path verify_read_only finish_records_answers
+
+# F6b: preflight without the role's check.
+mutation "skip the role's check in preflight" \
+  $'  fi\n  require_checks_role\n' $'  fi\n  : require_checks_role skipped\n' \
+  refuse_role_missing refuse_role_superuser refuse_role_may_write
+
+# F6b: adopt without its confirmation.
+mutation "let adopt accept anything" \
+  '[ "$ANSWER" = "ADOPT ${head:0:7}" ] || fail "not confirmed"' ': accepts "$ANSWER"' \
+  adopt_after_a_harmless_stop
 
 echo
 if [ "$survived" -eq 0 ]; then

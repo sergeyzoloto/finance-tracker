@@ -8,12 +8,6 @@
 #                                           the family numbers, writes the final summary
 #   deploy/deploy.sh verify <stage>         read only, any time: health, Flyway, the stage's checks, the D-25 line, the
 #                                           numbers; no backup, no change
-#   deploy/deploy.sh adopt                  after a manual deploy, or a stopped run the operator judged harmless:
-#                                           records the running revision as the last good deploy, once confirmed at the
-#                                           terminal; never touches git, images or containers (F6b)
-#
-# Every check, the numbers and Flyway's row are read as the read-only database role finance_checks (F6b;
-# deploy/RUNBOOK.md, "A read-only role for the deploy checks"); preflight, finish and verify stop without it.
 #
 # It never rolls back by itself: a failure after the merge prints the command of deploy/rollback.sh, for the operator.
 # Everything it prints also goes to the run's folder under /var/lib/finance-deploy/runs (deploy/common.sh).
@@ -33,7 +27,6 @@ usage() {
 usage: deploy/deploy.sh run <commit> <stage>
        deploy/deploy.sh finish
        deploy/deploy.sh verify <stage>
-       deploy/deploy.sh adopt
 <commit> is origin/main's commit, 7 to 40 hex characters; <stage> names deploy/checks/<stage>.sql and .expected.
 EOF
   exit 2
@@ -319,7 +312,6 @@ cmd_run() {
     say "counts as the last good deploy once you confirm."
     PREVIOUS_LINE="$(git log -1 --format='%h (%s)' HEAD), HEAD with its images at deploy.sh's first run (no record before)"
   fi
-  require_checks_role
 
   heading "1.3 Preflight: git fetch, the commit and what it brings"
   git fetch origin
@@ -520,7 +512,7 @@ cmd_finish() {
   local latest browser smoke browser_at smoke_at family problems=()
   trap on_exit_finish EXIT
   take_lock exclusive
-  latest=$(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1 || true)
+  latest=$(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1)
   [ -n "$latest" ] || fail "no run in $STATE_DIR/runs"
   [ "$(cat "$latest/status" 2>/dev/null)" = deployed ] \
     || fail "the latest run, $latest, is $(cat "$latest/status" 2>/dev/null || echo 'without a status'), not deployed: nothing to finish"
@@ -529,7 +521,6 @@ cmd_finish() {
   TEE_PID=$!
   heading "Finish of $RUN_DIR"
   check_tools git docker flock diff
-  require_checks_role
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   SHA=$(meta_value commit)
   valid_commit "$SHA" || fail "$RUN_DIR/meta names no commit"
@@ -581,22 +572,12 @@ cmd_finish() {
 # verify
 
 cmd_verify() {
-  local stage=$1 issues=0 api web row expected out api_log seen problem
+  local stage=$1 issues=0 api web row expected out api_log seen
   [[ $stage =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage
   take_lock shared
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   say "verify $stage at $(git log -1 --format='%h %s' HEAD), $(now); read only"
   check_tools git docker flock diff
-
-  heading "The read-only role"
-  problem=$(role_problem)
-  if [ -n "$problem" ]; then
-    say "PROBLEM: $problem; the database's checks below are skipped"
-    role_command
-    issues=$((issues + 1))
-  else
-    say "The checks run as $CHECKS_ROLE: $ROLE_OK"
-  fi
 
   heading "Health"
   api=$(health_of finance-tracker-api)
@@ -606,14 +587,10 @@ cmd_verify() {
 
   heading "Flyway"
   expected=$(highest_migration HEAD)
-  if [ -n "$problem" ]; then
-    say "Not read: no read-only role; the highest migration in HEAD: V$expected"
-  else
-    row=$(flyway_row) || row="unreadable"
-    say "Latest row: $row; the highest migration in HEAD: V$expected"
-    [ "${row##* }" = true ] && [ "${row%% *}" = "$expected" ] \
-      || { say "PROBLEM: Flyway's latest row isn't V$expected with success"; issues=$((issues + 1)); }
-  fi
+  row=$(flyway_row) || row="unreadable"
+  say "Latest row: $row; the highest migration in HEAD: V$expected"
+  [ "${row##* }" = true ] && [ "${row%% *}" = "$expected" ] \
+    || { say "PROBLEM: Flyway's latest row isn't V$expected with success"; issues=$((issues + 1)); }
   api_log=$(api_log_since_start || true)
   printf '%s\n' "$api_log" | grep -E "$FLYWAY_PATTERN" || say "(no Flyway line left in the api's log since its start)"
 
@@ -630,9 +607,7 @@ cmd_verify() {
   fi
 
   heading "The stage's checks ($stage)"
-  if [ -n "$problem" ]; then
-    say "Not run: no read-only role"
-  elif [ -f "deploy/checks/$stage.sql" ] && [ -f "deploy/checks/$stage.expected" ]; then
+  if [ -f "deploy/checks/$stage.sql" ] && [ -f "deploy/checks/$stage.expected" ]; then
     out=$(sql_file "deploy/checks/$stage.sql") || out="(deploy/checks/$stage.sql failed)"
     printf '%s\n' "$out"
     if diff "deploy/checks/$stage.expected" - <<<"$out"; then
@@ -647,11 +622,7 @@ cmd_verify() {
   fi
 
   heading "The numbers"
-  if [ -n "$problem" ]; then
-    say "Not read: no read-only role"
-  else
-    sql_file deploy/checks/numbers.sql || { say "PROBLEM: numbers.sql failed"; issues=$((issues + 1)); }
-  fi
+  sql_file deploy/checks/numbers.sql || { say "PROBLEM: numbers.sql failed"; issues=$((issues + 1)); }
 
   say ""
   if [ "$issues" -eq 0 ]; then
@@ -660,80 +631,6 @@ cmd_verify() {
     say "verify $stage: $issues problem(s)"
     return 1
   fi
-}
-
-# ---------------------------------------------------------------------------------------------------------------------
-# adopt
-
-# shellcheck disable=SC2329  # the EXIT trap
-on_exit_adopt() {
-  local rc=$?
-  trap - EXIT
-  if [ "$PHASE" != complete ]; then
-    say ""
-    say "REFUSED at \"$STEP\": ${REASON:-an unexpected error, exit code $rc}"
-    say "Nothing changed."
-    [ -n "$RUN_DIR" ] && set_status refused
-    [ "$rc" -ne 0 ] || rc=1
-  fi
-  stop_log
-  exit "$rc"
-}
-
-# cmd_adopt: the running revision as the last good deploy (F6b), after a manual deploy (deploy/RUNBOOK.md, "Update the
-# app") or a stopped run the operator judged harmless, such as numbers changed by users during the deploy. It reads
-# git and Docker, and writes only last-good, a history line and its run folder.
-cmd_adopt() {
-  local head api web latest
-  PHASE=refusing
-  trap on_exit_adopt EXIT
-  take_lock exclusive
-  cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
-  head=$(git rev-parse HEAD)
-  latest=$(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1 || true)
-  start_log "adopt-${head:0:7}"
-  print_settings
-
-  heading "1. What runs"
-  check_tools git docker flock
-  api=$(container_image finance-tracker-api) || fail "no container finance-tracker-api: the stack isn't up"
-  web=$(container_image finance-tracker-web) || fail "no container finance-tracker-web: the stack isn't up"
-  say "HEAD: $(git log -1 --format='%h %s' HEAD)"
-  say "Running images: api $api ($(health_of finance-tracker-api)), web $web ($(health_of finance-tracker-web))"
-  if [ -n "$latest" ]; then
-    say "The last run: ${latest##*/}, $(cat "$latest/status" 2>/dev/null || echo 'without a status')"
-  else
-    say "No run of deploy.sh or rollback.sh yet"
-  fi
-  if read_last_good; then
-    say "Last good deploy: $(git log -1 --format='%h %s' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT") at $LG_TIME ($LG_SOURCE),"
-    say "  api $LG_API, web $LG_WEB"
-  else
-    say "No record of a last good deploy"
-  fi
-  if [ "$LG_COMMIT" = "$head" ] && [ "$LG_API" = "$api" ] && [ "$LG_WEB" = "$web" ]; then
-    fail "nothing to adopt: HEAD ${head:0:7} with the running images is the last good deploy already"
-  fi
-
-  heading "2. Confirmation"
-  say "This records HEAD ${head:0:7} with the running images as the last good deploy, the one the next deploy.sh run"
-  say "keeps and rollback.sh goes back to. It changes no git, image or container."
-  ask "Only after a manual deploy, or a stopped run you judged harmless. Type ADOPT ${head:0:7} to record it; anything else changes nothing: "
-  [ "$ANSWER" = "ADOPT ${head:0:7}" ] || fail "not confirmed"
-
-  PHASE=adopting
-  write_last_good "$head" "$api" "$web" adopt
-  add_history adopted "$head" "$api" "$web"
-  {
-    say "Adopted on $(date -u +%F) at $(now): $(git log -1 --format='%h (%s)' "$head") as the last good deploy"
-    say "Images: api $api, web $web"
-    say "Before: ${LG_COMMIT:+$(git log -1 --format='%h (%s)' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT")}${LG_COMMIT:-no record}; the last run ${latest:+${latest##*/}, $(cat "$latest/status" 2>/dev/null || echo 'without a status')}${latest:-none}"
-  } | tr '|' '/' >"$RUN_DIR/summary.txt"
-  set_status adopted
-  PHASE=complete
-  heading "3. Summary"
-  cat "$RUN_DIR/summary.txt"
-  stop_log
 }
 
 main() {
@@ -746,7 +643,6 @@ main() {
     run) [ $# -eq 3 ] || usage; cmd_run "$2" "$3" ;;
     finish) [ $# -eq 1 ] || usage; cmd_finish ;;
     verify) [ $# -eq 2 ] || usage; cmd_verify "$2" ;;
-    adopt) [ $# -eq 1 ] || usage; cmd_adopt ;;
     *) usage ;;
   esac
 }

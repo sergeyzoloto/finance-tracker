@@ -52,9 +52,8 @@ cmd_rollback() {
   start_log "rollback-${arg:0:7}"
   print_settings
 
-  heading "1. The tools, the read-only role and the clone"
+  heading "1. The tools and the clone"
   check_tools git docker flock
-  require_checks_role
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
   head=$(git rev-parse HEAD)

@@ -30,7 +30,11 @@ the owner confirmed it as built, and the decisions after it, D-35 to D-37 for F6
 the deploy scripts without an application change, is deployed since 2026-10-02, from `46dedcd`, with the images built
 from `c26cff6`; the decisions after it (D-35 clarified, D-38 and D-39, F6 split into F6b and F6c) are in topics G and
 J. F6b, D-35 to D-39, is built as topic J's "F6b as built" says. F6b is deployed since 2026-10-02, from `7a60020`, with
-the switch off; the owner confirmed it as built, and F6c's plan is at the end of topic J. The requirements and decisions D-1 to D-39 are in
+the switch off; the owner confirmed it as built, and F6c's plan is at the end of topic J. F6c, the family report (E1),
+its check (E3), the demo family (H1), H4 and the privacy policy's publication, is built as topic J's "F6c as built"
+says. F6c is deployed since 2026-10-02, from `8ede02e`, with the switch off; it took two runs, a deploy, a rollback and
+a redeploy (the runbook's "Deployed revisions"), and the owner confirmed it as built. D-40 and F7's plan are at the end
+of topic J. The requirements and decisions D-1 to D-40 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -1760,6 +1764,34 @@ for an expense that is an old shared expense already. The demo's family budget i
 the demo. The privacy policy's section "Family budgets" is generated from the draft's text, and a test keeps them word
 for word; besides the section, the policy changes its date, the sentence that no other user sees anything of yours, and
 gains a line in "How long it is kept".
+
+**After the F6c deploy** (2026-10-02). The owner confirmed "F6c as built" above: the report's shape, the demo
+family's content, the twins merged into the demo family rather than into the family budget they come from, H4 for
+creation only with the API unchanged, the legal questions kept out of the published policy, and the mapping of F6b's
+items (D-35 to D-39) onto what F6c built. The deploy itself took two runs: the first, by F6b's script, ran before the
+owner's browser check and was recorded `finish-failed` on the privacy page not opening and rolled back; the cause
+wasn't reproduced against the rolled-back image, and the second run, by F6c's script, passed every check and
+`finish`. The runbook's "Deployed revisions" has the record. One decision of the PM, for F7:
+
+- **D-40** (E3). A member's personal cash-flow line for a family category shows the whole category: their own
+  entries in it plus their shares, as E3's check (above) already compares it. Separating the family part from a
+  member's own entries in that line goes to "Later" (requirements.md).
+
+**F7 plan** (2026-10-02, decided by the PM). The switch goes on in production (D-25), then a check with two real
+accounts (requirements.md, "Planned stages").
+
+- **The way of switching.** A command, `deploy/deploy.sh switch on|off`, never a hand edit of `.env` on the server:
+  the switch is production's only configuration value this ADR's stages change by hand today, and a command leaves a
+  record in `history` and the same preflight (the role, health, the last good deploy) as `verify`. The way back,
+  once real family records exist, is `switch off`: the data stays in the database, and the family endpoints answer
+  404 again, exactly as before F7 (D-25).
+- **The check in production.** With the owner's two test accounts, never his own account, whose personal ledger is
+  kept empty for his Excel import (D-21). One test account creates a family budget and invites the other; together
+  they record an expense split equally, one in another currency, an income and a settlement moved to an account,
+  exercising the settlement lock (D-28); the balances, the journal and the report (E1) are read, and
+  `/api/reports/integrity` must answer `[]` for both. The check ends by leaving the budget (deleting it, D-36) and
+  running "Delete all my data" for both test accounts, so production is left as empty of family data as it was
+  before the check.
 
 ### K. Test strategy
 

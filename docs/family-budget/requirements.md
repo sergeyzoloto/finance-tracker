@@ -28,6 +28,8 @@ Amended after the OPS-1 deploy on 2026-10-02: D-35 clarified, new D-38 and D-39 
 
 Amended after the F6b deploy on 2026-10-02: the planned stages (F6b confirmed as built, the privacy policy's draft reviewed, F6c's plan).
 
+Amended after the F6c deploy on 2026-10-02: new D-40 (decided by the PM), the planned stages (F6c confirmed as built, F7's way of switching and its check in production).
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -190,6 +192,9 @@ Added after the OPS-1 deploy (2026-10-02), to be built in F6b
 - D-38 (with D-29; decided by the PM). The per-address limit applies only to public addresses. A private, loopback or link-local address after Tomcat's resolution means the real client is unknown: IPv6 clients arrive through docker-proxy as the `edge` bridge's gateway. For such an address only the per-user limit applies. This settles F7's prerequisite about IPv6 clients; IPv6 in Docker goes to "Later", for a maintenance window.
 - D-39 (with D-26; decided by the PM). A returning member takes part from their return date only, as a new member does. Adding them to a record dated before it is 422 `JOINED_AFTER`. Records that already include them keep them, and their effect before the return goes into the correction, as built.
 
+Added after the F6c deploy (2026-10-02), decided by the PM
+- D-40 (E3). A member's personal cash-flow line for a family category shows the whole category: their own entries in it plus their shares. E3's check compares that line with both together. Showing the family part separately goes to "Later".
+
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
 - F2a: migration V5, stronger isolation tests, these documents; deployed on its own.
@@ -208,6 +213,7 @@ Added after the OPS-1 deploy (2026-10-02), to be built in F6b
 - After the F6a deploy (2026-10-02, decided by the PM): the owner confirmed F6a as built (ADR 0003 topic J), gaps 1, 2 and 4 to 9 of the F6a report; gap 3 is replaced by D-36. F6b, in this order: D-35 to D-37; the switcher's placeholder right after accepting an invite or leaving; the members table's actions at 375 px; then the privacy policy's publication, the demo family (H1), the family report (E1, and E3's check) and H4.
 - After the OPS-1 deploy (2026-10-02, decided by the PM): F6 is split further. F6b: D-35 to D-39, the switcher's placeholder right after accepting an invite or leaving, the members table's actions at 375 px, and OPS-1's follow-ups (a read-only database role for the deploy scripts' checks, `deploy.sh adopt`). F6c, next: the privacy policy's publication, the demo family (H1), the family report (E1, and E3's check), H4 and the owner's remarks from the manual check.
 - After the F6b deploy (2026-10-02): the owner confirmed F6b as built (ADR 0003 topic J, "F6b as built"), items 2 to 8 of the F6b report, and reviewed the privacy policy's draft (docs/family-budget/privacy-draft.md as of `7a60020`), which F6c publishes. F6c's plan, with the gaps it decides, is ADR 0003 topic J's "F6c plan".
+- After the F6c deploy (2026-10-02, decided by the PM): the owner confirmed F6c as built (ADR 0003 topic J, "F6c as built"): the report's shape, the demo family's content, the twins merged into the demo family rather than into the family budget they come from, H4 for creation only with the API unchanged, the legal questions kept out of the published policy, and the mapping of F6b's items (D-35 to D-39) onto what was built. F7's way of switching: a command, `deploy.sh switch on|off`, never a hand edit of `.env`; the way back is `switch off`, which leaves the data and makes the family endpoints answer 404 again. F7's check in production: done with the owner's two test accounts, never his own account, whose personal ledger is kept for his Excel import; it ends with the family budget deleted (D-36) and "Delete all my data" for both test accounts.
 - F7: the switch goes on in production, followed by a check with two real accounts.
   - Prerequisite: the client address of IPv6 clients (F6a's residual risk: with an AAAA record for app.finance-nl.com and Docker's IPv6 off, every IPv6 client could reach the api as one address) is settled before the switch goes on, so that D-29's per-address limit counts the browser's real address for them too. Settled by D-38 (2026-10-02): such an address is the bridge's gateway, a private one, for which only the per-user limit applies.
 - After F7: the Excel import, with Family rows going into a family ledger.
@@ -224,3 +230,4 @@ Found along the way; not part of a stage yet.
 - Making an owner a member again (gap 7 of the F6a report). Today an owner stops being one only by leaving or being removed; an endpoint that makes an owner a member again stays for later.
 - One address for a household. The per-address rate limit of invites (D-29) counts every device behind one NAT together, such as a household's router.
 - IPv6 in Docker (after the OPS-1 deploy, D-38). With Docker's IPv6 on for the `edge` network, IPv6 clients would reach Caddy with their own address, and the per-address limit would count them too. It changes the auth server's host, so it waits for a maintenance window.
+- Separating a member's own entries from their shares in a family category's personal cash-flow line (after the F6c deploy, D-40).

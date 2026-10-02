@@ -3,11 +3,55 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-02 · Family budget: F6c's deploy record, D-40, ready to switch on in production (F7)
+
+Not committed yet. Commit 1 of 3 of this task ("docs: F6c deploy, F7 scope, D-40"); the other two ("feat: family
+budgets ready to switch on" and "ops: deploy.sh switch") are still to come. Work on `feature/family-budget`; not
+pushed, not merged, not deployed.
+
+**Changes**
+- F6c's deploy record (commit "docs: F6c deploy, F7 scope, D-40"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-10-02, `8ede02e` (F6c, Flyway V10, switch off), its two
+    runs: deployed by F6b's script, rolled back on the privacy page not opening (the cause unreproduced against
+    `7a60020`'s own image), then deployed again by F6c's own script, this time passing the browser checks and the
+    smoke test. The F6c change log entry above got `8ede02e` and the same record, and its resolved "Open" items. 
+    CLAUDE.md: production runs `8ede02e` on V10, with the rollback noted; `app.family.enabled` stays off "until F7
+    switches it on".
+  - ADR 0003 topic J and `requirements.md`: the owner confirmed "F6c as built" (the report's shape, the demo family's
+    content, the twins merged into the demo family, H4 for creation only with the API unchanged, the legal questions
+    kept out of the published policy, and the mapping of F6b's items, D-35 to D-39, onto what was built); new D-40
+    (decided by the PM): a member's personal cash-flow line for a family category shows the whole category, their own
+    entries and their shares together — E3's check already compares it that way; separating them moves to "Later".
+    F7's way of switching (decided by the PM): a command, `deploy/deploy.sh switch on|off`, never a hand edit of
+    `.env`; the way back is `switch off`, which leaves the data and makes the family endpoints answer 404 again. F7's
+    check in production (decided by the PM): with the owner's two test accounts, never his own, whose personal ledger
+    stays empty for his Excel import; it ends with the family budget deleted (D-36) and "Delete all my data" for both
+    test accounts. ADR 0003's topic J, "F7 plan", and `requirements.md`'s "Planned stages" have both in full.
+
+**Verified**
+- Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `8ede02e`, the tree clean before this
+  task's edits.
+- `git diff --numstat 8ede02e HEAD -- '*DataIsolationApiTests.java'` before this commit: no output (the file is
+  untouched; this commit changes only `*.md` and `change_log.mdx`).
+- In a scratch worktree at this commit (docs only, no code changed): `./mvnw -B clean verify`: 404 tests, 0 failures,
+  0 errors, 0 skipped, BUILD SUCCESS, the same count as F6c's own baseline. No frontend file changed; its suite is
+  unaffected.
+
+**Open**
+- Commits 2 ("feat: family budgets ready to switch on": E3's check as D-40 says, the privacy policy's text, a CI job
+  that builds and checks the web image, `deploy/checks/F7.sql`) and 3 ("ops: deploy.sh switch": the switch command,
+  its tests and mutations) of this task.
+- The full F7 checklist (the laptop's merge and push, `deploy.sh run` with the switch still off, the browser checks,
+  the smoke test, `finish`, `verify`, `deploy.sh switch on`, the production check with the owner's two test accounts,
+  `verify` again, the family numbers back at zero, the client-address check, and the way back) is this task's report,
+  not yet run by the owner.
+
 ## 2026-10-02 · Family budget: F6b's deploy, the family report, the demo family, H4, the privacy policy, typed answers (F6c)
 
-Commits `7e5434e` (documents), `f4a9eff` (the backend) and `883980f` (the interface), then "ops: answers typed, finish
-again, the rollback target", whose hash belongs here with the next change log commit. Committed locally on
-`feature/family-budget`; not pushed, not merged, not deployed.
+Commits `7e5434e` (documents), `f4a9eff` (the backend), `883980f` (the interface) and `8ede02e` (the deploy scripts:
+answers typed, finish again, the rollback target). Merged into `main` and deployed on 2026-10-02 as `8ede02e`, with the
+switch off (two runs: a deploy by F6b's script, a rollback, and a redeploy by F6c's own script; the runbook's
+"Deployed revisions" has the record).
 
 **Changes**
 - F6b's deploy and the decisions after it (commit "docs: F6b deploy, F6c scope"):
@@ -139,19 +183,26 @@ again, the rollback target", whose hash belongs here with the next change log co
   '*DataIsolationApiTests.java'`: 56 added, 0 deleted. `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
 - `F6c.sql` on a throwaway `postgres:17.11` (production's digest) with `postgres-init.sh`, migrated to V10 by Flyway
   11.7.2, as `finance_checks` made by the runbook's command: exactly `F6c.expected`; `numbers.sql` its 21 keys.
+- The owner's deploy of `8ede02e` to production (deploy/RUNBOOK.md, "Deployed revisions"), two runs. The first, by
+  F6b's script at 15:46:43Z, passed CI, the backup and restore test, the build, Flyway, the D-25 line, the numbers and
+  F6c's 15 checks, but the owner's browser check found the privacy page not opening; `finish` recorded it
+  `finish-failed` at 15:51Z and printed the rollback. `rollback.sh` returned production to `7a60020` at 15:52Z–15:53Z,
+  with its images, the database and `finance.conf` untouched. The cause wasn't reproduced: production on `7a60020`
+  answered `/privacy` and `/privacy.html` with 200 through nginx, and `8ede02e`'s web image, built on the laptop,
+  answered both too; `web.conf`, the Dockerfile, `index.html` and `vite.config.ts` were unchanged in F6c. The second
+  run, by F6c's own script at 16:04:37Z after `git checkout main`, passed every check again, and this time the browser
+  checks (the privacy page with the new section) and the smoke test passed; `finish` at 16:06:50Z, `verify F6c` at
+  16:06:59Z: OK.
 
 **Open**
 - E3: a member whose personal categories merged into the family's (D-11) sees their own entries and their shares
   together in the family line of their personal cash flow; separating them is for the owner to decide (ADR 0003, "F6c
-  as built").
-- The owner's deploy of F6c; the report has the checklist. F6c's `run` executes F6b's `deploy.sh`, whose
-  confirmation still takes lines pasted ahead (paste its block alone, type the answer), and whose rollback line after a
-  failure names `46dedcd`: ignore it; the rollback is `deploy/rollback.sh 7a60020` with F6c's script. No migration.
+  as built"). Decided after this deploy: D-40, in the next change log entry.
 - To confirm, as ADR 0003's "F6c plan" and "F6c as built" list them: the report's shape; E3's check, and whether
   family lines should separate the shares from a member's own entries; the demo family's content; the twins merged
   into the demo family; H4 for creation only, with the API unchanged; the legal questions kept out of the policy.
+  Confirmed by the owner after this deploy: the next change log entry.
 - The owner's remarks from the manual check: none reached this task.
-- Tried only against stubs: F6c's scripts on the server.
 
 ## 2026-10-02 · Family budget: OPS-1's deploy, D-35 to D-39, a read-only role for the deploy checks (F6b)
 

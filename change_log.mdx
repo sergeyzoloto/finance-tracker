@@ -5,8 +5,8 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-02 · Family budget: OPS-1's deploy, D-35 to D-39, a read-only role for the deploy checks (F6b)
 
-Commit `9cefaf4` (documents), then "feat(family): D-35 to D-39", whose hash belongs here with the next change log
-commit. Not pushed, not merged, not deployed.
+Commits `9cefaf4` (documents) and `58779f5` (the backend), then "feat(frontend): D-35 to D-39, two fixes", whose hash
+belongs here with the next change log commit. Not pushed, not merged, not deployed.
 
 **Changes**
 - OPS-1's deploy and the decisions after it (commit "docs: OPS-1 deploy, F6b scope, D-38 and D-39"):
@@ -46,6 +46,21 @@ commit. Not pushed, not merged, not deployed.
     new), `ClientAddressUntrustedPeerTests` (its loopback peer has no per-address limit now) and `InviteRateLimitTests`
     (1 new) for D-38; `DataIsolationApiTests.aReturnsOwnEntriesAndAClaimedSeatAreTheMembersOwn` (new; nothing else in
     the file changed).
+- The interface (commit "feat(frontend): D-35 to D-39, two fixes"), ADR 0003 topic J's "F6b as built":
+  - D-35: `expenseForm.takesPart` and `inOpeningBalance`; the new-record, settlement and record-page forms take a
+    claimed seat in a split or as payer before the claim's date, and their own record or side there without an account,
+    with a line why. `FamilyMember.claimedSeat` in `api.ts` (missing counts as false).
+  - D-36: the leave confirmation of the last member with an account says the budget and its records will be deleted,
+    and its button "Leave and delete the family budget" (`family.closesBudget`).
+  - D-37: the invite page lists a return's own entries after it (date with a link to the entry, what it adds to the
+    debt, memo), keeps Accept disabled, and looks the invite up again on "Check again" and on a 409
+    `ENTRIES_AFTER_RETURN`.
+  - The switcher right after accepting an invite or leaving: `useApi.update` puts the budget just joined into its list,
+    or takes the one just left out, before the list has loaded again; leaving navigates first, and the update is a
+    transition, so that it commits with the router's navigation.
+  - The members table at 375 px: under 40rem each member is a block of labelled lines (`data-label`), with the actions
+    wrapping below.
+  - Tests: new `FamilyF6b.test.tsx` (7); `family.test.ts`: D-36's sentence and `closesBudget`.
 
 **Verified**
 - Baseline, on the laptop: `feature/family-budget` with a clean tree, it, `main` and `origin/main` at `46dedcd`.
@@ -72,6 +87,30 @@ commit. Not pushed, not merged, not deployed.
   runbook, report and demo test passed. The worktree removed.
 - V10 and the check files on a throwaway `postgres:17.11` (production's digest) with `postgres-init.sh`, migrated to V10
   by Flyway 11.7.2: `F6b.sql` gave exactly `F6b.expected` (16 lines); `numbers.sql` its 21 keys, all 0.
+
+- After the interface's commit: frontend `npm test` 22 files and 285 tests passed (278 before), `npm run build`
+  succeeded; the backend unchanged since its commit. Mutations from a file copy, restored and compared with `cmp`:
+  without the list update after accepting, the switcher test after accepting failed; without it after leaving, the
+  leave test failed.
+- The walk-through in headless Chrome (playwright-core) at 375 px, against the backend on the laptop with
+  `FAMILY_LEDGERS_ENABLED=true`, `ECB_RATES_ENABLED=false` and `APP_PUBLIC_URL=http://localhost:5173` on a throwaway
+  `postgres:17-alpine`, the Vite dev server and the dev Keycloak's testuser, testuser2 and testuser3:
+  1. testuser (Anna) created "Home" from 2026-09-01 with Sam and Gran (no account); 30.00 on 09-10 paid by Anna and
+     30.00 on 09-20 paid by Gran, each split among the three.
+  2. testuser3 took Gran's place from 09-15 through the invite page as Cleo: the switcher listed "Home", selected, at
+     once.
+  3. Cleo's expense of 12.00 on 09-12: no "Paid from", the line why; split among Anna, Cleo and Sam (4.00 each); her
+     opening balance 2.00 (10.00 + 4.00 − 12.00). Anna put 6.00 on 09-05 entirely on Cleo (F6a: 422). Cleo moved her
+     expense to 09-18 (its share and her payment under "Specify later" posted) and back to 09-13 (both gone, into the
+     opening balance). Balances Anna −12.00, Cleo −12.00, Sam 24.00.
+  4. The members table as owner and as member: 375 px, labelled blocks.
+  5. testuser2 (Ben) joined, left, and put 25.00 dated 2026-10-07 on his former debt account; the invite back listed it
+     ("Oct 7, 2026: adds €25.00 to what you owe · Lent to the family"), Accept disabled; moved to his reserve, "Check
+     again" enabled Accept; back, and the switcher listed "Home" at once.
+  6. Ben's own "Trip" with Dog (no account): the confirmation said it and its records will be deleted; after "Leave and
+     delete the family budget" the dashboard opened, and `GET` of Trip answered 404. Sampled on every animation frame,
+     the switcher never showed a placeholder (the first build showed one for a frame: fixed by the transition).
+  7. Every page 375 px wide; the integrity check empty for all three.
 
 **Open**
 - The rest of F6b.

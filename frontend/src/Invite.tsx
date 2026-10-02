@@ -4,6 +4,9 @@ import { api, ApiError, errorMessage, fieldMessages, formatDate, sentence, type 
 import { Errors, Field, Loading } from './components'
 import { balanceSentence } from './family'
 import { clearPendingInvite, pendingInvite } from './invite'
+
+/** The code of accepting's 409 while the user's own entries wait on their former debt account (D-37). */
+const ENTRIES_AFTER_RETURN = 'ENTRIES_AFTER_RETURN'
 import { abs, formatMoney, signOf } from './money'
 
 /** What the page shows instead of the invite: the server's answer, and whether the token is spent. */
@@ -19,9 +22,9 @@ const TOO_MANY = 'Too many attempts with invite links. Try again in a few minute
  * bring, or declines. After any outcome the token is erased: accepted, declined, invalid or expired, or one the user
  * can't use (409). A 429 keeps it, to try again later.
  *
- * @param onJoined loads the switcher's list again
+ * @param onJoined puts the family budget just joined into the switcher's list, and loads the list again
  */
-export default function InvitePage({ onJoined }: { onJoined: () => void }) {
+export default function InvitePage({ onJoined }: { onJoined: (ledger: FamilyLedger) => void }) {
   const navigate = useNavigate()
   const [token] = useState(() => pendingInvite())
   const [lookup, setLookup] = useState<InviteLookup>()
@@ -61,15 +64,18 @@ export default function InvitePage({ onJoined }: { onJoined: () => void }) {
   if (!lookup) return <Loading what="the invite" />
   return (
     <Acceptance token={token!} lookup={lookup} onProblem={setProblem} onDeclined={() => setDeclined(true)}
-      onJoined={(ledger) => { onJoined(); navigate(`/family/${ledger.id}`, { replace: true }) }} />
+      onRecheck={() => setAttempt((n) => n + 1)}
+      onJoined={(ledger) => { onJoined(ledger); navigate(`/family/${ledger.id}`, { replace: true }) }} />
   )
 }
 
-function Acceptance({ token, lookup, onProblem, onDeclined, onJoined }: {
+function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined }: {
   token: string
   lookup: InviteLookup
   onProblem: (problem: Problem) => void
   onDeclined: () => void
+  /** Looks the invite up again: after the user moved or deleted their entries (D-37). */
+  onRecheck: () => void
   onJoined: (ledger: FamilyLedger) => void
 }) {
   const [name, setName] = useState(lookup.displayName ?? '')
@@ -77,6 +83,8 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onJoined }: {
   const [failure, setFailure] = useState<Error>()
   const [pending, setPending] = useState(false)
   const claim = lookup.kind === 'CLAIM'
+  // A return waits while the user's former debt account holds entries of their own dated after it (D-37).
+  const toMove = lookup.entriesAfterReturn ?? []
 
   async function accept(event: FormEvent) {
     event.preventDefault()
@@ -88,6 +96,12 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onJoined }: {
       clearPendingInvite()
       onJoined(ledger)
     } catch (e) {
+      // Entries to move first (D-37): the lookup lists them again.
+      if (e instanceof ApiError && e.code === ENTRIES_AFTER_RETURN) {
+        setFailure(e)
+        onRecheck()
+        return
+      }
       // A 409 is the name, which the user can change, unless the invite can't be used any more: ask again.
       if (e instanceof ApiError && e.status === 409) {
         try {
@@ -121,9 +135,15 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onJoined }: {
     }
   }
 
+  const entriesRefused = failure instanceof ApiError && failure.code === ENTRIES_AFTER_RETURN
+  // Once the lookup lists nothing more to move, the refusal is history.
+  useEffect(() => {
+    if (entriesRefused && toMove.length === 0) setFailure(undefined)
+  }, [entriesRefused, toMove.length])
   const nameErrors = [...fieldMessages(failure, 'displayName'),
-    ...(failure instanceof ApiError && failure.status === 409 ? [sentence(failure.message)] : [])]
-  const others = failure instanceof ApiError && (failure.status === 409 || failure.errors.length > 0) ? undefined
+    ...(failure instanceof ApiError && failure.status === 409 && !entriesRefused ? [sentence(failure.message)] : [])]
+  const others = entriesRefused ? sentence(failure.message)
+    : failure instanceof ApiError && (failure.status === 409 || failure.errors.length > 0) ? undefined
     : failure && (failure instanceof ApiError && failure.violations.length > 0
       ? failure.violations.map(sentence).join(' ') : sentence(failure.message))
   const groups = (['EXPENSE', 'INCOME'] as const).map((type) => ({
@@ -154,6 +174,26 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onJoined }: {
               budget, so that it matches the family budget again: for example, for entries of it you changed or deleted
               since you left, or records of before that changed meanwhile.</>}
         </p>
+      )}
+      {toMove.length > 0 && (
+        <div className="notice" role="region" aria-label="Entries to move first">
+          <p>
+            <strong>Before you come back</strong>, move these entries of yours off your former “Debt to family budget”
+            account, to another account, or delete them. They are dated after today and belong to none of the family
+            budget’s records, so they would make that account differ from your balance in the family budget, and once
+            you are back they could no longer be changed.
+          </p>
+          <ul>
+            {toMove.map((entry) => (
+              <li key={entry.entryId}>
+                <Link to={`/entries/${entry.entryId}`}>{formatDate(entry.date)}</Link>
+                {': '}{signOf(entry.amount) >= 0 ? 'adds' : 'takes'} {formatMoney(abs(entry.amount), entry.currency)}
+                {signOf(entry.amount) >= 0 ? ' to' : ' from'} what you owe{entry.memo ? <> · {entry.memo}</> : null}
+              </li>
+            ))}
+          </ul>
+          <p><button type="button" onClick={onRecheck}>Check again</button></p>
+        </div>
       )}
       {claim && (
         <p>
@@ -248,7 +288,7 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onJoined }: {
         </fieldset>
 
         <div className="actions">
-          <button className="primary" disabled={pending || name.trim() === ''}>Accept</button>
+          <button className="primary" disabled={pending || name.trim() === '' || toMove.length > 0}>Accept</button>
           <button type="button" disabled={pending} onClick={() => void decline()}>Decline</button>
         </div>
         <Errors messages={[others]} />

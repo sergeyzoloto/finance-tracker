@@ -7,11 +7,12 @@ import {
 import { basisPointsToPercent } from './basisPoints'
 import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
 import {
-  expenseProblems, formFromRecord, paymentAccounts, previewSplit, sharers, splitRequest, type SplitContext,
-  type SplitForm,
+  expenseProblems, formFromRecord, inOpeningBalance, paymentAccounts, previewSplit, sharers, splitRequest,
+  type SplitContext, type SplitForm,
 } from './expenseForm'
 import { keptBase, recordAmount, recordRateLine } from './currency'
 import { BaseAmountField, CurrencyField, currencySuggestions, useBaseAmount } from './FamilyCurrency'
+import { OpeningBalanceNote } from './FamilyExpenseForm'
 import { RECORD_NOUNS, recordTitle, recordWho, settlementSentence } from './family'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { JournalList } from './FamilyJournal'
@@ -367,12 +368,15 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const payerId = Number(payer)
   const payerChanged = payerId !== record.payer.memberId
   const payerIsMe = payerId === me
+  // A claimed seat's own record dated before the claim's date is in their opening balance: no account (D-32, D-35).
+  const reader = members.find((m) => m.id === me)
+  const opening = payerIsMe && inOpeningBalance(reader, date)
   // A newly chosen account with a currency of its own decides the amount's currency (D-13).
-  const newAccount = payerIsMe && payment !== LATER && payment !== initialPayment
+  const newAccount = payerIsMe && !opening && payment !== LATER && payment !== initialPayment
     ? (accounts.data ?? []).find((a) => String(a.id) === payment) : undefined
   const currency = newAccount?.defaultCurrency ?? chosenCurrency
   // The account the payment is on, new or as it is: with a currency of its own, it decides, and nothing is picked.
-  const payingAccount = payerIsMe && payment !== LATER ? (accounts.data ?? []).find((a) => String(a.id) === payment) : undefined
+  const payingAccount = payerIsMe && !opening && payment !== LATER ? (accounts.data ?? []).find((a) => String(a.id) === payment) : undefined
   const currencyValid = /^[A-Z]{3}$/.test(currency)
   const parsed = parseMinor(amountText, currencyValid ? currency : base)
   const amount = 'minor' in parsed ? parsed.minor : undefined
@@ -399,7 +403,7 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
     ...(currency !== original.currency ? { currency } : {}),
     ...(baseAmount.state === 'ENTERED' && baseAmount.minor !== undefined ? { baseAmount: fromMinor(baseAmount.minor, base) } : {}),
     ...(payerChanged ? { payerMemberId: payerId } : {}),
-    ...(payerIsMe ? accountPatch(payment, payerChanged ? '' : initialPayment) : {}),
+    ...(payerIsMe && !opening ? accountPatch(payment, payerChanged ? '' : initialPayment) : {}),
     ...(categoryId !== initialCategory ? { categoryId: Number(categoryId) } : {}),
     ...(comment.trim() !== (record.comment ?? '') ? { comment: comment.trim() || null } : {}),
     ...(splitChanged ? { split: request } : {}),
@@ -408,7 +412,7 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const dateProblem = date === '' ? 'Enter a date.'
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${noun} can’t be earlier.` : undefined
   const splitProblems = splitChanged || needsAmounts || split.mode === 'KEEP' ? preview.problems : []
-  const ready = changed && !dateProblem && amount !== undefined && currencyValid && (!payerIsMe || payment !== '')
+  const ready = changed && !dateProblem && amount !== undefined && currencyValid && (!payerIsMe || opening || payment !== '')
     && baseAmount.minor !== undefined && !baseAmount.problem && splitProblems.length === 0 && !needsAmounts
   const followsSplit = !splitChanged && (amountChanged || date !== record.date || payerChanged)
 
@@ -454,7 +458,8 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
                 {payers.map((m) => <option key={m.id} value={m.id}>{m.id === me ? `${m.displayName} (you)` : m.displayName}</option>)}
               </select>
             </Field>
-            {payerIsMe && (
+            {opening && reader && <OpeningBalanceNote joinDate={reader.joinDate} noun={noun} />}
+            {payerIsMe && !opening && (
               <Field label={income ? 'Received into' : 'Paid from'} errors={problems.payment}
                 hint={`Only you see it. “Specify later” keeps ${income ? 'it' : 'the payment'} under “Payments without a specified account”.`}>
                 <AccountSelect accounts={choices} value={payment} onChange={setPayment}>

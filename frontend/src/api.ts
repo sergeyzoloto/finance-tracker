@@ -69,6 +69,11 @@ export interface FamilyMember {
   share: number | null
   /** When a member left or was removed, or a former member deleted their data (F6a); null while ACTIVE. */
   leftDate?: string | null
+  /**
+   * Whether the member took a seat by a claim (F6b, D-35): they take part in records from the budget's start date, and
+   * their joinDate is the claim's, from which records post to them. Missing counts as false.
+   */
+  claimedSeat?: boolean
 }
 
 /**
@@ -146,7 +151,15 @@ export interface InviteLookup {
   returning?: boolean
   /** For a returning member, the correction that brings their debt to the family budget in line (D-26). */
   correction?: string | null
+  /**
+   * For a returning member, their own entries on their former debt account dated after the join date, which belong to
+   * no record of the family budget: accepting waits until they are moved or deleted (F6b, D-37). Null otherwise.
+   */
+  entriesAfterReturn?: EntryAfterReturn[] | null
 }
+
+/** One of the returning user's own entries (D-37): `amount` is what it adds to the debt that account shows. */
+export interface EntryAfterReturn { entryId: number; date: string; amount: string; currency: string; memo: string | null }
 
 // A family budget's expenses (F4a), incomes and settlements (F4d): the API calls them records. Amounts are in the
 // budget's base currency.
@@ -499,7 +512,8 @@ class ServerUnavailable extends Error {
  * Loads `path` and reloads whenever it changes; responses to superseded requests are dropped. While the
  * backend is unavailable it keeps retrying, so the screen recovers on its own once the backend is back.
  * A null path loads nothing. `loading` is true while a request is out, even if older data is shown meanwhile.
- * `status` is the HTTP status of a failed load that the API answered, such as 404.
+ * `status` is the HTTP status of a failed load that the API answered, such as 404. `update` changes the data shown
+ * until the next load, for what a write the page made has changed already (F6b: the switcher after joining or leaving).
  */
 export function useApi<T>(path: string | null) {
   const [data, setData] = useState<T>()
@@ -526,7 +540,8 @@ export function useApi<T>(path: string | null) {
     reload()
     return () => { latest.current++ } // unmounted or path changed: drop pending responses and retries
   }, [reload])
-  return { data, error, status, loading, reload }
+  const update = useCallback((change: (current: T | undefined) => T | undefined) => setData(change), [])
+  return { data, error, status, loading, reload, update }
 }
 
 /**

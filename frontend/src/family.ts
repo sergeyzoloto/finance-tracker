@@ -285,6 +285,7 @@ export function departureNotes({ member, me, balance, currency, members, splitRu
   budget: string
 }): string[] {
   const self = member.id === me
+  const last = closesBudget(member, members)
   const notes: string[] = []
   const name = member.displayName
   if (balance !== undefined) {
@@ -296,8 +297,10 @@ export function departureNotes({ member, me, balance, currency, members, splitRu
   if (self) {
     notes.push('What this family budget added to your personal budget stays there as your own entries, which you can '
       + 'change or delete; the family categories they use become personal categories of yours.')
-    notes.push('You won’t see this family budget any more. The others keep seeing your name in its records, which can '
-      + 'no longer be changed where they involve you.')
+    if (!last) {
+      notes.push('You won’t see this family budget any more. The others keep seeing your name in its records, which '
+        + 'can no longer be changed where they involve you.')
+    }
   } else if (member.hasAccount) {
     notes.push(`What this family budget added to ${name}’s personal budget stays there as their own entries; the family `
       + 'categories they use become personal categories of theirs.')
@@ -308,11 +311,16 @@ export function departureNotes({ member, me, balance, currency, members, splitRu
       + 'changed; otherwise they are removed altogether. Invites to take their place stop working.')
   }
   if (splitRule === 'CUSTOM' && (member.share ?? 0) > 0) notes.push('The split rule goes back to equal shares.')
-  if (member.hasAccount && !members.some((m) => m.id !== member.id && m.status === 'ACTIVE' && m.hasAccount)) {
-    notes.push('Nobody else here has an account, so the family budget closes: nobody will see it any more.')
+  if (last) {
+    notes.push(`Nobody else here has an account, so the family budget “${budget}” and its records will be deleted: its `
+      + 'members without an account, categories, journal and invites go with it.')
   }
   return notes
 }
+
+/** Whether the member is the last ACTIVE one with an account, whose going deletes the family budget (D-36). */
+export const closesBudget = (member: FamilyMember, members: FamilyMember[]) => member.hasAccount
+  && !members.some((m) => m.id !== member.id && m.status === 'ACTIVE' && m.hasAccount)
 
 /** What "Delete all my data" does to one of the user's family budgets, in words (D-20). */
 export function deletionNotes(impact: FamilyMembershipImpact): string[] {

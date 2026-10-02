@@ -3,7 +3,9 @@ import { api, ApiError, fieldMessages, formatDate, sentence, type FamilyBalances
 import { basisPointsToPercent, equalShares, percentToBasisPoints, WHOLE } from './basisPoints'
 import { Errors } from './components'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
-import { departureNotes, lastOwner, ROLE_LABELS, shareText, splitMembers, STATUS_LABELS, violationsByMember } from './family'
+import {
+  closesBudget, departureNotes, lastOwner, ROLE_LABELS, shareText, splitMembers, STATUS_LABELS, violationsByMember,
+} from './family'
 import { FamilyInvites } from './FamilyInvites'
 
 /**
@@ -31,7 +33,7 @@ export function FamilyMembers({ family }: { family: FamilyData }) {
   return (
     <section>
       <div className="scroll-x">
-        <table>
+        <table className="members">
           <thead>
             <tr>
               <th>Name</th><th>Role</th><th>Status</th><th>Joined</th>{custom && <th className="amount">Share</th>}<th />
@@ -126,12 +128,12 @@ function MemberRow({ member, family, custom, onInvite, onDepart }: {
           <div><small className="error" role="alert">{sentence(change.message)}</small></div>
         )}
       </td>
-      <td>{ROLE_LABELS[member.role]}</td>
-      <td className="nowrap">
+      <td data-label="Role">{ROLE_LABELS[member.role]}</td>
+      <td className="nowrap" data-label="Status">
         {member.status === 'LEFT' && member.leftDate ? `Left on ${formatDate(member.leftDate)}` : STATUS_LABELS[member.status]}
       </td>
-      <td className="nowrap">{formatDate(member.joinDate)}</td>
-      {custom && <td className="amount nowrap">{shareText(member) ?? '—'}</td>}
+      <td className="nowrap" data-label="Joined">{formatDate(member.joinDate)}</td>
+      {custom && <td className="amount nowrap" data-label="Share">{shareText(member) ?? '—'}</td>}
       <td className="actions nowrap">
         {!renaming && own && active && member.hasAccount && (
           <>
@@ -166,6 +168,7 @@ function Departure({ member, family, balance, currency, onClose }: {
 }) {
   const self = member.id === family.ledger.memberId
   const blocked = self && lastOwner(family.members, family.ledger.memberId)
+  const deletes = closesBudget(member, family.members)
   const go = useFamilyMutation(family, () => {
     if (self) family.left?.()
     else onClose()
@@ -186,7 +189,8 @@ function Departure({ member, family, balance, currency, onClose }: {
         {!blocked && (
           <button type="button" className="danger" disabled={go.pending}
             onClick={() => void go.run(() => api(`${family.path}/members/${self ? 'me' : member.id}`, 'DELETE'))}>
-            {self ? 'Leave the family budget' : `Remove ${member.displayName}`}
+            {!self ? `Remove ${member.displayName}`
+              : deletes ? 'Leave and delete the family budget' : 'Leave the family budget'}
           </button>
         )}
         <button type="button" onClick={onClose}>Cancel</button>

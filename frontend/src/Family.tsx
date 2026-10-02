@@ -22,8 +22,9 @@ import { useFamilyApi, useFamilyMutation, type CreationState, type FamilyData } 
  * does every request about it once it's gone: then the page says so, and the switcher's list is loaded again.
  *
  * @param onChanged loads the switcher's list again
+ * @param onLeft after the reader left the budget: the switcher's list without it at once, then loaded again
  */
-export default function Family({ onChanged }: { onChanged: () => void }) {
+export default function Family({ onChanged, onLeft }: { onChanged: () => void; onLeft?: (ledgerId: number) => void }) {
   const { ledgerId = '' } = useParams()
   const valid = /^[1-9]\d{0,17}$/.test(ledgerId)
   const path = `/family-ledgers/${ledgerId}`
@@ -49,7 +50,12 @@ export default function Family({ onChanged }: { onChanged: () => void }) {
     page: `/family/${ledgerId}`,
     owner: ledger.data.role === 'OWNER',
     reload: () => { ledger.reload(); members.reload(); onChanged() },
-    left: () => { onChanged(); navigate('/', { replace: true }) },
+    left: () => {
+      // Away from the budget first, so that the switcher never shows it as an unknown one meanwhile.
+      navigate('/', { replace: true })
+      if (onLeft) onLeft(Number(ledgerId))
+      else onChanged()
+    },
   }
   return (
     <>

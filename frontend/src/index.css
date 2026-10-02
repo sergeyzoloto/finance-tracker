@@ -210,3 +210,16 @@ ul.invite-list { list-style: none; padding: 0; margin: 0.75rem 0; }
 ul.invite-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); display: grid; gap: 0.2rem; }
 ul.invite-list li button { justify-self: start; }
 .invite ul.merges { margin: 0.25rem 0 0.75rem; }
+
+/* The members table on a phone (F6b): one block per member, the facts on labelled lines and the actions wrapping
+   below, so that nothing scrolls sideways at 375 px. */
+@media (max-width: 40rem) {
+  table.members thead { display: none; }
+  table.members, table.members tbody, table.members tr, table.members td { display: block; width: auto; }
+  table.members tr { padding: 0.5rem 0; border-bottom: 1px solid #ddd; }
+  table.members td { border: none; padding: 0.1rem 0; white-space: normal; text-align: left; }
+  table.members td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); }
+  table.members td.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.3rem; }
+  table.members td.actions:empty { display: none; }
+  table.members td.actions button { margin-left: 0; }
+}

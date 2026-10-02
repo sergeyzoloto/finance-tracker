@@ -1645,6 +1645,13 @@ the F6b review):
   part from it as a new member does (equal shares leave them out of an earlier record, and bring them in when it moves to
   the return date or later, F4c's rule); records that included them keep them (their "guests"), whose effect before the
   return goes into the correction.
+- **The interface.** `expenseForm.takesPart` and `inOpeningBalance` mirror the rules; the record forms take a claimed
+  seat's own record before the claim's date without an account, with a line why. The leave confirmation of the last
+  member with an account says the budget and its records will be deleted ("Leave and delete the family budget"). The
+  invite page lists D-37's entries, with links, and waits ("Check again"). The switcher lists a budget just joined, and
+  drops one just left, before its list has loaded again (`useApi.update`; the update of a budget just left is a
+  transition, committed with the router's navigation away from it, so no frame shows a placeholder). The members table
+  becomes labelled blocks under 40rem, so nothing scrolls sideways at 375 px.
 
 ### K. Test strategy
 

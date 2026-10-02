@@ -2,7 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { api, formatDate, isoDate, useApi, type Account, type FamilyRecord } from './api'
 import { AccountSelect, Errors, Field } from './components'
-import { expenseProblems, paymentAccounts } from './expenseForm'
+import { expenseProblems, inOpeningBalance, paymentAccounts } from './expenseForm'
+import { OpeningBalanceNote } from './FamilyExpenseForm'
 import { accountCurrency } from './currency'
 import { maySettle } from './family'
 import { BaseAmountField, CurrencyField, currencySuggestions, useBaseAmount } from './FamilyCurrency'
@@ -75,6 +76,9 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
   const payeeMember = active.find((m) => String(m.id) === payee)
   const pays = payer === String(me)
   const mine = pays || payee === String(me)
+  // The reader's own side before their claim's date is in their opening balance: no account (D-32, D-35).
+  const reader = family.members.find((m) => m.id === me)
+  const opening = mine && inOpeningBalance(reader, date)
   const allowed = payerMember !== undefined && payeeMember !== undefined
     && maySettle({ memberId: payerMember.id, hasAccount: payerMember.hasAccount },
       { memberId: payeeMember.id, hasAccount: payeeMember.hasAccount }, me, family.owner)
@@ -84,7 +88,7 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
   const side = chosenSide ?? (remembered === LATER || eligible.some((a) => String(a.id) === remembered) ? remembered : '')
 
   // In the reader's account's currency, if it has one; else as picked (D-13, F4e).
-  const account = mine && side !== LATER ? eligible.find((a) => String(a.id) === side) : undefined
+  const account = mine && !opening && side !== LATER ? eligible.find((a) => String(a.id) === side) : undefined
   const currency = accountCurrency(account, chosenCurrency)
   const currencyValid = /^[A-Z]{3}$/.test(currency)
   const parsed = parseMinor(amountText, currencyValid ? currency : base)
@@ -95,13 +99,13 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
   const sameMember = payer !== '' && payer === payee
   const ready = !dateProblem && amount !== undefined && currencyValid && baseAmount.minor !== undefined
     && !baseAmount.problem && payerMember !== undefined && payeeMember !== undefined
-    && !sameMember && allowed && (!mine || side !== '')
+    && !sameMember && allowed && (!mine || opening || side !== '')
   const problems = expenseProblems(save.failure, [], Number(payer), 'date', Number(payee))
 
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!ready) return
-    const how = mine ? (side === LATER ? { paymentLater: true } : { paymentAccountId: Number(side) }) : {}
+    const how = mine && !opening ? (side === LATER ? { paymentLater: true } : { paymentAccountId: Number(side) }) : {}
     const inCurrency = currency === base ? {} : { currency }
     const typedBase = baseAmount.state === 'ENTERED' ? { baseAmount: fromMinor(baseAmount.minor!, base) } : {}
     void save.run(async () => {
@@ -109,7 +113,7 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
         date, amount: fromMinor(amount!, currency), ...inCurrency, ...typedBase, payerMemberId: Number(payer),
         payeeMemberId: Number(payee), comment: comment.trim() || null, ...how,
       })
-      if (mine) rememberSide(ledger.id, side)
+      if (mine && !opening) rememberSide(ledger.id, side)
       navigate(`${family.page}/expenses/${created.id}`)
     })
   }
@@ -150,7 +154,8 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
             hint={`The family budget starts on ${formatDate(ledger.startDate)}.`}>
             <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
           </Field>
-          {mine && (
+          {opening && reader && <OpeningBalanceNote joinDate={reader.joinDate} noun="settlement" />}
+          {mine && !opening && (
             <Field label={sideLabel(pays)} errors={problems.payment}
               hint="Only you see it. “Specify later” keeps it under “Payments without a specified account” in your ledger.">
               <AccountSelect accounts={eligible} value={side} onChange={(value) => {

@@ -31,11 +31,23 @@ export interface SplitForm {
 export const newSplit = (): SplitForm => ({ mode: 'RULE', percents: {}, amounts: {}, member: '' })
 
 /**
- * Who shares an expense of the date: the ACTIVE members, a member without an account for any date, and one with an
- * account from their join date on (D-7, D-18), in join order.
+ * Whether a member takes part in a record of the date, as FamilyRecordService.joinedBy says: a member without an
+ * account, and one who took a seat, from the budget's start date (D-18, D-35: a claim changes nothing about who takes
+ * part); a new member and one who returned, from their join date (D-39).
  */
+export const takesPart = (m: FamilyMember, date: string) =>
+  !m.hasAccount || m.claimedSeat === true || m.joinDate <= date
+
+/**
+ * Whether the member's own part of a record of the date is in their opening balance rather than an entry: a member who
+ * took a seat, before its claim's date (D-32, D-35). It has no account of theirs, nor "Specify later".
+ */
+export const inOpeningBalance = (m: FamilyMember | undefined, date: string) =>
+  m !== undefined && m.hasAccount && m.claimedSeat === true && date < m.joinDate
+
+/** Who shares an expense of the date: the ACTIVE members who take part in it ({@link takesPart}), in join order. */
 export const sharers = (members: FamilyMember[], date: string) =>
-  members.filter((m) => m.status === 'ACTIVE' && (!m.hasAccount || m.joinDate <= date))
+  members.filter((m) => m.status === 'ACTIVE' && takesPart(m, date))
 
 /** A member's row in the split: their share in the minor unit, once the amount allows one, and what is wrong. */
 export interface SplitRow { member: FamilyMember; amount: bigint | null; problem?: string }
@@ -69,7 +81,8 @@ export interface SplitContext {
 export function splitRows(form: SplitForm, { ledger, members, date }: SplitContext) {
   if (form.mode === 'KEEP' && form.keep) {
     const { among, since } = form.keep
-    return sharers(members, date).filter((m) => among.includes(m.id) || (m.hasAccount && m.joinDate > since))
+    return sharers(members, date).filter((m) => among.includes(m.id)
+      || (m.hasAccount && m.claimedSeat !== true && m.joinDate > since))
   }
   return form.mode === 'RULE' && ledger.splitRule === 'CUSTOM'
     ? members.filter((m) => m.status === 'ACTIVE' && m.share !== null)
@@ -103,7 +116,7 @@ export function previewSplit(form: SplitForm, context: SplitContext, currency: s
         if (amount !== undefined && members.length > 0) shares = equalSplit(amount, members.map((m) => m.id), payerId)
       } else {
         for (const m of members) {
-          if ((m.share ?? 0) > 0 && m.hasAccount && m.joinDate > date) {
+          if ((m.share ?? 0) > 0 && !takesPart(m, date)) {
             rowProblems.set(m.id, `${m.displayName} joined after this date.`)
           }
         }

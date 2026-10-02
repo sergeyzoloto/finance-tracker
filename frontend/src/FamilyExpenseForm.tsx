@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router'
 import { api, formatDate, isoDate, useApi, type Account, type Category, type FamilyRecord } from './api'
 import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
 import {
-  expenseProblems, newSplit, paymentAccounts, previewSplit, splitRequest, type SplitContext, type SplitForm,
+  expenseProblems, inOpeningBalance, newSplit, paymentAccounts, previewSplit, splitRequest, type SplitContext, type SplitForm,
 } from './expenseForm'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { accountCurrency } from './currency'
@@ -82,6 +82,9 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
 
   const payers = members.filter((m) => m.status === 'ACTIVE' && (m.id === ledger.memberId || !m.hasAccount))
   const payerIsMe = payer === String(ledger.memberId)
+  // A claimed seat's own record before the claim's date is in their opening balance: no account (D-32, D-35).
+  const reader = members.find((m) => m.id === ledger.memberId)
+  const opening = payerIsMe && inOpeningBalance(reader, date)
   const eligible = paymentAccounts(accounts.data ?? [])
   // The last way of paying, while it is still one the backend takes.
   const remembered = lastPayment(ledger.id, type)
@@ -89,7 +92,7 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
     ?? (remembered === LATER || eligible.some((a) => String(a.id) === remembered) ? remembered : '')
 
   // The amount is in the paying account's currency, if it has one; else as picked (D-13, F4e).
-  const account = payerIsMe && payment !== LATER ? eligible.find((a) => String(a.id) === payment) : undefined
+  const account = payerIsMe && !opening && payment !== LATER ? eligible.find((a) => String(a.id) === payment) : undefined
   const currency = accountCurrency(account, chosenCurrency)
   const currencyValid = /^[A-Z]{3}$/.test(currency)
   const parsed = parseMinor(amountText, currencyValid ? currency : base)
@@ -101,14 +104,14 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${words.noun} can’t be earlier.` : undefined
   const ready = !dateProblem && categoryId !== '' && amount !== undefined && currencyValid && payer !== ''
     && baseAmount.minor !== undefined && !baseAmount.problem
-    && (!payerIsMe || payment !== '') && preview.problems.length === 0
+    && (!payerIsMe || opening || payment !== '') && preview.problems.length === 0
 
   const problems = expenseProblems(save.failure, preview.rows.map((r) => r.member.id), Number(payer), 'date')
 
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!ready) return
-    const how = payerIsMe ? (payment === LATER ? { paymentLater: true } : { paymentAccountId: Number(payment) }) : {}
+    const how = payerIsMe && !opening ? (payment === LATER ? { paymentLater: true } : { paymentAccountId: Number(payment) }) : {}
     // The currency only when it isn't the base currency, the base amount only when typed in: else the server's.
     const inCurrency = currency === base ? {} : { currency }
     const typedBase = baseAmount.state === 'ENTERED' ? { baseAmount: fromMinor(baseAmount.minor!, base) } : {}
@@ -117,7 +120,7 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
         type, date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), ...inCurrency, ...typedBase,
         comment: comment.trim() || null, payerMemberId: Number(payer), ...how, split: splitRequest(split, preview, base),
       })
-      if (payerIsMe) rememberPayment(ledger.id, type, payment)
+      if (payerIsMe && !opening) rememberPayment(ledger.id, type, payment)
       navigate(`${family.page}/expenses/${created.id}`)
     })
   }
@@ -156,7 +159,8 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
               ))}
             </select>
           </Field>
-          {payerIsMe && (
+          {opening && reader && <OpeningBalanceNote joinDate={reader.joinDate} noun={words.noun} />}
+          {payerIsMe && !opening && (
             <Field label={words.from} errors={problems.payment} hint={words.later}>
               <AccountSelect accounts={eligible} value={payment} onChange={setPayment}>
                 <option value={LATER}>Specify later</option>
@@ -177,5 +181,18 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
         <Errors messages={[...problems.other, accounts.error]} />
       </form>
     </section>
+  )
+}
+
+/**
+ * Why a claimed seat's own record before the claim's date asks for no account: it is part of their opening balance
+ * (D-32, D-35), as the server says with 422 PAYMENT otherwise.
+ */
+export function OpeningBalanceNote({ joinDate, noun }: { joinDate: string; noun: string }) {
+  return (
+    <p className="muted small wide">
+      This {noun} is dated before you took your place on {formatDate(joinDate)}, so it is part of your opening balance:
+      no account of yours is in it.
+    </p>
   )
 }

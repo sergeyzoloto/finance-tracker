@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FamilyBalance, FamilyBalances, FamilyChange, FamilyMember, FamilyMembershipImpact, MemberRef } from './api'
 import {
-  balanceSentence, balanceWords, debtSentence, deletionNotes, departureNotes, journalLine, lastOwner, maySettle,
+  balanceSentence, balanceWords, closesBudget, debtSentence, deletionNotes, departureNotes, journalLine, lastOwner, maySettle,
   settleUpOrder, violationsByMember, whoOwesWhom, yourBalance,
 } from './family'
 
@@ -251,7 +251,7 @@ describe('leaving, removal and Delete all my data (F6a)', () => {
     ])
   })
 
-  it('says what a removal does, and that a budget closes without another member with an account', () => {
+  it('says what a removal does, and that a budget is deleted without another member with an account (D-36)', () => {
     expect(departureNotes({ member: kid, me: 70, balance: '0.00', currency: 'EUR', members: [mum, kid],
       splitRule: 'EQUAL', budget: 'Home' })).toEqual([
       'Kid is settled.',
@@ -260,7 +260,14 @@ describe('leaving, removal and Delete all my data (F6a)', () => {
     ])
     expect(departureNotes({ member: mum, me: 70, balance: undefined, currency: 'EUR', members: [mum, kid],
       splitRule: 'EQUAL', budget: 'Home' })).toContain(
-      'Nobody else here has an account, so the family budget closes: nobody will see it any more.')
+      'Nobody else here has an account, so the family budget “Home” and its records will be deleted: its members '
+        + 'without an account, categories, journal and invites go with it.')
+    // Leaving as the last one: no word of the others seeing their name, as nobody will.
+    expect(departureNotes({ member: mum, me: mum.id, balance: '0.00', currency: 'EUR', members: [mum, kid],
+      splitRule: 'EQUAL', budget: 'Home' }).join(' ')).not.toContain('The others keep seeing your name')
+    expect(closesBudget(mum, [mum, kid])).toBe(true)
+    expect(closesBudget(mum, [mum, dad])).toBe(false)
+    expect(closesBudget(kid, [mum, kid])).toBe(false)
     expect(departureNotes({ member: dad, me: 70, balance: '5.00', currency: 'EUR', members: [mum, dad],
       splitRule: 'EQUAL', budget: 'Home' })[0]).toBe('Dad owes €5.00. That stays in their personal budget, on an '
         + 'account of theirs.')

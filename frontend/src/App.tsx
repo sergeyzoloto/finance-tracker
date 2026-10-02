@@ -1,3 +1,4 @@
+import { startTransition, useCallback } from 'react'
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router'
 import Accounts from './Accounts'
 import { familyLedgersOn, useApi, type FamilyLedger, type Me } from './api'
@@ -20,6 +21,19 @@ export default function App({ me }: { me: Me }) {
   // family routes, and no request for family budgets otherwise.
   const familyOn = familyLedgersOn(me)
   const families = useApi<FamilyLedger[]>(familyOn ? '/family-ledgers' : null)
+  // The switcher's list right after joining or leaving, before it has loaded again: no placeholder for a budget just
+  // joined, and none left behind for one just left (F6b).
+  const { update, reload } = families
+  const joined = useCallback((ledger: FamilyLedger) => {
+    update((list) => list && !list.some((f) => f.id === ledger.id)
+      ? [...list, ledger].sort((a, b) => a.name.localeCompare(b.name)) : list)
+    reload()
+  }, [update, reload])
+  const left = useCallback((ledgerId: number) => {
+    // In a transition, as the router navigates away from the budget: both show in one render.
+    startTransition(() => update((list) => list?.filter((f) => f.id !== ledgerId)))
+    reload()
+  }, [update, reload])
   return (
     <>
       <header>
@@ -49,8 +63,8 @@ export default function App({ me }: { me: Me }) {
           <Route path="/import" element={<Import />} />
           <Route path="/settings" element={<Settings onDeleted={families.reload} familyOn={familyOn} />} />
           {familyOn && <Route path="/family/new" element={<NewFamily me={me} onCreated={families.reload} />} />}
-          {familyOn && <Route path="/family/:ledgerId/*" element={<Family onChanged={families.reload} />} />}
-          {familyOn && <Route path="/invite" element={<InvitePage onJoined={families.reload} />} />}
+          {familyOn && <Route path="/family/:ledgerId/*" element={<Family onChanged={families.reload} onLeft={left} />} />}
+          {familyOn && <Route path="/invite" element={<InvitePage onJoined={joined} />} />}
           <Route path="/transactions" element={<Navigate to="/entries" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

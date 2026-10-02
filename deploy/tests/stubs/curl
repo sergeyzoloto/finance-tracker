@@ -1,16 +1,44 @@
 #!/usr/bin/env bash
-# Stub of curl for deploy/tests/run.sh: records the call and answers GitHub's check runs from fixtures/ci.<n> (the n-th
-# call) or fixtures/ci. No network.
+# Stub of curl for deploy/tests/run.sh: records the call, and answers
+#   - GitHub's check runs from fixtures/ci.<n> (the n-th call) or fixtures/ci;
+#   - the site's pages (https://app.finance-nl.com/…, F7b) with the body the deploy scripts look for and 200, or with
+#     the status fixtures/pages gives the path ("<path> <status>" lines; any other status gets nginx's error page).
+#     The body goes to -o's file and the status to stdout, as -w '%{http_code}' prints it.
+# No network.
 set -euo pipefail
 S=${STUB_STATE:?}
 printf 'curl %s\n' "$*" >>"$S/calls"
 url=${*: -1}
 case $url in
-  https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/*/check-runs\?per_page=100) ;;
+  https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/*/check-runs\?per_page=100)
+    n=$(($(cat "$S/count-ci" 2>/dev/null || echo 0) + 1))
+    echo "$n" >"$S/count-ci"
+    f=$S/fixtures/ci
+    [ -f "$f.$n" ] && f=$f.$n
+    cat "$f"
+    ;;
+  https://app.finance-nl.com/*)
+    path=/${url#https://app.finance-nl.com/}
+    out=/dev/stdout
+    while [ $# -gt 0 ]; do
+      [ "$1" = -o ] && { out=$2; shift; }
+      shift
+    done
+    status=200
+    if [ -f "$S/fixtures/pages" ]; then
+      status=$(awk -v p="$path" '$1 == p { s = $2 } END { print s ? s : 200 }' "$S/fixtures/pages")
+    fi
+    if [ "$status" != 200 ]; then
+      printf '<html><head><title>%s</title></head><body><center><h1>%s</h1></center><hr><center>nginx</center></body></html>\n' \
+        "$status" "$status" >"$out"
+    else
+      case $path in
+        /) printf '<!doctype html><html><body><div id="root"></div></body></html>\n' >"$out" ;;
+        /privacy | /privacy.html) printf '<!doctype html><html><body><h1>Privacy policy</h1></body></html>\n' >"$out" ;;
+        *) printf 'an icon\n' >"$out" ;;
+      esac
+    fi
+    printf '%s' "$status"
+    ;;
   *) echo "curl stub: unexpected URL $url" >&2; exit 99 ;;
 esac
-n=$(($(cat "$S/count-ci" 2>/dev/null || echo 0) + 1))
-echo "$n" >"$S/count-ci"
-f=$S/fixtures/ci
-[ -f "$f.$n" ] && f=$f.$n
-cat "$f"

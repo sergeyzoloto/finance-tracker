@@ -154,6 +154,31 @@ mutation "drop switch's way back after a failure" \
   '    say "  cd $REPO_DIR && deploy/deploy.sh switch $OTHER"' '    : way back not printed' \
   switch_failure_prints_the_way_back
 
+# F7b: the page check dropped from run, after health.
+mutation "drop the page check from run" \
+  '  page_checks || fail "a page isn'"'"'t as expected: $PAGES_LINE"' '  : page check dropped' \
+  run_fails_on_a_page
+
+# F7b: finish asking about the browser checks although a page failed.
+mutation "let finish ask despite a failed page check" \
+  '  if [ "$pages" = passed ]; then' '  if true; then' \
+  finish_records_failed_pages_without_asking
+
+# F7b: /privacy, the page F7's deploy lost, dropped from the one list.
+mutation_in common.sh "drop /privacy from the pages" \
+  $'  \'/privacy|200|<h1>Privacy policy</h1>\'\n' '' \
+  run_fails_on_a_page finish_records_failed_pages_without_asking
+
+# F7b: git writing the working tree under the scripts' umask 077 again.
+mutation_in common.sh "drop the umask 022 of git" \
+  'git_tree() { (umask 022 && git "$@"); }' 'git_tree() { (git "$@"); }' \
+  merged_files_land_644
+
+# F7b: switch's confirmation saying "202" again.
+mutation "say 202 in switch's confirmation" \
+  "echo '200 to their members'" "echo '202 as usual'" \
+  switch_says_200_and_prints_the_numbers
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

@@ -162,6 +162,7 @@ new_target() {
         postgres-init) echo "# changed" >>deploy/app/postgres-init.sh ;;
         api) sed -i 's/mem_limit: 768m/mem_limit: 769m/' deploy/app/docker-compose.yml ;;
         conf) echo "# changed" >>deploy/pg-backup/finance.conf ;;
+        privacy) mkdir -p frontend/public && echo '<h1>Privacy policy</h1>' >frontend/public/privacy.html ;;
         migrations)
           for v in 7 8 9; do
             for f in "$ROOT"/backend/src/main/resources/db/migration/V"${v}"__*.sql; do
@@ -263,6 +264,7 @@ same_file() { cmp -s "$1" "$2"; }
 latest_run() { find "$C/state/runs" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1; }
 status_is() { [ "$(cat "$(latest_run)/status")" = "$1" ]; }
 file_has() { grep -qF -- "$2" "$1"; }
+mode_is() { [ "$(stat -c %a "$1")" = "$2" ] || { echo "      $1 is $(stat -c %a "$1"), not $2"; return 1; }; }
 
 # in_order REGEX...: the calls match in this order.
 in_order() {
@@ -395,7 +397,7 @@ case_refuse_ci_still_running() {
   cp "$HERE/fixtures/check-runs-in-progress.json" "$STUB_STATE/fixtures/ci"
   deploy_e
   refused "still runs after"
-  check "it waited" [ "$(count_calls '^curl ')" -ge 2 ]
+  check "it waited" [ "$(count_calls '^curl .*/check-runs')" -ge 2 ]
 }
 
 case_ci_waits_then_succeeds() {
@@ -405,7 +407,7 @@ case_ci_waits_then_succeeds() {
   deploy_e
   check "exit code 0" rc_is 0
   check "waited once" out_has "CI still runs; checking again"
-  check "two reads of the check runs" [ "$(count_calls '^curl ')" -eq 2 ]
+  check "two reads of the check runs" [ "$(count_calls '^curl .*/check-runs')" -eq 2 ]
 }
 
 case_refuse_ci_none() {
@@ -730,8 +732,10 @@ case_verify_read_only() {
   check "exit code 0" rc_is 0
   check "says OK" out_has "verify OPS-1: OK"
   check "the D-25 line of the current start" out_has '"Family ledgers (D-25): off; the family endpoints answer 404" at 2026-10-01T16:56:46Z'
-  check "no state-changing call" calls_lack "$STATE_CHANGING|^systemctl|^pg-restore-test|^curl"
+  check "no state-changing call" calls_lack "$STATE_CHANGING|^systemctl|^pg-restore-test|^curl .*api\.github\.com"
   check "only reads: inspect, logs, read-only psql, version" calls_lack '^docker (compose (build|up|config|ps)|exec|tag|rmi)'
+  check "the pages read (F7b), each once, by GET" [ "$(count_calls '^curl -sS --max-time 15 -o .* -w %\{http_code\} https://app\.finance-nl\.com/')" -eq 5 ]
+  check "the pages reported OK" out_has "5 of 5 as expected through https://app.finance-nl.com"
   check "the state folder unchanged" [ "$before" = "$after" ]
   check "HEAD unchanged" head_is "$SHA_D"
 }
@@ -1082,6 +1086,8 @@ case_rollback_rolls_back() {
   check "last-good is D again" last_good_is "$SHA_D"
   check "history: rolled back from E to D" in_order_file "$C/state/history" " rolled-back-from $SHA_E " " rollback-to $SHA_D "
   check "says how to go forward" out_has "git checkout main, then deploy/deploy.sh run"
+  check "the pages checked after the restart (F7b)" in_order '^docker compose up -d --no-deps api web$' '^curl .*https://app\.finance-nl\.com/privacy$'
+  check "the pages in the summary" file_has "$(latest_run)/summary.txt" "Pages: 5 of 5 as expected through https://app.finance-nl.com"
   type_at_terminal "ROLLBACK ${SHA_C:0:7}"
   run_rollback "${SHA_C:0:7}"
   check "no second rollback past D: nothing recorded before D" out_has "no good deploy before"
@@ -1330,6 +1336,113 @@ case_finish_after_the_f6c_run() {
   check "not confirmed: nothing rolled back" head_is "$SHA_E"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# F7b: the pages through the public address, git under umask 022, switch's text.
+
+# A page that answers 403 after the deploy's health: FAILED at the page step, with the guidance and the way back;
+# verify is not OK. Only /privacy fails, as after F7's deploy.
+case_run_fails_on_a_page() {
+  setup_case
+  new_target
+  fixture pages "/privacy 403"
+  deploy_e
+  failed_after_merge "a page isn't as expected"
+  check "at the page step, after health" out_has 'FAILED at "3.6 Deploy: the pages"'
+  check "the pages read after the start" in_order '^docker compose up -d --no-deps api web$' '^curl .*https://app\.finance-nl\.com/$'
+  check "names /privacy and its status" out_has "/privacy: 403, NOT 200"
+  check "the others as expected" out_has "/privacy.html: 200, with <h1>Privacy policy</h1>"
+  check "the guidance" out_has "The site may still work, but this deploy isn't good: don't run deploy.sh finish."
+  check "the summary names the page" file_has "$(latest_run)/summary.txt" "Pages: FAILED through https://app.finance-nl.com: /privacy 403"
+  run_deploy verify OPS-1
+  check "verify: exit code 1" rc_is 1
+  check "verify: a problem" out_has "PROBLEM: a page isn't as expected"
+  check "verify: one problem" out_has "verify OPS-1: 1 problem(s)"
+}
+
+# finish checks the pages before its questions: a page that fails records the browser checks as failed, without
+# asking, so there is no way to answer yes; once the page is fixed, finish again passes.
+case_finish_records_failed_pages_without_asking() {
+  setup_case
+  new_target
+  deploy_e
+  check "deployed" rc_is 0
+  fixture pages "/privacy 403"
+  type_at_terminal yes yes
+  run_deploy finish
+  check "exit code 3" rc_is 3
+  check "the pages before the questions" out_has "Pages: FAILED through https://app.finance-nl.com: /privacy 403"
+  check "never asks about the browser checks" out_lacks "Did the browser checks pass?"
+  check "says why" out_has "The page checks failed: the browser checks are recorded as NOT passed, without asking."
+  check "asks the smoke test" out_has "Did the smoke test pass?"
+  local summary
+  summary=$(latest_run)/summary.txt
+  check "recorded as not passed, without asking" grep -qE '^Browser checks: NOT passed \(the page checks failed: FAILED through https://app\.finance-nl\.com: /privacy 403\), recorded at 20[0-9-]{8}T[0-9:]{8}Z without asking$' "$summary"
+  check "the smoke test's answer" grep -q '^Smoke test: passed' "$summary"
+  check "the pages at finish" file_has "$summary" "Pages at finish: FAILED"
+  check "not passed" out_has "NOT PASSED: the browser checks."
+  check "status finish-failed" status_is finish-failed
+  check "history: finish-failed E newest" bash -c "tail -n 1 '$C/state/history' | grep -q ' finish-failed $SHA_E '"
+  rm "$STUB_STATE/fixtures/pages"
+  type_at_terminal yes yes
+  run_deploy finish
+  check "fixed: passed" rc_is 0
+  check "fixed: asked again" out_has "Did the browser checks pass?"
+  check "fixed: one line each" bash -c "grep -c '^Browser checks: ' '$summary' | grep -qx 1 && grep -c '^Pages at finish: ' '$summary' | grep -qx 1"
+  check "fixed: the pages at finish" file_has "$summary" "Pages at finish: 5 of 5 as expected"
+  check "fixed: status finished" status_is finished
+}
+
+# The merge writes the files E changes as 644 and its new folders as 755, under umask 022, while the run folder stays
+# under 077; the rollback's checkout too.
+case_merged_files_land_644() {
+  setup_case
+  new_target privacy
+  deploy_e
+  check "deployed" rc_is 0
+  check "README, changed by E: 644" mode_is "$C/server/README" 644
+  check "a new file of E: 644" mode_is "$C/server/frontend/public/privacy.html" 644
+  check "its new folders: 755" mode_is "$C/server/frontend/public" 755
+  check "the run folder: 700" mode_is "$(latest_run)" 700
+  check "the run's summary: 600" mode_is "$(latest_run)/summary.txt" 600
+  check "last-good, written by the run: 600" mode_is "$C/state/last-good" 600
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  check "rolled back" rc_is 0
+  check "README, rewritten by the rollback's checkout: 644" mode_is "$C/server/README" 644
+  check "the rollback's summary: 600" mode_is "$(latest_run)/summary.txt" 600
+}
+
+# The rollback reports a page that fails after its restart, and is done all the same: the commit gone back to may hold
+# the fault (F7's web image).
+case_rollback_reports_a_failing_page() {
+  rollback_setup
+  fixture pages "/privacy 403"
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  check "rolled back: exit code 0" rc_is 0
+  check "a warning" out_has "WARNING: a page isn't as expected after the rollback: FAILED through https://app.finance-nl.com: /privacy 403"
+  check "the summary" file_has "$(latest_run)/summary.txt" "Pages: FAILED through https://app.finance-nl.com: /privacy 403"
+  check "status rolled-back" status_is rolled-back
+}
+
+# switch's confirmation: 200 for on (F7's said "202"), 404 for off; step 1.6 prints the numbers, as run's 1.7 does.
+case_switch_says_200_and_prints_the_numbers() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on: exit code 0" rc_is 0
+  check "on: 200" out_has "The family endpoints will answer 200 to their members once it is up."
+  check "never 202" out_lacks "answer 202"
+  check "the numbers printed before the confirmation" in_order_file "$C/out" "== 1.6 Preflight: the numbers before" \
+    "accounts=22" "family_records=0" "users=2" "== 2. Confirmation"
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "off: exit code 0" rc_is 0
+  check "off: 404" out_has "The family endpoints will answer 404 once it is up."
+  check "off: the numbers printed" in_order_file "$C/out" "== 1.6 Preflight: the numbers before" "users=2" "== 2. Confirmation"
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -1355,6 +1468,8 @@ CASES=(
   pasted_ahead_is_discarded yes_no_asks_again finish_skips_refused_runs newest_line_decides_status
   step_1_3_says_push_first
   f6b_run_on_production_state f6c_scripts_on_production_state finish_after_the_f6c_run
+  run_fails_on_a_page finish_records_failed_pages_without_asking merged_files_land_644
+  rollback_reports_a_failing_page switch_says_200_and_prints_the_numbers
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

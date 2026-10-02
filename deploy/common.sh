@@ -34,6 +34,7 @@ common_settings() {
   TEE_PID=
   STEP=
   REASON=
+  PAGES_LINE=
 }
 
 say() { printf '%s\n' "$*"; }
@@ -235,6 +236,65 @@ highest_migration() {
 # flyway_row: the latest row of flyway_schema_history as "version description success".
 flyway_row() {
   sql_query "SELECT version || ' ' || description || ' ' || success FROM app.flyway_schema_history ORDER BY installed_rank DESC LIMIT 1"
+}
+
+# git_tree ARG...: a git command that writes the working tree (merge, checkout), under umask 022 in a subshell (F7b):
+# what it writes is 644 (folders 755), as an interactive root shell's checkout gives. Under the scripts' umask 077,
+# F6b's and F7's merges wrote the changed frontend/public/privacy.html as 600, the web image kept the mode, and nginx
+# answered /privacy with 403 (deploy/RUNBOOK.md, "Deployed revisions"). Everything else stays under 077, which keeps the
+# state folder, the run folders and the copies of .env to root.
+git_tree() { (umask 022 && git "$@"); }
+
+# The pages every deploy checks through the public address, as users reach them, Caddy included (F7b): the path, the
+# status, and a text the body must hold (none for the icons). The one list; run, verify, finish and rollback.sh read it.
+PAGES=(
+  '/|200|<div id="root">'
+  '/privacy|200|<h1>Privacy policy</h1>'
+  '/privacy.html|200|<h1>Privacy policy</h1>'
+  '/favicon.svg|200|'
+  '/favicon.ico|200|'
+)
+
+# site_host: the site's host, from the first line of deploy/finance.caddy that opens a site block ("app.finance-nl.com
+# {"), so that it is written in one place. Data, checked against a host name's shape, only ever an argument of curl.
+site_host() {
+  local host
+  host=$(sed -nE 's/^([a-z0-9][a-z0-9.-]*) \{$/\1/p' "$REPO_DIR/deploy/finance.caddy" 2>/dev/null | head -n 1)
+  [[ $host =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || return 1
+  printf '%s' "$host"
+}
+
+# page_checks: every page of PAGES through https://<site host>/, read only (GET); one line per page, PAGES_LINE for the
+# summary; returns 1 when a page isn't as expected (a status, a missing text, no answer).
+page_checks() {
+  local host entry path status text code body n=0 bad=()
+  host=$(site_host) || { PAGES_LINE="not checked: no site host in deploy/finance.caddy"; say "$PAGES_LINE"; return 1; }
+  body=$(mktemp)
+  say "Through https://$host:"
+  for entry in "${PAGES[@]}"; do
+    IFS='|' read -r path status text <<<"$entry"
+    n=$((n + 1))
+    code=$(curl -sS --max-time 15 -o "$body" -w '%{http_code}' "https://$host$path" 2>/dev/null) || true
+    code=${code:-000}
+    if [ "$code" != "$status" ]; then
+      say "  $path: $code, NOT $status"
+      bad+=("$path $code")
+    elif [ -n "$text" ] && ! grep -qF -- "$text" "$body"; then
+      say "  $path: $code, but WITHOUT $text"
+      bad+=("$path without its text")
+    else
+      say "  $path: $code${text:+, with $text}"
+    fi
+  done
+  rm -f "$body"
+  if [ ${#bad[@]} -eq 0 ]; then
+    PAGES_LINE="$n of $n as expected through https://$host"
+    say "Pages: $PAGES_LINE"
+    return 0
+  fi
+  PAGES_LINE="FAILED through https://$host: $(printf '%s, ' "${bad[@]}" | sed 's/, $//')"
+  say "Pages: $PAGES_LINE"
+  return 1
 }
 
 valid_commit() { [[ $1 =~ ^[0-9a-f]{40}$ ]]; }

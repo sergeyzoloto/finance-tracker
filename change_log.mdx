@@ -5,7 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-02 · Family budget: F7's deploy record, D-41, the web image's file modes, page checks in the deploy scripts (F7b)
 
-Not committed yet.
+Commits `7046892` (documents), `a01d9e4` (the web image), then "ops: page checks, git under umask 022, switch's text",
+whose hash belongs here with the next change log commit. Work on `feature/family-budget`; not pushed, not merged, not
+deployed.
 
 **Changes**
 - F7's deploy record and F7b's scope (commit "docs: F7 deploy, the file-mode cause, F7b scope"):
@@ -56,6 +58,41 @@ Not committed yet.
       /docker-entrypoint-initdb.d/10-finance.sh: Permission denied`, and the container exits 1. It is read only for a
       new volume, `deploy.sh` refuses a change to it, and it has been unchanged since the clone of 2026-09-28; from
       F7b's scripts on, no merge or checkout of theirs writes a file as 600.
+- The deploy scripts (commit "ops: page checks, git under umask 022, switch's text"):
+  - `deploy/common.sh`: `PAGES`, the one list of pages (`/` with `<div id="root">`, `/privacy` and `/privacy.html`
+    with `<h1>Privacy policy</h1>`, both favicons, each 200); `site_host`, the host of `deploy/finance.caddy`'s site
+    block, checked against a host name's shape and only ever an argument of `curl`; `page_checks`, a GET of each page
+    through `https://` and that host, as users reach it, Caddy included; `git_tree`, a git command that writes the
+    working tree under `umask 022` in a subshell, while everything else stays under 077.
+  - `deploy.sh run`: step 3.1's merge through `git_tree`; a new step 3.6, the pages after health, whose failure is
+    FAILED with the rollback command; every failure after the merge now says the site may still work but the deploy
+    isn't good, not to run `finish`, and to send the output. The summary gains `Pages:`.
+  - `deploy.sh finish`: the pages before the questions; if one fails, the browser checks are recorded as not passed,
+    "the page checks failed: …", without asking, and only the smoke test is asked. The summary gains
+    `Pages at finish:`, replaced like the answers when `finish` runs again.
+  - `deploy.sh verify`: the pages; a failure is a problem.
+  - `rollback.sh`: its checkout through `git_tree`; the pages after its restart, reported with a warning, never a
+    reason to stop (the commit gone back to may hold the fault: `f0425c0`'s web image answers `/privacy` with 403);
+    the summary gains `Pages:`.
+  - `deploy.sh switch`: the confirmation says the family endpoints answer 200 to their members (F7's said "202"), and
+    step 1.6 prints the numbers before, checked as `run`'s 1.7 checks them.
+  - Which script runs F7b's own deploy: `f0425c0`'s `deploy.sh`, which bash reads before the merge. Its merge still
+    runs under `umask 077`, so F7b's changed files land 600 (folders 700) in the server's clone, and it has no page
+    step; F7b's `finish`, `verify` and `rollback.sh` are F7b's own. The `umask 022` rule shows from the next deploy
+    after F7b, or in a rollback from F7b by its own `rollback.sh`. The image no longer cares (the fix above), and root
+    reads the rest.
+  - Tests (`deploy/tests/run.sh`, 63 cases): `run_fails_on_a_page`, `finish_records_failed_pages_without_asking`,
+    `merged_files_land_644`, `rollback_reports_a_failing_page`, `switch_says_200_and_prints_the_numbers`; the stub of
+    `curl` answers the site's pages (`fixtures/pages` gives a path another status); `verify_read_only` now allows
+    the pages' GETs and counts them (5), and two CI cases count GitHub's calls only; `rollback_rolls_back` checks the
+    pages after the restart. `deploy/tests/mutate.sh` (26): the page check dropped from `run`, `finish` asking
+    despite a failed page check, `/privacy` dropped from the pages, git's `umask 022` dropped, "202" back in
+    `switch`'s confirmation.
+  - `deploy/checks/F7b.sql` and `F7b.expected`: F7's checks (Flyway's latest row, V10's column and functions), no
+    family count pinned. `numbers.sql` unchanged.
+  - The runbook ("Deploying with deploy.sh": step 3.6, the merge under `umask 022`, `finish`'s pages, `verify`, what
+    the server needs, "File modes"; "Roll back with rollback.sh"; "Switch the family budget on or off") and
+    CLAUDE.md describe them.
 
 **Verified**
 - Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `f0425c0`, the tree clean.
@@ -75,10 +112,26 @@ Not committed yet.
   - `postgres:17.11` (production's digest) with that copy's `postgres-init.sh` (600) on a new volume: exit 1,
     `Permission denied` (the audit above).
   - ShellCheck 0.11.0 on the script: clean. The workflow parses as YAML.
+- The deploy scripts: ShellCheck 0.11.0 (`-x`, `deploy.sh`, `rollback.sh`, `common.sh`, `run.sh`, `mutate.sh`, the
+  stubs, `check-web-image.sh`): no finding. `deploy/tests/run.sh`: 63 of 63 cases passed, three runs in a row.
+  `deploy/tests/mutate.sh`: all 26 mutations caught, the five new ones by the cases named above.
+- `deploy/checks/F7b.sql` on a throwaway `postgres:17.11` (production's digest) migrated to V10 by Flyway 11.7.2, through
+  `psql` with `PGOPTIONS=-c default_transaction_read_only=on`: exactly `F7b.expected`. No backslash in it.
+- `./mvnw -B clean verify`: 404 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS (no backend file changed).
+  `npm test`: 25 files, 301 tests passed; `npm run build` succeeded (no frontend source changed).
+- `git diff --numstat f0425c0 HEAD -- '*DataIsolationApiTests.java'`: no output.
+- `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
 
 **Open**
 - The `switch off` summary isn't in "Deployed revisions" yet: it wasn't given with the task; copy it from its run
   folder's `summary.txt`.
+- The owner's deploy of F7b, then `switch on` and F7's production check (this task's report), not yet run.
+- F7b's own deploy runs `f0425c0`'s `deploy.sh`: its merge writes F7b's changed files as 600 in the server's clone, and
+  it has no page step. The clone's `frontend/public/privacy.html` stays 600 on purpose.
+- `postgres-init.sh` would stop a new volume's initialization at mode 600; it is 644 on the server as far as known
+  (unchanged since the clone of 2026-09-28), and no merge or checkout of F7b's scripts writes 600 any more.
+- `switch on` doesn't check the pages itself: D-41 holds through `finish`, which refuses a yes while a page fails,
+  and `switch`'s preflight, which needs the latest run finished.
 
 ## 2026-10-02 · Family budget: F6c's deploy record, D-40, ready to switch on in production (F7)
 

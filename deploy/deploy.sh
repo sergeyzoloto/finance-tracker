@@ -4,11 +4,12 @@
 #
 #   deploy/deploy.sh run <commit> <stage>   preflight (changes nothing but a fresh backup), one confirmation typed at
 #                                           the terminal, the deploy, postflight; prints a summary
-#   deploy/deploy.sh finish                 after the browser checks and the smoke test: asks how they went, compares
-#                                           the family numbers, writes the final summary; may run again, and the
-#                                           latest answers count (F6c)
-#   deploy/deploy.sh verify <stage>         read only, any time: health, Flyway, the stage's checks, the D-25 line, the
-#                                           numbers; no backup, no change
+#   deploy/deploy.sh finish                 after the browser checks and the smoke test: checks the pages, asks how
+#                                           they went (a page that fails records the browser checks as failed, without
+#                                           asking: F7b), compares the family numbers, writes the final summary; may
+#                                           run again, and the latest answers count (F6c)
+#   deploy/deploy.sh verify <stage>         read only, any time: health, the pages, Flyway, the stage's checks, the D-25
+#                                           line, the numbers; no backup, no change
 #   deploy/deploy.sh adopt                  after a manual deploy, or a stopped run the operator judged harmless:
 #                                           records the running revision as the last good deploy, once confirmed at the
 #                                           terminal; never touches git, images or containers (F6b)
@@ -23,6 +24,11 @@
 #
 # Every question is answered at the terminal, after it is asked: lines waiting there before it, such as a block pasted
 # ahead, are discarded first, and a yes or no question asks again until yes or no is typed (F6c; deploy/common.sh).
+#
+# The pages (deploy/common.sh, PAGES) are checked through the public address after the deploy's health, by verify, and
+# by finish before its questions (F7b): F7's /privacy answered 403 while every other check passed.
+#
+# Git writes the working tree under umask 022 (deploy/common.sh, git_tree); everything else runs under umask 077.
 #
 # It never rolls back by itself: a failure after the merge prints the command of deploy/rollback.sh, for the operator.
 # Everything it prints also goes to the run's folder under /var/lib/finance-deploy/runs (deploy/common.sh).
@@ -265,6 +271,7 @@ write_summary() {
     say "finance.conf: ${CONF_LINE:-not reached}"
     say "After: ${BACKUP_after:-backup not reached}; restore test ${RESTORE_after:-not reached}"
     say "Images: ${IMAGES_LINE:-${KEPT_LINE:-not reached}}"
+    say "Pages: ${PAGES_LINE:-not reached}"
     say "Browser checks: not yet (deploy/deploy.sh finish)"
     say "Smoke test: not yet (deploy/deploy.sh finish)"
   } | tr '|' '/' >"$RUN_DIR/summary.txt"
@@ -284,6 +291,8 @@ on_exit_run() {
   else
     say ""
     say "FAILED at \"$STEP\": ${REASON:-an unexpected error, exit code $rc}"
+    say "The site may still work, but this deploy isn't good: don't run deploy.sh finish. Send this output (the run"
+    say "folder's log holds it) to the developer, then judge the way back below."
     set_status failed
     write_summary "FAILED at \"$STEP\": ${REASON:-exit code $rc}"
     say "The run's summary, as far as it got: $RUN_DIR/summary.txt"
@@ -419,7 +428,8 @@ cmd_run() {
   fi
 
   heading "3.1 Deploy: git merge --ff-only ${SHA:0:7}"
-  git merge --ff-only "$SHA"
+  # Under umask 022 (deploy/common.sh, git_tree): the files it writes are 644, whatever this script's umask.
+  git_tree merge --ff-only "$SHA"
 
   heading "3.2 Deploy: keep the running images"
   keep_images
@@ -434,6 +444,9 @@ cmd_run() {
   wait_healthy || fail "api and web not both healthy after $HEALTH_TRIES checks"
   (cd "$APP_DIR" && docker compose ps --format 'table {{.Name}}\t{{.Status}}')
   docker image prune -f
+
+  heading "3.6 Deploy: the pages"
+  page_checks || fail "a page isn't as expected: $PAGES_LINE"
 
   PHASE=postflight
   heading "4.1 Postflight: Flyway"
@@ -552,7 +565,7 @@ latest_deployed_run() {
 }
 
 cmd_finish() {
-  local browser smoke browser_at smoke_at family api web problems=()
+  local browser smoke browser_at smoke_at browser_line family api web pages problems=()
   trap on_exit_finish EXIT
   take_lock exclusive
   STEP="the latest deployed run"
@@ -562,17 +575,34 @@ cmd_finish() {
   TEE_PID=$!
   heading "Finish of $RUN_DIR"
   [ "$(cat "$RUN_DIR/status")" = deployed ] || say "Its finish ran before ($(cat "$RUN_DIR/status")): the answers now replace those."
-  check_tools git docker flock diff
+  check_tools git docker flock diff curl
   require_checks_role
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   SHA=$(meta_value commit)
   valid_commit "$SHA" || fail "$RUN_DIR/meta names no commit"
   [ "$(git rev-parse HEAD)" = "$SHA" ] || fail "HEAD is no longer the run's commit ${SHA:0:7}"
 
+  heading "The pages"
+  # Before the questions (F7b): F7's finish recorded yes while /privacy answered 403. A page that fails leaves no way
+  # to answer yes.
+  if page_checks; then pages=passed; else pages=failed; fi
+
   heading "The browser checks and the smoke test"
-  say "Answer only once both are done; type each answer after its question."
-  ask_yes_no "Did the browser checks pass? Type yes or no: "
-  browser=$ANSWER browser_at=$(now)
+  if [ "$pages" = passed ]; then
+    say "Answer only once both are done; type each answer after its question."
+    ask_yes_no "Did the browser checks pass? Type yes or no: "
+    browser=$ANSWER browser_at=$(now)
+    if [ "$browser" = yes ]; then
+      browser_line="passed, answered at $browser_at"
+    else
+      browser_line="NOT passed (answered \"$browser\"), answered at $browser_at"
+    fi
+  else
+    browser=failed browser_at=$(now)
+    browser_line="NOT passed (the page checks failed: $PAGES_LINE), recorded at $browser_at without asking"
+    say "The page checks failed: the browser checks are recorded as NOT passed, without asking."
+    say "Type the smoke test's answer after its question."
+  fi
   ask_yes_no "Did the smoke test pass? Type yes or no: "
   smoke=$ANSWER smoke_at=$(now)
 
@@ -590,8 +620,9 @@ cmd_finish() {
   [ "$smoke" = yes ] || problems+=("the smoke test")
 
   {
-    grep -Ev '^(Browser checks|Smoke test|Family numbers after the smoke test): ' "$RUN_DIR/summary.txt" || true
-    say "Browser checks: $([ "$browser" = yes ] && echo passed || echo "NOT passed (answered \"$browser\")"), answered at $browser_at"
+    grep -Ev '^(Pages at finish|Browser checks|Smoke test|Family numbers after the smoke test): ' "$RUN_DIR/summary.txt" || true
+    say "Pages at finish: $PAGES_LINE"
+    say "Browser checks: $browser_line"
     say "Smoke test: $([ "$smoke" = yes ] && echo passed || echo "NOT passed (answered \"$smoke\")"), answered at $smoke_at"
     say "Family numbers after the smoke test: $family"
   } | tr '|' '/' >"$RUN_DIR/summary.tmp"
@@ -629,7 +660,7 @@ cmd_verify() {
   take_lock shared
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   say "verify $stage at $(git log -1 --format='%h %s' HEAD), $(now); read only"
-  check_tools git docker flock diff
+  check_tools git docker flock diff curl
 
   heading "The read-only role"
   problem=$(role_problem)
@@ -646,6 +677,9 @@ cmd_verify() {
   web=$(health_of finance-tracker-web)
   say "api: $api, web: $web"
   [ "$api" = healthy ] && [ "$web" = healthy ] || { say "PROBLEM: not both healthy"; issues=$((issues + 1)); }
+
+  heading "The pages"
+  page_checks || { say "PROBLEM: a page isn't as expected"; issues=$((issues + 1)); }
 
   heading "Flyway"
   expected=$(highest_migration HEAD)
@@ -887,10 +921,15 @@ cmd_switch() {
   git show "HEAD:deploy/checks/numbers.sql" >"$RUN_DIR/numbers.sql" 2>/dev/null \
     || fail "HEAD has no deploy/checks/numbers.sql"
   sql_file "$RUN_DIR/numbers.sql" >"$RUN_DIR/numbers-before.txt" || fail "numbers.sql failed"
+  if grep -Eqv '^[a-z_]+=[0-9]+$' "$RUN_DIR/numbers-before.txt"; then
+    fail "numbers.sql printed something else than key=count lines"
+  fi
+  [ -s "$RUN_DIR/numbers-before.txt" ] || fail "numbers.sql printed nothing"
+  cat "$RUN_DIR/numbers-before.txt"
 
   heading "2. Confirmation"
   say "This changes $SWITCH_VAR in $env_file from $(switch_shown "$old_line") to $NEW_LINE, and restarts api alone."
-  say "The family endpoints will answer $([ "$direction" = on ] && echo '202 as usual' || echo '404') once it is up."
+  say "The family endpoints will answer $([ "$direction" = on ] && echo '200 to their members' || echo '404') once it is up."
   ask "Type SWITCH ${direction^^} to go on; anything else stops here with nothing changed: "
   [ "$ANSWER" = "SWITCH ${direction^^}" ] || fail "not confirmed"
 

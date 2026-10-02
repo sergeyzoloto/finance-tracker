@@ -55,7 +55,7 @@ cmd_rollback() {
   print_settings
 
   heading "1. The tools, the read-only role and the clone"
-  check_tools git docker flock
+  check_tools git docker flock curl
   # Without the read-only role this script can't check the database (D-22): the way back is then the runbook's manual
   # one (F6c).
   problem=$(role_problem)
@@ -108,7 +108,8 @@ cmd_rollback() {
   PHASE=rolling-back
   set_status rolling-back
   heading "6. Roll back"
-  git checkout --detach "$sha"
+  # Under umask 022 (deploy/common.sh, git_tree): the files it writes are 644, whatever this script's umask.
+  git_tree checkout --detach "$sha"
   git log -1 --oneline
   docker tag "finance-tracker-api:$sha" finance-tracker-api
   docker tag "finance-tracker-web:$sha" finance-tracker-web
@@ -121,14 +122,20 @@ cmd_rollback() {
   wait_healthy || fail "api and web not both healthy after $HEALTH_TRIES checks"
   (cd "$APP_DIR" && docker compose ps --format 'table {{.Name}}\t{{.Status}}')
 
+  heading "8. The pages"
+  # Reported, never a reason to stop: the rollback is done, and the commit gone back to may have the page's fault (F7's
+  # web image answers /privacy with 403).
+  page_checks || say "WARNING: a page isn't as expected after the rollback: $PAGES_LINE"
+
   {
     say "Rollback on $(date -u +%F) at $(now): from $(git log -1 --format='%h (%s)' "$head") to $(git log -1 --format='%h (%s)' "$sha")"
     say "Images: api $RT_API, web $RT_WEB; api and web healthy"
     say "Database untouched: Flyway's latest row $flyway. finance.conf untouched."
+    say "Pages: $PAGES_LINE"
   } | tr '|' '/' >"$RUN_DIR/summary.txt"
   set_status rolled-back
   PHASE=complete
-  heading "8. Summary"
+  heading "9. Summary"
   cat "$RUN_DIR/summary.txt"
   say ""
   say "The clone is detached at ${sha:0:7}. To go forward again: git checkout main, then deploy/deploy.sh run."

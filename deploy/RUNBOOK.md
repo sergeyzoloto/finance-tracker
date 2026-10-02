@@ -711,10 +711,11 @@ It prints each step under a `==` heading:
 | 1.7 | The numbers before (`deploy/checks/numbers.sql` of the running commit) | one `key=count` line per table, as before the last deploy unless users signed up or wrote since |
 | 1.8 | A fresh backup, then the restore test | `Dump finance-….dump, … bytes`, the restore test's table, `PASS` |
 | 2 | The confirmation | the commit and its commits; type the commit's first 7 characters, or anything else to stop with nothing changed |
-| 3.1 | `git merge --ff-only <commit>` | `Fast-forward` and the files |
+| 3.1 | `git merge --ff-only <commit>`, under `umask 022` since F7b, so the files it writes are 644 | `Fast-forward` and the files |
 | 3.2 | The running images, if they are the last good deploy's, tagged with its commit and as `:previous`; tags older than the last three revisions removed | `kept as :<commit> and :previous` |
 | 3.3, 3.4 | `docker compose build api`, `build web`, `up -d --no-deps api web` | `Image … Built`, the containers started (a container whose image is the same stays as it is) |
 | 3.5 | Health, 60 × 5 s, as before | `api: healthy, web: healthy`, then `docker compose ps` and the prune |
+| 3.6 | (F7b) The pages through the public address, as users reach them, Caddy included: `/` with `<div id="root">`, `/privacy` and `/privacy.html` with `<h1>Privacy policy</h1>`, both favicons, each 200 (the list is `PAGES` in `deploy/common.sh`, the host the site block's of `deploy/finance.caddy`) | one line per page, then `Pages: 5 of 5 as expected through https://app.finance-nl.com` |
 | 4.1 | Flyway's latest row against the commit's highest migration, and its log line | `Latest row: 9 family invites true; the highest migration …: V9`, the line `Schema "app" is up to date…` (or `Migrating schema`, `Successfully applied`), and `Started: …` |
 | 4.2 | The D-25 line against `FAMILY_LEDGERS_ENABLED` as production sets it (absent means off) | `Logged: "Family ledgers (D-25): off; the family endpoints answer 404" at …` |
 | 4.3 | The numbers after, the same text as before | `The same numbers` |
@@ -726,7 +727,8 @@ It prints each step under a `==` heading:
 **3. The browser checks and the smoke test** of the stage's checklist. Finish them before step 4.
 
 **4. On the server: finish**, only after the browser checks and the smoke test. Paste the block alone, then type the
-two answers after their questions.
+two answers after their questions. Since F7b it checks the pages first, as step 3.6 does: if one fails, it records
+the browser checks as not passed without asking (there is no way to answer yes), and asks only about the smoke test.
 
 ```bash
 # On the server: only after the browser checks and the smoke test
@@ -764,7 +766,12 @@ answered 403, and the switch went on with the published privacy policy unreachab
     update or delete in …` or `is not as the runbook makes it`: see
     [A read-only role for the deploy checks](#a-read-only-role-for-the-deploy-checks), then run it again.
 - `FAILED at "<step>": <why>`, after the merge: the deploy is half done, and the last lines are the exact rollback
-  command. Nothing was rolled back. Judge first:
+  command. Nothing was rolled back. Since F7b it also says that the site may still work, but the deploy isn't good:
+  don't run `finish`, and send the output (the run folder's `log` holds it). Judge first:
+  - The pages (3.6): a page answers another status or lacks its text. Open it in a browser, and look at
+    `cd /opt/finance-tracker/deploy/app && docker compose logs --tail 50 web`; a `403` with `Permission denied` is a
+    file nginx can't read ([Troubleshooting](#troubleshooting)). The web container can't be fixed by hand: roll back,
+    or deploy a fix.
   - Health, Flyway, the D-25 line: the new release doesn't run as it should. Look at
     `cd /opt/finance-tracker/deploy/app && docker compose logs --tail 100 api`, then roll back.
   - The numbers differ: the diff is printed and kept as `numbers.diff` in the run folder. Someone signing up or writing
@@ -801,18 +808,28 @@ answered 403, and the switch went on with the published privacy policy unreachab
 
 **Checking at any time, read only:** `cd /opt/finance-tracker && deploy/deploy.sh verify <stage>` prints whether the
 read-only role is as this runbook makes it (without it, a problem, and the database's checks below are skipped), the
-health of api and web, Flyway's latest row against the highest migration, the stage's checks against `<stage>.expected`, the
+health of api and web, the pages of step 3.6 (since F7b; a page that fails is a problem), Flyway's latest row against the highest migration, the stage's checks against `<stage>.expected`, the
 D-25 line (a warning if it is no longer in the retained log), and the numbers, then `verify <stage>: OK` or the
 problems. It takes no backup and changes nothing.
 
 **What the server needs:** `git`, `docker` with its Compose plugin, `flock`, `curl`, `python3`, `systemctl`,
 `pg-restore-test` (the auth server's `deploy/backup/install.sh server`), `install`, `diff` and `paste`, which step 1.1
 checks and names when one is missing; a terminal; HTTPS to `api.github.com` (unauthenticated: 60 requests an hour
-from the server's address, one a minute while CI runs); `/var/lib` for the state folder and `/run/lock`; and from F6b
+from the server's address, one a minute while CI runs) and, since F7b, to the site itself (`https://app.finance-nl.com`,
+through the server's public address, as the api reaches Keycloak); `/var/lib` for the state folder and `/run/lock`; and from F6b
 the database role `finance_checks` ([A read-only role for the deploy checks](#a-read-only-role-for-the-deploy-checks)).
 Every check, the numbers and Flyway's row are read as that role, through `docker compose exec -T postgres psql -U
 finance_checks`, with read-only transactions asked for by `PGOPTIONS` too, as before F6b; `deploy.sh`, `finish`,
 `verify` and `rollback.sh` stop without it (before F6b they read as `finance`).
+
+**File modes** (F7b). The scripts run under `umask 077`, which keeps the state folder, the run folders and the copies
+of `.env` to root; only the git commands that write the working tree (the merge, and `rollback.sh`'s checkout) run
+under `umask 022`, so the files they write are 644, as an interactive root shell's checkout gives. Before F7b they wrote
+the files a deploy changed as 600, and F7's web image held `privacy.html` that way (403). The web image no longer
+depends on the clone's modes either (`frontend/Dockerfile`). A deploy runs the script of the commit the clone is at
+when it starts (bash reads it before the merge): F7b's own deploy runs `f0425c0`'s, whose merge still writes F7b's
+changed files as 600 and which has no page step; F7b's `finish`, `verify` and `rollback.sh` are F7b's own, and the
+next deploy after F7b is the first whose merge writes 644.
 
 **The first run** finds no `last-good`: it says so, and once you confirm, it records `HEAD` with the running images as
 the last good deploy (`baseline` in `history`). For F6b that is OPS-1's commit with the images built from `c26cff6`,
@@ -893,7 +910,8 @@ cd /opt/finance-tracker && deploy/deploy.sh adopt
 `/opt/finance-tracker/deploy/app/.env`: never edit the file by hand. Preflight is `verify`'s (the
 read-only role, health, the numbers before) plus HEAD must be the last good deploy and the latest
 run must be finished, rolled back, adopted or an earlier switch, never mid-flight. It shows the
-current line (never the rest of the file, so no secret of `.env` is shown) and what it will become,
+current line (never the rest of the file, so no secret of `.env` is shown), what it will become and
+(since F7b) the numbers before, says the family endpoints will answer 200 to their members (or 404),
 asks you to type `SWITCH ON` or `SWITCH OFF`, then: copies `.env` beside itself with a timestamp
 (mode 600), changes or adds only that one line (never another, even on a bug: it refuses first),
 restarts `api` alone with `docker compose up -d --no-deps api` (`web` keeps running), checks health
@@ -948,8 +966,10 @@ migration is additive (D-22): the previous image runs on the newer schema, and F
 it doesn't know.
 
 It shows what it will do and asks you to type `ROLLBACK` and the commit's first 7 characters. Then it checks out the
-commit (detached), tags its images as the ones to run, starts api and web (`up -d --no-deps api web`) and checks their
-health. It leaves the database and `/etc/pg-backup/finance.conf` as they are. `last-good` names that commit again,
+commit (detached; under `umask 022` since F7b), tags its images as the ones to run, starts api and web
+(`up -d --no-deps api web`) and checks their health, then (F7b) the pages of step 3.6, which it reports without
+stopping: the commit gone back to may hold the fault, as F7's web image answers `/privacy` with 403. It leaves the
+database and `/etc/pg-backup/finance.conf` as they are. `last-good` names that commit again,
 `history` records the rollback, and the summary is in the run folder `<UTC time>-rollback-<commit>/`.
 
 To go forward again: `cd /opt/finance-tracker && git checkout main`, then [Deploying with deploy.sh](#deploying-with-deploysh).

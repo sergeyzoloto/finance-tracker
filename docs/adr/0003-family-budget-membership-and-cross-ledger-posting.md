@@ -29,7 +29,8 @@ F6a and F6b, with the F6a plan in topic J. F6a is deployed since 2026-10-02, fro
 the owner confirmed it as built, and the decisions after it, D-35 to D-37 for F6b, are at the end of topic J. OPS-1,
 the deploy scripts without an application change, is deployed since 2026-10-02, from `46dedcd`, with the images built
 from `c26cff6`; the decisions after it (D-35 clarified, D-38 and D-39, F6 split into F6b and F6c) are in topics G and
-J. F6b, D-35 to D-39, is built as topic J's "F6b as built" says. The requirements and decisions D-1 to D-39 are in
+J. F6b, D-35 to D-39, is built as topic J's "F6b as built" says. F6b is deployed since 2026-10-02, from `7a60020`, with
+the switch off; the owner confirmed it as built, and F6c's plan is at the end of topic J. The requirements and decisions D-1 to D-39 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -1652,6 +1653,76 @@ the F6b review):
   drops one just left, before its list has loaded again (`useApi.update`; the update of a budget just left is a
   transition, committed with the router's navigation away from it, so no frame shows a placeholder). The members table
   becomes labelled blocks under 40rem, so nothing scrolls sideways at 375 px.
+
+**After the F6b deploy** (2026-10-02). The owner confirmed "F6b as built" above, items 2 to 8 of the F6b report, as
+F6b's change log entry lists them under "To confirm": "Specify later" is 422 `PAYMENT` too for a claimed seat's own
+record before the claim's date; the equal re-split doesn't bring a claimed seat into a record they weren't in;
+`ledger.archived_at` stays unused; D-37 lists the entries the return doesn't attach again, and leaves entries dated on
+the join date to the correction; D-38's non-public addresses include 100.64/10 and multicast; `PGOPTIONS` stays beside
+the role; `adopt` writes a run folder of its own. The owner also reviewed the privacy policy's draft,
+[privacy-draft.md](../family-budget/privacy-draft.md) as of `7a60020`, which F6c publishes. F6b's deploy taught one rule
+for deploy checklists (CLAUDE.md): a server command that asks a question stands alone in its block, its answer is typed,
+never pasted, and `finish` comes only after the browser checks and the smoke test.
+
+**F6c plan** (2026-10-02). From the requirements' E1, E3, H1 and H4 and this ADR's topics D, F and I. Where they leave a
+gap, the plan decides, and the decisions are listed at its end for the owner to confirm.
+
+- **E1, the family report** ("by category and month, with each member's contribution"; topic D: one statement over
+  `family_record` and `family_share`, like `ReportService.cashFlow`). `GET /api/family-ledgers/{ledgerId}/report`,
+  with optional `from` and `to` dates (inclusive; left out, no bound), read through `LedgerAccess.member` like every
+  family read: ACTIVE members, owners or not, get it; a LEFT or FORMER member, an outsider and a personal ledger get
+  the missing ledger's 404; with the switch off the path is unknown (404). In the family's base currency, from the
+  records that aren't deleted (topic D: a deleted record keeps its row, and the report leaves it out, as the balances
+  do). Its answer: the currency, the members (as the balances name them: display name, status, whether they have an
+  account, `you`), one row per month (of the record's date) and category (expense and income categories, archived ones
+  included) with the base amounts' total and, per member, their **share** and what they **paid** (an expense) or
+  **received** (an income); and per member the period's totals: expense shares, expenses paid, income shares, incomes
+  received, settlements paid and received, and the net change of their balance, with the sign of the balances. Over
+  every record the nets are the balances (D-1). A member who left stays in the rows of their records, under their
+  name; a FORMER one as "Former member" (D-20). New code: `ledger.family.FamilyReportService` (reads only),
+  `FamilyReport`, and the endpoint in `FamilyRecordController`; no migration.
+- **E3, its check.** E3 ("personal reports can separate family shares") is built since F4a parts 5 and 6: the personal
+  cash flow marks each family category's line with `familyLedgerId` and `familyLedgerName`, and the dashboard shows
+  those lines apart. F6c adds no endpoint for it, but its check, as a test against the records and the balances: for
+  every member with an account, the personal cash flow's lines of the family's categories equal, month by month and
+  category by category, that member's shares in E1's report of the months from their join date (while they use the
+  family's categories only through the family budget); and E1's nets over all records equal the family balances.
+- **H1, the demo family** (D-23). With the switch on, `POST /api/demo-data` loads the personal demo exactly as before,
+  and then, in the same transaction and only through the services the API uses (no insert of a family row of its own):
+  `FamilyLedgerService.create` makes the family budget "Demo household" in euros, starting on the demo's first day, with
+  the user as its owner under their account's name, and with the demo's personal categories it brings: Groceries,
+  Utilities, Travel and Other income, plus every personal category whose code and type are those of a family category
+  of the user's other family budgets (the starter categories that `StarterLedger.restore` brings back beside a merged
+  one). D-11's merge moves their postings and deletes the personal rows, so no twin of a family category remains (F6a's
+  gap 5, topic J). `addMember` adds the invented partner "Sam" without an account (a member without an account takes
+  part from the start date, D-18); `FamilyRecordService.create` and `settle` record six months of family expenses
+  (paid by the user from their accounts, and by Sam), an income, one expense in US dollars with its base amount given,
+  one split by percentages, and Sam's settlements to the user; the posting service posts them as for any member. The
+  answer gains `familyLedgerId` (additive; left out with the switch off). With the switch off the demo is exactly as
+  now. "Delete all my data" deletes the demo family with the rest (`release_family_memberships`, D-20: no other member
+  with an account).
+- **H4.** With the switch on, the personal expense form no longer offers "Split with family" (the old `SHARED_EXPENSE`,
+  rule 7) for a new entry or for an expense that isn't one; "Family expense" (C2) takes its place. An existing shared
+  expense still opens as one, shows its split and saves as before; its rows stay valid in every report (D-21). The API
+  is unchanged: `POST /api/entries` still takes a `SHARED_EXPENSE`. With the switch off, nothing changes.
+- **The privacy policy.** The reviewed draft's sections become the published policy's section "Family budgets"
+  (`frontend/public/privacy.html`), after "What data is processed", with a line that family budgets aren't available
+  yet and the section describes them ahead of time (until F7 nobody can create one), and its new "last updated" date.
+  The draft's text is compared with what is built through F6b and fixed where it differs: the last member with an
+  account leaving deletes the budget (D-36), a return lists the member's own entries after it (D-37), and the report
+  (E1) and the demo family (H1) of F6c. The published policy's other sections change only where family budgets make
+  them untrue ("No other user of the app can see it") and in "How long it is kept". `privacy-draft.md` keeps the text
+  as published, so that its diff against `7a60020` is every change the owner re-reads.
+- **The owner's remarks from the manual check:** none reached this task; F6c's report says so.
+- **With the switch off** the app does what production does now: the report's path answers 404 like every family path,
+  the demo creates no family and its answer has no new field, and the expense form keeps "Split with family". Only the
+  published privacy policy changes for everyone.
+- **To confirm** (the plan's own decisions): the report's shape (share and paid or received per member, settlements in
+  the totals only, months of the record's date, dates rather than months as bounds); E3's check as defined above; the
+  demo family's content (its name, Sam, the four categories, the records, the base amount given for the dollar expense
+  so that it needs no rate); the twins merged into the demo family rather than into the family budget they come from;
+  H4 for creation only, with the API unchanged; the draft's last note (questions for a legal review) kept in the draft
+  and not published.
 
 ### K. Test strategy
 

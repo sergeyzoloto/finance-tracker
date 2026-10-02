@@ -3,11 +3,35 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-02 · Family budget: F6b's deploy, the family report, the demo family, H4, the privacy policy, typed answers (F6c)
+
+Not committed yet.
+
+**Changes**
+- F6b's deploy and the decisions after it (commit "docs: F6b deploy, F6c scope"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-10-02, `7a60020` (F6b, Flyway V10, switch off), the
+    first deploy with `deploy/deploy.sh`, with the owner's checks and the state the scripts left. The F6b entry below
+    got `7a60020` and the deploy's record. CLAUDE.md: production runs `7a60020` on V10.
+  - ADR 0003 topic J and `requirements.md`: the owner confirmed "F6b as built", items 2 to 8 of the F6b report, and
+    reviewed the privacy policy's draft as of `7a60020`; topic J's "F6c plan" (E1, E3's check, H1, H4, the policy, what
+    the switch off leaves unchanged, and the plan's own decisions to confirm).
+  - CLAUDE.md, "Deploy checklists": F6b's lesson; a server command that asks a question stands alone in its block, its
+    answer is typed, never pasted, and `finish` comes only after the browser checks and the smoke test.
+
+**Verified**
+- Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `7a60020`, the tree clean.
+
+**Open**
+- To do in this task: the family report and the demo family, the interface and the privacy policy, the deploy
+  scripts' typed answers.
+
 ## 2026-10-02 · Family budget: OPS-1's deploy, D-35 to D-39, a read-only role for the deploy checks (F6b)
 
-Commits `9cefaf4` (documents), `58779f5` (the backend) and `5f00946` (the interface), then "ops: a read-only role for
-checks, deploy.sh adopt", whose hash belongs here with the next change log commit. Committed locally on
-`feature/family-budget`; not pushed, not merged, not deployed.
+Commits `9cefaf4` (documents), `58779f5` (the backend), `5f00946` (the interface) and `7a60020` (the deploy scripts), on
+`feature/family-budget`, merged into `main` and deployed on 2026-10-02 with `deploy/deploy.sh`, its first run (OPS-1's
+script); the deploy's record: "docs: F6b deploy, F6c scope". The run deployed and passed its checks; `finish` ran before
+the browser checks and the smoke test and took the next pasted block as its answers, so it recorded `finish-failed`; the
+browser checks and the smoke test then passed, and `verify F6b` said OK (`deploy/RUNBOOK.md`, "Deployed revisions").
 
 **Changes**
 - OPS-1's deploy and the decisions after it (commit "docs: OPS-1 deploy, F6b scope, D-38 and D-39"):

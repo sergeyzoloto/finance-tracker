@@ -59,6 +59,51 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  web-image:
+    name: Web image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # F6c's checks (frontend tests, privacy.test.ts) ran only against Vite's dev server. This builds the image
+      # deploy/app/docker-compose.yml runs in production (frontend/Dockerfile, target web) and checks it through its
+      # own nginx (frontend/web.conf), on a free port, with no other container and no network beyond localhost.
+      - name: Build the web image
+        run: docker build --target web -t finance-tracker-web:ci frontend
+
+      - name: Start it and check it through nginx
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name finance-tracker-web-ci -p 127.0.0.1::8080 finance-tracker-web:ci
+          trap 'docker logs finance-tracker-web-ci || true; docker stop finance-tracker-web-ci' EXIT
+          port=$(docker inspect -f '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' \
+            finance-tracker-web-ci)
+          base="http://127.0.0.1:$port"
+          for i in $(seq 30); do curl -s -o /dev/null "$base/" && break; sleep 1; done
+
+          check() { # path, expected status, text expected in the body (skipped when empty)
+            local path=$1 status=$2 text=${3:-} code
+            code=$(curl -s -o /tmp/body -w '%{http_code}' "$base$path")
+            [ "$code" = "$status" ] || { echo "❌ $path: expected $status, got $code"; cat /tmp/body; exit 1; }
+            if [ -n "$text" ]; then
+              grep -qF "$text" /tmp/body || { echo "❌ $path: missing '$text'"; cat /tmp/body; exit 1; }
+            fi
+            echo "✅ $path: $code"
+          }
+
+          check /privacy 200 '<h1>Privacy policy</h1>'
+          check /privacy.html 200 '<h1>Privacy policy</h1>'
+          check / 200 '<div id="root">'
+          check /family/1/report 200 '<div id="root">'
+          asset=$(docker exec finance-tracker-web-ci sh -c 'ls /usr/share/nginx/html/assets' | head -n 1)
+          [ -n "$asset" ] || { echo "❌ no file under /assets/"; exit 1; }
+          curl -sI "$base/assets/$asset" | tr -d '\r' | grep -qi '^cache-control: public, max-age=31536000, immutable$' \
+            || { echo "❌ /assets/$asset: not cached as immutable"; curl -sI "$base/assets/$asset"; exit 1; }
+          check "/assets/$asset" 200
+          check /assets/missing.js 404
+          check /favicon.svg 200
+          check /favicon.ico 200
+
   deploy-scripts:
     name: Deploy scripts
     runs-on: ubuntu-latest

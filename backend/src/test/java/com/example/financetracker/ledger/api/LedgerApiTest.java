@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -263,21 +264,50 @@ abstract class LedgerApiTest extends IntegrationTest {
             assertThat(new BigDecimal(total.get("net").asText())).as("the net of member " + member)
                     .isEqualByComparingTo(net).isEqualByComparingTo(balances.get(member));
         }
+        // D-40: the family's categories, so that a member's own entries in one (merged in by D-11) are added to
+        // their share below; the family report alone only has a row where a record exists.
+        Map<Long, String> familyCategoryName = new HashMap<>();
+        Map<Long, String> familyCategoryType = new HashMap<>();
+        for (JsonNode category : ok(get(reader, uri + "/categories"))) {
+            familyCategoryName.put(category.get("id").asLong(), category.get("name").asText());
+            familyCategoryType.put(category.get("id").asLong(), category.get("type").asText());
+        }
         for (Map.Entry<String, LocalDate> member : personal.entrySet()) {
             String user = member.getKey();
             JsonNode own = ok(get(user, uri + "/report?from=" + member.getValue()));
             long me = StreamSupport.stream(own.get("members").spliterator(), false)
                     .filter(m -> m.get("you").asBoolean()).findFirst().orElseThrow().get("memberId").asLong();
-            Map<String, String> shares = new TreeMap<>();
+            Map<String, BigDecimal> shares = new TreeMap<>();
             for (JsonNode row : own.get("rows")) {
                 for (JsonNode contribution : row.get("members")) {
                     BigDecimal share = new BigDecimal(contribution.get("share").asText());
                     if (contribution.get("memberId").asLong() == me && share.signum() != 0) {
-                        shares.put(row.get("month").asText() + " " + row.get("categoryName").asText(),
-                                share.stripTrailingZeros().toPlainString());
+                        shares.merge(row.get("month").asText() + " " + row.get("categoryName").asText(), share,
+                                BigDecimal::add);
                     }
                 }
             }
+            // D-40: the line shows the whole category, so add the member's own entries in it (not posted by the
+            // family budget) on top of their share, with the cash flow's sign convention (positive for both types).
+            for (Map.Entry<Long, String> category : familyCategoryName.entrySet()) {
+                String type = familyCategoryType.get(category.getKey());
+                String path = "/api/entries?categoryId=" + category.getKey() + "&from=" + member.getValue()
+                        + "&size=200";
+                for (JsonNode entry : ok(get(user, path)).get("content")) {
+                    if (entry.get("family").isNull()) {
+                        String month = YearMonth.from(LocalDate.parse(entry.get("entryDate").asText())).toString();
+                        for (JsonNode posting : entry.get("postings")) {
+                            if (posting.path("categoryId").asLong() == category.getKey()) {
+                                BigDecimal amount = new BigDecimal(posting.get("amount").asText());
+                                BigDecimal signed = type.equals("EXPENSE") ? amount : amount.negate();
+                                shares.merge(month + " " + category.getValue(), signed, BigDecimal::add);
+                            }
+                        }
+                    }
+                }
+            }
+            Map<String, String> expected = new TreeMap<>();
+            shares.forEach((key, value) -> expected.put(key, value.stripTrailingZeros().toPlainString()));
             Map<String, String> cashFlow = new TreeMap<>();
             for (JsonNode row : ok(get(user, "/api/reports/cash-flow?from=" + member.getValue() + "&to=2100-12-31"))) {
                 if (row.path("familyLedgerId").asLong() == familyId) {
@@ -286,8 +316,8 @@ abstract class LedgerApiTest extends IntegrationTest {
                             (a, b) -> new BigDecimal(a).add(new BigDecimal(b)).stripTrailingZeros().toPlainString());
                 }
             }
-            assertThat(cashFlow).as("E3: the family's lines of the personal cash flow of member " + me)
-                    .isEqualTo(shares);
+            assertThat(cashFlow).as("E3 (D-40): the family's lines of the personal cash flow of member " + me)
+                    .isEqualTo(expected);
         }
         return report;
     }

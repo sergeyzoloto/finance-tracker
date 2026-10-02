@@ -7,8 +7,6 @@
 
 ## Family budgets
 
-Family budgets aren't available yet: this section describes them ahead of their launch.
-
 A family budget is a budget you keep with other people, such as a partner or your children. You can
 belong to several. Each member keeps their own personal budget, which stays private. What the family
 spends and earns together is recorded in the family budget, and each member's share of it appears in

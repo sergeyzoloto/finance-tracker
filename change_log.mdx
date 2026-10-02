@@ -5,9 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-02 · Family budget: F6c's deploy record, D-40, ready to switch on in production (F7)
 
-Not committed yet. Commit 1 of 3 of this task ("docs: F6c deploy, F7 scope, D-40"); the other two ("feat: family
-budgets ready to switch on" and "ops: deploy.sh switch") are still to come. Work on `feature/family-budget`; not
-pushed, not merged, not deployed.
+Commits `18e4edc` (documents), then "feat: family budgets ready to switch on", whose hash belongs here with the next
+change log commit. "ops: deploy.sh switch" is still to come. Work on `feature/family-budget`; not pushed, not merged,
+not deployed.
 
 **Changes**
 - F6c's deploy record (commit "docs: F6c deploy, F7 scope, D-40"):
@@ -27,17 +27,49 @@ pushed, not merged, not deployed.
     check in production (decided by the PM): with the owner's two test accounts, never his own, whose personal ledger
     stays empty for his Excel import; it ends with the family budget deleted (D-36) and "Delete all my data" for both
     test accounts. ADR 0003's topic J, "F7 plan", and `requirements.md`'s "Planned stages" have both in full.
+- Family budgets ready to switch on (commit "feat: family budgets ready to switch on"):
+  - E3's check, as D-40 says (`LedgerApiTest.checkFamilyReport`): besides the shares and payments against the
+    report's totals and the balances, it now reads the family's categories and, for each member whose personal
+    check runs, adds their own entries in each one (found through `/api/entries?categoryId=`, excluding entries with
+    a `family` link) on top of their share, with the cash flow's sign convention, before comparing with the personal
+    cash flow line. `DemoDataApiTests.theDemoFamilyIsAFamilyBudgetLikeAnyOther` now passes a real personal check
+    (the user, from the demo's first day) instead of an empty one, covering the demo's groceries, the case D-40
+    decided.
+  - The privacy policy: "Family budgets aren't available yet: this section describes them ahead of their launch."
+    removed from both `frontend/public/privacy.html` (the published "Family budgets" section) and
+    `docs/family-budget/privacy-draft.md`; "Last updated" stays 2 October 2026, today's date. `privacy.test.ts`'s
+    assertion of the old sentence became `.not.toContain("aren't available yet")`.
+  - CI: a new job "Web image" (`.github/workflows/ci.yml`) builds `frontend/Dockerfile`'s `web` target and checks it
+    through its own nginx on a free port: `/privacy` and `/privacy.html` (200, the policy's `<h1>`), `/` and
+    `/family/1/report` (200, `index.html`'s `<div id="root">`), a real hashed file under `/assets/` (200,
+    `Cache-Control` immutable), `/assets/missing.js` (404), and both favicons (200). Reason: F6c's checks ran only
+    against Vite's dev server, never the built image's own nginx. CLAUDE.md's CI line lists it.
+  - `deploy/checks/F7.sql` and `F7.expected`: Flyway's latest row, and V10's `claimed_seat` column and
+    `delete_family_ledger` function (as `F6c.sql` checks them), without a backslash and pinning no family count,
+    since F7 turns the switch on. `numbers.sql` unchanged.
 
 **Verified**
 - Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `8ede02e`, the tree clean before this
   task's edits.
-- `git diff --numstat 8ede02e HEAD -- '*DataIsolationApiTests.java'` before this commit: no output (the file is
-  untouched; this commit changes only `*.md` and `change_log.mdx`).
-- In a scratch worktree at this commit (docs only, no code changed): `./mvnw -B clean verify`: 404 tests, 0 failures,
-  0 errors, 0 skipped, BUILD SUCCESS, the same count as F6c's own baseline. No frontend file changed; its suite is
-  unaffected.
+- After the documents (`18e4edc`): `git diff --numstat 8ede02e HEAD -- '*DataIsolationApiTests.java'`: no output (the
+  file untouched). `./mvnw -B clean verify`: 404 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS, the same count
+  as F6c's own baseline; no frontend file changed.
+- After the feature commit: `git diff --numstat 8ede02e HEAD -- '*DataIsolationApiTests.java'`: still no output.
+  `./mvnw -B clean verify`: 404 tests (same count; the E3 fix changes assertions, not test count), 0 failures, 0
+  errors, 0 skipped, BUILD SUCCESS, with `DemoDataApiTests` (6) and `FamilyReportApiTests` (3) run on their own first
+  to confirm the fixed check against the demo's groceries. `npm test`: 25 files, 301 tests passed, the same count as
+  F6c's baseline (`privacy.test.ts`'s 4 included). `npm run build` succeeded.
+- `deploy/checks/F7.sql` on a throwaway `postgres:17.11` migrated to V10 by Flyway 11.7.2 (`docker run flyway/flyway`,
+  no `finance_checks` role needed for a read-only SELECT file): exactly `F7.expected`; `numbers.sql` unchanged,
+  21 keys all 0. `deploy/tests/run.sh`: 53 of 53 cases passed. `deploy/tests/mutate.sh`: all 16 mutations caught
+  (unaffected by this commit, which touches no `deploy/*.sh`).
+- The web image, built locally with `docker build --target web -t finance-tracker-web:ci frontend` and run on a free
+  port exactly as the new CI step does: `/privacy` and `/privacy.html` 200 with `<h1>Privacy policy</h1>` and without
+  the removed sentence; `/` and `/family/1/report` 200 with `<div id="root">`; `/assets/IncomeExpenseChart-*.js` 200
+  with `Cache-Control: public, max-age=31536000, immutable`; `/assets/missing.js` 404; both favicons 200.
 
 **Open**
+- Commit 3 ("ops: deploy.sh switch": the switch command, its tests and mutations) of this task.
 - Commits 2 ("feat: family budgets ready to switch on": E3's check as D-40 says, the privacy policy's text, a CI job
   that builds and checks the web image, `deploy/checks/F7.sql`) and 3 ("ops: deploy.sh switch": the switch command,
   its tests and mutations) of this task.

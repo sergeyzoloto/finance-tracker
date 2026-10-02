@@ -97,8 +97,8 @@ class DemoDataApiTests extends LedgerApiTest {
      * (D-11), so no personal twin of them remains, and its records are posted into the user's ledger. The numbers: the
      * user's shares are 461.65 and their income share 60.00; they paid 583.50 and received the bike's 120.00 and Sam's
      * 145.00, so they owe the family 83.15, which Sam is owed. The invariants, E1's report against the balances and the
-     * integrity check hold. E3's check of the personal cash flow doesn't apply: the merged categories hold the demo's
-     * own entries too, beside the shares.
+     * integrity check hold. E3's check of the personal cash flow: the merged categories (its groceries) hold the
+     * demo's own entries too, beside the shares, which D-40 says is right and the check now expects.
      */
     @Test
     void theDemoFamilyIsAFamilyBudgetLikeAnyOther() throws IOException {
@@ -129,7 +129,7 @@ class DemoDataApiTests extends LedgerApiTest {
                 .containsExactly("83.15", "-83.15");
 
         FamilyInvariants.check(jdbc, family);
-        JsonNode report = checkFamilyReport(user, family, Map.of());
+        JsonNode report = checkFamilyReport(user, family, Map.of(user, LocalDate.parse(demo.get("from").asText())));
         assertThat(report.get("totals").get(0).get("expenseShares").asText()).isEqualTo("461.65");
         assertThat(report.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("583.50");
         assertThat(report.get("totals").get(1).get("settlementsPaid").asText()).isEqualTo("145.00");

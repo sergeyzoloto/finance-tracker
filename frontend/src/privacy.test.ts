@@ -41,9 +41,9 @@ describe('the privacy policy', () => {
     expect(published).toEqual(draftSection())
   })
 
-  it('says family budgets come later, and what F6b and F6c built', () => {
+  it('no longer says family budgets are not available yet, and says what F6b and F6c built', () => {
     const section = publishedSection().join(' ')
-    expect(section).toContain("Family budgets aren't available yet: this section describes them ahead of their launch.")
+    expect(section).not.toContain("aren't available yet")
     // D-36: the last member with an account leaving deletes the budget.
     expect(section).toContain('the family budget is deleted, with its records')
     expect(section).not.toContain('is closed and nobody sees it')

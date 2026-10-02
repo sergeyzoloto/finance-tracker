@@ -3,17 +3,54 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-02 · Family budget: F7's deploy record, D-41, the web image's file modes, page checks in the deploy scripts (F7b)
+
+Not committed yet.
+
+**Changes**
+- F7's deploy record and F7b's scope (commit "docs: F7 deploy, the file-mode cause, F7b scope"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": three rows for 2026-10-02. F7's deploy of `f0425c0` with every step of
+    `deploy.sh run` as it passed, and the truth about the browser checks: failed (`/privacy` and `/privacy.html` 403),
+    recorded as passed by mistake; `history` stays as written. `switch on` (run folder
+    `2026-10-02T212036Z-switch-on`). `switch off` (D-41), whose summary wasn't at hand: the row names its run folder's
+    `summary.txt` to copy in.
+  - The cause, confirmed on the server: `deploy.sh` and `rollback.sh` set `umask 077`, so step 3.1's
+    `git merge --ff-only` wrote the changed `frontend/public/privacy.html` with mode 600; the build carried the mode
+    into the image (`-rw------- root root`), and nginx, running as uid 101, answered 403 for `/privacy` and
+    `/privacy.html`. CI's and the laptop's checkouts give 644 or 664, so neither could see it. F6c's records (the
+    runbook's row, the F6c change log entry, ADR 0003 topic J) said "unreproduced": they now give this cause, and why
+    the second run passed (a manual `git checkout main` under umask 0022 rewrote the file as 644).
+  - The runbook: the lesson (a 403, a 404 or wrong text on any page of a checklist means `no` in `finish`;
+    `switch on` only after a clean `finish`); D-41 in "Switch the family budget on or off"; a troubleshooting row for
+    a page answering 403 (the web container's root is read-only: only a deploy fixes it); a switch's run folder is
+    named `…-switch-on` or `…-switch-off`, without the commit, as `start_log` names it.
+  - D-41 (decided by the PM) in `requirements.md` and ADR 0003 topic J ("After the F7 deploy"), with F7b's scope and
+    the client address corrected: F7's report claimed the `edge` network's subnet check proves D-29's per-address
+    limit counts real clients; with Docker's IPv6 off, IPv6 clients arrive as the bridge's gateway (D-38), so the
+    check proves nothing beyond the trusted range and is dropped. ADR 0003's F6a paragraph that planned it says so.
+  - CLAUDE.md: production runs `f0425c0` on V10, with the switch off "until F7b's deploy".
+  - The F7 change log entry below: `f0425c0`, its deploy record, its "Open" items.
+
+**Verified**
+- Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `f0425c0`, the tree clean.
+
+**Open**
+- The `switch off` summary isn't in "Deployed revisions" yet: it wasn't given with the task; copy it from its run
+  folder's `summary.txt`.
+
 ## 2026-10-02 · Family budget: F6c's deploy record, D-40, ready to switch on in production (F7)
 
-Commits `18e4edc` (documents), `6eb7ceb` (family budgets ready to switch on), then "ops: deploy.sh switch", whose hash
-belongs here with the next change log commit. Work on `feature/family-budget`; not pushed, not merged, not deployed.
+Commits `18e4edc` (documents), `6eb7ceb` (family budgets ready to switch on) and `f0425c0` (ops: deploy.sh switch).
+Merged into `main` and deployed on 2026-10-02 as `f0425c0`, with the switch off during the deploy. `finish` recorded the
+browser checks as passed by mistake while `/privacy` answered 403; `switch on` followed, and by D-41 the switch went
+off again. The runbook's "Deployed revisions" has the record, and F7b's entry above the cause and the fix.
 
 **Changes**
 - F6c's deploy record (commit "docs: F6c deploy, F7 scope, D-40"):
   - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-10-02, `8ede02e` (F6c, Flyway V10, switch off), its two
-    runs: deployed by F6b's script, rolled back on the privacy page not opening (the cause unreproduced against
-    `7a60020`'s own image), then deployed again by F6c's own script, this time passing the browser checks and the
-    smoke test. The F6c change log entry above got `8ede02e` and the same record, and its resolved "Open" items. 
+    runs: deployed by F6b's script, rolled back on the privacy page not opening (the cause, unexplained then, found
+    after F7's deploy: the script's `umask 077` wrote the changed `privacy.html` with mode 600; F7b's entry above),
+    then deployed again by F6c's own script, this time passing the browser checks and the smoke test. The F6c change log entry above got `8ede02e` and the same record, and its resolved "Open" items. 
     CLAUDE.md: production runs `8ede02e` on V10, with the rollback noted; `app.family.enabled` stays off "until F7
     switches it on".
   - ADR 0003 topic J and `requirements.md`: the owner confirmed "F6c as built" (the report's shape, the demo family's
@@ -108,14 +145,18 @@ belongs here with the next change log commit. Work on `feature/family-budget`; n
 - `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
 
 **Open**
-- The owner's deploy of this task's commits, and F7's checklist and production check (this task's report), not yet
-  run.
+- Deployed on 2026-10-02 (run folder `/var/lib/finance-deploy/runs/2026-10-02T211023Z-f0425c0`): every step of
+  `deploy.sh run` passed, CI's 10 check runs, both restore tests, Flyway V10, the D-25 line off, the numbers, F7's
+  stage checks; images api `sha256:6d6f35b8…`, web `sha256:a01f9202…`. The browser checks failed (`/privacy` and
+  `/privacy.html` answered 403) and were recorded as passed by mistake at 21:20:03Z, the smoke test passed at
+  21:20:06Z; `verify F7` at 21:20:27Z: OK. `history` keeps `good f0425c0`, as written. `switch on` at 21:20:36Z to
+  21:21:03Z (`.env` copied to `.env.20261002T212046Z`; the D-25 line on at 21:20:56Z), then `switch off` (D-41). The
+  cause and the fix: F7b.
+- F7's production check with the owner's two test accounts didn't run; it moves to F7b's checklist. The client-address
+  check of F7's checklist (the `edge` network's subnet) is dropped: with Docker's IPv6 off, IPv6 clients arrive as the
+  bridge's gateway (D-38), and the subnet proves nothing beyond the trusted range.
 - D-40's "Later": separating a member's own entries from their shares in a family category's personal cash-flow line
   (requirements.md, "Later") is deferred, as decided.
-- The full F7 checklist (the laptop's merge and push, `deploy.sh run` with the switch still off, the browser checks,
-  the smoke test, `finish`, `verify`, `deploy.sh switch on`, the production check with the owner's two test accounts,
-  `verify` again, the family numbers back at zero, the client-address check, and the way back) is this task's report,
-  not yet run by the owner.
 
 ## 2026-10-02 · Family budget: F6b's deploy, the family report, the demo family, H4, the privacy policy, typed answers (F6c)
 
@@ -258,9 +299,12 @@ switch off (two runs: a deploy by F6b's script, a rollback, and a redeploy by F6
   F6b's script at 15:46:43Z, passed CI, the backup and restore test, the build, Flyway, the D-25 line, the numbers and
   F6c's 15 checks, but the owner's browser check found the privacy page not opening; `finish` recorded it
   `finish-failed` at 15:51Z and printed the rollback. `rollback.sh` returned production to `7a60020` at 15:52Z–15:53Z,
-  with its images, the database and `finance.conf` untouched. The cause wasn't reproduced: production on `7a60020`
-  answered `/privacy` and `/privacy.html` with 200 through nginx, and `8ede02e`'s web image, built on the laptop,
-  answered both too; `web.conf`, the Dockerfile, `index.html` and `vite.config.ts` were unchanged in F6c. The second
+  with its images, the database and `finance.conf` untouched. The cause, found after F7's deploy failed the same way
+  (F7b's entry): F6b's script set `umask 077`, so its merge wrote the changed `frontend/public/privacy.html` with mode
+  600, the web image kept it, and nginx (uid 101) couldn't read it. It looked unreproducible because every check used
+  another image: production on `7a60020` (built from a 644 file) and `8ede02e`'s web image built on the laptop (a 664
+  checkout) answered `/privacy` and `/privacy.html` with 200. After the rollback, `git checkout main` in an interactive
+  shell rewrote the file as 644, and the second run's merge left it alone. The second
   run, by F6c's own script at 16:04:37Z after `git checkout main`, passed every check again, and this time the browser
   checks (the privacy page with the new section) and the smoke test passed; `finish` at 16:06:50Z, `verify F6c` at
   16:06:59Z: OK.

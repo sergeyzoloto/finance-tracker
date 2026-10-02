@@ -28,6 +28,8 @@ Amended after the OPS-1 deploy on 2026-10-02: D-35 clarified, new D-38 and D-39 
 
 Amended after the F6b deploy on 2026-10-02: the planned stages (F6b confirmed as built, the privacy policy's draft reviewed, F6c's plan).
 
+Amended after the F7 deploy on 2026-10-02: new D-41 (decided by the PM) and the planned stages (F7b).
+
 Amended after the F6c deploy on 2026-10-02: new D-40 (decided by the PM), the planned stages (F6c confirmed as built, F7's way of switching and its check in production).
 
 ## Background
@@ -195,6 +197,9 @@ Added after the OPS-1 deploy (2026-10-02), to be built in F6b
 Added after the F6c deploy (2026-10-02), decided by the PM
 - D-40 (E3). A member's personal cash-flow line for a family category shows the whole category: their own entries in it plus their shares. E3's check compares that line with both together. Showing the family part separately goes to "Later".
 
+Added after the F7 deploy (2026-10-02), decided by the PM
+- D-41 (with D-25). Family budgets don't stay switched on while the published privacy policy is unreachable in production. The way back is `deploy.sh switch off`; switching on again waits for a deploy whose `finish` shows the policy.
+
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
 - F2a: migration V5, stronger isolation tests, these documents; deployed on its own.
@@ -216,6 +221,7 @@ Added after the F6c deploy (2026-10-02), decided by the PM
 - After the F6c deploy (2026-10-02, decided by the PM): the owner confirmed F6c as built (ADR 0003 topic J, "F6c as built"): the report's shape, the demo family's content, the twins merged into the demo family rather than into the family budget they come from, H4 for creation only with the API unchanged, the legal questions kept out of the published policy, and the mapping of F6b's items (D-35 to D-39) onto what was built. F7's way of switching: a command, `deploy.sh switch on|off`, never a hand edit of `.env`; the way back is `switch off`, which leaves the data and makes the family endpoints answer 404 again. F7's check in production: done with the owner's two test accounts, never his own account, whose personal ledger is kept for his Excel import; it ends with the family budget deleted (D-36) and "Delete all my data" for both test accounts.
 - F7: the switch goes on in production, followed by a check with two real accounts.
   - Prerequisite: the client address of IPv6 clients (F6a's residual risk: with an AAAA record for app.finance-nl.com and Docker's IPv6 off, every IPv6 client could reach the api as one address) is settled before the switch goes on, so that D-29's per-address limit counts the browser's real address for them too. Settled by D-38 (2026-10-02): such an address is the bridge's gateway, a private one, for which only the per-user limit applies.
+- After the F7 deploy (2026-10-02, decided by the PM): F7's deploy passed every check of `deploy.sh run`, but the privacy policy answered 403 (the deploy scripts' `umask 077` wrote the changed `privacy.html` with mode 600, which the web image kept and nginx couldn't read); `finish` recorded the browser checks as passed by mistake, the switch went on, and by D-41 it was switched off again. F7b, a stage of its own: the web image readable whatever the checkout's modes, with CI building it from a copy with the server's modes; page checks in the deploy scripts (`run`, `verify`, `finish`, `rollback.sh`), and `finish` recording the browser checks as failed, without asking, when a page fails; git commands that write the working tree under `umask 022`, everything else under 077; `switch`'s text. Its checks are `deploy/checks/F7b.sql`. F7's production check moves to F7b's checklist, after its `finish` and `switch on`. F7's report claimed that the `edge` network's subnet check proves D-29's per-address limit counts real clients; it doesn't (with Docker's IPv6 off, IPv6 clients arrive as the bridge's gateway, D-38's case), and the check is dropped from the checklists.
 - After F7: the Excel import, with Family rows going into a family ledger.
 
 ## Later

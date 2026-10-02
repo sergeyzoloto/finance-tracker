@@ -1522,8 +1522,9 @@ where the text above left a gap (each to be confirmed after the F6a review):
   127/8, 169.254/16, 100.64/10 and IPv6 loopback and local) takes the right-most address that isn't a trusted proxy's,
   from a trusted peer only. The api publishes no port, so Caddy on `edge` is its only peer. Nothing changed:
   `ClientAddressTests` and `ClientAddressUntrustedPeerTests` pin it, through a real Tomcat. The sign-in's redirect URIs
-  and the forward-headers strategy are untouched. F7's checklist checks the `edge` network's subnet and the limit from
-  two places.
+  and the forward-headers strategy are untouched. F7's checklist was to check the `edge` network's subnet and the
+  limit from two places; the subnet check is dropped since F7 (below, "After the F7 deploy"): with Docker's IPv6 off,
+  IPv6 clients arrive as the bridge's gateway (D-38), and the subnet proves nothing beyond the trusted range.
 - **D-31, a record moved before the join date.** A record that involves a claimed member and is moved from on or after
   their join date to before it drops them from an equal split (F4c's rule, which F5 kept: "a record moved before a
   member's join date still drops them"), and refuses their share or payment otherwise (`JOINED_AFTER`); so that
@@ -1769,9 +1770,11 @@ gains a line in "How long it is kept".
 family's content, the twins merged into the demo family rather than into the family budget they come from, H4 for
 creation only with the API unchanged, the legal questions kept out of the published policy, and the mapping of F6b's
 items (D-35 to D-39) onto what F6c built. The deploy itself took two runs: the first, by F6b's script, ran before the
-owner's browser check and was recorded `finish-failed` on the privacy page not opening and rolled back; the cause
-wasn't reproduced against the rolled-back image, and the second run, by F6c's script, passed every check and
-`finish`. The runbook's "Deployed revisions" has the record. One decision of the PM, for F7:
+owner's browser check and was recorded `finish-failed` on the privacy page not opening and rolled back; the second
+run, by F6c's script, passed every check and `finish`. The cause, found after F7's deploy failed the same way (below):
+F6b's script set `umask 077`, so its merge wrote the changed `frontend/public/privacy.html` with mode 600, which the
+web image kept and nginx (uid 101) couldn't read; after the rollback, `git checkout main` in an interactive shell
+rewrote it as 644, and the second run's merge left it alone. The runbook's "Deployed revisions" has the record. One decision of the PM, for F7:
 
 - **D-40** (E3). A member's personal cash-flow line for a family category shows the whole category: their own
   entries in it plus their shares, as E3's check (above) already compares it. Separating the family part from a
@@ -1792,6 +1795,27 @@ accounts (requirements.md, "Planned stages").
   `/api/reports/integrity` must answer `[]` for both. The check ends by leaving the budget (deleting it, D-36) and
   running "Delete all my data" for both test accounts, so production is left as empty of family data as it was
   before the check.
+
+**After the F7 deploy** (2026-10-02). F7 (`f0425c0`) was deployed with every check of `deploy.sh run` passing, but
+`/privacy` and `/privacy.html` answered 403: `deploy.sh` and `rollback.sh` set `umask 077`, so the merge wrote the
+changed `frontend/public/privacy.html` with mode 600, the web image kept that mode, and nginx (uid 101) couldn't read
+it. CI and the laptop couldn't see it, since their checkouts give 644 or 664. F6c's first run had failed the same way,
+by F6b's script. `finish` recorded the browser checks as passed by mistake, `switch on` followed, and the switch was
+turned off again. The runbook's "Deployed revisions" has the record. Decided by the PM:
+
+- **D-41.** Family budgets don't stay switched on while the published privacy policy is unreachable in production.
+  The way back is `deploy.sh switch off`; switching on again waits for a deploy whose `finish` shows the policy.
+- **F7b**, a stage of its own (as F6a to F6c), with `deploy/checks/F7b.sql`: the web image readable whatever the
+  checkout's modes (every file under `/usr/share/nginx/html` 0644, every directory 0755, nginx's configuration 0644,
+  all owned by root), with a CI build from a copy that has the server's modes; the deploy scripts check the pages
+  through the public address (`run`, `verify`, `finish` and `rollback.sh`), and a page that fails makes `finish` record
+  the browser checks as failed without asking; git commands that write the working tree run under `umask 022`, and
+  everything else in the scripts stays under 077, which protects the backups and the copies of `.env`. F7's production
+  check moves to F7b's checklist, after its `finish` and `switch on`.
+- **The client address.** F7's report said that the `edge` network's subnet check (`docker network inspect edge …`)
+  proves that D-29's per-address limit counts real clients. That is backwards: with Docker's IPv6 off, IPv6 clients
+  arrive through docker-proxy with the bridge's gateway address, the case D-38 settled, and the subnet proves nothing
+  beyond the trusted range. The check is dropped from the checklists.
 
 ### K. Test strategy
 

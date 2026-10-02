@@ -62,6 +62,9 @@ services:
       KEYCLOAK_ISSUER_URL: https://auth.finance-nl.com/realms/myapps
       KEYCLOAK_CLIENT_ID: finance-tracker
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}
+      # The family switch (D-25): absent from .env, as today, means off. deploy/deploy.sh switch on|off (F7) is the
+      # only way to change the line in .env; never edit it by hand.
+      FAMILY_LEDGERS_ENABLED: ${FAMILY_LEDGERS_ENABLED:-false}
     networks:
       # default: the database, and the way out to Keycloak and the ECB. edge: Caddy.
       - default

@@ -116,7 +116,8 @@ mutation_in common.sh "skip a finish-failed commit as the rollback target" \
 
 # F6c: adopt refusing a finish-failed HEAD.
 mutation "let adopt refuse a finish-failed HEAD" \
-  '    good | adopted | baseline)' '    good | adopted | baseline | finish-failed)' \
+  '    good | adopted | baseline | switch-on | switch-off)' \
+  '    good | adopted | baseline | switch-on | switch-off | finish-failed)' \
   newest_line_decides_status f6c_scripts_on_production_state
 
 # F6c: the two hints.
@@ -126,6 +127,32 @@ mutation "drop the hint to push first" \
 mutation_in rollback.sh "drop the hint of the manual rollback" \
   '; without it, roll back by hand: deploy/RUNBOOK.md, \"Roll an update back\""' '"' \
   refuse_role_missing
+
+# F7: run's confirmation named HEAD instead of the running revision after a rollback and a plain "git checkout main".
+mutation "name HEAD instead of the running revision in run's confirmation" \
+  $'stage $STAGE, over $(git log -1 --format=\'%h\' "$BASE")."' $'stage $STAGE, over $(git log -1 --format=\'%h\' HEAD)."' \
+  run_names_the_running_revision
+
+# F7: switch's confirmation accepting anything.
+mutation "let switch's confirmation accept anything" \
+  '[ "$ANSWER" = "SWITCH ${direction^^}" ] || fail "not confirmed"' ': accepts "$ANSWER"' \
+  switch_wrong_confirmation
+
+# F7: the awk that changes FAMILY_LEDGERS_ENABLED in .env, matching by position instead of by key, so it can rewrite
+# another line (here, the first one, a secret).
+mutation '"switch" rewrites another line of .env' \
+  '    $0 ~ "^" key "=" { print key "=" val; done = 1; next }' '    NR == 1 { print key "=" val; done = 1; next }' \
+  switch_on_and_off
+
+# F7: the environment printed while switching (as "print the environment" does for switch_expected).
+mutation "print the environment while switching" \
+  'say "Copied $env_file to $backup_file (mode 600)"' $'say "Copied $env_file to $backup_file (mode 600)"\n  cat "$env_file"' \
+  switch_secret_never_printed
+
+# F7: the way back not printed after a failure past the change.
+mutation "drop switch's way back after a failure" \
+  '    say "  cd $REPO_DIR && deploy/deploy.sh switch $OTHER"' '    : way back not printed' \
+  switch_failure_prints_the_way_back
 
 echo
 if [ "$survived" -eq 0 ]; then

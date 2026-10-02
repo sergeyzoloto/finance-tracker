@@ -12,6 +12,11 @@
 #   deploy/deploy.sh adopt                  after a manual deploy, or a stopped run the operator judged harmless:
 #                                           records the running revision as the last good deploy, once confirmed at the
 #                                           terminal; never touches git, images or containers (F6b)
+#   deploy/deploy.sh switch on|off           changes FAMILY_LEDGERS_ENABLED (D-25) in .env and restarts api alone,
+#                                           once confirmed at the terminal; HEAD must be the last good deploy, healthy,
+#                                           with no unfinished run (F7). Never run against a stage whose stop you
+#                                           haven't resolved; on a failure after the change, it prints the way back
+#                                           and never switches back by itself.
 #
 # Every check, the numbers and Flyway's row are read as the read-only database role finance_checks (F6b;
 # deploy/RUNBOOK.md, "A read-only role for the deploy checks"); preflight, finish and verify stop without it.
@@ -38,6 +43,7 @@ usage: deploy/deploy.sh run <commit> <stage>
        deploy/deploy.sh finish
        deploy/deploy.sh verify <stage>
        deploy/deploy.sh adopt
+       deploy/deploy.sh switch on|off
 <commit> is origin/main's commit, 7 to 40 hex characters; <stage> names deploy/checks/<stage>.sql and .expected.
 EOF
   exit 2
@@ -396,7 +402,9 @@ cmd_run() {
   restore_test before
 
   heading "2. Confirmation"
-  say "Deploy ${SHA:0:7} ($(git log -1 --format=%s "$SHA")), stage $STAGE, over $(git log -1 --format='%h' HEAD)."
+  # F6c's second run said "over 8ede02e" (HEAD) while 7a60020 (BASE, the running revision after a rollback and a
+  # plain "git checkout main") was running: BASE, not HEAD, is what this deploy actually replaces.
+  say "Deploy ${SHA:0:7} ($(git log -1 --format=%s "$SHA")), stage $STAGE, over $(git log -1 --format='%h' "$BASE")."
   say "Commits: $COMMITS_LINE"
   ask "Type the first 7 characters of the commit to deploy it; anything else stops here with nothing changed: "
   [ "$ANSWER" = "${SHA:0:7}" ] || fail "not confirmed"
@@ -751,7 +759,7 @@ cmd_adopt() {
   # F6c: the newest line decides. A finish-failed HEAD may be adopted, with a good, adopted or baseline one there is
   # nothing to adopt, as long as last-good names it with the running images.
   case $status in
-    good | adopted | baseline)
+    good | adopted | baseline | switch-on | switch-off)
       if [ "$LG_COMMIT" = "$head" ] && [ "$LG_API" = "$api" ] && [ "$LG_WEB" = "$web" ]; then
         fail "nothing to adopt: HEAD ${head:0:7} with the running images is the last good deploy already ($status)"
       fi
@@ -779,6 +787,183 @@ cmd_adopt() {
   stop_log
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# switch
+
+SWITCH_VAR=FAMILY_LEDGERS_ENABLED
+
+# switch_line_of FILE: FAMILY_LEDGERS_ENABLED's current line in FILE, or nothing; never the rest of the file (F7).
+switch_line_of() { grep "^$SWITCH_VAR=" "$1" 2>/dev/null || true; }
+
+# switch_shown LINE: LINE (or "absent"), and "so on" or "so off" by the same reading deploy.sh's own switch_expected
+# uses, for the operator to see what will change without ever being shown the file.
+switch_shown() {
+  local value=${1#"$SWITCH_VAR"=}
+  [ -n "$1" ] || { printf 'absent, so off'; return; }
+  case ${value,,} in
+    true | on | yes | 1) printf '%s, so on' "$1" ;;
+    *) printf '%s, so off' "$1" ;;
+  esac
+}
+
+# shellcheck disable=SC2329  # the EXIT trap
+on_exit_switch() {
+  local rc=$?
+  trap - EXIT
+  if [ "$PHASE" = preflight ]; then
+    say ""
+    say "REFUSED at \"$STEP\": ${REASON:-an unexpected error, exit code $rc}"
+    say "Nothing changed: .env untouched, api not restarted."
+    [ -n "$RUN_DIR" ] && set_status refused
+  elif [ "$PHASE" != complete ]; then
+    say ""
+    say "FAILED at \"$STEP\": ${REASON:-an unexpected error, exit code $rc}"
+    say "$SWITCH_VAR in .env was already changed to $NEW_LINE before this failed. Look at it by hand, or switch back"
+    say "with, on the server, alone in its block:"
+    say "  cd $REPO_DIR && deploy/deploy.sh switch $OTHER"
+    say "Never switch back on its own: it does not do that for you."
+    set_status failed
+  fi
+  [ "$rc" -ne 0 ] || [ "$PHASE" = complete ] || rc=1
+  stop_log
+  exit "$rc"
+}
+
+# cmd_switch on|off: changes FAMILY_LEDGERS_ENABLED (D-25) in .env and restarts api alone (F7). Preflight is verify's
+# (the role, health, Flyway and the stage aren't read here, since nothing about the code or schema changes): HEAD must
+# be the last good deploy, healthy, with the latest run finished, rolled back or adopted, never mid-flight.
+cmd_switch() {
+  local direction=$1 want old_line env_file backup_file head api_now web_now latest status api_log
+  case $direction in
+    on) want=true OTHER=off ;;
+    off) want=false OTHER=on ;;
+    *) usage ;;
+  esac
+  NEW_LINE="$SWITCH_VAR=$want"
+  PHASE=preflight
+  trap on_exit_switch EXIT
+  take_lock exclusive
+  cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
+  head=$(git rev-parse HEAD)
+  # Found before start_log makes this run's own folder, the newest otherwise (as cmd_adopt finds its latest run).
+  latest=$(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1 || true)
+  start_log "switch-$direction"
+  print_settings
+
+  heading "1.1 Preflight: the tools and the terminal"
+  check_tools git docker flock install diff
+  exec {TTY_FD}<"$TTY" || fail "can't read $TTY: run this in a terminal on the server"
+
+  heading "1.2 Preflight: the role"
+  require_checks_role
+
+  heading "1.3 Preflight: health"
+  wait_healthy || fail "api and web not both healthy"
+
+  heading "1.4 Preflight: the clone, the last good deploy, no unfinished run"
+  [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
+  api_now=$(container_image finance-tracker-api) || fail "no container finance-tracker-api: the stack isn't up"
+  web_now=$(container_image finance-tracker-web) || fail "no container finance-tracker-web: the stack isn't up"
+  read_last_good || fail "no record of a last good deploy: deploy at least once first (deploy/deploy.sh run)"
+  [ "$LG_COMMIT" = "$head" ] && [ "$LG_API" = "$api_now" ] && [ "$LG_WEB" = "$web_now" ] \
+    || fail "HEAD ${head:0:7} with the running images is not the last good deploy (${LG_COMMIT:0:7}): deploy or roll back to it first"
+  [ -n "$latest" ] || fail "no run recorded in $STATE_DIR/runs: deploy and finish at least once first"
+  status=$(cat "$latest/status" 2>/dev/null || echo 'without a status')
+  case $status in
+    finished | rolled-back | adopted | switch-on | switch-off) ;;
+    *) fail "the latest run, ${latest##*/}, is $status, not finished: run deploy.sh finish first, or resolve the stop" ;;
+  esac
+  say "HEAD: $(git log -1 --format='%h %s' HEAD), the last good deploy ($status), api and web healthy"
+
+  heading "1.5 Preflight: the current switch"
+  env_file=$APP_DIR/.env
+  [ -f "$env_file" ] || fail "$env_file is missing (the runbook's step 5)"
+  old_line=$(switch_line_of "$env_file")
+  say "Current: $SWITCH_VAR is $(switch_shown "$old_line")"
+  [ "$old_line" != "$NEW_LINE" ] || fail "$SWITCH_VAR is already $want: nothing to switch"
+  say "Will become: $NEW_LINE"
+
+  heading "1.6 Preflight: the numbers before"
+  git show "HEAD:deploy/checks/numbers.sql" >"$RUN_DIR/numbers.sql" 2>/dev/null \
+    || fail "HEAD has no deploy/checks/numbers.sql"
+  sql_file "$RUN_DIR/numbers.sql" >"$RUN_DIR/numbers-before.txt" || fail "numbers.sql failed"
+
+  heading "2. Confirmation"
+  say "This changes $SWITCH_VAR in $env_file from $(switch_shown "$old_line") to $NEW_LINE, and restarts api alone."
+  say "The family endpoints will answer $([ "$direction" = on ] && echo '202 as usual' || echo '404') once it is up."
+  ask "Type SWITCH ${direction^^} to go on; anything else stops here with nothing changed: "
+  [ "$ANSWER" = "SWITCH ${direction^^}" ] || fail "not confirmed"
+
+  PHASE=switching
+  set_status switching
+
+  heading "3.1 Change .env"
+  backup_file="$env_file.$(date -u +%Y%m%dT%H%M%SZ)"
+  install -m 600 "$env_file" "$backup_file"
+  say "Copied $env_file to $backup_file (mode 600)"
+  awk -v key="$SWITCH_VAR" -v val="$want" '
+    BEGIN { done = 0 }
+    $0 ~ "^" key "=" { print key "=" val; done = 1; next }
+    { print }
+    END { if (!done) print key "=" val }
+  ' "$env_file" >"$env_file.tmp"
+  chmod 600 "$env_file.tmp"
+  if ! diff -q <(grep -vF "$SWITCH_VAR=" "$env_file") <(grep -vF "$SWITCH_VAR=" "$env_file.tmp") >/dev/null; then
+    rm -f "$env_file.tmp"
+    fail "something besides $SWITCH_VAR would change in .env; refusing, to protect its secrets"
+  fi
+  mv -f "$env_file.tmp" "$env_file"
+  say "Changed, limited to that line:"
+  say "  - ${old_line:-($SWITCH_VAR absent)}"
+  say "  + $NEW_LINE"
+
+  heading "3.2 Restart api"
+  (cd "$APP_DIR" && docker compose up -d --no-deps api)
+
+  heading "3.3 Health"
+  wait_healthy || fail "api and web not both healthy after $HEALTH_TRIES checks"
+
+  heading "3.4 The D-25 line"
+  switch_expected
+  say "Expected: \"$SWITCH_LINE\" ($SWITCH_HOW)"
+  [ "$SWITCH_HOW" = "$NEW_LINE, so $direction" ] \
+    || fail "the api's container reads the switch as $SWITCH_HOW, not $NEW_LINE: docker compose didn't pick it up"
+  api_log=$(api_log_since_start)
+  SWITCH_SEEN=$(log_line "$api_log" "$SWITCH_PATTERN")
+  [ -n "$SWITCH_SEEN" ] || fail "the api's log since its start has no D-25 line"
+  say "Logged: $SWITCH_SEEN"
+  case $SWITCH_SEEN in
+    "\"$SWITCH_LINE\" at "*) say "As production now sets it ($SWITCH_HOW)" ;;
+    *) fail "the D-25 line isn't \"$SWITCH_LINE\" ($SWITCH_HOW)" ;;
+  esac
+
+  heading "3.5 Postflight: the numbers before and after"
+  sql_file "$RUN_DIR/numbers.sql" >"$RUN_DIR/numbers-after.txt" || fail "numbers.sql failed"
+  if ! diff "$RUN_DIR/numbers-before.txt" "$RUN_DIR/numbers-after.txt" >"$RUN_DIR/numbers.diff"; then
+    cat "$RUN_DIR/numbers.diff"
+    fail "the numbers differ from before the switch ($RUN_DIR/numbers.diff)"
+  fi
+  say "The same numbers"
+
+  api_now=$(container_image finance-tracker-api)
+  web_now=$(container_image finance-tracker-web)
+  add_history "switch-$direction" "$head" "$api_now" "$web_now"
+  {
+    say "Switch $direction on $(date -u +%F) at $(now): $(git log -1 --format='%h (%s)' "$head")"
+    say "$SWITCH_VAR: ${old_line:-absent} -> $NEW_LINE"
+    say "Images unchanged: api $api_now, web $web_now"
+    say "D-25: $SWITCH_SEEN, as production now sets it ($SWITCH_HOW)"
+    say "Numbers: the same before and after"
+  } | tr '|' '/' >"$RUN_DIR/summary.txt"
+  set_status "switch-$direction"
+  PHASE=complete
+  heading "4. Summary"
+  cat "$RUN_DIR/summary.txt"
+  say ""
+  say "Add the summary above as a row of \"Deployed revisions\" in deploy/RUNBOOK.md."
+  stop_log
+}
+
 main() {
   set -euo pipefail
   shopt -s inherit_errexit
@@ -790,6 +975,7 @@ main() {
     finish) [ $# -eq 1 ] || usage; cmd_finish ;;
     verify) [ $# -eq 2 ] || usage; cmd_verify "$2" ;;
     adopt) [ $# -eq 1 ] || usage; cmd_adopt ;;
+    switch) [ $# -eq 2 ] || usage; cmd_switch "$2" ;;
     *) usage ;;
   esac
 }

@@ -205,7 +205,7 @@ run_rollback() { run_script ./deploy/rollback.sh "$@"; }
 # as a block pasted while the script runs. After the last answer, the terminal closes at the next question.
 type_at_terminal() { if [ $# -gt 0 ]; then printf '%s\n' "$@" >"$C/typed"; else : >"$C/typed"; fi; }
 paste_ahead() { if [ $# -gt 0 ]; then printf '%s\n' "$@" >"$C/pasted"; else : >"$C/pasted"; fi; }
-questions() { grep -oE 'Type (the first 7|yes or no|ADOPT|ROLLBACK)' "$C/out" 2>/dev/null | wc -l; }
+questions() { grep -oE 'Type (the first 7|yes or no|ADOPT|ROLLBACK|SWITCH)' "$C/out" 2>/dev/null | wc -l; }
 wait_for_question() {
   local i
   for ((i = 0; i < 600; i++)); do
@@ -860,6 +860,132 @@ case_adopt_nothing_to_adopt() {
   check "history unchanged" same_file "$C/state/history" "$C/history.orig"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# switch (F7)
+
+# switch_ready: E deployed and finished, so HEAD is the last good deploy, healthy, with the latest run finished, as
+# deploy/deploy.sh switch's preflight wants. deploy/app/.env has no FAMILY_LEDGERS_ENABLED line yet, as production's
+# does today.
+switch_ready() {
+  setup_case
+  new_target
+  deploy_e
+  [ "$RC" -eq 0 ] || { echo "    setup: the deploy of E failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  type_at_terminal yes yes
+  run_deploy finish
+  [ "$RC" -eq 0 ] || { echo "    setup: finish failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  cp "$C/server/deploy/app/.env" "$C/env.orig"
+  : >"$STUB_STATE/calls"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+}
+
+case_switch_on_and_off() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on: exit code 0" rc_is 0
+  check "says switch on" out_has "Switch on on "
+  check "current shown before, absent" out_has "Current: FAMILY_LEDGERS_ENABLED is absent, so off"
+  check "will become shown" out_has "Will become: FAMILY_LEDGERS_ENABLED=true"
+  check ".env now has it true" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=true"
+  check "only that line added, nothing else in .env changed" bash -c \
+    "diff <(grep -v '^FAMILY_LEDGERS_ENABLED=' '$C/env.orig') <(grep -v '^FAMILY_LEDGERS_ENABLED=' '$C/server/deploy/app/.env')"
+  check "a backup copy was made, mode 600" calls_have '^install -m 600 .*/deploy/app/\.env .*/deploy/app/\.env\.[0-9]{8}T[0-9]{6}Z$'
+  check "api alone restarted" calls_have '^docker compose up -d --no-deps api$'
+  check "web not restarted too" calls_lack '^docker compose up -d --no-deps api web$'
+  check "D-25 logged as on" out_has '"Family ledgers (D-25): on" at'
+  check "the D-25 check compares against what was written" out_has "as production now sets it (FAMILY_LEDGERS_ENABLED=true, so on)"
+  check "the numbers are read before and after" [ "$(count_calls 'psql.*-f -')" -eq 2 ]
+  check "no backup or restore test (the database doesn't change)" calls_lack '^systemctl|^pg-restore-test'
+  check "history: switch-on E" file_has "$C/state/history" " switch-on $SHA_E "
+  check "last-good unchanged: same commit and images" same_file "$C/state/last-good" "$C/last-good.orig"
+  local summary
+  summary=$(latest_run)/summary.txt
+  check "summary names the change" file_has "$summary" "FAMILY_LEDGERS_ENABLED: absent -> FAMILY_LEDGERS_ENABLED=true"
+  check "summary without a pipe character" bash -c "! grep -q '|' '$summary'"
+  check "status switch-on" status_is switch-on
+
+  : >"$STUB_STATE/calls"
+  # A second apart, so this run's folder (…-switch-off) sorts after the first's (…-switch-on) even within the same
+  # wall-clock second: start_log names folders by whole seconds, and "off" < "on" byte for byte.
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "off: exit code 0" rc_is 0
+  check "current shown before, true" out_has "Current: FAMILY_LEDGERS_ENABLED is FAMILY_LEDGERS_ENABLED=true, so on"
+  check ".env now false" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=false"
+  check "D-25 logged as off" out_has '"Family ledgers (D-25): off; the family endpoints answer 404" at'
+  check "history: switch-off E" file_has "$C/state/history" " switch-off $SHA_E "
+  check "status switch-off" status_is switch-off
+
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "refuses: already off" rc_not
+  check "says already off, nothing to switch" out_has "FAMILY_LEDGERS_ENABLED is already false: nothing to switch"
+  check "still no restart" [ "$(count_calls '^docker compose up')" -eq 1 ]
+}
+
+case_switch_wrong_confirmation() {
+  switch_ready
+  type_at_terminal "switch on"
+  run_deploy switch on
+  check "exit code not 0" rc_not
+  check "says REFUSED" out_has "REFUSED at"
+  check "says not confirmed" out_has "not confirmed"
+  check "says nothing changed" out_has "Nothing changed: .env untouched, api not restarted."
+  check "the line never appears" bash -c "! grep -q '^FAMILY_LEDGERS_ENABLED=' '$C/server/deploy/app/.env'"
+  check "no backup copy" calls_lack '^install '
+  check "no restart" calls_lack '^docker compose up'
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "history unchanged" same_file "$C/state/history" "$C/history.orig"
+}
+
+case_switch_secret_never_printed() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "exit code 0" rc_is 0
+  check "the secret is still in .env" file_has "$C/server/deploy/app/.env" "$SECRET"
+  check "the secret is in no output" bash -c "! grep -qF -- '$SECRET' '$C/all-out'"
+  check "the secret is nowhere in the state folder" bash -c "! grep -rqF -- '$SECRET' '$C/state'"
+}
+
+case_switch_failure_prints_the_way_back() {
+  switch_ready
+  fixture health-api starting
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "exit code not 0" rc_not
+  check "says FAILED at health" out_has 'FAILED at "3.3 Health"'
+  check ".env was already changed before the failure" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=true"
+  check "names the way back, the opposite direction" out_has "deploy/deploy.sh switch off"
+  check "never switches back on its own" out_has "Never switch back on its own"
+  check "api restarted exactly once, not reverted" [ "$(count_calls '^docker compose up -d --no-deps api$')" -eq 1 ]
+  check "status failed" status_is failed
+}
+
+# F6c's second run named HEAD in its confirmation while an older revision, the last good deploy after a rollback and a
+# plain "git checkout main", was running (deploy/RUNBOOK.md's F6c deploy record): the confirmation must name that
+# running revision (BASE), not HEAD.
+case_run_names_the_running_revision() {
+  setup_case
+  new_target
+  sed 's/^family_records 0$/family_records 1/' "$ROOT/deploy/checks/OPS-1.expected" >"$STUB_STATE/fixtures/stage"
+  deploy_e
+  check "first run failed after the merge" out_has 'FAILED at "4.4 Postflight: the stage'\''s checks (OPS-1)"'
+  : >"$STUB_STATE/calls"
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  check "rolled back to D" rc_is 0
+  (cd "$C/server" && git checkout -q main)
+  check "HEAD back on main, at E (local main was fast-forwarded by the first run's merge)" head_is "$SHA_E"
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  check "confirmation names D, the running revision" out_has "stage OPS-1, over ${SHA_D:0:7}."
+  check "not HEAD" out_lacks "stage OPS-1, over ${SHA_E:0:7}."
+}
+
 # F6b's deploy runs OPS-1's deploy.sh, which bash has read before the merge, as the server has it: its first run,
 # recording the baseline, as the app's login. Then F6b's finish and verify, from the merged clone, read the run folder,
 # last-good and history that OPS-1's script wrote, and run their checks as the read-only role.
@@ -1221,6 +1347,8 @@ CASES=(
   verify_read_only verify_warns_without_switch_line verify_reports_stage_diff
   refuse_role_missing refuse_role_superuser refuse_role_may_write
   adopt_after_a_harmless_stop adopt_nothing_to_adopt
+  switch_on_and_off switch_wrong_confirmation switch_secret_never_printed switch_failure_prints_the_way_back
+  run_names_the_running_revision
   finish_on_an_ops1_run
   rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7
   old_tags_removed

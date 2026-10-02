@@ -97,16 +97,52 @@ psql_call() {
 }
 
 up() {
-  local svc name id t line
-  for svc in api web; do
+  # Services named on the command line (api, web); both when none are, as every real call here names at least one.
+  local svc name id line want_switch cur_switch d25 services=() image_changed env_changed
+  for svc in "$@"; do
+    case $svc in
+      -*) ;;
+      *) services+=("$svc") ;;
+    esac
+  done
+  [ ${#services[@]} -gt 0 ] || services=(api web)
+  # What ./.env (deploy/app/.env, the real compose project's) says now: compose always runs from there (common.sh).
+  want_switch=$(grep '^FAMILY_LEDGERS_ENABLED=' ./.env 2>/dev/null || true)
+  for svc in "${services[@]}"; do
     name=finance-tracker-$svc
     id=$(cat "$S/images/$name/latest")
-    [ "$id" != "$(cat "$S/containers/$name/image")" ] || continue   # Compose leaves an unchanged container running
-    echo "$id" >"$S/containers/$name/image"
-    t=$(now)
-    echo "$t" >"$S/containers/$name/started"
-    cp "$S/fixtures/health-$svc" "$S/containers/$name/health"
+    image_changed=0
+    [ "$id" = "$(cat "$S/containers/$name/image")" ] || image_changed=1
+    env_changed=0
     if [ "$svc" = api ]; then
+      cur_switch=$(grep '^FAMILY_LEDGERS_ENABLED=' "$S/containers/$name/env" 2>/dev/null || true)
+      [ "$want_switch" = "$cur_switch" ] || env_changed=1
+    fi
+    [ "$image_changed" = 1 ] || [ "$env_changed" = 1 ] || continue   # Compose leaves an unchanged container running
+    echo "$id" >"$S/containers/$name/image"
+    now >"$S/containers/$name/started"
+    cp "$S/fixtures/health-$svc" "$S/containers/$name/health"
+    if [ "$svc" != api ]; then
+      : # web has no switch line to carry
+    elif [ "$env_changed" = 1 ] && [ "$image_changed" = 0 ]; then
+      # Only the switch recreated api, with the same image: update its recorded env and the log's D-25 line to match
+      # .env, as the real api would log on the new value. A plain deploy (the image changed) below keeps using the
+      # fixture's start-log and env exactly as the case set them, D-25 line included: a case may set them to anything,
+      # consistent or not with FAMILY_LEDGERS_ENABLED, to test the api's own line against what's expected.
+      grep -v '^FAMILY_LEDGERS_ENABLED=' "$S/containers/$name/env" >"$S/containers/$name/env.new" || true
+      [ -z "$want_switch" ] || printf '%s\n' "$want_switch" >>"$S/containers/$name/env.new"
+      mv "$S/containers/$name/env.new" "$S/containers/$name/env"
+      case ${want_switch#FAMILY_LEDGERS_ENABLED=} in
+        true | on | yes | 1) d25='Family ledgers (D-25): on' ;;
+        *) d25='Family ledgers (D-25): off; the family endpoints answer 404' ;;
+      esac
+      while IFS= read -r line; do
+        case $line in
+          *'Family ledgers (D-25):'*) line=$d25 ;;
+        esac
+        printf '%s %s\n' "$(now)" "$line" >>"$S/log-api"
+      done <"$S/fixtures/start-log"
+    else
       while IFS= read -r line; do printf '%s %s\n' "$(now)" "$line" >>"$S/log-api"; done <"$S/fixtures/start-log"
     fi
     echo " Container $name  Started"
@@ -133,7 +169,7 @@ compose() {
       new_id >"$S/images/finance-tracker-$2/latest"
       echo " Image finance-tracker-$2 Built"
       ;;
-    up) up ;;
+    up) shift; up "$@" ;;
     ps) printf 'NAME\tSTATUS\nfinance-tracker-api\tUp (%s)\nfinance-tracker-web\tUp (healthy)\n' "$(head -n 1 "$S/containers/finance-tracker-api/health")" ;;
     logs) shift; logs "$@" ;;
     exec) shift; psql_call "$@" ;;

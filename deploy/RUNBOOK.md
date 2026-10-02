@@ -779,12 +779,14 @@ fixed): the latest answers count in the summary, in `last-good` (`finish=passed 
   `numbers-before.txt`, `numbers-after.txt`, `numbers-finish.txt`, `numbers.diff`, `stage-<stage>.sql`,
   `stage-<stage>.expected`, `stage-<stage>.txt`, `stage.diff`, `restore-test-before.txt`, `restore-test-after.txt`,
   `summary.txt`. A rollback's folder is `<UTC time>-rollback-<commit>/`, an adoption's `<UTC time>-adopt-<commit>/`
-  (status `adopted`, or `refused`).
+  (status `adopted`, or `refused`), and (F7) a switch's `<UTC time>-switch-on-<commit>/` or
+  `<UTC time>-switch-off-<commit>/` (status `switch-on`, `switch-off`, `switching`, `failed` or `refused`; no
+  `stage-*` or restore-test files, since it changes no migration and takes no backup).
 - `last-good`: the commit, time and image IDs of the last good deploy, and how it became one (`source`: `baseline`,
   `deploy`, `rollback`, `adopt`), and since F6c `finish`, its finish's latest answer. `history`: one line per event
-  (`baseline`, `good`, `finish-failed`, `rolled-back-from`, `rollback-to`, `adopted`); a commit's status is its newest
-  line (F6c), and a finish that passes adds `good`. Both are written by the scripts only; F6b's scripts read what
-  OPS-1's wrote, F6c's what F6b's wrote.
+  (`baseline`, `good`, `finish-failed`, `rolled-back-from`, `rollback-to`, `adopted`, and since F7 `switch-on`,
+  `switch-off`); a commit's status is its newest line (F6c), and a finish that passes adds `good`. Both are written by
+  the scripts only; F6b's scripts read what OPS-1's wrote, F6c's what F6b's wrote.
 - The images: `finance-tracker-api:<commit>` and `finance-tracker-web:<commit>` for the last three revisions, and
   `:previous` for the last good deploy's, whose commit `/root/finance-tracker.previous` names, as
   [Update the app](#update-the-app) did. The lock: `/run/lock/finance-deploy.lock`.
@@ -876,6 +878,38 @@ newest line in `history`: it adopts HEAD after a `finish-failed`, and has nothin
 # On the server: only after a manual deploy, or a stopped run you judged harmless and checked
 cd /opt/finance-tracker && deploy/deploy.sh adopt
 ```
+
+## Switch the family budget on or off
+
+`deploy/deploy.sh switch on|off` (F7) is the only way to change `FAMILY_LEDGERS_ENABLED` (D-25) in
+`/opt/finance-tracker/deploy/app/.env`: never edit the file by hand. Preflight is `verify`'s (the
+read-only role, health, the numbers before) plus HEAD must be the last good deploy and the latest
+run must be finished, rolled back, adopted or an earlier switch, never mid-flight. It shows the
+current line (never the rest of the file, so no secret of `.env` is shown) and what it will become,
+asks you to type `SWITCH ON` or `SWITCH OFF`, then: copies `.env` beside itself with a timestamp
+(mode 600), changes or adds only that one line (never another, even on a bug: it refuses first),
+restarts `api` alone with `docker compose up -d --no-deps api` (`web` keeps running), checks health
+and the D-25 line against the new value, checks the numbers are the same before and after (nothing in
+the database changes), and writes a `switch-on` or `switch-off` line in `history` and a summary for
+[Deployed revisions](#deployed-revisions). It takes no backup and runs no restore test, since nothing
+in the database changes. On a failure after the change it prints the exact way back
+(`deploy/deploy.sh switch off` after a failed `switch on`, and the other way round) and stops: it
+never switches back by itself.
+
+```bash
+# On the server: only once the stage's deploy has finished (deploy.sh finish), never mid-deploy
+cd /opt/finance-tracker && deploy/deploy.sh switch on
+```
+
+The way back, once real family records exist in production, is the same command the other way:
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh switch off
+```
+
+`switch off` leaves every family row in the database as it is; only the family endpoints answer 404
+again (D-25), exactly as before F7.
 
 ## Roll back with rollback.sh
 

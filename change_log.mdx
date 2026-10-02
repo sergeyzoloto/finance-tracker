@@ -5,9 +5,8 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-02 · Family budget: F6c's deploy record, D-40, ready to switch on in production (F7)
 
-Commits `18e4edc` (documents), then "feat: family budgets ready to switch on", whose hash belongs here with the next
-change log commit. "ops: deploy.sh switch" is still to come. Work on `feature/family-budget`; not pushed, not merged,
-not deployed.
+Commits `18e4edc` (documents), `6eb7ceb` (family budgets ready to switch on), then "ops: deploy.sh switch", whose hash
+belongs here with the next change log commit. Work on `feature/family-budget`; not pushed, not merged, not deployed.
 
 **Changes**
 - F6c's deploy record (commit "docs: F6c deploy, F7 scope, D-40"):
@@ -47,6 +46,37 @@ not deployed.
   - `deploy/checks/F7.sql` and `F7.expected`: Flyway's latest row, and V10's `claimed_seat` column and
     `delete_family_ledger` function (as `F6c.sql` checks them), without a backslash and pinning no family count,
     since F7 turns the switch on. `numbers.sql` unchanged.
+- The switch command (commit "ops: deploy.sh switch"):
+  - `deploy/deploy.sh switch on|off`: preflight as `verify`'s (the read-only role, health) plus HEAD must be the last
+    good deploy and the latest run must be finished, rolled back, adopted or an earlier switch, never mid-flight;
+    shows the current `FAMILY_LEDGERS_ENABLED` line (never the rest of `.env`) and what it will become; asks for
+    `SWITCH ON` or `SWITCH OFF` at the terminal (lines waiting there discarded first, as every question since F6c);
+    copies `.env` beside itself, timestamped, mode 600; changes or adds only that one line, with its own safety check
+    that nothing else in `.env` would change (refusing first, so a bug there can't touch a secret); restarts `api`
+    alone (`docker compose up -d --no-deps api`, `web` untouched); checks health, the D-25 line against the value just
+    written, and the numbers before and after (unchanged, since nothing in the database does); writes a `switch-on`
+    or `switch-off` line in `history` and a summary for "Deployed revisions". No backup, no restore test: nothing in
+    the database changes. On a failure after the change it prints the exact way back (the opposite direction) and
+    stops; it never runs that command itself. `cmd_adopt`'s "nothing to adopt" case also recognizes `switch-on` and
+    `switch-off` as HEAD's status.
+  - `deploy/app/docker-compose.yml`'s `api` service now passes `FAMILY_LEDGERS_ENABLED` from `.env` through to the
+    container (`${FAMILY_LEDGERS_ENABLED:-false}`, absent still meaning off, as today): it didn't before, so `switch`
+    would have changed `.env` without the api ever seeing it. `deploy/app/.env.example` documents the line, commented
+    out, as `switch` manages it. `run`, `verify` and `rollback.sh` needed no change: `switch_expected` already reads
+    the api container's actual environment, not a cached value.
+  - `run`'s confirmation now names the commit that is actually running (`BASE`, the last good deploy when it isn't
+    HEAD) instead of HEAD: F6c's second run said "over `8ede02e`" while `7a60020` was running, after a rollback and a
+    plain `git checkout main` left HEAD on `main`'s tip without updating the clone from origin.
+  - Tests: `deploy/tests/run.sh` gains `switch_on_and_off`, `switch_wrong_confirmation`,
+    `switch_secret_never_printed`, `switch_failure_prints_the_way_back` and `run_names_the_running_revision` (58
+    cases); the stub `docker`'s `up` now recreates the `api` container, with its recorded environment and its log's
+    D-25 line, when `FAMILY_LEDGERS_ENABLED` in the compose project's `.env` changes even though the image doesn't,
+    while a plain deploy (the image changes) still uses the case's `start-log` and `env` fixtures exactly as before,
+    D-25 line included, so every existing case is unaffected. `deploy/tests/mutate.sh` gains five mutations (21):
+    `run`'s confirmation naming HEAD again, `switch`'s confirmation accepting anything, its `awk` matching by line
+    position instead of by key (so it can rewrite another line, such as a secret), the environment printed while
+    switching, and the way back not printed after a failure; one existing mutation ("let adopt refuse a finish-failed
+    HEAD") updated for the `switch-on`/`switch-off` statuses `cmd_adopt`'s case now lists.
 
 **Verified**
 - Baseline, on the laptop: `feature/family-budget`, `main` and `origin/main` at `8ede02e`, the tree clean before this
@@ -61,18 +91,27 @@ not deployed.
   F6c's baseline (`privacy.test.ts`'s 4 included). `npm run build` succeeded.
 - `deploy/checks/F7.sql` on a throwaway `postgres:17.11` migrated to V10 by Flyway 11.7.2 (`docker run flyway/flyway`,
   no `finance_checks` role needed for a read-only SELECT file): exactly `F7.expected`; `numbers.sql` unchanged,
-  21 keys all 0. `deploy/tests/run.sh`: 53 of 53 cases passed. `deploy/tests/mutate.sh`: all 16 mutations caught
-  (unaffected by this commit, which touches no `deploy/*.sh`).
+  21 keys all 0.
 - The web image, built locally with `docker build --target web -t finance-tracker-web:ci frontend` and run on a free
   port exactly as the new CI step does: `/privacy` and `/privacy.html` 200 with `<h1>Privacy policy</h1>` and without
   the removed sentence; `/` and `/family/1/report` 200 with `<div id="root">`; `/assets/IncomeExpenseChart-*.js` 200
   with `Cache-Control: public, max-age=31536000, immutable`; `/assets/missing.js` 404; both favicons 200.
+- `docker compose --env-file … -f deploy/app/docker-compose.yml config`: `FAMILY_LEDGERS_ENABLED` resolves to
+  `"false"` with the variable absent from `.env` (today's production) and to `"true"` with it set, confirming the
+  compose fix and that absent still means off.
+- After the ops commit: ShellCheck 0.11.0 (`-x`, `deploy.sh`, `rollback.sh`, `common.sh`, `run.sh`, `mutate.sh`, the
+  stubs): no finding. `deploy/tests/run.sh`: 58 of 58 cases passed, three runs in a row (the new cases touch
+  wall-clock timestamps; a `sleep 1` between `switch_on_and_off`'s calls keeps its run folders in the order they were
+  made). `deploy/tests/mutate.sh`: all 21 mutations caught, the five new ones by the cases named above.
+  `./mvnw -B clean verify`: 404 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS (unaffected; this commit touches
+  no backend file). `git diff --numstat 8ede02e HEAD -- '*DataIsolationApiTests.java'`: still no output.
+- `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
 
 **Open**
-- Commit 3 ("ops: deploy.sh switch": the switch command, its tests and mutations) of this task.
-- Commits 2 ("feat: family budgets ready to switch on": E3's check as D-40 says, the privacy policy's text, a CI job
-  that builds and checks the web image, `deploy/checks/F7.sql`) and 3 ("ops: deploy.sh switch": the switch command,
-  its tests and mutations) of this task.
+- The owner's deploy of this task's commits, and F7's checklist and production check (this task's report), not yet
+  run.
+- D-40's "Later": separating a member's own entries from their shares in a family category's personal cash-flow line
+  (requirements.md, "Later") is deferred, as decided.
 - The full F7 checklist (the laptop's merge and push, `deploy.sh run` with the switch still off, the browser checks,
   the smoke test, `finish`, `verify`, `deploy.sh switch on`, the production check with the owner's two test accounts,
   `verify` again, the family numbers back at zero, the client-address check, and the way back) is this task's report,

@@ -2,7 +2,7 @@
 
 Finance Tracker runs at <https://app.finance-nl.com> on the Hetzner server that runs the auth
 server (Keycloak at <https://auth.finance-nl.com>). This runbook sets it up once (steps 1–10),
-then covers updates, rollback, restores and regular checks. Do the steps in order. Every step says
+then covers updates ([Deploying with deploy.sh](#deploying-with-deploysh)), rollback, restores and regular checks. Do the steps in order. Every step says
 what you should see; if you see something else, stop and look it up under
 [Troubleshooting](#troubleshooting).
 
@@ -639,7 +639,8 @@ before are skipped.
 ## Deployed revisions
 
 What runs on the server, newest first. The server's clone may be newer when only documentation
-changed since: `git -C /opt/finance-tracker log -1 --oneline` on the server.
+changed since: `git -C /opt/finance-tracker log -1 --oneline` on the server. Since OPS-1, `deploy/deploy.sh finish`
+prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
@@ -658,7 +659,170 @@ changed since: `git -C /opt/finance-tracker log -1 --oneline` on the server.
 | 2026-09-28 | `9287f0e` (Change log: D3a's commit) | D3a: one token refresh per session, and a late login callback lands in the app. Only the backend changed; Compose left `finance-tracker-web` running, as its rebuilt image has the same layers. |
 | 2026-09-28 | `070fab2` (Change log: D2c's commit) | First deploy, steps 1 to 9 of this runbook (D3). Step 10, the import, is still to do. Certificate from Let's Encrypt (YE2), valid until 2026-12-27; Caddy renews it. |
 
+## Deploying with deploy.sh
+
+Since OPS-1 (2026-10-02), a deploy is one command on the server, `deploy/deploy.sh run <commit> <stage>`. It does
+what the F5 and F6a checklists did by hand, in their order and mostly with their commands, prints every step, keeps
+everything it printed in a run folder, and stops at the first check that fails. It never rolls back by itself: after
+a failure it prints the command of [Roll back with rollback.sh](#roll-back-with-rollbacksh), and you decide.
+[Update the app](#update-the-app), by hand, stays as the fallback for when the script itself is at fault.
+
+Each stage's deploy checklist (CLAUDE.md, "Deploy checklists") names the commit and the stage, and lists its
+browser checks and smoke test. The stage's `deploy/checks/<stage>.sql` and `<stage>.expected` are in the commit.
+
+**1. On the laptop: merge and push.**
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget
+git log -1 --format='%H %s'
+```
+
+You should see the push, then the commit to deploy, in full, as the checklist names it. CI starts with the push;
+`deploy.sh` waits for it, up to 20 minutes, so there's no need to wait here. If the merge says `Not possible to
+fast-forward`, stop: `main` has commits the release doesn't.
+
+**2. On the server: the deploy.** In a root shell on the server with a terminal (a plain `ssh root@2.28.108.199`):
+the confirmation is read from the terminal, never from what was pasted. The block asks for the commit and the
+stage, as the checklist names them:
+
+```bash
+# On the server
+cd /opt/finance-tracker && IFS= read -r -p 'Commit to deploy: ' commit && IFS= read -r -p 'Stage: ' stage && deploy/deploy.sh run "$commit" "$stage"
+```
+
+It prints each step under a `==` heading:
+
+| Step | What it does | You should see |
+| --- | --- | --- |
+| 1.1 | The tools it needs, and the terminal | `Tools present: …` |
+| 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy | `HEAD: …`, `Running images: …`, `Last good deploy: …` |
+| 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD` | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
+| 1.4 | `deploy/finance.caddy`, the postgres service and `postgres-init.sh` unchanged | `deploy/finance.caddy and the postgres service unchanged` |
+| 1.5 | CI's check runs of the commit, through GitHub's API | one line per check run, then `CI: N check runs, every one completed with success (…)`; while CI runs, `CI still runs; checking again in 60 s` |
+| 1.6 | The stage's check files in the commit | `deploy/checks/<stage>.sql and <stage>.expected are in …` |
+| 1.7 | The numbers before (`deploy/checks/numbers.sql` of the running commit) | one `key=count` line per table, as before the last deploy unless users signed up or wrote since |
+| 1.8 | A fresh backup, then the restore test | `Dump finance-….dump, … bytes`, the restore test's table, `PASS` |
+| 2 | The confirmation | the commit and its commits; type the commit's first 7 characters, or anything else to stop with nothing changed |
+| 3.1 | `git merge --ff-only <commit>` | `Fast-forward` and the files |
+| 3.2 | The running images, if they are the last good deploy's, tagged with its commit and as `:previous`; tags older than the last three revisions removed | `kept as :<commit> and :previous` |
+| 3.3, 3.4 | `docker compose build api`, `build web`, `up -d --no-deps api web` | `Image … Built`, the containers started (a container whose image is the same stays as it is) |
+| 3.5 | Health, 60 × 5 s, as before | `api: healthy, web: healthy`, then `docker compose ps` and the prune |
+| 4.1 | Flyway's latest row against the commit's highest migration, and its log line | `Latest row: 9 family invites true; the highest migration …: V9`, the line `Schema "app" is up to date…` (or `Migrating schema`, `Successfully applied`), and `Started: …` |
+| 4.2 | The D-25 line against `FAMILY_LEDGERS_ENABLED` as production sets it (absent means off) | `Logged: "Family ledgers (D-25): off; the family endpoints answer 404" at …` |
+| 4.3 | The numbers after, the same text as before | `The same numbers` |
+| 4.4 | The stage's checks against `<stage>.expected` | the check's lines, `The stage's checks as expected` |
+| 4.5 | `deploy/pg-backup/finance.conf`, installed if it changed | `finance.conf: not installed (unchanged)`, or `installed …` |
+| 4.6 | A fresh backup, then the restore test | `PASS` |
+| 5 | The summary | the text for [Deployed revisions](#deployed-revisions), then `Left for you: …` |
+
+**3. The browser checks and the smoke test** of the stage's checklist.
+
+**4. On the server: finish.**
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+It asks whether the browser checks and the smoke test passed (type `yes` or `no`), compares the family numbers with
+those before the deploy, and prints the final summary with your answers and their times: add it as the row of
+[Deployed revisions](#deployed-revisions).
+
+**When it stops.**
+
+- `REFUSED at "<step>": <why>`, then `Nothing changed`: preflight or the confirmation stopped it, before the merge.
+  Only the fresh backup of 1.8 may have been taken. Fix the cause, then run the block of step 2 again:
+  - `CI for … still runs after 20 minutes` or `GitHub has no check run`: wait for CI, or push. `did not succeed`:
+    fix the commit; a cancelled run counts as not succeeded, so run it again on GitHub.
+  - `is not origin/main` or `is not a fast-forward of HEAD`: the commit isn't the pushed `main`, or the server's clone
+    has a commit of its own (`git log origin/main..HEAD`).
+  - `deploy/finance.caddy changes` or `the postgres service changes`: those stay manual; deploy with
+    [Update the app](#update-the-app) and [Change the site file](#change-the-site-file).
+  - `has no deploy/checks/<stage>.sql and <stage>.expected`: the commit lacks the stage's checks; add them on the
+    laptop.
+  - `the restore test did not PASS`: a `MISMATCH` right after someone signed in or wrote; run the block again.
+  - `missing on this server: …`, `can't read /dev/tty` (ssh without a terminal), `another deploy.sh or rollback.sh
+    holds …`, or `the clone isn't on main` (after a rollback: `git checkout main`): fix that, and run it again.
+- `FAILED at "<step>": <why>`, after the merge: the deploy is half done, and the last lines are the exact rollback
+  command. Nothing was rolled back. Judge first:
+  - Health, Flyway, the D-25 line: the new release doesn't run as it should. Look at
+    `cd /opt/finance-tracker/deploy/app && docker compose logs --tail 100 api`, then roll back.
+  - The numbers differ: the diff is printed and kept as `numbers.diff` in the run folder. Someone signing up or writing
+    during the deploy shows up here too; if that explains every line, the release is fine: check it with
+    `deploy/deploy.sh verify <stage>`, and note it in the row. Otherwise roll back.
+  - The stage's checks differ (`stage.diff`): roll back, unless `<stage>.expected` is what's wrong.
+  - The restore test after the deploy: run `systemctl start pg-backup@finance.service && pg-restore-test finance
+    </dev/null` again; a `MISMATCH` after activity passes the second time.
+  - After fixing the cause, run the deploy again, with the same commit or a newer one. A failed or repeated run never
+    replaces the last good deploy's images or its record: the summary then counts the commits from the last good
+    deploy.
+- `finish` with a `no` or different family numbers: it prints the rollback command too; judge as above.
+
+**Where things are.** `/var/lib/finance-deploy/` (mode 700, created by the first run):
+
+- `runs/<UTC time>-<commit>/`, one folder per run: `log` (everything it printed), `meta`, `status` (`refused`,
+  `deploying`, `failed`, `deployed`, `finished`, `finish-failed`), `numbers.sql` (the text it ran before and after),
+  `numbers-before.txt`, `numbers-after.txt`, `numbers-finish.txt`, `numbers.diff`, `stage-<stage>.sql`,
+  `stage-<stage>.expected`, `stage-<stage>.txt`, `stage.diff`, `restore-test-before.txt`, `restore-test-after.txt`,
+  `summary.txt`. A rollback's folder is `<UTC time>-rollback-<commit>/`.
+- `last-good`: the commit, time and image IDs of the last good deploy. `history`: one line per event (`baseline`,
+  `good`, `finish-failed`, `rolled-back-from`, `rollback-to`). Both are written by the scripts only.
+- The images: `finance-tracker-api:<commit>` and `finance-tracker-web:<commit>` for the last three revisions, and
+  `:previous` for the last good deploy's, whose commit `/root/finance-tracker.previous` names, as
+  [Update the app](#update-the-app) did. The lock: `/run/lock/finance-deploy.lock`.
+
+**Checking at any time, read only:** `cd /opt/finance-tracker && deploy/deploy.sh verify <stage>` prints the health of
+api and web, Flyway's latest row against the highest migration, the stage's checks against `<stage>.expected`, the
+D-25 line (a warning if it is no longer in the retained log), and the numbers, then `verify <stage>: OK` or the
+problems. It takes no backup and changes nothing.
+
+**What the server needs:** `git`, `docker` with its Compose plugin, `flock`, `curl`, `python3`, `systemctl`,
+`pg-restore-test` (the auth server's `deploy/backup/install.sh server`), `install`, `diff` and `paste`, which step 1.1
+checks and names when one is missing; a terminal; HTTPS to `api.github.com` (unauthenticated: 60 requests an hour
+from the server's address, one a minute while CI runs); `/var/lib` for the state folder and `/run/lock`.
+
+**The first run** finds no `last-good`: it says so, and once you confirm, it records `HEAD` with the running images as
+the last good deploy (`baseline` in `history`). For F6b that is OPS-1's commit with the images built from `c26cff6`,
+the same application code.
+
+**After a manual deploy** with [Update the app](#update-the-app), `deploy.sh`'s record is behind: its next run takes
+the running images for a failed run's and tags nothing, and `rollback.sh` offers the last deploy that `deploy.sh`
+made. Bring it back in step by deploying the next release with `deploy.sh`, and roll back by hand until then.
+
+## Roll back with rollback.sh
+
+> **Only for a deploy that failed its checks**, in a block of its own, never in one with a deploy. After a deploy that
+> passed its checks, a rollback repairs nothing: it puts the previous commit and images back into production (as on
+> 2026-09-29, after F3a). Before the block, make sure the deploy failed.
+
+`deploy/rollback.sh <commit>` goes back only to the last good deploy before the current one, as `deploy.sh` recorded
+it and printed it after the failure, and only while its images are still there under their commit's tag. The block
+asks for the commit:
+
+```bash
+# On the server: only for a deploy that failed its checks
+cd /opt/finance-tracker && IFS= read -r -p 'Commit to roll back to, as deploy.sh printed it: ' commit && deploy/rollback.sh "$commit"
+```
+
+It refuses, changing nothing, a commit the clone doesn't know, any commit but the last good deploy before the current
+one (it names that one), a commit whose images are missing or aren't the recorded ones, and, by D-22, a commit below
+V7 while production holds family records: the code before F4a can't read the entry kinds the family budget posts, so
+that needs [Restore from a backup](#restore-from-a-backup) of the dump taken before the deploy. Otherwise every
+migration is additive (D-22): the previous image runs on the newer schema, and Flyway in it ignores the migrations
+it doesn't know.
+
+It shows what it will do and asks you to type `ROLLBACK` and the commit's first 7 characters. Then it checks out the
+commit (detached), tags its images as the ones to run, starts api and web (`up -d --no-deps api web`) and checks their
+health. It leaves the database and `/etc/pg-backup/finance.conf` as they are. `last-good` names that commit again,
+`history` records the rollback, and the summary is in the run folder `<UTC time>-rollback-<commit>/`.
+
+To go forward again: `cd /opt/finance-tracker && git checkout main`, then [Deploying with deploy.sh](#deploying-with-deploysh).
+
 ## Update the app
+
+> **The manual procedure**, the fallback for when `deploy.sh` itself is at fault, and how OPS-1, which brought the
+> script, was deployed. Normally use [Deploying with deploy.sh](#deploying-with-deploysh).
 
 Push, and wait until CI is green (<https://github.com/sergeyzoloto/finance-tracker/actions>):
 
@@ -733,6 +897,8 @@ Since F4a's parts 5 and 6 the checks also count the family records, shares, link
 Install the version with `family_invites` only once the api that migrates to V9 runs.
 
 ## Deploy a release whose only change is a migration
+
+Manual, from F2a's deploy; `deploy.sh` covers such a release too ([Deploying with deploy.sh](#deploying-with-deploysh)).
 
 For a release that changes the database and nothing the app does, such as F2a's V5 (ADR 0003,
 topic J): the steps of [Update the app](#update-the-app), written out here as step 5, with checks
@@ -897,6 +1063,9 @@ leaves nothing behind: Flyway runs it in one transaction, the api doesn't start,
 image runs on the schema as it was.
 
 ## Roll an update back
+
+The manual rollback of [Update the app](#update-the-app), the fallback for when `rollback.sh` itself is at fault.
+After a deploy with `deploy.sh`, use [Roll back with rollback.sh](#roll-back-with-rollbacksh).
 
 > **Only for an update that failed its checks.** After an update that passed them, this section
 > repairs nothing: it undoes the release, putting the previous commit and images back into

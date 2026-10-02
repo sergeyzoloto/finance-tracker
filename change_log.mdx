@@ -3,6 +3,97 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-02 · Deploy scripts: deploy.sh and rollback.sh (OPS-1)
+
+Committed locally on `feature/family-budget` in three commits: `7964a2b` (F6a's deploy and D-35 to D-37),
+`f8e4c3a` (the scripts and their tests) and "docs: deploying with deploy.sh", whose hash belongs here with the next
+change log commit. Not pushed, not merged, not deployed. No change under `backend/`, `frontend/`, `deploy/app/`,
+`deploy/finance.caddy` or `deploy/pg-backup/`.
+
+**Changes**
+- F6a's deploy and the decisions after it (commit "docs: F6a deploy, OPS-1 scope, D-35 to D-37"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-10-02, `c26cff6` (F6a, Flyway V9 with no migration,
+    switch off), with the owner's checks and the `edge` subnet for F7. The F6a entry below got `c26cff6` and the
+    deploy's record.
+  - CLAUDE.md: production runs `c26cff6` on V9; decisions up to D-37. `docs/family-budget/current-state.md`: one line
+    at the top, that it is the F1 snapshot and where the current state is; nothing else.
+  - ADR 0003 and `requirements.md`: the owner confirmed "F6a as built", gaps 1, 2 and 4 to 9; D-35 (a claimed seat
+    takes part from its own start; the claim's date divides only the opening balance from the entries), D-36 (the last
+    member with an account leaving deletes the family budget, replacing gap 3's archived state) and D-37 (a return
+    answers 409 while the debt account holds entries of no record after the join date), each decided by the PM and
+    built in F6b; F6b's list in order; "Later": making an owner a member again; F7's prerequisite: the client address
+    of IPv6 clients.
+- The scripts (commit "ops: deploy.sh and rollback.sh"):
+  - `deploy/deploy.sh run <commit> <stage>`: preflight that changes nothing but a fresh backup (the lock, the tools and
+    the terminal, the clone on `main`, `git fetch`, the commit `origin/main` and a fast-forward, the commits,
+    migrations and `deploy/` files printed, `finance.caddy` and the postgres service unchanged, CI's check runs of the
+    commit through GitHub's API with a wait of up to 20 minutes, the stage's check files, the numbers, a fresh backup
+    and the restore test); one confirmation, the commit's first 7 characters typed at `/dev/tty`; the deploy (`git
+    merge --ff-only`, the last good deploy's images tagged with its commit and as `:previous`, the last three
+    revisions' tags kept, build, `up -d --no-deps api web`, health 60 × 5 s, prune); postflight (Flyway's latest row
+    against the commit's highest migration and its log line, the D-25 line against `FAMILY_LEDGERS_ENABLED`, read
+    alone, the numbers again, the stage's checks, `finance.conf` if it changed, a fresh backup and the restore test);
+    a summary without a pipe character for "Deployed revisions". A failure after the merge prints the rollback
+    command and rolls nothing back; a failed or repeated run never retags the last good images or rewrites its record.
+  - `deploy/deploy.sh finish` (the answers with their times, the family numbers) and `verify <stage>` (read only).
+  - `deploy/rollback.sh <commit>`: only the last good deploy before the current one, with its recorded images; refused
+    below V7 while production holds family records (D-22); `ROLLBACK <7 characters>` typed at the terminal; checkout,
+    retag, `up -d --no-deps api web`, health; the database and `finance.conf` untouched.
+  - `deploy/common.sh` (shared). Both scripts are functions only, with `main "$@"; exit $?` last. State in
+    `/var/lib/finance-deploy` (mode 700): a folder per run, `last-good`, `history`.
+  - `deploy/checks/numbers.sql` (21 counts, `outside_their_ledger` as F6a's checklist counted it) and
+    `deploy/checks/OPS-1.sql` with `OPS-1.expected`.
+  - CLAUDE.md, "Production safety": the exception for these committed scripts and check files (read-only `psql`, no
+    backslash in a check file, state parsed and never sourced).
+  - `deploy/tests/`: `run.sh` (39 cases), the stubs, CI fixtures from `c26cff6`'s real check runs, and `mutate.sh`
+    (5 mutations). CI: a job "Deploy scripts" with ShellCheck, the cases and the mutations.
+- The documents (commit "docs: deploying with deploy.sh"):
+  - `deploy/RUNBOOK.md`: "Deploying with deploy.sh" (merge and push, the run, what each step prints, the browser checks
+    and the smoke test, `finish`, what to do on each kind of stop, where the run folders are, `verify`, what the server
+    needs, the first run, after a manual deploy) and "Roll back with rollback.sh" (with D-22's rule). "Update the app",
+    "Roll an update back" and the migration-only release stay, marked as the manual fallback.
+  - CLAUDE.md: "Deploy checklists", the rules for a stage's checklist from now on; the scripts, their tests and the CI
+    job in the project map.
+
+**Verified**
+- Baseline, on the laptop: `feature/family-budget` with a clean tree, it, `main` and `origin/main` at `c26cff6`.
+  `./mvnw -B clean verify`: 386 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend `npm test`: 21 files,
+  278 tests passed.
+- The SQL files on a throwaway `postgres:17.11` with `postgres-init.sh`, migrated to V9 by Flyway 11.7.2, run as
+  `finance` the way the scripts run them (`PGOPTIONS=-c default_transaction_read_only=on`, `psql -f -`):
+  `numbers.sql` gave its 21 keys, all 0; `OPS-1.sql` gave exactly `OPS-1.expected`. With a user, two personal ledgers,
+  a family ledger with an ACTIVE and a LEFT member and a family category inserted: `users=1`, `personal_ledgers=2`,
+  `categories=1`, `family_ledgers=1`, `family_members=2`, `family_members_active=1`, `family_members_left=1`,
+  `outside_their_ledger=0`. An `INSERT` through the same path: "cannot execute INSERT in a read-only transaction".
+  The container removed.
+- On the laptop's Docker, with throwaway containers (not the scripts): the template that reads
+  `FAMILY_LEDGERS_ENABLED` printed only that variable; `docker compose logs --since` with a restarted container's
+  `StartedAt` gave only that start's lines; tagging by image ID, `docker image ls --format '{{.Tag}}' <repo>` and
+  `docker rmi` of a tag worked as the stubs assume.
+- ShellCheck 0.11.0 (`koalaman/shellcheck:v0.11.0`) on the three scripts, `run.sh`, `mutate.sh` and the five stubs:
+  no finding.
+- `deploy/tests/run.sh`: 39 of 39 cases passed, in about 35 s. `deploy/tests/mutate.sh`: each mutation caught, the CI
+  check dropped by `refuse_ci_failed`, `refuse_ci_still_running` and `refuse_ci_none`; any confirmation accepted by
+  `wrong_confirmation`; an automatic rollback by the seven `fail_*` cases; the environment printed by
+  `secret_never_printed`; no `exit` after `main` by `script_replaced_mid_run`, whose rewritten lines then ran.
+- Found and fixed while testing: the stub's `inspect` read the wrong arguments; `git show | grep -q` under
+  `pipefail` could miss a backslash (now checked on a saved copy); the in-place rewrite's lines needed padding and
+  their marker first before they could run at all, so that the wrapper's mutation is caught by what ran, not only by
+  the exit code.
+- At the end: `./mvnw -B clean verify`: 386 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS; frontend `npm test`: 21 files, 278 tests passed, as at the baseline.
+  `git diff --stat c26cff6 HEAD -- backend frontend deploy/app deploy/finance.caddy deploy/pg-backup` prints nothing.
+- `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
+
+**Open**
+- The owner's deploy of OPS-1, by hand: the report has the checklist, a pull without a rebuild or restart, then
+  `deploy/deploy.sh verify OPS-1` as a rehearsal. F6b is then the first run of `deploy.sh`, whose baseline is OPS-1's
+  commit with the images built from `c26cff6`.
+- Tried only against stubs: the scripts on the server, GitHub's API from the server, `/dev/tty` there, and the real
+  `pg-restore-test`'s and `pg-backup`'s output, which the stubs copy from the auth repository's scripts.
+- To confirm: the exception in CLAUDE.md's "Production safety"; a cancelled CI run refuses the deploy like a failed
+  one; after a manual deploy the scripts' record is behind until the next `deploy.sh` run; `verify` creates the lock
+  file in `/run/lock` if it isn't there, and changes nothing else.
+
 ## 2026-10-01 · Family budget: F5's deploy, D-29 to D-34, the membership's lifecycle (F6a)
 
 Commits `12c0af3` (documents), `dc99b2b` (leaving, removal, the rule back to equal shares), `7dd43ea`

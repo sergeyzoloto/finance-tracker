@@ -1,3 +1,5 @@
+> This is the F1 snapshot of 2026-09-28, kept as it was. The current state is in [CLAUDE.md](../../CLAUDE.md), [requirements.md](requirements.md) and [ADR 0003](../adr/0003-family-budget-membership-and-cross-ledger-posting.md).
+
 # Family budget: the current state of the code (F1)
 
 What the code does today, on branch `main` at `d0656b9` (2026-09-28), as the starting point of the

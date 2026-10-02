@@ -25,7 +25,9 @@ review are in topics E, F and J: D-11 amended for joining members, and returning
 making another member an owner moved from F5 to F6. F5, invites and taking a seat, is built as topic G's
 "F5 as built" says, where it also names what differs from that topic's sketch. F5 is deployed since 2026-10-01, from
 `e8f5ca0`, with the switch off; the decisions after it, D-29 to D-34, are in topics E, F and G, and F6 is split into
-F6a and F6b, with the F6a plan in topic J. The requirements and decisions D-1 to D-34 are in
+F6a and F6b, with the F6a plan in topic J. F6a is deployed since 2026-10-02, from `c26cff6`, with the switch off;
+the owner confirmed it as built, and the decisions after it, D-35 to D-37 for F6b, are at the end of topic J. The
+requirements and decisions D-1 to D-37 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -1556,6 +1558,31 @@ decisions (each to be confirmed after the F6a review):
   of which it says nothing else, since a member who left reads nothing of the budget. It reads as
   `release_family_memberships` acts, which is unchanged: the personal ledger goes as a whole, so D-33's copies don't
   matter there.
+
+**After the F6a deploy** (2026-10-02). The owner confirmed both "F6a as built" sections above, gaps 1, 2 and 4 to 9
+of the F6a report: a member without an account whom nothing names is deleted; leaving revokes the member's pending
+invites and removal those for the place; the debt account is an ordinary account while its member is away and a
+system one again on return; the detach's reuse of a personal category with the code and type, and its `_2`; a
+returned member's correction kept in step, with their older entries on the debt account changing only with the
+family budget; no endpoint that makes an owner a member again ("Later" in the requirements); the deletion preview
+naming only how many budgets the user left; a LEFT member's display name kept. Gap 3, the archived family ledger,
+is replaced. Three decisions of the PM, built in F6b:
+
+- **D-35** (refines D-31 and D-32): a claimed seat takes part in records from the seat's own start, the date it was
+  added, not from the claim's date. The claim's date only divides what posts into the claimer's personal ledger:
+  before it the opening balance, from it entries. A record moved across the claim's date, either way, or added
+  before it, keeps the seat and moves its effect between the opening balance and the entries; the question the
+  F6a report asked about D-31 is answered by this. A new member still takes part from the day they join.
+- **D-36** (replaces gap 3): when the last member with an account leaves or is removed, the family ledger is deleted,
+  as `release_family_memberships` deletes it for the last member with an account who deletes their data; there is
+  no archived state. The confirmation says the budget and its records will be deleted.
+- **D-37** (a return): accepting answers 409 with a code of its own while the returning member's debt account holds
+  entries dated after the join date that belong to no record (the case F6a's correction leaves out). The invite page
+  names them, and says they can be moved or deleted first.
+
+F7's prerequisites gain one: the client address of IPv6 clients is settled before the switch goes on. That is F6a's
+residual risk: should `app.finance-nl.com` get an AAAA record while Docker's IPv6 is off, every IPv6 client could
+reach the api as the bridge's address, and share one per-address limit (D-29).
 
 ### K. Test strategy
 

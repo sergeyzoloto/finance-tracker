@@ -22,6 +22,8 @@ Amended after the F4e review on 2026-10-01: D-11 (categories of a joining member
 
 Amended after the F5 deploy on 2026-10-01: new D-29 to D-34 (decided by the PM), the planned stages (F6 split into F6a and F6b) and "Later".
 
+Amended after the F6a deploy on 2026-10-02: new D-35 to D-37 (decided by the PM), D-19 (the archived family ledger, replaced by D-36), the planned stages (F6b's list, F7's prerequisite) and "Later".
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -114,7 +116,7 @@ Leaving and deletion
   - LEFT members never count as "members with an account" in D-19 or D-20.
   - Records where a LEFT or FORMER member has a share or is the payer are frozen.
   - A settlement after leaving is recorded by each side in their own ledger.
-  - The last owner cannot leave while other members with accounts remain. A family ledger with no members with accounts left is archived.
+  - The last owner cannot leave while other members with accounts remain. A family ledger with no members with accounts left is deleted (D-36, which replaces the archived state of F6a).
 - D-20. "Delete all my data":
   - The personal ledger is deleted entirely as today, including posted shares and payments.
   - In each family ledger the membership becomes FORMER ("Former member", null sub). Amounts, dates, categories and shares stay, and the affected records are frozen. The user's comments are erased, including their comment text in the change journal's old and new values; their name in the journal is replaced, and their invites are revoked.
@@ -172,6 +174,11 @@ Added after the F5 deploy (2026-10-01)
 - E3 Personal reports can separate family shares.
 - H1 Demo data creates a family with a fictional partner without an account.
 - H2 "Delete all my data" handles family data as in D-20; the privacy policy is updated.
+
+Added after the F6a deploy (2026-10-02), to be built in F6b
+- D-35. A claimed seat's records (decided by the PM; refines D-31 and D-32). A claimed seat takes part in records from the seat's own start, the date it was added, not from the claim's date. The claim's date only divides what posts into the claimer's personal ledger: before it, the opening balance; from it, entries. Moving a record across the claim's date, either way, or adding one dated before it, keeps the seat in the record and moves its effect between the opening balance and the entries. A new member (not a claim) still takes part from the day they join. Reason: the owner's Excel import puts years of records into a budget with a partner without an account; if the partner claims the seat later, records found or corrected afterwards must still include them.
+- D-36. The last member with an account leaving (decided by the PM; replaces F6a's gap 3, the archived family ledger). When the last member with an account leaves, the family budget is deleted, as D-20 deletes it when the last member with an account deletes their data. There is no archived state, since nobody could read it or invite into it. The confirmation says the budget and its records will be deleted.
+- D-37. A return with entries of its own on the debt account (decided by the PM). Accepting answers 409 with its own code while the returning member's debt account holds entries dated after the join date that belong to no record. The invite page says which entries, and that they can be moved or deleted first. Otherwise those entries would break D-10 from their date, and gap 6 of the F6a report (a returned member's older entries on the debt account change only through the family budget) would make them uneditable.
 - H4 Old SharedExpense entries remain valid; the UI stops creating them.
 
 ## Planned stages
@@ -189,7 +196,9 @@ Added after the F5 deploy (2026-10-01)
 - F6: leaving, removal and detach; delete-my-data for family data; the published privacy policy; the demo family; family reports and the personal-report filter; removing old SharedExpense creation from the UI. With the demo family, revisit the demo's personal twin of a starter category merged into a family budget (accepted after the review of F4a's parts 5 and 6).
 - After the F4e review (2026-10-01): F5 is invites and taking a seat (D-17, D-18). Returning members (D-26) and making another member an owner move to F6, next to leaving and removal. The privacy policy's draft is docs/family-budget/privacy-draft.md, which F6 publishes.
 - After the F5 deploy (2026-10-01, decided by the PM): F6 is split in two. F6a is the membership's lifecycle (leaving, removal and detach, the rule back to equal shares, returning members, making another member an owner) and what "Delete all my data" shows of the family budgets. F6b is the privacy policy's publication, the demo family (H1), the family report (E1, and E3's check), H4, the owner's remarks on the interface, and the switcher's placeholder right after accepting an invite.
+- After the F6a deploy (2026-10-02, decided by the PM): the owner confirmed F6a as built (ADR 0003 topic J), gaps 1, 2 and 4 to 9 of the F6a report; gap 3 is replaced by D-36. F6b, in this order: D-35 to D-37; the switcher's placeholder right after accepting an invite or leaving; the members table's actions at 375 px; then the privacy policy's publication, the demo family (H1), the family report (E1, and E3's check) and H4.
 - F7: the switch goes on in production, followed by a check with two real accounts.
+  - Prerequisite: the client address of IPv6 clients (F6a's residual risk: with an AAAA record for app.finance-nl.com and Docker's IPv6 off, every IPv6 client could reach the api as one address) is settled before the switch goes on, so that D-29's per-address limit counts the browser's real address for them too.
 - After F7: the Excel import, with Family rows going into a family ledger.
 
 ## Later
@@ -201,4 +210,5 @@ Found along the way; not part of a stage yet.
 - The personal entry list on a phone. At 375 px it is wider than the screen, with or without family rows: 573 px for a month of the demo without them, 664 px with them (found in F4a's walk-through).
 - Invites for a taken seat (after the F5 deploy). When an invite takes a seat, the other pending invites for that seat stay pending until they expire; accepting one answers 409 (D-29). Revoking them when the seat is taken stays for later.
 - A long invite history. The owners' invite list keeps every invite, newest first; folding the old ones away stays for later.
+- Making an owner a member again (gap 7 of the F6a report). Today an owner stops being one only by leaving or being removed; an endpoint that makes an owner a member again stays for later.
 - One address for a household. The per-address rate limit of invites (D-29) counts every device behind one NAT together, such as a household's router.

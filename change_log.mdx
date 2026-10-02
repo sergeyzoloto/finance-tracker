@@ -3,12 +3,37 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-02 · Family budget: OPS-1's deploy, D-35 to D-39, a read-only role for the deploy checks (F6b)
+
+Not committed yet.
+
+**Changes**
+- OPS-1's deploy and the decisions after it (commit "docs: OPS-1 deploy, F6b scope, D-38 and D-39"):
+  - `deploy/RUNBOOK.md`, "Deployed revisions": the row for 2026-10-02, `46dedcd` (OPS-1, no application change, the
+    images still `c26cff6`'s, Flyway V9), with the owner's checks. The OPS-1 entry below got `46dedcd` and the deploy's
+    record. CLAUDE.md: production runs `46dedcd` with the images of `c26cff6`.
+  - The decisions after OPS-1's review, in the runbook and CLAUDE.md: the scripts' exception stays, with read-only a
+    property of a database role; a cancelled CI run refuses the deploy; `deploy.sh adopt` closes a harmless stop and a
+    manual deploy.
+  - `requirements.md` and ADR 0003, each decided by the PM: D-35 clarified (a claim changes nothing about who takes
+    part; a claimed seat takes part from the budget's start date), D-38 (the per-address limit only for public
+    addresses, which settles F7's prerequisite about IPv6 clients; IPv6 in Docker in "Later"), D-39 (a returning member
+    takes part from their return date only); F6 split into F6b and F6c.
+
+**Verified**
+- Baseline, on the laptop: `feature/family-budget` with a clean tree, it, `main` and `origin/main` at `46dedcd`.
+  `./mvnw -B clean verify`: 386 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend `npm ci`, `npm test`:
+  21 files, 278 tests passed; `npm run build` succeeded.
+
+**Open**
+- The rest of F6b.
+
 ## 2026-10-02 · Deploy scripts: deploy.sh and rollback.sh (OPS-1)
 
-Committed locally on `feature/family-budget` in three commits: `7964a2b` (F6a's deploy and D-35 to D-37),
-`f8e4c3a` (the scripts and their tests) and "docs: deploying with deploy.sh", whose hash belongs here with the next
-change log commit. Not pushed, not merged, not deployed. No change under `backend/`, `frontend/`, `deploy/app/`,
-`deploy/finance.caddy` or `deploy/pg-backup/`.
+Commits `7964a2b` (F6a's deploy and D-35 to D-37), `f8e4c3a` (the scripts and their tests) and `46dedcd` (docs:
+deploying with deploy.sh), on `feature/family-budget`, merged into `main` and deployed by hand on 2026-10-02 (a pull,
+no build); the deploy's record: "docs: OPS-1 deploy, F6b scope, D-38 and D-39". No change under `backend/`,
+`frontend/`, `deploy/app/`, `deploy/finance.caddy` or `deploy/pg-backup/`.
 
 **Changes**
 - F6a's deploy and the decisions after it (commit "docs: F6a deploy, OPS-1 scope, D-35 to D-37"):
@@ -88,6 +113,17 @@ change log commit. Not pushed, not merged, not deployed. No change under `backen
 - The owner's deploy of OPS-1, by hand: the report has the checklist, a pull without a rebuild or restart, then
   `deploy/deploy.sh verify OPS-1` as a rehearsal. F6b is then the first run of `deploy.sh`, whose baseline is OPS-1's
   commit with the images built from `c26cff6`.
+  - Deployed on 2026-10-02 from `46dedcd` (the runbook's "Deployed revisions"): CI's Frontend, Deploy scripts and
+    Dependency updates (six runs) completed with success before the deploy, Backend's two runs afterwards (no backend
+    change); before, the numbers and the containers' image IDs and start times saved, the restore test PASS (dump
+    2026-10-02T0847Z, 1444075 bytes, 19 tables, migration 9, `family_invites` 0); exactly `7964a2b`, `f8e4c3a` and
+    `46dedcd` pulled, nothing to build, restart or install; after, the same numbers, the same containers not restarted
+    (api `sha256:842c2e4a…`, web `sha256:07b6eea4…`, started at 04:35Z), both scripts executable, the restore test PASS
+    (dump 2026-10-02T0848Z, 1444075 bytes); `deploy/deploy.sh verify OPS-1` at 08:49:25Z: OK (health, Flyway V9, the
+    D-25 line of 04:35:46Z, the stage's checks as expected, 21 numbers).
+  - Decided after the review (by the PM): the exception in "Production safety" stays, with read-only a property of a
+    database role from F6b; a cancelled CI run refuses the deploy, as built; a harmless stop and a manual deploy are
+    closed with `deploy.sh adopt` (F6b).
 - Tried only against stubs: the scripts on the server, GitHub's API from the server, `/dev/tty` there, and the real
   `pg-restore-test`'s and `pg-backup`'s output, which the stubs copy from the auth repository's scripts.
 - To confirm: the exception in CLAUDE.md's "Production safety"; a cancelled CI run refuses the deploy like a failed

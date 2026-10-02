@@ -24,6 +24,8 @@ Amended after the F5 deploy on 2026-10-01: new D-29 to D-34 (decided by the PM),
 
 Amended after the F6a deploy on 2026-10-02: new D-35 to D-37 (decided by the PM), D-19 (the archived family ledger, replaced by D-36), the planned stages (F6b's list, F7's prerequisite) and "Later".
 
+Amended after the OPS-1 deploy on 2026-10-02: D-35 clarified, new D-38 and D-39 (each decided by the PM), the planned stages (F6 split into F6b and F6c; F7's prerequisite settled by D-38) and "Later".
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -181,6 +183,11 @@ Added after the F6a deploy (2026-10-02), to be built in F6b
 - D-37. A return with entries of its own on the debt account (decided by the PM). Accepting answers 409 with its own code while the returning member's debt account holds entries dated after the join date that belong to no record. The invite page says which entries, and that they can be moved or deleted first. Otherwise those entries would break D-10 from their date, and gap 6 of the F6a report (a returned member's older entries on the debt account change only through the family budget) would make them uneditable.
 - H4 Old SharedExpense entries remain valid; the UI stops creating them.
 
+Added after the OPS-1 deploy (2026-10-02), to be built in F6b
+- D-35 clarified (decided by the PM). D-35's intent is that a claim changes nothing about who takes part, only where the claimer's postings go: before the claim's date, the opening balance; from it, entries. Its wording "the date it was added" was wrong: a seat without an account takes part from the budget's start date (D-18 as amended), and a claimed seat keeps doing so. A claimed member who leaves and returns follows D-39.
+- D-38 (with D-29; decided by the PM). The per-address limit applies only to public addresses. A private, loopback or link-local address after Tomcat's resolution means the real client is unknown: IPv6 clients arrive through docker-proxy as the `edge` bridge's gateway. For such an address only the per-user limit applies. This settles F7's prerequisite about IPv6 clients; IPv6 in Docker goes to "Later", for a maintenance window.
+- D-39 (with D-26; decided by the PM). A returning member takes part from their return date only, as a new member does. Adding them to a record dated before it is 422 `JOINED_AFTER`. Records that already include them keep them, and their effect before the return goes into the correction, as built.
+
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
 - F2a: migration V5, stronger isolation tests, these documents; deployed on its own.
@@ -197,8 +204,9 @@ Added after the F6a deploy (2026-10-02), to be built in F6b
 - After the F4e review (2026-10-01): F5 is invites and taking a seat (D-17, D-18). Returning members (D-26) and making another member an owner move to F6, next to leaving and removal. The privacy policy's draft is docs/family-budget/privacy-draft.md, which F6 publishes.
 - After the F5 deploy (2026-10-01, decided by the PM): F6 is split in two. F6a is the membership's lifecycle (leaving, removal and detach, the rule back to equal shares, returning members, making another member an owner) and what "Delete all my data" shows of the family budgets. F6b is the privacy policy's publication, the demo family (H1), the family report (E1, and E3's check), H4, the owner's remarks on the interface, and the switcher's placeholder right after accepting an invite.
 - After the F6a deploy (2026-10-02, decided by the PM): the owner confirmed F6a as built (ADR 0003 topic J), gaps 1, 2 and 4 to 9 of the F6a report; gap 3 is replaced by D-36. F6b, in this order: D-35 to D-37; the switcher's placeholder right after accepting an invite or leaving; the members table's actions at 375 px; then the privacy policy's publication, the demo family (H1), the family report (E1, and E3's check) and H4.
+- After the OPS-1 deploy (2026-10-02, decided by the PM): F6 is split further. F6b: D-35 to D-39, the switcher's placeholder right after accepting an invite or leaving, the members table's actions at 375 px, and OPS-1's follow-ups (a read-only database role for the deploy scripts' checks, `deploy.sh adopt`). F6c, next: the privacy policy's publication, the demo family (H1), the family report (E1, and E3's check), H4 and the owner's remarks from the manual check.
 - F7: the switch goes on in production, followed by a check with two real accounts.
-  - Prerequisite: the client address of IPv6 clients (F6a's residual risk: with an AAAA record for app.finance-nl.com and Docker's IPv6 off, every IPv6 client could reach the api as one address) is settled before the switch goes on, so that D-29's per-address limit counts the browser's real address for them too.
+  - Prerequisite: the client address of IPv6 clients (F6a's residual risk: with an AAAA record for app.finance-nl.com and Docker's IPv6 off, every IPv6 client could reach the api as one address) is settled before the switch goes on, so that D-29's per-address limit counts the browser's real address for them too. Settled by D-38 (2026-10-02): such an address is the bridge's gateway, a private one, for which only the per-user limit applies.
 - After F7: the Excel import, with Family rows going into a family ledger.
 
 ## Later
@@ -212,3 +220,4 @@ Found along the way; not part of a stage yet.
 - A long invite history. The owners' invite list keeps every invite, newest first; folding the old ones away stays for later.
 - Making an owner a member again (gap 7 of the F6a report). Today an owner stops being one only by leaving or being removed; an endpoint that makes an owner a member again stays for later.
 - One address for a household. The per-address rate limit of invites (D-29) counts every device behind one NAT together, such as a household's router.
+- IPv6 in Docker (after the OPS-1 deploy, D-38). With Docker's IPv6 on for the `edge` network, IPv6 clients would reach Caddy with their own address, and the per-address limit would count them too. It changes the auth server's host, so it waits for a maintenance window.

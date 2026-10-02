@@ -26,8 +26,10 @@ making another member an owner moved from F5 to F6. F5, invites and taking a sea
 "F5 as built" says, where it also names what differs from that topic's sketch. F5 is deployed since 2026-10-01, from
 `e8f5ca0`, with the switch off; the decisions after it, D-29 to D-34, are in topics E, F and G, and F6 is split into
 F6a and F6b, with the F6a plan in topic J. F6a is deployed since 2026-10-02, from `c26cff6`, with the switch off;
-the owner confirmed it as built, and the decisions after it, D-35 to D-37 for F6b, are at the end of topic J. The
-requirements and decisions D-1 to D-37 are in
+the owner confirmed it as built, and the decisions after it, D-35 to D-37 for F6b, are at the end of topic J. OPS-1,
+the deploy scripts without an application change, is deployed since 2026-10-02, from `46dedcd`, with the images built
+from `c26cff6`; the decisions after it (D-35 clarified, D-38 and D-39, F6 split into F6b and F6c) are in topics G and
+J. The requirements and decisions D-1 to D-39 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
 what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
 
@@ -1033,6 +1035,14 @@ differed from the sketch stand, as decisions of their own:
   amount in the family's base currency, and the privacy draft's "Invite links" section lists what the lookup
   shows, the same things. F5's lookup has no such amount; F6a adds it.
 
+**Decided after the OPS-1 deploy** (2026-10-02, by the PM; requirements D-38):
+
+- D-38 (with D-29): the per-address limit applies only to public addresses. A private, loopback or link-local address
+  after Tomcat's resolution means the real client is unknown: IPv6 clients arrive through docker-proxy as the `edge`
+  bridge's gateway, which Caddy puts in `X-Forwarded-For` and `RemoteIpValve` trusts as an internal proxy, so it is
+  what the api sees. For such an address only the per-user limit applies. This settles F7's prerequisite about IPv6
+  clients (topic J); IPv6 in Docker is "Later" in the requirements, for a maintenance window.
+
 ### H. The change journal
 
 **Options.** Row-level database triggers that copy old and new rows into an audit table; an event
@@ -1583,6 +1593,22 @@ is replaced. Three decisions of the PM, built in F6b:
 F7's prerequisites gain one: the client address of IPv6 clients is settled before the switch goes on. That is F6a's
 residual risk: should `app.finance-nl.com` get an AAAA record while Docker's IPv6 is off, every IPv6 client could
 reach the api as the bridge's address, and share one per-address limit (D-29).
+
+**After the OPS-1 deploy** (2026-10-02, decided by the PM):
+
+- **D-35 clarified.** D-35's intent is that a claim changes nothing about who takes part, only where the claimer's
+  postings go: before the claim's date, the opening balance; from it, entries. Its wording "the date it was added" was
+  wrong: a seat without an account takes part from the budget's start date (D-18 as amended), and a claimed seat keeps
+  doing so. A claimed member who leaves and returns follows D-39.
+- **D-39** (with D-26): a returning member takes part from their return date only, as a new member does. Adding them to
+  a record dated before it is 422 `JOINED_AFTER`. Records that already include them keep them, and their effect before
+  the return goes into the correction, as built in F6a.
+- **D-38** (topic G) settles F7's prerequisite about IPv6 clients: the bridge's gateway is a private address, for which
+  only the per-user limit applies.
+- **F6 split further.** F6b: D-35 to D-39, the switcher's placeholder right after accepting an invite or leaving, the
+  members table's actions at 375 px, and OPS-1's follow-ups (a read-only database role for the deploy scripts' checks,
+  `deploy.sh adopt`). F6c: the privacy policy's publication, the demo family (H1), the family report (E1, E3's check),
+  H4 and the owner's remarks from the manual check. F7 stays as it is.
 
 ### K. Test strategy
 

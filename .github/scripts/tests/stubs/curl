@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Stub of curl for check-web-image-test.sh: the image's nginx as check-web-image.sh expects it, on 127.0.0.1:18080. The
+# pages and the headers are over 1 MB, with what the checks look for first (see the docker stub). No network.
+set -euo pipefail
+out=/dev/stdout head=no url=${*: -1}
+while [ $# -gt 0 ]; do
+  case $1 in
+    -o) out=$2; shift ;;
+    -sI) head=yes ;;
+  esac
+  shift
+done
+lines() { awk -v f="$1" 'BEGIN { for (i = 0; i < 20000; i++) printf f "\n", i }'; }
+path=/${url#http://127.0.0.1:18080/}
+if [ "$head" = yes ]; then
+  printf 'HTTP/1.1 200 OK\r\nCache-Control: public, max-age=31536000, immutable\r\n'
+  lines 'X-Filler-%06d: after the header the check looks for\r'
+  exit 0
+fi
+status=200
+{
+  case $path in
+    /privacy | /privacy.html) echo '<h1>Privacy policy</h1>' ;;
+    / | /family/1/report) echo '<div id="root"></div>' ;;
+    /assets/missing.js) status=404; echo 'not found' ;;
+    *) echo 'a file' ;;
+  esac
+  [ "$status" != 200 ] || lines '<!-- %06d filler -->'
+} >"$out"
+[ "$out" = /dev/null ] || printf '%s' "$status"

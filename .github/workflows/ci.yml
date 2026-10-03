@@ -69,6 +69,11 @@ jobs:
       # deploy/app/docker-compose.yml runs in production (frontend/Dockerfile, target web) and checks it, inside as its
       # own user (nginx, uid 101) and through its own nginx (frontend/web.conf), on a free port, with no other
       # container and no network beyond localhost (.github/scripts/check-web-image.sh).
+      # The check's own test, against stubs of docker and curl whose outputs exceed any pipe's buffer: a pipe into a
+      # reader that stops early fails every time there, not now and then as in CI #46 (exit 141, F7b).
+      - name: Test the check against stubs
+        run: .github/scripts/tests/check-web-image-test.sh
+
       - name: Build the web image and check it
         run: .github/scripts/check-web-image.sh frontend finance-tracker-web:ci
 
@@ -90,7 +95,7 @@ jobs:
           docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 -x
           deploy/deploy.sh deploy/rollback.sh deploy/common.sh
           deploy/tests/run.sh deploy/tests/mutate.sh deploy/tests/stubs/*
-          .github/scripts/check-web-image.sh
+          .github/scripts/check-web-image.sh .github/scripts/tests/check-web-image-test.sh .github/scripts/tests/stubs/*
 
       # Against stubs of docker, systemctl, pg-restore-test, curl and install, in a temp folder: no container, no network.
       - name: Tests

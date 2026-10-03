@@ -270,7 +270,7 @@ mode_is() { [ "$(stat -c %a "$1")" = "$2" ] || { echo "      $1 is $(stat -c %a 
 in_order() {
   local pattern n last=0
   for pattern in "$@"; do
-    n=$(grep -nE -- "$pattern" "$STUB_STATE/calls" | awk -F: -v after="$last" '$1 > after { print $1; exit }')
+    n=$(grep -nE -- "$pattern" "$STUB_STATE/calls" | awk -F: -v after="$last" '!n && $1 > after { n = $1 } END { if (n) print n }')
     if [ -z "$n" ]; then echo "      no call matching $pattern after line $last"; return 1; fi
     last=$n
   done
@@ -380,7 +380,7 @@ case_first_run() {
   check "D's images kept" image_is finance-tracker-api "$SHA_D" "$API_D"
   check "last-good is E" last_good_is "$SHA_E"
 }
-in_order_file() { local f=$1; shift; local p n last=0; for p in "$@"; do n=$(grep -nF -- "$p" "$f" | awk -F: -v a="$last" '$1 > a { print $1; exit }'); [ -n "$n" ] || return 1; last=$n; done; }
+in_order_file() { local f=$1; shift; local p n last=0; for p in "$@"; do n=$(grep -nF -- "$p" "$f" | awk -F: -v a="$last" '!n && $1 > a { n = $1 } END { if (n) print n }'); [ -n "$n" ] || return 1; last=$n; done; }
 
 case_refuse_ci_failed() {
   setup_case
@@ -1443,6 +1443,64 @@ case_switch_says_200_and_prints_the_numbers() {
   check "off: the numbers printed" in_order_file "$C/out" "== 1.6 Preflight: the numbers before" "users=2" "== 2. Confirmation"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# F7b, its fourth commit: switch's preflight checks the pages (D-41, extended), and the pages are large.
+
+# The pages the curl stub serves are over 1 MB, with the text near the start: page_checks finds every text in them.
+case_large_pages_pass() {
+  setup_case
+  new_target
+  deploy_e
+  check "deployed" rc_is 0
+  check "the stub's pages are over 1 MB" bash -c "[ \$(stat -c %s '$STUB_STATE/page-filler') -gt 1048576 ]"
+  check "every page with its text" out_has "5 of 5 as expected through https://app.finance-nl.com"
+  run_deploy verify OPS-1
+  check "verify: the pages too" out_has "Pages: 5 of 5 as expected through https://app.finance-nl.com"
+}
+
+# switch on refuses while a page fails, before its question, with nothing changed (D-41).
+case_switch_on_refuses_on_a_failed_page() {
+  switch_ready
+  fixture pages "/privacy 403"
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "exit code not 0" rc_not
+  check "REFUSED at the pages" out_has 'REFUSED at "1.7 Preflight: the pages"'
+  check "names the page and D-41" out_has "a page isn't as expected (FAILED through https://app.finance-nl.com: /privacy 403): family budgets aren't switched on while a page of the list fails (D-41)"
+  check "says nothing changed" out_has "Nothing changed: .env untouched, api not restarted."
+  check "never asked" out_lacks "Type SWITCH ON"
+  check ".env unchanged" same_file "$C/server/deploy/app/.env" "$C/env.orig"
+  check "no backup copy" calls_lack '^install '
+  check "no restart" calls_lack '^docker compose up'
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "history unchanged" same_file "$C/state/history" "$C/history.orig"
+  check "status refused" status_is refused
+}
+
+# switch off reports a failing page and goes on: the way back must always work.
+case_switch_off_goes_on_despite_a_failed_page() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on: exit code 0" rc_is 0
+  check "on: the pages checked before the confirmation" in_order_file "$C/out" "== 1.7 Preflight: the pages" \
+    "Pages: 5 of 5 as expected through https://app.finance-nl.com" "== 2. Confirmation"
+  check "on: the pages in the summary" file_has "$(latest_run)/summary.txt" "Pages before the switch: 5 of 5 as expected"
+  sleep 1
+  fixture pages "/privacy 403"
+  : >"$STUB_STATE/calls"
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "off: exit code 0" rc_is 0
+  check "off: the page reported" out_has "/privacy: 403, NOT 200"
+  check "off: a warning" out_has "WARNING: a page isn't as expected; switching off goes on all the same"
+  check "off: asked" out_has "Type SWITCH OFF"
+  check "off: .env false" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=false"
+  check "off: api restarted" calls_have '^docker compose up -d --no-deps api$'
+  check "off: the pages in the summary" file_has "$(latest_run)/summary.txt" "Pages before the switch: FAILED through https://app.finance-nl.com: /privacy 403"
+  check "off: status switch-off" status_is switch-off
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -1470,6 +1528,7 @@ CASES=(
   f6b_run_on_production_state f6c_scripts_on_production_state finish_after_the_f6c_run
   run_fails_on_a_page finish_records_failed_pages_without_asking merged_files_land_644
   rollback_reports_a_failing_page switch_says_200_and_prints_the_numbers
+  large_pages_pass switch_on_refuses_on_a_failed_page switch_off_goes_on_despite_a_failed_page
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

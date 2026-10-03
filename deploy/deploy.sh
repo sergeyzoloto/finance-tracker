@@ -111,12 +111,14 @@ ci_check() {
 }
 
 # compose_part REV START: a block of deploy/app/docker-compose.yml at REV, from the line START ("  postgres:" or
-# "volumes:") to the next key at the same level. Only compared, never run.
+# "volumes:") to the next key at the same level. Only compared, never run. awk reads to the end, never exits early: under
+# pipefail an early exit would kill git show with SIGPIPE whenever it was still writing (F7b).
 compose_part() {
   git show "$1:deploy/app/docker-compose.yml" | awk -v start="$2" '
+    done { next }
     $0 == start { inside = 1; print; next }
-    inside && /^[^ \t#]/ { exit }
-    inside && start ~ /^  / && /^  [^ \t#]/ { exit }
+    inside && /^[^ \t#]/ { done = 1; next }
+    inside && start ~ /^  / && /^  [^ \t#]/ { done = 1; next }
     inside { print }'
 }
 
@@ -865,7 +867,8 @@ on_exit_switch() {
 
 # cmd_switch on|off: changes FAMILY_LEDGERS_ENABLED (D-25) in .env and restarts api alone (F7). Preflight is verify's
 # (the role, health, Flyway and the stage aren't read here, since nothing about the code or schema changes): HEAD must
-# be the last good deploy, healthy, with the latest run finished, rolled back or adopted, never mid-flight.
+# be the last good deploy, healthy, with the latest run finished, rolled back or adopted, never mid-flight. The pages
+# (F7b, D-41): a failure refuses "switch on"; "switch off" reports it and goes on, since the way back must always work.
 cmd_switch() {
   local direction=$1 want old_line env_file backup_file head api_now web_now latest status api_log
   case $direction in
@@ -926,6 +929,13 @@ cmd_switch() {
   fi
   [ -s "$RUN_DIR/numbers-before.txt" ] || fail "numbers.sql printed nothing"
   cat "$RUN_DIR/numbers-before.txt"
+
+  heading "1.7 Preflight: the pages"
+  if ! page_checks; then
+    [ "$direction" = off ] \
+      || fail "a page isn't as expected ($PAGES_LINE): family budgets aren't switched on while a page of the list fails (D-41)"
+    say "WARNING: a page isn't as expected; switching off goes on all the same, since the way back must always work (D-41)"
+  fi
 
   heading "2. Confirmation"
   say "This changes $SWITCH_VAR in $env_file from $(switch_shown "$old_line") to $NEW_LINE, and restarts api alone."
@@ -992,6 +1002,7 @@ cmd_switch() {
     say "$SWITCH_VAR: ${old_line:-absent} -> $NEW_LINE"
     say "Images unchanged: api $api_now, web $web_now"
     say "D-25: $SWITCH_SEEN, as production now sets it ($SWITCH_HOW)"
+    say "Pages before the switch: $PAGES_LINE"
     say "Numbers: the same before and after"
   } | tr '|' '/' >"$RUN_DIR/summary.txt"
   set_status "switch-$direction"

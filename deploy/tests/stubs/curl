@@ -3,7 +3,10 @@
 #   - GitHub's check runs from fixtures/ci.<n> (the n-th call) or fixtures/ci;
 #   - the site's pages (https://app.finance-nl.com/…, F7b) with the body the deploy scripts look for and 200, or with
 #     the status fixtures/pages gives the path ("<path> <status>" lines; any other status gets nginx's error page).
-#     The body goes to -o's file and the status to stdout, as -w '%{http_code}' prints it.
+#     The body goes to -o's file and, with -w '%{http_code}', the status to stdout. Without -o the body goes to
+#     stdout. A page with 200 is over 1 MB, with its text near the start (F7b): a reader that stops at the text, as
+#     "curl | grep -q" does, closes the pipe long before the stub has written it all, which kills the stub with SIGPIPE
+#     every time (no pipe holds 1 MB), as the real curl fails on it (exit 23).
 # No network.
 set -euo pipefail
 S=${STUB_STATE:?}
@@ -19,26 +22,34 @@ case $url in
     ;;
   https://app.finance-nl.com/*)
     path=/${url#https://app.finance-nl.com/}
-    out=/dev/stdout
+    out=/dev/stdout status_out=no
     while [ $# -gt 0 ]; do
       [ "$1" = -o ] && { out=$2; shift; }
+      [ "$1" = -w ] && status_out=yes
       shift
     done
     status=200
     if [ -f "$S/fixtures/pages" ]; then
       status=$(awk -v p="$path" '$1 == p { s = $2 } END { print s ? s : 200 }' "$S/fixtures/pages")
     fi
+    # ~1.4 MB of HTML comments, made once per case.
+    filler=$S/page-filler
+    [ -s "$filler" ] || awk 'BEGIN { for (i = 0; i < 20000; i++) printf "<!-- %06d filler after the text the checks look for -->\n", i }' >"$filler"
     if [ "$status" != 200 ]; then
       printf '<html><head><title>%s</title></head><body><center><h1>%s</h1></center><hr><center>nginx</center></body></html>\n' \
         "$status" "$status" >"$out"
     else
-      case $path in
-        /) printf '<!doctype html><html><body><div id="root"></div></body></html>\n' >"$out" ;;
-        /privacy | /privacy.html) printf '<!doctype html><html><body><h1>Privacy policy</h1></body></html>\n' >"$out" ;;
-        *) printf 'an icon\n' >"$out" ;;
-      esac
+      {
+        case $path in
+          /) printf '<!doctype html><html><body><div id="root"></div>\n' ;;
+          /privacy | /privacy.html) printf '<!doctype html><html><body><h1>Privacy policy</h1>\n' ;;
+          *) printf 'an icon\n' ;;
+        esac
+        cat "$filler"
+        printf '</body></html>\n'
+      } >"$out"
     fi
-    printf '%s' "$status"
+    [ "$status_out" = no ] || printf '%s' "$status"
     ;;
   *) echo "curl stub: unexpected URL $url" >&2; exit 99 ;;
 esac

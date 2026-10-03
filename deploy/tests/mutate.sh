@@ -179,6 +179,18 @@ mutation "say 202 in switch's confirmation" \
   "echo '200 to their members'" "echo '202 as usual'" \
   switch_says_200_and_prints_the_numbers
 
+# F7b's fourth commit: the page check reading curl through a pipe into grep -q, which stops at the text while curl is
+# still writing the (stub's 1 MB) page.
+mutation_in common.sh "read the page through curl | grep -q" \
+  '    elif [ -n "$text" ] && ! grep -qF -- "$text" "$body"; then' \
+  '    elif [ -n "$text" ] && ! curl -sS --max-time 15 "https://$host$path" 2>/dev/null | grep -qF -- "$text"; then' \
+  happy_path large_pages_pass
+
+# F7b's fourth commit: switch on going on although a page failed (D-41).
+mutation "let switch on ignore a failed page" \
+  '[ "$direction" = off ]' 'true' \
+  switch_on_refuses_on_a_failed_page
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

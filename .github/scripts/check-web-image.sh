@@ -14,6 +14,12 @@
 #   2. Through its own nginx (frontend/web.conf), on a free port of 127.0.0.1, with no other container and no network
 #      beyond localhost: the pages and their answers.
 # Every failure is printed; the exit status is 1 if there was any.
+#
+# Every output a check reads (docker's, curl's) is written to a file in full first and only then read: no pipe ends in
+# a reader that stops early (grep -q, head), which under pipefail kills its writer with SIGPIPE whenever the writer is
+# still writing, depending on timing. CI #46 of 3a6da31 died with exit 141 (F7b), at the one such pipe whose failure
+# ended the script under set -e: the assets' "ls | head -n 1".
+# .github/scripts/tests/check-web-image-test.sh runs this script against stubs whose outputs exceed any pipe's buffer.
 set -euo pipefail
 
 [ $# -ge 2 ] || { echo "usage: $0 <frontend folder> <tag> [--server-modes]" >&2; exit 2; }
@@ -44,7 +50,8 @@ docker build --target web -t "$tag" "$context"
 
 echo "== Inside $tag, as its own user"
 # Prints one line per problem, and nothing when there is none; find's own errors (a folder it may not enter) count too.
-inside=$(docker run --rm --entrypoint sh "$tag" -c '
+inside=$work/inside
+docker run --rm --entrypoint sh "$tag" -c '
   echo "user $(id -un) ($(id -u))" >&2
   for top in /usr/share/nginx/html /etc/nginx/conf.d; do
     find "$top" ! -perm -004 -exec echo "not readable by others: {}" \; 2>&1
@@ -52,10 +59,10 @@ inside=$(docker run --rm --entrypoint sh "$tag" -c '
     find "$top" -type f | while IFS= read -r f; do cat "$f" >/dev/null 2>&1 || echo "not readable by $(id -un): $f"; done
   done
   find /usr/share/nginx/html /etc/nginx/conf.d/default.conf ! -user root -exec echo "not owned by root: {}" \; 2>&1
-' 2>&1) || problem "the check inside the image failed to run"
-printf '%s\n' "$inside" | grep -v '^user ' || true
-printf '%s\n' "$inside" | grep -q '^user nginx (101)$' || problem "the image's user isn't nginx (101): $(head -n 1 <<<"$inside")"
-if printf '%s\n' "$inside" | grep -qv '^user '; then
+' >"$inside" 2>&1 || problem "the check inside the image failed to run"
+grep -v '^user ' "$inside" || true
+grep -qxF 'user nginx (101)' "$inside" || problem "the image's user isn't nginx (101): $(sed -n 1p "$inside")"
+if grep -qv '^user ' "$inside"; then
   problem "files or folders under /usr/share/nginx/html or /etc/nginx/conf.d that nginx may not read (above)"
 else
   echo "✅ every file and folder under /usr/share/nginx/html and /etc/nginx/conf.d readable by nginx, the files root's"
@@ -73,7 +80,8 @@ for _ in $(seq 30); do
 done
 if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ] || [ -z "$port" ]; then
   problem "nginx didn't start (exit code $(docker inspect -f '{{.State.ExitCode}}' "$name")); its log:"
-  docker logs "$name" 2>&1 | tail -n 20
+  docker logs "$name" >"$work/nginx.log" 2>&1 || true
+  tail -n 20 "$work/nginx.log"
 else
   base="http://127.0.0.1:$port"
   body=$work/body
@@ -94,11 +102,13 @@ else
   check /privacy.html 200 '<h1>Privacy policy</h1>'
   check / 200 '<div id="root">'
   check /family/1/report 200 '<div id="root">'
-  asset=$(docker exec "$name" sh -c 'ls /usr/share/nginx/html/assets' | head -n 1)
+  docker exec "$name" sh -c 'ls /usr/share/nginx/html/assets' >"$work/assets" || true
+  asset=$(sed -n 1p "$work/assets")
   if [ -z "$asset" ]; then
     problem "no file under /assets/"
   else
-    if ! curl -sI "$base/assets/$asset" | tr -d '\r' | grep -qi '^cache-control: public, max-age=31536000, immutable$'; then
+    curl -sI "$base/assets/$asset" >"$work/headers" || true
+    if ! grep -qiE $'^cache-control: public, max-age=31536000, immutable\r?$' "$work/headers"; then
       problem "/assets/$asset: not cached as immutable"
     fi
     check "/assets/$asset" 200
@@ -106,7 +116,8 @@ else
   check /assets/missing.js 404
   check /favicon.svg 200
   check /favicon.ico 200
-  if docker logs "$name" 2>&1 | grep -F 'Permission denied'; then
+  docker logs "$name" >"$work/nginx.log" 2>&1 || true
+  if grep -F 'Permission denied' "$work/nginx.log"; then
     problem "nginx logged Permission denied (above)"
   fi
 fi

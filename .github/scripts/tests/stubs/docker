@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Stub of docker for check-web-image-test.sh: no image, no container. Every output check-web-image.sh reads is over
+# 1 MB, with the line it looks for first, so a reader that stops early after a pipe ("| head -n 1", "| grep -q") closes
+# the pipe long before the writer is done, every time (no pipe holds 1 MB). STUB_MODE=unreadable makes the check inside
+# the image report one file nginx may not read, near the start.
+set -euo pipefail
+lines() { awk -v f="$1" 'BEGIN { for (i = 0; i < 20000; i++) printf f "\n", i }'; }
+case $1 in
+  build | rm) ;;
+  run)
+    if [ "$2" = -d ]; then echo 0123456789ab; exit 0; fi
+    script=${*: -1}
+    case $script in
+      *'id -un'*)
+        echo 'user nginx (101)'
+        [ "${STUB_MODE:-good}" != unreadable ] || echo 'not readable by others: /usr/share/nginx/html/privacy.html'
+        lines 'user nginx (101) %06d'
+        ;;
+      *) echo '-rw-r--r--    1 root     root          1234 Oct  3 00:00 index.html' ;;
+    esac
+    ;;
+  inspect)
+    case $3 in
+      '{{.State.Running}}') echo true ;;
+      '{{.State.ExitCode}}') echo 0 ;;
+      *) echo 18080 ;;
+    esac
+    ;;
+  exec) echo index-AbC123.js; lines 'chunk-%06d.js' ;;
+  logs) lines '127.0.0.1 - - [03/Oct/2026:00:00:00 +0000] "GET /%06d HTTP/1.1" 200 1234 "-" "curl"' ;;
+  *) echo "docker stub: unexpected $*" >&2; exit 99 ;;
+esac

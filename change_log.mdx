@@ -3,6 +3,93 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-03 · Family budget: no early-closed pipes in the checks; switch on checks the pages (F7b)
+
+Commit "fix: no early-closed pipes in the checks; switch on checks the pages", F7b's fourth, whose hash belongs here
+with the next change log commit. F7b's first three are `7046892`, `a01d9e4` and `3a6da31` ("ops: page checks, git
+under umask 022, switch's text", the hash the entry below left open). Work on `feature/family-budget` at `3a6da31`
+(equal to `main` and `origin/main`); not pushed, not merged, not deployed.
+
+**What happened**
+- The owner's `deploy/deploy.sh run 3a6da31… F7b` was REFUSED twice at "1.5 Preflight: CI" (run folders
+  `/var/lib/finance-deploy/runs/2026-10-03T053414Z-3a6da31` and `2026-10-03T053626Z-3a6da31`): "Nothing changed: no
+  merge, no image tagged, built or started". Production still runs `f0425c0` on V10, the switch off, `/privacy`
+  answering 403.
+- The cause: CI ran `3a6da31` twice. "Web image" passed in CI #45 (run 37100231413, the push to
+  `feature/family-budget`) and failed in CI #46 (run 37100231426, the push to `main`; job 111138156378, step 3, the
+  first `check-web-image.sh`) with "Process completed with exit code 141", 128 + SIGPIPE. The log wasn't read (no
+  `gh` on the laptop, and GitHub's API wants a token for logs). The cause was found in the code instead:
+  `asset=$(docker exec … ls /usr/share/nginx/html/assets | head -n 1)` under `set -euo pipefail`. `head` exits after
+  the first name, and `docker exec`, still relaying, dies of SIGPIPE whenever it writes after that, which depends on
+  timing. It was the one such pipe whose failure ended the script (an assignment under `set -e`). Run against stubs
+  whose outputs exceed a pipe's buffer, `3a6da31`'s script exits 141 every time (below).
+
+**Changes**
+- Pipes into a reader that stops early, replaced by a capture first and a test after (or by a reader that reads to
+  the end):
+  - `.github/scripts/check-web-image.sh`: the check inside the image (was `printf "$inside" | grep -q` for the user,
+    line 57, and `| grep -qv` for the problems, line 58), the assets' `ls | head -n 1` (line 97, CI #46), the headers'
+    `curl -sI | tr | grep -qi` (line 101), and `docker logs | grep -F` and `| tail` (lines 76 and 109). Each output now
+    goes to a file in `$work` and is read from there. The two on lines 57 and 58 couldn't end the script, but could
+    give a wrong verdict: a false "user isn't nginx", or a false pass when a problem line came early.
+  - `deploy/common.sh` `site_host` (line 262): `sed … | head -n 1` became `sed -nE '/…/{s//\1/p;q}'` on the file.
+  - `deploy/deploy.sh` `compose_part` (line 116): `git show | awk '… { exit }'` became an awk that sets a flag and
+    reads to the end.
+  - The test harness: `in_order` and `in_order_file` in `deploy/tests/run.sh` (`grep -n | awk '… exit'`, lines 273
+    and 383), and `stubs/pg-restore-test` (`sort | head -n 1 | cut`).
+  - `page_checks` never piped: since `3a6da31` curl writes the body to a file with `-o`, and grep reads that file. Its
+    comment now says why it must stay so.
+  - Audited and left as they are, every reader reading to the end: `common.sh` lines 176, 233 and 295; `deploy.sh`'s
+    CI check (`curl | python3`, which `json.load`s all of stdin), lines 95, 98, 209, 241, 243, 362 to 366, 461, 485,
+    563, 695, 770 and 883; `rollback.sh` line 135 and every `} | tr '|' '/'`; `check-web-image.sh`'s `tar | tar`
+    for `--server-modes`. The CI workflow's shell steps set no `shell:`, so they run as `bash -e` without pipefail, and
+    their pipes (`mvnw | tee`, `sed | sed`) read to the end.
+- Deterministic proofs:
+  - `deploy/tests/stubs/curl`: a page answering 200 is about 1.4 MB, with its text near the start, made once per case.
+    Without `-o` it writes the body to stdout, and it prints the status only with `-w`, as curl does. A new case,
+    `large_pages_pass`, checks the size and `run`'s and `verify`'s pages. A new mutation, "read the page through
+    `curl | grep -q`", puts that form into `page_checks`.
+  - `.github/scripts/tests/check-web-image-test.sh` (new) with `stubs/docker` and `stubs/curl`: the script against
+    stubs whose outputs (the check inside, the assets' listing, the headers, the pages, nginx's log) are each about
+    1.4 MB with what the checks look for first. Two cases: every check passes, and one unreadable file reported as
+    exactly 1 problem. Four mutations, each putting one former pipe back (the assets, the user, the problems, the
+    headers), must each fail a case. CI's job "Web image" runs it first; ShellCheck covers it and its stubs.
+- `deploy.sh switch` (D-41 extended, decided by the PM): a new preflight step, "1.7 Preflight: the pages", before the
+  confirmation. `switch on` is REFUSED, with nothing changed, while any page fails ("family budgets aren't switched on
+  while a page of the list fails (D-41)"). `switch off` prints the same lines and a WARNING, and goes on. Both
+  summaries gain "Pages before the switch". New cases `switch_on_refuses_on_a_failed_page` and
+  `switch_off_goes_on_despite_a_failed_page`, and a mutation "let switch on ignore a failed page".
+- D-41's text in `requirements.md` (with an amendment line) and ADR 0003 topic J, and the runbook's "Switch the family
+  budget on or off". CLAUDE.md: `switch`'s preflight, 66 cases, 28 mutations, CI's new step.
+
+**Verified**
+- Baseline: `feature/family-budget`, `main` and `origin/main` at `3a6da31`, the tree clean.
+- `3a6da31`'s `check-web-image.sh` against the new stubs: exit 141 in both modes, every time, with the false "the
+  image's user isn't nginx (101): user nginx (101)" of line 57 before it: CI #46's exit code.
+- `.github/scripts/tests/check-web-image-test.sh`: both cases passed; all 4 mutations caught.
+- `check-web-image.sh` for real, building the image: from the checkout and with `--server-modes`, every check passed.
+- `deploy/tests/run.sh`: 66 of 66 cases passed, three runs in a row on the final code. `deploy/tests/mutate.sh`: all
+  28 mutations caught, "read the page through `curl | grep -q`" by `happy_path` and `large_pages_pass`, and "let
+  switch on ignore a failed page" by `switch_on_refuses_on_a_failed_page`.
+- The large page is what catches the pipe, shown in a scratch worktree (removed afterwards) with that mutation in
+  place: with the stub's former small pages, each written at once, `happy_path` passed 5 times in 5; with the 1.4 MB
+  pages it failed 5 times in 5 ("/privacy.html: 200, but WITHOUT …").
+- ShellCheck 0.11.0 (`-x`) on `deploy.sh`, `rollback.sh`, `common.sh`, `run.sh`, `mutate.sh`, the deploy stubs,
+  `check-web-image.sh`, its test and its stubs: no finding.
+- `./mvnw -B clean verify`: 404 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. `npm test`: 25 files, 301
+  tests passed; `npm run build` succeeded. No backend or frontend file changed.
+- `git diff --numstat f0425c0 HEAD -- '*DataIsolationApiTests.java'`: no output (nor for the working tree).
+- `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
+
+**Open**
+- The `switch off` summary of 2026-10-02 still isn't in "Deployed revisions". It goes into its row with the next
+  stage; the owner sends it (`/var/lib/finance-deploy/runs/*-switch-off/summary.txt`) with F7b's deploy output.
+- The owner's deploy of F7b with this commit, then `switch on` and F7's production check, not yet run.
+- CI's annotations, for later: `actions/checkout@v4` and `actions/setup-java@v4` run on the deprecated Node 20, and
+  `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19; CI should be tried on it before then.
+- CI #46's log wasn't read; the cause above is the one pipe in the script whose failure ends it with 141, and the
+  stubs reproduce that exit code with `3a6da31`'s script.
+
 ## 2026-10-02 · Family budget: F7's deploy record, D-41, the web image's file modes, page checks in the deploy scripts (F7b)
 
 Commits `7046892` (documents), `a01d9e4` (the web image), then "ops: page checks, git under umask 022, switch's text",

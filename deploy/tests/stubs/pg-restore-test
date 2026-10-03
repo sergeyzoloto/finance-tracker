@@ -10,7 +10,7 @@ echo "$n" >"$S/count-restore"
 if [ -x "$S/fixtures/on-restore-test" ]; then "$S/fixtures/on-restore-test"; rm -f "$S/fixtures/on-restore-test"; fi
 result=PASS
 if [ -f "$S/fixtures/restore.$n" ]; then result=$(cat "$S/fixtures/restore.$n"); elif [ -f "$S/fixtures/restore" ]; then result=$(cat "$S/fixtures/restore"); fi
-dump=$(find "${DEPLOY_BACKUP_DIR:?}" -name 'finance-*.dump' -printf '%T@ %p\n' | sort -rn | head -n 1 | cut -d' ' -f2-)
+dump=$(find "${DEPLOY_BACKUP_DIR:?}" -name 'finance-*.dump' -printf '%T@ %p\n' | sort -rn | sed -n '1s/^[^ ]* //p')
 mark=ok
 [ "$result" = PASS ] || mark=MISMATCH
 cat <<OUT

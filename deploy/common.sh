@@ -257,15 +257,18 @@ PAGES=(
 
 # site_host: the site's host, from the first line of deploy/finance.caddy that opens a site block ("app.finance-nl.com
 # {"), so that it is written in one place. Data, checked against a host name's shape, only ever an argument of curl.
+# sed itself stops at the first one: no pipe into a reader that stops early (head), whose writer would die of SIGPIPE.
 site_host() {
   local host
-  host=$(sed -nE 's/^([a-z0-9][a-z0-9.-]*) \{$/\1/p' "$REPO_DIR/deploy/finance.caddy" 2>/dev/null | head -n 1)
+  host=$(sed -nE '/^([a-z0-9][a-z0-9.-]*) \{$/{s//\1/p;q}' "$REPO_DIR/deploy/finance.caddy" 2>/dev/null)
   [[ $host =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || return 1
   printf '%s' "$host"
 }
 
 # page_checks: every page of PAGES through https://<site host>/, read only (GET); one line per page, PAGES_LINE for the
-# summary; returns 1 when a page isn't as expected (a status, a missing text, no answer).
+# summary; returns 1 when a page isn't as expected (a status, a missing text, no answer). curl writes the whole body to
+# a file and grep reads the file: never "curl | grep -q", where grep stops at the text and curl, still writing a large
+# page, fails on the closed pipe (exit 23), so that a good page would fail now and then (F7b, CI #46's exit 141).
 page_checks() {
   local host entry path status text code body n=0 bad=()
   host=$(site_host) || { PAGES_LINE="not checked: no site host in deploy/finance.caddy"; say "$PAGES_LINE"; return 1; }

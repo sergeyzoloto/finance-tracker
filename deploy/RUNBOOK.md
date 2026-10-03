@@ -909,7 +909,13 @@ cd /opt/finance-tracker && deploy/deploy.sh adopt
 `deploy/deploy.sh switch on|off` (F7) is the only way to change `FAMILY_LEDGERS_ENABLED` (D-25) in
 `/opt/finance-tracker/deploy/app/.env`: never edit the file by hand. Preflight is `verify`'s (the
 read-only role, health, the numbers before) plus HEAD must be the last good deploy and the latest
-run must be finished, rolled back, adopted or an earlier switch, never mid-flight. It shows the
+run must be finished, rolled back, adopted or an earlier switch, never mid-flight, and (since F7b's
+fourth commit, D-41) the pages of `PAGES` in `deploy/common.sh` through the public address, as
+`verify` checks them: `switch on` refuses, changing nothing and before its question, while any page
+fails ("REFUSED at "1.7 Preflight: the pages": a page isn't as expected (FAILED through
+https://app.finance-nl.com: /privacy 403): family budgets aren't switched on while a page of the
+list fails (D-41)"); `switch off` prints the same lines and a WARNING, and goes on, since the way
+back must always work. Either way the summary has a line "Pages before the switch". It shows the
 current line (never the rest of the file, so no secret of `.env` is shown), what it will become and
 (since F7b) the numbers before, says the family endpoints will answer 200 to their members (or 404),
 asks you to type `SWITCH ON` or `SWITCH OFF`, then: copies `.env` beside itself with a timestamp
@@ -939,7 +945,9 @@ again (D-25), exactly as before F7.
 
 Family budgets don't stay switched on while the published privacy policy (`/privacy`) is unreachable in production
 (D-41, decided by the PM after F7's deploy): the way back is `switch off`, and switching on again waits for a deploy
-whose `finish` shows the policy, with the browser checks passed.
+whose `finish` shows the policy, with the browser checks passed. Extended after F7b's refused deploy (2026-10-03,
+decided by the PM): they aren't switched on while any page of the list fails, which `switch on`'s preflight enforces;
+`switch off` never refuses because of a page.
 
 ## Roll back with rollback.sh
 

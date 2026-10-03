@@ -1805,6 +1805,10 @@ turned off again. The runbook's "Deployed revisions" has the record. Decided by 
 
 - **D-41.** Family budgets don't stay switched on while the published privacy policy is unreachable in production.
   The way back is `deploy.sh switch off`; switching on again waits for a deploy whose `finish` shows the policy.
+  Extended after F7b's refused deploy (2026-10-03, decided by the PM): family budgets aren't switched on while a page
+  of the deploy scripts' list (`PAGES` in `deploy/common.sh`) fails. `deploy.sh switch on` checks the pages in its
+  preflight and refuses, changing nothing, on any failure; `switch off` checks them too and reports a failure, but never
+  refuses because of it, since the way back must always work.
 - **F7b**, a stage of its own (as F6a to F6c), with `deploy/checks/F7b.sql`: the web image readable whatever the
   checkout's modes (every file under `/usr/share/nginx/html` 0644, every directory 0755, nginx's configuration 0644,
   all owned by root), with a CI build from a copy that has the server's modes; the deploy scripts check the pages

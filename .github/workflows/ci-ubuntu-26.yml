@@ -1,24 +1,18 @@
-# Build and test on every push. The backend tests need Docker for Testcontainers (PostgreSQL 17);
-# GitHub's ubuntu runners provide it. They don't need Keycloak: FakeKeycloak stands in for it.
+# The same build as ci.yml, on GitHub's ubuntu-26.04 runner, which production's server matches (Ubuntu 26.04.1 LTS),
+# to try before ubuntu-latest moves there (from 2026-10-19). D-44 (OPS-2, decided by the PM).
 #
-# D-44 (OPS-2, decided by the PM): every job runs on ubuntu-24.04, named, so that nothing changes on its own when
-# ubuntu-latest moves to Ubuntu 26.04 (from 2026-10-19, runner-images issue 14748); the actions are at their majors
-# that run on Node 24 (checkout v7, setup-java v6, setup-node v7). The same build on ubuntu-26.04, which production
-# runs (26.04.1 LTS), is ci-ubuntu-26.yml, started by hand only. deploy.sh's gate counts every check run of the
-# commit (deploy/deploy.sh, ci_check), so this file's jobs must stay the same in number and always complete.
-name: CI
+# Started by hand only (workflow_dispatch): its check runs belong to the commit it runs on, and deploy.sh's gate
+# counts every check run of the commit to deploy (deploy/deploy.sh, ci_check), so one still running makes a deploy
+# wait and one that failed refuses it. Start it only on a commit that is deployed and finished, never between a push
+# and that commit's deploy.sh run (deploy/RUNBOOK.md, OPS-2's checklist).
+name: CI on Ubuntu 26.04
 
 on:
-  push:
-    branches: ['**']
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A new push to the same branch supersedes a run still in progress.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -26,7 +20,7 @@ concurrency:
 jobs:
   backend:
     name: Backend
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -42,7 +36,7 @@ jobs:
 
   frontend:
     name: Frontend
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -67,7 +61,7 @@ jobs:
 
   web-image:
     name: Web image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -91,7 +85,7 @@ jobs:
 
   deploy-scripts:
     name: Deploy scripts
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       # The whole history: deploy/tests/run.sh runs 4510003's deploy.sh, taken from it with git show (OPS-2).
       - uses: actions/checkout@v7
@@ -112,44 +106,3 @@ jobs:
 
       - name: Mutations
         run: deploy/tests/mutate.sh
-
-  dependencies:
-    name: Dependency updates
-    runs-on: ubuntu-24.04
-    # Advisory only: newer versions are reported, never enforced, and never fail the build.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-
-      # processDependencyManagement=false keeps the Boot BOM's hundreds of managed artifacts out of
-      # the report, leaving only what this project declares. Pre-release versions are filtered out.
-      - name: Check for newer dependency versions
-        working-directory: backend
-        run: |
-          ./mvnw -B org.codehaus.mojo:versions-maven-plugin:2.18.0:display-dependency-updates \
-            -DprocessDependencyManagement=false \
-            -Dmaven.version.ignore='.*-M\d+,.*-RC\d+,.*-rc\d+,.*-beta.*,.*-alpha.*' \
-            | tee updates.txt
-
-      # Surfaced on the run's summary page, so it is not buried in the log.
-      - name: Report
-        if: always()
-        working-directory: backend
-        run: |
-          {
-            echo '## Maven dependency updates'
-            echo
-            if grep -q 'newer versions' updates.txt; then
-              echo '```'
-              sed -n '/newer versions/,/^\[INFO\] *$/p' updates.txt | sed 's/^\[INFO\] \{0,2\}//'
-              echo '```'
-            else
-              echo 'All declared dependencies are up to date.'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"

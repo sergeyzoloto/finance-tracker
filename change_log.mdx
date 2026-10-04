@@ -7,8 +7,8 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 Commits on `feature/family-budget`: `c45d956` (the deploy facts, the entry below), `685deb3` ("ops: the before-dump
 preserved (D-43)"), `789b8c6` ("ops: images by content identity (defect 4)"), `f1c2f5c` ("ops: a refused switch
-blocks nothing (defect 1)"), then "ops: no run over the running commit after its finish (D-42)", whose hash belongs
-here with the next commit.
+blocks nothing (defect 1)"), `bd77f05` ("ops: no run over the running commit after its finish (D-42)"), then "ci:
+ubuntu-24.04, Node 24 actions, a manual Ubuntu 26.04 run (D-44)", whose hash belongs here with the next commit.
 Not pushed, not merged, not deployed.
 
 **Changes**
@@ -135,7 +135,31 @@ Not pushed, not merged, not deployed.
     runs, tags nothing, `:previous` and the file still D, the rollback target still D). Three mutations: no
     refusal, `:previous` re-pointed on a run again, any finish taken as clean.
 
+- CI before 2026-10-19 (D-44, decided by the PM).
+  - How `4510003`'s gate counts CI (`ci_check`, unchanged since OPS-1): every check run of the commit through
+    GitHub's API (`/commits/<sha>/check-runs?per_page=100`, any workflow, any event); success only when there is at
+    least one and every one completed with `success`; one queued or in progress waits, up to 20 minutes; any other
+    conclusion (failure, cancelled, skipped, neutral) or a count that doesn't match refuses. The changes below keep
+    `ci.yml`'s five jobs, on both pushes, so OPS-2's run sees 10 check runs as before, and the new workflow has no
+    trigger but `workflow_dispatch`, so no push gives it a check run. Nothing here makes OPS-2's run wait or refuse,
+    unless the new actions themselves fail CI, which the gate then reports as it should.
+  - `.github/workflows/ci.yml`: every job `runs-on: ubuntu-24.04` (what `ubuntu-latest` is until 2026-10-19);
+    `actions/checkout@v7` (7.0.1, 2026-07-20), `actions/setup-java@v6` (6.0.1, 2026-09-09) and
+    `actions/setup-node@v7` (7.0.0, 2026-07-14), each the latest release on GitHub, each `action.yml` at that tag
+    saying `using: node24`; their release notes list no change that applies here (setup-node's v5 and v6 changed
+    automatic caching, and the job names `cache: npm`). "Deploy scripts" checks out the whole history
+    (`fetch-depth: 0`), for the cross-version case of OPS-2's last commit.
+  - `.github/workflows/ci-ubuntu-26.yml` (new): "CI on Ubuntu 26.04", `workflow_dispatch` only, the jobs Backend,
+    Frontend, Web image and Deploy scripts as `ci.yml` has them, on `ubuntu-26.04`. GitHub's runner reference lists
+    `ubuntu-26.04` for public and private repositories, and runner-images issue 14748 says 26.04 is generally
+    available and that `ubuntu-latest` moves to it from 2026-10-19, completing by 2026-11-19. Production's server
+    runs Ubuntu 26.04.1 LTS (kernel 7.0.0-34).
+  - D-44 in `requirements.md`; CLAUDE.md's CI line.
+
 **Verified**
+- Commit 6: actionlint 1.7.12 on both workflows: no finding but `ubuntu-26.04` as an unknown label, which its
+  built-in list (last updated before the label) lacks; GitHub's documentation lists it. No CI run of these files yet:
+  they run with the push.
 - Commit 5: `deploy/tests/run.sh` 82 of 82; `deploy/tests/mutate.sh` all 47 caught (the three new ones by the two
   new cases); ShellCheck clean.
 - Commit 4: `deploy/tests/run.sh` 80 of 80; `deploy/tests/mutate.sh` all 44 caught (the five new ones by the cases

@@ -70,6 +70,7 @@ make_template "$WORK/template6" 6
 setup_case() {
   local variant=${1:-9} name
   C=$WORK/cases/$CASE
+  rm -rf "$C"   # a case may set up twice
   mkdir -p "$C"
   cp -a "$WORK/template$variant/origin.git" "$C/origin.git"
   cp -a "$WORK/template$variant/work" "$C/work"
@@ -579,7 +580,7 @@ case_repeat_after_failure() {
   failed_api=$(cat "$STUB_STATE/containers/finance-tracker-api/image")
   deploy_e
   check "second run failed too" rc_not
-  check "the failed images take no tag" out_has "are not the last good deploy's: a failed run's"
+  check "the failed images take no tag" out_has "are not the last good deploy's content: a failed run's"
   check ":previous still D's api" image_is finance-tracker-api previous "$API_D"
   check ":previous still D's web" image_is finance-tracker-web previous "$WEB_D"
   check "D's tag still D's api" image_is finance-tracker-api "$SHA_D" "$API_D"
@@ -591,7 +592,7 @@ case_repeat_after_failure() {
   check "third run deployed" rc_is 0
   check ":previous still D's api after success" image_is finance-tracker-api previous "$API_D"
   check "last-good is E now" last_good_is "$SHA_E"
-  check "the third run's summary says the failed run's images took no tag" file_has "$(latest_run)/summary.txt" "were a failed run's and took no tag"
+  check "the third run's summary says the failed run's images took no tag" file_has "$(latest_run)/summary.txt" "were not the last good deploy's content and took no tag"
   check "the summary counts from the last good deploy" file_has "$(latest_run)/summary.txt" "Previous commit: ${SHA_D:0:7} (revision D), the last good deploy"
 }
 
@@ -1360,7 +1361,8 @@ case_run_fails_on_a_page() {
   run_deploy verify OPS-1
   check "verify: exit code 1" rc_is 1
   check "verify: a problem" out_has "PROBLEM: a page isn't as expected"
-  check "verify: one problem" out_has "verify OPS-1: 1 problem(s)"
+  check "verify: the images too, not the last good deploy's (OPS-2)" out_has "PROBLEM: api isn't the last good deploy's content"
+  check "verify: three problems, api, web and the page" out_has "verify OPS-1: 3 problem(s)"
 }
 
 # finish checks the pages before its questions: a page that fails records the browser checks as failed, without
@@ -1568,6 +1570,205 @@ EOF
   check "says it changed" out_has "changed: SHA-256"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# OPS-2, defect 4: images by content, which the image ID doesn't tell in the containerd image store.
+
+# use_containerd: the containerd image store (deploy/tests/stubs/docker), with the content identities of D's images.
+use_containerd() {
+  echo containerd >"$STUB_STATE/store"
+  mkdir -p "$STUB_STATE/content"
+  id_of api-D-content >"$STUB_STATE/content/${API_D#sha256:}"
+  id_of web-D-content >"$STUB_STATE/content/${WEB_D#sha256:}"
+}
+
+# rebuild_same_content SERVICE: :latest built again from the same content, under a new ID, as an empty run does; the ID
+# it replaces is gone from the store unless another tag names it.
+rebuild_same_content() {
+  local f=$STUB_STATE/images/finance-tracker-$1/latest id
+  id=$(id_of "$1-rebuilt-$RANDOM-$RANDOM")
+  cp "$STUB_STATE/content/$(sed 's/^sha256://' "$f")" "$STUB_STATE/content/${id#sha256:}"
+  echo "$id" >"$f"
+  REBUILT=$id
+}
+
+# other_content SERVICE: the container runs other content than recorded, as after a failed build.
+other_content() {
+  local id
+  id=$(id_of "$1-other-$RANDOM-$RANDOM")
+  id_of "$1-other-content-$RANDOM" >"$STUB_STATE/content/${id#sha256:}"
+  echo "$id" >"$STUB_STATE/images/finance-tracker-$1/latest"
+  echo "$id" >"$STUB_STATE/containers/finance-tracker-$1/image"
+}
+
+# containerd_ready: as switch_ready, in the containerd store: E deployed and finished.
+containerd_ready() {
+  setup_case
+  use_containerd
+  new_target
+  deploy_e
+  [ "$RC" -eq 0 ] || { echo "    setup: the deploy of E failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  type_at_terminal yes yes
+  run_deploy finish
+  [ "$RC" -eq 0 ] || { echo "    setup: finish failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  E_API=$(cat "$STUB_STATE/containers/finance-tracker-api/image")
+  E_API_CONTENT=$(cat "$STUB_STATE/content/${E_API#sha256:}")
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+  : >"$STUB_STATE/calls"
+}
+
+# deploy_f: a commit F on top of E, deployed, typing its first 7 characters.
+deploy_f() {
+  (cd "$C/work" && echo F >README && git commit -qam "revision F" && git push -q origin main)
+  SHA_F=$(git -C "$C/work" rev-parse HEAD)
+  type_at_terminal "${SHA_F:0:7}"
+  run_deploy run "$SHA_F" OPS-1
+}
+
+# As on 2026-10-03: :latest rebuilt with the same content under a new ID (the ID before it gone), then switch on
+# recreates api from it. The switch says so, not "unchanged", and last-good names the new ID, so that verify and the
+# next run's step 1.2 match.
+case_same_content_new_id() {
+  containerd_ready
+  check "the finish recorded the content" file_has "$C/state/last-good" "api_content=$E_API_CONTENT"
+  rebuild_same_content api
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "switch on: exit code 0" rc_is 0
+  check "api recreated from the new ID" [ "$(cat "$STUB_STATE/containers/finance-tracker-api/image")" = "$REBUILT" ]
+  check "prints api before and after" out_has "api recreated with the same content: $E_API -> $REBUILT, content $E_API_CONTENT"
+  check "web unchanged, by content" out_has "web unchanged, image "
+  check "never 'api unchanged'" out_lacks "api unchanged"
+  check "last-good names the new ID" file_has "$C/state/last-good" "api_image=$REBUILT"
+  check "with the same content" file_has "$C/state/last-good" "api_content=$E_API_CONTENT"
+  check "and its finish kept" file_has "$C/state/last-good" "finish=passed"
+  check "the summary says so" file_has "$(latest_run)/summary.txt" "(last-good updated to the new IDs)"
+  run_deploy verify OPS-1
+  check "verify: OK" out_has "verify OPS-1: OK"
+  check "verify: api is the recorded image" out_has "api: the recorded image, image $REBUILT (content $E_API_CONTENT)"
+  sleep 1
+  sed -i 's/Family ledgers (D-25): off; the family endpoints answer 404/Family ledgers (D-25): on/' "$STUB_STATE/fixtures/start-log"
+  deploy_f
+  check "the next run deployed" rc_is 0
+  check "its 1.2 matches" out_has "The running images are the last good deploy's content"
+  check "E's api kept under E's tag" image_is finance-tracker-api "$SHA_E" "$REBUILT"
+  check "the previous file names E" file_has "$C/previous" "$SHA_E"
+}
+
+# As before 2026-10-04's run: last-good names one ID, the container runs another with the same content, and the
+# recorded ID is gone. Step 1.2 says INFO, step 3.2 keeps the last good deploy's content under E's tag and :previous
+# (4510003's script took them for a failed run's); a rollback to E goes by content.
+case_last_good_id_differs_same_content() {
+  containerd_ready
+  rebuild_same_content api
+  echo "$REBUILT" >"$STUB_STATE/containers/finance-tracker-api/image"
+  deploy_f
+  check "deployed" rc_is 0
+  check "1.2: INFO, not a mismatch" out_has "INFO api: another image ID with the recorded content: running $REBUILT, recorded $E_API, content $E_API_CONTENT"
+  check "1.2: the last good deploy's content" out_has "The running images are the last good deploy's content"
+  check "no false verdict" out_lacks "a failed run's"
+  check "E's api kept under E's tag, by content" image_is finance-tracker-api "$SHA_E" "$REBUILT"
+  check "and as :previous" image_is finance-tracker-api previous "$REBUILT"
+  check "the previous file names E" file_has "$C/previous" "$SHA_E"
+  check "no warning about E's tag" out_lacks "finance-tracker-api:$SHA_E is missing or not the recorded content"
+  : >"$STUB_STATE/calls"
+  type_at_terminal "ROLLBACK ${SHA_E:0:7}"
+  run_rollback "${SHA_E:0:7}"
+  check "rollback to E: exit code 0" rc_is 0
+  check "by content, with INFO" out_has "INFO finance-tracker-api:$SHA_E is $REBUILT, another ID with the recorded content $E_API_CONTENT (recorded $E_API)"
+  check "E's api runs" image_is finance-tracker-api latest "$REBUILT"
+}
+
+# Other content than recorded: step 1.2 says so and 3.2 tags nothing; switch on refuses before changing anything,
+# switch off warns and goes on; verify reports a problem.
+case_different_content() {
+  containerd_ready
+  other_content api
+  local running
+  running=$(cat "$STUB_STATE/containers/finance-tracker-api/image")
+  run_deploy verify OPS-1
+  check "verify: a problem" out_has "PROBLEM: api isn't the last good deploy's content, or its content is unknown"
+  type_at_terminal "SWITCH OFF"
+  echo 'FAMILY_LEDGERS_ENABLED=true' >>"$C/server/deploy/app/.env"
+  run_deploy switch off
+  check "switch off goes on" rc_is 0
+  check "with a warning" out_has "WARNING: the running images are not the last good deploy's content, or it is unknown; switching off goes on all the same"
+  sleep 1
+  cp "$C/server/deploy/app/.env" "$C/env.orig"
+  : >"$STUB_STATE/calls"
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "switch on refused" out_has 'REFUSED at "1.4 Preflight: the clone, the last good deploy, no unfinished run": the running images are not the last good deploy'"'"'s content'
+  check "names api" out_has "api: NOT the recorded content: running image $running"
+  check ".env unchanged" same_file "$C/server/deploy/app/.env" "$C/env.orig"
+  check "no restart" calls_lack '^docker compose up'
+  sleep 1
+  deploy_f
+  check "the run: 1.2 says so" out_has "The running images are not the last good deploy's content"
+  check "the run: 3.2 tags none" out_has "They take no tag"
+  check "the run: no tag of E" no_image finance-tracker-api "$SHA_E"
+}
+
+# A content identity that can't be read: run refuses at 1.2 with nothing changed; switch on refuses; switch off goes
+# on and never says "unchanged"; verify reports it.
+case_identity_unavailable() {
+  setup_case
+  echo broken >"$STUB_STATE/store"
+  new_target
+  deploy_e
+  refused "the running containers' content identity can't be read (image store unknown"
+  check "before CI and the backup" calls_lack '^curl .*check-runs|^systemctl|^pg-restore-test'
+  run_deploy verify OPS-1
+  check "verify: a problem" out_has "PROBLEM: api isn't the last good deploy's content, or its content is unknown"
+
+  containerd_ready
+  touch "$STUB_STATE/containers/finance-tracker-api/no-descriptor"
+  echo 'FAMILY_LEDGERS_ENABLED=true' >>"$C/server/deploy/app/.env"
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "switch off goes on" rc_is 0
+  check "says unknown after the restart" file_has "$(latest_run)/summary.txt" "content unknown"
+  check "never 'api unchanged'" bash -c "! grep -q 'api unchanged' '$(latest_run)/summary.txt'"
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "switch on refused" out_has "REFUSED at"
+  check "api's content unknown" out_has "api: the content identity is unknown"
+  check "never asked" out_lacks "Type SWITCH ON"
+}
+
+# last-good as 4510003's scripts write it, without content identities: worked out from the image while it exists, or
+# from the container that runs it; verify writes nothing; once neither holds it, it is unknown and 3.2 tags nothing.
+case_old_format_state() {
+  setup_case
+  use_containerd
+  check "the case's last-good has no content line" bash -c "! grep -q _content '$C/state/last-good'"
+  local before after
+  before=$(cd "$C" && find state -exec stat -c '%n %s %Y' {} + | sort)
+  run_deploy verify OPS-1
+  after=$(cd "$C" && find state -exec stat -c '%n %s %Y' {} + | sort)
+  check "verify: from the image" out_has "api: the recorded image, image $API_D (content $(id_of api-D-content))"
+  check "verify: OK" out_has "verify OPS-1: OK"
+  check "verify writes nothing" [ "$before" = "$after" ]
+  rebuild_same_content api
+  new_target
+  deploy_e
+  check "deployed" rc_is 0
+  check "1.2: from the container, the image gone" out_has "api: the recorded image, image $API_D (content $(id_of api-D-content))"
+  check "the contents file has it" file_has "$C/state/contents" "$API_D $(id_of api-D-content)"
+  check "D's api kept under D's tag, from :latest" image_is finance-tracker-api "$SHA_D" "$REBUILT"
+  check "last-good now has content lines" file_has "$C/state/last-good" "api_content="
+
+  setup_case
+  use_containerd
+  rebuild_same_content api
+  echo "$REBUILT" >"$STUB_STATE/containers/finance-tracker-api/image"
+  new_target
+  deploy_e
+  check "neither image nor container holds it: unknown" out_has "api: the content identity is unknown (running image $REBUILT"
+  check "3.2 tags none" out_has "They take no tag"
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -1597,6 +1798,7 @@ CASES=(
   rollback_reports_a_failing_page switch_says_200_and_prints_the_numbers
   large_pages_pass switch_on_refuses_on_a_failed_page switch_off_goes_on_despite_a_failed_page
   dumps_in_the_same_minute dump_overwritten_in_place preserved_dump_changed
+  same_content_new_id last_good_id_differs_same_content different_content identity_unavailable old_format_state
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

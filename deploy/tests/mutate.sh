@@ -188,7 +188,7 @@ mutation_in common.sh "read the page through curl | grep -q" \
 
 # F7b's fourth commit: switch on going on although a page failed (D-41).
 mutation "let switch on ignore a failed page" \
-  '[ "$direction" = off ]' 'true' \
+  $'    [ "$direction" = off ] \\\n      || fail "a page isn\'t as expected' $'    true \\\n      || fail "a page isn\'t as expected' \
   switch_on_refuses_on_a_failed_page
 
 # OPS-2, defect 3 (D-43): the before-dump preserved by a hard link, which an in-place rewrite changes too.
@@ -215,6 +215,39 @@ mutation "don't check the preserved copy" \
 mutation_in rollback.sh "don't name the preserved dump below V7" \
   '; $(preserved_dump_of "$DR_DIR")"' '"' \
   rollback_below_v7
+
+# OPS-2, defect 4: images compared by ID again, so a rebuild of the same content looks like a failed run's.
+mutation_in common.sh "compare images by ID, not content" \
+  '  if [ "$c" != "$rc" ]; then' '  if [ "$id" != "$rid" ]; then' \
+  last_good_id_differs_same_content
+
+# OPS-2, defect 4: an unknown content identity taken as the same.
+mutation_in common.sh "take an unknown content as the same" \
+  $'    say "$name: the content identity is unknown (running $(identity image "$id" "$c"), recorded $(identity image "$rid" "$rc"))"\n    return 2' \
+  $'    say "$name: the content identity is unknown (running $(identity image "$id" "$c"), recorded $(identity image "$rid" "$rc"))"\n    return 0' \
+  identity_unavailable
+
+# OPS-2, defect 4: switch saying "unchanged" for a content it can't read.
+mutation "let switch call an unknown content unchanged" \
+  '  if [ -z "$bc" ] || [ -z "$ac" ]; then' '  if false; then' \
+  identity_unavailable
+
+# OPS-2, defect 4: switch leaving last-good at the IDs before a recreation.
+mutation "let switch leave last-good at the old IDs" \
+  '    write_last_good "$LG_COMMIT" "$api_now" "$web_now" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" "${LG_SOURCE:-deploy}" "$LG_FINISH"' \
+  '    : last-good left as it was' \
+  same_content_new_id
+
+# OPS-2, defect 4: last-good of 4510003's scripts left without content identities.
+mutation_in common.sh "don't work out old last-good's content" \
+  $'  valid_image "$LG_API_CONTENT" || LG_API_CONTENT=$(content_of_id "$LG_API") || LG_API_CONTENT=\'\'' \
+  $'  valid_image "$LG_API_CONTENT" || LG_API_CONTENT=\'\'' \
+  old_format_state
+
+# OPS-2, defect 4: rollback.sh by ID only.
+mutation_in rollback.sh "let rollback.sh compare by ID only" \
+  '  [ "$content" = "$recorded_content" ] ' '  false ' \
+  last_good_id_differs_same_content
 
 echo
 if [ "$survived" -eq 0 ]; then

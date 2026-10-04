@@ -9,6 +9,14 @@
 #   log-api                        the api's log, "<timestamp> <line>"
 #   fixtures/                      what psql, a build and a start answer (deploy/tests/run.sh, setup_case); psql answers
 #                                  only as finance_checks (or, with STUB_ALLOW_FINANCE=1, as OPS-1's finance)
+# The image store (OPS-2, defect 4), from the file store: classic (the default), containerd, or broken (docker info
+# fails). In the classic store an image's ID is its config digest, so its content identity is its ID, and a build of
+# the same content (fixtures/same-content-<service>) keeps the ID. In the containerd store the ID is a manifest list's
+# digest: a build gets a new ID every time, content/<hex of the ID> holds the content identity (the platform
+# manifest's digest), a sha256 ID that no tag names (nor the file present) is gone, as there, even while a container
+# runs it, and a container's ImageManifestDescriptor names its content (none with containers/<name>/no-descriptor).
+# fixtures/no-platform makes docker version fail, so no content identity can be read. Compose recreates a container
+# when its image's content changed, as its com.docker.compose.image label (the manifest's digest) does.
 set -euo pipefail
 S=${STUB_STATE:?}
 printf 'docker %s\n' "$*" >>"$S/calls"
@@ -25,9 +33,30 @@ next_fixture() {
   if [ -f "$S/fixtures/$1.$n" ]; then echo "$S/fixtures/$1.$n"; else echo "$S/fixtures/$1"; fi
 }
 
+store() { cat "$S/store" 2>/dev/null || echo classic; }
+
+# present ID: the containerd store still holds the ID (a tag names it, or the file present lists it).
+present() {
+  [ "$(store)" != containerd ] && return 0
+  grep -rqxF -- "$1" "$S/images" 2>/dev/null || grep -qxF -- "$1" "$S/present" 2>/dev/null
+}
+
+# content_of ID: the content identity of an image ID.
+content_of() {
+  if [ "$(store)" = containerd ]; then
+    cat "$S/content/${1#sha256:}" 2>/dev/null || return 1
+  else
+    echo "$1"
+  fi
+}
+
 resolve() {
   local ref=$1 repo tag
-  if [[ $ref == sha256:* ]]; then echo "$ref"; return; fi
+  if [[ $ref == sha256:* ]]; then
+    present "$ref" || { echo "Error response from daemon: No such image: $ref" >&2; return 1; }
+    echo "$ref"
+    return
+  fi
   repo=${ref%%:*}
   tag=latest
   [[ $ref == *:* ]] && tag=${ref#*:}
@@ -44,6 +73,11 @@ inspect() {
   container "$name"
   case $template in
     '{{.Image}}') cat "$S/containers/$name/image" ;;
+    '{{with .ImageManifestDescriptor}}{{.Digest}}{{end}}')
+      if [ "$(store)" = containerd ] && [ ! -e "$S/containers/$name/no-descriptor" ]; then
+        content_of "$(cat "$S/containers/$name/image")" || true
+      fi
+      ;;
     '{{.State.StartedAt}}') cat "$S/containers/$name/started" ;;
     '{{.State.Health.Status}}')
       f=$S/containers/$name/health
@@ -112,7 +146,8 @@ up() {
     name=finance-tracker-$svc
     id=$(cat "$S/images/$name/latest")
     image_changed=0
-    [ "$id" = "$(cat "$S/containers/$name/image")" ] || image_changed=1
+    [ "$(content_of "$id" || echo "$id")" = "$(content_of "$(cat "$S/containers/$name/image")" || echo none)" ] \
+      || image_changed=1
     env_changed=0
     if [ "$svc" = api ]; then
       cur_switch=$(grep '^FAMILY_LEDGERS_ENABLED=' "$S/containers/$name/env" 2>/dev/null || true)
@@ -160,13 +195,31 @@ logs() {
   awk -v since="$since" 'since == "" || $1 >= since' "$S/log-api"
 }
 
+# build SERVICE: a new :latest. The same content (fixtures/same-content-<service>) keeps the ID in the classic store and
+# gets a new ID with the same content identity in the containerd store; other content gets a new ID and content.
+build() {
+  local f=$S/images/finance-tracker-$1/latest old id
+  old=$(cat "$f")
+  if [ -e "$S/fixtures/same-content-$1" ] && [ "$(store)" != containerd ]; then return 0; fi
+  id=$(new_id)
+  if [ "$(store)" = containerd ]; then
+    mkdir -p "$S/content"
+    if [ -e "$S/fixtures/same-content-$1" ]; then
+      content_of "$old" >"$S/content/${id#sha256:}"
+    else
+      new_id >"$S/content/${id#sha256:}"
+    fi
+  fi
+  echo "$id" >"$f"
+}
+
 compose() {
   case $1 in
     version) echo "Docker Compose version v2.40.0 (stub)" ;;
     build)
       [ -f "$S/fixtures/build-fails" ] && { echo "build failed (stub)" >&2; exit 1; }
       [ -x "$S/fixtures/on-build" ] && "$S/fixtures/on-build"
-      new_id >"$S/images/finance-tracker-$2/latest"
+      build "$2"
       echo " Image finance-tracker-$2 Built"
       ;;
     up) shift; up "$@" ;;
@@ -180,10 +233,33 @@ compose() {
 
 case $1 in
   compose) shift; compose "$@" ;;
+  info)
+    [ "$2 $3" = "-f {{json .DriverStatus}}" ] || exit 99
+    case $(store) in
+      containerd) echo '[["driver-type","io.containerd.snapshotter.v1"]]' ;;
+      classic) echo '[["Backing Filesystem","extfs"],["Supports d_type","true"]]' ;;
+      *) echo "Cannot connect to the Docker daemon (stub)" >&2; exit 1 ;;
+    esac
+    ;;
+  version)
+    [ "$2 $3" = "-f {{.Server.Os}}/{{.Server.Arch}}" ] || exit 99
+    [ ! -e "$S/fixtures/no-platform" ] || { echo "unknown flag (stub)" >&2; exit 1; }
+    echo linux/amd64
+    ;;
   inspect) [ "$2" = -f ] || exit 99; inspect "$@" ;;
   image)
     case $2 in
-      inspect) [ "$3" = -f ] && [ "$4" = '{{.Id}}' ] || exit 99; resolve "$5" ;;
+      inspect)
+        if [ "$3" = --platform ]; then
+          [ "$4" = linux/amd64 ] && [ "$5" = -f ] && [ "$6" = '{{.Id}}' ] || exit 99
+          [ ! -e "$S/fixtures/no-platform" ] || { echo "unknown flag: --platform (stub)" >&2; exit 1; }
+          id=$(resolve "$7")
+          content_of "$id" || { echo "Error response from daemon: no manifest for linux/amd64 (stub)" >&2; exit 1; }
+        else
+          [ "$3" = -f ] && [ "$4" = '{{.Id}}' ] || exit 99
+          resolve "$5"
+        fi
+        ;;
       ls) [ "$3" = --format ] && [ "$4" = '{{.Tag}}' ] || exit 99; ls "$S/images/$5" 2>/dev/null || true ;;
       prune) echo "Total reclaimed space: 0B" ;;
       *) echo "docker stub: unknown image command: $*" >&2; exit 99 ;;

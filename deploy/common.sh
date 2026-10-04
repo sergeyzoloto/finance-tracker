@@ -4,11 +4,14 @@
 #
 # The state lives in DEPLOY_STATE_DIR (/var/lib/finance-deploy, mode 700):
 #   runs/<UTC time>-<commit>/   one folder per run: log, meta, status, numbers, stage diff, restore tests, summary.txt
-#   last-good                   the last good deploy: commit, time, image IDs, how it became good (key=value lines)
+#   last-good                   the last good deploy: commit, time, image IDs and (OPS-2) their content identities, how
+#                               it became good (key=value lines)
 #   history                     one line per event: <UTC time> <event> <commit> <api image> <web image>; events are
 #                               baseline, good, finish-failed, rolled-back-from, rollback-to, adopted (F6b). A
 #                               commit's status is its newest line (F6c); a finish that passed adds good again
-# Both files are written only by these scripts and parsed, never sourced or run.
+#   contents                    (OPS-2) one line per image ID seen: <image ID> <content identity>; it outlives the
+#                               images, which the containerd image store deletes once no tag names them
+# These files are written only by these scripts and parsed, never sourced or run.
 # shellcheck disable=SC2034  # the settings are read by the scripts that source this file
 
 common_settings() {
@@ -35,6 +38,8 @@ common_settings() {
   STEP=
   REASON=
   PAGES_LINE=
+  IMAGE_STORE=
+  PLATFORM=
 }
 
 say() { printf '%s\n' "$*"; }
@@ -213,6 +218,133 @@ sql_file() {
 
 container_image() { docker inspect -f '{{.Image}}' "$1"; }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Image identity (OPS-2, defect 4). In Docker's containerd image store an image's ID is the digest of its manifest list,
+# and BuildKit's attestations make a new one at every build of the same content (api 6d6f35b8, 4517bb90, a4e0c660,
+# bb3bdef3 with one config, 03ecad3b); the list a tag no longer names is deleted, even while a container runs it. So
+# images are compared by their content identity: the digest of the platform's image manifest in the containerd store
+# (it names the config digest and every layer's), the image ID, which is the config digest, in the classic store. Both
+# are what "docker image inspect --platform <os/arch>" answers as the ID; a container's is its ImageManifestDescriptor
+# (containerd) or its image ID (classic). An identity that can't be read is unknown, never taken as the same.
+
+# image_store: IMAGE_STORE, containerd or classic, from docker info; returns 1 when docker info doesn't say.
+image_store() {
+  local status
+  [ -z "$IMAGE_STORE" ] || return 0
+  status=$(docker info -f '{{json .DriverStatus}}' 2>/dev/null) || return 1
+  case $status in
+    *io.containerd.snapshotter*) IMAGE_STORE=containerd ;;
+    '['*) IMAGE_STORE=classic ;;
+    *) return 1 ;;
+  esac
+}
+
+# server_platform: PLATFORM, the daemon's os/arch; returns 1 when docker version doesn't say.
+server_platform() {
+  [ -z "$PLATFORM" ] || return 0
+  PLATFORM=$(docker version -f '{{.Server.Os}}/{{.Server.Arch}}' 2>/dev/null) || { PLATFORM=''; return 1; }
+  [[ $PLATFORM =~ ^[a-z0-9]+/[a-z0-9]+$ ]] || { PLATFORM=''; return 1; }
+}
+
+# content_of_image REF: prints the content identity of the image REF (a tag or an ID); returns 1 when it can't be read
+# (no such image, or a daemon without --platform).
+content_of_image() {
+  local out
+  server_platform || return 1
+  out=$(docker image inspect --platform "$PLATFORM" -f '{{.Id}}' "$1" 2>/dev/null) || return 1
+  valid_image "$out" || return 1
+  printf '%s' "$out"
+}
+
+# content_of_container NAME: prints the content identity of the image the container runs; returns 1 when unknown.
+content_of_container() {
+  local out
+  image_store || return 1
+  if [ "$IMAGE_STORE" = containerd ]; then
+    out=$(docker inspect -f '{{with .ImageManifestDescriptor}}{{.Digest}}{{end}}' "$1" 2>/dev/null) || return 1
+  else
+    out=$(docker inspect -f '{{.Image}}' "$1" 2>/dev/null) || return 1
+  fi
+  valid_image "$out" || return 1
+  printf '%s' "$out"
+}
+
+# known_content ID: the content identity recorded for an image ID in $STATE_DIR/contents, or nothing.
+known_content() {
+  local id content found=''
+  [ -f "$STATE_DIR/contents" ] || return 0
+  while read -r id content; do
+    [ "$id" = "$1" ] && valid_image "$content" && found=$content
+  done <"$STATE_DIR/contents"
+  printf '%s' "$found"
+}
+
+# record_content ID CONTENT: notes the pair in $STATE_DIR/contents, once; nothing when either is unknown.
+record_content() {
+  [ "${READ_ONLY:-0}" = 0 ] || return 0   # verify writes nothing
+  valid_image "$1" && valid_image "${2:-}" || return 0
+  [ "$(known_content "$1")" != "$2" ] || return 0
+  printf '%s %s\n' "$1" "$2" >>"$STATE_DIR/contents"
+}
+
+# content_of_id ID: prints the content identity of an image ID, as recorded, else from the image, else from a container
+# that runs it (State written by 4510003's scripts has none: it is worked out while the image or a container still
+# holds it); returns 1 when unknown.
+content_of_id() {
+  local id=$1 c out
+  valid_image "$id" || return 1
+  out=$(known_content "$id")
+  if [ -z "$out" ]; then
+    out=$(content_of_image "$id") || out=''
+  fi
+  if [ -z "$out" ]; then
+    for c in finance-tracker-api finance-tracker-web; do
+      if [ "$(docker inspect -f '{{.Image}}' "$c" 2>/dev/null || true)" = "$id" ]; then
+        out=$(content_of_container "$c") || out=''
+        break
+      fi
+    done
+  fi
+  [ -n "$out" ] || return 1
+  record_content "$id" "$out"
+  printf '%s' "$out"
+}
+
+# running_images: RUN_API, RUN_WEB (the containers' image IDs) and RUN_API_CONTENT, RUN_WEB_CONTENT (their content
+# identities, empty when unknown); returns 1 when a container is missing.
+running_images() {
+  RUN_API=$(container_image finance-tracker-api 2>/dev/null) || return 1
+  RUN_WEB=$(container_image finance-tracker-web 2>/dev/null) || return 1
+  RUN_API_CONTENT=$(content_of_container finance-tracker-api) || RUN_API_CONTENT=''
+  RUN_WEB_CONTENT=$(content_of_container finance-tracker-web) || RUN_WEB_CONTENT=''
+  record_content "$RUN_API" "$RUN_API_CONTENT"
+  record_content "$RUN_WEB" "$RUN_WEB_CONTENT"
+}
+
+# identity NAME ID CONTENT: one line naming an image by its ID and content.
+identity() { printf '%s %s (content %s)' "$1" "$2" "${3:-unknown}"; }
+
+# compare_identity NAME RECORDED_ID RECORDED_CONTENT ID CONTENT: prints how a running image compares with the recorded
+# one, and returns 0 for the same content (the same ID, or INFO: another ID with the same content), 1 for other
+# content, 2 when either content is unknown.
+compare_identity() {
+  local name=$1 rid=$2 rc=$3 id=$4 c=$5
+  if [ -z "$c" ] || [ -z "$rc" ]; then
+    say "$name: the content identity is unknown (running $(identity image "$id" "$c"), recorded $(identity image "$rid" "$rc"))"
+    return 2
+  fi
+  if [ "$c" != "$rc" ]; then
+    say "$name: NOT the recorded content: running $(identity image "$id" "$c"), recorded $(identity image "$rid" "$rc")"
+    return 1
+  fi
+  if [ "$id" = "$rid" ]; then
+    say "$name: the recorded image, $(identity image "$id" "$c")"
+  else
+    say "INFO $name: another image ID with the recorded content: running $id, recorded $rid, content $c (a rebuild of the same content)"
+  fi
+  return 0
+}
+
 health_of() { docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null || echo missing; }
 
 # wait_healthy: api and web healthy, HEALTH_TRIES checks HEALTH_INTERVAL seconds apart (the runbook's 60 x 5 s).
@@ -303,10 +435,12 @@ page_checks() {
 valid_commit() { [[ $1 =~ ^[0-9a-f]{40}$ ]]; }
 valid_image() { [[ $1 =~ ^sha256:[0-9a-f]{64}$ ]]; }
 
-# read_last_good: LG_COMMIT, LG_TIME, LG_API, LG_WEB and LG_SOURCE from last-good; returns 1 when there is none.
+# read_last_good: LG_COMMIT, LG_TIME, LG_API, LG_WEB, LG_SOURCE, LG_FINISH and (OPS-2) LG_API_CONTENT and
+# LG_WEB_CONTENT from last-good; returns 1 when there is none. A last-good written before OPS-2 has no content
+# identities: they are worked out from the images or the containers that hold them (content_of_id), else unknown.
 read_last_good() {
   local line
-  LG_COMMIT='' LG_TIME='' LG_API='' LG_WEB='' LG_SOURCE=''
+  LG_COMMIT='' LG_TIME='' LG_API='' LG_WEB='' LG_SOURCE='' LG_FINISH='' LG_API_CONTENT='' LG_WEB_CONTENT=''
   [ -f "$STATE_DIR/last-good" ] || return 1
   while IFS= read -r line; do
     case $line in
@@ -314,21 +448,32 @@ read_last_good() {
       time=*) LG_TIME=${line#time=} ;;
       api_image=*) LG_API=${line#api_image=} ;;
       web_image=*) LG_WEB=${line#web_image=} ;;
+      api_content=*) LG_API_CONTENT=${line#api_content=} ;;
+      web_content=*) LG_WEB_CONTENT=${line#web_content=} ;;
       source=*) LG_SOURCE=${line#source=} ;;
+      finish=*) LG_FINISH=${line#finish=} ;;
     esac
   done <"$STATE_DIR/last-good"
   if ! valid_commit "$LG_COMMIT" || ! valid_image "$LG_API" || ! valid_image "$LG_WEB"; then
     fail "$STATE_DIR/last-good is malformed; look at it before going on"
   fi
+  valid_image "$LG_API_CONTENT" || LG_API_CONTENT=$(content_of_id "$LG_API") || LG_API_CONTENT=''
+  valid_image "$LG_WEB_CONTENT" || LG_WEB_CONTENT=$(content_of_id "$LG_WEB") || LG_WEB_CONTENT=''
 }
 
-# write_last_good COMMIT API WEB SOURCE [FINISH]: FINISH, "passed <time>" or "not passed <time>", is the latest answer
-# of finish for that deploy (F6c); read_last_good ignores it.
+# write_last_good COMMIT API WEB API_CONTENT WEB_CONTENT SOURCE [FINISH]: FINISH, "passed <time>" or "not passed
+# <time>", is the latest answer of finish for that deploy (F6c). A content identity that is unknown is left out (OPS-2).
+# Scripts before OPS-2 ignore the content lines.
 write_last_good() {
   local tmp=$STATE_DIR/.last-good.tmp
-  printf 'commit=%s\ntime=%s\napi_image=%s\nweb_image=%s\nsource=%s\n' "$1" "$(now)" "$2" "$3" "$4" >"$tmp"
-  [ -z "${5:-}" ] || printf 'finish=%s\n' "$5" >>"$tmp"
+  printf 'commit=%s\ntime=%s\napi_image=%s\nweb_image=%s\n' "$1" "$(now)" "$2" "$3" >"$tmp"
+  ! valid_image "$4" || printf 'api_content=%s\n' "$4" >>"$tmp"
+  ! valid_image "$5" || printf 'web_content=%s\n' "$5" >>"$tmp"
+  printf 'source=%s\n' "$6" >>"$tmp"
+  [ -z "${7:-}" ] || printf 'finish=%s\n' "$7" >>"$tmp"
   mv -f "$tmp" "$STATE_DIR/last-good"
+  record_content "$2" "$4"
+  record_content "$3" "$5"
 }
 
 # add_history EVENT COMMIT API WEB

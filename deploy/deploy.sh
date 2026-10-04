@@ -202,32 +202,61 @@ restore_test() {
   printf -v "RESTORE_$1" '%s' "PASS ($checks)"
 }
 
+# image_with_content REPO CONTENT ID...: the first of the images (IDs or tags) that exists with that content, or
+# nothing. In the containerd store a running container's own manifest list may be gone (OPS-2, defect 4), while a tag
+# still names the same content under another ID.
+image_with_content() {
+  local repo=$1 want=$2 ref
+  shift 2
+  for ref in "$@" "finance-tracker-$repo:$LG_COMMIT" "finance-tracker-$repo:previous" "finance-tracker-$repo:latest"; do
+    if [ "$(content_of_image "$ref" || true)" = "$want" ]; then
+      printf '%s' "$ref"
+      return 0
+    fi
+  done
+}
+
 # keep_images: the running revision's images under a tag naming its commit and under :previous, if they are the last
-# good deploy's; a failed run's images never take those tags.
+# good deploy's content (OPS-2: by content, not ID); a failed run's images never take those tags.
 keep_images() {
-  local api web repo id expected
-  api=$(container_image finance-tracker-api)
-  web=$(container_image finance-tracker-web)
-  if [ "$api" = "$LG_API" ] && [ "$web" = "$LG_WEB" ]; then
-    # The runbook's "docker tag finance-tracker-api finance-tracker-api:previous", by the running container's image.
-    docker tag "$LG_API" "finance-tracker-api:$LG_COMMIT"
-    docker tag "$LG_API" finance-tracker-api:previous
-    docker tag "$LG_WEB" "finance-tracker-web:$LG_COMMIT"
-    docker tag "$LG_WEB" finance-tracker-web:previous
-    printf '%s\n' "$LG_COMMIT" >"$PREVIOUS_FILE"
-    say "The running images, the last good deploy's, kept as :$LG_COMMIT and :previous; $PREVIOUS_FILE names it"
-    KEPT_LINE="the last good deploy's (api $LG_API, web $LG_WEB) kept as :${LG_COMMIT:0:7} and :previous"
+  local repo src content kept=() missing=()
+  if [ "$RUNNING_IS_LG" = yes ]; then
+    for repo in api web; do
+      content=$LG_API_CONTENT
+      [ "$repo" = api ] || content=$LG_WEB_CONTENT
+      if [ "$repo" = api ]; then
+        src=$(image_with_content api "$content" "$LG_API" "$RUN_API")
+      else
+        src=$(image_with_content web "$content" "$LG_WEB" "$RUN_WEB")
+      fi
+      if [ -z "$src" ]; then
+        say "WARNING: no image of finance-tracker-$repo with the last good deploy's content ($content) is left to tag"
+        missing+=("$repo")
+        continue
+      fi
+      # The runbook's "docker tag finance-tracker-api finance-tracker-api:previous", by the last good deploy's content.
+      docker tag "$src" "finance-tracker-$repo:$LG_COMMIT"
+      docker tag "$src" "finance-tracker-$repo:previous"
+      kept+=("$repo $src")
+    done
+    if [ ${#missing[@]} -eq 0 ]; then
+      printf '%s\n' "$LG_COMMIT" >"$PREVIOUS_FILE"
+      say "The running images, the last good deploy's content, kept as :$LG_COMMIT and :previous; $PREVIOUS_FILE names it"
+      KEPT_LINE="the last good deploy's (api $LG_API_CONTENT, web $LG_WEB_CONTENT by content) kept as :${LG_COMMIT:0:7} and :previous"
+    else
+      say "Not every image of the last good deploy could be kept: $PREVIOUS_FILE stays as it is"
+      KEPT_LINE="the last good deploy's images could not all be kept (missing: ${missing[*]}); $PREVIOUS_FILE unchanged"
+    fi
   else
-    say "The running images ($api, $web) are not the last good deploy's: a failed run's. They take no tag; the tags"
-    say "of the last good deploy ${LG_COMMIT:0:7} and :previous stay as they are."
-    KEPT_LINE="the running images were a failed run's and took no tag; the last good deploy's stayed under :${LG_COMMIT:0:7} and :previous"
+    say "The running images ($RUN_API, $RUN_WEB) are not the last good deploy's content: a failed run's, or unknown."
+    say "They take no tag; the tags of the last good deploy ${LG_COMMIT:0:7} and :previous stay as they are."
+    KEPT_LINE="the running images were not the last good deploy's content and took no tag; the last good deploy's stayed under :${LG_COMMIT:0:7} and :previous"
   fi
   for repo in api web; do
-    id=$(docker image inspect -f '{{.Id}}' "finance-tracker-$repo:$LG_COMMIT" 2>/dev/null || true)
-    expected=$LG_API
-    [ "$repo" = api ] || expected=$LG_WEB
-    if [ "$id" != "$expected" ]; then
-      say "WARNING: finance-tracker-$repo:$LG_COMMIT is missing or not the recorded image: rollback.sh can't go back to it"
+    content=$LG_API_CONTENT
+    [ "$repo" = api ] || content=$LG_WEB_CONTENT
+    if [ -z "$content" ] || [ "$(content_of_image "finance-tracker-$repo:$LG_COMMIT" || true)" != "$content" ]; then
+      say "WARNING: finance-tracker-$repo:$LG_COMMIT is missing or not the recorded content: rollback.sh can't go back to it"
     fi
   done
   prune_commit_tags
@@ -377,14 +406,26 @@ cmd_run() {
   [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
   [ -f "$APP_DIR/.env" ] || fail "$APP_DIR/.env is missing (the runbook's step 5)"
   HEAD_BEFORE=$(git rev-parse HEAD)
-  api_now=$(container_image finance-tracker-api) || fail "no container finance-tracker-api: the stack isn't up"
-  web_now=$(container_image finance-tracker-web) || fail "no container finance-tracker-web: the stack isn't up"
+  running_images || fail "no container finance-tracker-api or finance-tracker-web: the stack isn't up"
+  api_now=$RUN_API web_now=$RUN_WEB
   say "HEAD: $(git log -1 --format='%h %s' HEAD)"
   say "Running images: api $api_now, web $web_now"
+  # OPS-2, defect 4: by content, which the image ID doesn't tell in the containerd image store.
+  say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}; content: api ${RUN_API_CONTENT:-unknown}, web ${RUN_WEB_CONTENT:-unknown}"
+  [ -n "$RUN_API_CONTENT" ] && [ -n "$RUN_WEB_CONTENT" ] \
+    || fail "the running containers' content identity can't be read (image store ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}): look at docker info and docker version, then run this again"
+  RUNNING_IS_LG=no
   if read_last_good; then
     say "Last good deploy: $(git log -1 --format='%h %s' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT") at $LG_TIME ($LG_SOURCE)"
     say "Its status, its newest line in the history: $(commit_status "$LG_COMMIT")"
     PREVIOUS_LINE="$(git log -1 --format='%h (%s)' "$LG_COMMIT"), the last good deploy"
+    if compare_identity api "$LG_API" "$LG_API_CONTENT" "$api_now" "$RUN_API_CONTENT" \
+      && compare_identity web "$LG_WEB" "$LG_WEB_CONTENT" "$web_now" "$RUN_WEB_CONTENT"; then
+      RUNNING_IS_LG=yes
+      say "The running images are the last good deploy's content"
+    else
+      say "The running images are not the last good deploy's content (a failed run's, or its content unknown): step 3.2 tags none of them"
+    fi
   else
     say "No record of a last good deploy: deploy.sh's first run. The running revision, HEAD, with its current images,"
     say "counts as the last good deploy once you confirm."
@@ -473,9 +514,10 @@ cmd_run() {
   PHASE=deploy
   set_status deploying
   if [ -z "$LG_COMMIT" ]; then
-    write_last_good "$HEAD_BEFORE" "$api_now" "$web_now" baseline
+    write_last_good "$HEAD_BEFORE" "$api_now" "$web_now" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" baseline
     add_history baseline "$HEAD_BEFORE" "$api_now" "$web_now"
     read_last_good
+    RUNNING_IS_LG=yes
     say "Recorded HEAD ${HEAD_BEFORE:0:7} with its running images as the last good deploy (baseline)."
   fi
 
@@ -564,11 +606,12 @@ cmd_run() {
   restore_test after
   check_dumps
 
-  api_now=$(container_image finance-tracker-api)
-  web_now=$(container_image finance-tracker-web)
-  write_last_good "$SHA" "$api_now" "$web_now" deploy
+  running_images || fail "a container is gone"
+  api_now=$RUN_API web_now=$RUN_WEB
+  [ -n "$RUN_API_CONTENT" ] && [ -n "$RUN_WEB_CONTENT" ] || say "WARNING: a running image's content identity is unknown; last-good leaves it out"
+  write_last_good "$SHA" "$api_now" "$web_now" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" deploy
   add_history good "$SHA" "$api_now" "$web_now"
-  IMAGES_LINE="api $api_now, web $web_now (recorded in last-good); before the build, $KEPT_LINE"
+  IMAGES_LINE="$(identity api "$api_now" "$RUN_API_CONTENT"), $(identity web "$web_now" "$RUN_WEB_CONTENT") (recorded in last-good); before the build, $KEPT_LINE"
   set_status deployed
   write_summary "deployed"
   PHASE=complete
@@ -685,12 +728,13 @@ cmd_finish() {
   cat "$RUN_DIR/summary.txt"
   # The latest answers count in last-good and the history too (F6c): the running revision stays the last good deploy,
   # with how its finish went, and the history's newest line for it is good or finish-failed.
-  api=$(container_image finance-tracker-api)
-  web=$(container_image finance-tracker-web)
+  running_images || fail "a container is gone"
+  api=$RUN_API web=$RUN_WEB
+  say "Images: $(identity api "$api" "$RUN_API_CONTENT"), $(identity web "$web" "$RUN_WEB_CONTENT")"
   read_last_good || true
   if [ ${#problems[@]} -gt 0 ]; then
     set_status finish-failed
-    write_last_good "$SHA" "$api" "$web" "${LG_SOURCE:-deploy}" "not passed $(now)"
+    write_last_good "$SHA" "$api" "$web" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" "${LG_SOURCE:-deploy}" "not passed $(now)"
     add_history finish-failed "$SHA" "$api" "$web"
     say ""
     say "NOT PASSED: ${problems[*]}. Recorded as finish-failed; nothing was rolled back."
@@ -699,7 +743,7 @@ cmd_finish() {
     exit "$NOT_PASSED"
   fi
   set_status finished
-  write_last_good "$SHA" "$api" "$web" "${LG_SOURCE:-deploy}" "passed $(now)"
+  write_last_good "$SHA" "$api" "$web" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" "${LG_SOURCE:-deploy}" "passed $(now)"
   add_history good "$SHA" "$api" "$web"
   say ""
   say "Done. Add the summary above as a row of \"Deployed revisions\" in deploy/RUNBOOK.md."
@@ -709,8 +753,9 @@ cmd_finish() {
 # verify
 
 cmd_verify() {
-  local stage=$1 issues=0 api web row expected out api_log seen problem
+  local stage=$1 issues=0 api web row expected out api_log seen problem rc
   [[ $stage =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage
+  READ_ONLY=1
   take_lock shared
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   say "verify $stage at $(git log -1 --format='%h %s' HEAD), $(now); read only"
@@ -731,6 +776,27 @@ cmd_verify() {
   web=$(health_of finance-tracker-web)
   say "api: $api, web: $web"
   [ "$api" = healthy ] && [ "$web" = healthy ] || { say "PROBLEM: not both healthy"; issues=$((issues + 1)); }
+
+  heading "The images"
+  # OPS-2, defect 4: by content; another image ID with the recorded content is INFO, never a problem.
+  if ! running_images; then
+    say "PROBLEM: no container finance-tracker-api or finance-tracker-web"
+    issues=$((issues + 1))
+  else
+    say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}"
+    say "Running: $(identity api "$RUN_API" "$RUN_API_CONTENT"); $(identity web "$RUN_WEB" "$RUN_WEB_CONTENT")"
+    if read_last_good; then
+      say "Last good deploy: $(git log -1 --format='%h' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT") at $LG_TIME ($LG_SOURCE)"
+      rc=0
+      compare_identity api "$LG_API" "$LG_API_CONTENT" "$RUN_API" "$RUN_API_CONTENT" || rc=$?
+      [ "$rc" -eq 0 ] || { say "PROBLEM: api isn't the last good deploy's content, or its content is unknown"; issues=$((issues + 1)); }
+      rc=0
+      compare_identity web "$LG_WEB" "$LG_WEB_CONTENT" "$RUN_WEB" "$RUN_WEB_CONTENT" || rc=$?
+      [ "$rc" -eq 0 ] || { say "PROBLEM: web isn't the last good deploy's content, or its content is unknown"; issues=$((issues + 1)); }
+    else
+      say "No record of a last good deploy"
+    fi
+  fi
 
   heading "The pages"
   page_checks || { say "PROBLEM: a page isn't as expected"; issues=$((issues + 1)); }
@@ -827,10 +893,11 @@ cmd_adopt() {
 
   heading "1. What runs"
   check_tools git docker flock
-  api=$(container_image finance-tracker-api) || fail "no container finance-tracker-api: the stack isn't up"
-  web=$(container_image finance-tracker-web) || fail "no container finance-tracker-web: the stack isn't up"
+  running_images || fail "no container finance-tracker-api or finance-tracker-web: the stack isn't up"
+  api=$RUN_API web=$RUN_WEB
   say "HEAD: $(git log -1 --format='%h %s' HEAD)"
   say "Running images: api $api ($(health_of finance-tracker-api)), web $web ($(health_of finance-tracker-web))"
+  say "Their content: api ${RUN_API_CONTENT:-unknown}, web ${RUN_WEB_CONTENT:-unknown}"
   if [ -n "$latest" ]; then
     say "The last run: ${latest##*/}, $(cat "$latest/status" 2>/dev/null || echo 'without a status')"
   else
@@ -861,7 +928,7 @@ cmd_adopt() {
   [ "$ANSWER" = "ADOPT ${head:0:7}" ] || fail "not confirmed"
 
   PHASE=adopting
-  write_last_good "$head" "$api" "$web" adopt
+  write_last_good "$head" "$api" "$web" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" adopt
   add_history adopted "$head" "$api" "$web"
   {
     say "Adopted on $(date -u +%F) at $(now): $(git log -1 --format='%h (%s)' "$head") as the last good deploy"
@@ -917,12 +984,28 @@ on_exit_switch() {
   exit "$rc"
 }
 
+# image_change NAME ID_BEFORE CONTENT_BEFORE ID_AFTER CONTENT_AFTER: how a container's image changed across a restart:
+# "unchanged", "recreated with the same content", "CHANGED", or "content unknown"; never "unchanged" by default.
+image_change() {
+  local name=$1 b=$2 bc=$3 a=$4 ac=$5
+  if [ -z "$bc" ] || [ -z "$ac" ]; then
+    printf '%s %s -> %s, content unknown' "$name" "$b" "$a"
+  elif [ "$bc" != "$ac" ]; then
+    printf '%s CHANGED: %s -> %s' "$name" "$(identity image "$b" "$bc")" "$(identity image "$a" "$ac")"
+  elif [ "$b" = "$a" ]; then
+    printf '%s unchanged, %s' "$name" "$(identity image "$a" "$ac")"
+  else
+    printf '%s recreated with the same content: %s -> %s, content %s' "$name" "$b" "$a" "$ac"
+  fi
+}
+
 # cmd_switch on|off: changes FAMILY_LEDGERS_ENABLED (D-25) in .env and restarts api alone (F7). Preflight is verify's
 # (the role, health, Flyway and the stage aren't read here, since nothing about the code or schema changes): HEAD must
 # be the last good deploy, healthy, with the latest run finished, rolled back or adopted, never mid-flight. The pages
 # (F7b, D-41): a failure refuses "switch on"; "switch off" reports it and goes on, since the way back must always work.
 cmd_switch() {
-  local direction=$1 want old_line env_file backup_file head api_now web_now latest status api_log
+  local direction=$1 want old_line env_file backup_file head api_now web_now latest status api_log rc images_ok
+  local api_before web_before api_content_before web_content_before images_line
   case $direction in
     on) want=true OTHER=off ;;
     off) want=false OTHER=on ;;
@@ -951,11 +1034,26 @@ cmd_switch() {
 
   heading "1.4 Preflight: the clone, the last good deploy, no unfinished run"
   [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
-  api_now=$(container_image finance-tracker-api) || fail "no container finance-tracker-api: the stack isn't up"
-  web_now=$(container_image finance-tracker-web) || fail "no container finance-tracker-web: the stack isn't up"
+  running_images || fail "no container finance-tracker-api or finance-tracker-web: the stack isn't up"
+  api_before=$RUN_API web_before=$RUN_WEB api_content_before=$RUN_API_CONTENT web_content_before=$RUN_WEB_CONTENT
+  say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}"
+  say "Before: $(identity api "$api_before" "$api_content_before"); $(identity web "$web_before" "$web_content_before")"
   read_last_good || fail "no record of a last good deploy: deploy at least once first (deploy/deploy.sh run)"
-  [ "$LG_COMMIT" = "$head" ] && [ "$LG_API" = "$api_now" ] && [ "$LG_WEB" = "$web_now" ] \
-    || fail "HEAD ${head:0:7} with the running images is not the last good deploy (${LG_COMMIT:0:7}): deploy or roll back to it first"
+  [ "$LG_COMMIT" = "$head" ] \
+    || fail "HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}): deploy or roll back to it first"
+  # OPS-2, defect 4: the images by content, not by ID; unknown is never the same. switch off only reports it.
+  images_ok=yes
+  rc=0
+  compare_identity api "$LG_API" "$LG_API_CONTENT" "$api_before" "$api_content_before" || rc=$?
+  [ "$rc" -eq 0 ] || images_ok=no
+  rc=0
+  compare_identity web "$LG_WEB" "$LG_WEB_CONTENT" "$web_before" "$web_content_before" || rc=$?
+  [ "$rc" -eq 0 ] || images_ok=no
+  if [ "$images_ok" = no ]; then
+    [ "$direction" = off ] \
+      || fail "the running images are not the last good deploy's content, or their content is unknown: deploy, or roll back, first"
+    say "WARNING: the running images are not the last good deploy's content, or it is unknown; switching off goes on all the same, since the way back must always work"
+  fi
   [ -n "$latest" ] || fail "no run recorded in $STATE_DIR/runs: deploy and finish at least once first"
   status=$(cat "$latest/status" 2>/dev/null || echo 'without a status')
   case $status in
@@ -1046,13 +1144,32 @@ cmd_switch() {
   fi
   say "The same numbers"
 
-  api_now=$(container_image finance-tracker-api)
-  web_now=$(container_image finance-tracker-web)
+  heading "3.6 The images before and after"
+  # OPS-2, defect 4: "unchanged" only for the same content. A container recreated with the same content (from a
+  # :latest built again, under another ID) is the last good deploy still: last-good names its new ID, so that the next
+  # comparison by ID matches too.
+  running_images || fail "a container is gone after the restart"
+  api_now=$RUN_API web_now=$RUN_WEB
+  images_line=$(image_change api "$api_before" "$api_content_before" "$api_now" "$RUN_API_CONTENT")
+  images_line="$images_line; $(image_change web "$web_before" "$web_content_before" "$web_now" "$RUN_WEB_CONTENT")"
+  say "Images: $images_line"
+  case $images_line in
+    *CHANGED* | *unknown*)
+      [ "$direction" = off ] \
+        || fail "the restart started other content, or content that can't be read, than ran before: $images_line"
+      say "WARNING: other content, or content that can't be read, than ran before; switched off all the same"
+      ;;
+  esac
+  if [ "$images_ok" = yes ] && { [ "$api_now" != "$LG_API" ] || [ "$web_now" != "$LG_WEB" ]; }; then
+    write_last_good "$LG_COMMIT" "$api_now" "$web_now" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" "${LG_SOURCE:-deploy}" "$LG_FINISH"
+    say "last-good now names the running images, the same content under new IDs: api $api_now, web $web_now"
+    images_line="$images_line (last-good updated to the new IDs)"
+  fi
   add_history "switch-$direction" "$head" "$api_now" "$web_now"
   {
     say "Switch $direction on $(date -u +%F) at $(now): $(git log -1 --format='%h (%s)' "$head")"
     say "$SWITCH_VAR: ${old_line:-absent} -> $NEW_LINE"
-    say "Images unchanged: api $api_now, web $web_now"
+    say "Images: $images_line"
     say "D-25: $SWITCH_SEEN, as production now sets it ($SWITCH_HOW)"
     say "Pages before the switch: $PAGES_LINE"
     say "Numbers: the same before and after"

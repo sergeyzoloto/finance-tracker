@@ -60,8 +60,24 @@ preserved_dump_of() {
   fi
 }
 
+# target_image REPO COMMIT RECORDED_ID: TARGET_ID, the ID of finance-tracker-REPO:COMMIT, when it is the recorded
+# image, by ID or by content; stops the rollback (fail) otherwise.
+target_image() {
+  local repo=$1 sha=$2 recorded=$3 id content recorded_content
+  id=$(docker image inspect -f '{{.Id}}' "finance-tracker-$repo:$sha" 2>/dev/null) || fail "no image finance-tracker-$repo:$sha"
+  TARGET_ID=$id
+  [ "$id" != "$recorded" ] || return 0
+  content=$(content_of_image "finance-tracker-$repo:$sha") || content=''
+  recorded_content=$(content_of_id "$recorded") || recorded_content=''
+  [ -n "$content" ] && [ -n "$recorded_content" ] \
+    || fail "finance-tracker-$repo:$sha is $id, not the recorded $recorded, and the content of one of them can't be read"
+  [ "$content" = "$recorded_content" ] \
+    || fail "finance-tracker-$repo:$sha is $id (content $content), not the recorded $recorded (content $recorded_content)"
+  say "INFO finance-tracker-$repo:$sha is $id, another ID with the recorded content $content (recorded $recorded)"
+}
+
 cmd_rollback() {
-  local arg=$1 head sha api_now web_now id target_max family flyway problem
+  local arg=$1 head sha api_now web_now target_max family flyway problem tag_api tag_web
   [[ $arg =~ ^[0-9a-f]{7,40}$ ]] || usage
   PHASE=refusing
   trap on_exit_rollback EXIT
@@ -95,11 +111,13 @@ cmd_rollback() {
   say "Target: $(git log -1 --format='%h %s' "$sha"), the commit HEAD's deploy replaced ($(basename "$DR_DIR")); its status, its newest line in the history: $(commit_status "$sha")"
 
   heading "3. Its images"
-  id=$(docker image inspect -f '{{.Id}}' "finance-tracker-api:$sha" 2>/dev/null) || fail "no image finance-tracker-api:$sha"
-  [ "$id" = "$RT_API" ] || fail "finance-tracker-api:$sha is $id, not the recorded $RT_API"
-  id=$(docker image inspect -f '{{.Id}}' "finance-tracker-web:$sha" 2>/dev/null) || fail "no image finance-tracker-web:$sha"
-  [ "$id" = "$RT_WEB" ] || fail "finance-tracker-web:$sha is $id, not the recorded $RT_WEB"
-  say "api $RT_API, web $RT_WEB"
+  # OPS-2, defect 4: the tag's image is the recorded one by ID, or by content (another ID with the same content, as
+  # the containerd image store gives at each build); a content that can't be read is never taken as the same.
+  target_image api "$sha" "$RT_API"
+  tag_api=$TARGET_ID
+  target_image web "$sha" "$RT_WEB"
+  tag_web=$TARGET_ID
+  say "api $tag_api, web $tag_web"
 
   heading "4. The database (D-22)"
   flyway=$(flyway_row) || fail "could not read flyway_schema_history"
@@ -130,8 +148,8 @@ cmd_rollback() {
   docker tag "finance-tracker-web:$sha" finance-tracker-web
   (cd "$APP_DIR" && docker compose up -d --no-deps api web)
   add_history rolled-back-from "$head" "$api_now" "$web_now"
-  add_history rollback-to "$sha" "$RT_API" "$RT_WEB"
-  write_last_good "$sha" "$RT_API" "$RT_WEB" rollback
+  add_history rollback-to "$sha" "$tag_api" "$tag_web"
+  write_last_good "$sha" "$tag_api" "$tag_web" "$(content_of_image "$tag_api" || true)" "$(content_of_image "$tag_web" || true)" rollback
 
   heading "7. Health"
   wait_healthy || fail "api and web not both healthy after $HEALTH_TRIES checks"
@@ -162,7 +180,7 @@ main() {
   shopt -s inherit_errexit
   umask 077
   common_settings
-  PHASE=''
+  PHASE='' TARGET_ID=''
   [ $# -eq 1 ] || usage
   cmd_rollback "$1"
 }

@@ -736,7 +736,7 @@ It prints each step under a `==` heading:
 | Step | What it does | You should see |
 | --- | --- | --- |
 | 1.1 | The tools it needs, and the terminal | `Tools present: …` |
-| 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy (from F6c with its status, its newest line in `history`), and (from F6b) the read-only role of the checks | `HEAD: …`, `Running images: …`, `Last good deploy: …`, `Its status, its newest line in the history: …`, `The checks run as finance_checks: superuser=false read_all_data=true writes=0 read_only=true` |
+| 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy (from F6c with its status, its newest line in `history`), and (from F6b) the read-only role of the checks. Since OPS-2 (defect 4) the image store, the platform and each image's content identity, compared with the last good deploy's by content: the same ID, or `INFO` for another ID with the same content (a rebuild); a content that can't be read is REFUSED, with nothing changed | `HEAD: …`, `Running images: …`, `Image store: containerd, platform linux/amd64; content: …`, `Last good deploy: …`, `Its status, its newest line in the history: …`, `api: the recorded image, …` (or `INFO api: another image ID with the recorded content: …`), `The running images are the last good deploy's content`, `The checks run as finance_checks: superuser=false read_all_data=true writes=0 read_only=true` |
 | 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD`; a commit the clone doesn't have says to push it from the laptop first | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
 | 1.4 | `deploy/finance.caddy`, the postgres service and `postgres-init.sh` unchanged | `deploy/finance.caddy and the postgres service unchanged` |
 | 1.5 | CI's check runs of the commit, through GitHub's API | one line per check run, then `CI: N check runs, every one completed with success (…)`; while CI runs, `CI still runs; checking again in 60 s` |
@@ -745,7 +745,7 @@ It prints each step under a `==` heading:
 | 1.8 | A fresh backup, then the restore test; since OPS-2 (D-43) a copy of that dump in the run folder, mode 600, its name, size and SHA-256 in the run's `meta` | `Dump finance-….dump, … bytes, written at …, SHA-256 …`, the restore test's table, `PASS`, `The before-dump preserved as /var/lib/finance-deploy/runs/…/finance-….dump (mode 600, … bytes, SHA-256 …)` |
 | 2 | The confirmation | the commit and its commits; type the commit's first 7 characters, or anything else to stop with nothing changed |
 | 3.1 | `git merge --ff-only <commit>`, under `umask 022` since F7b, so the files it writes are 644 | `Fast-forward` and the files |
-| 3.2 | The running images, if they are the last good deploy's, tagged with its commit and as `:previous`; tags older than the last three revisions removed | `kept as :<commit> and :previous` |
+| 3.2 | The running images, if they are the last good deploy's content (since OPS-2: by content, from whichever image still holds it, since the containerd store deletes a manifest list no tag names), tagged with its commit and as `:previous`; tags older than the last three revisions removed | `kept as :<commit> and :previous` |
 | 3.3, 3.4 | `docker compose build api`, `build web`, `up -d --no-deps api web` | `Image … Built`, the containers started (a container whose image is the same stays as it is) |
 | 3.5 | Health, 60 × 5 s, as before | `api: healthy, web: healthy`, then `docker compose ps` and the prune |
 | 3.6 | (F7b) The pages through the public address, as users reach them, Caddy included: `/` with `<div id="root">`, `/privacy` and `/privacy.html` with `<h1>Privacy policy</h1>`, both favicons, each 200 (the list is `PAGES` in `deploy/common.sh`, the host the site block's of `deploy/finance.caddy`) | one line per page, then `Pages: 5 of 5 as expected through https://app.finance-nl.com` |
@@ -837,6 +837,10 @@ answered 403, and the switch went on with the published privacy policy unreachab
   (`baseline`, `good`, `finish-failed`, `rolled-back-from`, `rollback-to`, `adopted`, and since F7 `switch-on`,
   `switch-off`); a commit's status is its newest line (F6c), and a finish that passes adds `good`. Both are written by
   the scripts only; F6b's scripts read what OPS-1's wrote, F6c's what F6b's wrote.
+- `contents` (OPS-2): one line per image ID the scripts have seen, `<image ID> <content identity>`, so that an ID's
+  content is known after the image store deleted it; `last-good` also holds `api_content` and `web_content` since
+  OPS-2 (a `last-good` without them, as `4510003`'s scripts wrote it, gets them worked out from the image, or from the
+  container that runs it).
 - The images: `finance-tracker-api:<commit>` and `finance-tracker-web:<commit>` for the last three revisions, and
   `:previous` for the last good deploy's, whose commit `/root/finance-tracker.previous` names, as
   [Update the app](#update-the-app) did. The lock: `/run/lock/finance-deploy.lock`.
@@ -855,9 +859,21 @@ ls -ltr --time-style=+%FT%TZ /var/lib/finance-deploy/runs/*/finance-*.dump; du -
 Then remove one copy at a time with `rm -i` and its full path, typed from that list, never a pattern; the run folder
 and its other files stay.
 
+**Image identity** (OPS-2, defect 4). In Docker's containerd image store, which production uses, an image's ID is the
+digest of a manifest list, and BuildKit's attestations make a new one at every build, also of the same content
+(api `6d6f35b8…`, `4517bb90…`, `a4e0c660…`, `bb3bdef3…`, all with the config `03ecad3b…`); the list that a tag no
+longer names is deleted, even while a container runs it, and `docker tag` of its ID fails. Compose recreates a
+container only when its manifest changed, so a rebuild of the same content leaves it running, while anything that
+recreates it (a `switch`) starts it from the newer `:latest`. Since OPS-2 the scripts compare images by their content
+identity: the platform manifest's digest in the containerd store (it names the config digest and every layer's), the
+image ID, which is the config digest, in the classic store, read as `docker image inspect --platform <os/arch>` and a
+container's `ImageManifestDescriptor`. Another ID with the same content is `INFO`; a content that can't be read is
+never taken as the same.
+
 **Checking at any time, read only:** `cd /opt/finance-tracker && deploy/deploy.sh verify <stage>` prints whether the
 read-only role is as this runbook makes it (without it, a problem, and the database's checks below are skipped), the
-health of api and web, the pages of step 3.6 (since F7b; a page that fails is a problem), Flyway's latest row against the highest migration, the stage's checks against `<stage>.expected`, the
+images (since OPS-2: the store, each running image's ID and content identity against `last-good`'s; other content or
+an unknown one is a problem, another ID with the same content `INFO`), the health of api and web, the pages of step 3.6 (since F7b; a page that fails is a problem), Flyway's latest row against the highest migration, the stage's checks against `<stage>.expected`, the
 D-25 line (a warning if it is no longer in the retained log), and the numbers, then `verify <stage>: OK` or the
 problems. It takes no backup and changes nothing.
 
@@ -971,7 +987,11 @@ asks you to type `SWITCH ON` or `SWITCH OFF`, then: copies `.env` beside itself 
 (mode 600), changes or adds only that one line (never another, even on a bug: it refuses first),
 restarts `api` alone with `docker compose up -d --no-deps api` (`web` keeps running), checks health
 and the D-25 line against the new value, checks the numbers are the same before and after (nothing in
-the database changes), and writes a `switch-on` or `switch-off` line in `history` and a summary for
+the database changes), prints api's and web's image ID and content identity before and after (since
+OPS-2, defect 4: "unchanged" only for the same content; a container recreated with the same content
+under another ID, as `:latest` rebuilt gives, makes `last-good` name the new ID; other content, or one
+that can't be read, fails `switch on` after the change and is a WARNING for `switch off`), and writes
+a `switch-on` or `switch-off` line in `history` and a summary for
 [Deployed revisions](#deployed-revisions). It takes no backup and runs no restore test, since nothing
 in the database changes. On a failure after the change it prints the exact way back
 (`deploy/deploy.sh switch off` after a failed `switch on`, and the other way round) and stops: it
@@ -1015,7 +1035,8 @@ cd /opt/finance-tracker && IFS= read -r -p 'Commit to roll back to, as deploy.sh
 ```
 
 It refuses, changing nothing, a commit the clone doesn't know, any commit but the one HEAD's deploy replaced (it names
-that one), a commit whose images are missing or aren't the recorded ones, without the read-only role (then it names
+that one), a commit whose images are missing or aren't the recorded ones (since OPS-2 by content: another ID with the
+recorded content is `INFO`), without the read-only role (then it names
 [Roll an update back](#roll-an-update-back), the manual way), and, by D-22, a commit below
 V7 while production holds family records: the code before F4a can't read the entry kinds the family budget posts, so
 that needs [Restore from a backup](#restore-from-a-backup) of the dump taken before the deploy. Otherwise every

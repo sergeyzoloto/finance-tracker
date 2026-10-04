@@ -5,8 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-04 · Deploy scripts: OPS-2's defects 1 to 4, CI before 2026-10-19, OPS-2's checklist (OPS-2)
 
-Commits on `feature/family-budget`: `c45d956` (the deploy facts, the entry below), then "ops: the before-dump
-preserved (D-43)", whose hash belongs here with the next commit. Not pushed, not merged, not deployed.
+Commits on `feature/family-budget`: `c45d956` (the deploy facts, the entry below), `685deb3` ("ops: the before-dump
+preserved (D-43)"), then "ops: images by content identity (defect 4)", whose hash belongs here with the next commit.
+Not pushed, not merged, not deployed.
 
 **Changes**
 - Defect 3 (D-43, decided by the PM): the before-dump could be overwritten. pg-backup names dumps by the UTC
@@ -31,7 +32,68 @@ preserved (D-43)", whose hash belongs here with the next commit. Not pushed, not
     `rollback_below_v7` checks the copy named. Five mutations: a hard link, no wait, no name check, no SHA-256 check,
     no copy named by `rollback.sh`.
 
+- Defect 4: images compared by ID, which in the containerd image store says nothing about content.
+  - Reproduced on the laptop with temporary images only (a busybox Dockerfile, a compose project
+    `ops2-d4-repro`), removed afterwards. The laptop's own Docker 29.8.1 uses the classic store (overlay2): two
+    builds gave the same ID, `sha256:d8261eca…`, the config digest, and `up -d` left the container "Running". In a
+    throwaway `docker:29-dind` (Docker 29.8.2, `driver-type io.containerd.snapshotter.v1`, Compose 5.5.1), with the
+    BuildKit output's "unpacking to": the first build exported manifest `sha256:3f6284ad…`, config
+    `sha256:52651eda…`, attestation manifest `sha256:89fb42b6…` and manifest list `sha256:c3602d95…`, the image's ID;
+    the second, of the same content, the same manifest and config but attestation `sha256:1210c716…` and list
+    `sha256:69d5074a…`, a new ID. `up -d` left the container on `c3602d95…` ("Running"): Compose's label
+    `com.docker.compose.image` holds the manifest's digest, `3f6284ad…`, which didn't change. Changing the service's
+    environment (as `switch` changes `.env`) recreated it from `:latest`, `69d5074a…`. Meanwhile `c3602d95…` was gone
+    from the store ("No such image" for `docker image inspect` and `docker tag`; containerd's image list held only
+    the new list), while the container ran it.
+  - So in production: every build of the same content gets a new ID (the attestation manifest differs at every build,
+    and with it the list's digest); `run`'s `up -d` doesn't recreate a container whose manifest is the same,
+    while `switch`'s restart, for another environment, does, from the newer `:latest`; between the two, the tag
+    named the newer list while the container ran the older one, which no tag held any more.
+  - The content identity, read from the store, not a build change: `docker image inspect --platform <os/arch>`
+    answers the platform manifest's digest in the containerd store and the config digest (the ID) in the classic
+    store, and a container's `ImageManifestDescriptor` holds that manifest's digest (none in the classic store, where
+    its `.Image` is the config digest). That works for images already built and state already written, which a
+    build without attestations can't fix, and the ID in the containerd store would still be a manifest's, not the
+    config's. Building without attestations would also change the services' build options, so Compose would
+    recreate api and web at OPS-2's deploy, and what is now proven to run would be rebuilt.
+  - `deploy/common.sh`: `image_store` and `server_platform` (from `docker info` and `docker version`),
+    `content_of_image`, `content_of_container`, `content_of_id` (recorded, else from the image, else from a
+    container that runs it), `running_images`, `compare_identity` (the same ID; `INFO` for another ID with the same
+    content; other content; unknown, never taken as the same). A new state file `contents` (`<image ID> <content>`
+    lines, parsed only) keeps an ID's content after the store deleted the image. `last-good` gains `api_content`
+    and `web_content`; a `last-good` without them, as `4510003`'s scripts write it, gets them worked out while the
+    image or a container holds it. `write_last_good` takes the two contents.
+  - `deploy/deploy.sh`: `run`'s step 1.2 prints the store, the platform and each content, compares them with the
+    last good deploy's, and refuses (nothing changed) when the running containers' content can't be read. Step 3.2
+    keeps the last good deploy's images by content, tagging whichever image still holds it (the recorded ID, the
+    running one, its commit's tag, `:previous` or `:latest`); 4510003's step 3.2 called that state "a failed run's"
+    on 2026-10-04. `finish`, `adopt`, the baseline and the postflight record the contents. `verify` has "The images"
+    (other content or unknown is a problem, another ID with the same content `INFO`; it writes nothing). `switch`'s
+    step 1.4 compares by content (`switch on` refuses on other content or unknown, `switch off` warns and goes on);
+    a new step 3.6 prints api's and web's ID and content before and after, "unchanged" only for the same content,
+    "recreated with the same content" otherwise, and then makes `last-good` name the new IDs so that the next
+    comparison by ID matches too; other content or an unknown one after the restart fails `switch on` and is a
+    warning for `switch off`. The summary's "Images" line says which.
+  - `deploy/rollback.sh`: step 3 accepts the commit's tag by ID or by content (`INFO`), never an unknown content.
+  - Tests: the docker stub has the classic store (the default; a build of the same content keeps its ID), the
+    containerd store (`store` file: a new ID at every build, content identities in `content/`, an ID no tag names
+    gone, the containers' `ImageManifestDescriptor`, Compose recreating by content) and a broken one; and answers
+    `docker info`, `docker version` and `image inspect --platform`. New cases: `same_content_new_id` (2026-10-03's
+    `switch on`: recreated with the same content, `last-good` updated, then `verify` and the next run match),
+    `last_good_id_differs_same_content` (the state before 2026-10-04's run: `INFO`, the images kept by content, and
+    a rollback by content), `different_content`, `identity_unavailable` and `old_format_state`.
+    `repeat_after_failure` and `run_fails_on_a_page` read the new wording (after a failed run `verify` now also
+    names api and web). Six mutations: compare by ID, unknown taken as the same, switch calling unknown
+    "unchanged", switch leaving `last-good`, old `last-good` without contents, `rollback.sh` by ID only.
+  - The runbook: "Image identity", steps 1.2 and 3.2, `verify`, `switch`, `rollback.sh`, the `contents` file.
+
 **Verified**
+- Commit 3: `deploy/tests/run.sh` 74 of 74; `deploy/tests/mutate.sh` all 39 caught (the six new ones by
+  `last_good_id_differs_same_content`, `identity_unavailable` twice, `same_content_new_id`, `old_format_state` and
+  `last_good_id_differs_same_content`); ShellCheck clean. "let switch on ignore a failed page" now names its line in
+  full, since `[ "$direction" = off ]` occurs three times. The reproduction above, with its containers, images and
+  the dind's volume removed afterwards (`docker volume prune -f`, which also removed any other unused anonymous
+  volume on the laptop; named volumes such as `finance-tracker_local-db` stay).
 - Commit 2: `deploy/tests/run.sh` 69 of 69; `deploy/tests/mutate.sh` all 33 mutations caught (the five new ones by
   `dump_overwritten_in_place`, `dumps_in_the_same_minute`, `dump_overwritten_in_place`, `preserved_dump_changed`
   and `rollback_below_v7`); ShellCheck 0.11.0 clean.

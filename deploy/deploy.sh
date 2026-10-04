@@ -656,9 +656,9 @@ latest_deployed_run() {
     case $status in
       deployed | finished | finish-failed) [ -f "$dir/meta" ] && return 0 ;;
     esac
-    fail "the latest run that isn't refused, $dir, is $status, not deployed: nothing to finish"
+    fail "the latest run that isn't refused, $dir, is $status, not deployed: nothing to finish; deploy/deploy.sh verify <stage> checks what runs"
   done < <(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r)
-  fail "no deployed run in $STATE_DIR/runs: nothing to finish"
+  fail "no deployed run in $STATE_DIR/runs: nothing to finish; deploy/deploy.sh verify <stage> checks what runs"
 }
 
 cmd_finish() {
@@ -973,9 +973,11 @@ on_exit_switch() {
   elif [ "$PHASE" != complete ]; then
     say ""
     say "FAILED at \"$STEP\": ${REASON:-an unexpected error, exit code $rc}"
-    say "$SWITCH_VAR in .env was already changed to $NEW_LINE before this failed. Look at it by hand, or switch back"
-    say "with, on the server, alone in its block:"
-    say "  cd $REPO_DIR && deploy/deploy.sh switch $OTHER"
+    say "$SWITCH_VAR in .env was already changed to $NEW_LINE before this failed. Look at it by hand, then, on the"
+    # OPS-2, defect 1: the way is switch off either way, which no stop refuses: back after a failed switch on, again
+    # after a failed switch off. A switch on waits until a switch has completed.
+    say "server, alone in its block, $([ "$OTHER" = on ] && echo 'run it again' || echo 'switch back') (no stop refuses it):"
+    say "  cd $REPO_DIR && deploy/deploy.sh switch off"
     say "Never switch back on its own: it does not do that for you."
     set_status failed
   fi
@@ -1005,7 +1007,7 @@ image_change() {
 # (F7b, D-41): a failure refuses "switch on"; "switch off" reports it and goes on, since the way back must always work.
 cmd_switch() {
   local direction=$1 want old_line env_file backup_file head api_now web_now latest status api_log rc images_ok
-  local api_before web_before api_content_before web_content_before images_line
+  local api_before web_before api_content_before web_content_before images_line why
   case $direction in
     on) want=true OTHER=off ;;
     off) want=false OTHER=on ;;
@@ -1017,8 +1019,8 @@ cmd_switch() {
   take_lock exclusive
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   head=$(git rev-parse HEAD)
-  # Found before start_log makes this run's own folder, the newest otherwise (as cmd_adopt finds its latest run).
-  latest=$(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1 || true)
+  # Found before start_log makes this run's own folder: the newest that isn't refused (OPS-2, defect 1).
+  latest=$(latest_unrefused_run)
   start_log "switch-$direction"
   print_settings
 
@@ -1030,7 +1032,10 @@ cmd_switch() {
   require_checks_role
 
   heading "1.3 Preflight: health"
-  wait_healthy || fail "api and web not both healthy"
+  if ! wait_healthy; then
+    [ "$direction" = off ] || fail "api and web not both healthy"
+    say "WARNING: api and web not both healthy; switching off goes on all the same, since the way back must always work"
+  fi
 
   heading "1.4 Preflight: the clone, the last good deploy, no unfinished run"
   [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
@@ -1038,9 +1043,14 @@ cmd_switch() {
   api_before=$RUN_API web_before=$RUN_WEB api_content_before=$RUN_API_CONTENT web_content_before=$RUN_WEB_CONTENT
   say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}"
   say "Before: $(identity api "$api_before" "$api_content_before"); $(identity web "$web_before" "$web_content_before")"
-  read_last_good || fail "no record of a last good deploy: deploy at least once first (deploy/deploy.sh run)"
-  [ "$LG_COMMIT" = "$head" ] \
-    || fail "HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}): deploy or roll back to it first"
+  if ! read_last_good; then
+    [ "$direction" = off ] || fail "no record of a last good deploy: deploy at least once first (deploy/deploy.sh run)"
+    say "WARNING: no record of a last good deploy; switching off goes on all the same"
+  elif [ "$LG_COMMIT" != "$head" ]; then
+    [ "$direction" = off ] \
+      || fail "HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}): deploy it and finish, or roll back to it, first"
+    say "WARNING: HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}); switching off goes on all the same"
+  fi
   # OPS-2, defect 4: the images by content, not by ID; unknown is never the same. switch off only reports it.
   images_ok=yes
   rc=0
@@ -1054,20 +1064,34 @@ cmd_switch() {
       || fail "the running images are not the last good deploy's content, or their content is unknown: deploy, or roll back, first"
     say "WARNING: the running images are not the last good deploy's content, or it is unknown; switching off goes on all the same, since the way back must always work"
   fi
-  [ -n "$latest" ] || fail "no run recorded in $STATE_DIR/runs: deploy and finish at least once first"
-  status=$(cat "$latest/status" 2>/dev/null || echo 'without a status')
-  case $status in
-    finished | rolled-back | adopted | switch-on | switch-off) ;;
-    *) fail "the latest run, ${latest##*/}, is $status, not finished: run deploy.sh finish first, or resolve the stop" ;;
-  esac
-  say "HEAD: $(git log -1 --format='%h %s' HEAD), the last good deploy ($status), api and web healthy"
+  # OPS-2, defect 1: only real unfinished work blocks, never a refused run; switch off never refuses for it.
+  if [ -z "$latest" ]; then
+    why="no run recorded in $STATE_DIR/runs: deploy with deploy/deploy.sh run, then deploy/deploy.sh finish, first"
+    status=none
+  else
+    why=$(unfinished_work "$latest")
+    status=$(cat "$latest/status" 2>/dev/null || echo 'without a status')
+    say "The latest run that isn't refused: ${latest##*/}, $status"
+  fi
+  if [ -n "$why" ]; then
+    [ "$direction" = off ] || fail "$why"
+    say "WARNING: $why; switching off goes on all the same, since the way back must always work"
+  fi
+  say "HEAD: $(git log -1 --format='%h %s' HEAD), the last good deploy ${LG_COMMIT:0:7} ($status)"
 
   heading "1.5 Preflight: the current switch"
   env_file=$APP_DIR/.env
   [ -f "$env_file" ] || fail "$env_file is missing (the runbook's step 5)"
   old_line=$(switch_line_of "$env_file")
   say "Current: $SWITCH_VAR is $(switch_shown "$old_line")"
-  [ "$old_line" != "$NEW_LINE" ] || fail "$SWITCH_VAR is already $want: nothing to switch"
+  # OPS-2, defect 1: "nothing to switch" only when the running api reads it too; after a switch stopped between the
+  # change of .env and the restart, it restarts api.
+  switch_expected
+  say "The running api: $SWITCH_HOW"
+  if [ "$old_line" = "$NEW_LINE" ]; then
+    [ "$SWITCH_HOW" != "$NEW_LINE, so $direction" ] || fail "$SWITCH_VAR is already $want: nothing to switch"
+    say ".env already says $NEW_LINE, but the api runs with $SWITCH_HOW: this restarts it"
+  fi
   say "Will become: $NEW_LINE"
 
   heading "1.6 Preflight: the numbers before"

@@ -974,7 +974,19 @@ cd /opt/finance-tracker && deploy/deploy.sh adopt
 `deploy/deploy.sh switch on|off` (F7) is the only way to change `FAMILY_LEDGERS_ENABLED` (D-25) in
 `/opt/finance-tracker/deploy/app/.env`: never edit the file by hand. Preflight is `verify`'s (the
 read-only role, health, the numbers before) plus HEAD must be the last good deploy and the latest
-run must be finished, rolled back, adopted or an earlier switch, never mid-flight, and (since F7b's
+run that isn't refused must be finished, rolled back, adopted or a completed switch, never
+mid-flight (since OPS-2, defect 1: a refused run, switch, adopt or rollback changed nothing and
+never counts; on 2026-10-03 a switch refused at its confirmation blocked the next one, and on
+2026-10-04 one refused as already on would have blocked `switch off`). Only real unfinished work
+blocks `switch on`, and its refusal names the command that resolves it: a deploy without its
+`finish` (`deploy/deploy.sh finish`), a deploy that stopped or failed its finish (judge it; roll
+back, run it again, `finish` again or `adopt`), or a switch that changed `.env` or restarted api and
+didn't complete (`deploy/deploy.sh switch off`). **`switch off` never refuses for any of these**,
+nor for health, a HEAD that isn't the last good deploy, or images that aren't its content: it prints
+each as a WARNING and goes on, since the way back must always work; it still needs a terminal, the
+read-only role (for the numbers) and `.env`. "Nothing to switch" (REFUSED at 1.5) only when `.env`
+and the running api both already have the value; after a switch that changed `.env` but stopped
+before the restart, the same switch again restarts api. And (since F7b's
 fourth commit, D-41) the pages of `PAGES` in `deploy/common.sh` through the public address, as
 `verify` checks them: `switch on` refuses, changing nothing and before its question, while any page
 fails ("REFUSED at "1.7 Preflight: the pages": a page isn't as expected (FAILED through
@@ -994,8 +1006,8 @@ that can't be read, fails `switch on` after the change and is a WARNING for `swi
 a `switch-on` or `switch-off` line in `history` and a summary for
 [Deployed revisions](#deployed-revisions). It takes no backup and runs no restore test, since nothing
 in the database changes. On a failure after the change it prints the exact way back
-(`deploy/deploy.sh switch off` after a failed `switch on`, and the other way round) and stops: it
-never switches back by itself.
+(since OPS-2 always `deploy/deploy.sh switch off`: back after a failed `switch on`, again after a
+failed `switch off`) and stops: it never switches back by itself.
 
 ```bash
 # On the server: only once the stage's deploy has finished (deploy.sh finish), never mid-deploy

@@ -1769,6 +1769,134 @@ case_old_format_state() {
   check "3.2 tags none" out_has "They take no tag"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# OPS-2, defect 1: a refused switch never blocks what comes next; only real unfinished work does.
+
+# Refused at the confirmation twice in a row (on 2026-10-03 the answer was the next pasted block): each next switch
+# reaches the confirmation again, and the third goes through.
+case_switch_refused_at_the_confirmation() {
+  switch_ready
+  type_at_terminal "no"
+  run_deploy switch on
+  check "first: refused at the confirmation" out_has 'REFUSED at "2. Confirmation": not confirmed'
+  check "first: status refused" status_is refused
+  sleep 1
+  type_at_terminal "# On the server"
+  run_deploy switch on
+  check "second: reached the confirmation again" out_has "Type SWITCH ON"
+  check "second: refused there, not at 1.4" out_has 'REFUSED at "2. Confirmation": not confirmed'
+  check "second: says the refused run doesn't count" out_lacks "is refused, not finished"
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "third: switched on" rc_is 0
+  check ".env true" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=true"
+}
+
+# Production's state on 2026-10-04 (J): a switch on refused at its preflight, already on. switch off works, and so do
+# finish, verify and run.
+case_switch_refused_as_already_on() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on" rc_is 0
+  sleep 1
+  run_deploy switch on
+  check "J: refused at 1.5" out_has 'REFUSED at "1.5 Preflight: the current switch": FAMILY_LEDGERS_ENABLED is already true: nothing to switch'
+  check "J: status refused" status_is refused
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "switch off after it: exit code 0" rc_is 0
+  check "switch off: no warning about the refused run" out_lacks "WARNING: the switch"
+  check ".env false" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=false"
+  run_deploy verify OPS-1
+  check "verify: OK" out_has "verify OPS-1: OK"
+}
+
+# Refused at a pre-check (a page): the next switch, once the page is fixed, reaches the confirmation and goes through.
+case_switch_refused_at_a_precheck() {
+  switch_ready
+  fixture pages "/privacy 403"
+  run_deploy switch on
+  check "refused at the pages" out_has 'REFUSED at "1.7 Preflight: the pages"'
+  rm "$STUB_STATE/fixtures/pages"
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "then switched on" rc_is 0
+}
+
+# A switch on that changed .env and failed at health: switch on refuses and names switch off; switch off goes on.
+case_switch_interrupted_after_the_change() {
+  switch_ready
+  fixture health-api starting
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "failed after the change" out_has 'FAILED at "3.3 Health"'
+  check "names switch off" out_has "deploy/deploy.sh switch off"
+  sleep 1
+  run_deploy switch on
+  check "switch on: refused" out_has "REFUSED at \"1.3 Preflight: health\""
+  fixture health-api healthy
+  echo healthy >"$STUB_STATE/containers/finance-tracker-api/health"
+  sleep 1
+  run_deploy switch on
+  check "switch on, healthy: refused at 1.4" out_has 'REFUSED at "1.4 Preflight: the clone, the last good deploy, no unfinished run"'
+  check "names the interrupted switch and switch off" out_has "changed .env or restarted api and did not complete (failed): run deploy/deploy.sh switch off"
+  check "never asked" out_lacks "Type SWITCH ON"
+  echo starting >"$STUB_STATE/containers/finance-tracker-api/health"
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "switch off goes on" rc_is 0
+  check "warns about health" out_has "WARNING: api and web not both healthy; switching off goes on all the same"
+  check "warns about the interrupted switch" out_has "WARNING: the switch"
+  check ".env false" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=false"
+  check "status switch-off" status_is switch-off
+}
+
+# A switch off that changed .env but whose restart failed: .env says false, the api still runs with true. switch off
+# again restarts it, rather than "nothing to switch", and the way back it prints is switch off.
+case_switch_off_after_a_failed_restart() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on" rc_is 0
+  sleep 1
+  fixture up-fails yes
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "failed at the restart" out_has 'FAILED at "3.2 Restart api"'
+  check "the way back is switch off again" out_has "run it again (no stop refuses it):"
+  check "not switch on" out_lacks "deploy/deploy.sh switch on"
+  check ".env already false" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=false"
+  rm "$STUB_STATE/fixtures/up-fails"
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "switch off again: exit code 0" rc_is 0
+  check "restarts the api that still runs with true" out_has ".env already says FAMILY_LEDGERS_ENABLED=false, but the api runs with FAMILY_LEDGERS_ENABLED=true, so on: this restarts it"
+  check "D-25 off" out_has '"Family ledgers (D-25): off; the family endpoints answer 404" at'
+}
+
+# switch on after a deploy without its finish: refused, naming finish; switch off goes on with a warning.
+case_switch_after_an_unfinished_run() {
+  setup_case
+  new_target
+  deploy_e
+  check "deployed" rc_is 0
+  run_deploy switch on
+  check "switch on refused" out_has 'REFUSED at "1.4 Preflight: the clone, the last good deploy, no unfinished run"'
+  check "names finish" out_has "has no finish yet: do its browser checks and smoke test, then run deploy/deploy.sh finish"
+  sleep 1
+  echo 'FAMILY_LEDGERS_ENABLED=true' >>"$C/server/deploy/app/.env"
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "switch off goes on" rc_is 0
+  check "with a warning naming finish" out_has "WARNING: the deploy"
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -1799,6 +1927,8 @@ CASES=(
   large_pages_pass switch_on_refuses_on_a_failed_page switch_off_goes_on_despite_a_failed_page
   dumps_in_the_same_minute dump_overwritten_in_place preserved_dump_changed
   same_content_new_id last_good_id_differs_same_content different_content identity_unavailable old_format_state
+  switch_refused_at_the_confirmation switch_refused_as_already_on switch_refused_at_a_precheck
+  switch_interrupted_after_the_change switch_off_after_a_failed_restart switch_after_an_unfinished_run
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

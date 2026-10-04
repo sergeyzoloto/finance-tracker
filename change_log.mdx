@@ -6,7 +6,8 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 ## 2026-10-04 · Deploy scripts: OPS-2's defects 1 to 4, CI before 2026-10-19, OPS-2's checklist (OPS-2)
 
 Commits on `feature/family-budget`: `c45d956` (the deploy facts, the entry below), `685deb3` ("ops: the before-dump
-preserved (D-43)"), then "ops: images by content identity (defect 4)", whose hash belongs here with the next commit.
+preserved (D-43)"), `789b8c6` ("ops: images by content identity (defect 4)"), then "ops: a refused switch blocks
+nothing (defect 1)", whose hash belongs here with the next commit.
 Not pushed, not merged, not deployed.
 
 **Changes**
@@ -87,7 +88,38 @@ Not pushed, not merged, not deployed.
     "unchanged", switch leaving `last-good`, old `last-good` without contents, `rollback.sh` by ID only.
   - The runbook: "Image identity", steps 1.2 and 3.2, `verify`, `switch`, `rollback.sh`, the `contents` file.
 
+- Defect 1: a refused switch blocked the next one. `4510003`'s `switch` took the newest run folder, whatever its
+  status, so a `switch` refused at its confirmation (2026-10-03, 09:05:56Z and 09:20:28Z) made the next one stop at
+  step 1.4 with "run deploy.sh finish first", and the one refused as already on (2026-10-04, 14:17:41Z) blocks
+  `switch off` in production now. Found along the way: from 2026-10-03T09:25:40Z until the empty run of 2026-10-04,
+  `4510003`'s step 1.4 would also have refused `switch off` by image ID (`last-good`'s api `6d6f35b8…` against the
+  running `bb3bdef3…`, defect 4).
+  - `deploy/common.sh`: `latest_unrefused_run` (the newest folder that isn't `refused`) and `unfinished_work` (why a
+    run is real unfinished work, with the command that resolves it: a deploy without its finish, `finish`; a deploy
+    that stopped or failed its finish, judge it, then roll back, run again, `finish` again or `adopt`; a switch that
+    changed `.env` or restarted api and didn't complete, `switch off`; a rollback that didn't complete, by hand).
+  - `deploy/deploy.sh switch`: step 1.4 asks those two; a refused run of any kind never counts. `switch on` refuses
+    on unfinished work, naming the command; `switch off` never refuses for it, nor for health (1.3), a HEAD that
+    isn't the last good deploy or images that aren't its content: each is a WARNING. Step 1.5 says "nothing to
+    switch" only when `.env` and the running api both have the value already; otherwise the same switch restarts
+    api. A failed switch names `switch off` as the way, back after a failed `switch on`, again after a failed
+    `switch off` (`4510003`'s named `switch on` there, which step 1.4 then refused).
+  - `finish`'s "nothing to finish" names `verify`.
+  - The runbook's "Switch the family budget on or off".
+  - Tests: the docker stub's `up-fails`. New cases `switch_refused_at_the_confirmation` (twice, then through),
+    `switch_refused_as_already_on` (production's state after J: `switch off`, then `verify`),
+    `switch_refused_at_a_precheck` (a page), `switch_interrupted_after_the_change` (`switch on` refused at health,
+    then at 1.4 naming `switch off`, which goes on), `switch_off_after_a_failed_restart` (`.env` false, the api still
+    true: `switch off` again restarts it) and `switch_after_an_unfinished_run` (`switch on` names `finish`, `switch
+    off` warns). Five mutations: a refused run deciding, switch off refusing for unfinished work, an interrupted
+    switch taken as done, "nothing to switch" by `.env` alone, `switch on` named after a failed `switch off`.
+  - `switch on` in the interrupted state: REFUSED at step 1.3 while the api is unhealthy, else at step 1.4,
+    "… did not complete (failed): run deploy/deploy.sh switch off"; once that `switch off` completes, `switch on`
+    works again.
+
 **Verified**
+- Commit 4: `deploy/tests/run.sh` 80 of 80; `deploy/tests/mutate.sh` all 44 caught (the five new ones by the cases
+  named above); ShellCheck clean. F7's mutation "drop switch's way back after a failure" names the new line.
 - Commit 3: `deploy/tests/run.sh` 74 of 74; `deploy/tests/mutate.sh` all 39 caught (the six new ones by
   `last_good_id_differs_same_content`, `identity_unavailable` twice, `same_content_new_id`, `old_format_state` and
   `last_good_id_differs_same_content`); ShellCheck clean. "let switch on ignore a failed page" now names its line in

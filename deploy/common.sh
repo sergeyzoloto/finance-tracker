@@ -489,6 +489,55 @@ commit_status() {
   printf '%s' "$status"
 }
 
+# latest_unrefused_run: the newest run folder whose status isn't refused, or nothing (OPS-2, defect 1). A refused run,
+# adopt, switch or rollback changed nothing, so it never decides what may come next: on 2026-10-03 a switch refused at
+# its confirmation blocked the next switch, and on 2026-10-04 one refused as already on would have blocked switch off.
+latest_unrefused_run() {
+  local dir
+  while IFS= read -r dir; do
+    [ "$(cat "$dir/status" 2>/dev/null || true)" != refused ] || continue
+    printf '%s' "$dir"
+    return 0
+  done < <(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r)
+}
+
+# unfinished_work DIR: why the run in DIR is real unfinished work, with the command that resolves it, or nothing when it
+# is done: finished, rolled back, adopted, or a switch that completed.
+unfinished_work() {
+  local name=${1##*/} status
+  status=$(cat "$1/status" 2>/dev/null || echo 'without a status')
+  case $status in
+    finished | rolled-back | adopted | switch-on | switch-off) return 0 ;;
+  esac
+  case $name in
+    *-switch-on | *-switch-off)
+      printf 'the switch %s changed .env or restarted api and did not complete (%s): run deploy/deploy.sh switch off' \
+        "$name" "$status"
+      ;;
+    *-rollback-*)
+      printf 'the rollback %s did not complete (%s): look at it by hand (deploy/RUNBOOK.md, "Roll an update back")' \
+        "$name" "$status"
+      ;;
+    *-adopt-*) printf 'the adoption %s is %s: run deploy/deploy.sh adopt again' "$name" "$status" ;;
+    *)
+      case $status in
+        deployed)
+          printf 'the deploy %s has no finish yet: do its browser checks and smoke test, then run deploy/deploy.sh finish' \
+            "$name"
+          ;;
+        finish-failed)
+          printf 'the deploy %s did not pass its finish: fix the cause and run deploy/deploy.sh finish again, or roll back with deploy/rollback.sh' \
+            "$name"
+          ;;
+        *)
+          printf 'the deploy %s stopped (%s): judge it (deploy/RUNBOOK.md, "When it stops"), then roll back with deploy/rollback.sh, run it again, or record it with deploy/deploy.sh adopt' \
+            "$name" "$status"
+          ;;
+      esac
+      ;;
+  esac
+}
+
 # deploy_run_of COMMIT: the newest run folder of a deploy of COMMIT that went past preflight (status not refused) and
 # replaced another commit, into DR_DIR and DR_BASE; returns 1 if none. A repeated run of the same commit records the
 # commit that the first one replaced as its base, as deploy.sh's preflight works it out.

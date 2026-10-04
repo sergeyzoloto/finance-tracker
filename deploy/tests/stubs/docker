@@ -131,6 +131,8 @@ psql_call() {
 }
 
 up() {
+  # fixtures/up-fails: compose fails before it touches a container (OPS-2, defect 1's interrupted switch).
+  [ ! -f "$S/fixtures/up-fails" ] || { echo "up failed (stub)" >&2; exit 1; }
   # Services named on the command line (api, web); both when none are, as every real call here names at least one.
   local svc name id line want_switch cur_switch d25 services=() image_changed env_changed
   for svc in "$@"; do

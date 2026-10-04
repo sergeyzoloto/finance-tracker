@@ -151,7 +151,7 @@ mutation "print the environment while switching" \
 
 # F7: the way back not printed after a failure past the change.
 mutation "drop switch's way back after a failure" \
-  '    say "  cd $REPO_DIR && deploy/deploy.sh switch $OTHER"' '    : way back not printed' \
+  '    say "  cd $REPO_DIR && deploy/deploy.sh switch off"' '    : way back not printed' \
   switch_failure_prints_the_way_back
 
 # F7b: the page check dropped from run, after health.
@@ -248,6 +248,33 @@ mutation_in common.sh "don't work out old last-good's content" \
 mutation_in rollback.sh "let rollback.sh compare by ID only" \
   '  [ "$content" = "$recorded_content" ] ' '  false ' \
   last_good_id_differs_same_content
+
+# OPS-2, defect 1: switch's step 1.4 taking a refused run as the latest, as 4510003's did.
+mutation_in common.sh "let a refused run decide what comes next" \
+  $'    [ "$(cat "$dir/status" 2>/dev/null || true)" != refused ] || continue\n    printf' $'    printf' \
+  switch_refused_at_the_confirmation switch_refused_as_already_on switch_refused_at_a_precheck
+
+# OPS-2, defect 1: switch off refusing for unfinished work.
+mutation "let switch off refuse for unfinished work" \
+  $'    [ "$direction" = off ] || fail "$why"' $'    fail "$why"' \
+  switch_after_an_unfinished_run switch_interrupted_after_the_change
+
+# OPS-2, defect 1: an interrupted switch taken as done.
+mutation_in common.sh "take an interrupted switch as done" \
+  '    finished | rolled-back | adopted | switch-on | switch-off) return 0 ;;' \
+  '    finished | rolled-back | adopted | switch-on | switch-off | failed) return 0 ;;' \
+  switch_interrupted_after_the_change
+
+# OPS-2, defect 1: "nothing to switch" by .env alone, though the api still runs with the other value.
+mutation "say nothing to switch by .env alone" \
+  '    [ "$SWITCH_HOW" != "$NEW_LINE, so $direction" ] || fail "$SWITCH_VAR is already $want: nothing to switch"' \
+  '    fail "$SWITCH_VAR is already $want: nothing to switch"' \
+  switch_off_after_a_failed_restart
+
+# OPS-2, defect 1: a failed switch off naming switch on as the way back, as 4510003's did.
+mutation "name switch on after a failed switch off" \
+  $'    say "  cd $REPO_DIR && deploy/deploy.sh switch off"\n    say "Never' $'    say "  cd $REPO_DIR && deploy/deploy.sh switch $OTHER"\n    say "Never' \
+  switch_off_after_a_failed_restart
 
 echo
 if [ "$survived" -eq 0 ]; then

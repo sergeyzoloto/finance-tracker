@@ -3,6 +3,72 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-04 · Deploy records: F7b's deploy, the switch, refused switches and empty runs (OPS-2)
+
+Commit "docs: deploy facts of 2026-10-02 to 2026-10-04", OPS-2's first, on `feature/family-budget` at `4510003`
+(equal to `main`); its hash is named by the OPS-2 entry above it. Not pushed, not merged. Documents only.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions": the `switch off` row of 2026-10-02 gets its facts (21:35:57Z,
+  `f0425c0`, `true` to `false`, images api `sha256:6d6f35b82a50…` and web `sha256:a01f92023e31…` unchanged, the
+  D-25 line "off" at 21:35:49Z, the numbers unchanged); its summary text itself was never sent. New rows, newest
+  first:
+  - F7b's deploy, 2026-10-03 09:02:22Z (`2026-10-03T090222Z-4510003`), run by `f0425c0`'s script and so without
+    the page step: `7046892`, `a01d9e4`, `3a6da31` and `4510003` on top of `f0425c0`; CI 10 of 10; both dumps
+    1446570 bytes with PASS; `f0425c0`'s images kept as `:f0425c0` and `:previous`, `46dedcd`'s removed; api not
+    recreated, web rebuilt as `sha256:bba7ff04771a…`; V10, D-25 "off", the numbers and F7b's checks as expected;
+    in the clone `privacy.html` 600 root on purpose and `postgres-init.sh` 755 root, in the image both
+    `-rw-r--r--` root, `/privacy` 200; `finish` with the pages 5 of 5, the browser checks at 09:05:20Z (the typo
+    "yes'" asked again) and the smoke test at 09:05:22Z; `verify F7b` OK at 09:05:35Z.
+  - `switch on` refused at the confirmation at 09:05:56Z and 09:20:28Z (the answer was the next pasted block), and
+    at step 1.4 at 09:20:55Z because of the refusal before it (defect 1); nothing changed each time.
+  - Two empty runs of `4510003`, the workaround for defect 1: 09:18:55Z ("Commits: none"; `:previous` now names
+    `4510003`; `7a60020`'s images removed; `finish` at 09:20:05Z and 09:20:07Z, 35 seconds after `run`, without the
+    checks being performed), and 09:23:15Z (`finish` at 09:24:27Z and 09:24:29Z after short checks; the before-dump
+    `finance-2026-10-03T0923Z.dump` of 09:23:18Z replaced by the after-dump of 09:23:38Z, defect 3).
+  - `switch on` at 09:24:44Z: the pages 5 of 5, `.env.20261003T092523Z`, `false` to `true`, api recreated, so it
+    runs `sha256:bb3bdef3d2a9…` while `last-good` held `sha256:6d6f35b8…` and the summary said "Images unchanged"
+    (defect 4); the D-25 line "on" at 09:25:33Z; the summary at 09:25:40Z.
+  - 2026-10-04: an empty run of `4510003` at 14:14:49Z (the 2026-10-03 checklist re-run by mistake; defect 2
+    again), with step 3.2's false verdict "a failed run's" (defect 4), both images rebuilt from cache as new
+    manifest lists (api `sha256:a7f2f131f9db…`, config `sha256:03ecad3b6730…` unchanged; web
+    `sha256:e921513ff648…`, config `sha256:04c29e54bd46…`), neither container recreated, dumps
+    `finance-2026-10-04T1414Z.dump` and `…T1415Z.dump` (1446579 bytes, PASS, different minutes), `last-good` now
+    naming the running `bb3bdef3…` and `bba7ff04…`; `finish` with the browser checks "yes" at 14:16:58Z and the
+    smoke test "yes" at 14:17:00Z, about 80 seconds after the summary, although the old checklist's browser checks
+    expected the switch off and so did not apply; `verify F7b` OK at 14:17:09Z and 14:17:57Z. Then `switch on` at
+    14:17:41Z, REFUSED at "1.5": already true; nothing changed.
+- `deploy/RUNBOOK.md`, a new "Production now": what runs, the switch on, `:latest` ahead of the containers, the
+  rollback state (`:previous` and `/root/finance-tracker.previous` name `4510003`; `:f0425c0` and `:8ede02e` still
+  stored; a rollback to `f0425c0` pointless, as its web serves `/privacy` with 403, so the way back is
+  `switch off`; after OPS-2's deploy the target is `4510003` again), and the finding below about `switch off`.
+- CLAUDE.md's project map: production runs `4510003` with the switch on since 2026-10-03T09:25:40Z.
+
+**Verified**
+- `feature/family-budget` and `main` at `45100032b97bc2809ab7b8ec9538735ebbd8426a`, the tree clean, before the
+  first change.
+- `switch off` in production's state right after the refused `switch on` of 2026-10-04, read from `4510003`'s
+  `deploy/deploy.sh` (lines 872 to 913): `cmd_switch` takes the newest run folder before it makes its own, and
+  step 1.4 accepts only `finished`, `rolled-back`, `adopted`, `switch-on` or `switch-off` there. The newest is
+  `2026-10-04T141741Z-switch-on`, status `refused` (`verify` makes no folder), so `switch off` is REFUSED at 1.4
+  and names `finish`, which doesn't help: `finish` reopens `2026-10-04T141449Z-4510003` without a new folder, and
+  `adopt` refuses with "nothing to adopt" and leaves another refused folder. `run` doesn't read that status, so the
+  2026-10-03 workaround (an empty `run`, `finish`, then `switch off`) still works. Reported to the PM before any
+  change.
+- CI #46 (run 37100231426, job 111138156378): its log is still unread. `gh` isn't installed, and GitHub's API
+  answered 403 for the log without a token. What it does show: the job's steps (step 3, "Build the web image and
+  check it", failed; step 4 skipped) and the annotations: "Process completed with exit code 141" at the log's line
+  158, the Node 20 deprecation for `actions/checkout@v4`, and the notice that `ubuntu-latest` moves to Ubuntu 26
+  from 2026-10-19 (runner-images issue 14748). That confirms the exit code and the step, not the line of the script:
+  the cause stays the one found from the code in F7b.
+
+**Open**
+- F7's production check with two test accounts (a family budget in EUR, an invite, three equal-split entries, a
+  settlement, the D-28 lock, leaving and deletion, "Delete all my data", the main account unchanged) has not been
+  run.
+- `switch off` stays blocked by `4510003`'s scripts until OPS-2 is deployed; the emergency way is in "Production
+  now".
+
 ## 2026-10-03 · Family budget: no early-closed pipes in the checks; switch on checks the pages (F7b)
 
 Commit "fix: no early-closed pipes in the checks; switch on checks the pages", F7b's fourth, whose hash belongs here

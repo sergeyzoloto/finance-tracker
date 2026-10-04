@@ -30,6 +30,8 @@ Amended after the F6b deploy on 2026-10-02: the planned stages (F6b confirmed as
 
 Amended after the F7 deploy on 2026-10-02: new D-41 (decided by the PM) and the planned stages (F7b).
 
+Amended in OPS-2 on 2026-10-04: new D-42, D-43 and D-44 (decided by the PM), about the deploy scripts and CI.
+
 Amended after F7b's refused deploy on 2026-10-03: D-41 extended (decided by the PM): `switch on` refuses while a page fails.
 
 Amended after the F6c deploy on 2026-10-02: new D-40 (decided by the PM), the planned stages (F6c confirmed as built, F7's way of switching and its check in production).
@@ -201,6 +203,7 @@ Added after the F6c deploy (2026-10-02), decided by the PM
 
 Added after the F7 deploy (2026-10-02), decided by the PM
 - D-41 (with D-25). Family budgets don't stay switched on while the published privacy policy is unreachable in production. The way back is `deploy.sh switch off`; switching on again waits for a deploy whose `finish` shows the policy. Extended after F7b's refused deploy (2026-10-03, decided by the PM): family budgets aren't switched on while a page of the deploy scripts' list fails; `deploy.sh switch on` checks the pages in its preflight and refuses, changing nothing, on any failure. `switch off` checks them too and reports a failure, but never refuses because of it, since the way back must always work.
+- D-43 (with D-22; decided by the PM after the empty run of 2026-10-03, in OPS-2). A deploy's dump from before it is never lost: the auth server's pg-backup names dumps by the UTC minute, and the after-dump of 09:23:38Z replaced the before-dump of 09:23:18Z. `deploy.sh run` keeps a copy of its before-dump in the run folder (mode 600; name, size and SHA-256 in the run's meta), waits before the after-dump while a dump would get the same name, checks after it that the names differ and the copy is unchanged, and prints both dumps in its summary. `rollback.sh`'s refusal below V7 names that copy. The backup scripts and `/etc/pg-backup` stay the auth server's and unchanged. No automatic pruning; the runbook says how to prune by hand.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

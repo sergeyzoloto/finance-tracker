@@ -191,6 +191,31 @@ mutation "let switch on ignore a failed page" \
   '[ "$direction" = off ]' 'true' \
   switch_on_refuses_on_a_failed_page
 
+# OPS-2, defect 3 (D-43): the before-dump preserved by a hard link, which an in-place rewrite changes too.
+mutation "preserve the before-dump by a hard link" \
+  '  cp "$BACKUP_DIR/$DUMP_before" "$copy"' '  ln "$BACKUP_DIR/$DUMP_before" "$copy"' \
+  dump_overwritten_in_place
+
+# OPS-2, defect 3: no wait for the next minute before the after-dump.
+mutation "don't wait for the next minute" \
+  $'  wait_for_another_minute\n  backup after' $'  backup after' \
+  dumps_in_the_same_minute
+
+# OPS-2, defect 3: the after-dump's name not compared with the before-dump's.
+mutation "don't compare the dumps' names" \
+  $'  [ "$DUMP_after" != "$DUMP_before" ] \\\n    || fail' $'  true \\\n    || fail' \
+  dump_overwritten_in_place
+
+# OPS-2, defect 3: the preserved copy's SHA-256 not checked after the after-dump.
+mutation "don't check the preserved copy" \
+  $'  [ "$sum" = "$DUMP_SHA_before" ] \\\n    || fail "the preserved' $'  true \\\n    || fail "the preserved' \
+  preserved_dump_changed
+
+# OPS-2, defect 3: rollback.sh's refusal below V7 without the preserved dump.
+mutation_in rollback.sh "don't name the preserved dump below V7" \
+  '; $(preserved_dump_of "$DR_DIR")"' '"' \
+  rollback_below_v7
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

@@ -742,7 +742,7 @@ It prints each step under a `==` heading:
 | 1.5 | CI's check runs of the commit, through GitHub's API | one line per check run, then `CI: N check runs, every one completed with success (…)`; while CI runs, `CI still runs; checking again in 60 s` |
 | 1.6 | The stage's check files in the commit | `deploy/checks/<stage>.sql and <stage>.expected are in …` |
 | 1.7 | The numbers before (`deploy/checks/numbers.sql` of the running commit) | one `key=count` line per table, as before the last deploy unless users signed up or wrote since |
-| 1.8 | A fresh backup, then the restore test | `Dump finance-….dump, … bytes`, the restore test's table, `PASS` |
+| 1.8 | A fresh backup, then the restore test; since OPS-2 (D-43) a copy of that dump in the run folder, mode 600, its name, size and SHA-256 in the run's `meta` | `Dump finance-….dump, … bytes, written at …, SHA-256 …`, the restore test's table, `PASS`, `The before-dump preserved as /var/lib/finance-deploy/runs/…/finance-….dump (mode 600, … bytes, SHA-256 …)` |
 | 2 | The confirmation | the commit and its commits; type the commit's first 7 characters, or anything else to stop with nothing changed |
 | 3.1 | `git merge --ff-only <commit>`, under `umask 022` since F7b, so the files it writes are 644 | `Fast-forward` and the files |
 | 3.2 | The running images, if they are the last good deploy's, tagged with its commit and as `:previous`; tags older than the last three revisions removed | `kept as :<commit> and :previous` |
@@ -754,7 +754,7 @@ It prints each step under a `==` heading:
 | 4.3 | The numbers after, the same text as before | `The same numbers` |
 | 4.4 | The stage's checks against `<stage>.expected` | the check's lines, `The stage's checks as expected` |
 | 4.5 | `deploy/pg-backup/finance.conf`, installed if it changed | `finance.conf: not installed (unchanged)`, or `installed …` |
-| 4.6 | A fresh backup, then the restore test | `PASS` |
+| 4.6 | A fresh backup, then the restore test; since OPS-2 (D-43) first a wait while a dump written now would get the before-dump's name (pg-backup names dumps by the UTC minute), then a check that the names differ and the preserved copy still has its SHA-256 | perhaps `Waiting for the next minute: …`, then `PASS` and `The dumps: before …, after …; the preserved copy as recorded (SHA-256 …)` |
 | 5 | The summary | the text for [Deployed revisions](#deployed-revisions), then `Left for you: …` |
 
 **3. The browser checks and the smoke test** of the stage's checklist. Finish them before step 4.
@@ -826,7 +826,9 @@ answered 403, and the switch went on with the published privacy policy unreachab
   `deploying`, `failed`, `deployed`, `finished`, `finish-failed`), `numbers.sql` (the text it ran before and after),
   `numbers-before.txt`, `numbers-after.txt`, `numbers-finish.txt`, `numbers.diff`, `stage-<stage>.sql`,
   `stage-<stage>.expected`, `stage-<stage>.txt`, `stage.diff`, `restore-test-before.txt`, `restore-test-after.txt`,
-  `summary.txt`. A rollback's folder is `<UTC time>-rollback-<commit>/`, an adoption's `<UTC time>-adopt-<commit>/`
+  `summary.txt`, and since OPS-2 (D-43) the before-dump's copy, `finance-<UTC minute>.dump`, mode 600, whose name,
+  size, SHA-256 and path `meta` holds (`before_dump`, `before_dump_size`, `before_dump_sha256`,
+  `before_dump_copy`). A run refused at its confirmation keeps its copy too. A rollback's folder is `<UTC time>-rollback-<commit>/`, an adoption's `<UTC time>-adopt-<commit>/`
   (status `adopted`, or `refused`), and (F7) a switch's `<UTC time>-switch-on/` or
   `<UTC time>-switch-off/` (status `switch-on`, `switch-off`, `switching`, `failed` or `refused`; no
   `stage-*` or restore-test files, since it changes no migration and takes no backup).
@@ -838,6 +840,20 @@ answered 403, and the switch went on with the published privacy policy unreachab
 - The images: `finance-tracker-api:<commit>` and `finance-tracker-web:<commit>` for the last three revisions, and
   `:previous` for the last good deploy's, whose commit `/root/finance-tracker.previous` names, as
   [Update the app](#update-the-app) did. The lock: `/run/lock/finance-deploy.lock`.
+
+**The preserved dumps** (D-43, decided by the PM after 2026-10-03, when the after-dump of 09:23:38Z replaced the
+before-dump of 09:23:18Z: pg-backup names a dump by its UTC minute). Each run past step 1.8 keeps a copy of its
+before-dump, about 1.5 MB today, which `rollback.sh` names when it refuses to go back below V7 (D-22): that copy is
+the dump to restore. Nothing prunes them. Prune by hand, keeping at least the copies of the last three deploys and
+of every deploy that added a migration. List them first, oldest first:
+
+```bash
+# On the server (read only)
+ls -ltr --time-style=+%FT%TZ /var/lib/finance-deploy/runs/*/finance-*.dump; du -sh /var/lib/finance-deploy/runs
+```
+
+Then remove one copy at a time with `rm -i` and its full path, typed from that list, never a pattern; the run folder
+and its other files stay.
 
 **Checking at any time, read only:** `cd /opt/finance-tracker && deploy/deploy.sh verify <stage>` prints whether the
 read-only role is as this runbook makes it (without it, a problem, and the database's checks below are skipped), the

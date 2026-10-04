@@ -264,6 +264,8 @@ same_file() { cmp -s "$1" "$2"; }
 latest_run() { find "$C/state/runs" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1; }
 status_is() { [ "$(cat "$(latest_run)/status")" = "$1" ]; }
 file_has() { grep -qF -- "$2" "$1"; }
+sha_of() { local s; s=$(sha256sum "$1"); printf '%s' "${s%% *}"; }
+meta_of() { sed -n "s/^$2=//p" "$1/meta"; }
 mode_is() { [ "$(stat -c %a "$1")" = "$2" ] || { echo "      $1 is $(stat -c %a "$1"), not $2"; return 1; }; }
 
 # in_order REGEX...: the calls match in this order.
@@ -1101,6 +1103,8 @@ case_rollback_below_v7() {
   type_at_terminal "ROLLBACK ${SHA_D:0:7}"
   run_rollback "${SHA_D:0:7}"
   rollback_refused "production holds 3 family records, and ${SHA_D:0:7} is below V7"
+  check "names the dump preserved before the deploy (D-43)" out_has "the dump taken before HEAD's deploy is preserved as $C/state/runs/"
+  check "with its SHA-256" out_has "(SHA-256 $(meta_of "$(find "$C/state/runs" -mindepth 1 -maxdepth 1 -name "*-${SHA_E:0:7}" | sort | tail -n 1)" before_dump_sha256))"
   fixture family_records 0
   type_at_terminal "no"
   run_rollback "${SHA_D:0:7}"
@@ -1501,6 +1505,69 @@ case_switch_off_goes_on_despite_a_failed_page() {
   check "off: status switch-off" status_is switch-off
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# OPS-2, defect 3 (D-43): the before-dump preserved in the run folder; the after-dump never replaces it.
+
+# pg-backup's names have minute precision: both dumps in the same minute. The run waits for the next minute before the
+# after-dump, the names differ, and the copy in the run folder is the before-dump, as recorded.
+case_dumps_in_the_same_minute() {
+  setup_case
+  new_target
+  fixture dump-minute-names yes
+  # Early in a minute, so that the run reaches its after-dump within it.
+  while [ "$((10#$(date -u +%S)))" -gt 30 ]; do sleep 1; done
+  deploy_e
+  check "deployed" rc_is 0
+  check "waited for the next minute" out_has "Waiting for the next minute: a dump written now would be named finance-"
+  local run before copy sum
+  run=$(latest_run)
+  before=$(meta_of "$run" before_dump)
+  copy=$(meta_of "$run" before_dump_copy)
+  sum=$(meta_of "$run" before_dump_sha256)
+  check "a name of minute precision" bash -c "[[ '$before' =~ ^finance-[0-9-]{10}T[0-9]{4}Z\.dump$ ]]"
+  check "two dumps in the backups" [ "$(find "$C/backups" -name 'finance-*.dump' | wc -l)" -eq 2 ]
+  check "the before-dump still there, as recorded" [ "$(sha_of "$C/backups/$before")" = "$sum" ]
+  check "the copy in the run folder" [ "$copy" = "$run/$before" ]
+  check "the copy as recorded" [ "$(sha_of "$copy")" = "$sum" ]
+  check "the copy's size recorded" [ "$(meta_of "$run" before_dump_size)" = "$(stat -c %s "$copy")" ]
+  check "the copy 600" mode_is "$copy" 600
+  check "a copy, not a hard link" [ "$(stat -c %i "$copy")" != "$(stat -c %i "$C/backups/$before")" ]
+  check "the summary: the before-dump and its copy" file_has "$run/summary.txt" "Before: dump $before at "
+  check "the summary: its SHA-256 and restore test" file_has "$run/summary.txt" "SHA-256 $sum; restore test PASS"
+  check "the summary: the copy's path" file_has "$run/summary.txt" "preserved as $copy (mode 600, "
+  check "the summary: the after-dump with its SHA-256" grep -qE '^After: dump finance-.* bytes, SHA-256 [0-9a-f]{64}; restore test PASS' "$run/summary.txt"
+}
+
+# A backup that rewrites the before-dump's file in place: the deploy stops after the after-dump, and the copy is the
+# before-dump still.
+case_dump_overwritten_in_place() {
+  setup_case
+  new_target
+  fixture dump-overwrite yes
+  deploy_e
+  failed_after_merge "the after-dump has the before-dump's name"
+  local run before
+  run=$(latest_run)
+  before=$(meta_of "$run" before_dump)
+  check "names the copy" out_has "the before-dump is preserved as $run/$before"
+  check "the file in the backups was rewritten" [ "$(sha_of "$C/backups/$before")" != "$(meta_of "$run" before_dump_sha256)" ]
+  check "the copy is the before-dump still" [ "$(sha_of "$run/$before")" = "$(meta_of "$run" before_dump_sha256)" ]
+}
+
+# The copy itself changed after it was made: the deploy stops, and says so.
+case_preserved_dump_changed() {
+  setup_case
+  new_target
+  cat >"$STUB_STATE/fixtures/on-restore-test.2" <<'EOF'
+#!/usr/bin/env bash
+for f in "$DEPLOY_STATE_DIR"/runs/*/finance-*.dump; do printf 'x' >>"$f"; done
+EOF
+  chmod +x "$STUB_STATE/fixtures/on-restore-test.2"
+  deploy_e
+  failed_after_merge "the preserved before-dump $(latest_run)/"
+  check "says it changed" out_has "changed: SHA-256"
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -1529,6 +1596,7 @@ CASES=(
   run_fails_on_a_page finish_records_failed_pages_without_asking merged_files_land_644
   rollback_reports_a_failing_page switch_says_200_and_prints_the_numbers
   large_pages_pass switch_on_refuses_on_a_failed_page switch_off_goes_on_despite_a_failed_page
+  dumps_in_the_same_minute dump_overwritten_in_place preserved_dump_changed
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

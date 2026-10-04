@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stub of the auth server's pg-restore-test for deploy/tests/run.sh: records the call, runs fixtures/on-restore-test
-# once if present, and prints the real one's table with PASS, or FAIL when fixtures/restore.<n> (the n-th call) or
+# once if present (and fixtures/on-restore-test.<n> at the n-th call), and prints the real one's table with PASS, or FAIL when fixtures/restore.<n> (the n-th call) or
 # fixtures/restore says FAIL.
 set -euo pipefail
 S=${STUB_STATE:?}
@@ -8,6 +8,7 @@ printf 'pg-restore-test %s\n' "$*" >>"$S/calls"
 n=$(($(cat "$S/count-restore" 2>/dev/null || echo 0) + 1))
 echo "$n" >"$S/count-restore"
 if [ -x "$S/fixtures/on-restore-test" ]; then "$S/fixtures/on-restore-test"; rm -f "$S/fixtures/on-restore-test"; fi
+if [ -x "$S/fixtures/on-restore-test.$n" ]; then "$S/fixtures/on-restore-test.$n"; fi
 result=PASS
 if [ -f "$S/fixtures/restore.$n" ]; then result=$(cat "$S/fixtures/restore.$n"); elif [ -f "$S/fixtures/restore" ]; then result=$(cat "$S/fixtures/restore"); fi
 dump=$(find "${DEPLOY_BACKUP_DIR:?}" -name 'finance-*.dump' -printf '%T@ %p\n' | sort -rn | sed -n '1s/^[^ ]* //p')

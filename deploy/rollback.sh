@@ -45,6 +45,21 @@ on_exit_rollback() {
   exit "$rc"
 }
 
+# preserved_dump_of RUN: the dump taken before that deploy, as the run preserved it in its folder (D-43), or why none.
+preserved_dump_of() {
+  local copy sum
+  copy=$(sed -n 's/^before_dump_copy=//p' "$1/meta" 2>/dev/null || true)
+  sum=$(sed -n 's/^before_dump_sha256=//p' "$1/meta" 2>/dev/null || true)
+  if [ -n "$copy" ] && [ -f "$copy" ]; then
+    printf 'the dump taken before HEAD'"'"'s deploy is preserved as %s (SHA-256 %s)' "$copy" "$sum"
+  elif [ -n "$copy" ]; then
+    printf 'HEAD'"'"'s deploy preserved its before-dump as %s, which is gone: look in %s' "$copy" "$BACKUP_DIR"
+  else
+    printf 'HEAD'"'"'s deploy (%s) preserved no dump (its script predates D-43): look in %s for the one written before it' \
+      "$(basename "$1")" "$BACKUP_DIR"
+  fi
+}
+
 cmd_rollback() {
   local arg=$1 head sha api_now web_now id target_max family flyway problem
   [[ $arg =~ ^[0-9a-f]{7,40}$ ]] || usage
@@ -94,7 +109,7 @@ cmd_rollback() {
     # The runbook's check before going back past V7.
     family=$(sql_query "SELECT count(*) FROM app.family_record") || fail "could not count the family records"
     [ "$family" = 0 ] \
-      || fail "production holds $family family records, and ${sha:0:7} is below V7: that needs a restore from a dump (deploy/RUNBOOK.md, \"Restore from a backup\")"
+      || fail "production holds $family family records, and ${sha:0:7} is below V7: that needs a restore from a dump (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"
     say "No family record: the code before V7 can run on this database."
   fi
 

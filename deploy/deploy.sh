@@ -55,7 +55,7 @@ EOF
   exit 2
 }
 
-TOOLS=(git docker flock curl python3 systemctl pg-restore-test install diff paste)
+TOOLS=(git docker flock curl python3 systemctl pg-restore-test install diff paste sha256sum)
 
 # The GitHub API's check runs of a commit, read by python3 (the server has no jq). Prints one line per check run, then
 # "NAMES <names>" and "VERDICT success|pending|failure|none".
@@ -123,9 +123,9 @@ compose_part() {
 }
 
 # backup WHEN: a fresh dump (the runbook's "systemctl start pg-backup@finance.service"), checked by its last-success
-# file, into BACKUP_<WHEN>.
+# file, into BACKUP_<WHEN> (the summary's text), DUMP_<WHEN> (the file's name) and DUMP_SHA_<WHEN> (its SHA-256).
 backup() {
-  local started line file='' size='' time='' epoch=''
+  local started line file='' size='' time='' epoch='' sum
   started=$(date +%s)
   systemctl start pg-backup@finance.service \
     || fail "the backup failed: journalctl -u pg-backup@finance.service -n 30 --no-pager"
@@ -139,8 +139,57 @@ backup() {
     esac
   done <"$BACKUP_DIR/last-success"
   [[ $epoch =~ ^[0-9]+$ ]] && [ "$epoch" -ge "$started" ] || fail "$BACKUP_DIR/last-success is older than this backup"
-  say "Dump $file, $size bytes, written at $time"
-  printf -v "BACKUP_$1" '%s' "dump $file at $time, $size bytes"
+  [[ $file =~ ^[A-Za-z0-9._-]+$ ]] && [ -f "$BACKUP_DIR/$file" ] || fail "the dump $BACKUP_DIR/$file named by last-success is missing"
+  sum=$(sha256sum "$BACKUP_DIR/$file")
+  sum=${sum%% *}
+  say "Dump $file, $size bytes, written at $time, SHA-256 $sum"
+  printf -v "DUMP_$1" '%s' "$file"
+  printf -v "DUMP_SHA_$1" '%s' "$sum"
+  printf -v "BACKUP_$1" '%s' "dump $file at $time, $size bytes, SHA-256 $sum"
+}
+
+# preserve_before_dump: a copy of the before-dump in the run folder, mode 600, with its name, size and SHA-256 in the
+# run's meta (D-43). The auth server's pg-backup names a dump by its UTC minute (finance-2026-10-03T0923Z.dump), so a
+# second dump in the same minute replaces the first: on 2026-10-03 the after-dump of 09:23:38Z replaced the before-dump
+# of 09:23:18Z. After a migration that would lose the only dump from before it, which a rollback below V7 needs
+# (D-22). A copy, not a hard link: a dump rewritten in place would change a hard link too.
+preserve_before_dump() {
+  local copy=$RUN_DIR/$DUMP_before sum size
+  cp "$BACKUP_DIR/$DUMP_before" "$copy"
+  chmod 600 "$copy"
+  sum=$(sha256sum "$copy")
+  sum=${sum%% *}
+  [ "$sum" = "$DUMP_SHA_before" ] || fail "the copy of the before-dump, $copy, differs from $BACKUP_DIR/$DUMP_before"
+  size=$(stat -c %s "$copy")
+  printf 'before_dump=%s\nbefore_dump_size=%s\nbefore_dump_sha256=%s\nbefore_dump_copy=%s\n' \
+    "$DUMP_before" "$size" "$sum" "$copy" >>"$RUN_DIR/meta"
+  PRESERVED_LINE="$copy (mode 600, $size bytes, SHA-256 $sum)"
+  say "The before-dump preserved as $PRESERVED_LINE"
+}
+
+# wait_for_another_minute: before the after-dump, waits while a dump written now would get the before-dump's name
+# (pg-backup's finance-<UTC minute>.dump), so that the after-dump never replaces it (D-43).
+wait_for_another_minute() {
+  local said=0
+  while [ "finance-$(date -u +%Y-%m-%dT%H%MZ).dump" = "$DUMP_before" ]; do
+    if [ "$said" = 0 ]; then
+      say "Waiting for the next minute: a dump written now would be named $DUMP_before, the before-dump's name (D-43)"
+      said=1
+    fi
+    sleep 1
+  done
+}
+
+# check_dumps: the after-dump has another name than the before-dump, and the preserved copy is as recorded (D-43).
+check_dumps() {
+  local sum
+  [ "$DUMP_after" != "$DUMP_before" ] \
+    || fail "the after-dump has the before-dump's name, $DUMP_before, and replaced it in $BACKUP_DIR; the before-dump is preserved as $RUN_DIR/$DUMP_before"
+  sum=$(sha256sum "$RUN_DIR/$DUMP_before")
+  sum=${sum%% *}
+  [ "$sum" = "$DUMP_SHA_before" ] \
+    || fail "the preserved before-dump $RUN_DIR/$DUMP_before changed: SHA-256 $sum, recorded $DUMP_SHA_before"
+  say "The dumps: before $DUMP_before, after $DUMP_after; the preserved copy as recorded (SHA-256 $sum)"
 }
 
 # restore_test WHEN: pg-restore-test on the dump just written; PASS required. Its table is kept in the run folder.
@@ -264,7 +313,7 @@ write_summary() {
     say "Commits: ${COMMITS_LINE:-not reached}"
     say "Migrations added: ${MIGRATIONS_LINE:-not reached}; under deploy/ changed: ${DEPLOY_FILES_LINE:-not reached}"
     say "CI: ${CI_LINE:-not reached}"
-    say "Before: ${BACKUP_before:-backup not reached}; restore test ${RESTORE_before:-not reached}"
+    say "Before: ${BACKUP_before:-backup not reached}; restore test ${RESTORE_before:-not reached}; preserved as ${PRESERVED_LINE:-not reached}"
     say "Flyway: ${FLYWAY_LINE:-not reached}"
     say "Started: ${STARTED_LINE:-no line found}"
     say "D-25: ${SWITCH_SEEN:-not reached}"
@@ -411,6 +460,7 @@ cmd_run() {
   heading "1.8 Preflight: a fresh backup, then the restore test"
   backup before
   restore_test before
+  preserve_before_dump
 
   heading "2. Confirmation"
   # F6c's second run said "over 8ede02e" (HEAD) while 7a60020 (BASE, the running revision after a rollback and a
@@ -509,8 +559,10 @@ cmd_run() {
   say "finance.conf: $CONF_LINE"
 
   heading "4.6 Postflight: a fresh backup, then the restore test"
+  wait_for_another_minute
   backup after
   restore_test after
+  check_dumps
 
   api_now=$(container_image finance-tracker-api)
   web_now=$(container_image finance-tracker-web)
@@ -1020,6 +1072,7 @@ main() {
   umask 077
   common_settings
   PHASE='' SHA='' STAGE='' HEAD_BEFORE='' BASE='' LG_COMMIT='' LG_API='' LG_WEB=''
+  DUMP_before='' DUMP_after='' DUMP_SHA_before='' PRESERVED_LINE=''
   case ${1:-} in
     run) [ $# -eq 3 ] || usage; cmd_run "$2" "$3" ;;
     finish) [ $# -eq 1 ] || usage; cmd_finish ;;

@@ -3,6 +3,42 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-04 · Deploy scripts: OPS-2's defects 1 to 4, CI before 2026-10-19, OPS-2's checklist (OPS-2)
+
+Commits on `feature/family-budget`: `c45d956` (the deploy facts, the entry below), then "ops: the before-dump
+preserved (D-43)", whose hash belongs here with the next commit. Not pushed, not merged, not deployed.
+
+**Changes**
+- Defect 3 (D-43, decided by the PM): the before-dump could be overwritten. pg-backup names dumps by the UTC
+  minute, and on 2026-10-03 the after-dump of 09:23:38Z replaced the before-dump of 09:23:18Z.
+  - `deploy/deploy.sh`, step 1.8: after the restore test, `preserve_before_dump` copies the dump into the run folder
+    (`cp`, mode 600; a hard link would change with an in-place rewrite) and appends `before_dump`,
+    `before_dump_size`, `before_dump_sha256` and `before_dump_copy` to the run's `meta`. `backup` now reads each
+    dump's SHA-256 and checks that the file `last-success` names exists.
+  - Step 4.6: `wait_for_another_minute` waits, saying so, while a dump written now would get the before-dump's name;
+    `check_dumps` then requires another name and the copy's recorded SHA-256. Either failure is a FAILED after the
+    merge that names the preserved copy.
+  - The summary's "Before:" and "After:" lines carry each dump's name, size, SHA-256 and restore test, and "Before:"
+    the copy's path. `sha256sum` joins the tools step 1.1 checks.
+  - `deploy/rollback.sh`: the refusal below V7 (D-22) names the copy that HEAD's deploy run preserved, with its
+    SHA-256, or says that run predates D-43.
+  - The runbook: steps 1.8 and 4.6, the run folder's files, and "The preserved dumps", how to prune them by hand.
+    D-43 in `docs/family-budget/requirements.md`, next to D-41.
+  - Tests: the systemctl stub numbers its dumps and can name them by the minute as pg-backup does
+    (`dump-minute-names`) or rewrite the first dump in place (`dump-overwrite`); the pg-restore-test stub runs
+    `on-restore-test.<n>` at its n-th call. New cases `dumps_in_the_same_minute` (the wait, two names, the copy as
+    recorded, 600, not a hard link, the summary), `dump_overwritten_in_place` and `preserved_dump_changed`;
+    `rollback_below_v7` checks the copy named. Five mutations: a hard link, no wait, no name check, no SHA-256 check,
+    no copy named by `rollback.sh`.
+
+**Verified**
+- Commit 2: `deploy/tests/run.sh` 69 of 69; `deploy/tests/mutate.sh` all 33 mutations caught (the five new ones by
+  `dump_overwritten_in_place`, `dumps_in_the_same_minute`, `dump_overwritten_in_place`, `preserved_dump_changed`
+  and `rollback_below_v7`); ShellCheck 0.11.0 clean.
+
+**Open**
+- Not committed past commit 2 yet.
+
 ## 2026-10-04 · Deploy records: F7b's deploy, the switch, refused switches and empty runs (OPS-2)
 
 Commit "docs: deploy facts of 2026-10-02 to 2026-10-04", OPS-2's first, on `feature/family-budget` at `4510003`

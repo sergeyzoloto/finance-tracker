@@ -1,0 +1,5 @@
+flyway latest 10 claimed seats and family deletion true
+column ledger_member.claimed_seat boolean nullable NO default false
+function delete_family_ledger 1
+release_family_memberships calls delete_family_ledger true
+unbalanced entries 0

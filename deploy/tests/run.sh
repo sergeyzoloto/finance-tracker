@@ -64,6 +64,15 @@ make_template() {
 make_template "$WORK/template9" 9
 make_template "$WORK/template6" 6
 
+# 4510003's scripts, which run OPS-2's deploy (bash reads deploy.sh before the merge), taken from the repository's
+# history: CI's "Deploy scripts" checks out the whole history for this. Without the commit the cases that use them fail.
+V4510003=$WORK/v4510003
+mkdir -p "$V4510003"
+for f in deploy.sh rollback.sh common.sh; do
+  git -C "$ROOT" show "4510003:deploy/$f" >"$V4510003/$f" 2>/dev/null || rm -f "${V4510003:?}/${f:?}"
+done
+chmod +x "$V4510003"/*.sh 2>/dev/null || true
+
 # ---------------------------------------------------------------------------------------------------------------------
 # A case: its own copy of the repositories, the server's clone at D, the state of a good deploy of D, and the stubs.
 
@@ -1967,6 +1976,147 @@ case_run_of_the_running_commit_without_a_clean_finish() {
   check "the rollback target is still D" out_has "Target: ${SHA_D:0:7} revision D"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# OPS-2's own deploy: 4510003's run, on production's state of 2026-10-04, then OPS-2's finish, verify, switch and
+# rollback.sh on what it leaves (deploy/RUNBOOK.md, OPS-2's checklist, (b) to (e)).
+
+# production_2026_10_04 [PRESENT]: production after the refused switch on of 2026-10-04 (J), with D as 4510003, in the
+# containerd store. The containers run api A_RUN (bb3bdef3) and web WEB_D (bba7ff04), which last-good names, in
+# 4510003's format, without content lines; :latest names A_LATEST and W_LATEST (a7f2f131, e921513f), D's tag and
+# :previous A_TAG (6d6f35b8) and WEB_D, all of the same content; A_RUN is gone from the store unless PRESENT is given.
+# The switch is on; the newest run folder is J's refused switch on. E, OPS-2's commit, changes no application file.
+production_2026_10_04() {
+  setup_case
+  use_containerd
+  local s=$STUB_STATE ca cw d7=${SHA_D:0:7} id
+  A_RUN=$(id_of api-bb3bdef3) A_LATEST=$(id_of api-a7f2f131) A_TAG=$(id_of api-6d6f35b8) W_LATEST=$(id_of web-e921513f)
+  ca=$(id_of api-content-03ecad3b)
+  cw=$(id_of web-D-content)
+  for id in "$A_RUN" "$A_LATEST" "$A_TAG"; do echo "$ca" >"$s/content/${id#sha256:}"; done
+  echo "$cw" >"$s/content/${W_LATEST#sha256:}"
+  echo "$A_LATEST" >"$s/images/finance-tracker-api/latest"
+  echo "$A_TAG" >"$s/images/finance-tracker-api/$SHA_D"
+  echo "$A_TAG" >"$s/images/finance-tracker-api/previous"
+  echo "$W_LATEST" >"$s/images/finance-tracker-web/latest"
+  echo "$WEB_D" >"$s/images/finance-tracker-web/$SHA_D"
+  echo "$WEB_D" >"$s/images/finance-tracker-web/previous"
+  [ -z "${1:-}" ] || echo "$A_RUN" >"$s/present"
+  echo "$A_RUN" >"$s/containers/finance-tracker-api/image"
+  echo 2026-10-03T09:25:20.000000000Z >"$s/containers/finance-tracker-api/started"
+  echo 'FAMILY_LEDGERS_ENABLED=true' >>"$s/containers/finance-tracker-api/env"
+  echo 'FAMILY_LEDGERS_ENABLED=true' >>"$C/server/deploy/app/.env"
+  cat >"$s/log-api" <<'EOF'
+2026-10-03T09:25:30.000000000Z 2026-10-03T09:25:30.000Z  INFO 1 --- [main] o.f.core.internal.command.DbMigrate : Schema "app" is up to date. No migration necessary.
+2026-10-03T09:25:33.000000000Z 2026-10-03T09:25:33.000Z  INFO 1 --- [main] c.e.f.ledger.family.FamilySwitch : Family ledgers (D-25): on
+2026-10-03T09:25:34.000000000Z 2026-10-03T09:25:34.000Z  INFO 1 --- [main] c.e.f.FinanceTrackerApplication : Started FinanceTrackerApplication in 7.9 seconds
+EOF
+  sed -i 's/Family ledgers (D-25): off; the family endpoints answer 404/Family ledgers (D-25): on/' "$s/fixtures/start-log"
+  printf 'commit=%s\ntime=2026-10-04T14:17:00Z\napi_image=%s\nweb_image=%s\nsource=deploy\nfinish=passed 2026-10-04T14:17:00Z\n' \
+    "$SHA_D" "$A_RUN" "$WEB_D" >"$C/state/last-good"
+  printf '%s\n' "2026-10-03T09:24:29Z good $SHA_D $A_TAG $WEB_D" "2026-10-03T09:25:40Z switch-on $SHA_D $A_RUN $WEB_D" \
+    "2026-10-04T14:15:40Z good $SHA_D $A_RUN $WEB_D" "2026-10-04T14:17:00Z good $SHA_D $A_RUN $WEB_D" >"$C/state/history"
+  mkdir -p "$C/state/runs/2026-10-04T141449Z-$d7" "$C/state/runs/2026-10-04T141741Z-switch-on"
+  printf 'kind=deploy\ncommit=%s\nstage=F7b\nhead_before=%s\nbase=%s\n' "$SHA_D" "$SHA_D" "$SHA_D" \
+    >"$C/state/runs/2026-10-04T141449Z-$d7/meta"
+  echo finished >"$C/state/runs/2026-10-04T141449Z-$d7/status"
+  echo refused >"$C/state/runs/2026-10-04T141741Z-switch-on/status"
+  echo "$SHA_D" >"$C/previous"
+  touch "$s/fixtures/same-content-api" "$s/fixtures/same-content-web"
+  new_target
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+}
+
+# remedy_2026_10_04: the checklist's one-time block, as it edits last-good: api_image from A_RUN, gone from the store,
+# to A_TAG, the ID D's tag names, the same content.
+remedy_2026_10_04() {
+  cp -p "$C/state/last-good" "$C/state/last-good.before-ops2"
+  grep -qx "api_image=$A_RUN" "$C/state/last-good" || return 1
+  sed -i "s/^api_image=$A_RUN\$/api_image=$A_TAG/" "$C/state/last-good"
+}
+
+# (b): 4510003's run with A_RUN gone from the store fails at step 3.2, after the merge: "docker tag" of an ID the
+# containerd store deleted.
+case_4510003_run_fails_on_a_gone_image() {
+  [ -x "$V4510003/deploy.sh" ] || { echo "    4510003's scripts not in this repository's history"; FAILS=$((FAILS + 1)); return; }
+  production_2026_10_04
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$V4510003/deploy.sh" run "$SHA_E" OPS-1
+  check "4510003's run: FAILED at 3.2" out_has 'FAILED at "3.2 Deploy: keep the running images"'
+  check "on the gone image" out_has "No such image: $A_RUN"
+  check "after the merge" head_is "$SHA_E"
+  check "the containers as they were" [ "$(cat "$STUB_STATE/containers/finance-tracker-api/image")" = "$A_RUN" ]
+}
+
+# (b) and (c): with A_RUN still in the store, or with the remedy, 4510003's run deploys E: its 1.2 doesn't compare the
+# images, 3.2 tags D's or nothing, the builds of the same content recreate nothing, and its 4.2 reads the D-25 line
+# "on" from the start of 2026-10-03, as production sets it.
+case_4510003_run_deploys_ops2() {
+  [ -x "$V4510003/deploy.sh" ] || { echo "    4510003's scripts not in this repository's history"; FAILS=$((FAILS + 1)); return; }
+  production_2026_10_04 present
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$V4510003/deploy.sh" run "$SHA_E" OPS-1
+  check "A_RUN present: deployed" rc_is 0
+  check "A_RUN present: kept as D's" image_is finance-tracker-api "$SHA_D" "$A_RUN"
+
+  production_2026_10_04
+  check "the remedy applies" remedy_2026_10_04
+  check "the remedy changed one line" bash -c "[ \"\$(diff '$C/state/last-good.before-ops2' '$C/state/last-good' | grep -c '^[<>]')\" -eq 2 ]"
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$V4510003/deploy.sh" run "$SHA_E" OPS-1
+  check "with the remedy: deployed" rc_is 0
+  check "1.2 prints, never refuses" out_has "Running images: api $A_RUN, web $WEB_D"
+  check "3.2: no tag" out_has "are not the last good deploy's: a failed run's"
+  check "3.2: no warning about D's tag" out_lacks "finance-tracker-api:$SHA_D is missing"
+  check ":previous still D's" image_is finance-tracker-api previous "$A_TAG"
+  check "the previous file still D" file_has "$C/previous" "$SHA_D"
+  check "neither container recreated" [ "$(cat "$STUB_STATE/containers/finance-tracker-api/image")" = "$A_RUN" ]
+  check "(c) the D-25 line on, from 2026-10-03" out_has 'Logged: "Family ledgers (D-25): on" at 2026-10-03T09:25:33Z'
+  check "(c) as production sets it" file_has "$(latest_run)/summary.txt" "as production sets it (FAMILY_LEDGERS_ENABLED=true, so on)"
+  check "last-good E, 4510003's format" bash -c "grep -qx 'commit=$SHA_E' '$C/state/last-good' && ! grep -q _content '$C/state/last-good'"
+}
+
+# (d) and (e): after 4510003's run, OPS-2's finish, verify, switch and rollback.sh read its run folder, last-good and
+# history: finish records the contents; verify is OK; switch off and on work past J's refused folder; a run of E again
+# is refused (D-42); the rollback target is D (4510003), by content.
+case_ops2_scripts_after_the_4510003_run() {
+  [ -x "$V4510003/deploy.sh" ] || { echo "    4510003's scripts not in this repository's history"; FAILS=$((FAILS + 1)); return; }
+  production_2026_10_04
+  remedy_2026_10_04
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$V4510003/deploy.sh" run "$SHA_E" OPS-1
+  check "4510003's run deployed E" rc_is 0
+  local e_run
+  e_run=$(latest_run)
+  type_at_terminal yes yes
+  run_deploy finish
+  check "OPS-2's finish: exit code 0" rc_is 0
+  check "it finished 4510003's run" bash -c "grep -qx finished '$e_run/status'"
+  check "last-good: E with its contents" bash -c "grep -qx 'commit=$SHA_E' '$C/state/last-good' && grep -q '^api_content=sha256:' '$C/state/last-good' && grep -q '^finish=passed' '$C/state/last-good'"
+  check "contents: A_RUN's" file_has "$C/state/contents" "$A_RUN $(id_of api-content-03ecad3b)"
+  run_deploy verify OPS-1
+  check "verify: OK" out_has "verify OPS-1: OK"
+  check "verify: api the recorded image" out_has "api: the recorded image, image $A_RUN"
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "switch off: exit code 0" rc_is 0
+  check "switch off: api recreated with the same content" out_has "api recreated with the same content: $A_RUN -> "
+  check "switch off: last-good follows" out_has "last-good now names the running images"
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "switch on again: exit code 0" rc_is 0
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  check "run of E again: refused (D-42)" out_has "runs already, deployed and finished cleanly"
+  type_at_terminal no
+  run_rollback "${SHA_D:0:7}"
+  check "(e) the rollback target is D" out_has "Target: ${SHA_D:0:7} revision D, the commit HEAD's deploy replaced"
+  check "(e) D's api by content" out_has "INFO finance-tracker-api:$SHA_D is $A_TAG, another ID with the recorded content"
+  check "(e) asked, then not confirmed" out_has 'REFUSED at "5. Confirmation": not confirmed'
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -2000,6 +2150,7 @@ CASES=(
   switch_refused_at_the_confirmation switch_refused_as_already_on switch_refused_at_a_precheck
   switch_interrupted_after_the_change switch_off_after_a_failed_restart switch_after_an_unfinished_run
   run_of_the_running_commit_after_its_finish run_of_the_running_commit_without_a_clean_finish
+  4510003_run_fails_on_a_gone_image 4510003_run_deploys_ops2 ops2_scripts_after_the_4510003_run
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

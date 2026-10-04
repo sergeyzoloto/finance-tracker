@@ -1897,6 +1897,76 @@ case_switch_after_an_unfinished_run() {
   check "with a warning naming finish" out_has "WARNING: the deploy"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# OPS-2, D-42 (defect 2): run over the running commit.
+
+# After a clean finish, a run of the same commit is refused before CI, any backup and any image, and names verify and
+# switch; :previous and the previous-commit file stay. Also after a switch, whose line is then the newest.
+case_run_of_the_running_commit_after_its_finish() {
+  switch_ready
+  cp "$C/previous" "$C/previous.orig"
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  refused_on_e "runs already, deployed and finished cleanly"
+  check "names verify and switch" out_has "To check it: deploy/deploy.sh verify <stage>; to switch the family budget: deploy/deploy.sh switch on|off"
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "switched on" rc_is 0
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+  : >"$STUB_STATE/calls"
+  sleep 1
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  refused_on_e "runs already, deployed and finished cleanly (switch-on, finish passed"
+}
+
+# refused_on_e WHY: a run of E refused with nothing changed, before CI, any backup and any image.
+refused_on_e() {
+  check "exit code not 0" rc_not
+  check "says REFUSED at 1.3" out_has 'REFUSED at "1.3 Preflight: git fetch, the commit and what it brings"'
+  check "names why: $1" out_has "$1"
+  check "never asked" out_lacks "Type the first 7"
+  check "before CI, any backup and any image" calls_lack '^curl .*check-runs|^systemctl|^pg-restore-test|^docker (tag|rmi|compose build|compose up|image prune)'
+  check "HEAD still E" head_is "$SHA_E"
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "history unchanged" same_file "$C/state/history" "$C/history.orig"
+  check "the previous file unchanged, naming D" same_file "$C/previous" "$C/previous.orig"
+  check ":previous still D's" image_is finance-tracker-api previous "$API_D"
+}
+
+# Without a clean finish (a deploy without finish, one whose finish didn't pass), the running commit may run again,
+# and :previous and the previous-commit file stay as they are: still D, the commit before it.
+case_run_of_the_running_commit_without_a_clean_finish() {
+  setup_case
+  new_target
+  deploy_e
+  check "E deployed" rc_is 0
+  cp "$C/previous" "$C/previous.orig"
+  : >"$STUB_STATE/calls"
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  check "without finish: deployed again" rc_is 0
+  check "says a run again" out_has "runs already, without a clean finish"
+  check "says :previous stays" out_has ":previous and $C/previous stay as they are (D-42)"
+  check "no tag" calls_lack '^docker tag '
+  check "the previous file still D" same_file "$C/previous" "$C/previous.orig"
+  check ":previous still D's api" image_is finance-tracker-api previous "$API_D"
+  check ":previous still D's web" image_is finance-tracker-web previous "$WEB_D"
+  type_at_terminal yes no
+  run_deploy finish
+  check "a finish that didn't pass" rc_is 3
+  : >"$STUB_STATE/calls"
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  check "after finish-failed: deployed again" rc_is 0
+  check "no tag again" calls_lack '^docker tag '
+  check ":previous still D's" image_is finance-tracker-api previous "$API_D"
+  type_at_terminal no
+  run_rollback "${SHA_D:0:7}"
+  check "the rollback target is still D" out_has "Target: ${SHA_D:0:7} revision D"
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -1929,6 +1999,7 @@ CASES=(
   same_content_new_id last_good_id_differs_same_content different_content identity_unavailable old_format_state
   switch_refused_at_the_confirmation switch_refused_as_already_on switch_refused_at_a_precheck
   switch_interrupted_after_the_change switch_off_after_a_failed_restart switch_after_an_unfinished_run
+  run_of_the_running_commit_after_its_finish run_of_the_running_commit_without_a_clean_finish
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

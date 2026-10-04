@@ -538,6 +538,21 @@ unfinished_work() {
   esac
 }
 
+# clean_finish COMMIT: COMMIT is the last good deploy with a clean finish (a finish that passed, or an adoption) and
+# its newest line in the history is good, adopted or a completed switch (OPS-2, D-42). Reads last-good as
+# read_last_good left it.
+clean_finish() {
+  [ "$LG_COMMIT" = "$1" ] || return 1
+  case $LG_FINISH in
+    passed*) ;;
+    *) [ "$LG_SOURCE" = adopt ] || return 1 ;;
+  esac
+  case $(commit_status "$1") in
+    good | adopted | switch-on | switch-off) return 0 ;;
+  esac
+  return 1
+}
+
 # deploy_run_of COMMIT: the newest run folder of a deploy of COMMIT that went past preflight (status not refused) and
 # replaced another commit, into DR_DIR and DR_BASE; returns 1 if none. A repeated run of the same commit records the
 # commit that the first one replaced as its base, as deploy.sh's preflight works it out.

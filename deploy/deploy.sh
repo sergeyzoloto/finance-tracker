@@ -440,6 +440,18 @@ cmd_run() {
   [ "$SHA" = "$(git rev-parse --verify origin/main)" ] \
     || fail "$arg is not origin/main ($(git log -1 --format='%h %s' origin/main))"
   git merge-base --is-ancestor HEAD "$SHA" || fail "$arg is not a fast-forward of HEAD ($(git rev-parse --short HEAD))"
+  # OPS-2, D-42 (decided by the PM): a run of the running commit after its clean finish deploys nothing, and 4510003's
+  # re-pointed :previous and the previous-commit file to that commit itself ("Commits: none", 2026-10-03 and
+  # 2026-10-04). Refused here, before CI, any backup and any image. A run again after a stop or a finish that didn't
+  # pass keeps :previous and that file as they are (step 3.2).
+  RERUN=no
+  if [ "$SHA" = "$HEAD_BEFORE" ]; then
+    if clean_finish "$SHA"; then
+      fail "${SHA:0:7} runs already, deployed and finished cleanly ($(commit_status "$SHA"), finish ${LG_FINISH:-by $LG_SOURCE}): nothing to deploy (D-42). To check it: deploy/deploy.sh verify <stage>; to switch the family budget: deploy/deploy.sh switch on|off"
+    fi
+    say "${SHA:0:7} runs already, without a clean finish ($(commit_status "$SHA" || true), finish ${LG_FINISH:-none}): a run again (D-42)"
+    [ "$LG_COMMIT" != "$SHA" ] || RERUN=yes
+  fi
   BASE=$HEAD_BEFORE
   if [ -n "$LG_COMMIT" ] && [ "$LG_COMMIT" != "$HEAD_BEFORE" ] && git merge-base --is-ancestor "$LG_COMMIT" "$SHA"; then
     BASE=$LG_COMMIT
@@ -526,7 +538,14 @@ cmd_run() {
   git_tree merge --ff-only "$SHA"
 
   heading "3.2 Deploy: keep the running images"
-  keep_images
+  if [ "$RERUN" = yes ]; then
+    # The last good deploy is this commit itself: tagging its images as :previous would make the rollback target the
+    # commit being deployed (D-42).
+    say "A run again of ${SHA:0:7}, the last good deploy itself: :previous and $PREVIOUS_FILE stay as they are (D-42)"
+    KEPT_LINE="a run again of the last good deploy itself: no tag, :previous and $PREVIOUS_FILE as they were (D-42)"
+  else
+    keep_images
+  fi
 
   heading "3.3 Deploy: build api, then web"
   (cd "$APP_DIR" && docker compose build api && docker compose build web)
@@ -1212,7 +1231,7 @@ main() {
   shopt -s inherit_errexit
   umask 077
   common_settings
-  PHASE='' SHA='' STAGE='' HEAD_BEFORE='' BASE='' LG_COMMIT='' LG_API='' LG_WEB=''
+  PHASE='' SHA='' STAGE='' HEAD_BEFORE='' BASE='' LG_COMMIT='' LG_API='' LG_WEB='' LG_FINISH='' LG_SOURCE='' RERUN=no
   DUMP_before='' DUMP_after='' DUMP_SHA_before='' PRESERVED_LINE=''
   case ${1:-} in
     run) [ $# -eq 3 ] || usage; cmd_run "$2" "$3" ;;

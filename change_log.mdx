@@ -6,8 +6,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 ## 2026-10-04 · Deploy scripts: OPS-2's defects 1 to 4, CI before 2026-10-19, OPS-2's checklist (OPS-2)
 
 Commits on `feature/family-budget`: `c45d956` (the deploy facts, the entry below), `685deb3` ("ops: the before-dump
-preserved (D-43)"), `789b8c6` ("ops: images by content identity (defect 4)"), then "ops: a refused switch blocks
-nothing (defect 1)", whose hash belongs here with the next commit.
+preserved (D-43)"), `789b8c6` ("ops: images by content identity (defect 4)"), `f1c2f5c` ("ops: a refused switch
+blocks nothing (defect 1)"), then "ops: no run over the running commit after its finish (D-42)", whose hash belongs
+here with the next commit.
 Not pushed, not merged, not deployed.
 
 **Changes**
@@ -117,7 +118,26 @@ Not pushed, not merged, not deployed.
     "… did not complete (failed): run deploy/deploy.sh switch off"; once that `switch off` completes, `switch on`
     works again.
 
+- Defect 2 (D-42, decided by the PM): `run` of the running commit went through as "Commits: none" and re-pointed
+  `:previous` and `/root/finance-tracker.previous` to that commit itself (2026-10-03 09:18:55Z, and 2026-10-04
+  14:14:49Z), moving the rollback target silently.
+  - `deploy/common.sh`: `clean_finish` (the last good deploy, with `finish=passed` or adopted, and its newest history
+    line `good`, `adopted` or a completed switch).
+  - `deploy/deploy.sh run`, step 1.3, right after the fast-forward check: the target equal to `HEAD` after a clean
+    finish is REFUSED, nothing changed, before CI's wait, any backup and any image, naming `verify` and `switch`.
+    Otherwise it says "a run again", and when `last-good` already names that commit, step 3.2 tags nothing and leaves
+    `:previous` and the previous-commit file as they are (a run again after a failed deploy, whose `last-good` is the
+    commit before, keeps that one's images as before).
+  - D-42 in `requirements.md`; the runbook's step 1.3 and "When it stops".
+  - Tests: `run_of_the_running_commit_after_its_finish` (refused at 1.3, with no CI call, backup or image operation,
+    `last-good`, `history`, `:previous` and the previous file unchanged; again after a `switch on`) and
+    `run_of_the_running_commit_without_a_clean_finish` (without `finish`, then after a finish that didn't pass: it
+    runs, tags nothing, `:previous` and the file still D, the rollback target still D). Three mutations: no
+    refusal, `:previous` re-pointed on a run again, any finish taken as clean.
+
 **Verified**
+- Commit 5: `deploy/tests/run.sh` 82 of 82; `deploy/tests/mutate.sh` all 47 caught (the three new ones by the two
+  new cases); ShellCheck clean.
 - Commit 4: `deploy/tests/run.sh` 80 of 80; `deploy/tests/mutate.sh` all 44 caught (the five new ones by the cases
   named above); ShellCheck clean. F7's mutation "drop switch's way back after a failure" names the new line.
 - Commit 3: `deploy/tests/run.sh` 74 of 74; `deploy/tests/mutate.sh` all 39 caught (the six new ones by

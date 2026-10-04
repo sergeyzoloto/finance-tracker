@@ -737,7 +737,7 @@ It prints each step under a `==` heading:
 | --- | --- | --- |
 | 1.1 | The tools it needs, and the terminal | `Tools present: …` |
 | 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy (from F6c with its status, its newest line in `history`), and (from F6b) the read-only role of the checks. Since OPS-2 (defect 4) the image store, the platform and each image's content identity, compared with the last good deploy's by content: the same ID, or `INFO` for another ID with the same content (a rebuild); a content that can't be read is REFUSED, with nothing changed | `HEAD: …`, `Running images: …`, `Image store: containerd, platform linux/amd64; content: …`, `Last good deploy: …`, `Its status, its newest line in the history: …`, `api: the recorded image, …` (or `INFO api: another image ID with the recorded content: …`), `The running images are the last good deploy's content`, `The checks run as finance_checks: superuser=false read_all_data=true writes=0 read_only=true` |
-| 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD`; a commit the clone doesn't have says to push it from the laptop first | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
+| 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD`; a commit the clone doesn't have says to push it from the laptop first. Since OPS-2 (D-42) the commit that already runs, after its clean finish, is REFUSED here, before CI, any backup and any image, naming `verify` and `switch`; after a stop or a finish that didn't pass it may run again, and step 3.2 then leaves `:previous` and `/root/finance-tracker.previous` as they are | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
 | 1.4 | `deploy/finance.caddy`, the postgres service and `postgres-init.sh` unchanged | `deploy/finance.caddy and the postgres service unchanged` |
 | 1.5 | CI's check runs of the commit, through GitHub's API | one line per check run, then `CI: N check runs, every one completed with success (…)`; while CI runs, `CI still runs; checking again in 60 s` |
 | 1.6 | The stage's check files in the commit | `deploy/checks/<stage>.sql and <stage>.expected are in …` |
@@ -788,6 +788,9 @@ answered 403, and the switch went on with the published privacy policy unreachab
     fix the commit; a cancelled run counts as not succeeded, so run it again on GitHub.
   - `is not origin/main` or `is not a fast-forward of HEAD`: the commit isn't the pushed `main`, or the server's clone
     has a commit of its own (`git log origin/main..HEAD`).
+  - `runs already, deployed and finished cleanly` (D-42): there is nothing to deploy. Check what runs with
+    `deploy/deploy.sh verify <stage>`; switch the family budget with `deploy/deploy.sh switch on|off`. Before OPS-2
+    such a run went through as "Commits: none" and made the running commit its own rollback target.
   - `deploy/finance.caddy changes` or `the postgres service changes`: those stay manual; deploy with
     [Update the app](#update-the-app) and [Change the site file](#change-the-site-file).
   - `has no deploy/checks/<stage>.sql and <stage>.expected`: the commit lacks the stage's checks; add them on the

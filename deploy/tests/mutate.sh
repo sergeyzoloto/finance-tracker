@@ -276,6 +276,21 @@ mutation "name switch on after a failed switch off" \
   $'    say "  cd $REPO_DIR && deploy/deploy.sh switch off"\n    say "Never' $'    say "  cd $REPO_DIR && deploy/deploy.sh switch $OTHER"\n    say "Never' \
   switch_off_after_a_failed_restart
 
+# OPS-2, D-42: run over the running commit after its clean finish, not refused.
+mutation "let run deploy the running commit again after its finish" \
+  $'    if clean_finish "$SHA"; then\n      fail' $'    if false; then\n      fail' \
+  run_of_the_running_commit_after_its_finish
+
+# OPS-2, D-42: a run again re-pointing :previous and the previous-commit file at the commit itself.
+mutation "let a run again re-point :previous" \
+  $'  if [ "$RERUN" = yes ]; then\n    # The last good deploy' $'  if false; then\n    # The last good deploy' \
+  run_of_the_running_commit_without_a_clean_finish
+
+# OPS-2, D-42: a finish that didn't pass taken as clean.
+mutation_in common.sh "take any finish as clean" \
+  $'    passed*) ;;\n    *) [ "$LG_SOURCE" = adopt ] || return 1 ;;' $'    *) ;;' \
+  run_of_the_running_commit_without_a_clean_finish
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

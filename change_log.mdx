@@ -6,8 +6,8 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 ## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
 
 Commits on `feature/family-budget`: `2d4797b` (the deploy facts, the entry below), `aaf8391` ("ops: the image store
-and platform named (defect 5)"), `2550102` ("test: no shared ECB rate or JVM default left behind"), then "ops: switch off without the numbers (D-50)", which
-holds this entry as it stands. Not pushed, not merged, not deployed.
+and platform named (defect 5)"), `2550102` ("test: no shared ECB rate or JVM default left behind"), `133178e` ("ops: switch off without the numbers (D-50)"), then "docs: checklist rules: guarded
+server blocks, full tags, no prune", which holds this entry as it stands. Not pushed, not merged, not deployed.
 
 **Changes**
 - Defect 5: `run`'s step 1.2, `verify` and `switch`'s step 1.4 printed "Image store: unknown, platform unknown" in
@@ -140,7 +140,16 @@ holds this entry as it stands. Not pushed, not merged, not deployed.
 - `.gitignore`: `deploy/app/.env.[0-9]*`, `switch`'s copies of `.env` (`git status --short` listed three on the server).
   No tracked file matches (`git ls-files`); `deploy/app/.env.example` is still tracked and not ignored.
 
+- CLAUDE.md, "Deploy checklists": a server block can't run on the laptop (fact A of 2026-10-04): a one-line one
+  starts with `cd /opt/finance-tracker &&`, a multi-line one is wrapped in `cd /opt/finance-tracker && {` … `}`;
+  image tags are written as the scripts name them, the full commit hash; "CI on Ubuntu 26.04" is never started between
+  a push and that commit's `run`. A new section "Docker on the laptop": never `docker … prune` of any kind (OPS-2 ran
+  `docker volume prune -f` on the laptop); only the resources the agent created are removed, by name or label.
+
 **Verified**
+- Commit 5: documents only; `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1. A guarded block's behaviour checked in
+  bash on the laptop, where `/opt/finance-tracker` doesn't exist: `cd /opt/finance-tracker && { echo ran; }` printed
+  only the `cd` error, and the same pasted over several lines too.
 - Commit 4: `deploy/tests/run.sh` 90 of 90; `deploy/tests/mutate.sh` all 53 caught (D-50's three by
   `switch_off_without_the_numbers`); ShellCheck clean. `git check-ignore` ignores a file named
   `deploy/app/.env.20261003T092523Z` by the new line; `git ls-files 'deploy/app/.env.[0-9]*'` lists nothing.

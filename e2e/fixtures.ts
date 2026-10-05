@@ -162,6 +162,24 @@ export async function deleteAllMyData({ page, account }: Session) {
   await expect(page.getByRole('status')).toHaveText('All your data has been deleted.')
 }
 
+/**
+ * Leaving a family budget: after the DELETE, the app reloads the budget it just left (`useFamilyMutation` reloads
+ * before `family.left()` opens the personal pages), and the reload answers 404, since the reader is no member any more
+ * or the budget is gone (D-36). Expected, with that reason; a later stage may drop the reload (QA-1's report).
+ */
+export function expectReloadAfterLeaving(watch: Watch, ledgerId: string) {
+  for (const path of [new RegExp(`^/api/family-ledgers/${ledgerId}$`), new RegExp(`^/api/family-ledgers/${ledgerId}/members$`)]) {
+    watch.expect({ method: 'GET', path, status: 404, reason: 'the family page reloads the budget just left' })
+  }
+}
+
+/** The family budget's id in the page's address, /family/{id}/…. */
+export function ledgerIdOf(page: Page): string {
+  const id = /\/family\/(\d+)/.exec(new URL(page.url()).pathname)?.[1]
+  if (!id) throw new Error(`Not on a family budget's page: ${page.url()}`)
+  return id
+}
+
 /** GET /api/reports/integrity from the account's session: no difference anywhere. */
 export async function expectIntegrity({ context, account }: Session) {
   const response = await context.request.get('/api/reports/integrity')

@@ -18,13 +18,16 @@ Commits on `feature/qa-1`, from `aade401` (OPS-2b's last commit on `feature/fami
 - `e2e/` (commit 2): its own `package.json` and lockfile (`@playwright/test` 1.63.0, TypeScript 7.0.2, Node 24 in
   `engines` and `.nvmrc`), the runners `npm run e2e:local` and `npm run e2e:prod`, the guards of D-52 and their tests,
   the sign-in step and the cleanup, the README with the owner's one-time setup.
+- `e2e/specs/01-pages.spec.ts` and `02-smoke.spec.ts` (commit 3).
 
 **Verified**
 - Commit 1: documents only; `change_log.mdx` compiles with `@mdx-js/mdx`.
 - Commit 2: `npm run typecheck` clean; `npm run test:guards` 28 of 28.
+- Commit 3 (the pages and smoke specs): `npm run e2e:local` against `./dev.sh`, every spec passed; afterwards the
+  local database held no `users`, `ledger` or `account` row.
 
 **Open**
-- The specs, in the next commits.
+- The family F7 spec, 375 px, and the checklists, in the next commits.
 
 ## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
 

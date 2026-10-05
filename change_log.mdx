@@ -5,37 +5,109 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-05 · End-to-end suite: Playwright, local and production, F7's check with two accounts (QA-1)
 
-Commits on `feature/qa-1`, from `aade401` (OPS-2b's last commit on `feature/family-budget`): not committed yet.
+Commits on `feature/qa-1`, from `aade401` (OPS-2b's last commit on `feature/family-budget`): `99ec88b` ("docs: D-51 and
+D-52, the QA rules"), `a026f9f` ("test(e2e): the suite's scaffolding, the production runner and its guards"),
+`551f344` ("test(e2e): the pages and the smoke test"), `acff723` ("test(e2e): F7's check with two accounts"), `77bf4b8`
+("test(e2e): 375 px and the screenshots"), then "docs: the end-to-end suite in the checklists", whose hash QA-1's report
+names. Not pushed, not merged; nothing deployed, and production not accessed.
 
 **Changes**
 - D-51 and D-52 in `docs/family-budget/requirements.md`, after D-50. Two points settled with the owner on 2026-10-05:
-  production's realm has "Email as username" on, so the accounts `e2e-a` and `e2e-b` sign in with their emails;
-  and `/api/me` holds only the name, so the identity check compares it with the accounts' committed full names,
-  `E2E Account A` and `E2E Account B`.
-- CLAUDE.md: a section "QA" (specs for every change of behaviour, a local run in every report, never the prod
-  project or the credentials file).
-
-- `e2e/` (commit 2): its own `package.json` and lockfile (`@playwright/test` 1.63.0, TypeScript 7.0.2, Node 24 in
-  `engines` and `.nvmrc`), the runners `npm run e2e:local` and `npm run e2e:prod`, the guards of D-52 and their tests,
-  the sign-in step and the cleanup, the README with the owner's one-time setup.
-- `e2e/specs/01-pages.spec.ts` and `02-smoke.spec.ts` (commit 3).
-- `e2e/specs/03-family-f7.spec.ts` (commit 4): F7's check with two accounts, as D-51 makes it the first production
-  scenario.
-- 375 px (commit 5): the project `local-narrow` runs smoke and family F7 again at 375 px; `shot()` takes a full-page
-  screenshot of each screen there and notes what sticks out past the window (`layout.jsonl`). Production checks only
-  the pages at 375 px. The smoke test waits for the dashboard's lazily loaded chart.
+  production's realm has "Email as username" on (the auth server's `PRODUCTION.md`), so `e2e-a` and `e2e-b` are labels
+  and the accounts sign in with `e2e-a@finance-nl.com` and `e2e-b@finance-nl.com`; and `/api/me` holds only the name,
+  so the identity check compares it with the committed full names `E2E Account A` and `E2E Account B` (first name
+  `E2E`; the realm's user profile requires both names, or "Verify profile" would stop the sign-in).
+- `e2e/`, a package of its own (`@playwright/test` 1.63.0, TypeScript 7.0.2 strict, `@types/node` 24.19.1, Node 24 in
+  `engines` and `.nvmrc`, Chromium only), outside both images' build contexts (`backend/` and `frontend/`):
+  - `npm run e2e:local` (`scripts/local.ts`): the dev stack of `./dev.sh`, Vite at http://localhost:5173 and the dev
+    Keycloak at http://localhost:8080, `testuser` as A and `testuser2` as B (`testuser3` allowlisted, unused); refuses
+    any host but localhost; `E2E_FAMILY` `on` by default; artifacts in `e2e/test-results/` (ignored), emptied first;
+    `E2E_TRACE=on` keeps every spec's trace.
+  - `npm run e2e:prod` (`scripts/prod.ts`, only the owner): D-52's guards in order (`E2E_FAMILY`, the credentials file
+    `~/.config/finance-tracker/e2e-prod.env` and the allowlist, the banner with the commit and the tree's state,
+    `E2E PROD` typed at `/dev/tty`), then pages, then the rest; artifacts in
+    `~/.cache/finance-tracker-e2e/prod-<UTC time>/`, mode 700.
+  - Both: a session folder of mode 700 per run (`lib/session.ts`), deleted at the end, also after a failure; one
+    sign-in per account (`specs/sign-in.setup.ts`, no trace or screenshot, the password typed into Keycloak's form by
+    the page itself; until `/api/me` names the account, the app's other API requests are blocked in the browser; a
+    mismatch or a failed sign-in writes `ABORT`, after which no account sends anything, the cleanup included, and a
+    failed sign-in is never retried); the cleanup (`specs/cleanup.teardown.ts`, a teardown of the sign-in, so it runs
+    after a failure too): `/api/me` again, `DELETE /api/me/data` with the CSRF token through the API, so that nothing
+    provisions the account again, then `/logout`, which ends the session here and at Keycloak; a summary block
+    (`lib/summary.ts`, `lib/reporter.ts`) and a search of the artifacts for the passwords, as typed, URL-encoded,
+    JSON-escaped and in base64, inside traces too (`scripts/common.ts`). Retries 0, workers 1, traces
+    `retain-on-failure`, screenshots on failure, no video.
+  - `fixtures.ts`: `as(role)` opens an account's saved session after checking `/api/me` again; `Watch` fails a spec on
+    any response of 400 or more on the app's origin it doesn't name with its reason (each named one must come), any
+    console or page error there, and any request to a host the target doesn't name; "Delete all my data" through
+    Settings, only for a checked account; the integrity check (`GET /api/reports/integrity` answering `[]`); `shot()`.
+  - The specs: `01-pages` (`/`, `/privacy` and `/privacy.html` with the family section's phrases, both icons by status,
+    content type and bytes, at 1280 and 375 px with full-page screenshots and no horizontal scroll; what differs
+    between Vite and nginx is a parameter: Vite's `text/html;charset=utf-8` against nginx's `text/html` for the static
+    page, the icons' `no-cache` against `public, max-age=86400`, and Caddy's four security headers checked only in
+    production); `02-smoke` (A: `/api/me`'s switch and the header's switcher, an expense created, changed and deleted,
+    the demo with its lazily loaded chart, "Demo household" with Sam, its balances summing to €0.00 and its report,
+    then leaving it, which deletes it; integrity); `03-family-f7` (A and B: QA-1's seven steps; the 409 of D-28 named as
+    the one expected failure, reached as a user does, from B's settlement page loaded before A placed its part, since
+    the server sends `canEditPayment` false while locked; after the unlock B's change goes through and B sets €55.00
+    again). Each starts and ends with Delete all my data for every account it uses. Locally, `local-narrow` runs smoke
+    and F7 again at 375 px, with a screenshot of each screen and what sticks out past the window (`layout.jsonl`).
+  - The guards' tests, `npm run test:guards`: 25 with temporary files and fake values (the file's mode, owner, folder,
+    symbolic link, extra, missing, doubled and empty keys; a username outside the allowlist; `/api/me` naming someone
+    else or reporting another switch; `E2E_FAMILY` unset or wrong; the confirmation typed wrong or without a terminal;
+    the banner; the summary; the password search), and 3 that run the real runner and browser against a fake app and
+    a fake Keycloak on loopback ports (`lib/fake-app.ts`, logging every request): everything as expected; `/api/me`
+    naming someone else for B, after which the app sees nothing more from A or B; a wrong password for A, tried once,
+    and no sign-in of B. None reads the owner's file or reaches production.
+  - `e2e/README.md`: the owner's one-time setup (the two accounts in Keycloak, the credentials file, Node 24 and
+    Chromium), running locally and in production, reading the summary, the artifacts and deleting them, and what a run
+    leaves in production.
+- CLAUDE.md: a section "QA"; "Deploy checklists" item 4: the suite in place of the browser checks and the smoke test,
+  `finish` answered `yes` only if every spec passed, by hand only what the agent names as not automatable; the project
+  map's tests.
+- `deploy/RUNBOOK.md`: "Deploying with deploy.sh" step 3 is the suite, step 4's `finish` answered from its summary; a new
+  section "QA-1's first production run: F7's check" (the commit, the stage OPS-2b, the switch on; the owner's setup;
+  a clean checkout of `feature/qa-1`; `verify OPS-2b` before and after with the same numbers; the run; the
+  fast-forward of `feature/family-budget` and `main` and the push). No other file under `deploy/` changed.
 
 **Verified**
-- Commit 1: documents only; `change_log.mdx` compiles with `@mdx-js/mdx`.
-- Commit 2: `npm run typecheck` clean; `npm run test:guards` 28 of 28.
-- Commit 3 (the pages and smoke specs): `npm run e2e:local` against `./dev.sh`, every spec passed; afterwards the
-  local database held no `users`, `ledger` or `account` row.
-
-- Commit 4: `npm run e2e:local`, every spec passed, family F7 in 13.8 s.
-- Commit 5: `npm run e2e:local`, every spec passed at 1280 and 375 px; the 39 screenshots reviewed (below).
+- `npm run typecheck` clean; `npm run test:guards` 28 of 28.
+- `npm run e2e:local` three times in a row on the suite as committed (`e0ab76a`, the commit before this entry's
+  last change, the same `e2e/`; the banner said "clean tree"), each `Result: PASSED`, about 57 s each: pages 4.4, 4.3
+  and 4.3 s; smoke 7.9, 6.6 and 6.8 s; family F7 15.2, 14.6 and 14.3 s; at 375 px smoke 7.8, 7.3 and 7.7 s and family
+  F7 16.7, 16.4 and 16.5 s. After a run the local database held no `users`, `ledger` or `account` row.
+- Before them, three runs in a row on the code of the commit before (the docs not yet committed) passed too; the run
+  after them failed in family F7 at 375 px: B's invite page answered "Too many attempts with invite links" (429).
+  D-29's limit, 50 an hour per user in the api's memory, had counted `testuser2`'s invite requests of about 18 family
+  F7 runs that hour, about 3 each. Not a flaky test: the spec now names that cause when it happens, and the README
+  says how many local runs fit in an hour and how to reset the counts (restart the local backend, done before the
+  three runs above).
+- The password search: every run said 0 hits; a run with `E2E_TRACE=on` kept 6 traces, and `unzip -p … | grep -a`
+  found neither `test1234` nor its base64 in any of them or in any of the run's 45 files, while the same search found
+  the dev users' names in them (the search sees inside). The failing runs while the specs were written also searched
+  their traces: 0 hits.
+- The 35 screenshots reviewed (6 pages, 29 screens at 375 px): no page scrolls sideways at 375 px but `/entries`, 439
+  px wide with its amounts cut off (the known item of "Later"); the dashboard's cash-flow tables scroll within their
+  card. On a member's family pages "Family budget · EUR · Member" wraps under the name without a gap before the tabs.
+  After the 409 of D-28 the settlement page shows the same refusal twice, the page's note and the server's message
+  (in other quotes).
+- `e2e/` is outside both build contexts: `docker-compose.yml` builds `./backend` and `./frontend`,
+  `deploy/app/docker-compose.yml` `../../backend` and `../../frontend` (target `web`), CI's
+  `.github/scripts/check-web-image.sh` `frontend/`; `backend/.dockerignore` and `frontend/.dockerignore` apply within
+  those folders only.
+- The app, unchanged but run: `./mvnw -B clean verify` 407 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS; frontend `npm test` 25 files, 301 tests passed;
+  `npm run build` succeeded. `git diff --numstat aade401` lists no file of `backend/`, `frontend/`, `.github/` or
+  `deploy/` but `deploy/RUNBOOK.md`.
 
 **Open**
-- The checklists, in the next commit.
+- The first production run, with the owner's setup: the runbook's "QA-1's first production run: F7's check".
+- For a later stage (application changes, not QA-1's): `/api/me` naming the account (email or sub) for a stronger
+  identity check; leaving a family budget reloads it and gets two 404s, which the specs name as expected; the
+  settlement lock's message shown twice after the 409; the role line on a member's family pages at 375 px; the entry
+  list at 375 px ("Later").
+- The screens never say "You are owed €55.00" or "You owe €55.00" as QA-1's step 3 words it: the spec checks the
+  reader's row ("is owed €55.00", "owes €55.00") and the sentence above it ("Second User owes you €55.00.", "You owe
+  Test User €55.00."), and "is settled" and "You are settled." for step 6.
 
 ## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
 

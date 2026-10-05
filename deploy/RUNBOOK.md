@@ -936,6 +936,98 @@ b6870f2` at its question.
 cd /opt/finance-tracker && deploy/rollback.sh b6870f2
 ```
 
+## QA-1's first production run: F7's check
+
+**Commit:** the last commit of `feature/qa-1` ("docs: the end-to-end suite in the checklists", QA-1's report names it in
+full; step 2 prints it). **Stage running in production:** `OPS-2b` (this run comes after OPS-2b's deploy and its
+`finish`). **The switch:** on (`FAMILY_LEDGERS_ENABLED=true`) before, during and after. Nothing is deployed: the suite
+runs from the laptop against production, as D-51 makes F7's check its first production scenario; it uses only the two
+accounts made for it, `e2e-a` and `e2e-b`, and deletes all their data at its start and end. This checklist is for this
+run only.
+
+**1. On the laptop: the owner's one-time setup**, as [e2e/README.md](../e2e/README.md), "One-time setup", says: the
+accounts `e2e-a@finance-nl.com` (first name `E2E`, last name `Account A`) and `e2e-b@finance-nl.com` (`E2E`,
+`Account B`) in realm `myapps`, email verified, no required action, no OTP, a password of their own, nothing assigned
+(the role `finance-tracker` → `user` comes from `default-roles-myapps`), brute-force settings unchanged; the
+credentials file:
+
+```bash
+# On the laptop
+install -d -m 700 ~/.config/finance-tracker
+install -m 600 /dev/null ~/.config/finance-tracker/e2e-prod.env
+```
+
+then its four lines written in an editor; Node 24 and Chromium:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm install && nvm use && npm ci && npx playwright install chromium
+```
+
+**2. On the laptop: a clean checkout of `feature/qa-1`, the commit in full.**
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/qa-1 && git status --short && git log -1 --format='%H %s'
+```
+
+You should see no line from `git status --short`, then QA-1's last commit, in full, as its report names it.
+
+**3. On the server: verify, read only**, for the numbers before the run. Keep its output for step 5.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2b
+```
+
+You should see `verify OPS-2b: OK`, the D-25 line "on", and the numbers, every `family_*` among them 0 (as after
+OPS-2b's deploy, unless someone used a family budget since).
+
+**4. On the laptop: the suite against production.** Type `E2E PROD` at its question, after reading its banner (the
+target https://app.finance-nl.com, `e2e-a (e2e-a@finance-nl.com)`, `e2e-b (e2e-b@finance-nl.com)`, `E2E_FAMILY: on`,
+the commit of step 2 and "clean tree").
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && E2E_FAMILY=on npm run e2e:prod
+```
+
+It takes about two minutes. Paste its summary into the chat. You should see:
+
+- `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`, `cleanup passed`;
+- `e2e-a: sign-in checked (/api/me: E2E Account A); cleanup deleted …, signed out`, and the same for `e2e-b`
+  (`E2E Account B`);
+- `Result: PASSED` and `Password search over the artifacts: 0 hits`.
+
+If a sign-in fails, the run stops without trying again (Keycloak's brute-force protection): check the account and the
+file, then run step 4 once more. If the summary says `ABORTED` or a cleanup `FAILED`, stop and send the summary to the
+PM; a failed cleanup names what to delete by hand.
+
+**5. On the server: verify again, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2b
+```
+
+You should see `verify OPS-2b: OK` and exactly the numbers of step 3: the run leaves no row of `e2e-a` or `e2e-b`
+(the cleanup deletes both through the API last, and nothing provisions them again), so `users`, `settings`,
+`personal_ledgers`, `personal_members`, `accounts`, `categories`, `counterparties`, `entries` and `import_batches`
+are as before, and every `family_*` 0 as before. A real user signing up or writing between steps 3 and 5 explains
+a difference in their own lines only; judge it before going on.
+
+**6. On the laptop: `feature/family-budget` and `main` to `feature/qa-1`, and the push**, only after steps 4 and 5
+passed. QA-1 changes no file of either image, so nothing is deployed for it; the next stage's deploy carries it.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && git merge --ff-only feature/qa-1 && git checkout main && git merge --ff-only feature/qa-1 && git push origin main feature/family-budget && git log -1 --format='%H %s'
+```
+
+You should see two fast-forwards, the push, and QA-1's last commit. If a merge says `Not possible to fast-forward`,
+stop: the branch has commits that `feature/qa-1` doesn't, and the PM decides. Don't start "CI on Ubuntu 26.04" for
+this push (D-44).
+
 ## Deploying with deploy.sh
 
 Since OPS-1 (2026-10-02), a deploy is one command on the server, `deploy/deploy.sh run <commit> <stage>`. It does
@@ -944,8 +1036,9 @@ everything it printed in a run folder, and stops at the first check that fails. 
 a failure it prints the command of [Roll back with rollback.sh](#roll-back-with-rollbacksh), and you decide.
 [Update the app](#update-the-app), by hand, stays as the fallback for when the script itself is at fault.
 
-Each stage's deploy checklist (CLAUDE.md, "Deploy checklists") names the commit and the stage, and lists its
-browser checks and smoke test. The stage's `deploy/checks/<stage>.sql` and `<stage>.expected` are in the commit.
+Each stage's deploy checklist (CLAUDE.md, "Deploy checklists") names the commit and the stage, and since QA-1 runs
+the end-to-end suite in place of browser checks and a smoke test by hand (step 3), naming anything it couldn't
+automate. The stage's `deploy/checks/<stage>.sql` and `<stage>.expected` are in the commit.
 
 **1. On the laptop: merge and push.**
 
@@ -995,14 +1088,28 @@ It prints each step under a `==` heading:
 | 4.6 | A fresh backup, then the restore test; since OPS-2 (D-43) first a wait while a dump written now would get the before-dump's name (pg-backup names dumps by the UTC minute), then a check that the names differ and the preserved copy still has its SHA-256 | perhaps `Waiting for the next minute: …`, then `PASS` and `The dumps: before …, after …; the preserved copy as recorded (SHA-256 …)` |
 | 5 | The summary | the text for [Deployed revisions](#deployed-revisions), then `Left for you: …` |
 
-**3. The browser checks and the smoke test** of the stage's checklist. Finish them before step 4.
+**3. The browser checks and the smoke test: the end-to-end suite** (QA-1, D-51; [e2e/README.md](../e2e/README.md)).
+Since QA-1 they are `npm run e2e:prod`, on the laptop, from a clean checkout of the deployed commit, with the
+family switch as it is after the deploy (`on` or `off`); type `E2E PROD` at its question:
 
-**4. On the server: finish**, only after the browser checks and the smoke test. Paste the block alone, then type the
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout <the deployed commit> && git status --short && cd e2e && nvm use && npm ci && E2E_FAMILY=<on|off> npm run e2e:prod
+```
+
+`git status --short` prints nothing (a clean checkout; the suite's own banner says "clean tree" too). Paste the
+summary it ends with, from `===== E2E summary =====` to the password search's line, into the chat. Then check by hand
+only what the stage's checklist names as not automated, each with its reason; nothing else. Finish them before
+step 4.
+
+**4. On the server: finish**, only after the suite and the checks by hand the checklist names. Answer both questions
+(the browser checks, the smoke test) `yes` only if the summary says `Result: PASSED`: every spec passed, both
+accounts' cleanup `deleted`, and the password search 0 hits; otherwise `no`. Paste the block alone, then type the
 two answers after their questions. Since F7b it checks the pages first, as step 3.6 does: if one fails, it records
 the browser checks as not passed without asking (there is no way to answer yes), and asks only about the smoke test.
 
 ```bash
-# On the server: only after the browser checks and the smoke test
+# On the server: only after the end-to-end suite (the browser checks and the smoke test)
 cd /opt/finance-tracker && deploy/deploy.sh finish
 ```
 
@@ -1050,7 +1157,7 @@ answered 403, and the switch went on with the published privacy policy unreachab
     `cd /opt/finance-tracker/deploy/app && docker compose logs --tail 100 api`, then roll back.
   - The numbers differ: the diff is printed and kept as `numbers.diff` in the run folder. Someone signing up or writing
     during the deploy shows up here too; if that explains every line, the release is fine: check it with
-    `deploy/deploy.sh verify <stage>`, do the browser checks and the smoke test, then record it with
+    `deploy/deploy.sh verify <stage>`, run the end-to-end suite (step 3), then record it with
     [Adopt the running revision](#adopt-the-running-revision), and note it in the row. Otherwise roll back.
   - The stage's checks differ (`stage.diff`): roll back, unless `<stage>.expected` is what's wrong.
   - The restore test after the deploy: run `systemctl start pg-backup@finance.service && pg-restore-test finance

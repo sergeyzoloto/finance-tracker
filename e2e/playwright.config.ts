@@ -52,7 +52,8 @@ export default defineConfig({
     locale: 'en-US',
     timezoneId: 'UTC',
     viewport: { width: 1280, height: 800 },
-    trace: 'retain-on-failure',
+    // Locally, E2E_TRACE=on keeps every spec's trace (the sign-in's never), for debugging and for the password search.
+    trace: t === 'local' && process.env.E2E_TRACE === 'on' ? 'on' : 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off',
     actionTimeout: 15_000,

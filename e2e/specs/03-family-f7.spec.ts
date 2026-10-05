@@ -141,7 +141,17 @@ async function inviteSomeoneNew({ page }: Session): Promise<string> {
 async function joinThroughTheLink({ page }: Session, link: string, ledgerId: string, name: string) {
   await page.goto(link)
   await expect(page).toHaveURL(/\/invite$/)
-  await expect(page.getByRole('heading', { name: `Join the family budget “${BUDGET}”` })).toBeVisible()
+  const join = page.getByRole('heading', { name: `Join the family budget “${BUDGET}”` })
+  const tooMany = page.getByRole('heading', { name: 'Try again later' })
+  await expect(join.or(tooMany)).toBeVisible()
+  // D-29's limit counts B's invite requests, 10 a minute and 50 an hour, in the api's memory. A run sends about 3 per
+  // family F7 (the dev build's StrictMode may look the invite up twice): say so rather than fail at the next step.
+  if (await tooMany.isVisible()) {
+    throw new Error(`B's invite requests hit D-29's limit (429: 10 a minute, 50 an hour per user, counted in the api's `
+      + "memory). Locally, more than about eight runs in an hour do; restart the dev stack's backend or wait. In "
+      + 'production one run sends about 3.')
+  }
+  await expect(join).toBeVisible()
   await expect(page.getByLabel('Your name in this budget')).toHaveValue(name)
   await shot(page, 'f7-03-invite')
   await page.getByRole('button', { name: 'Accept' }).click()

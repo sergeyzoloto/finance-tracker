@@ -102,7 +102,18 @@ cd e2e && nvm use && npm run e2e:local
 
 `E2E_FAMILY` defaults to `on`, as the dev stack has it. The run deletes all data of `testuser` and `testuser2` in the
 local database. Its artifacts (a trace and a screenshot of a failure, and the screenshots the specs take) are in
-`e2e/test-results/`, which git ignores and each local run empties first. `npm run typecheck` and
+`e2e/test-results/`, which git ignores and each local run empties first. `E2E_TRACE=on npm run e2e:local` keeps every
+spec's trace, not only a failure's (the sign-in records none either way).
+
+The invite limit (D-29: 10 a minute and 50 an hour per user, in the api's memory) counts B's invite requests, about 3
+per family F7 and so about 6 per local run, which has F7 at 1280 and at 375 px: past about eight local runs in an hour,
+family F7 stops at the invite with "B's invite requests hit D-29's limit". Wait, or restart the local backend, which
+forgets the counts:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.dev.yml restart backend
+``` `npm run typecheck` and
 `npm run test:guards` (the guards' tests, with temporary files and a fake app only) need no stack.
 
 ## Running it in production

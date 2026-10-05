@@ -3,6 +3,88 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
+
+Commits on `feature/family-budget`: `2d4797b` (the deploy facts, the entry below), then "ops: the image store and
+platform named (defect 5)". Not committed yet; not pushed, not merged, not deployed.
+
+**Changes**
+- Defect 5: `run`'s step 1.2, `verify` and `switch`'s step 1.4 printed "Image store: unknown, platform unknown" in
+  production (2026-10-04), while `docker info` and `docker version` answered there as the pre-flight showed.
+  - The cause, in the scripts, not in Docker's answers: `image_store` and `server_platform` set `IMAGE_STORE` and
+    `PLATFORM`, but OPS-2's scripts called them only through `content_of_container`, `content_of_image` and
+    `content_of_id`, each inside `$(…)`. A subshell's variables end with it, so the shell that printed the line never
+    had them, on any store. Each subshell ran `docker info` and `docker version` again for itself and read every content
+    identity correctly, so no verdict was wrong (production's `verify` named both images "the recorded image").
+  - Reproduced with real Docker, by sourcing `deploy/common.sh` in a subshell and calling its read-only functions as
+    `deploy.sh` does: on the laptop's daemon (Docker 29.8.1, classic store, overlay2) the content of a running
+    container came back and the line said "unknown, platform unknown"; in a throwaway `docker:29-dind` (29.8.2, the
+    containerd store; its `docker info -f '{{json .DriverStatus}}'` printed byte for byte production's
+    `[["driver-type","io.containerd.snapshotter.v1"]]`, its `docker version` `linux/amd64`), with two containers
+    named as production's, run from an attested build (ID `sha256:3989f20f…`, a manifest list; content
+    `sha256:29bcaed0…`), the same. Called in the shell itself, the functions answered "classic, linux/amd64" and
+    "containerd, linux/amd64".
+  - The stub: its containerd answer and its `docker version` answer were already production's, byte for byte, so it
+    didn't differ where it mattered; it couldn't show the defect, which is a shell variable lost in a subshell. Its
+    classic answer was shorter than real Docker's and is now the laptop's 29.8.1 answer byte for byte; "broken" now
+    answers as the 29.x client without a daemon (`docker info` prints `null` and the error, exit 1; `docker version`
+    an empty line and the error); a new store "unrecognised" answers `null` with exit 0. The 85 cases missed the
+    defect because none looked at the line: they checked the content identities and the verdicts, which were right.
+    `identity_unavailable` even asserted "(image store unknown", which held for the wrong reason: the line said
+    unknown on every store.
+  - `deploy/common.sh`: `docker_identity` reads both in the calling shell and sets `STORE_LINE`; `running_images`
+    calls it first, in the script's own shell, so every subshell after it inherits both, and `docker info` runs once
+    per script instead of once per subshell. When Docker answers something the scripts can't parse, or fails, the
+    line names the command and its answer or error (`docker_error`, `one_line`), never a bare "unknown":
+    `Image store: not known (docker info -f '{{json .DriverStatus}}' answered null), platform linux/amd64`.
+  - `deploy/deploy.sh`: step 1.2, its refusal when a content can't be read, `verify` and `switch`'s step 1.4 print
+    `STORE_LINE`. `deploy/rollback.sh`: step 1 prints it.
+  - Tags: the scripts and the stub both name commit tags by the full hash (`finance-tracker-api:<40 hex>`), as
+    production holds them. What named them by 7 characters was text: the summary's "Images" line (`KEPT_LINE`, "kept
+    as :4510003 and :previous") and step 3.2's "take no tag" line, which is how OPS-2's checklist came to inspect
+    `:4510003`, an image that doesn't exist. Both now name the full tag.
+- What `b6870f2`'s scripts, which run in production now, do there (production's state after OPS-2's deploy and the
+  acceptance checks: `last-good` naming `b6870f2` with api `bb3bdef3…`, gone from the store, and its content
+  `9315f0d9…`; `contents` holding both pairs, recorded by OPS-2's `finish`; `:previous` and `:4510003…` api
+  `6d6f35b8…` and web `bba7ff04…`; `:latest` `41e46a73…` and `827620f3…`, the same contents):
+  - OPS-2b's `run`, which is `b6870f2`'s (bash reads it before the merge): step 1.2 prints defect 5's line, reads both
+    contents from the containers' `ImageManifestDescriptor`, finds both the recorded images by ID and content, and goes
+    on. Step 3.2 looks for the api's content in the recorded ID (gone), the running ID (the same, gone),
+    `:b6870f2…` (not there yet) and `:previous`, which holds it: it tags `finance-tracker-api:previous` as
+    `:b6870f2b6272…` and `:previous` (unchanged, `6d6f35b8…`), the web's own `bba7ff04…` likewise, and writes
+    `b6870f2…` into the previous-commit file; then it removes the tags of the oldest of the four commits,
+    `8ede02e…`, keeping `b6870f2…`, `4510003…` and `f0425c0…`. No wrong tag and no failure: **no remedy is needed**.
+    Step 1.8 preserves the before-dump (D-43's first run in production).
+  - `switch off`: reaches its confirmation, as on 2026-10-04 (H). `switch on`: REFUSED at 1.5, already on.
+  - `rollback.sh 4510003`: the target `4510003`, the commit OPS-2's run replaced; its api by content (`:4510003…`
+    is `6d6f35b8…`, the recorded `bb3bdef3…` known as `9315f0d9…` from `contents`), its web by ID.
+  - `verify`: OK, with defect 5's line.
+  - After OPS-2b's deploy, OPS-2b's `finish`, `verify` (now "Image store: containerd, platform linux/amd64"), `switch`
+    and `rollback.sh b6870f2` (its api by content, `INFO`, its web by ID) work on what `b6870f2`'s `run` wrote, and a
+    run of OPS-2b's commit again is refused (D-42).
+- Tests (`deploy/tests/run.sh`, 89 cases):
+  - `store_and_platform_named`: the line in `run`, `verify`, `switch` and `rollback.sh` on the classic and the
+    containerd store, `docker info` read at most once per script, an answer it can't parse and a platform it can't
+    read named with what Docker said. `identity_unavailable` expects the daemon's error in the line and never a bare
+    "unknown". `happy_path` and `different_content` expect the full tag in the summary and in step 3.2.
+  - `production_2026_10_05`, a model of production now with the real IDs and contents of the pre-flight and the run
+    where they were given in full, and three cross-version cases that run `b6870f2`'s scripts, taken from git:
+    `b6870f2_scripts_on_production_now` (its `verify`, `switch off` answered no, `switch on` and `rollback.sh` answered
+    no, nothing changed), `b6870f2_run_deploys_ops2b` (an api of new content: recreated, D-25 logged anew) and
+    `b6870f2_run_deploys_ops2b_same_api` (nothing recreated, D-25 from 2026-10-03), each followed by OPS-2b's
+    `finish`, `verify`, a run again, `rollback.sh` and `switch off` and `on`.
+  - `deploy/tests/mutate.sh`, 50 mutations: three new ones (the store read only in subshells; a bare unknown for
+    `docker info`'s answer; the kept tag named by 7 characters).
+
+**Verified**
+- Commit 2: `deploy/tests/run.sh` 89 of 89; `deploy/tests/mutate.sh` all 50 caught; ShellCheck 0.11.0 (`-x`, CI's
+  file list) clean. The real-Docker reproduction above, before and after the fix, the after on three daemons: the
+  laptop's ("Image store: classic, platform linux/amd64"), the dind ("containerd, linux/amd64", both contents) and an
+  address without a daemon (the client's error in both halves of the line).
+
+**Open**
+- OPS-2b isn't pushed, merged or deployed: defect 5 stays in production until then.
+
 ## 2026-10-05 · Deploy records: OPS-2's deploy, its acceptance checks and CI on Ubuntu 26.04 (OPS-2b)
 
 Commit "docs: OPS-2's deploy facts", OPS-2b's first, on `feature/family-budget` at `b6870f2` (equal to `main`); its

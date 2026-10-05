@@ -40,6 +40,9 @@ common_settings() {
   PAGES_LINE=
   IMAGE_STORE=
   PLATFORM=
+  STORE_ANSWER=
+  PLATFORM_ANSWER=
+  STORE_LINE=
 }
 
 say() { printf '%s\n' "$*"; }
@@ -227,11 +230,30 @@ container_image() { docker inspect -f '{{.Image}}' "$1"; }
 # are what "docker image inspect --platform <os/arch>" answers as the ID; a container's is its ImageManifestDescriptor
 # (containerd) or its image ID (classic). An identity that can't be read is unknown, never taken as the same.
 
-# image_store: IMAGE_STORE, containerd or classic, from docker info; returns 1 when docker info doesn't say.
+# docker_error ARG...: what docker ARG... writes to its error output, on one line, for a message; never parsed.
+docker_error() {
+  local err
+  err=$(docker "$@" 2>&1 >/dev/null) || true
+  one_line "${err:-no message}"
+}
+
+# one_line TEXT: TEXT on one line, at most 300 characters, for a message.
+one_line() {
+  local s=${1//$'\n'/ }
+  [ ${#s} -le 300 ] || s="${s:0:300}…"
+  printf '%s' "$s"
+}
+
+# image_store: IMAGE_STORE, containerd or classic, from docker info, and STORE_ANSWER, what docker info answered (or
+# why it failed); returns 1 when that doesn't say.
 image_store() {
   local status
   [ -z "$IMAGE_STORE" ] || return 0
-  status=$(docker info -f '{{json .DriverStatus}}' 2>/dev/null) || return 1
+  if ! status=$(docker info -f '{{json .DriverStatus}}' 2>/dev/null); then
+    STORE_ANSWER="failed: $(docker_error info -f '{{json .DriverStatus}}')"
+    return 1
+  fi
+  STORE_ANSWER="answered $(one_line "$status")"
   case $status in
     *io.containerd.snapshotter*) IMAGE_STORE=containerd ;;
     '['*) IMAGE_STORE=classic ;;
@@ -239,11 +261,32 @@ image_store() {
   esac
 }
 
-# server_platform: PLATFORM, the daemon's os/arch; returns 1 when docker version doesn't say.
+# server_platform: PLATFORM, the daemon's os/arch, and PLATFORM_ANSWER, what docker version answered (or why it
+# failed); returns 1 when that doesn't say.
 server_platform() {
+  local out
   [ -z "$PLATFORM" ] || return 0
-  PLATFORM=$(docker version -f '{{.Server.Os}}/{{.Server.Arch}}' 2>/dev/null) || { PLATFORM=''; return 1; }
-  [[ $PLATFORM =~ ^[a-z0-9]+/[a-z0-9]+$ ]] || { PLATFORM=''; return 1; }
+  if ! out=$(docker version -f '{{.Server.Os}}/{{.Server.Arch}}' 2>/dev/null); then
+    PLATFORM_ANSWER="failed: $(docker_error version -f '{{.Server.Os}}/{{.Server.Arch}}')"
+    return 1
+  fi
+  PLATFORM_ANSWER="answered $(one_line "$out")"
+  [[ $out =~ ^[a-z0-9]+/[a-z0-9]+$ ]] || return 1
+  PLATFORM=$out
+}
+
+# docker_identity: IMAGE_STORE and PLATFORM, read in the calling shell, and STORE_LINE, the line that names both
+# (OPS-2b, defect 5). OPS-2's scripts read them only inside "$(content_of_…)", a subshell whose variables end with it,
+# so the line printed in run, verify and switch always said "Image store: unknown, platform unknown" (2026-10-04),
+# while every content identity was read. Called first by running_images; every subshell after it inherits both. A
+# store or platform that can't be worked out is named with what Docker answered, never a bare "unknown".
+docker_identity() {
+  local store=$IMAGE_STORE platform=$PLATFORM
+  image_store || store="not known (docker info -f '{{json .DriverStatus}}' $STORE_ANSWER)"
+  [ -z "$IMAGE_STORE" ] || store=$IMAGE_STORE
+  server_platform || platform="not known (docker version -f '{{.Server.Os}}/{{.Server.Arch}}' $PLATFORM_ANSWER)"
+  [ -z "$PLATFORM" ] || platform=$PLATFORM
+  STORE_LINE="Image store: $store, platform $platform"
 }
 
 # content_of_image REF: prints the content identity of the image REF (a tag or an ID); returns 1 when it can't be read
@@ -311,8 +354,10 @@ content_of_id() {
 }
 
 # running_images: RUN_API, RUN_WEB (the containers' image IDs) and RUN_API_CONTENT, RUN_WEB_CONTENT (their content
-# identities, empty when unknown); returns 1 when a container is missing.
+# identities, empty when unknown), after docker_identity (STORE_LINE); returns 1 when a container is missing. Called
+# in the script's own shell, never in "$(…)".
 running_images() {
+  docker_identity
   RUN_API=$(container_image finance-tracker-api 2>/dev/null) || return 1
   RUN_WEB=$(container_image finance-tracker-web 2>/dev/null) || return 1
   RUN_API_CONTENT=$(content_of_container finance-tracker-api) || RUN_API_CONTENT=''

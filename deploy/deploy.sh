@@ -242,15 +242,15 @@ keep_images() {
     if [ ${#missing[@]} -eq 0 ]; then
       printf '%s\n' "$LG_COMMIT" >"$PREVIOUS_FILE"
       say "The running images, the last good deploy's content, kept as :$LG_COMMIT and :previous; $PREVIOUS_FILE names it"
-      KEPT_LINE="the last good deploy's (api $LG_API_CONTENT, web $LG_WEB_CONTENT by content) kept as :${LG_COMMIT:0:7} and :previous"
+      KEPT_LINE="the last good deploy's (api $LG_API_CONTENT, web $LG_WEB_CONTENT by content) kept as :$LG_COMMIT and :previous"
     else
       say "Not every image of the last good deploy could be kept: $PREVIOUS_FILE stays as it is"
       KEPT_LINE="the last good deploy's images could not all be kept (missing: ${missing[*]}); $PREVIOUS_FILE unchanged"
     fi
   else
     say "The running images ($RUN_API, $RUN_WEB) are not the last good deploy's content: a failed run's, or unknown."
-    say "They take no tag; the tags of the last good deploy ${LG_COMMIT:0:7} and :previous stay as they are."
-    KEPT_LINE="the running images were not the last good deploy's content and took no tag; the last good deploy's stayed under :${LG_COMMIT:0:7} and :previous"
+    say "They take no tag; the tags of the last good deploy, :$LG_COMMIT and :previous, stay as they are."
+    KEPT_LINE="the running images were not the last good deploy's content and took no tag; the last good deploy's stayed under :$LG_COMMIT and :previous"
   fi
   for repo in api web; do
     content=$LG_API_CONTENT
@@ -411,9 +411,9 @@ cmd_run() {
   say "HEAD: $(git log -1 --format='%h %s' HEAD)"
   say "Running images: api $api_now, web $web_now"
   # OPS-2, defect 4: by content, which the image ID doesn't tell in the containerd image store.
-  say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}; content: api ${RUN_API_CONTENT:-unknown}, web ${RUN_WEB_CONTENT:-unknown}"
+  say "$STORE_LINE; content: api ${RUN_API_CONTENT:-unknown}, web ${RUN_WEB_CONTENT:-unknown}"
   [ -n "$RUN_API_CONTENT" ] && [ -n "$RUN_WEB_CONTENT" ] \
-    || fail "the running containers' content identity can't be read (image store ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}): look at docker info and docker version, then run this again"
+    || fail "the running containers' content identity can't be read ($STORE_LINE): look at docker info and docker version, then run this again"
   RUNNING_IS_LG=no
   if read_last_good; then
     say "Last good deploy: $(git log -1 --format='%h %s' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT") at $LG_TIME ($LG_SOURCE)"
@@ -802,7 +802,7 @@ cmd_verify() {
     say "PROBLEM: no container finance-tracker-api or finance-tracker-web"
     issues=$((issues + 1))
   else
-    say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}"
+    say "$STORE_LINE"
     say "Running: $(identity api "$RUN_API" "$RUN_API_CONTENT"); $(identity web "$RUN_WEB" "$RUN_WEB_CONTENT")"
     if read_last_good; then
       say "Last good deploy: $(git log -1 --format='%h' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT") at $LG_TIME ($LG_SOURCE)"
@@ -1060,7 +1060,7 @@ cmd_switch() {
   [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
   running_images || fail "no container finance-tracker-api or finance-tracker-web: the stack isn't up"
   api_before=$RUN_API web_before=$RUN_WEB api_content_before=$RUN_API_CONTENT web_content_before=$RUN_WEB_CONTENT
-  say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}"
+  say "$STORE_LINE"
   say "Before: $(identity api "$api_before" "$api_content_before"); $(identity web "$web_before" "$web_content_before")"
   if ! read_last_good; then
     [ "$direction" = off ] || fail "no record of a last good deploy: deploy at least once first (deploy/deploy.sh run)"

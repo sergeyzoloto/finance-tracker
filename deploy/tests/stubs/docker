@@ -9,8 +9,8 @@
 #   log-api                        the api's log, "<timestamp> <line>"
 #   fixtures/                      what psql, a build and a start answer (deploy/tests/run.sh, setup_case); psql answers
 #                                  only as finance_checks (or, with STUB_ALLOW_FINANCE=1, as OPS-1's finance)
-# The image store (OPS-2, defect 4), from the file store: classic (the default), containerd, or broken (docker info
-# fails). In the classic store an image's ID is its config digest, so its content identity is its ID, and a build of
+# The image store (OPS-2, defect 4), from the file store: classic (the default), containerd, broken (no daemon: docker
+# info and docker version fail), or unrecognised (docker info answers null). In the classic store an image's ID is its config digest, so its content identity is its ID, and a build of
 # the same content (fixtures/same-content-<service>) keeps the ID. In the containerd store the ID is a manifest list's
 # digest: a build gets a new ID every time, content/<hex of the ID> holds the content identity (the platform
 # manifest's digest), a sha256 ID that no tag names (nor the file present) is gone, as there, even while a container
@@ -22,6 +22,7 @@ S=${STUB_STATE:?}
 printf 'docker %s\n' "$*" >>"$S/calls"
 
 now() { date -u +%Y-%m-%dT%H:%M:%S.%NZ; }
+NO_DAEMON='failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory'
 new_id() { printf 'sha256:%s' "$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)"; }
 
 # next_fixture NAME: fixtures/NAME.<n> for the n-th call of NAME, else fixtures/NAME.
@@ -236,16 +237,21 @@ compose() {
 case $1 in
   compose) shift; compose "$@" ;;
   info)
-    [ "$2 $3" = "-f {{json .DriverStatus}}" ] || exit 99
+    # Byte for byte as Docker answers (OPS-2b): containerd as production's 29.8.2 (2026-10-04's pre-flight) and a
+    # docker:29-dind of 29.8.2; classic as the laptop's 29.8.1 with overlay2; broken as the 29.x client without a
+    # daemon (null, then the error, exit 1); unrecognised a daemon that answers what the scripts can't parse.
+    [ $# -eq 3 ] && [ "$2 $3" = "-f {{json .DriverStatus}}" ] || exit 99
     case $(store) in
       containerd) echo '[["driver-type","io.containerd.snapshotter.v1"]]' ;;
-      classic) echo '[["Backing Filesystem","extfs"],["Supports d_type","true"]]' ;;
-      *) echo "Cannot connect to the Docker daemon (stub)" >&2; exit 1 ;;
+      classic) echo '[["Backing Filesystem","extfs"],["Supports d_type","true"],["Using metacopy","false"],["Native Overlay Diff","true"],["userxattr","false"]]' ;;
+      unrecognised) echo null ;;
+      *) echo null; echo "$NO_DAEMON" >&2; exit 1 ;;
     esac
     ;;
   version)
-    [ "$2 $3" = "-f {{.Server.Os}}/{{.Server.Arch}}" ] || exit 99
+    [ $# -eq 3 ] && [ "$2 $3" = "-f {{.Server.Os}}/{{.Server.Arch}}" ] || exit 99
     [ ! -e "$S/fixtures/no-platform" ] || { echo "unknown flag (stub)" >&2; exit 1; }
+    [ "$(store)" != broken ] || { echo; echo "$NO_DAEMON" >&2; exit 1; }
     echo linux/amd64
     ;;
   inspect) [ "$2" = -f ] || exit 99; inspect "$@" ;;

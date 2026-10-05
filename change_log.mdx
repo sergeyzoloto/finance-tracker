@@ -3,6 +3,24 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-05 · End-to-end suite: Playwright, local and production, F7's check with two accounts (QA-1)
+
+Commits on `feature/qa-1`, from `aade401` (OPS-2b's last commit on `feature/family-budget`): not committed yet.
+
+**Changes**
+- D-51 and D-52 in `docs/family-budget/requirements.md`, after D-50. Two points settled with the owner on 2026-10-05:
+  production's realm has "Email as username" on, so the accounts `e2e-a` and `e2e-b` sign in with their emails;
+  and `/api/me` holds only the name, so the identity check compares it with the accounts' committed full names,
+  `E2E Account A` and `E2E Account B`.
+- CLAUDE.md: a section "QA" (specs for every change of behaviour, a local run in every report, never the prod
+  project or the credentials file).
+
+**Verified**
+- Documents only; `change_log.mdx` compiles with `@mdx-js/mdx`.
+
+**Open**
+- The suite itself, in the next commits.
+
 ## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
 
 Commits on `feature/family-budget`: `2d4797b` (the deploy facts, the entry below), `aaf8391` ("ops: the image store

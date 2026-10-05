@@ -42,6 +42,14 @@ Every checklist states at its top the commit, the stage and the expected state o
 
 Every block starts with `# On the laptop` or `# On the server`. Since OPS-2b a server block can't run on the laptop (2026-10-04: OPS-2's pre-flight, pasted on the laptop first, failed at its `cd` and read the laptop with the rest): a one-line server block starts with `cd /opt/finance-tracker &&`, and a multi-line one is wrapped as `cd /opt/finance-tracker && {` on its first line and `}` on its last, so that pasted on the laptop, where that folder doesn't exist, none of it runs. Image tags are written as the scripts name them: `finance-tracker-api:<the full commit hash>`, never 7 characters (OPS-2's checklist inspected `:4510003`, which names no image). The manual workflow "CI on Ubuntu 26.04" is never started between a push and that commit's `run`: `deploy.sh`'s gate counts every check run of the commit (D-44). The next block is pasted only once the shell prompt (`root@auth-1:…#`) has returned (OPS-2: on 2026-10-03 two `switch on` took the next pasted block as their answer). Every server command that asks a question (`deploy.sh run`, `finish`, `adopt`, `rollback.sh`) stands alone in its block, and its answer is typed at the terminal, never pasted: F6b's `finish` took the next pasted block as its two answers (2026-10-02). A stop judged harmless (after `verify`, the browser checks and the smoke test) and a manual deploy end with `deploy/deploy.sh adopt` instead of `finish`. The manual procedure (the runbook's "Update the app") is only for when the script itself is at fault, and then keeps the earlier rules: the restore test right after a fresh backup, the numbers saved and compared with `diff`, the expected commits named.
 
+## QA
+
+The end-to-end suite is `e2e/` (QA-1, D-51 and D-52 of [docs/family-budget/requirements.md](docs/family-budget/requirements.md), [e2e/README.md](e2e/README.md)): Playwright, `npm run e2e:local` against the dev stack (`./dev.sh`) and `npm run e2e:prod`, which only the owner runs, from the laptop.
+
+- Every stage that changes behaviour adds or updates specs in `e2e/` for it, in place of manual scenarios in its checklist.
+- Every task's report includes a local run of the suite (`cd e2e && npm run e2e:local`) with its summary, and names what it couldn't automate, with the reason.
+- The agent never runs the prod project (`npm run e2e:prod`, or Playwright with a `prod` project, in any form) and never reads, creates, lists or changes `~/.config/finance-tracker/` or the credentials file in it.
+
 ## Domain rules
 
 1. The core model is a double-entry journal. A journal_entry has entry_date (DATE, no time zone), an optional payee (a counterparty), memo and kind. A posting belongs to one entry and has account, currency (ISO 4217 code), amount, optional category and optional counterparty.

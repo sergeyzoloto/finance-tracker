@@ -1,0 +1,4 @@
+node_modules/
+# The local runs' traces, screenshots and results (production's go to ~/.cache/finance-tracker-e2e, outside the repository)
+test-results/
+playwright-report/

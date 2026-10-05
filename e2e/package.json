@@ -1,0 +1,21 @@
+{
+  "name": "finance-tracker-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "End-to-end suite (QA-1): local against the dev stack, production run by the owner from the laptop",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:guards": "node --test 'lib/*.test.ts'",
+    "e2e:local": "node scripts/local.ts",
+    "e2e:prod": "node scripts/prod.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.19.1",
+    "typescript": "7.0.2"
+  }
+}

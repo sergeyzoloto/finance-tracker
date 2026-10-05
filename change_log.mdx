@@ -15,11 +15,16 @@ Commits on `feature/qa-1`, from `aade401` (OPS-2b's last commit on `feature/fami
 - CLAUDE.md: a section "QA" (specs for every change of behaviour, a local run in every report, never the prod
   project or the credentials file).
 
+- `e2e/` (commit 2): its own `package.json` and lockfile (`@playwright/test` 1.63.0, TypeScript 7.0.2, Node 24 in
+  `engines` and `.nvmrc`), the runners `npm run e2e:local` and `npm run e2e:prod`, the guards of D-52 and their tests,
+  the sign-in step and the cleanup, the README with the owner's one-time setup.
+
 **Verified**
-- Documents only; `change_log.mdx` compiles with `@mdx-js/mdx`.
+- Commit 1: documents only; `change_log.mdx` compiles with `@mdx-js/mdx`.
+- Commit 2: `npm run typecheck` clean; `npm run test:guards` 28 of 28.
 
 **Open**
-- The suite itself, in the next commits.
+- The specs, in the next commits.
 
 ## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
 

@@ -644,6 +644,13 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-04 | `b6870f2`; nothing on the server | "CI on Ubuntu 26.04" (D-44), `workflow_dispatch` on `main` at `b6870f2`, started after the acceptance checks (the row below): run #1, `37227790313`, 19:18:49Z to 19:28:24Z, on Ubuntu 26.04.1 with Docker 29.4.2. Backend failed: 404 tests, 1 failure, `RateApiTests.aManualRateIsTheUsersOwn` (`RateApiTests.java:31`), expected "2026-09-01" but was "2026-09-25"; Maven finished at 19:28:20Z. Frontend (19:18:55Z to 19:19:23Z), Web image (19:18:53Z to 19:19:21Z) and Deploy scripts (19:18:53Z to 19:24:26Z) completed with success (the run's jobs, read from GitHub's public API on 2026-10-05). Its check runs belong to `b6870f2`, deployed and finished, so they hold up no deploy. OPS-2b looks for the cause. |
+| 2026-10-04 | `b6870f2`; nothing changed | OPS-2's acceptance checks, each block alone. The read-only block before and after D-42's check printed the same: the previous file names `45100032b97b…`; `:previous` is api `sha256:6d6f35b8…` and web `sha256:bba7ff04…`; `deploy/app/.env` and its three copies are 600 root. D-42: `deploy/deploy.sh run b6870f2b6272… OPS-2` at 19:14:58Z (`2026-10-04T191458Z-b6870f2`), REFUSED at 1.3, "Nothing changed: no merge, no image tagged, built or started", with no CI line and no dump; its 1.2 printed "Image store: unknown, platform unknown" (defect 5) and "The running images are the last good deploy's content". Defect 1: `deploy/deploy.sh switch off` at 19:16:29Z and at 19:16:44Z, both answered `no`: each reached "2. Confirmation", each said "The latest run that isn't refused: 2026-10-04T191023Z-b6870f2, finished", and nothing changed; their 1.4 also printed "Image store: unknown, platform unknown". The switch stays on. |
+| 2026-10-04 | `b6870f2`; read only | `deploy/deploy.sh verify OPS-2`: OK at 19:14:35Z. Both images "the recorded image", each with its content identity; but the line before them said "Image store: unknown, platform unknown", while `docker info` and `docker version` answer as in the pre-flight (defect 5). |
+| 2026-10-04 | `b6870f2` (docs: OPS-2's deploy analysis and checklist); both images rebuilt from cache, the containers kept running | OPS-2: the deploy scripts' defects 1 to 4, D-42 to D-44, Flyway V10, the switch on. `deploy/deploy.sh run b6870f2b6272… OPS-2` at 19:10:23Z, run folder `/var/lib/finance-deploy/runs/2026-10-04T191023Z-b6870f2`, executed by `4510003`'s script (no content identity, no D-42 check, no preserved dump), after the one-time remedy (the row below). 1.2: running api `bb3bdef3…`, web `bba7ff04…`; the last good deploy `4510003` at 14:17:00Z, status good. 1.3: `c45d956`, `685deb3`, `789b8c6`, `f1c2f5c`, `bd77f05`, `83abd3e`, `b6870f2`; "Migrations added: none". 1.5: CI's 10 check runs, every one success, the new action versions on `ubuntu-24.04`. 1.8: dump `finance-2026-10-04T1910Z.dump`, 1446579 bytes, written 19:10:26Z; restore test PASS (19 tables). 3.2: "a failed run's. They take no tag", as expected with the remedy: the tags and the previous-commit file stayed on `4510003`. 3.3: both builds fully cached; api manifest `sha256:9315f0d9…`, config `sha256:03ecad3b6730…`, attestation `sha256:52e46962…`, a new manifest list `sha256:41e46a733329…`, now `:latest`; web manifest `sha256:2a6042327728…`, config `sha256:04c29e54bd46…`, attestation `sha256:0521a63c…`, a new list `sha256:827620f31177…`, now `:latest` (`change_log.mdx` and `docs/` are outside both build contexts). 3.4: both "Running", not recreated. 3.5: healthy; "Total reclaimed space: 0B". 3.6: the pages 5 of 5. 4.1: V10. 4.2: D-25 "on" at 2026-10-03T09:25:33Z. 4.3: the same numbers (accounts 44, categories 72, counterparties 107, entries 296, every `family_*` 0, import_batches 1, outside_their_ledger 0, personal_ledgers 3, personal_members 3, settings 3, users 3). 4.4: OPS-2's 5 lines as expected. 4.5: `finance.conf` not installed. 4.6: dump `finance-2026-10-04T1912Z.dump`, 1446579 bytes, written 19:12:03Z, PASS; a different minute, so defect 3 didn't occur. `finish`, OPS-2's script: the pages 5 of 5; the browser checks "yes" at 19:14:25Z and the smoke test "yes" at 19:14:27Z, about 2 minutes 20 seconds after the run's summary. **The smoke test was not performed in full**, like the finishes 35 and 80 seconds after `run` on 2026-10-03 and 2026-10-04; F7's two-account check will cover it. The family lines as before. `last-good` now names `b6870f2`, api `bb3bdef3…` (content `9315f0d9…`) and web `bba7ff04…` (content `2a604232…`), `finish=passed`. |
+| 2026-10-04 | `4510003`; only `last-good` changed | The one-time remedy of OPS-2's checklist (its step 3), once the PM approved it, between 19:09:57Z and 19:10:23Z: `last-good`'s `api_image` from `sha256:bb3bdef3…` (gone from the store) to `sha256:6d6f35b8…` (the ID `:previous` and `finance-tracker-api:45100032b97b…` hold, the same content); `diff` printed `3c3` with those two lines. The copy `/var/lib/finance-deploy/last-good.before-ops2` is kept. |
+| 2026-10-04 | `4510003`; read only | OPS-2's pre-flight, in the session opened at 17:33:27Z. Docker server 29.8.2, linux/amd64; Docker Compose v5.5.1; `docker info -f '{{json .DriverStatus}}'` printed exactly `[["driver-type","io.containerd.snapshotter.v1"]]`. The clone at `4510003`; `git status --short` listed three untracked files, `deploy/app/.env.20261002T212046Z`, `.env.20261002T213540Z` and `.env.20261003T092523Z` (`switch`'s copies, 600 root). `last-good`: `commit=45100032b97bc2809ab7b8ec9538735ebbd8426a`, `time=2026-10-04T14:17:00Z`, api `sha256:bb3bdef3d2a94a71dc4f76c3970ab0981a58baed9d688edc65280f48584ec6b4`, web `sha256:bba7ff04771a…`, `source=deploy`, `finish=passed`. The containers: api `bb3bdef3…`, content (`ImageManifestDescriptor`) `sha256:9315f0d932d0…`, started 2026-10-03T09:25:24Z; web `bba7ff04…`, content `sha256:2a6042327728…`, started 2026-10-03T09:03:08Z. `docker image inspect sha256:bb3bdef3…` answered "No such image", as OPS-2's analysis predicted; `bba7ff04…` is present. The tags are full commit hashes (`finance-tracker-api:45100032b97bc2809ab7b8ec9538735ebbd8426a`): the checklist inspected `:4510003`, which names no image. The tags then: api `:4510003…`, `:f0425c0…` and `:previous` `sha256:6d6f35b8…`, `:8ede02e…` `sha256:5bd35f99…`, `:latest` `sha256:a7f2f131…`; web `:4510003…` and `:previous` `bba7ff04…`, `:f0425c0…` `sha256:a01f9202…`, `:8ede02e…` `sha256:ddf2a902…`, `:latest` `sha256:e921513f…`. `docker image inspect --platform linux/amd64 -f '{{.Id}}'`: api `:previous` and `:latest` `9315f0d9…`, web `:previous` and `:latest` `2a604232…`. |
+| 2026-10-04 | `4510003`; nothing changed | Before the pre-flight (the row below), its server block was pasted on the laptop by mistake: `cd /opt/finance-tracker` failed, the read-only lines read the laptop, and nothing changed anywhere. OPS-2b's block rule (CLAUDE.md, "Deploy checklists") makes a server block do nothing on the laptop. |
 | 2026-10-04 | `4510003` (fix: no early-closed pipes in the checks; switch on checks the pages); the images unchanged | `deploy/deploy.sh switch on` at 14:17:41Z, run folder `/var/lib/finance-deploy/runs/2026-10-04T141741Z-switch-on`, run by mistake with the 2026-10-03 F7b checklist: past "1.4" ("the last good deploy (finished)"), then REFUSED at "1.5 Preflight: the current switch": "FAMILY_LEDGERS_ENABLED is already true: nothing to switch". Nothing changed: `.env` untouched, api not restarted. Its folder's status `refused` is the newest one, so with `4510003`'s scripts the next `switch off` is REFUSED at "1.4" (defect 1; see [Production now](#production-now)). |
 | 2026-10-04 | `4510003`; both images rebuilt from cache, the containers kept running | An empty run of `4510003`, the 2026-10-03 F7b checklist re-run by mistake: `deploy/deploy.sh run 45100032b97b… F7b` at 14:14:49Z, run folder `/var/lib/finance-deploy/runs/2026-10-04T141449Z-4510003`. "Commits: none (4510003 to 4510003)", a second case of defect 2; CI's 10 check runs completed with success. 1.2: running images api `sha256:bb3bdef3d2a9…`, web `sha256:bba7ff04771a…`; the last good deploy `4510003` at 2026-10-03T09:24:29Z; the newest history line `switch-on`. 3.2: "The running images … are not the last good deploy's: a failed run's. They take no tag; the tags of the last good deploy 4510003 and :previous stay as they are", a false verdict caused by defect 4: they were the last good deploy's content (`last-good` held api `sha256:6d6f35b8…`, the container `sha256:bb3bdef3…`, the same content). 3.3 rebuilt both from cache: api config `sha256:03ecad3b6730…` (unchanged), a new manifest list `sha256:a7f2f131f9db…`; web config `sha256:04c29e54bd46…`, a new manifest list `sha256:e921513ff648…`; both tagged `:latest`. 3.4: neither container recreated ("Running"): they still run `bb3bdef3…` and `bba7ff04…`, while `:latest` names `a7f2f131…` and `e921513f…`. Before: dump `finance-2026-10-04T1414Z.dump`, written 14:14:51Z, 1446579 bytes, restore test PASS. After: dump `finance-2026-10-04T1415Z.dump`, written 14:15:33Z, 1446579 bytes, restore test PASS; the dumps fell in different minutes, so nothing was overwritten. 3.6 the pages 5 of 5; Flyway V10; D-25 "on" at 2026-10-03T09:25:33Z; the numbers unchanged; F7b's checks as expected. The summary recorded api `bb3bdef3…` and web `bba7ff04…` in `last-good`, which now matches the running containers. `finish`: pages 5 of 5; browser checks "yes" at 14:16:58Z and smoke test "yes" at 14:17:00Z, about 80 seconds after the run's summary; the family numbers as before. The browser checks of the old F7b checklist expected the switch off (no family switcher, `familyLedgers:false`), so they did not apply to this state. `deploy/deploy.sh verify F7b`: OK at 14:17:09Z and again at 14:17:57Z (pages 5 of 5, D-25 "on" since 2026-10-03T09:25:33Z, every `family_*` 0). Read-only proof: in the clone `privacy.html` is 600 root and `postgres-init.sh` 755 root; in the web image both files are `-rw-r--r--` root; `/privacy` answers 200. F7's production check (two test accounts) has not been run yet. |
 | 2026-10-03 | `4510003`; the images unchanged, api recreated | `deploy/deploy.sh switch on` at 09:24:44Z, run folder `/var/lib/finance-deploy/runs/2026-10-03T092444Z-switch-on`: the pages 5 of 5; `.env` copied to `.env.20261003T092523Z`; `false` became `true`; api recreated, and since then it runs `sha256:bb3bdef3d2a9…` (the `:latest` of 09:23:15Z's run), not `last-good`'s `sha256:6d6f35b8…`, while the summary said "Images unchanged" (defect 4); the D-25 line "on" at 09:25:33Z; the numbers unchanged; the summary at 09:25:40Z. Family budgets are switched on in production since 2026-10-03T09:25:40Z. |
@@ -675,62 +682,70 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-04T14:17:57Z (the latest `verify F7b`):
+As of 2026-10-04T19:16:44Z (the second `switch off` of OPS-2's acceptance checks, answered `no`):
 
-- `4510003` (F7b) on Flyway V10, with family budgets switched on since 2026-10-03T09:25:40Z. The containers run api
-  `sha256:bb3bdef3d2a9…` and web `sha256:bba7ff04771a…`, which `last-good` names (since the empty run of 2026-10-04);
-  `:latest` names `sha256:a7f2f131f9db…` and `sha256:e921513ff648…`, the same content under new manifest lists
-  (defect 4). A recreation of either container, for example by a `switch`, starts it from `:latest`, and the image
-  IDs no longer match `last-good`.
-- The rollback state: `:previous` and `/root/finance-tracker.previous` name `4510003` itself, and the images
-  `:f0425c0` and `:8ede02e` are still stored. A rollback to `f0425c0` is pointless, since its web image serves
-  `/privacy` with 403: the way back from the family budget is `deploy/deploy.sh switch off`. After the OPS-2 deploy
-  the rollback target is `4510003` again.
-- **`switch off` is blocked by `4510003`'s scripts in this state** (defect 1, found from the code on 2026-10-04): the
-  newest run folder is the refused `2026-10-04T141741Z-switch-on`, and step 1.4 accepts only `finished`,
-  `rolled-back`, `adopted`, `switch-on` or `switch-off` there, so `switch off` would be REFUSED at "1.4" with "the
-  latest run, 2026-10-04T141741Z-switch-on, is refused, not finished: run deploy.sh finish first". `finish` doesn't
-  clear it (it reopens the finished run `2026-10-04T141449Z-4510003` and makes no new folder), nor does `adopt` (it
-  refuses with "nothing to adopt", adding another refused folder). Until OPS-2 is deployed, the emergency way to
-  switch off is the workaround of 2026-10-03, each block alone, every answer typed: an empty
-  `deploy/deploy.sh run 45100032b97bc2809ab7b8ec9538735ebbd8426a F7b`, then `deploy/deploy.sh finish`, then
-  `deploy/deploy.sh switch off`. Its step 1.4 also compares image IDs: it passes only while the containers run what
-  `last-good` names, as they do now.
-- F7's production check (two test accounts) has not been run.
+- `b6870f2` (OPS-2) on Flyway V10 since 2026-10-04T19:14:27Z (its `finish`), with family budgets switched on since
+  2026-10-03T09:25:40Z. The containers run api `sha256:bb3bdef3d2a9…` (content `sha256:9315f0d932d0…`) and web
+  `sha256:bba7ff04771a…` (content `sha256:2a6042327728…`), which `last-good` names with their contents
+  (`finish=passed`). The manifest list `bb3bdef3…` is gone from the store while its container runs it; `:latest`
+  names `sha256:41e46a733329…` and `sha256:827620f31177…`, the same contents.
+- The rollback state: `/root/finance-tracker.previous` and `:previous` name `4510003` (api `sha256:6d6f35b8…`, web
+  `sha256:bba7ff04…`), and `:f0425c0…` and `:8ede02e…` are kept. `rollback.sh`'s target is `4510003`, the commit
+  OPS-2's run replaced, its api accepted by content. A rollback to `f0425c0` is pointless (its web serves `/privacy`
+  with 403). The way back from the family budget is `deploy/deploy.sh switch off`, which works in this state (OPS-2's
+  acceptance checks, the row of 19:16Z).
+- Defect 5, open until OPS-2b is deployed: `run`'s step 1.2, `verify` and `switch`'s step 1.4 print "Image store:
+  unknown, platform unknown", although `docker info` and `docker version` answer (the pre-flight of 2026-10-04). The
+  content identities themselves are read, and the verdicts were right (`verify` named both images "the recorded
+  image").
+- A correction: OPS-2's report, and this section until OPS-2's deploy, gave an empty `run` of `4510003` as the way
+  around defect 1 before OPS-2. With `last-good` naming api `bb3bdef3…`, which the pre-flight found gone from the
+  store, that run would also have FAILED at step 3.2, after the merge (`docker tag` of a gone ID; the case
+  `4510003_run_fails_on_a_gone_image`), unless the one-time remedy ran first. It was never needed.
+- The clone holds three untracked copies of `.env`, `switch`'s (600 root).
+- F7's production check (two test accounts) has not been run; it also covers OPS-2's smoke test, which wasn't
+  performed in full.
+- "CI on Ubuntu 26.04" on `b6870f2` failed in Backend (`RateApiTests`); OPS-2b looks for the cause.
 
-## OPS-2's deploy checklist
+## OPS-2b's deploy checklist
 
-**Commit:** OPS-2's last commit on `feature/family-budget`, "docs: OPS-2's deploy analysis and checklist", printed in
-full by step 1; OPS-2's report names it in full, and the blocks of steps 4 and 8 take it in place of
-`FULL_COMMIT_OF_STEP_1`. **Stage:** `OPS-2` (`deploy/checks/OPS-2.sql` and `OPS-2.expected`).
-**The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before, during and after this deploy.
-This checklist is for this deploy only; don't run it again for another.
+**Commit:** OPS-2b's last commit on `feature/family-budget`, "docs: OPS-2b's deploy analysis and checklist", printed
+in full by step 1; OPS-2b's report names it in full, and the blocks of steps 4 and 9 take it in place of
+`FULL_COMMIT_OF_STEP_1`. **Stage:** `OPS-2b` (`deploy/checks/OPS-2b.sql` and `OPS-2b.expected`). **The switch:** on
+(`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before, during and after this deploy. This checklist is for
+this deploy only; don't run it again for another.
 
-Rules for every block: paste one block at a time, and the next only once the shell prompt `root@auth-1:…#` has
-returned. A command that asks a question (`deploy.sh run`, `finish`, `switch`, `rollback.sh`) is alone in its block;
-type its answer on the keyboard, after the question, never paste it.
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt `root@auth-1:…#` has returned. A server block starts with `cd /opt/finance-tracker &&`, or is wrapped in
+`cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it does nothing. A command that asks a question
+(`deploy.sh run`, `finish`, `rollback.sh`) is alone in its block; type its answer on the keyboard, after the question,
+never paste it.
 
-What runs and why (OPS-2's analysis, from `4510003`'s scripts; `deploy/tests/run.sh` proves each, cases
-`4510003_run_fails_on_a_gone_image`, `4510003_run_deploys_ops2` and `ops2_scripts_after_the_4510003_run`):
+What runs and why (OPS-2b's analysis, from `b6870f2`'s scripts; `deploy/tests/run.sh` proves each on a model of
+production now with the pre-flight's IDs, cases `b6870f2_scripts_on_production_now`, `b6870f2_run_deploys_ops2b` and
+`b6870f2_run_deploys_ops2b_same_api`):
 
-- `run` is `4510003`'s (bash reads the script before the merge): it has the page step (3.6), but no content
-  identity, no D-42 refusal and no preserved dump. Its stage name `OPS-2` is accepted (any name of
-  letters, digits, `.`, `_` and `-` that names the check files).
-- Its step 1.2 only prints the images and never refuses for them. What can fail is step 3.2, after the merge: when the
-  running images are the ones `last-good` names, it runs `docker tag <last-good's api_image>`, and in the containerd
-  image store the manifest list `sha256:bb3bdef3…` was most likely deleted once 2026-10-04's run moved `:latest` away
-  from it (a reproduction did so: OPS-2's change log, defect 4). Then `run` stops FAILED at 3.2, after the merge, with
-  nothing built. The pre-flight below shows whether that ID is still in the store; if not, the one-time block after
-  it makes `last-good` name the same content under the ID `finance-tracker-api:4510003` holds, and 3.2 then tags
-  nothing ("a failed run's", harmless: `:4510003`, `:previous` and the previous-commit file stay as they are).
-  A `switch` before this deploy recreates api from `:latest` and changes this again: don't switch until it's done.
-- The switch on: `run` reads `FAMILY_LEDGERS_ENABLED=true` from the api container and expects "Family ledgers
-  (D-25): on" in the api's log since its start. OPS-2 changes no application file, so the builds are the same
-  content, Compose recreates neither container, and 4.1 and 4.2 find the lines of 2026-10-03T09:25:3xZ, as
-  2026-10-04's run did (the log keeps 5 × 10 MB; the pre-flight shows they are still there).
-- After it, OPS-2's `finish`, `verify`, `switch` and `rollback.sh` read what `4510003`'s `run` wrote; `finish`
-  records the content identities. The rollback target is `4510003`, the commit the run replaced, with the images of
-  its newest history line (api `bb3bdef3…`, web `bba7ff04…`); OPS-2's `rollback.sh` accepts `:4510003` by content.
+- `run` is `b6870f2`'s (bash reads the script before the merge). Its step 1.2 still prints defect 5's line, "Image
+  store: unknown, platform unknown", but reads both contents from the containers and finds the running images to be
+  the last good deploy's, by ID and by content. Step 3.2 looks for the api's content (`9315f0d9…`) in the recorded
+  ID `bb3bdef3…` (gone from the store), then in `finance-tracker-api:b6870f2…` (not there yet), then in `:previous`
+  (`6d6f35b8…`, which holds it): it tags `:previous` as `finance-tracker-api:b6870f2b6272aebe0b5989a2128f2a28bf63af44`,
+  and `:previous` stays `6d6f35b8…`; web `bba7ff04…` by its own ID; `/root/finance-tracker.previous` then names
+  `b6870f2`. It removes the tags of the oldest of the four commits, `8ede02e…`, keeping `b6870f2…`, `4510003…` and
+  `f0425c0…`. Nothing fails and nothing is tagged wrong: **no remedy is needed**, unlike OPS-2's. If the pre-flight
+  differs from what step 2 lists, stop and send it to the PM.
+- Its step 1.8 is the first in production that preserves the before-dump (D-43): the copy, mode 600, in the run folder.
+- The api is rebuilt with new content: OPS-2b changes the backend's tests and `pom.xml`, which are in the api's build
+  context (`COPY pom.xml` and `COPY src`), and the build writes a new jar (a one-comment change of a test file gave the
+  api new content in a throwaway Docker 29.8.2 with the containerd store; the same source twice, the same content).
+  Compose recreates api; web, whose context `frontend/` doesn't change, keeps running. So api restarts: 4.1 and 4.2
+  read a new start's lines, the D-25 line "on" at the time of this deploy, and signed-in browser sessions end (sign
+  in again).
+- After it, OPS-2b's `finish`, `verify`, `switch` and `rollback.sh` read what `b6870f2`'s `run` wrote. `verify` prints
+  "Image store: containerd, platform linux/amd64". The rollback target is `b6870f2`, with the images of its newest
+  history line (api `bb3bdef3…`, web `bba7ff04…`): `rollback.sh` accepts `:b6870f2…`'s api `6d6f35b8…` by content,
+  from `contents`, and its web by ID; it checks the images (step 3) before its question (step 5), so step 9 shows that
+  answered `no`.
 
 **1. On the laptop: merge, push both branches, the full hash.**
 
@@ -739,82 +754,122 @@ What runs and why (OPS-2's analysis, from `4510003`'s scripts; `deploy/tests/run
 cd ~/dev/finance-tracker && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git log -1 --format='%H %s'
 ```
 
-You should see the push and the commit named at the top, in full. CI starts with the push; `run` waits for it.
+You should see the push and the commit named at the top, in full. CI starts with the push; `run` waits for it. Don't
+start "CI on Ubuntu 26.04" now (step 10 says when).
 
 **2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker
+cd /opt/finance-tracker && {
 docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
 docker info -f 'Image store: {{json .DriverStatus}}'
 git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
 cat /var/lib/finance-deploy/last-good
-tail -n 12 /var/lib/finance-deploy/history
-ls -1 /var/lib/finance-deploy/runs | tail -n 4
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
 docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
 docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
-docker image inspect --platform linux/amd64 -f '{{.Id}}' finance-tracker-api:4510003 finance-tracker-api:previous finance-tracker-api:latest finance-tracker-web:4510003 finance-tracker-web:previous finance-tracker-web:latest
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-api:45100032b97bc2809ab7b8ec9538735ebbd8426a finance-tracker-api:f0425c09b2d4492d9e836dc77bc384319e2003c1 finance-tracker-api:8ede02e97d745e2cd06b8b07e7a48ffb2852d65c finance-tracker-web:previous finance-tracker-web:latest finance-tracker-web:45100032b97bc2809ab7b8ec9538735ebbd8426a finance-tracker-web:f0425c09b2d4492d9e836dc77bc384319e2003c1 finance-tracker-web:8ede02e97d745e2cd06b8b07e7a48ffb2852d65c sha256:bb3bdef3d2a94a71dc4f76c3970ab0981a58baed9d688edc65280f48584ec6b4; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
 docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
-grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+}
 ```
 
-You should see: the Docker version; the image store (`driver-type","io.containerd.snapshotter.v1` is the containerd
-store; without it, the classic one); the clone at `4510003` with nothing changed; `last-good` naming `4510003`, api
-`sha256:bb3bdef3…`, web `sha256:bba7ff04…`, `finish=passed …`; the history ending with `good 4510003 …`; the newest
-run folders ending with `2026-10-04T141741Z-switch-on`; both containers' image IDs equal to `last-good`'s, with their
-content identity (the platform manifest's digest; empty in the classic store); the listed images; the content
-identities of the six tags (an error for `--platform` means an older daemon: send it); the three log lines of
-2026-10-03T09:25:3xZ; and `1`. If the platform isn't `linux/amd64`, the `--platform` line says so: send it anyway.
+You should see, as on 2026-10-04 after OPS-2's deploy:
 
-**3. Only if the pre-flight shows it, and only once the PM approved it: the one-time remedy.** It is needed when
-`last-good`'s `api_image` equals the running api's image ID but that ID is missing from the `docker image ls` lines
-(the same for `web_image`), and the ID `finance-tracker-api:4510003` names has the running api's content (the
-`--platform` line equals the container's content). The PM types the two IDs in full into its first line (and
-`key=web_image` for web); it copies `last-good` first, changes that one line only if it holds exactly the old ID, and
-prints the difference; otherwise it says REFUSED and changes nothing.
+- Docker server 29.8.2, linux/amd64; Compose v5.5.1; `Image store: [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: b6870f2b6272aebe0b5989a2128f2a28bf63af44 docs: OPS-2's deploy analysis and checklist`; `git status
+  --short` listing only `?? deploy/app/.env.20261002T212046Z`, `.env.20261002T213540Z` and `.env.20261003T092523Z`;
+  `previous file: 45100032b97bc2809ab7b8ec9538735ebbd8426a`.
+- `last-good`: `commit=b6870f2b6272aebe0b5989a2128f2a28bf63af44`, `time=2026-10-04T19:14:27Z` (or close), `api_image=
+  sha256:bb3bdef3d2a9…`, `web_image=sha256:bba7ff04771a…`, `api_content=sha256:9315f0d932d0…`, `web_content=
+  sha256:2a6042327728…`, `source=deploy`, `finish=passed 2026-10-04T19:14:2…Z`.
+- `contents` holding the lines `sha256:bb3bdef3… sha256:9315f0d9…` and `sha256:bba7ff04… sha256:2a604232…` (the
+  rollback in step 9 reads the first).
+- The history ending with `good b6870f2…` lines; the run folders ending with `2026-10-04T191023Z-b6870f2`,
+  `…191458Z-b6870f2`, `…191629Z-switch-off`, `…191644Z-switch-off`.
+- `/finance-tracker-api image sha256:bb3bdef3… content sha256:9315f0d9… started 2026-10-03T09:25:24…`;
+  `/finance-tracker-web image sha256:bba7ff04… content sha256:2a604232… started 2026-10-03T09:03:08…`.
+- The image list: api `6d6f35b8…` as `:previous`, `:45100032…` and `:f0425c09…`, `5bd35f99…` as `:8ede02e9…`,
+  `41e46a73…` as `:latest`; web `bba7ff04…` as `:previous` and `:45100032…`, `a01f9202…` as `:f0425c09…`,
+  `ddf2a902…` as `:8ede02e9…`, `827620f3…` as `:latest`; no line for `bb3bdef3…`.
+- The contents: api `:previous`, `:latest`, `:45100032…` and `:f0425c09…` `sha256:9315f0d9…`; web `:previous`,
+  `:latest` and `:45100032…` `sha256:2a604232…`; the `8ede02e…` tags and web `:f0425c09…` other contents; and for
+  `sha256:bb3bdef3…` "No such image".
+- The three log lines of 2026-10-03T09:25:3xZ (the api hasn't restarted since), the D-25 line "on".
+- `1`; `600 root` for `.env` and its three copies.
+
+**3. On the server: verify, read only**, with `b6870f2`'s script as it runs now.
 
 ```bash
-# On the server: only if the pre-flight shows last-good's image gone from the store, with the IDs the PM typed in full
-key=api_image old=sha256:OLD_ID_IN_FULL new=sha256:NEW_ID_IN_FULL; cp -p /var/lib/finance-deploy/last-good /var/lib/finance-deploy/last-good.before-ops2; if [[ $key =~ ^(api|web)_image$ && $old =~ ^sha256:[0-9a-f]{64}$ && $new =~ ^sha256:[0-9a-f]{64}$ ]] && grep -qx "$key=$old" /var/lib/finance-deploy/last-good; then sed -i "s/^$key=$old\$/$key=$new/" /var/lib/finance-deploy/last-good; diff /var/lib/finance-deploy/last-good.before-ops2 /var/lib/finance-deploy/last-good; else echo "REFUSED: an ID not typed in full, or last-good's $key isn't $old; nothing changed"; fi
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2
 ```
 
-You should see two diff lines: `< api_image=sha256:bb3bdef3…` and `> api_image=sha256:6d6f35b8…` (the ID
-`:4510003` holds).
+You should see `The checks run as finance_checks: …`, both healthy, "Image store: unknown, platform unknown" (defect 5,
+for the last time), `api: the recorded image, image sha256:bb3bdef3… (content sha256:9315f0d9…)` and the same for web,
+the pages 5 of 5, Flyway V10, the D-25 line "on", OPS-2's 5 lines, the 21 numbers, and `verify OPS-2: OK`.
+
+There is no remedy block: none is needed (above).
 
 **4. On the server: the deploy**, alone in its block, with the commit of step 1 in full; type its first 7 characters
 at the confirmation.
 
 ```bash
 # On the server
-cd /opt/finance-tracker && deploy/deploy.sh run FULL_COMMIT_OF_STEP_1 OPS-2
+cd /opt/finance-tracker && deploy/deploy.sh run FULL_COMMIT_OF_STEP_1 OPS-2b
 ```
 
-It prints (`4510003`'s steps; "Deploying with deploy.sh" lists them): 1.2 the running images and `last-good`
-`4510003`, its status `good`; 1.3 the commits since `4510003`, OPS-2's seven, "Migrations added: none", under
-`deploy/` `RUNBOOK.md`, `checks/OPS-2.expected`, `checks/OPS-2.sql`, `common.sh`, `deploy.sh`, `rollback.sh` and
-`tests/…`; 1.4 `deploy/finance.caddy and the postgres service unchanged`; 1.5 `CI: 10 check runs, every one completed
-with success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`; 1.6 the OPS-2 files; 1.7 the 21
-numbers; 1.8 a dump and `PASS`; 2 `Deploy … stage OPS-2, over 4510003`; 3.2 with the remedy "not the last good
-deploy's: a failed run's … take no tag", without it "kept as :4510003… and :previous"; 3.3 both built (cached);
-3.4 both "Running", not recreated; 3.5 healthy; 3.6 `Pages: 5 of 5`; 4.1 `Latest row: 10 claimed seats and family
-deletion true … V10` with the line of 2026-10-03; 4.2 `Logged: "Family ledgers (D-25): on" at 2026-10-03T09:25:33Z`;
-4.3 `The same numbers`; 4.4 the 5 lines of `OPS-2.expected`; 4.5 `finance.conf: not installed (unchanged)`; 4.6 a dump
-and `PASS`; 5 the summary.
+It prints (`b6870f2`'s steps; [Deploying with deploy.sh](#deploying-with-deploysh) lists them):
 
-**5. The browser checks.** In a private window, at https://app.finance-nl.com: `/` (sign in; if a session ended, sign
-in again: the api isn't expected to restart, 3.4 "Running"), `/privacy` and `/privacy.html` (the policy, with
-"Family budgets"), `/favicon.svg` and `/favicon.ico` (the icon). Signed in: the header has the family budget switcher,
-and `/api/me` holds `"familyLedgers":true`.
+- 1.2: `HEAD: b6870f2 docs: OPS-2's deploy analysis and checklist`; `Running images: api sha256:bb3bdef3…, web
+  sha256:bba7ff04…`; `Image store: unknown, platform unknown; content: api sha256:9315f0d9…, web sha256:2a604232…`;
+  `Last good deploy: b6870f2 … at 2026-10-04T19:14:27Z (deploy)`; `Its status, its newest line in the history: good`;
+  `api: the recorded image, …` and `web: the recorded image, …`; `The running images are the last good deploy's
+  content`; the read-only role's line.
+- 1.3: OPS-2b's six commits, from `2d4797b` ("docs: OPS-2's deploy facts") to the commit of step 1; "Migrations added:
+  none"; under `deploy/`: `RUNBOOK.md`, `checks/OPS-2b.expected`, `checks/OPS-2b.sql`, `common.sh`, `deploy.sh`,
+  `rollback.sh`, `tests/mutate.sh`, `tests/run.sh` and `tests/stubs/docker`.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`. 1.6: the OPS-2b files. 1.7: the 21
+  numbers.
+- 1.8: `Dump finance-….dump, … bytes, written at …, SHA-256 …`, the restore test's table, `PASS`, then (D-43, the first
+  time in production) `The before-dump preserved as /var/lib/finance-deploy/runs/<UTC time>-<7 characters>/finance-….dump
+  (mode 600, … bytes, SHA-256 …)`: the same SHA-256 as the dump's line.
+- 2: `Deploy <7 characters> (docs: OPS-2b's deploy analysis and checklist), stage OPS-2b, over b6870f2.`
+- 3.2: `The running images, the last good deploy's content, kept as :b6870f2b6272aebe0b5989a2128f2a28bf63af44 and
+  :previous; /root/finance-tracker.previous names it`, then `Removed finance-tracker-api:8ede02e97d745e2cd06b8b07e7a48ffb2852d65c,
+  older than the last three revisions` and the same for web. No WARNING.
+- 3.3: api built (its build stage runs Maven again: a few minutes), web built from cache. 3.4: `finance-tracker-api`
+  recreated and started; `finance-tracker-web` "Running". 3.5: `api: healthy, web: healthy` (the api takes up to two
+  minutes), the prune. 3.6: `Pages: 5 of 5 as expected through https://app.finance-nl.com`.
+- 4.1: `Latest row: 10 claimed seats and family deletion true; the highest migration in …: V10`, the line `Schema "app"
+  is up to date. No migration necessary.` and `Started: …`, both of this deploy's time. 4.2: `Logged: "Family ledgers
+  (D-25): on" at <this deploy's time>` (not 2026-10-03), `as production sets it (FAMILY_LEDGERS_ENABLED=true, so on)`.
+- 4.3: `The same numbers` (a user's sign-in during the deploy shows up here; judge before rolling back). 4.4: the 6
+  lines of `OPS-2b.expected`. 4.5: `finance.conf: not installed (unchanged)`.
+- 4.6: perhaps `Waiting for the next minute: …`, then a dump, `PASS`, and `The dumps: before …, after …; the
+  preserved copy as recorded (SHA-256 …)`.
+- 5: the summary, its "Before:" line ending with `preserved as /var/lib/finance-deploy/runs/…/finance-….dump (mode 600,
+  …)`, its "Images:" line naming the new api and `bba7ff04…` with their contents, "before the build, the last good
+  deploy's … kept as :b6870f2" (`b6870f2`'s summary names the tag by 7 characters; OPS-2b's by the full hash).
 
-**6. The smoke test**, with the test account (never the owner's):
+**5. The browser checks.** In a private window, at https://app.finance-nl.com: `/` (sign in: the api restarted, so any
+earlier session ended), `/privacy` and `/privacy.html` (the policy, with "Family budgets"), `/favicon.svg` and
+`/favicon.ico` (the icon). Signed in: the header has the family budget switcher, and `/api/me` holds
+`"familyLedgers":true`.
+
+**6. The smoke test**, with one of the two test accounts, never the owner's main one; every step, in full, before
+step 7:
 
 1. Sign in; the dashboard and the switcher load.
-2. Switcher → "New family budget…": name "OPS-2 smoke", EUR, bring one personal expense category, add the member
+2. Switcher → "New family budget…": name "OPS-2b smoke", EUR, bring one personal expense category, add the member
    "Sam" without an account, the split rule equal; create it.
 3. Activity → add an expense: 10.00 EUR, that category, paid by you from an account, split equally.
 4. The expense shows your share 5.00 and Sam's 5.00; Balances says Sam owes you 5.00.
-5. Personal → Entries: the family share and payment lines of that expense.
+5. Personal → Entries: the family share and payment lines of that expense. Then `/api/reports/integrity` answers `[]`.
 6. The family budget → Members → Leave: the confirmation says the budget and its records will be deleted ("Leave and
    delete the family budget"); confirm. The switcher no longer lists it.
 7. Settings → "Delete all my data", typing `DELETE`: the empty dashboard.
@@ -827,69 +882,58 @@ cd /opt/finance-tracker && deploy/deploy.sh finish
 ```
 
 You should see the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before
-the deploy", `Images: api … (content …), web … (content …)` and "Done". Then, read only:
+the deploy", `Images: api … (content …), web sha256:bba7ff04… (content sha256:2a604232…)` and "Done".
+
+**8. On the server: verify, read only**, now with OPS-2b's script.
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2b
 ```
 
-You should see "The images" with the store, each image's ID and content identity and `api: the recorded image …`
-and `web: the recorded image …`, the pages 5 of 5, Flyway V10, the D-25 line "on", `OPS-2.expected`'s lines, the
-numbers, and `verify OPS-2: OK`.
+You should see `Image store: containerd, platform linux/amd64` (defect 5 fixed), `api: the recorded image, image …
+(content …)` with the new api, `web: the recorded image, image sha256:bba7ff04… (content sha256:2a604232…)`, the pages
+5 of 5, Flyway V10, the D-25 line "on" of this deploy's time, `OPS-2b.expected`'s 6 lines, the numbers, and `verify
+OPS-2b: OK`.
 
-**8. Acceptance checks of OPS-2's fixes**, each changing nothing in production. Each block alone, in this order.
+**9. Acceptance: `rollback.sh` accepts `b6870f2`'s images by content**, changing nothing. `rollback.sh` checks the
+images (its step 3) before its question (step 5), so answering `no` shows them. Each block alone, in this order.
 
-D-42, before: the rollback state.
+The rollback state, before:
 
 ```bash
 # On the server (read only)
-cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous
+cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous finance-tracker-api:b6870f2b6272aebe0b5989a2128f2a28bf63af44 finance-tracker-web:b6870f2b6272aebe0b5989a2128f2a28bf63af44; cat /var/lib/finance-deploy/last-good; }
 ```
 
-D-42: a run of the same commit, alone in its block; it asks nothing.
+You should see `b6870f2b6272aebe0b5989a2128f2a28bf63af44`; `sha256:6d6f35b8…`, `sha256:bba7ff04…`, `sha256:6d6f35b8…`,
+`sha256:bba7ff04…`; and `last-good` naming the commit of step 1 with the new api.
 
-```bash
-# On the server
-cd /opt/finance-tracker && deploy/deploy.sh run FULL_COMMIT_OF_STEP_1 OPS-2
-```
-
-You should see `REFUSED at "1.3 Preflight: git fetch, the commit and what it brings": … runs already, deployed and
-finished cleanly (good, finish passed …): nothing to deploy (D-42)…`, before step 1.5 (no CI line, no dump), and
-"Nothing changed". Then the block "D-42, before" again: the same three lines.
-
-Defect 1: `switch off`, answered `no`, twice, each alone in its block.
+`rollback.sh b6870f2`, alone in its block; type `no` at its question.
 
 ```bash
 # On the server: type no at the question
-cd /opt/finance-tracker && deploy/deploy.sh switch off
+cd /opt/finance-tracker && deploy/rollback.sh b6870f2
 ```
 
-You should see, before the question, "The latest run that isn't refused: …-<the commit's 7 characters>, finished",
-then `REFUSED at "2. Confirmation": not confirmed` and "Nothing changed: .env untouched, api not restarted."
+You should see step 1 `Image store: containerd, platform linux/amd64`; step 2 `Target: b6870f2 docs: OPS-2's deploy
+analysis and checklist, the commit HEAD's deploy replaced (…); its status, its newest line in the history: good`; step
+3 `INFO finance-tracker-api:b6870f2b6272aebe0b5989a2128f2a28bf63af44 is sha256:6d6f35b8…, another ID with the recorded
+content sha256:9315f0d9… (recorded sha256:bb3bdef3…)` and `api sha256:6d6f35b8…, web sha256:bba7ff04…`; step 4
+Flyway V10; then the question, and after `no`: `REFUSED at "5. Confirmation": not confirmed` and "Nothing changed."
+Then the block "The rollback state, before" again: the same lines.
 
-```bash
-# On the server: type no at the question again
-cd /opt/finance-tracker && deploy/deploy.sh switch off
-```
+**10. CI on Ubuntu 26.04 (D-44)**, only now, after step 9: on GitHub, Actions → "CI on Ubuntu 26.04" → "Run
+workflow" on `main`. Its check runs belong to OPS-2b's commit, which is deployed and finished, so they can't hold up
+a deploy; never start it between a push and that commit's `run`. Expected: every job green, Backend's 407 tests
+included. Send its result to the PM before 2026-10-19.
 
-You should see the same: it reaches "Type SWITCH OFF" again (`4510003`'s would have stopped at 1.4), and refuses at
-the confirmation. The switch stays on.
-
-Defect 4: `verify OPS-2` of step 7 shows each image's content identity. Defect 3 (the preserved before-dump) is
-checked at the next deploy that makes dumps with OPS-2's `run`: its step 1.8 prints "The before-dump preserved as
-…", and its run folder holds the copy.
-
-**9. CI on Ubuntu 26.04 (D-44)**, only now, after step 8: on GitHub, Actions → "CI on Ubuntu 26.04" → "Run
-workflow" on `main`. Its check runs belong to OPS-2's commit, which is deployed and finished, so they can't hold up a
-deploy; never start it between a push and that commit's `run`. Send its result to the PM before 2026-10-19.
-
-**10. Last, only for a failed deploy where the site is down: the rollback**, alone in its block; type `ROLLBACK
-4510003` at its question.
+**11. Last, only for a failed deploy where the site is down: the rollback**, alone in its block; type `ROLLBACK
+b6870f2` at its question.
 
 ```bash
 # On the server: only for a failed deploy where the site is down
-cd /opt/finance-tracker && deploy/rollback.sh 4510003
+cd /opt/finance-tracker && deploy/rollback.sh b6870f2
 ```
 
 ## Deploying with deploy.sh
@@ -1180,8 +1224,11 @@ blocks `switch on`, and its refusal names the command that resolves it: a deploy
 back, run it again, `finish` again or `adopt`), or a switch that changed `.env` or restarted api and
 didn't complete (`deploy/deploy.sh switch off`). **`switch off` never refuses for any of these**,
 nor for health, a HEAD that isn't the last good deploy, or images that aren't its content: it prints
-each as a WARNING and goes on, since the way back must always work; it still needs a terminal, the
-read-only role (for the numbers) and `.env`. "Nothing to switch" (REFUSED at 1.5) only when `.env`
+each as a WARNING and goes on, since the way back must always work; it still needs a terminal and
+`.env`. Nor (since OPS-2b, D-50) does it refuse because the numbers can't be read through the read-only role
+`finance_checks` (the role missing or wrong, `numbers.sql` failing): it prints a WARNING, its summary's "Numbers"
+line says they weren't read, and it goes on; numbers that are read and differ still stop it, and `switch on` refuses
+in that case, before its question. "Nothing to switch" (REFUSED at 1.5) only when `.env`
 and the running api both already have the value; after a switch that changed `.env` but stopped
 before the restart, the same switch again restarts api. And (since F7b's
 fourth commit, D-41) the pages of `PAGES` in `deploy/common.sh` through the public address, as

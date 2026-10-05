@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,9 +15,11 @@ import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * Each ledger entity round-trips through its repository, lookups by ledger see only that ledger's rows, and the
@@ -44,6 +47,20 @@ class LedgerRepositoryTests extends IntegrationTest {
     private LedgerScope scope;
     private LedgerScope othersScope;
     private long ledger;
+
+    /** The days of the ECB's rates (every user's) that a test wrote, removed after it (IntegrationTest). */
+    private final List<LocalDate> sharedRates = new ArrayList<>();
+
+    @Autowired
+    private JdbcClient jdbc;
+
+    @AfterEach
+    void removeSharedRates() {
+        for (LocalDate day : sharedRates) {
+            jdbc.sql("DELETE FROM exchange_rate WHERE user_id IS NULL AND rate_date = ? AND quote_currency = 'RUB'")
+                    .param(day).update();
+        }
+    }
 
     @BeforeEach
     void createLedgers() {
@@ -109,6 +126,7 @@ class LedgerRepositoryTests extends IntegrationTest {
     @Test
     void exchangeRateIsInsertedThenReplaced() {
         LocalDate day = LocalDate.of(2026, 9, 25);
+        sharedRates.add(day);
 
         exchangeRates.save(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.00000000"), "ECB", null));
         exchangeRates.save(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.50000000"), "ECB", null));

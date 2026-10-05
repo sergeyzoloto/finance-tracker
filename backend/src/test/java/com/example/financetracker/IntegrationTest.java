@@ -2,12 +2,18 @@ package com.example.financetracker;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.io.IOException;
-import java.util.TimeZone;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 import com.example.financetracker.ledger.family.FamilySwitch;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.JWTClaimsSet;
+import org.junit.jupiter.api.AfterAll;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -54,9 +60,27 @@ public abstract class IntegrationTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
     static {
-        // Far from UTC, so a date shifted by a time zone conversion shows up as an off-by-one.
-        TimeZone.setDefault(TimeZone.getTimeZone("Pacific/Kiritimati"));
+        // The JVM runs in Pacific/Kiritimati from its start (pom.xml, user.timezone), far from UTC, so a date shifted by
+        // a time zone conversion shows up as an off-by-one. Setting it here, as before OPS-2b, changed it for the rest
+        // of the run at whichever class came first (JvmDefaultsGuard).
         POSTGRES.start();
+    }
+
+    /**
+     * The ECB's rates ({@code user_id} NULL) are every user's: a class that writes them removes them, or each class
+     * after it reads them (OPS-2b: LedgerRepositoryTests' RUB rate of 2026-09-25 became RateApiTests' latest RUB rate,
+     * in the class order of Ubuntu 26.04's runner).
+     */
+    @AfterAll
+    static void noSharedRateLeft() throws SQLException {
+        try (Connection db = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+                ResultSet rows = db.createStatement().executeQuery("""
+                        SELECT string_agg(rate_date || ' ' || quote_currency || ' ' || source, ', ' ORDER BY rate_date)
+                        FROM app.exchange_rate WHERE user_id IS NULL""")) {
+            rows.next();
+            assertThat(rows.getString(1)).as("the ECB's rates this class left in the shared database").isNull();
+        }
     }
 
     @DynamicPropertySource

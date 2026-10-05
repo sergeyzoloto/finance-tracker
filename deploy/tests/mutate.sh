@@ -291,6 +291,38 @@ mutation_in common.sh "take any finish as clean" \
   $'    passed*) ;;\n    *) [ "$LG_SOURCE" = adopt ] || return 1 ;;' $'    *) ;;' \
   run_of_the_running_commit_without_a_clean_finish
 
+# OPS-2b, defect 5: the store and the platform read only inside "$(…)", as OPS-2's scripts did.
+mutation_in common.sh "read the store and platform only in subshells" \
+  $'  docker_identity\n  RUN_API=' $'  RUN_API=' \
+  store_and_platform_named
+
+# OPS-2b, defect 5: a bare "unknown" for what Docker answered.
+mutation_in common.sh "print a bare unknown for docker info's answer" \
+  $'  image_store || store="not known (docker info -f \'{{json .DriverStatus}}\' $STORE_ANSWER)"' \
+  $'  image_store || store=unknown' \
+  store_and_platform_named identity_unavailable
+
+# OPS-2b: the last good deploy's tag named by 7 characters, as no tag is named (production's are full hashes).
+mutation "name the kept tag by 7 characters" \
+  'kept as :$LG_COMMIT and :previous"' 'kept as :${LG_COMMIT:0:7} and :previous"' \
+  happy_path
+
+# OPS-2b, D-50: switch off refusing because the numbers can't be read through finance_checks.
+mutation "let switch off refuse without the read-only role" \
+  $'    role_command\n    [ "$direction" = off ] || fail "$problem"' $'    role_command\n    fail "$problem"' \
+  switch_off_without_the_numbers
+
+mutation "let switch off refuse when numbers.sql fails" \
+  $'      [ "$direction" = off ] || fail "$NUMBERS_WHY"\n      say "WARNING: $NUMBERS_WHY; switching' \
+  $'      fail "$NUMBERS_WHY"\n      say "WARNING: $NUMBERS_WHY; switching' \
+  switch_off_without_the_numbers
+
+# OPS-2b, D-50: switch on going on without the numbers.
+mutation "let switch on go on without the numbers" \
+  $'      [ "$direction" = off ] || fail "$NUMBERS_WHY"\n      say "WARNING: $NUMBERS_WHY; switching' \
+  $'      say "WARNING: $NUMBERS_WHY; switching' \
+  switch_off_without_the_numbers
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

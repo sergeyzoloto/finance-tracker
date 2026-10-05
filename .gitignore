@@ -34,6 +34,8 @@ build/
 
 ### Environments ###
 .env
+# deploy.sh switch's copies of .env on the server (deploy/app/.env.20261003T092523Z), mode 600, never committed
+deploy/app/.env.[0-9]*
 
 ### Node ###
 node_modules/

@@ -3,6 +3,260 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
+
+Commits on `feature/family-budget`: `2d4797b` (the deploy facts, the entry below), `aaf8391` ("ops: the image store
+and platform named (defect 5)"), `2550102` ("test: no shared ECB rate or JVM default left behind"), `133178e` ("ops: switch off without the numbers (D-50)"), `9e10fae` ("docs: checklist rules: guarded server
+blocks, full tags, no prune"), then "docs: OPS-2b's deploy analysis and checklist", whose hash OPS-2b's report names
+(the commit to deploy). Not pushed, not merged, not deployed.
+
+**Changes**
+- Defect 5: `run`'s step 1.2, `verify` and `switch`'s step 1.4 printed "Image store: unknown, platform unknown" in
+  production (2026-10-04), while `docker info` and `docker version` answered there as the pre-flight showed.
+  - The cause, in the scripts, not in Docker's answers: `image_store` and `server_platform` set `IMAGE_STORE` and
+    `PLATFORM`, but OPS-2's scripts called them only through `content_of_container`, `content_of_image` and
+    `content_of_id`, each inside `$(…)`. A subshell's variables end with it, so the shell that printed the line never
+    had them, on any store. Each subshell ran `docker info` and `docker version` again for itself and read every content
+    identity correctly, so no verdict was wrong (production's `verify` named both images "the recorded image").
+  - Reproduced with real Docker, by sourcing `deploy/common.sh` in a subshell and calling its read-only functions as
+    `deploy.sh` does: on the laptop's daemon (Docker 29.8.1, classic store, overlay2) the content of a running
+    container came back and the line said "unknown, platform unknown"; in a throwaway `docker:29-dind` (29.8.2, the
+    containerd store; its `docker info -f '{{json .DriverStatus}}'` printed byte for byte production's
+    `[["driver-type","io.containerd.snapshotter.v1"]]`, its `docker version` `linux/amd64`), with two containers
+    named as production's, run from an attested build (ID `sha256:3989f20f…`, a manifest list; content
+    `sha256:29bcaed0…`), the same. Called in the shell itself, the functions answered "classic, linux/amd64" and
+    "containerd, linux/amd64".
+  - The stub: its containerd answer and its `docker version` answer were already production's, byte for byte, so it
+    didn't differ where it mattered; it couldn't show the defect, which is a shell variable lost in a subshell. Its
+    classic answer was shorter than real Docker's and is now the laptop's 29.8.1 answer byte for byte; "broken" now
+    answers as the 29.x client without a daemon (`docker info` prints `null` and the error, exit 1; `docker version`
+    an empty line and the error); a new store "unrecognised" answers `null` with exit 0. The 85 cases missed the
+    defect because none looked at the line: they checked the content identities and the verdicts, which were right.
+    `identity_unavailable` even asserted "(image store unknown", which held for the wrong reason: the line said
+    unknown on every store.
+  - `deploy/common.sh`: `docker_identity` reads both in the calling shell and sets `STORE_LINE`; `running_images`
+    calls it first, in the script's own shell, so every subshell after it inherits both, and `docker info` runs once
+    per script instead of once per subshell. When Docker answers something the scripts can't parse, or fails, the
+    line names the command and its answer or error (`docker_error`, `one_line`), never a bare "unknown":
+    `Image store: not known (docker info -f '{{json .DriverStatus}}' answered null), platform linux/amd64`.
+  - `deploy/deploy.sh`: step 1.2, its refusal when a content can't be read, `verify` and `switch`'s step 1.4 print
+    `STORE_LINE`. `deploy/rollback.sh`: step 1 prints it.
+  - Tags: the scripts and the stub both name commit tags by the full hash (`finance-tracker-api:<40 hex>`), as
+    production holds them. What named them by 7 characters was text: the summary's "Images" line (`KEPT_LINE`, "kept
+    as :4510003 and :previous") and step 3.2's "take no tag" line, which is how OPS-2's checklist came to inspect
+    `:4510003`, an image that doesn't exist. Both now name the full tag.
+- What `b6870f2`'s scripts, which run in production now, do there (production's state after OPS-2's deploy and the
+  acceptance checks: `last-good` naming `b6870f2` with api `bb3bdef3…`, gone from the store, and its content
+  `9315f0d9…`; `contents` holding both pairs, recorded by OPS-2's `finish`; `:previous` and `:4510003…` api
+  `6d6f35b8…` and web `bba7ff04…`; `:latest` `41e46a73…` and `827620f3…`, the same contents):
+  - OPS-2b's `run`, which is `b6870f2`'s (bash reads it before the merge): step 1.2 prints defect 5's line, reads both
+    contents from the containers' `ImageManifestDescriptor`, finds both the recorded images by ID and content, and goes
+    on. Step 3.2 looks for the api's content in the recorded ID (gone), the running ID (the same, gone),
+    `:b6870f2…` (not there yet) and `:previous`, which holds it: it tags `finance-tracker-api:previous` as
+    `:b6870f2b6272…` and `:previous` (unchanged, `6d6f35b8…`), the web's own `bba7ff04…` likewise, and writes
+    `b6870f2…` into the previous-commit file; then it removes the tags of the oldest of the four commits,
+    `8ede02e…`, keeping `b6870f2…`, `4510003…` and `f0425c0…`. No wrong tag and no failure: **no remedy is needed**.
+    Step 1.8 preserves the before-dump (D-43's first run in production).
+  - `switch off`: reaches its confirmation, as on 2026-10-04 (H). `switch on`: REFUSED at 1.5, already on.
+  - `rollback.sh 4510003`: the target `4510003`, the commit OPS-2's run replaced; its api by content (`:4510003…`
+    is `6d6f35b8…`, the recorded `bb3bdef3…` known as `9315f0d9…` from `contents`), its web by ID.
+  - `verify`: OK, with defect 5's line.
+  - After OPS-2b's deploy, OPS-2b's `finish`, `verify` (now "Image store: containerd, platform linux/amd64"), `switch`
+    and `rollback.sh b6870f2` (its api by content, `INFO`, its web by ID) work on what `b6870f2`'s `run` wrote, and a
+    run of OPS-2b's commit again is refused (D-42).
+- Tests (`deploy/tests/run.sh`, 89 cases):
+  - `store_and_platform_named`: the line in `run`, `verify`, `switch` and `rollback.sh` on the classic and the
+    containerd store, `docker info` read at most once per script, an answer it can't parse and a platform it can't
+    read named with what Docker said. `identity_unavailable` expects the daemon's error in the line and never a bare
+    "unknown". `happy_path` and `different_content` expect the full tag in the summary and in step 3.2.
+  - `production_2026_10_05`, a model of production now with the real IDs and contents of the pre-flight and the run
+    where they were given in full, and three cross-version cases that run `b6870f2`'s scripts, taken from git:
+    `b6870f2_scripts_on_production_now` (its `verify`, `switch off` answered no, `switch on` and `rollback.sh` answered
+    no, nothing changed), `b6870f2_run_deploys_ops2b` (an api of new content: recreated, D-25 logged anew) and
+    `b6870f2_run_deploys_ops2b_same_api` (nothing recreated, D-25 from 2026-10-03), each followed by OPS-2b's
+    `finish`, `verify`, a run again, `rollback.sh` and `switch off` and `on`.
+  - `deploy/tests/mutate.sh`, 50 mutations: three new ones (the store read only in subshells; a bare unknown for
+    `docker info`'s answer; the kept tag named by 7 characters).
+
+- The `RateApiTests` failure on Ubuntu 26.04 ("CI on Ubuntu 26.04" #1 on `b6870f2`: `aManualRateIsTheUsersOwn`,
+  expected "2026-09-01" but was "2026-09-25"): the root cause is in the tests only.
+  - `LedgerRepositoryTests.exchangeRateIsInsertedThenReplaced` saves an ECB rate, EUR→RUB 75.50 on 2026-09-25 with
+    `user_id` NULL, in the database every integration test shares, and never removes it. ECB rates are every user's,
+    so any class after it reads that rate, until `EcbRateLoaderTests` deletes every ECB rate. `RateApiTests` saves
+    Alice's manual RUB rate of 2026-09-01 and expects it to be her latest; with the stray rate, GET `/api/rates`
+    rightly answers the later ECB one (2026-09-25, `ECB`, `inLedger` false), as the run's log showed.
+  - So it depends only on the class order: `LedgerRepositoryTests` before `RateApiTests` with `EcbRateLoaderTests`
+    not between them. Surefire's default order follows the file system's listing, which differs between runners;
+    Ubuntu 24.04's happened to be safe.
+  - Reproduced locally at `b6870f2` with exactly those two classes in alphabetical order (`ledger.LedgerRepositoryTests`
+    sorts before `ledger.api.RateApiTests`): the same assertion and values. The same failure with the JVM started in
+    `Pacific/Kiritimati`, `Etc/GMT+12` and `UTC`: the time zone plays no part. In reverse alphabetical order the two
+    pass: `RateApiTests` runs first. The whole suite at `b6870f2` passes in both alphabetical and reverse alphabetical order (404 tests each): in
+    alphabetical order `FamilyCurrencyApiTests` runs between the two, and its `@AfterEach` deletes the ECB rates of
+    August and September 2026, the stray one included (`EcbRateLoaderTests` deletes them all). The failure needs
+    neither between them, as the 26.04 runner's order had it.
+  - The +14:00 in the log from one class on: `IntegrationTest`'s static block called
+    `TimeZone.setDefault(Pacific/Kiritimati)` when the first class that touches it loaded (an integration test, or
+    `LedgerBackfillMigrationTests` and `LedgerSchemaTests` through `IntegrationTest.POSTGRES`), and never set it back;
+    the classes before it ran in the runner's zone (UTC). Deliberate in intent (CLAUDE.md: the JVM runs in
+    Kiritimati), but JVM-wide and order-dependent. Not the cause of this failure.
+  - Production code: the rates (`RateService`, `RateBook`, the ECB loader) read no clock and no default zone. Two
+    other places call `LocalDate.now()` (the JVM's zone and the system clock) instead of `Today`: `DemoController`
+    (the demo's last day) and `ReportController` (a report's default `asOf`). In production both give `Today`'s date
+    (the api's zone is UTC, `Today`'s clock the system's); only a test that sets `TestClock` sees them differ. Not a
+    cause here, and unchanged: an open question below.
+- The fix, in the tests:
+  - `LedgerRepositoryTests` removes the ECB rates it wrote after each test (`@AfterEach`).
+  - `IntegrationTest` fails a class that leaves any ECB rate (`user_id` NULL) in the shared database (`@AfterAll`,
+    plain JDBC), naming the rows.
+  - `IntegrationTest` no longer sets the time zone. `pom.xml`: the property `user.timezone`, `Pacific/Kiritimati`, and
+    surefire's `argLine` `-Duser.timezone=${user.timezone}`, so the test JVM runs in Kiritimati from its start; on
+    Maven's command line `-Duser.timezone=…` overrides it (checked with `help:effective-pom`).
+  - `JvmDefaultsGuard` (a JUnit extension for every class: `src/test/resources/junit-platform.properties` turns on
+    autodetection, `META-INF/services/org.junit.jupiter.api.extension.Extension` lists it) fails a class that leaves
+    the JVM's default time zone or locale (default, display, format) changed, and puts them back so the classes after
+    it run as before. `JvmDefaultsGuardTests`: unchanged passes; a changed zone or locale fails naming the class, and
+    is put back.
+  - Whether this reaches the api image: yes. The api's build context is `backend/` and its Dockerfile copies `pom.xml`
+    and `src`, tests included; Maven then writes a new jar (no `project.build.outputTimestamp`). In a throwaway
+    `docker:29-dind` (29.8.2, the containerd store): `b6870f2`'s `backend/` built twice gave the same content
+    (`sha256:8c914ee1…`); the same with one comment added to a test file gave other content (`sha256:c97a6ff7…`);
+    OPS-2b's `backend/` gave other content too (`sha256:00350289…`). So OPS-2b's `run` recreates api (OPS-2b's checklist).
+
+- D-50 (decided by the PM): `switch off` never refuses because the numbers can't be read through `finance_checks`.
+  - `deploy/deploy.sh switch`: step 1.2 reads the role itself; a role that is missing or not as the runbook makes it
+    stops `switch on` as before, and for `switch off` prints the runbook's command and a WARNING ("the numbers can't
+    be read through finance_checks; switching off goes on without them (D-50)"). Step 1.6 (`read_numbers`, in the
+    script's own shell): `numbers.sql` failing, or printing something else than its lines, stops `switch on` (now
+    naming psql's error) and is a WARNING for `switch off`. Step 3.5 says "Not compared" when they weren't read
+    before, and a WARNING for `switch off` when they can't be read after the change; numbers read on both sides that
+    differ still stop it. The summary's "Numbers" line says which. "Nothing to switch" stays as it is.
+  - D-50 in `docs/family-budget/requirements.md`, after D-44; the runbook's "Switch the family budget on or off".
+  - Tests: the docker stub's `fixtures/numbers-fails` (the numbers unreadable from a given read on, as psql's
+    "permission denied"); the case `switch_off_without_the_numbers` (the role missing: `switch off` goes on, its
+    summary saying so, and `switch on` is refused at 1.2 with `.env` unchanged; `numbers.sql` failing: `switch on`
+    refused at 1.6, `switch off` goes on; readable before but not after: `switch off` completes with a warning;
+    "nothing to switch" as before). Three mutations: `switch off` refusing without the role, `switch off` refusing when
+    `numbers.sql` fails, `switch on` going on without the numbers.
+- `.gitignore`: `deploy/app/.env.[0-9]*`, `switch`'s copies of `.env` (`git status --short` listed three on the server).
+  No tracked file matches (`git ls-files`); `deploy/app/.env.example` is still tracked and not ignored.
+
+- CLAUDE.md, "Deploy checklists": a server block can't run on the laptop (fact A of 2026-10-04): a one-line one
+  starts with `cd /opt/finance-tracker &&`, a multi-line one is wrapped in `cd /opt/finance-tracker && {` … `}`;
+  image tags are written as the scripts name them, the full commit hash; "CI on Ubuntu 26.04" is never started between
+  a push and that commit's `run`. A new section "Docker on the laptop": never `docker … prune` of any kind (OPS-2 ran
+  `docker volume prune -f` on the laptop); only the resources the agent created are removed, by name or label.
+
+- `deploy/RUNBOOK.md`, "OPS-2b's deploy checklist", in place of OPS-2's: at its top the commit, the stage `OPS-2b`
+  and the switch on before, during and after; the analysis above (no remedy; the api recreated, so the D-25 line gets
+  a new time and browser sessions end; the before-dump preserved for the first time; the rollback target `b6870f2`,
+  by content); the laptop's merge and push; a guarded read-only pre-flight showing every ID, content and tag in full,
+  `last-good`, `contents`, the history, the run folders, the api's log lines and `.env`'s switch and modes, with what
+  each should say; `verify OPS-2` with `b6870f2`'s script; `run` with the full hash and `OPS-2b`, and what each step
+  prints (D-43's copy and SHA-256 at 1.8, 4.6 and the summary; 3.2's tags; api recreated); the browser checks; the
+  smoke test with one of the two test accounts, OPS-2's seven steps with `/api/reports/integrity` `[]` before leaving;
+  `finish`; `verify OPS-2b` (the store as containerd, the platform linux/amd64); the acceptance block,
+  `rollback.sh b6870f2` answered `no` between two read-only looks at the rollback state; when to start "CI on Ubuntu
+  26.04"; the rollback last, alone.
+- `deploy/checks/OPS-2b.sql` and `OPS-2b.expected`: OPS-2's five lines (Flyway V10, V10's column and functions,
+  unbalanced entries 0) and "ECB rouble rates after 2022-03-01 0" (D-49; the ECB client skips the history's `N/A`,
+  which RUB reads since 2 March 2022). No family count, nothing that changes from day to day, no backslash.
+  `numbers.sql` unchanged (no new table).
+- CLAUDE.md's project map: OPS-2b.
+
+**Verified**
+- Commit 6, the whole of OPS-2b on its final code: `deploy/tests/run.sh` 90 of 90; `deploy/tests/mutate.sh` all 53
+  caught; ShellCheck 0.11.0 clean; `./mvnw -B clean verify` 407 tests, 0 failures, BUILD SUCCESS; `npm test` 25 files,
+  301 tests passed; `npm run build` succeeded. `git diff --numstat main..HEAD` lists no file of
+  `DataIsolationApiTests` and no application file (`backend/src/main`, `frontend/`).
+- Commit 6: `deploy/checks/OPS-2b.sql` on a throwaway `postgres:17.11` (production's digest) migrated to V10 by
+  Flyway 11.7.2, as `finance_checks` made by the runbook's command, with `PGOPTIONS=-c default_transaction_read_only=on`:
+  exactly `OPS-2b.expected`; with a made-up ECB RUB rate of 2026-09-25 inserted as the superuser, the last line read 1;
+  a `DELETE` as `finance_checks` was refused ("cannot execute DELETE in a read-only transaction"); `numbers.sql` its 21
+  keys. Container and network removed. Every block of the checklist starts with `# On the laptop` or `# On the
+  server`, every server block with `cd /opt/finance-tracker &&` (multi-line ones in braces), checked by a script;
+  `bash -n` parses the two multi-command server blocks.
+- Commit 5: documents only; `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1. A guarded block's behaviour checked in
+  bash on the laptop, where `/opt/finance-tracker` doesn't exist: `cd /opt/finance-tracker && { echo ran; }` printed
+  only the `cd` error, and the same pasted over several lines too.
+- Commit 4: `deploy/tests/run.sh` 90 of 90; `deploy/tests/mutate.sh` all 53 caught (D-50's three by
+  `switch_off_without_the_numbers`); ShellCheck clean. `git check-ignore` ignores a file named
+  `deploy/app/.env.20261003T092523Z` by the new line; `git ls-files 'deploy/app/.env.[0-9]*'` lists nothing.
+- Commit 3: `./mvnw -B clean verify` five ways, each 407 tests (404 and `JvmDefaultsGuardTests`' 3), 0 failures, 0
+  errors, 0 skipped, BUILD SUCCESS: the default order; `-Dsurefire.runOrder=reversealphabetical`;
+  `-Duser.timezone=Pacific/Kiritimati`; `-Duser.timezone=Etc/GMT+12` (every Spring Boot line of its log at -12:00);
+  and `-Dsurefire.runOrder=alphabetical`. The default run's log has every line at +14:00 from the first class on, and
+  no guard message. Before the fix, `LedgerRepositoryTests` then `RateApiTests` failed as on Ubuntu 26.04; after it
+  they pass in that order. The guard, before `IntegrationTest`'s static block was removed, in a JVM started in UTC:
+  it failed `LedgerBackfillMigrationTests` ("left the JVM's defaults changed: time zone UTC … before it, time zone
+  Pacific/Kiritimati … after it"). The shared-rate check, with `LedgerRepositoryTests`' cleanup disabled on a copy:
+  it failed that class with `2026-09-25 RUB ECB`; the file was put back.
+- Commit 2: `deploy/tests/run.sh` 89 of 89; `deploy/tests/mutate.sh` all 50 caught; ShellCheck 0.11.0 (`-x`, CI's
+  file list) clean. The real-Docker reproduction above, before and after the fix, the after on three daemons: the
+  laptop's ("Image store: classic, platform linux/amd64"), the dind ("containerd, linux/amd64", both contents) and an
+  address without a daemon (the client's error in both halves of the line).
+
+**Open**
+- For the PM (D-49, F8): `DemoController` and `ReportController`'s default `asOf` take `LocalDate.now()`, the JVM's
+  zone and the system clock, where the rest of the app takes `Today`. They agree in production; a test that sets the
+  clock can't move them. Options: leave them; or have both take `Today`, which a test then controls. Unchanged here.
+- OPS-2b isn't pushed, merged or deployed: defect 5 stays in production until then.
+- "CI on Ubuntu 26.04" hasn't run on these changes: the checklist's step 10, after the deploy, before 2026-10-19.
+- D-45 to D-49 and F8 aren't in the repository's documents; D-50 follows D-44 in `requirements.md`.
+- The production model's history and run folders are inferred from the facts given; the pre-flight shows the real
+  ones, and a difference stops the deploy for the PM.
+- F7's production check with two test accounts, which also covers OPS-2's smoke test.
+
+## 2026-10-05 · Deploy records: OPS-2's deploy, its acceptance checks and CI on Ubuntu 26.04 (OPS-2b)
+
+Commit "docs: OPS-2's deploy facts", OPS-2b's first, on `feature/family-budget` at `b6870f2` (equal to `main`); its
+hash is named by the OPS-2b entry above it. Not pushed, not merged. Documents only.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions", seven rows of 2026-10-04, newest first:
+  - "CI on Ubuntu 26.04" on `b6870f2` (run #1, `37227790313`, Ubuntu 26.04.1, Docker 29.4.2): Backend failed with
+    one failure of 404 tests, `RateApiTests.aManualRateIsTheUsersOwn` (`RateApiTests.java:31`), expected
+    "2026-09-01" but was "2026-09-25", Maven done at 19:28:20Z; Frontend, Web image and Deploy scripts succeeded,
+    as GitHub's public API lists the run's jobs.
+  - OPS-2's acceptance checks: the read-only block the same before and after; D-42's `run` of `b6870f2` at 19:14:58Z
+    REFUSED at 1.3, nothing changed, no CI line and no dump; `switch off` at 19:16:29Z and 19:16:44Z, answered `no`,
+    both reaching "2. Confirmation" past "The latest run that isn't refused: 2026-10-04T191023Z-b6870f2, finished".
+    Each printed "Image store: unknown, platform unknown" (defect 5).
+  - `verify OPS-2` OK at 19:14:35Z, both images "the recorded image" with their contents, and the same "unknown" line.
+  - OPS-2's deploy, `2026-10-04T191023Z-b6870f2`, run by `4510003`'s script after the remedy: each step's facts
+    (the seven commits, no migration, CI 10 of 10 on `ubuntu-24.04`, the dumps of 19:10:26Z and 19:12:03Z in
+    different minutes with PASS, 3.2's "They take no tag", both builds cached as new manifest lists, nothing
+    recreated, D-25 "on" since 2026-10-03T09:25:33Z, the 21 numbers unchanged, OPS-2's 5 lines). Its `finish`
+    answered 2 minutes 20 seconds after the summary: the smoke test was not performed in full, recorded like the
+    35- and 80-second finishes before it; F7's two-account check will cover it.
+  - The one-time remedy between 19:09:57Z and 19:10:23Z: `last-good`'s `api_image` from `bb3bdef3…` to `6d6f35b8…`,
+    `diff` printing `3c3`, the copy `last-good.before-ops2` kept.
+  - The pre-flight of the session opened at 17:33:27Z: Docker 29.8.2 and Compose v5.5.1, the DriverStatus
+    `[["driver-type","io.containerd.snapshotter.v1"]]`, the clone at `4510003` with `switch`'s three `.env` copies
+    untracked, `last-good` in full, both containers with their contents, `bb3bdef3…` "No such image", every tag (full
+    commit hashes: the old checklist's `:4510003` named no image) and the contents of `:previous` and `:latest`.
+  - The server block pasted on the laptop first, by mistake: nothing changed anywhere.
+- `deploy/RUNBOOK.md`, "Production now" rewritten: `b6870f2` with the switch on, its images and contents, the
+  rollback state (`4510003`, `:f0425c0…` and `:8ede02e…` kept, `switch off` the way back and working), defect 5 open
+  until OPS-2b is deployed, the `.env` copies, F7's check and the failed Ubuntu 26.04 run.
+- A correction of OPS-2's report and of "Production now" before OPS-2's deploy: the way around defect 1 they gave, an
+  empty `run` of `4510003`, would also have FAILED at step 3.2, after the merge, since `last-good` named the gone
+  `bb3bdef3…`. The older entries stay as they are.
+- CLAUDE.md's project map: production runs `b6870f2` (OPS-2) since 2026-10-04T19:14:27Z.
+
+**Verified**
+- `feature/family-budget` and `main` at `b6870f2b6272aebe0b5989a2128f2a28bf63af44`, the tree clean, before the first
+  change.
+- The Ubuntu 26.04 run's jobs from `api.github.com/repos/sergeyzoloto/finance-tracker/actions/runs/37227790313/jobs`
+  without a token: Backend `failure` (19:24:49Z to 19:28:24Z, step "Build and test"), Frontend `success` (19:18:55Z to
+  19:19:23Z), Web image `success` (19:18:53Z to 19:19:21Z), Deploy scripts `success` (19:18:53Z to 19:24:26Z), each
+  on the label `ubuntu-26.04`.
+- Every other fact is the PM's, from the server's output of 2026-10-04.
+
+**Open**
+- Defect 5 and the Ubuntu 26.04 failure: OPS-2b, the entry above.
+- F7's production check with two test accounts, which also covers OPS-2's smoke test.
+
 ## 2026-10-04 · Deploy scripts: OPS-2's defects 1 to 4, CI before 2026-10-19, OPS-2's checklist (OPS-2)
 
 Commits on `feature/family-budget`: `c45d956` (the deploy facts, the entry below), `685deb3` ("ops: the before-dump

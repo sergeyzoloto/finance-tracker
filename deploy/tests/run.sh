@@ -73,6 +73,14 @@ for f in deploy.sh rollback.sh common.sh; do
 done
 chmod +x "$V4510003"/*.sh 2>/dev/null || true
 
+# b6870f2's (OPS-2's), which run OPS-2b's deploy and run in production now (OPS-2b), taken the same way.
+VB6870F2=$WORK/vb6870f2
+mkdir -p "$VB6870F2"
+for f in deploy.sh rollback.sh common.sh; do
+  git -C "$ROOT" show "b6870f2:deploy/$f" >"$VB6870F2/$f" 2>/dev/null || rm -f "${VB6870F2:?}/${f:?}"
+done
+chmod +x "$VB6870F2"/*.sh 2>/dev/null || true
+
 # ---------------------------------------------------------------------------------------------------------------------
 # A case: its own copy of the repositories, the server's clone at D, the state of a good deploy of D, and the stubs.
 
@@ -368,7 +376,8 @@ case_happy_path() {
     "Started: \"Started FinanceTrackerApplication in 7.8 seconds\" at " \
     "D-25: \"Family ledgers (D-25): off; the family endpoints answer 404\" at " "as production sets it (FAMILY_LEDGERS_ENABLED absent, so off)" \
     "Numbers: the same before and after" "Stage checks (OPS-1): the same as deploy/checks/OPS-1.expected (11 lines)" \
-    "finance.conf: not installed (unchanged)" "After: dump finance-" "Images: api sha256:" "Browser checks: not yet"; do
+    "finance.conf: not installed (unchanged)" "After: dump finance-" "Images: api sha256:" "Browser checks: not yet" \
+    "kept as :$SHA_D and :previous"; do
     check "summary has: $line" file_has "$summary" "$line"
   done
   check "the D-25 line is the current start's, not the older 'on'" bash -c "! grep -q 'D-25): on' '$summary'"
@@ -1715,6 +1724,8 @@ case_different_content() {
   deploy_f
   check "the run: 1.2 says so" out_has "The running images are not the last good deploy's content"
   check "the run: 3.2 tags none" out_has "They take no tag"
+  check "the run: names E's tag in full (OPS-2b)" out_has "the tags of the last good deploy, :$SHA_E and :previous, stay as they are"
+  check "the summary too" file_has "$(latest_run)/summary.txt" "stayed under :$SHA_E and :previous"
   check "the run: no tag of E" no_image finance-tracker-api "$SHA_E"
 }
 
@@ -1725,7 +1736,9 @@ case_identity_unavailable() {
   echo broken >"$STUB_STATE/store"
   new_target
   deploy_e
-  refused "the running containers' content identity can't be read (image store unknown"
+  refused "the running containers' content identity can't be read (Image store: not known (docker info -f '{{json .DriverStatus}}' failed: failed to connect to the docker API"
+  check "names docker version's failure too" out_has "platform not known (docker version -f '{{.Server.Os}}/{{.Server.Arch}}' failed: failed to connect"
+  check "never a bare unknown (defect 5)" out_lacks "Image store: unknown"
   check "before CI and the backup" calls_lack '^curl .*check-runs|^systemctl|^pg-restore-test'
   run_deploy verify OPS-1
   check "verify: a problem" out_has "PROBLEM: api isn't the last good deploy's content, or its content is unknown"
@@ -1776,6 +1789,43 @@ case_old_format_state() {
   deploy_e
   check "neither image nor container holds it: unknown" out_has "api: the content identity is unknown (running image $REBUILT"
   check "3.2 tags none" out_has "They take no tag"
+}
+
+# OPS-2b, defect 5: run, verify, switch and rollback.sh name the store and the platform as Docker answers them. OPS-2's
+# read them only in "$(…)" subshells, so its line said "Image store: unknown, platform unknown" on every store, the
+# stub's and production's (2026-10-04), and no case looked at it. One the scripts can't parse is named with the answer.
+case_store_and_platform_named() {
+  setup_case
+  new_target
+  deploy_e
+  check "classic: run's 1.2" out_has "Image store: classic, platform linux/amd64; content: api $API_D, web $WEB_D"
+  run_deploy verify OPS-1
+  check "classic: verify" out_has "Image store: classic, platform linux/amd64"
+  check "never unknown" bash -c "! grep -q 'Image store: unknown' '$C/all-out'"
+
+  containerd_ready
+  check "containerd: run's 1.2" bash -c "grep -q '^Image store: containerd, platform linux/amd64; content: api sha256:' '$C/all-out'"
+  run_deploy verify OPS-1
+  check "containerd: verify" out_has "Image store: containerd, platform linux/amd64"
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "containerd: switch's 1.4" out_has "Image store: containerd, platform linux/amd64"
+  type_at_terminal no
+  run_rollback "${SHA_D:0:7}"
+  check "containerd: rollback.sh's step 1" out_has "Image store: containerd, platform linux/amd64"
+  check "never unknown" bash -c "! grep -q 'Image store: unknown' '$C/all-out'"
+  local calls
+  calls=$(count_calls '^docker info ')
+  check "docker info read once per script, not in every subshell (at most 6 for 6 runs)" [ "$calls" -le 6 ]
+
+  echo unrecognised >"$STUB_STATE/store"
+  run_deploy verify OPS-1
+  check "an answer it can't parse: named with it" out_has "Image store: not known (docker info -f '{{json .DriverStatus}}' answered null), platform linux/amd64"
+  check "and its content unknown, a problem" out_has "PROBLEM: api isn't the last good deploy's content, or its content is unknown"
+  echo containerd >"$STUB_STATE/store"
+  touch "$STUB_STATE/fixtures/no-platform"
+  run_deploy verify OPS-1
+  check "a platform it can't read: named with docker's error" out_has "Image store: containerd, platform not known (docker version -f '{{.Server.Os}}/{{.Server.Arch}}' failed: unknown flag (stub))"
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2117,6 +2167,284 @@ case_ops2_scripts_after_the_4510003_run() {
   check "(e) asked, then not confirmed" out_has 'REFUSED at "5. Confirmation": not confirmed'
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# OPS-2b, D-50 (decided by the PM): switch off never refuses because the numbers can't be read through finance_checks;
+# switch on still does, and "nothing to switch" stays.
+
+# numbers_fail_from N: the numbers can't be read from the stub's N-th read of them on, counting from now (0: at once).
+numbers_fail_from() {
+  local done_so_far
+  done_so_far=$(cat "$STUB_STATE/count-numbers" 2>/dev/null || echo 0)
+  echo $((done_so_far + $1)) >"$STUB_STATE/fixtures/numbers-fails"
+}
+
+case_switch_off_without_the_numbers() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on" rc_is 0
+
+  # The read-only role missing: switch off warns at 1.2 and goes on without the numbers.
+  sleep 1
+  fixture role missing
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "role missing: switch off goes on" rc_is 0
+  check "with a warning naming D-50" out_has "WARNING: the read-only role finance_checks is missing or cannot log in"
+  check "and the way the role is made" out_has "CREATE ROLE finance_checks"
+  check "the numbers not read before" out_has "Not read: the read-only role finance_checks is missing"
+  check "nor compared after" out_has "Not compared: the read-only role finance_checks is missing"
+  check "switched off" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=false"
+  check "status switch-off" status_is switch-off
+  check "the summary says the numbers weren't read" file_has "$(latest_run)/summary.txt" "Numbers: not read: the read-only role finance_checks is missing"
+
+  # switch on still refuses without the role, before its question.
+  sleep 1
+  cp "$C/server/deploy/app/.env" "$C/env.orig"
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "role missing: switch on refused at 1.2" out_has 'REFUSED at "1.2 Preflight: the role": the read-only role finance_checks is missing'
+  check "never asked" out_lacks "Type SWITCH ON"
+  check ".env unchanged" same_file "$C/server/deploy/app/.env" "$C/env.orig"
+
+  # The role there, numbers.sql failing: switch on refuses at 1.6; switch off warns and goes on.
+  fixture role "$ROLE_OK"
+  numbers_fail_from 0
+  sleep 1
+  run_deploy switch on
+  check "numbers failing: switch on refused at 1.6" out_has 'REFUSED at "1.6 Preflight: the numbers before": numbers.sql failed as finance_checks (ERROR:  permission denied for table users)'
+  check ".env unchanged again" same_file "$C/server/deploy/app/.env" "$C/env.orig"
+  rm "$STUB_STATE/fixtures/numbers-fails"
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "then switched on" rc_is 0
+  numbers_fail_from 0
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "numbers failing: switch off goes on" rc_is 0
+  check "with a warning naming D-50" out_has "WARNING: numbers.sql failed as finance_checks (ERROR:  permission denied for table users); switching off goes on without the numbers (D-50)"
+
+  # Readable before, not after the change: switch off finishes with a warning.
+  rm "$STUB_STATE/fixtures/numbers-fails"
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on once more" rc_is 0
+  numbers_fail_from 2
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "not readable after: switch off completes" rc_is 0
+  check "with a warning" out_has "WARNING: numbers.sql failed as finance_checks (ERROR:  permission denied for table users): not compared; switched off all the same (D-50)"
+  check "status switch-off" status_is switch-off
+
+  # "Nothing to switch" stays, whatever the numbers.
+  sleep 1
+  run_deploy switch off
+  check "nothing to switch, as before" out_has 'FAMILY_LEDGERS_ENABLED is already false: nothing to switch'
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# OPS-2b's own deploy: b6870f2's run on production's state after OPS-2's deploy and its acceptance checks, then
+# OPS-2b's finish, verify, switch and rollback.sh on what it leaves (deploy/RUNBOOK.md, OPS-2b's checklist).
+
+# production_2026_10_05 [SAME_API]: production as OPS-2's deploy and its acceptance checks of 2026-10-04 left it (the
+# runbook's "Production now"), with A, B, C and D as 8ede02e, f0425c0, 4510003 and b6870f2, in the containerd store,
+# with the IDs and contents of the pre-flight and the run in full where they were given (the others made up): the
+# containers run api bb3bdef3 (gone from the store, as the pre-flight found) and web bba7ff04; :previous and C's tag
+# are api 6d6f35b8 and web bba7ff04, :latest api 41e46a73 and web 827620f3, the same contents; B's api tag is 6d6f35b8
+# too, A's and B's web tags and A's api tag other contents. last-good names D with the running IDs and their contents,
+# finish passed, as OPS-2's finish wrote it, and contents holds both pairs; the newest run folders are D's deploy
+# (finished, base C), its D-42 run and two switch off, all three refused; the previous file names C; the switch is on,
+# with switch's three .env copies untracked. E, OPS-2b's commit, changes the api's content (its tests are in the api's
+# build context) unless SAME_API is given; the web's never.
+production_2026_10_05() {
+  setup_case
+  use_containerd
+  local s=$STUB_STATE id d7=${SHA_D:0:7} c7=${SHA_C:0:7} f
+  P_API_RUN=sha256:bb3bdef3d2a94a71dc4f76c3970ab0981a58baed9d688edc65280f48584ec6b4
+  P_API_PREV=sha256:6d6f35b82a50a5e44c64cf4a2d018d5a86f6c1a5cc52841fd8d3f6a60773ac84
+  P_API_LATEST=sha256:41e46a73332c926cd77ad3d9c9b2327b5941189959d5c63e6e50444df43a4e49
+  P_API_CONTENT=sha256:9315f0d932d02da9ea913be88b1a9bfd691dc080e69689bc484a44582fae323b
+  P_WEB_RUN=sha256:bba7ff04771adadb8078c2798a77df923d7e0a1253ec26c348bdaf65a4b1676e
+  P_WEB_LATEST=sha256:827620f3117776827c1f4c756572b0ffed5b04fa9232aa51e965f38d26af0e04
+  P_WEB_CONTENT=sha256:2a604232772e10a2bec7355ea7a0680e46b87c0d0205a142534f92e1a9e57aa7
+  P_API_A=$(id_of api-5bd35f99) P_WEB_B=$(id_of web-a01f9202) P_WEB_A=$(id_of web-ddf2a902)
+  for id in "$P_API_RUN" "$P_API_PREV" "$P_API_LATEST"; do echo "$P_API_CONTENT" >"$s/content/${id#sha256:}"; done
+  for id in "$P_WEB_RUN" "$P_WEB_LATEST"; do echo "$P_WEB_CONTENT" >"$s/content/${id#sha256:}"; done
+  for id in "$P_API_A" "$P_WEB_B" "$P_WEB_A"; do id_of "content-of-$id" >"$s/content/${id#sha256:}"; done
+  rm -f "$s/images/finance-tracker-api/"* "$s/images/finance-tracker-web/"*
+  echo "$P_API_LATEST" >"$s/images/finance-tracker-api/latest"
+  for f in previous "$SHA_C" "$SHA_B"; do echo "$P_API_PREV" >"$s/images/finance-tracker-api/$f"; done
+  echo "$P_API_A" >"$s/images/finance-tracker-api/$SHA_A"
+  echo "$P_WEB_LATEST" >"$s/images/finance-tracker-web/latest"
+  for f in previous "$SHA_C"; do echo "$P_WEB_RUN" >"$s/images/finance-tracker-web/$f"; done
+  echo "$P_WEB_B" >"$s/images/finance-tracker-web/$SHA_B"
+  echo "$P_WEB_A" >"$s/images/finance-tracker-web/$SHA_A"
+  echo "$P_API_RUN" >"$s/containers/finance-tracker-api/image"
+  echo 2026-10-03T09:25:24.000000000Z >"$s/containers/finance-tracker-api/started"
+  echo "$P_WEB_RUN" >"$s/containers/finance-tracker-web/image"
+  echo 2026-10-03T09:03:08.000000000Z >"$s/containers/finance-tracker-web/started"
+  echo 'FAMILY_LEDGERS_ENABLED=true' >>"$s/containers/finance-tracker-api/env"
+  echo 'FAMILY_LEDGERS_ENABLED=true' >>"$C/server/deploy/app/.env"
+  for f in .env.20261002T212046Z .env.20261002T213540Z .env.20261003T092523Z; do
+    cp "$C/server/deploy/app/.env" "$C/server/deploy/app/$f"
+    chmod 600 "$C/server/deploy/app/$f"
+  done
+  printf '%s\n' \
+    '2026-10-03T09:25:30.000000000Z 2026-10-03T09:25:30.000Z  INFO 1 --- [main] o.f.core.internal.command.DbMigrate : Schema "app" is up to date. No migration necessary.' \
+    '2026-10-03T09:25:33.000000000Z 2026-10-03T09:25:33.000Z  INFO 1 --- [main] c.e.f.ledger.family.FamilySwitch : Family ledgers (D-25): on' \
+    '2026-10-03T09:25:34.000000000Z 2026-10-03T09:25:34.000Z  INFO 1 --- [main] c.e.f.FinanceTrackerApplication : Started FinanceTrackerApplication in 7.9 seconds' \
+    >"$s/log-api"
+  sed -i 's/Family ledgers (D-25): off; the family endpoints answer 404/Family ledgers (D-25): on/' "$s/fixtures/start-log"
+  printf 'commit=%s\ntime=2026-10-04T19:14:27Z\napi_image=%s\nweb_image=%s\napi_content=%s\nweb_content=%s\nsource=deploy\nfinish=passed 2026-10-04T19:14:27Z\n' \
+    "$SHA_D" "$P_API_RUN" "$P_WEB_RUN" "$P_API_CONTENT" "$P_WEB_CONTENT" >"$C/state/last-good"
+  printf '%s %s\n' "$P_API_RUN" "$P_API_CONTENT" "$P_WEB_RUN" "$P_WEB_CONTENT" >"$C/state/contents"
+  printf '%s\n' "2026-10-03T09:24:29Z good $SHA_C $P_API_PREV $P_WEB_RUN" \
+    "2026-10-03T09:25:40Z switch-on $SHA_C $P_API_RUN $P_WEB_RUN" "2026-10-04T14:17:00Z good $SHA_C $P_API_RUN $P_WEB_RUN" \
+    "2026-10-04T19:12:05Z good $SHA_D $P_API_RUN $P_WEB_RUN" "2026-10-04T19:14:27Z good $SHA_D $P_API_RUN $P_WEB_RUN" \
+    >"$C/state/history"
+  mkdir -p "$C/state/runs/2026-10-04T141449Z-$c7" "$C/state/runs/2026-10-04T191023Z-$d7" \
+    "$C/state/runs/2026-10-04T191458Z-$d7" "$C/state/runs/2026-10-04T191629Z-switch-off" \
+    "$C/state/runs/2026-10-04T191644Z-switch-off"
+  printf 'kind=deploy\ncommit=%s\nstage=F7b\nhead_before=%s\nbase=%s\n' "$SHA_C" "$SHA_C" "$SHA_C" \
+    >"$C/state/runs/2026-10-04T141449Z-$c7/meta"
+  echo finished >"$C/state/runs/2026-10-04T141449Z-$c7/status"
+  printf 'kind=deploy\ncommit=%s\nstage=OPS-2\nhead_before=%s\nbase=%s\n' "$SHA_D" "$SHA_C" "$SHA_C" \
+    >"$C/state/runs/2026-10-04T191023Z-$d7/meta"
+  echo finished >"$C/state/runs/2026-10-04T191023Z-$d7/status"
+  for f in "191458Z-$d7" 191629Z-switch-off 191644Z-switch-off; do echo refused >"$C/state/runs/2026-10-04T$f/status"; done
+  echo "$SHA_C" >"$C/previous"
+  touch "$s/fixtures/same-content-web"
+  [ -z "${1:-}" ] || touch "$s/fixtures/same-content-api"
+  new_target
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+  : >"$STUB_STATE/calls"
+}
+
+need_b6870f2() {
+  [ -x "$VB6870F2/deploy.sh" ] && return 0
+  echo "    b6870f2's scripts not in this repository's history"
+  FAILS=$((FAILS + 1))
+  return 1
+}
+
+# nothing_changed_in_production: HEAD at D, no state-changing docker call, last-good and history as they were.
+nothing_changed_in_production() {
+  check "HEAD still D" head_is "$SHA_D"
+  check "no tag, build, start, prune or install" calls_lack "$STATE_CHANGING"
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "history unchanged" same_file "$C/state/history" "$C/history.orig"
+}
+
+# OPS-2b, commit 2, point 5: what b6870f2's scripts, which run in production now, do there. verify is OK and switch
+# off reaches its confirmation, each with defect 5's line (as on 2026-10-04: the stub now answers as production did);
+# switch on refuses, already on; rollback.sh's target is C (4510003), its api by content from the contents file.
+case_b6870f2_scripts_on_production_now() {
+  need_b6870f2 || return
+  production_2026_10_05
+  run_script "$VB6870F2/deploy.sh" verify OPS-1
+  check "verify: OK" out_has "verify OPS-1: OK"
+  check "verify: defect 5's line, as on 2026-10-04" out_has "Image store: unknown, platform unknown"
+  check "verify: api the recorded image, by its content" out_has "api: the recorded image, image $P_API_RUN (content $P_API_CONTENT)"
+  type_at_terminal no
+  run_script "$VB6870F2/deploy.sh" switch off
+  check "switch off: past the refused runs" out_has "The latest run that isn't refused: 2026-10-04T191023Z-${SHA_D:0:7}, finished"
+  check "switch off: reaches its confirmation" out_has 'REFUSED at "2. Confirmation": not confirmed'
+  check "switch off: defect 5's line in 1.4" out_has "Image store: unknown, platform unknown"
+  sleep 1
+  run_script "$VB6870F2/deploy.sh" switch on
+  check "switch on: already on" out_has 'REFUSED at "1.5 Preflight: the current switch": FAMILY_LEDGERS_ENABLED is already true: nothing to switch'
+  type_at_terminal no
+  run_script "$VB6870F2/rollback.sh" "${SHA_C:0:7}"
+  check "rollback.sh: the target is C" out_has "Target: ${SHA_C:0:7} revision C, the commit HEAD's deploy replaced"
+  check "rollback.sh: C's api by content" out_has "INFO finance-tracker-api:$SHA_C is $P_API_PREV, another ID with the recorded content $P_API_CONTENT (recorded $P_API_RUN)"
+  check "rollback.sh: asked, then not confirmed" out_has 'REFUSED at "5. Confirmation": not confirmed'
+  nothing_changed_in_production
+}
+
+# OPS-2b, commit 2, point 5: b6870f2's run deploys OPS-2b on that state with no remedy. Its 1.2 finds the running
+# images the last good deploy's (by ID and content); 3.2 tags D's api from :previous, the one image that still holds its
+# content, and D's web from its own ID, as D's tag and :previous, and the previous file names D; the oldest commit tag
+# (A, 8ede02e) goes. The api, of other content, is recreated, the web isn't; the before-dump is preserved (D-43).
+case_b6870f2_run_deploys_ops2b() {
+  need_b6870f2 || return
+  production_2026_10_05
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$VB6870F2/deploy.sh" run "$SHA_E" OPS-1
+  check "deployed" rc_is 0
+  check "1.2: defect 5's line, the contents read" out_has "Image store: unknown, platform unknown; content: api $P_API_CONTENT, web $P_WEB_CONTENT"
+  check "1.2: api the recorded image" out_has "api: the recorded image, image $P_API_RUN (content $P_API_CONTENT)"
+  check "1.2: the last good deploy's content" out_has "The running images are the last good deploy's content"
+  check "1.8: the before-dump preserved (D-43)" out_has "The before-dump preserved as $(latest_run)/finance-"
+  check "3.2: kept" out_has "The running images, the last good deploy's content, kept as :$SHA_D and :previous"
+  check "3.2: D's api from :previous" calls_have "^docker tag finance-tracker-api:previous finance-tracker-api:$SHA_D$"
+  check "3.2: D's api tag the same content" image_is finance-tracker-api "$SHA_D" "$P_API_PREV"
+  check "3.2: D's web tag its own ID" image_is finance-tracker-web "$SHA_D" "$P_WEB_RUN"
+  check "3.2: :previous still those IDs" bash -c "[ \"\$(cat '$STUB_STATE/images/finance-tracker-api/previous')\" = '$P_API_PREV' ] && [ \"\$(cat '$STUB_STATE/images/finance-tracker-web/previous')\" = '$P_WEB_RUN' ]"
+  check "3.2: no warning" out_lacks "WARNING"
+  check "the previous file names D" file_has "$C/previous" "$SHA_D"
+  check "A's tags removed (8ede02e)" bash -c "[ ! -e '$STUB_STATE/images/finance-tracker-api/$SHA_A' ] && [ ! -e '$STUB_STATE/images/finance-tracker-web/$SHA_A' ]"
+  check "B's tags kept (f0425c0)" image_is finance-tracker-api "$SHA_B" "$P_API_PREV"
+  check "api recreated" [ "$(cat "$STUB_STATE/containers/finance-tracker-api/image")" != "$P_API_RUN" ]
+  check "web not recreated" [ "$(cat "$STUB_STATE/containers/finance-tracker-web/image")" = "$P_WEB_RUN" ]
+  check "4.2: D-25 on, logged by the new api" bash -c "grep -q 'Logged: \"Family ledgers (D-25): on\" at 20' '$C/out' && ! grep -q 'D-25): on\" at 2026-10-03' '$C/out'"
+  check "4.6: the dumps as recorded" out_has "the preserved copy as recorded"
+  check "last-good: E" last_good_is "$SHA_E"
+  E_RUN=$(latest_run)
+  check "the run's status deployed" bash -c "grep -qx deployed '$E_RUN/status'"
+  ops2b_scripts_after_it
+}
+
+# The same with an api of the same content (SAME_API): nothing recreated, D-25 from 2026-10-03.
+case_b6870f2_run_deploys_ops2b_same_api() {
+  need_b6870f2 || return
+  production_2026_10_05 same
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$VB6870F2/deploy.sh" run "$SHA_E" OPS-1
+  check "deployed" rc_is 0
+  check "3.2: kept" out_has "kept as :$SHA_D and :previous"
+  check "neither recreated" bash -c "[ \"\$(cat '$STUB_STATE/containers/finance-tracker-api/image')\" = '$P_API_RUN' ] && [ \"\$(cat '$STUB_STATE/containers/finance-tracker-web/image')\" = '$P_WEB_RUN' ]"
+  check "4.2: D-25 on from 2026-10-03" out_has 'Logged: "Family ledgers (D-25): on" at 2026-10-03T09:25:33Z'
+  E_RUN=$(latest_run)
+  ops2b_scripts_after_it
+}
+
+# ops2b_scripts_after_it: OPS-2b's finish, verify, a run of E again, rollback.sh and switch on what b6870f2's run wrote.
+ops2b_scripts_after_it() {
+  type_at_terminal yes yes
+  run_deploy finish
+  check "OPS-2b's finish: exit code 0" rc_is 0
+  check "it finished b6870f2's run" bash -c "grep -qx finished '$E_RUN/status'"
+  run_deploy verify OPS-1
+  check "OPS-2b's verify: OK" out_has "verify OPS-1: OK"
+  check "OPS-2b's verify: containerd, linux/amd64" out_has "Image store: containerd, platform linux/amd64"
+  check "never unknown" out_lacks "Image store: unknown"
+  sleep 1
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  check "run of E again: refused (D-42)" out_has "runs already, deployed and finished cleanly"
+  sleep 1
+  type_at_terminal no
+  run_rollback "${SHA_D:0:7}"
+  check "rollback.sh: the target is D" out_has "Target: ${SHA_D:0:7} revision D, the commit HEAD's deploy replaced"
+  check "rollback.sh: its step 1 names the store" out_has "Image store: containerd, platform linux/amd64"
+  check "rollback.sh: D's api by content" out_has "INFO finance-tracker-api:$SHA_D is $P_API_PREV, another ID with the recorded content $P_API_CONTENT (recorded $P_API_RUN)"
+  check "rollback.sh: D's web the recorded image" out_lacks "INFO finance-tracker-web:"
+  check "rollback.sh: asked, then not confirmed" out_has 'REFUSED at "5. Confirmation": not confirmed'
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "switch off: exit code 0" rc_is 0
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "switch on again: exit code 0" rc_is 0
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -2147,10 +2475,13 @@ CASES=(
   large_pages_pass switch_on_refuses_on_a_failed_page switch_off_goes_on_despite_a_failed_page
   dumps_in_the_same_minute dump_overwritten_in_place preserved_dump_changed
   same_content_new_id last_good_id_differs_same_content different_content identity_unavailable old_format_state
+  store_and_platform_named
   switch_refused_at_the_confirmation switch_refused_as_already_on switch_refused_at_a_precheck
   switch_interrupted_after_the_change switch_off_after_a_failed_restart switch_after_an_unfinished_run
   run_of_the_running_commit_after_its_finish run_of_the_running_commit_without_a_clean_finish
   4510003_run_fails_on_a_gone_image 4510003_run_deploys_ops2 ops2_scripts_after_the_4510003_run
+  b6870f2_scripts_on_production_now b6870f2_run_deploys_ops2b b6870f2_run_deploys_ops2b_same_api
+  switch_off_without_the_numbers
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

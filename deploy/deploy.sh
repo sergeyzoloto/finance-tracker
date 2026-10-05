@@ -242,15 +242,15 @@ keep_images() {
     if [ ${#missing[@]} -eq 0 ]; then
       printf '%s\n' "$LG_COMMIT" >"$PREVIOUS_FILE"
       say "The running images, the last good deploy's content, kept as :$LG_COMMIT and :previous; $PREVIOUS_FILE names it"
-      KEPT_LINE="the last good deploy's (api $LG_API_CONTENT, web $LG_WEB_CONTENT by content) kept as :${LG_COMMIT:0:7} and :previous"
+      KEPT_LINE="the last good deploy's (api $LG_API_CONTENT, web $LG_WEB_CONTENT by content) kept as :$LG_COMMIT and :previous"
     else
       say "Not every image of the last good deploy could be kept: $PREVIOUS_FILE stays as it is"
       KEPT_LINE="the last good deploy's images could not all be kept (missing: ${missing[*]}); $PREVIOUS_FILE unchanged"
     fi
   else
     say "The running images ($RUN_API, $RUN_WEB) are not the last good deploy's content: a failed run's, or unknown."
-    say "They take no tag; the tags of the last good deploy ${LG_COMMIT:0:7} and :previous stay as they are."
-    KEPT_LINE="the running images were not the last good deploy's content and took no tag; the last good deploy's stayed under :${LG_COMMIT:0:7} and :previous"
+    say "They take no tag; the tags of the last good deploy, :$LG_COMMIT and :previous, stay as they are."
+    KEPT_LINE="the running images were not the last good deploy's content and took no tag; the last good deploy's stayed under :$LG_COMMIT and :previous"
   fi
   for repo in api web; do
     content=$LG_API_CONTENT
@@ -411,9 +411,9 @@ cmd_run() {
   say "HEAD: $(git log -1 --format='%h %s' HEAD)"
   say "Running images: api $api_now, web $web_now"
   # OPS-2, defect 4: by content, which the image ID doesn't tell in the containerd image store.
-  say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}; content: api ${RUN_API_CONTENT:-unknown}, web ${RUN_WEB_CONTENT:-unknown}"
+  say "$STORE_LINE; content: api ${RUN_API_CONTENT:-unknown}, web ${RUN_WEB_CONTENT:-unknown}"
   [ -n "$RUN_API_CONTENT" ] && [ -n "$RUN_WEB_CONTENT" ] \
-    || fail "the running containers' content identity can't be read (image store ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}): look at docker info and docker version, then run this again"
+    || fail "the running containers' content identity can't be read ($STORE_LINE): look at docker info and docker version, then run this again"
   RUNNING_IS_LG=no
   if read_last_good; then
     say "Last good deploy: $(git log -1 --format='%h %s' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT") at $LG_TIME ($LG_SOURCE)"
@@ -802,7 +802,7 @@ cmd_verify() {
     say "PROBLEM: no container finance-tracker-api or finance-tracker-web"
     issues=$((issues + 1))
   else
-    say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}"
+    say "$STORE_LINE"
     say "Running: $(identity api "$RUN_API" "$RUN_API_CONTENT"); $(identity web "$RUN_WEB" "$RUN_WEB_CONTENT")"
     if read_last_good; then
       say "Last good deploy: $(git log -1 --format='%h' "$LG_COMMIT" 2>/dev/null || echo "$LG_COMMIT") at $LG_TIME ($LG_SOURCE)"
@@ -1005,6 +1005,20 @@ on_exit_switch() {
   exit "$rc"
 }
 
+# read_numbers FILE: numbers.sql's key=count lines into FILE, read as finance_checks; NUMBERS_WHY says why they can't
+# be read, else it is empty. Called in the script's own shell, never in "$(…)".
+read_numbers() {
+  local err=$RUN_DIR/numbers-error.txt
+  NUMBERS_WHY=
+  if ! sql_file "$RUN_DIR/numbers.sql" >"$1" 2>"$err"; then
+    NUMBERS_WHY="numbers.sql failed as $CHECKS_ROLE ($(one_line "$(tail -n 3 "$err")"))"
+  elif grep -Eqv '^[a-z_]+=[0-9]+$' "$1"; then
+    NUMBERS_WHY="numbers.sql printed something else than key=count lines"
+  elif [ ! -s "$1" ]; then
+    NUMBERS_WHY="numbers.sql printed nothing"
+  fi
+}
+
 # image_change NAME ID_BEFORE CONTENT_BEFORE ID_AFTER CONTENT_AFTER: how a container's image changed across a restart:
 # "unchanged", "recreated with the same content", "CHANGED", or "content unknown"; never "unchanged" by default.
 image_change() {
@@ -1026,7 +1040,7 @@ image_change() {
 # (F7b, D-41): a failure refuses "switch on"; "switch off" reports it and goes on, since the way back must always work.
 cmd_switch() {
   local direction=$1 want old_line env_file backup_file head api_now web_now latest status api_log rc images_ok
-  local api_before web_before api_content_before web_content_before images_line why
+  local api_before web_before api_content_before web_content_before images_line why problem
   case $direction in
     on) want=true OTHER=off ;;
     off) want=false OTHER=on ;;
@@ -1048,7 +1062,17 @@ cmd_switch() {
   exec {TTY_FD}<"$TTY" || fail "can't read $TTY: run this in a terminal on the server"
 
   heading "1.2 Preflight: the role"
-  require_checks_role
+  # D-50 (decided by the PM in OPS-2b): switch off never refuses because the numbers can't be read through
+  # finance_checks; it says so, and goes on without them. switch on still refuses.
+  problem=$(role_problem)
+  if [ -z "$problem" ]; then
+    say "The checks run as $CHECKS_ROLE: $ROLE_OK"
+  else
+    role_command
+    [ "$direction" = off ] || fail "$problem"
+    NUMBERS_WHY=$problem
+    say "WARNING: $problem: the numbers can't be read through $CHECKS_ROLE; switching off goes on without them (D-50)"
+  fi
 
   heading "1.3 Preflight: health"
   if ! wait_healthy; then
@@ -1060,7 +1084,7 @@ cmd_switch() {
   [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
   running_images || fail "no container finance-tracker-api or finance-tracker-web: the stack isn't up"
   api_before=$RUN_API web_before=$RUN_WEB api_content_before=$RUN_API_CONTENT web_content_before=$RUN_WEB_CONTENT
-  say "Image store: ${IMAGE_STORE:-unknown}, platform ${PLATFORM:-unknown}"
+  say "$STORE_LINE"
   say "Before: $(identity api "$api_before" "$api_content_before"); $(identity web "$web_before" "$web_content_before")"
   if ! read_last_good; then
     [ "$direction" = off ] || fail "no record of a last good deploy: deploy at least once first (deploy/deploy.sh run)"
@@ -1116,12 +1140,17 @@ cmd_switch() {
   heading "1.6 Preflight: the numbers before"
   git show "HEAD:deploy/checks/numbers.sql" >"$RUN_DIR/numbers.sql" 2>/dev/null \
     || fail "HEAD has no deploy/checks/numbers.sql"
-  sql_file "$RUN_DIR/numbers.sql" >"$RUN_DIR/numbers-before.txt" || fail "numbers.sql failed"
-  if grep -Eqv '^[a-z_]+=[0-9]+$' "$RUN_DIR/numbers-before.txt"; then
-    fail "numbers.sql printed something else than key=count lines"
+  if [ -z "$NUMBERS_WHY" ]; then
+    read_numbers "$RUN_DIR/numbers-before.txt"
+    if [ -z "$NUMBERS_WHY" ]; then
+      cat "$RUN_DIR/numbers-before.txt"
+    else
+      [ "$direction" = off ] || fail "$NUMBERS_WHY"
+      say "WARNING: $NUMBERS_WHY; switching off goes on without the numbers (D-50)"
+    fi
+  else
+    say "Not read: $NUMBERS_WHY (D-50)"
   fi
-  [ -s "$RUN_DIR/numbers-before.txt" ] || fail "numbers.sql printed nothing"
-  cat "$RUN_DIR/numbers-before.txt"
 
   heading "1.7 Preflight: the pages"
   if ! page_checks; then
@@ -1180,12 +1209,23 @@ cmd_switch() {
   esac
 
   heading "3.5 Postflight: the numbers before and after"
-  sql_file "$RUN_DIR/numbers.sql" >"$RUN_DIR/numbers-after.txt" || fail "numbers.sql failed"
-  if ! diff "$RUN_DIR/numbers-before.txt" "$RUN_DIR/numbers-after.txt" >"$RUN_DIR/numbers.diff"; then
-    cat "$RUN_DIR/numbers.diff"
-    fail "the numbers differ from before the switch ($RUN_DIR/numbers.diff)"
+  if [ -n "$NUMBERS_WHY" ]; then
+    NUMBERS_LINE="not read: $NUMBERS_WHY (D-50)"
+    say "Not compared: $NUMBERS_WHY (D-50)"
+  else
+    read_numbers "$RUN_DIR/numbers-after.txt"
+    if [ -n "$NUMBERS_WHY" ]; then
+      [ "$direction" = off ] || fail "$NUMBERS_WHY"
+      NUMBERS_LINE="not read after the switch: $NUMBERS_WHY (D-50)"
+      say "WARNING: $NUMBERS_WHY: not compared; switched off all the same (D-50)"
+    elif ! diff "$RUN_DIR/numbers-before.txt" "$RUN_DIR/numbers-after.txt" >"$RUN_DIR/numbers.diff"; then
+      cat "$RUN_DIR/numbers.diff"
+      fail "the numbers differ from before the switch ($RUN_DIR/numbers.diff)"
+    else
+      NUMBERS_LINE="the same before and after"
+      say "The same numbers"
+    fi
   fi
-  say "The same numbers"
 
   heading "3.6 The images before and after"
   # OPS-2, defect 4: "unchanged" only for the same content. A container recreated with the same content (from a
@@ -1215,7 +1255,7 @@ cmd_switch() {
     say "Images: $images_line"
     say "D-25: $SWITCH_SEEN, as production now sets it ($SWITCH_HOW)"
     say "Pages before the switch: $PAGES_LINE"
-    say "Numbers: the same before and after"
+    say "Numbers: $NUMBERS_LINE"
   } | tr '|' '/' >"$RUN_DIR/summary.txt"
   set_status "switch-$direction"
   PHASE=complete
@@ -1232,7 +1272,7 @@ main() {
   umask 077
   common_settings
   PHASE='' SHA='' STAGE='' HEAD_BEFORE='' BASE='' LG_COMMIT='' LG_API='' LG_WEB='' LG_FINISH='' LG_SOURCE='' RERUN=no
-  DUMP_before='' DUMP_after='' DUMP_SHA_before='' PRESERVED_LINE=''
+  DUMP_before='' DUMP_after='' DUMP_SHA_before='' PRESERVED_LINE='' NUMBERS_WHY='' NUMBERS_LINE=''
   case ${1:-} in
     run) [ $# -eq 3 ] || usage; cmd_run "$2" "$3" ;;
     finish) [ $# -eq 1 ] || usage; cmd_finish ;;

@@ -101,6 +101,8 @@ cmd_rollback() {
   api_now=$(container_image finance-tracker-api) || fail "no container finance-tracker-api"
   web_now=$(container_image finance-tracker-web) || fail "no container finance-tracker-web"
   say "Now: $(git log -1 --format='%h %s' HEAD), api $api_now, web $web_now"
+  docker_identity
+  say "$STORE_LINE"
 
   heading "2. The commit"
   sha=$(git rev-parse --verify --quiet "$arg^{commit}") || fail "$arg is no commit of this clone"

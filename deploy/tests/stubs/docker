@@ -95,7 +95,7 @@ inspect() {
 }
 
 psql_call() {
-  local args=$* sql f
+  local args=$* sql f from
   [[ $args == *"PGOPTIONS=-c default_transaction_read_only=on"* ]] \
     || { echo "docker stub: psql without default_transaction_read_only=on: $args" >&2; exit 97; }
   # Since F6b every check runs as the read-only role; OPS-1's scripts, which a case runs as the server had them, ran as
@@ -117,7 +117,15 @@ psql_call() {
   if [[ $args == *" -f -"* ]]; then
     sql=$(cat)
     case $sql in
-      *"'outside_their_ledger'"*) f=$(next_fixture numbers) ;;
+      *"'outside_their_ledger'"*)
+        f=$(next_fixture numbers)
+        # fixtures/numbers-fails: the numbers can't be read, from its n-th call on (any call when it is empty; D-50).
+        from=$(cat "$S/fixtures/numbers-fails" 2>/dev/null || echo none)
+        if [ "$from" != none ] && { [ -z "$from" ] || [ "$(cat "$S/count-numbers")" -ge "$from" ]; }; then
+          echo 'ERROR:  permission denied for table users' >&2
+          exit 1
+        fi
+        ;;
       *"'flyway latest '"*) f=$(next_fixture stage) ;;
       *) echo "docker stub: unknown SQL file" >&2; exit 99 ;;
     esac

@@ -307,6 +307,22 @@ mutation "name the kept tag by 7 characters" \
   'kept as :$LG_COMMIT and :previous"' 'kept as :${LG_COMMIT:0:7} and :previous"' \
   happy_path
 
+# OPS-2b, D-50: switch off refusing because the numbers can't be read through finance_checks.
+mutation "let switch off refuse without the read-only role" \
+  $'    role_command\n    [ "$direction" = off ] || fail "$problem"' $'    role_command\n    fail "$problem"' \
+  switch_off_without_the_numbers
+
+mutation "let switch off refuse when numbers.sql fails" \
+  $'      [ "$direction" = off ] || fail "$NUMBERS_WHY"\n      say "WARNING: $NUMBERS_WHY; switching' \
+  $'      fail "$NUMBERS_WHY"\n      say "WARNING: $NUMBERS_WHY; switching' \
+  switch_off_without_the_numbers
+
+# OPS-2b, D-50: switch on going on without the numbers.
+mutation "let switch on go on without the numbers" \
+  $'      [ "$direction" = off ] || fail "$NUMBERS_WHY"\n      say "WARNING: $NUMBERS_WHY; switching' \
+  $'      say "WARNING: $NUMBERS_WHY; switching' \
+  switch_off_without_the_numbers
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

@@ -6,8 +6,8 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 ## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
 
 Commits on `feature/family-budget`: `2d4797b` (the deploy facts, the entry below), `aaf8391` ("ops: the image store
-and platform named (defect 5)"), then "test: no shared ECB rate or JVM default left behind", which holds this entry as
-it stands. Not pushed, not merged, not deployed.
+and platform named (defect 5)"), `2550102` ("test: no shared ECB rate or JVM default left behind"), then "ops: switch off without the numbers (D-50)", which
+holds this entry as it stands. Not pushed, not merged, not deployed.
 
 **Changes**
 - Defect 5: `run`'s step 1.2, `verify` and `switch`'s step 1.4 printed "Image store: unknown, platform unknown" in
@@ -122,7 +122,28 @@ it stands. Not pushed, not merged, not deployed.
     (`sha256:8c914ee1…`); the same with one comment added to a test file gave other content (`sha256:c97a6ff7…`);
     OPS-2b's `backend/` gave other content too (`sha256:00350289…`). So OPS-2b's `run` recreates api (OPS-2b's checklist).
 
+- D-50 (decided by the PM): `switch off` never refuses because the numbers can't be read through `finance_checks`.
+  - `deploy/deploy.sh switch`: step 1.2 reads the role itself; a role that is missing or not as the runbook makes it
+    stops `switch on` as before, and for `switch off` prints the runbook's command and a WARNING ("the numbers can't
+    be read through finance_checks; switching off goes on without them (D-50)"). Step 1.6 (`read_numbers`, in the
+    script's own shell): `numbers.sql` failing, or printing something else than its lines, stops `switch on` (now
+    naming psql's error) and is a WARNING for `switch off`. Step 3.5 says "Not compared" when they weren't read
+    before, and a WARNING for `switch off` when they can't be read after the change; numbers read on both sides that
+    differ still stop it. The summary's "Numbers" line says which. "Nothing to switch" stays as it is.
+  - D-50 in `docs/family-budget/requirements.md`, after D-44; the runbook's "Switch the family budget on or off".
+  - Tests: the docker stub's `fixtures/numbers-fails` (the numbers unreadable from a given read on, as psql's
+    "permission denied"); the case `switch_off_without_the_numbers` (the role missing: `switch off` goes on, its
+    summary saying so, and `switch on` is refused at 1.2 with `.env` unchanged; `numbers.sql` failing: `switch on`
+    refused at 1.6, `switch off` goes on; readable before but not after: `switch off` completes with a warning;
+    "nothing to switch" as before). Three mutations: `switch off` refusing without the role, `switch off` refusing when
+    `numbers.sql` fails, `switch on` going on without the numbers.
+- `.gitignore`: `deploy/app/.env.[0-9]*`, `switch`'s copies of `.env` (`git status --short` listed three on the server).
+  No tracked file matches (`git ls-files`); `deploy/app/.env.example` is still tracked and not ignored.
+
 **Verified**
+- Commit 4: `deploy/tests/run.sh` 90 of 90; `deploy/tests/mutate.sh` all 53 caught (D-50's three by
+  `switch_off_without_the_numbers`); ShellCheck clean. `git check-ignore` ignores a file named
+  `deploy/app/.env.20261003T092523Z` by the new line; `git ls-files 'deploy/app/.env.[0-9]*'` lists nothing.
 - Commit 3: `./mvnw -B clean verify` five ways, each 407 tests (404 and `JvmDefaultsGuardTests`' 3), 0 failures, 0
   errors, 0 skipped, BUILD SUCCESS: the default order; `-Dsurefire.runOrder=reversealphabetical`;
   `-Duser.timezone=Pacific/Kiritimati`; `-Duser.timezone=Etc/GMT+12` (every Spring Boot line of its log at -12:00);

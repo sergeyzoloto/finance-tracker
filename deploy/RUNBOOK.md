@@ -1189,8 +1189,11 @@ blocks `switch on`, and its refusal names the command that resolves it: a deploy
 back, run it again, `finish` again or `adopt`), or a switch that changed `.env` or restarted api and
 didn't complete (`deploy/deploy.sh switch off`). **`switch off` never refuses for any of these**,
 nor for health, a HEAD that isn't the last good deploy, or images that aren't its content: it prints
-each as a WARNING and goes on, since the way back must always work; it still needs a terminal, the
-read-only role (for the numbers) and `.env`. "Nothing to switch" (REFUSED at 1.5) only when `.env`
+each as a WARNING and goes on, since the way back must always work; it still needs a terminal and
+`.env`. Nor (since OPS-2b, D-50) does it refuse because the numbers can't be read through the read-only role
+`finance_checks` (the role missing or wrong, `numbers.sql` failing): it prints a WARNING, its summary's "Numbers"
+line says they weren't read, and it goes on; numbers that are read and differ still stop it, and `switch on` refuses
+in that case, before its question. "Nothing to switch" (REFUSED at 1.5) only when `.env`
 and the running api both already have the value; after a switch that changed `.env` but stopped
 before the restart, the same switch again restarts api. And (since F7b's
 fourth commit, D-41) the pages of `PAGES` in `deploy/common.sh` through the public address, as

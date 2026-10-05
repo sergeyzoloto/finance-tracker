@@ -2168,6 +2168,85 @@ case_ops2_scripts_after_the_4510003_run() {
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
+# OPS-2b, D-50 (decided by the PM): switch off never refuses because the numbers can't be read through finance_checks;
+# switch on still does, and "nothing to switch" stays.
+
+# numbers_fail_from N: the numbers can't be read from the stub's N-th read of them on, counting from now (0: at once).
+numbers_fail_from() {
+  local done_so_far
+  done_so_far=$(cat "$STUB_STATE/count-numbers" 2>/dev/null || echo 0)
+  echo $((done_so_far + $1)) >"$STUB_STATE/fixtures/numbers-fails"
+}
+
+case_switch_off_without_the_numbers() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on" rc_is 0
+
+  # The read-only role missing: switch off warns at 1.2 and goes on without the numbers.
+  sleep 1
+  fixture role missing
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "role missing: switch off goes on" rc_is 0
+  check "with a warning naming D-50" out_has "WARNING: the read-only role finance_checks is missing or cannot log in"
+  check "and the way the role is made" out_has "CREATE ROLE finance_checks"
+  check "the numbers not read before" out_has "Not read: the read-only role finance_checks is missing"
+  check "nor compared after" out_has "Not compared: the read-only role finance_checks is missing"
+  check "switched off" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=false"
+  check "status switch-off" status_is switch-off
+  check "the summary says the numbers weren't read" file_has "$(latest_run)/summary.txt" "Numbers: not read: the read-only role finance_checks is missing"
+
+  # switch on still refuses without the role, before its question.
+  sleep 1
+  cp "$C/server/deploy/app/.env" "$C/env.orig"
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "role missing: switch on refused at 1.2" out_has 'REFUSED at "1.2 Preflight: the role": the read-only role finance_checks is missing'
+  check "never asked" out_lacks "Type SWITCH ON"
+  check ".env unchanged" same_file "$C/server/deploy/app/.env" "$C/env.orig"
+
+  # The role there, numbers.sql failing: switch on refuses at 1.6; switch off warns and goes on.
+  fixture role "$ROLE_OK"
+  numbers_fail_from 0
+  sleep 1
+  run_deploy switch on
+  check "numbers failing: switch on refused at 1.6" out_has 'REFUSED at "1.6 Preflight: the numbers before": numbers.sql failed as finance_checks (ERROR:  permission denied for table users)'
+  check ".env unchanged again" same_file "$C/server/deploy/app/.env" "$C/env.orig"
+  rm "$STUB_STATE/fixtures/numbers-fails"
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "then switched on" rc_is 0
+  numbers_fail_from 0
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "numbers failing: switch off goes on" rc_is 0
+  check "with a warning naming D-50" out_has "WARNING: numbers.sql failed as finance_checks (ERROR:  permission denied for table users); switching off goes on without the numbers (D-50)"
+
+  # Readable before, not after the change: switch off finishes with a warning.
+  rm "$STUB_STATE/fixtures/numbers-fails"
+  sleep 1
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  check "on once more" rc_is 0
+  numbers_fail_from 2
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "not readable after: switch off completes" rc_is 0
+  check "with a warning" out_has "WARNING: numbers.sql failed as finance_checks (ERROR:  permission denied for table users): not compared; switched off all the same (D-50)"
+  check "status switch-off" status_is switch-off
+
+  # "Nothing to switch" stays, whatever the numbers.
+  sleep 1
+  run_deploy switch off
+  check "nothing to switch, as before" out_has 'FAMILY_LEDGERS_ENABLED is already false: nothing to switch'
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
 # OPS-2b's own deploy: b6870f2's run on production's state after OPS-2's deploy and its acceptance checks, then
 # OPS-2b's finish, verify, switch and rollback.sh on what it leaves (deploy/RUNBOOK.md, OPS-2b's checklist).
 
@@ -2402,6 +2481,7 @@ CASES=(
   run_of_the_running_commit_after_its_finish run_of_the_running_commit_without_a_clean_finish
   4510003_run_fails_on_a_gone_image 4510003_run_deploys_ops2 ops2_scripts_after_the_4510003_run
   b6870f2_scripts_on_production_now b6870f2_run_deploys_ops2b b6870f2_run_deploys_ops2b_same_api
+  switch_off_without_the_numbers
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

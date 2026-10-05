@@ -5,8 +5,9 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
 
-Commits on `feature/family-budget`: `2d4797b` (the deploy facts, the entry below), then "ops: the image store and
-platform named (defect 5)". Not committed yet; not pushed, not merged, not deployed.
+Commits on `feature/family-budget`: `2d4797b` (the deploy facts, the entry below), `aaf8391` ("ops: the image store
+and platform named (defect 5)"), then "test: no shared ECB rate or JVM default left behind", which holds this entry as
+it stands. Not pushed, not merged, not deployed.
 
 **Changes**
 - Defect 5: `run`'s step 1.2, `verify` and `switch`'s step 1.4 printed "Image store: unknown, platform unknown" in
@@ -76,13 +77,70 @@ platform named (defect 5)". Not committed yet; not pushed, not merged, not deplo
   - `deploy/tests/mutate.sh`, 50 mutations: three new ones (the store read only in subshells; a bare unknown for
     `docker info`'s answer; the kept tag named by 7 characters).
 
+- The `RateApiTests` failure on Ubuntu 26.04 ("CI on Ubuntu 26.04" #1 on `b6870f2`: `aManualRateIsTheUsersOwn`,
+  expected "2026-09-01" but was "2026-09-25"): the root cause is in the tests only.
+  - `LedgerRepositoryTests.exchangeRateIsInsertedThenReplaced` saves an ECB rate, EUR→RUB 75.50 on 2026-09-25 with
+    `user_id` NULL, in the database every integration test shares, and never removes it. ECB rates are every user's,
+    so any class after it reads that rate, until `EcbRateLoaderTests` deletes every ECB rate. `RateApiTests` saves
+    Alice's manual RUB rate of 2026-09-01 and expects it to be her latest; with the stray rate, GET `/api/rates`
+    rightly answers the later ECB one (2026-09-25, `ECB`, `inLedger` false), as the run's log showed.
+  - So it depends only on the class order: `LedgerRepositoryTests` before `RateApiTests` with `EcbRateLoaderTests`
+    not between them. Surefire's default order follows the file system's listing, which differs between runners;
+    Ubuntu 24.04's happened to be safe.
+  - Reproduced locally at `b6870f2` with exactly those two classes in alphabetical order (`ledger.LedgerRepositoryTests`
+    sorts before `ledger.api.RateApiTests`): the same assertion and values. The same failure with the JVM started in
+    `Pacific/Kiritimati`, `Etc/GMT+12` and `UTC`: the time zone plays no part. In reverse alphabetical order the two
+    pass: `RateApiTests` runs first. The whole suite at `b6870f2` passes in both alphabetical and reverse alphabetical order (404 tests each): in
+    alphabetical order `FamilyCurrencyApiTests` runs between the two, and its `@AfterEach` deletes the ECB rates of
+    August and September 2026, the stray one included (`EcbRateLoaderTests` deletes them all). The failure needs
+    neither between them, as the 26.04 runner's order had it.
+  - The +14:00 in the log from one class on: `IntegrationTest`'s static block called
+    `TimeZone.setDefault(Pacific/Kiritimati)` when the first class that touches it loaded (an integration test, or
+    `LedgerBackfillMigrationTests` and `LedgerSchemaTests` through `IntegrationTest.POSTGRES`), and never set it back;
+    the classes before it ran in the runner's zone (UTC). Deliberate in intent (CLAUDE.md: the JVM runs in
+    Kiritimati), but JVM-wide and order-dependent. Not the cause of this failure.
+  - Production code: the rates (`RateService`, `RateBook`, the ECB loader) read no clock and no default zone. Two
+    other places call `LocalDate.now()` (the JVM's zone and the system clock) instead of `Today`: `DemoController`
+    (the demo's last day) and `ReportController` (a report's default `asOf`). In production both give `Today`'s date
+    (the api's zone is UTC, `Today`'s clock the system's); only a test that sets `TestClock` sees them differ. Not a
+    cause here, and unchanged: an open question below.
+- The fix, in the tests:
+  - `LedgerRepositoryTests` removes the ECB rates it wrote after each test (`@AfterEach`).
+  - `IntegrationTest` fails a class that leaves any ECB rate (`user_id` NULL) in the shared database (`@AfterAll`,
+    plain JDBC), naming the rows.
+  - `IntegrationTest` no longer sets the time zone. `pom.xml`: the property `user.timezone`, `Pacific/Kiritimati`, and
+    surefire's `argLine` `-Duser.timezone=${user.timezone}`, so the test JVM runs in Kiritimati from its start; on
+    Maven's command line `-Duser.timezone=…` overrides it (checked with `help:effective-pom`).
+  - `JvmDefaultsGuard` (a JUnit extension for every class: `src/test/resources/junit-platform.properties` turns on
+    autodetection, `META-INF/services/org.junit.jupiter.api.extension.Extension` lists it) fails a class that leaves
+    the JVM's default time zone or locale (default, display, format) changed, and puts them back so the classes after
+    it run as before. `JvmDefaultsGuardTests`: unchanged passes; a changed zone or locale fails naming the class, and
+    is put back.
+  - Whether this reaches the api image: yes. The api's build context is `backend/` and its Dockerfile copies `pom.xml`
+    and `src`, tests included; Maven then writes a new jar (no `project.build.outputTimestamp`). In a throwaway
+    `docker:29-dind` (29.8.2, the containerd store): `b6870f2`'s `backend/` built twice gave the same content
+    (`sha256:8c914ee1…`); the same with one comment added to a test file gave other content (`sha256:c97a6ff7…`);
+    OPS-2b's `backend/` gave other content too (`sha256:00350289…`). So OPS-2b's `run` recreates api (OPS-2b's checklist).
+
 **Verified**
+- Commit 3: `./mvnw -B clean verify` five ways, each 407 tests (404 and `JvmDefaultsGuardTests`' 3), 0 failures, 0
+  errors, 0 skipped, BUILD SUCCESS: the default order; `-Dsurefire.runOrder=reversealphabetical`;
+  `-Duser.timezone=Pacific/Kiritimati`; `-Duser.timezone=Etc/GMT+12` (every Spring Boot line of its log at -12:00);
+  and `-Dsurefire.runOrder=alphabetical`. The default run's log has every line at +14:00 from the first class on, and
+  no guard message. Before the fix, `LedgerRepositoryTests` then `RateApiTests` failed as on Ubuntu 26.04; after it
+  they pass in that order. The guard, before `IntegrationTest`'s static block was removed, in a JVM started in UTC:
+  it failed `LedgerBackfillMigrationTests` ("left the JVM's defaults changed: time zone UTC … before it, time zone
+  Pacific/Kiritimati … after it"). The shared-rate check, with `LedgerRepositoryTests`' cleanup disabled on a copy:
+  it failed that class with `2026-09-25 RUB ECB`; the file was put back.
 - Commit 2: `deploy/tests/run.sh` 89 of 89; `deploy/tests/mutate.sh` all 50 caught; ShellCheck 0.11.0 (`-x`, CI's
   file list) clean. The real-Docker reproduction above, before and after the fix, the after on three daemons: the
   laptop's ("Image store: classic, platform linux/amd64"), the dind ("containerd, linux/amd64", both contents) and an
   address without a daemon (the client's error in both halves of the line).
 
 **Open**
+- For the PM (D-49, F8): `DemoController` and `ReportController`'s default `asOf` take `LocalDate.now()`, the JVM's
+  zone and the system clock, where the rest of the app takes `Today`. They agree in production; a test that sets the
+  clock can't move them. Options: leave them; or have both take `Today`, which a test then controls. Unchanged here.
 - OPS-2b isn't pushed, merged or deployed: defect 5 stays in production until then.
 
 ## 2026-10-05 · Deploy records: OPS-2's deploy, its acceptance checks and CI on Ubuntu 26.04 (OPS-2b)

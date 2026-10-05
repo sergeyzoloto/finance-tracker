@@ -704,58 +704,94 @@ As of 2026-10-04T19:16:44Z (the second `switch off` of OPS-2's acceptance checks
   `4510003_run_fails_on_a_gone_image`), unless the one-time remedy ran first. It was never needed.
 - The clone holds three untracked copies of `.env`, `switch`'s (600 root).
 - F7's production check (two test accounts) has not been run; it also covers OPS-2's smoke test, which wasn't
-  performed in full.
+  performed in full. The suite's first attempt (2026-10-05, from `22b64d5`) stopped at its own confirmation, "No
+  terminal to type the confirmation at", after `E2E PROD` was typed: QA-1b's defect, fixed on `feature/qa-1`. Nothing
+  reached production. OPS-2b's deploy runs the suite (D-56).
+- `origin/main` is `8d75f83`, PR #13's merge commit of `b6870f2` and `aade401` (OPS-2b), with `aade401`'s tree;
+  [OPS-2b's deploy checklist with the suite](#ops-2bs-deploy-checklist-with-the-suite) deploys it (D-57).
 - "CI on Ubuntu 26.04" on `b6870f2` failed in Backend (`RateApiTests`); OPS-2b looks for the cause.
 
-## OPS-2b's deploy checklist
+## OPS-2b's deploy checklist with the suite
 
-**Commit:** OPS-2b's last commit on `feature/family-budget`, "docs: OPS-2b's deploy analysis and checklist", printed
-in full by step 1; OPS-2b's report names it in full, and the blocks of steps 4 and 9 take it in place of
-`FULL_COMMIT_OF_STEP_1`. **Stage:** `OPS-2b` (`deploy/checks/OPS-2b.sql` and `OPS-2b.expected`). **The switch:** on
-(`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before, during and after this deploy. This checklist is for
-this deploy only; don't run it again for another.
+**Commit to deploy:** `8d75f839eb980666c674f7b000de7ec0ec0b2959`, `origin/main`: PR #13's merge commit, "Merge pull
+request #13 from sergeyzoloto/feature/family-budget", with the parents `b6870f2` (running now) and `aade401` (OPS-2b's
+last commit) and `aade401`'s tree, so it deploys exactly OPS-2b (D-57). **Stage:** `OPS-2b` (`deploy/checks/OPS-2b.sql`
+and `OPS-2b.expected`). **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before, during
+and after this deploy. **The suite's commit:** the last commit of `feature/qa-1`, which QA-1b's report names in full;
+it isn't in the deployed commit (QA-1 and QA-1b come after it), and changes no file of either image. The suite
+replaces OPS-2b's browser checks and smoke test, and this run is also QA-1's first production run, F7's check (D-56).
+This checklist is for this deploy only; don't run it again for another.
 
 Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
-prompt `root@auth-1:…#` has returned. A server block starts with `cd /opt/finance-tracker &&`, or is wrapped in
-`cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it does nothing. A command that asks a question
-(`deploy.sh run`, `finish`, `rollback.sh`) is alone in its block; type its answer on the keyboard, after the question,
-never paste it.
+prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
+`cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it
+does nothing. A command that asks a question (`deploy.sh run`, `finish`, `rollback.sh`, and on the laptop
+`npm run e2e:prod`) is alone in its block; type its answer on the keyboard, after the question, never paste it.
 
-What runs and why (OPS-2b's analysis, from `b6870f2`'s scripts; `deploy/tests/run.sh` proves each on a model of
-production now with the pre-flight's IDs, cases `b6870f2_scripts_on_production_now`, `b6870f2_run_deploys_ops2b` and
-`b6870f2_run_deploys_ops2b_same_api`):
+What runs and why (OPS-2b's analysis, from `b6870f2`'s scripts, updated for the merge commit by QA-1b;
+`deploy/tests/run.sh` proves each on a model of production now with the pre-flight's IDs, cases
+`b6870f2_scripts_on_production_now`, `b6870f2_run_deploys_ops2b`, `b6870f2_run_deploys_ops2b_same_api` and, for the
+merge commit, `b6870f2_run_deploys_a_merge_commit`):
 
-- `run` is `b6870f2`'s (bash reads the script before the merge). Its step 1.2 still prints defect 5's line, "Image
-  store: unknown, platform unknown", but reads both contents from the containers and finds the running images to be
-  the last good deploy's, by ID and by content. Step 3.2 looks for the api's content (`9315f0d9…`) in the recorded
-  ID `bb3bdef3…` (gone from the store), then in `finance-tracker-api:b6870f2…` (not there yet), then in `:previous`
-  (`6d6f35b8…`, which holds it): it tags `:previous` as `finance-tracker-api:b6870f2b6272aebe0b5989a2128f2a28bf63af44`,
-  and `:previous` stays `6d6f35b8…`; web `bba7ff04…` by its own ID; `/root/finance-tracker.previous` then names
-  `b6870f2`. It removes the tags of the oldest of the four commits, `8ede02e…`, keeping `b6870f2…`, `4510003…` and
-  `f0425c0…`. Nothing fails and nothing is tagged wrong: **no remedy is needed**, unlike OPS-2's. If the pre-flight
-  differs from what step 2 lists, stop and send it to the PM.
+- `run` is `b6870f2`'s (bash reads the script before the merge). Its step 1.3 requires the commit to be `origin/main`
+  after `git fetch`, exactly, and a fast-forward of the clone's `HEAD`: `8d75f83` is both, since its first parent is
+  `b6870f2`. Its gate (1.5) reads the check runs of that hash: CI ran on `8d75f83` once, for the push to `main`
+  (2026-10-05T10:21Z), with 5 check runs, every one completed with success (read from GitHub's public API on
+  2026-10-05). The check runs of `aade401` don't count for it.
+- 1.3 lists seven commits, `git log --oneline HEAD..8d75f83`: the merge commit and OPS-2b's six, `2d4797b` to
+  `aade401`; its commits line reads `2d4797b, aaf8391, 2550102, 133178e, 9e10fae, aade401, 8d75f83 (b6870f2 to
+  8d75f83)`. Migrations added: none. Under `deploy/`, the same nine files as OPS-2b's.
+- 3.1, `git merge --ff-only 8d75f83`, moves the clone's `main` to the merge commit itself: a fast-forward, no new
+  commit on the server, and `HEAD^1` and `HEAD^2` are `b6870f2` and `aade401`. The files are `aade401`'s, so
+  everything OPS-2b's analysis says of the images holds: step 1.2 still prints defect 5's line, "Image store: unknown,
+  platform unknown", but reads both contents from the containers and finds the running images to be the last good
+  deploy's, by ID and by content. Step 3.2 looks for the api's content (`9315f0d9…`) in the recorded ID `bb3bdef3…`
+  (gone from the store), then in `finance-tracker-api:b6870f2…` (not there yet), then in `:previous` (`6d6f35b8…`,
+  which holds it): it tags `:previous` as `finance-tracker-api:b6870f2b6272aebe0b5989a2128f2a28bf63af44`, and
+  `:previous` stays `6d6f35b8…`; web `bba7ff04…` by its own ID; `/root/finance-tracker.previous` then names `b6870f2`.
+  It removes the tags of the oldest of the four commits, `8ede02e…`, keeping `b6870f2…`, `4510003…` and `f0425c0…`.
+  Nothing fails and nothing is tagged wrong: **no remedy is needed**. If the pre-flight differs from what step 2
+  lists, stop and send it to the PM.
+- What the run records names the merge commit: the run folder `…-8d75f83`, `last-good`'s `commit=8d75f83…` and the
+  history's `good 8d75f83…` line; the previous-commit file and `rollback.sh`'s target are `b6870f2`, the commit the
+  run replaced. The merge commit's images take a tag only at the next deploy, as every deployed commit's.
 - Its step 1.8 is the first in production that preserves the before-dump (D-43): the copy, mode 600, in the run folder.
 - The api is rebuilt with new content: OPS-2b changes the backend's tests and `pom.xml`, which are in the api's build
-  context (`COPY pom.xml` and `COPY src`), and the build writes a new jar (a one-comment change of a test file gave the
-  api new content in a throwaway Docker 29.8.2 with the containerd store; the same source twice, the same content).
-  Compose recreates api; web, whose context `frontend/` doesn't change, keeps running. So api restarts: 4.1 and 4.2
-  read a new start's lines, the D-25 line "on" at the time of this deploy, and signed-in browser sessions end (sign
-  in again).
+  context (`COPY pom.xml` and `COPY src`), and the build writes a new jar. Compose recreates api; web, whose context
+  `frontend/` doesn't change, keeps running. So api restarts: 4.1 and 4.2 read a new start's lines, the D-25 line "on"
+  at the time of this deploy, and signed-in browser sessions end.
+- `finish` has no time limit after `run`'s summary, neither `b6870f2`'s nor the merged one, which runs it (the clone
+  holds it after the merge): it finishes the latest run that isn't refused, if that run is deployed (or finished
+  before) and `HEAD` is still its commit. So the suite may take its time; run nothing else of `deploy.sh` or
+  `rollback.sh` between `run` and `finish` but what this checklist names.
 - After it, OPS-2b's `finish`, `verify`, `switch` and `rollback.sh` read what `b6870f2`'s `run` wrote. `verify` prints
-  "Image store: containerd, platform linux/amd64". The rollback target is `b6870f2`, with the images of its newest
-  history line (api `bb3bdef3…`, web `bba7ff04…`): `rollback.sh` accepts `:b6870f2…`'s api `6d6f35b8…` by content,
-  from `contents`, and its web by ID; it checks the images (step 3) before its question (step 5), so step 9 shows that
+  "Image store: containerd, platform linux/amd64". `rollback.sh` accepts `:b6870f2…`'s api `6d6f35b8…` by content,
+  from `contents`, and its web by ID; it checks the images (step 3) before its question (step 5), so step 8 shows that
   answered `no`.
 
-**1. On the laptop: merge, push both branches, the full hash.**
+**1. On the laptop: `main` to `origin/main`, nothing to push.** The merge commit is on GitHub already (D-57: PR
+#13's merge commit stays; no force-push, no revert).
 
 ```bash
 # On the laptop
-cd ~/dev/finance-tracker && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git log -1 --format='%H %s'
+cd ~/dev/finance-tracker && git fetch origin && git checkout main && git merge --ff-only origin/main && git status -sb | head -n 1 && git log -1 --format='%H %P %s'
 ```
 
-You should see the push and the commit named at the top, in full. CI starts with the push; `run` waits for it. Don't
-start "CI on Ubuntu 26.04" now (step 10 says when).
+You should see a fast-forward of `main` from `b6870f2` (or "Already up to date"), `## main...origin/main` with
+nothing ahead or behind, and `8d75f839eb980666c674f7b000de7ec0ec0b2959
+b6870f2b6272aebe0b5989a2128f2a28bf63af44 aade401bf83ad1fe41a187efe539516a37fc4e05 Merge pull request #13 from
+sergeyzoloto/feature/family-budget`. If the merge says `Not possible to fast-forward`, stop. Don't push anything now:
+`run` refuses any commit that isn't `origin/main`, so `main` moves on only in step 10, after the deploy.
+
+CI on the merge commit, read only, from GitHub's public API:
+
+```bash
+# On the laptop
+curl -fsS -H 'Accept: application/vnd.github+json' 'https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/8d75f839eb980666c674f7b000de7ec0ec0b2959/check-runs?per_page=100' | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see `5`, then `Backend`, `Deploy scripts`, `Dependency updates`, `Frontend` and `Web image`, each
+`completed success`. Don't start "CI on Ubuntu 26.04" now (step 9 says when).
 
 **2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
 
@@ -787,7 +823,7 @@ You should see, as on 2026-10-04 after OPS-2's deploy:
   sha256:bb3bdef3d2a9…`, `web_image=sha256:bba7ff04771a…`, `api_content=sha256:9315f0d932d0…`, `web_content=
   sha256:2a6042327728…`, `source=deploy`, `finish=passed 2026-10-04T19:14:2…Z`.
 - `contents` holding the lines `sha256:bb3bdef3… sha256:9315f0d9…` and `sha256:bba7ff04… sha256:2a604232…` (the
-  rollback in step 9 reads the first).
+  rollback in step 8 reads the first).
 - The history ending with `good b6870f2…` lines; the run folders ending with `2026-10-04T191023Z-b6870f2`,
   `…191458Z-b6870f2`, `…191629Z-switch-off`, `…191644Z-switch-off`.
 - `/finance-tracker-api image sha256:bb3bdef3… content sha256:9315f0d9… started 2026-10-03T09:25:24…`;
@@ -810,16 +846,16 @@ cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2
 
 You should see `The checks run as finance_checks: …`, both healthy, "Image store: unknown, platform unknown" (defect 5,
 for the last time), `api: the recorded image, image sha256:bb3bdef3… (content sha256:9315f0d9…)` and the same for web,
-the pages 5 of 5, Flyway V10, the D-25 line "on", OPS-2's 5 lines, the 21 numbers, and `verify OPS-2: OK`.
+the pages 5 of 5, Flyway V10, the D-25 line "on", OPS-2's 5 lines, the 21 numbers, and `verify OPS-2: OK`. Keep the
+numbers: step 4 prints them again.
 
 There is no remedy block: none is needed (above).
 
-**4. On the server: the deploy**, alone in its block, with the commit of step 1 in full; type its first 7 characters
-at the confirmation.
+**4. On the server: the deploy**, alone in its block; type `8d75f83` at the confirmation.
 
 ```bash
 # On the server
-cd /opt/finance-tracker && deploy/deploy.sh run FULL_COMMIT_OF_STEP_1 OPS-2b
+cd /opt/finance-tracker && deploy/deploy.sh run 8d75f839eb980666c674f7b000de7ec0ec0b2959 OPS-2b
 ```
 
 It prints (`b6870f2`'s steps; [Deploying with deploy.sh](#deploying-with-deploysh) lists them):
@@ -829,74 +865,113 @@ It prints (`b6870f2`'s steps; [Deploying with deploy.sh](#deploying-with-deploys
   `Last good deploy: b6870f2 … at 2026-10-04T19:14:27Z (deploy)`; `Its status, its newest line in the history: good`;
   `api: the recorded image, …` and `web: the recorded image, …`; `The running images are the last good deploy's
   content`; the read-only role's line.
-- 1.3: OPS-2b's six commits, from `2d4797b` ("docs: OPS-2's deploy facts") to the commit of step 1; "Migrations added:
-  none"; under `deploy/`: `RUNBOOK.md`, `checks/OPS-2b.expected`, `checks/OPS-2b.sql`, `common.sh`, `deploy.sh`,
-  `rollback.sh`, `tests/mutate.sh`, `tests/run.sh` and `tests/stubs/docker`.
-- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
-  success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`. 1.6: the OPS-2b files. 1.7: the 21
-  numbers.
+- 1.3: the fetch (`b6870f2..8d75f83  main -> origin/main`, and the other branches); the seven commits, from
+  `8d75f83 Merge pull request #13 from sergeyzoloto/feature/family-budget` down to `2d4797b docs: OPS-2's deploy
+  facts`; "Migrations added: none"; under `deploy/`: `RUNBOOK.md`, `checks/OPS-2b.expected`, `checks/OPS-2b.sql`,
+  `common.sh`, `deploy.sh`, `rollback.sh`, `tests/mutate.sh`, `tests/run.sh` and `tests/stubs/docker`.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: the 5 check runs, then `CI: 5 check runs,
+  every one completed with success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`. 1.6: the
+  OPS-2b files. 1.7: the 21 numbers of step 3.
 - 1.8: `Dump finance-….dump, … bytes, written at …, SHA-256 …`, the restore test's table, `PASS`, then (D-43, the first
-  time in production) `The before-dump preserved as /var/lib/finance-deploy/runs/<UTC time>-<7 characters>/finance-….dump
+  time in production) `The before-dump preserved as /var/lib/finance-deploy/runs/<UTC time>-8d75f83/finance-….dump
   (mode 600, … bytes, SHA-256 …)`: the same SHA-256 as the dump's line.
-- 2: `Deploy <7 characters> (docs: OPS-2b's deploy analysis and checklist), stage OPS-2b, over b6870f2.`
+- 2: `Deploy 8d75f83 (Merge pull request #13 from sergeyzoloto/feature/family-budget), stage OPS-2b, over b6870f2.`
+  and `Commits: 2d4797b, aaf8391, 2550102, 133178e, 9e10fae, aade401, 8d75f83 (b6870f2 to 8d75f83)`.
+- 3.1: `git merge --ff-only 8d75f83`: `Fast-forward` and the files.
 - 3.2: `The running images, the last good deploy's content, kept as :b6870f2b6272aebe0b5989a2128f2a28bf63af44 and
   :previous; /root/finance-tracker.previous names it`, then `Removed finance-tracker-api:8ede02e97d745e2cd06b8b07e7a48ffb2852d65c,
   older than the last three revisions` and the same for web. No WARNING.
 - 3.3: api built (its build stage runs Maven again: a few minutes), web built from cache. 3.4: `finance-tracker-api`
   recreated and started; `finance-tracker-web` "Running". 3.5: `api: healthy, web: healthy` (the api takes up to two
   minutes), the prune. 3.6: `Pages: 5 of 5 as expected through https://app.finance-nl.com`.
-- 4.1: `Latest row: 10 claimed seats and family deletion true; the highest migration in …: V10`, the line `Schema "app"
-  is up to date. No migration necessary.` and `Started: …`, both of this deploy's time. 4.2: `Logged: "Family ledgers
-  (D-25): on" at <this deploy's time>` (not 2026-10-03), `as production sets it (FAMILY_LEDGERS_ENABLED=true, so on)`.
+- 4.1: `Latest row: 10 claimed seats and family deletion true; the highest migration in 8d75f83: V10`, the line
+  `Schema "app" is up to date. No migration necessary.` and `Started: …`, both of this deploy's time. 4.2: `Logged:
+  "Family ledgers (D-25): on" at <this deploy's time>` (not 2026-10-03), `as production sets it
+  (FAMILY_LEDGERS_ENABLED=true, so on)`.
 - 4.3: `The same numbers` (a user's sign-in during the deploy shows up here; judge before rolling back). 4.4: the 6
   lines of `OPS-2b.expected`. 4.5: `finance.conf: not installed (unchanged)`.
 - 4.6: perhaps `Waiting for the next minute: …`, then a dump, `PASS`, and `The dumps: before …, after …; the
   preserved copy as recorded (SHA-256 …)`.
-- 5: the summary, its "Before:" line ending with `preserved as /var/lib/finance-deploy/runs/…/finance-….dump (mode 600,
-  …)`, its "Images:" line naming the new api and `bba7ff04…` with their contents, "before the build, the last good
-  deploy's … kept as :b6870f2" (`b6870f2`'s summary names the tag by 7 characters; OPS-2b's by the full hash).
+- 5: the summary: `New commit: 8d75f83 (Merge pull request #13 from sergeyzoloto/feature/family-budget)`, `Previous
+  commit: b6870f2 (docs: OPS-2's deploy analysis and checklist), the last good deploy`, the commits line of step 2,
+  `Numbers: the same before and after (…)` (keep this line for step 7), the "Before:" line ending with `preserved as
+  /var/lib/finance-deploy/runs/…/finance-….dump (mode 600, …)`, the "Images:" line naming the new api and
+  `bba7ff04…` with their contents, "before the build, the last good deploy's … kept as :b6870f2" (`b6870f2`'s summary
+  names the tag by 7 characters; OPS-2b's by the full hash). Then `Left for you: the browser checks and the smoke
+  test of the stage's checklist, then: deploy/deploy.sh finish`: here, the suite of step 5.
 
-**5. The browser checks.** In a private window, at https://app.finance-nl.com: `/` (sign in: the api restarted, so any
-earlier session ended), `/privacy` and `/privacy.html` (the policy, with "Family budgets"), `/favicon.svg` and
-`/favicon.ico` (the icon). Signed in: the header has the family budget switcher, and `/api/me` holds
-`"familyLedgers":true`.
-
-**6. The smoke test**, with one of the two test accounts, never the owner's main one; every step, in full, before
-step 7:
-
-1. Sign in; the dashboard and the switcher load.
-2. Switcher → "New family budget…": name "OPS-2b smoke", EUR, bring one personal expense category, add the member
-   "Sam" without an account, the split rule equal; create it.
-3. Activity → add an expense: 10.00 EUR, that category, paid by you from an account, split equally.
-4. The expense shows your share 5.00 and Sam's 5.00; Balances says Sam owes you 5.00.
-5. Personal → Entries: the family share and payment lines of that expense. Then `/api/reports/integrity` answers `[]`.
-6. The family budget → Members → Leave: the confirmation says the budget and its records will be deleted ("Leave and
-   delete the family budget"); confirm. The switcher no longer lists it.
-7. Settings → "Delete all my data", typing `DELETE`: the empty dashboard.
-
-**7. On the server: finish**, only after steps 5 and 6, alone in its block; type `yes` or `no` to each question.
+**5. On the laptop: the end-to-end suite against production** (D-56), in place of the browser checks and the smoke
+test. First a clean checkout of `feature/qa-1`'s last commit, which holds QA-1b's fix of the confirmation:
 
 ```bash
-# On the server: only after the browser checks and the smoke test
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/qa-1 && git status --short && git log -1 --format='%H %s'
+```
+
+You should see no line from `git status --short`, then the last commit of `feature/qa-1`, in full, exactly as QA-1b's
+report names it. If `git status` lists anything, or the commit is another, stop.
+
+Then the suite, alone in its block. Read its banner (the target https://app.finance-nl.com, `e2e-a
+(e2e-a@finance-nl.com)`, `e2e-b (e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, the commit above and "clean tree"), then
+type `E2E PROD` after the question and press Enter.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Lines already waiting at the terminal when it asks are discarded, and it says how many: only what you type after the
+question counts (QA-1b). It takes about two minutes. Paste its summary into the chat, from `===== E2E summary =====`
+to the password search's line. You should see:
+
+- `Commit:` the commit above, `(clean tree)`; `E2E_FAMILY: on`;
+- `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`, `cleanup passed`;
+- `e2e-a: sign-in checked (/api/me: E2E Account A); cleanup deleted …, signed out`, and the same for `e2e-b`
+  (`E2E Account B`);
+- `Result: PASSED` and `Password search over the artifacts: 0 hits`.
+
+If it stops before the specs that need a sign-in ran (a refusal before the question, `Refused, nothing done: …`; a
+stop at it, `Not confirmed` or `No terminal …: stopped, nothing done`; a failed sign-in; or `ABORTED: …`, with smoke
+and family F7 `not run`), send the output to the PM, then do the
+[appendix's](#appendix-ops-2bs-browser-checks-and-smoke-test-by-hand) browser checks and smoke test by hand, all of
+them, and answer `finish` (step 6) from them. A failed sign-in is not tried again (Keycloak counts failed logins).
+
+If a spec failed (`failed` in the summary, `Result: FAILED`) or a cleanup didn't delete: step 6 answered `no` to both
+questions, then nothing more until the PM has read the summary. A failed cleanup names what to delete by hand.
+
+**6. On the server: finish**, only after step 5, alone in its block; type `yes` or `no` to each question. `yes` to
+both only if the summary of step 5 says `Result: PASSED` with `Password search over the artifacts: 0 hits` (or, after
+a run that stopped before smoke and family F7, only if the appendix's checks and smoke test passed in full); otherwise `no` to
+both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
 cd /opt/finance-tracker && deploy/deploy.sh finish
 ```
 
-You should see the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before
-the deploy", `Images: api … (content …), web sha256:bba7ff04… (content sha256:2a604232…)` and "Done".
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-8d75f83`, the pages 5 of 5, the two answers,
+"Family numbers after the smoke test: the family lines as before the deploy" (the suite deletes everything it made),
+`Images: api … (content …), web sha256:bba7ff04… (content sha256:2a604232…)` and "Done". After answers of `no`:
+`NOT PASSED: …`, exit status 3, and the rollback command, which isn't run.
 
-**8. On the server: verify, read only**, now with OPS-2b's script.
+**7. On the server: verify, read only**, now with OPS-2b's script.
 
 ```bash
 # On the server (read only)
 cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2b
 ```
 
-You should see `Image store: containerd, platform linux/amd64` (defect 5 fixed), `api: the recorded image, image …
-(content …)` with the new api, `web: the recorded image, image sha256:bba7ff04… (content sha256:2a604232…)`, the pages
-5 of 5, Flyway V10, the D-25 line "on" of this deploy's time, `OPS-2b.expected`'s 6 lines, the numbers, and `verify
-OPS-2b: OK`.
+You should see `verify OPS-2b at 8d75f83 Merge pull request #13 from sergeyzoloto/feature/family-budget`, `Image
+store: containerd, platform linux/amd64` (defect 5 fixed), `api: the recorded image, image … (content …)` with the
+new api, `web: the recorded image, image sha256:bba7ff04… (content sha256:2a604232…)`, the pages 5 of 5, Flyway V10,
+the D-25 line "on" of this deploy's time, `OPS-2b.expected`'s 6 lines, `verify OPS-2b: OK`, and the numbers exactly
+those of step 4's `Numbers:` line: the suite leaves no row of `e2e-a` or `e2e-b` (its cleanup deletes both through
+the API last, and nothing provisions them again), so `users`, `settings`, `personal_ledgers`, `personal_members`,
+`accounts`, `categories`, `counterparties`, `entries` and `import_batches` are as before, and every `family_*` as
+before. A real user signing up or writing meanwhile explains a difference in their own lines only; judge it before
+going on.
 
-**9. Acceptance: `rollback.sh` accepts `b6870f2`'s images by content**, changing nothing. `rollback.sh` checks the
+**8. Acceptance: `rollback.sh` accepts `b6870f2`'s images by content**, changing nothing. `rollback.sh` checks the
 images (its step 3) before its question (step 5), so answering `no` shows them. Each block alone, in this order.
 
 The rollback state, before:
@@ -907,7 +982,8 @@ cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image in
 ```
 
 You should see `b6870f2b6272aebe0b5989a2128f2a28bf63af44`; `sha256:6d6f35b8…`, `sha256:bba7ff04…`, `sha256:6d6f35b8…`,
-`sha256:bba7ff04…`; and `last-good` naming the commit of step 1 with the new api.
+`sha256:bba7ff04…`; and `last-good` with `commit=8d75f839eb980666c674f7b000de7ec0ec0b2959`, the new api and
+`finish=passed …`.
 
 `rollback.sh b6870f2`, alone in its block; type `no` at its question.
 
@@ -917,16 +993,30 @@ cd /opt/finance-tracker && deploy/rollback.sh b6870f2
 ```
 
 You should see step 1 `Image store: containerd, platform linux/amd64`; step 2 `Target: b6870f2 docs: OPS-2's deploy
-analysis and checklist, the commit HEAD's deploy replaced (…); its status, its newest line in the history: good`; step
-3 `INFO finance-tracker-api:b6870f2b6272aebe0b5989a2128f2a28bf63af44 is sha256:6d6f35b8…, another ID with the recorded
-content sha256:9315f0d9… (recorded sha256:bb3bdef3…)` and `api sha256:6d6f35b8…, web sha256:bba7ff04…`; step 4
-Flyway V10; then the question, and after `no`: `REFUSED at "5. Confirmation": not confirmed` and "Nothing changed."
-Then the block "The rollback state, before" again: the same lines.
+analysis and checklist, the commit HEAD's deploy replaced (…-8d75f83); its status, its newest line in the history:
+good`; step 3 `INFO finance-tracker-api:b6870f2b6272aebe0b5989a2128f2a28bf63af44 is sha256:6d6f35b8…, another ID with
+the recorded content sha256:9315f0d9… (recorded sha256:bb3bdef3…)` and `api sha256:6d6f35b8…, web sha256:bba7ff04…`;
+step 4 Flyway V10; then the question, and after `no`: `REFUSED at "5. Confirmation": not confirmed` and "Nothing
+changed." Then the block "The rollback state, before" again: the same lines.
 
-**10. CI on Ubuntu 26.04 (D-44)**, only now, after step 9: on GitHub, Actions → "CI on Ubuntu 26.04" → "Run
-workflow" on `main`. Its check runs belong to OPS-2b's commit, which is deployed and finished, so they can't hold up
-a deploy; never start it between a push and that commit's `run`. Expected: every job green, Backend's 407 tests
-included. Send its result to the PM before 2026-10-19.
+**9. CI on Ubuntu 26.04 (D-44)**, only now, and before step 10: CLAUDE.md's rule allows it only on a commit that is
+deployed and finished, which `8d75f83` now is, and "Run workflow" runs on the branch's head, which is `8d75f83` only
+until step 10 pushes `main`. On GitHub, Actions → "CI on Ubuntu 26.04" → "Run workflow" on `main`; check that the run
+names commit `8d75f83` before going on to step 10 (you needn't wait for it to end). Expected: every job green,
+Backend's 407 tests included. Send its result to the PM before 2026-10-19.
+
+**10. On the laptop: `main` and `feature/family-budget` to `feature/qa-1`, and the push** (D-57), only after steps 5
+to 8 passed. QA-1 and QA-1b change no file of either image, so nothing is deployed for them; the next stage's deploy
+carries them, and its checklist names that commit.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && git merge --ff-only feature/qa-1 && git checkout main && git merge --ff-only feature/qa-1 && git push origin main feature/family-budget && git log -1 --format='%H %s'
+```
+
+You should see two fast-forwards, the push, and QA-1b's last commit, the one of step 5. If a merge says `Not possible
+to fast-forward`, stop: the branch has commits that `feature/qa-1` doesn't, and the PM decides. CI starts with the
+push, on that commit: expected green (the five jobs of `ci.yml`). Don't start "CI on Ubuntu 26.04" for it (D-44).
 
 **11. Last, only for a failed deploy where the site is down: the rollback**, alone in its block; type `ROLLBACK
 b6870f2` at its question.
@@ -936,97 +1026,28 @@ b6870f2` at its question.
 cd /opt/finance-tracker && deploy/rollback.sh b6870f2
 ```
 
-## QA-1's first production run: F7's check
+### Appendix: OPS-2b's browser checks and smoke test by hand
 
-**Commit:** the last commit of `feature/qa-1` ("docs: the end-to-end suite in the checklists", QA-1's report names it in
-full; step 2 prints it). **Stage running in production:** `OPS-2b` (this run comes after OPS-2b's deploy and its
-`finish`). **The switch:** on (`FAMILY_LEDGERS_ENABLED=true`) before, during and after. Nothing is deployed: the suite
-runs from the laptop against production, as D-51 makes F7's check its first production scenario; it uses only the two
-accounts made for it, `e2e-a` and `e2e-b`, and deletes all their data at its start and end. This checklist is for this
-run only.
+Only if the suite of step 5 stopped before smoke and family F7 ran; then step 6 answers from these. With the suite's results
+none of this is done.
 
-**1. On the laptop: the owner's one-time setup**, as [e2e/README.md](../e2e/README.md), "One-time setup", says: the
-accounts `e2e-a@finance-nl.com` (first name `E2E`, last name `Account A`) and `e2e-b@finance-nl.com` (`E2E`,
-`Account B`) in realm `myapps`, email verified, no required action, no OTP, a password of their own, nothing assigned
-(the role `finance-tracker` → `user` comes from `default-roles-myapps`), brute-force settings unchanged; the
-credentials file:
+**The browser checks.** In a private window, at https://app.finance-nl.com: `/` (sign in: the api restarted, so any
+earlier session ended), `/privacy` and `/privacy.html` (the policy, with "Family budgets"), `/favicon.svg` and
+`/favicon.ico` (the icon). Signed in: the header has the family budget switcher, and `/api/me` holds
+`"familyLedgers":true`.
 
-```bash
-# On the laptop
-install -d -m 700 ~/.config/finance-tracker
-install -m 600 /dev/null ~/.config/finance-tracker/e2e-prod.env
-```
+**The smoke test**, with one of the two test accounts, never the owner's main one; every step, in full, before
+`finish`:
 
-then its four lines written in an editor; Node 24 and Chromium:
-
-```bash
-# On the laptop
-cd ~/dev/finance-tracker/e2e && nvm install && nvm use && npm ci && npx playwright install chromium
-```
-
-**2. On the laptop: a clean checkout of `feature/qa-1`, the commit in full.**
-
-```bash
-# On the laptop
-cd ~/dev/finance-tracker && git checkout feature/qa-1 && git status --short && git log -1 --format='%H %s'
-```
-
-You should see no line from `git status --short`, then QA-1's last commit, in full, as its report names it.
-
-**3. On the server: verify, read only**, for the numbers before the run. Keep its output for step 5.
-
-```bash
-# On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2b
-```
-
-You should see `verify OPS-2b: OK`, the D-25 line "on", and the numbers, every `family_*` among them 0 (as after
-OPS-2b's deploy, unless someone used a family budget since).
-
-**4. On the laptop: the suite against production.** Type `E2E PROD` at its question, after reading its banner (the
-target https://app.finance-nl.com, `e2e-a (e2e-a@finance-nl.com)`, `e2e-b (e2e-b@finance-nl.com)`, `E2E_FAMILY: on`,
-the commit of step 2 and "clean tree").
-
-```bash
-# On the laptop
-cd ~/dev/finance-tracker/e2e && nvm use && E2E_FAMILY=on npm run e2e:prod
-```
-
-It takes about two minutes. Paste its summary into the chat. You should see:
-
-- `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`, `cleanup passed`;
-- `e2e-a: sign-in checked (/api/me: E2E Account A); cleanup deleted …, signed out`, and the same for `e2e-b`
-  (`E2E Account B`);
-- `Result: PASSED` and `Password search over the artifacts: 0 hits`.
-
-If a sign-in fails, the run stops without trying again (Keycloak's brute-force protection): check the account and the
-file, then run step 4 once more. If the summary says `ABORTED` or a cleanup `FAILED`, stop and send the summary to the
-PM; a failed cleanup names what to delete by hand.
-
-**5. On the server: verify again, read only.**
-
-```bash
-# On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2b
-```
-
-You should see `verify OPS-2b: OK` and exactly the numbers of step 3: the run leaves no row of `e2e-a` or `e2e-b`
-(the cleanup deletes both through the API last, and nothing provisions them again), so `users`, `settings`,
-`personal_ledgers`, `personal_members`, `accounts`, `categories`, `counterparties`, `entries` and `import_batches`
-are as before, and every `family_*` 0 as before. A real user signing up or writing between steps 3 and 5 explains
-a difference in their own lines only; judge it before going on.
-
-**6. On the laptop: `feature/family-budget` and `main` to `feature/qa-1`, and the push**, only after steps 4 and 5
-passed. QA-1 changes no file of either image, so nothing is deployed for it; the next stage's deploy carries it.
-
-```bash
-# On the laptop
-cd ~/dev/finance-tracker && git checkout feature/family-budget && git merge --ff-only feature/qa-1 && git checkout main && git merge --ff-only feature/qa-1 && git push origin main feature/family-budget && git log -1 --format='%H %s'
-```
-
-You should see two fast-forwards, the push, and QA-1's last commit. If a merge says `Not possible to fast-forward`,
-stop: the branch has commits that `feature/qa-1` doesn't, and the PM decides. Don't start "CI on Ubuntu 26.04" for
-this push (D-44).
+1. Sign in; the dashboard and the switcher load.
+2. Switcher → "New family budget…": name "OPS-2b smoke", EUR, bring one personal expense category, add the member
+   "Sam" without an account, the split rule equal; create it.
+3. Activity → add an expense: 10.00 EUR, that category, paid by you from an account, split equally.
+4. The expense shows your share 5.00 and Sam's 5.00; Balances says Sam owes you 5.00.
+5. Personal → Entries: the family share and payment lines of that expense. Then `/api/reports/integrity` answers `[]`.
+6. The family budget → Members → Leave: the confirmation says the budget and its records will be deleted ("Leave and
+   delete the family budget"); confirm. The switcher no longer lists it.
+7. Settings → "Delete all my data", typing `DELETE`: the empty dashboard.
 
 ## Deploying with deploy.sh
 
@@ -1051,6 +1072,10 @@ git log -1 --format='%H %s'
 You should see the push, then the commit to deploy, in full, as the checklist names it. CI starts with the push;
 `deploy.sh` waits for it, up to 20 minutes, so there's no need to wait here. If the merge says `Not possible to
 fast-forward`, stop: `main` has commits the release doesn't.
+
+Merges into `main` are fast-forwards made here, on the laptop (D-57), never a pull request merged on GitHub: its
+merge commit is a commit no checklist could name before it existed. `run` deploys only `origin/main` exactly, so
+`main` moves on only once the commit the checklist names is deployed.
 
 **2. On the server: the deploy.** In a root shell on the server with a terminal (a plain `ssh root@2.28.108.199`):
 the confirmation is read from the terminal. Paste this block alone, and type each answer after its question: since

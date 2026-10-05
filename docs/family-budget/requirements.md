@@ -38,6 +38,8 @@ Amended in OPS-2b on 2026-10-05: new D-50 (decided by the PM), about `deploy.sh 
 
 Amended in QA-1 on 2026-10-05: new D-51 (decided by the owner) and D-52 (decided by the PM), about the end-to-end suite.
 
+Amended in QA-1b on 2026-10-05: new D-53, D-54, D-55 and D-57 (decided by the PM) and D-56 (decided by the owner), about the application's today, the suite's identity check, the agent's shell, OPS-2b's deploy with the suite and merges into `main`; D-52's guard 6: only a line typed after the question counts.
+
 Amended after the F6c deploy on 2026-10-02: new D-40 (decided by the PM), the planned stages (F6c confirmed as built, F7's way of switching and its check in production).
 
 ## Background
@@ -220,10 +222,17 @@ Added in QA-1 (2026-10-05)
   3. Sign-in: one per account per run, in a setup step with tracing and screenshots off; later steps reuse the saved session from a temporary folder of mode 700, deleted at the end, also after a failure. A failed sign-in aborts the run without a retry, because of Keycloak's brute-force protection.
   4. No password ever appears in a trace, screenshot, report or log. Each local run of the suite is searched for the dev password, which must have no hit.
   5. `E2E_FAMILY=on|off` is required and must match `/api/me`'s `familyLedgers`.
-  6. Before anything else the runner prints the target, both accounts, `E2E_FAMILY` and the suite's commit (`git rev-parse HEAD`, and whether the tree is clean), then asks the owner to type `E2E PROD` at the terminal; anything else stops it with nothing done.
+  6. Before anything else the runner prints the target, both accounts, `E2E_FAMILY` and the suite's commit (`git rev-parse HEAD`, and whether the tree is clean), then asks the owner to type `E2E PROD` at the terminal; anything else stops it with nothing done. Amended in QA-1b (2026-10-05): only a line typed after the question counts; lines already waiting at the terminal (a pasted block's leftovers) are discarded first, as `deploy.sh` does before its questions, and without a terminal the run stops. Tested in a real pseudo-terminal (`e2e/lib/terminal.test.ts`).
   7. Clean start and end: "Delete all my data" for an account only after guard 2 passed for it. A global teardown attempts it for every signed-in account even after a failure, and says when it couldn't.
   8. Retries 0, workers 1, traces `retain-on-failure`, screenshots on failure, no video.
   9. The run ends with a summary to paste into the chat: the UTC start and end, the target, the commit and `E2E_FAMILY`, each spec passed or failed with its duration, the cleanup per account, and the artifacts' folder (`~/.cache/finance-tracker-e2e/prod-<UTC time>/`, mode 700). The exit status is non-zero on any failure.
+
+Added in QA-1b (2026-10-05)
+- D-53 (decided by the PM). `DemoController` (the demo's last day) and `ReportController` (the default `asOf`) take the family budget's today, `Today`, in place of `LocalDate.now()`, so that every "today" of the api is the same one (the api's zone, UTC in production). Done in F8, not in QA-1b.
+- D-54 (decided by the PM). The suite's identity check stays by the account's full name (D-52, guard 2) until F8, which adds the account's email to `/api/me`; the suite then compares the email.
+- D-55 (decided by the PM, after OPS-2b's report, its open question 5: a heredoc ran lines as shell with empty variables). The agent's shell on the laptop: a heredoc only with a quoted delimiter (`<<'EOF'`); every scratch script starts with `set -euo pipefail`; in any command that writes, moves or deletes, a path built from a variable is written `${VAR:?}`. In CLAUDE.md, "The agent's shell".
+- D-56 (decided by the owner). OPS-2b's deploy runs the end-to-end suite in place of its manual browser checks and smoke test. That run is also QA-1's first production run, F7's check. It runs from `feature/qa-1`'s last commit (QA-1b's), since the deployed commit predates the suite. If the suite stops before the specs that need a sign-in ran, OPS-2b's browser checks and smoke test are done by hand and `finish` answers from them; if a spec fails, `finish` is answered `no` and nothing more happens until the PM has read the summary. The runbook's "OPS-2b's deploy checklist with the suite".
+- D-57 (decided by the PM). Merges into `main` are fast-forwards made on the laptop, as the checklists say, so that a checklist can name the commit to deploy before the deploy; no pull request is merged on GitHub with a merge commit. PR #13's merge commit (`8d75f839eb980666c674f7b000de7ec0ec0b2959`, parents `b6870f2` and `aade401`, `aade401`'s tree) stays: no force-push, no revert. OPS-2b deploys `origin/main`'s head, that merge commit; `b6870f2`'s `run` takes it as `origin/main` and a fast-forward of `b6870f2` (`deploy/tests/run.sh`, case `b6870f2_run_deploys_a_merge_commit`). `feature/qa-1` holds it (a merge that changed no file), so `main` fast-forwards to `feature/qa-1` after the deploy.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

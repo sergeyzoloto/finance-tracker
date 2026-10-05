@@ -3,6 +3,97 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-05 · The production runner's confirmation at a real terminal, `main`'s merge commit, OPS-2b's deploy with the suite (QA-1b)
+
+Commits on `feature/qa-1`, from `22b64d5`: `acea1b4` ("Merge origin/main (PR #13's merge commit) into feature/qa-1
+(D-57)"), `4f39e72` ("fix(e2e): the production runner's confirmation at a real terminal"), `68cef38` ("test(deploy):
+b6870f2's run deploying a merge commit"), then "docs: OPS-2b's deploy checklist with the suite, D-53 to D-57", whose
+hash QA-1b's report names. Not pushed, not merged; nothing deployed, and production not accessed.
+
+**Changes**
+- `origin/main` is `8d75f839eb980666c674f7b000de7ec0ec0b2959`, PR #13's merge commit on GitHub (parents `b6870f2` and
+  `aade401`, `aade401`'s tree `d96f0be`). `acea1b4` merges it into `feature/qa-1` and changes no file (its tree
+  `e9f264b` is `22b64d5`'s), so `main` can fast-forward to `feature/qa-1`.
+- The owner's first production run stopped at its confirmation (2026-10-05): "No terminal to type the confirmation
+  at", after `E2E PROD` was typed. The cause: `askAtTerminal` (`e2e/lib/confirm.ts`) settled its promise on
+  readline's `close` event too, and `close()`, called in the `line` handler before `resolve(line)`, emits `close`
+  synchronously, so every answer resolved as undefined. The 28 guard tests gave `main` a fake `ask`, and nothing ever
+  read a terminal: local runs ask nothing, and the tests ran without one.
+- The fix: `askAtTerminal` opens `/dev/tty`, discards what is already waiting there through a non-blocking descriptor
+  of its own until the terminal has been quiet for 200 ms (as `deploy.sh`'s `discard_waiting`, `read -t 0.2`), says
+  how many lines it dropped, then reads one line synchronously, never past it. Without a terminal it stops as before.
+  D-52's guard 6 amended accordingly.
+- `e2e/lib/terminal.test.ts` (in `npm run test:guards`, now one file at a time): an interactive bash in a real
+  pseudo-terminal (`e2e/lib/pty.ts`, util-linux's `script`), a block pasted at its prompt as the owner pasted the
+  README's lines, then `npm run test:prod-entry` (`e2e/lib/prod-entry.ts`: `scripts/prod.ts`'s `main` with the real
+  prompt, a credentials file of fake values in a temporary folder, the fake app and Keycloak of `lib/fake-app.ts`).
+  `npm run e2e:prod` itself can't be pointed at the fakes: its target and the credentials file's path are constants,
+  on purpose. Four tests, each on the fake app's request log: `E2E PROD` typed after the question goes on and the run
+  reaches the fake app; another phrase stops with nothing sent; a line waiting before the question (`E2E PROD`, the
+  pasted block's third line) is discarded, and `no` typed after it stops with nothing sent; `setsid` (no terminal)
+  stops with nothing sent, `E2E PROD` on standard input notwithstanding.
+- `deploy/tests/run.sh`, case `b6870f2_run_deploys_a_merge_commit` (91 cases): `production_2026_10_05` with `merge`
+  puts E on a feature branch and on origin's `main` a merge commit M of D and E with E's tree; `b6870f2`'s `run`
+  deploys M, then OPS-2b's `finish`, `verify`, a run of M again and `rollback.sh` to D answered `no`.
+- `b6870f2`'s `run` with a merge commit, read from `git show b6870f2:deploy/deploy.sh`: step 1.3 requires the commit to
+  be `origin/main` after `git fetch`, exactly, and a fast-forward of `HEAD` (`git merge-base --is-ancestor`); step 1.5
+  requires every check run of that hash to have completed with success. 3.1, `git merge --ff-only`, moves the clone's
+  `main` to M itself. The commits listed are M and those only its second parent brings (`HEAD..M`, seven for
+  `8d75f83`: `2d4797b, aaf8391, 2550102, 133178e, 9e10fae, aade401, 8d75f83 (b6870f2 to 8d75f83)`); the run folder,
+  `last-good` and the history's `good` line name M; 3.2 tags the running images as `b6870f2`'s and `:previous`, the
+  previous file names `b6870f2`, and `rollback.sh`'s target is `b6870f2`. No time limit between `run` and `finish`,
+  in `b6870f2`'s script or the merged one.
+- `deploy/RUNBOOK.md`: "OPS-2b's deploy checklist with the suite" replaces "OPS-2b's deploy checklist" and "QA-1's
+  first production run: F7's check": the commit `8d75f83…` in full, the stage OPS-2b, the switch on throughout, the
+  suite's commit (`feature/qa-1`'s last); the laptop's `main` fast-forwarded to `origin/main` with nothing to push and
+  CI on M from GitHub's API; OPS-2b's pre-flight and `verify OPS-2` as before; `run` with what each step prints for M;
+  the suite from a clean checkout of `feature/qa-1`, what to do if it stops before the specs that need a sign-in (the
+  appendix's browser checks and smoke test by hand, kept from OPS-2b) or a spec fails (`finish` answered `no`, then
+  the PM); `finish` answered `yes` only for `Result: PASSED`; `verify OPS-2b` with the numbers of `run`'s summary; the
+  acceptance block; "CI on Ubuntu 26.04" on M before the push, since "Run workflow" takes the branch's head; then
+  `main` and `feature/family-budget` fast-forwarded to `feature/qa-1` and pushed; the rollback last. "Production now"
+  names the stopped first attempt and `origin/main`; "Deploying with deploy.sh" step 1 states D-57.
+- `e2e/README.md`: the first production run uses `feature/qa-1`'s commit, not the deployed one; the code fence after
+  the backend's restart command closed (text after the closing fence made the rest of the file code); the guards'
+  tests and the confirmation's discard described.
+- D-53 to D-57 in `docs/family-budget/requirements.md`, after D-52. CLAUDE.md: a section "The agent's shell" (D-55:
+  heredocs only as `<<'EOF'`, scratch scripts with `set -euo pipefail`, paths from variables as `${VAR:?}` in commands
+  that write, move or delete), D-57 in "Deploy checklists", the project map's OPS-2b line and tests.
+
+**Verified**
+- M: `git rev-parse origin/main^{tree} aade401^{tree}` both `d96f0be1bd31d555a137c78ed275d4acb24c53bb`; after the
+  merge, `acea1b4`'s tree equals `22b64d5`'s, and `origin/main` is its ancestor. Remote branches after `git fetch`:
+  `origin/feature/family-budget` at `aade401`, `origin/feature/qa-1` at `22b64d5`.
+- CI on M, from GitHub's public API without a token: one run of "CI" (`37296033806`, push to `main`, 10:21:13Z), its 5
+  jobs (Backend, Frontend, Web image, Dependency updates, Deploy scripts, on `ubuntu-24.04`) and the commit's 5 check
+  runs completed with success.
+- B reproduced in a pseudo-terminal through a pasted block and `npm run test:prod-entry`, on `22b64d5`'s `confirm.ts`:
+  the banner, `E2E PROD` typed after the question, "No terminal to type the confirmation at: stopped, nothing done.",
+  and an empty request log. With the fix, the same block: `Result: PASSED` and the sign-ins, probe, deletions and
+  sign-outs in the fake app's log. Node shown separately: in readline's `line` handler, `close()` runs the `close`
+  handler before the next statement.
+- The terminal tests 4 of 4. Broken on purpose (copied aside and back): `22b64d5`'s `confirm.ts` fails 3 of 4 (the
+  `setsid` test passes, as it should); the fix without the discard fails the waiting-line test, with the whole run in
+  the fake app's log.
+- `npm run typecheck` clean; `npm run test:guards` 32 of 32; `npm run e2e:local` once, `Result: PASSED` (pages 4.5 s,
+  sign-in 2.3 s, smoke 7.0 s, family F7 15.1 s, at 375 px 7.6 and 16.4 s), password search 0 hits.
+- `deploy/tests/run.sh` 91 of 91; the new case fails when it expects only M in the commits line; `deploy/tests/mutate.sh`
+  every one of 53 mutations caught; ShellCheck v0.11.0 as CI runs it, clean.
+- `git diff --numstat 22b64d5`: `CLAUDE.md`, `deploy/RUNBOOK.md`, `deploy/tests/run.sh`,
+  `docs/family-budget/requirements.md`, `e2e/README.md`, `e2e/lib/confirm.ts`, `e2e/lib/prod-entry.ts`,
+  `e2e/lib/pty.ts`, `e2e/lib/terminal.test.ts`, `e2e/package.json`, and this file; nothing under `backend/`,
+  `frontend/`, `.github/`, `deploy/*.sh` or `deploy/checks/`.
+
+**Open**
+- OPS-2b's deploy and the suite's first production run: the runbook's "OPS-2b's deploy checklist with the suite", by
+  the owner; then "CI on Ubuntu 26.04" on M before 2026-10-19.
+- A line still being typed before the question, without Enter, can't be read in the terminal's line mode, so it isn't
+  discarded: it becomes the start of the answer, which then isn't `E2E PROD`, and the run stops. `deploy.sh`'s
+  `discard_waiting` has the same limit.
+- `lib/prod-entry.ts` prints production's banner (it is `main`'s), with a line before it saying the run goes to the
+  fake app. The terminal tests need `script` and `setsid` (util-linux); `e2e/` isn't in CI.
+- D-53 and D-54 are F8's.
+
 ## 2026-10-05 · End-to-end suite: Playwright, local and production, F7's check with two accounts (QA-1)
 
 Commits on `feature/qa-1`, from `aade401` (OPS-2b's last commit on `feature/family-budget`): `99ec88b` ("docs: D-51 and

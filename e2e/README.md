@@ -113,12 +113,17 @@ forgets the counts:
 ```bash
 # On the laptop
 cd ~/dev/finance-tracker && docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.dev.yml restart backend
-``` `npm run typecheck` and
-`npm run test:guards` (the guards' tests, with temporary files and a fake app only) need no stack.
+```
+
+`npm run typecheck` and `npm run test:guards` (the guards' tests, with temporary files, a fake app and, for the
+confirmation, a pseudo-terminal of util-linux's `script` only) need no stack.
 
 ## Running it in production
 
-From a clean checkout of the commit the checklist names (the deployed one), on the laptop:
+From a clean checkout of the commit the checklist names (the deployed one), on the laptop. The first run, in OPS-2b's
+deploy (D-56; `deploy/RUNBOOK.md`, "OPS-2b's deploy checklist with the suite"), is the exception: it runs from
+`feature/qa-1`'s last commit, which QA-1b's report names, not from the deployed one, which predates the suite and its
+fix of the confirmation (QA-1b).
 
 ```bash
 # On the laptop

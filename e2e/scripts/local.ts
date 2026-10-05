@@ -18,6 +18,6 @@ process.exitCode = await runSuite({
   target: LOCAL,
   family,
   artifacts,
-  invocations: [['local-pages'], ['local-specs']],
+  invocations: [['local-pages'], ['local-specs', 'local-narrow']],
   secrets: [LOCAL_PASSWORD],
 }, suiteCommit())

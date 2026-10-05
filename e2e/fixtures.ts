@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs'
 import { test as base, expect, type BrowserContext, type Page, type Request, type Response } from '@playwright/test'
 import type { Account, Role } from './lib/accounts.ts'
 import { checkMe, familyFrom, type Family } from './lib/identity.ts'
@@ -185,6 +186,31 @@ export async function expectIntegrity({ context, account }: Session) {
   const response = await context.request.get('/api/reports/integrity')
   expect(response.status(), `integrity for ${account?.label}`).toBe(200)
   expect(await response.json(), `integrity for ${account?.label}`).toEqual([])
+}
+
+/** What sticks out of a 375 px window: the page's width, and the widest elements past the right edge. */
+export interface Layout { name: string; path: string; scrollWidth: number; clientWidth: number; outside: string[] }
+
+/**
+ * At 375 px (the local project `local-narrow`): a full-page screenshot of the screen, for the report's review, and
+ * what sticks out past the window's right edge, in `layout.jsonl` next to it. Elsewhere it does nothing. It never fails
+ * the spec: the review judges the screens (a known wide one is the personal entry list, "Later" in requirements.md).
+ */
+export async function shot(page: Page, name: string) {
+  const info = base.info()
+  if ((info.project.use.viewport as { width: number } | undefined)?.width !== 375) return
+  await page.screenshot({ path: info.outputPath(`${name}.png`), fullPage: true })
+  const layout: Layout = await page.evaluate((name) => {
+    const width = document.documentElement.clientWidth
+    const label = (e: Element) => `${e.tagName.toLowerCase()}${e.id ? `#${e.id}` : ''}${e.classList.length ? `.${[...e.classList].join('.')}` : ''}`
+    const outside = [...document.body.querySelectorAll('*')]
+      .filter((e) => e.getBoundingClientRect().right > width + 1 && e.getBoundingClientRect().width > 0)
+      // The outermost ones only: their children stick out with them.
+      .filter((e, _, all) => !all.some((o) => o !== e && o.contains(e)))
+      .map((e) => `${label(e)} (right edge ${Math.round(e.getBoundingClientRect().right)} px)`)
+    return { name, path: location.pathname, scrollWidth: document.documentElement.scrollWidth, clientWidth: width, outside }
+  }, name)
+  appendFileSync(info.outputPath('layout.jsonl'), `${JSON.stringify(layout)}\n`)
 }
 
 /** Today as the app and the server see it in these runs (UTC): "2026-10-05". */

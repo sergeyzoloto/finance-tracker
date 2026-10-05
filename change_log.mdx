@@ -21,6 +21,9 @@ Commits on `feature/qa-1`, from `aade401` (OPS-2b's last commit on `feature/fami
 - `e2e/specs/01-pages.spec.ts` and `02-smoke.spec.ts` (commit 3).
 - `e2e/specs/03-family-f7.spec.ts` (commit 4): F7's check with two accounts, as D-51 makes it the first production
   scenario.
+- 375 px (commit 5): the project `local-narrow` runs smoke and family F7 again at 375 px; `shot()` takes a full-page
+  screenshot of each screen there and notes what sticks out past the window (`layout.jsonl`). Production checks only
+  the pages at 375 px. The smoke test waits for the dashboard's lazily loaded chart.
 
 **Verified**
 - Commit 1: documents only; `change_log.mdx` compiles with `@mdx-js/mdx`.
@@ -29,9 +32,10 @@ Commits on `feature/qa-1`, from `aade401` (OPS-2b's last commit on `feature/fami
   local database held no `users`, `ledger` or `account` row.
 
 - Commit 4: `npm run e2e:local`, every spec passed, family F7 in 13.8 s.
+- Commit 5: `npm run e2e:local`, every spec passed at 1280 and 375 px; the 39 screenshots reviewed (below).
 
 **Open**
-- 375 px and the checklists, in the next commits.
+- The checklists, in the next commit.
 
 ## 2026-10-05 · Deploy scripts: defect 5, the Ubuntu 26.04 test failure, D-50, checklist rules, OPS-2b's checklist (OPS-2b)
 

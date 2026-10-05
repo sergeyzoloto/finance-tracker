@@ -1,5 +1,5 @@
 import {
-  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, test, type Session, type Watch,
+  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, shot, test, type Session, type Watch,
 } from '../fixtures.ts'
 
 // The deploy checklists' smoke test, with account A: signed in, the switch as E2E_FAMILY says, an expense of the
@@ -16,6 +16,7 @@ test('smoke', async ({ as, family, watch }) => {
   expect(me.features.familyLedgers).toBe(family === 'on')
   await expect(page.getByRole('combobox', { name: 'Budget' })).toHaveCount(family === 'on' ? 1 : 0)
   await expect(page.getByText('Your ledger is empty. How would you like to start?')).toBeVisible()
+  await shot(page, 'smoke-01-empty-dashboard')
 
   await anExpenseCreatedChangedAndDeleted(a)
   if (family === 'on') await theDemoWithItsFamilyBudget(a, watch)
@@ -32,6 +33,7 @@ async function anExpenseCreatedChangedAndDeleted({ page }: Session) {
   await page.getByLabel('Amount', { exact: true }).fill('12.34')
   await page.getByLabel('Category').selectOption({ label: 'Groceries' })
   await page.getByLabel('Memo').fill('E2E smoke')
+  await shot(page, 'smoke-02-new-expense')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
 
   await expect(page).toHaveURL(/\/entries$/)
@@ -39,6 +41,7 @@ async function anExpenseCreatedChangedAndDeleted({ page }: Session) {
   await expect(row).toHaveCount(1)
   await expect(row).toContainText('Groceries')
   await expect(row).toContainText('€12.34')
+  await shot(page, 'smoke-03-entries')
 
   await row.getByRole('link').click()
   await expect(page.getByRole('heading', { name: 'Edit entry' })).toBeVisible()
@@ -64,6 +67,10 @@ async function loadTheDemo({ page }: Session, withFamily: boolean) {
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
   await expect(page.getByRole('heading', { name: /^Net worth on / })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Cash flow by category' })).toBeVisible()
+  // The chart is a chunk of its own, loaded lazily (chunkReload.lazyWithReload): it loads, and draws.
+  await expect(page.getByText('Loading chart…')).toHaveCount(0)
+  await expect(page.locator('.recharts-surface').first()).toBeVisible()
+  await shot(page, 'smoke-04-demo-dashboard')
 }
 
 async function theDemoAlone(session: Session) {
@@ -79,9 +86,12 @@ async function theDemoWithItsFamilyBudget(session: Session, watch: Watch) {
   await switcher.selectOption({ label: 'Demo household' })
   await expect(page.getByRole('heading', { level: 2, name: 'Demo household' })).toBeVisible()
   const subnav = page.getByRole('navigation', { name: 'Family budget' })
+  await expect(page.getByText('Latest activity')).toBeVisible()
+  await shot(page, 'smoke-05-family-overview')
 
   await subnav.getByRole('link', { name: 'Members' }).click()
   await expect(page.getByRole('row').filter({ hasText: 'Sam' })).toHaveCount(1)
+  await shot(page, 'smoke-06-family-members')
 
   await subnav.getByRole('link', { name: 'Balances' }).click()
   await expect(page.getByRole('heading', { name: 'Balances' })).toBeVisible()
@@ -89,11 +99,13 @@ async function theDemoWithItsFamilyBudget(session: Session, watch: Watch) {
   await expect(page.locator('.settlement .sentence').first()).toContainText(/Sam|settled/)
   await expect(page.getByRole('row').filter({ hasText: 'Sam' })).toContainText(/owes|is owed|is settled/)
   await expect(page.getByTestId('balances-sum')).toHaveText('€0.00')
+  await shot(page, 'smoke-07-family-balances')
 
   await subnav.getByRole('link', { name: 'Report' }).click()
   await expect(page.getByRole('heading', { name: 'Report' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'By member' })).toBeVisible()
   await expect(page.locator('.report-month').first()).toContainText('Expenses €')
+  await shot(page, 'smoke-08-family-report')
 
   // The demo family is removed as the screens allow: its only member with an account leaves, which deletes it.
   await subnav.getByRole('link', { name: 'Members' }).click()
@@ -101,6 +113,7 @@ async function theDemoWithItsFamilyBudget(session: Session, watch: Watch) {
   await page.getByRole('button', { name: 'Leave', exact: true }).click()
   const confirmation = page.getByRole('region', { name: 'Leave the family budget' })
   await expect(confirmation).toContainText('the family budget “Demo household” and its records will be deleted')
+  await shot(page, 'smoke-09-leave-and-delete')
   await confirmation.getByRole('button', { name: 'Leave and delete the family budget' }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(switcher.getByRole('option', { name: 'Demo household' })).toHaveCount(0)

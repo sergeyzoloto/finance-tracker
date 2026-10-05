@@ -25,6 +25,14 @@ const projects: Project[] = [
   { name: `${t}-cleanup`, testMatch: /cleanup\.teardown\.ts$/, use: quiet, outputDir: `${artifacts}/cleanup` },
   { name: `${t}-specs`, testMatch: specs, dependencies: [`${t}-setup`], outputDir: `${artifacts}/specs` },
 ]
+// Locally, the smoke test and family F7 again at a phone's 375 px, with a screenshot of each screen for the review.
+// Production checks only the pages at 375 px.
+if (t === 'local') {
+  projects.push({
+    name: 'local-narrow', testMatch: specs, dependencies: ['local-setup'], outputDir: `${artifacts}/narrow`,
+    use: { viewport: { width: 375, height: 812 } },
+  })
+}
 
 export default defineConfig({
   testDir: 'specs',

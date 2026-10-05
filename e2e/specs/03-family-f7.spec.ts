@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import {
-  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, test, today, type Session,
+  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, shot, test, today, type Session,
 } from '../fixtures.ts'
 
 // F7's check with two accounts (D-51), A and B each in a browser context of their own, every record dated today and
@@ -55,6 +55,13 @@ test('family F7', async ({ as, family, target, watch }) => {
     has: a.page.getByRole('heading', { name: new Date(`${month}-01T00:00:00Z`).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) }),
   })
   await expect(thisMonth).toContainText('Expenses €150.00 · Incomes €60.00')
+  await shot(a.page, 'f7-08-report')
+  await a.page.goto(`${budget}/expenses`)
+  await expect(a.page.getByRole('row')).toHaveCount(4)
+  await shot(a.page, 'f7-09-activity')
+  await a.page.goto(`${budget}/journal`)
+  await expect(a.page.getByRole('heading', { name: 'Journal' })).toBeVisible()
+  await shot(a.page, 'f7-10-journal')
 
   // 4. B settles up; A puts its part on an account.
   await b.page.goto(`${budget}/balances`)
@@ -62,6 +69,7 @@ test('family F7', async ({ as, family, target, watch }) => {
   await expect(b.page.getByRole('heading', { name: 'Record a settlement' })).toBeVisible()
   await expect(b.page.getByLabel('Amount (EUR)')).toHaveValue('55.00')
   await b.page.getByLabel('Paid from').selectOption({ label: 'Current account' })
+  await shot(b.page, 'f7-11-settle-up')
   await b.page.getByRole('button', { name: 'Record the settlement' }).click()
   await expect(b.page.getByRole('heading', { name: /^Settlement, / })).toBeVisible()
   await expect(b.page.locator('p.sentence')).toHaveText(`You paid ${nameA} €55.00.`)
@@ -82,6 +90,7 @@ test('family F7', async ({ as, family, target, watch }) => {
   await expect(b.page.getByRole('note')).toContainText(`${nameA} has put their side of this settlement on an account of theirs, so its date and amount can’t change`)
   await expect(b.page.getByLabel('Amount (EUR)')).toHaveCount(0)
   await expect(fact(b.page, 'Amount')).toHaveText('€55.00')
+  await shot(b.page, 'f7-13-settlement-locked')
   await moveOwnSide(a, settlement, 'Specify later')
   await b.page.reload()
   await saveSettlementAmount(b, '50.00')
@@ -113,6 +122,7 @@ async function createTheBudget({ page }: Session): Promise<string> {
   await page.getByRole('checkbox', { name: 'Groceries', exact: true }).check()
   await page.getByRole('checkbox', { name: 'Other income', exact: true }).check()
   await expect(page.getByRole('radio', { name: 'Equal shares' })).toBeChecked()
+  await shot(page, 'f7-01-new-budget')
   await page.getByRole('button', { name: 'Create family budget' }).click()
   await expect(page.getByRole('heading', { level: 2, name: BUDGET })).toBeVisible()
   await expect(page.getByText('Family budget · EUR · Owner')).toBeVisible()
@@ -124,6 +134,7 @@ async function inviteSomeoneNew({ page }: Session): Promise<string> {
   await page.getByRole('button', { name: 'Invite someone new' }).click()
   const link = page.getByRole('textbox', { name: 'Invite link' })
   await expect(link).toHaveValue(/\/invite#[A-Za-z0-9_-]{43}$/)
+  await shot(page, 'f7-02-members-invite')
   return link.inputValue()
 }
 
@@ -132,6 +143,7 @@ async function joinThroughTheLink({ page }: Session, link: string, ledgerId: str
   await expect(page).toHaveURL(/\/invite$/)
   await expect(page.getByRole('heading', { name: `Join the family budget “${BUDGET}”` })).toBeVisible()
   await expect(page.getByLabel('Your name in this budget')).toHaveValue(name)
+  await shot(page, 'f7-03-invite')
   await page.getByRole('button', { name: 'Accept' }).click()
   await expect(page).toHaveURL(new RegExp(`/family/${ledgerId}$`))
   await expect(page.getByText('Family budget · EUR · Member')).toBeVisible()
@@ -150,8 +162,10 @@ async function addExpense({ page }: Session, budget: string, expense: { amount: 
     await expect(page.getByText('Entered by you; the family budget counts it in EUR.')).toBeVisible()
   }
   await expect(page.getByRole('radio', { name: /^The budget’s rule \(equal shares\)$/ })).toBeChecked()
+  await shot(page, `f7-04-expense-${expense.currency ?? 'EUR'}`)
   await page.getByRole('button', { name: 'Add the expense' }).click()
   await expect(page.getByRole('heading', { name: /^Groceries, / })).toBeVisible()
+  await shot(page, `f7-05-expense-${expense.currency ?? 'EUR'}-page`)
 }
 
 async function addIncome({ page }: Session, budget: string, income: { amount: string; account: string }) {
@@ -162,6 +176,7 @@ async function addIncome({ page }: Session, budget: string, income: { amount: st
   await page.getByLabel('Amount (EUR)').fill(income.amount)
   await page.getByRole('button', { name: 'Add the income' }).click()
   await expect(page.getByRole('heading', { name: /^Other income, / })).toBeVisible()
+  await shot(page, 'f7-06-income-page')
 }
 
 /** The reader's own row ("You") of the balances, and their balance in words above it. */
@@ -170,6 +185,7 @@ async function expectBalances({ page }: Session, budget: string, own: string, se
   await expect(page.getByRole('row').filter({ has: page.locator('.badge', { hasText: 'You' }) })).toContainText(own)
   await expect(page.locator('.settlement .sentence')).toHaveText(sentence)
   await expect(page.getByTestId('balances-sum')).toHaveText('€0.00')
+  await shot(page, `f7-07-balances-${own.replace(/[^a-z0-9]+/gi, '-')}`)
 }
 
 /** The reader's own side of the settlement, its account or "Specify later", saved from the settlement's page. */
@@ -182,6 +198,7 @@ async function moveOwnSide({ page }: Session, settlement: string, to: string) {
   expect((await saved).status()).toBe(200)
   await expect(page.getByRole('status')).toHaveText('Saved.')
   await expect(fact(page, 'Received into').getByRole('link')).toHaveText(to)
+  await shot(page, `f7-12-own-side-${to.replace(/[^a-z0-9]+/gi, '-')}`)
 }
 
 /** The recorder changes the settlement's amount, which answers 200 now that the lock is gone. */
@@ -201,6 +218,7 @@ async function leave({ page }: Session, budget: string, button: string, deletion
   await expect(confirmation.getByRole('heading', { name: `Leave “${BUDGET}”?` })).toBeVisible()
   if (deletion) await expect(confirmation).toContainText(deletion)
   else await expect(confirmation).not.toContainText('will be deleted')
+  await shot(page, `f7-14-${button.replace(/[^a-z0-9]+/gi, '-')}`)
   await confirmation.getByRole('button', { name: button }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('combobox', { name: 'Budget' }).getByRole('option', { name: BUDGET })).toHaveCount(0)

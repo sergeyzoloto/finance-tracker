@@ -3,6 +3,56 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-05 · Deploy records: OPS-2's deploy, its acceptance checks and CI on Ubuntu 26.04 (OPS-2b)
+
+Commit "docs: OPS-2's deploy facts", OPS-2b's first, on `feature/family-budget` at `b6870f2` (equal to `main`); its
+hash is named by the OPS-2b entry above it. Not pushed, not merged. Documents only.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions", seven rows of 2026-10-04, newest first:
+  - "CI on Ubuntu 26.04" on `b6870f2` (run #1, `37227790313`, Ubuntu 26.04.1, Docker 29.4.2): Backend failed with
+    one failure of 404 tests, `RateApiTests.aManualRateIsTheUsersOwn` (`RateApiTests.java:31`), expected
+    "2026-09-01" but was "2026-09-25", Maven done at 19:28:20Z; Frontend, Web image and Deploy scripts succeeded,
+    as GitHub's public API lists the run's jobs.
+  - OPS-2's acceptance checks: the read-only block the same before and after; D-42's `run` of `b6870f2` at 19:14:58Z
+    REFUSED at 1.3, nothing changed, no CI line and no dump; `switch off` at 19:16:29Z and 19:16:44Z, answered `no`,
+    both reaching "2. Confirmation" past "The latest run that isn't refused: 2026-10-04T191023Z-b6870f2, finished".
+    Each printed "Image store: unknown, platform unknown" (defect 5).
+  - `verify OPS-2` OK at 19:14:35Z, both images "the recorded image" with their contents, and the same "unknown" line.
+  - OPS-2's deploy, `2026-10-04T191023Z-b6870f2`, run by `4510003`'s script after the remedy: each step's facts
+    (the seven commits, no migration, CI 10 of 10 on `ubuntu-24.04`, the dumps of 19:10:26Z and 19:12:03Z in
+    different minutes with PASS, 3.2's "They take no tag", both builds cached as new manifest lists, nothing
+    recreated, D-25 "on" since 2026-10-03T09:25:33Z, the 21 numbers unchanged, OPS-2's 5 lines). Its `finish`
+    answered 2 minutes 20 seconds after the summary: the smoke test was not performed in full, recorded like the
+    35- and 80-second finishes before it; F7's two-account check will cover it.
+  - The one-time remedy between 19:09:57Z and 19:10:23Z: `last-good`'s `api_image` from `bb3bdef3…` to `6d6f35b8…`,
+    `diff` printing `3c3`, the copy `last-good.before-ops2` kept.
+  - The pre-flight of the session opened at 17:33:27Z: Docker 29.8.2 and Compose v5.5.1, the DriverStatus
+    `[["driver-type","io.containerd.snapshotter.v1"]]`, the clone at `4510003` with `switch`'s three `.env` copies
+    untracked, `last-good` in full, both containers with their contents, `bb3bdef3…` "No such image", every tag (full
+    commit hashes: the old checklist's `:4510003` named no image) and the contents of `:previous` and `:latest`.
+  - The server block pasted on the laptop first, by mistake: nothing changed anywhere.
+- `deploy/RUNBOOK.md`, "Production now" rewritten: `b6870f2` with the switch on, its images and contents, the
+  rollback state (`4510003`, `:f0425c0…` and `:8ede02e…` kept, `switch off` the way back and working), defect 5 open
+  until OPS-2b is deployed, the `.env` copies, F7's check and the failed Ubuntu 26.04 run.
+- A correction of OPS-2's report and of "Production now" before OPS-2's deploy: the way around defect 1 they gave, an
+  empty `run` of `4510003`, would also have FAILED at step 3.2, after the merge, since `last-good` named the gone
+  `bb3bdef3…`. The older entries stay as they are.
+- CLAUDE.md's project map: production runs `b6870f2` (OPS-2) since 2026-10-04T19:14:27Z.
+
+**Verified**
+- `feature/family-budget` and `main` at `b6870f2b6272aebe0b5989a2128f2a28bf63af44`, the tree clean, before the first
+  change.
+- The Ubuntu 26.04 run's jobs from `api.github.com/repos/sergeyzoloto/finance-tracker/actions/runs/37227790313/jobs`
+  without a token: Backend `failure` (19:24:49Z to 19:28:24Z, step "Build and test"), Frontend `success` (19:18:55Z to
+  19:19:23Z), Web image `success` (19:18:53Z to 19:19:21Z), Deploy scripts `success` (19:18:53Z to 19:24:26Z), each
+  on the label `ubuntu-26.04`.
+- Every other fact is the PM's, from the server's output of 2026-10-04.
+
+**Open**
+- Defect 5 and the Ubuntu 26.04 failure: OPS-2b, the entry above.
+- F7's production check with two test accounts, which also covers OPS-2's smoke test.
+
 ## 2026-10-04 · Deploy scripts: OPS-2's defects 1 to 4, CI before 2026-10-19, OPS-2's checklist (OPS-2)
 
 Commits on `feature/family-budget`: `c45d956` (the deploy facts, the entry below), `685deb3` ("ops: the before-dump

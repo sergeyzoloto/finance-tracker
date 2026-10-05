@@ -42,7 +42,9 @@ export default class SummaryReporter implements Reporter {
       spec.status = worse(spec.status, outcome.status, spec.tests === 1)
       specs.set(name, spec)
     }
-    for (const spec of specs.values()) appendFileSync(path, `${JSON.stringify(spec)}\n`, { mode: 0o600 })
+    // In the run's order: the sign-in and the specs as they ran, the cleanup last.
+    const ordered = [...specs.values()].sort((x, y) => Number(x.spec === 'cleanup') - Number(y.spec === 'cleanup'))
+    for (const spec of ordered) appendFileSync(path, `${JSON.stringify(spec)}\n`, { mode: 0o600 })
   }
 
   printsToStdio() {

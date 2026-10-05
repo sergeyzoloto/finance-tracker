@@ -128,7 +128,9 @@ cd e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
 
 `E2E_FAMILY` is `on` or `off`, as the family budget is switched in production now; the run stops if `/api/me` says
 otherwise. Before anything else it prints the target, both accounts, `E2E_FAMILY` and the suite's commit (and whether
-the tree is clean), then asks you to type `E2E PROD`; anything else stops it with nothing done. It takes about two
+the tree is clean), then asks you to type `E2E PROD`; anything else stops it with nothing done. Only a line typed after the question
+counts: lines already waiting at the terminal, such as a pasted block's leftovers, are discarded first, and it says
+how many (QA-1b). It takes about two
 minutes.
 
 The summary at the end, between `===== E2E summary =====` and `=======================`, is what you paste into the
@@ -170,7 +172,12 @@ cleanup failed. Keycloak keeps the two accounts, and its events log their sign-i
 - `playwright.config.ts`: the projects per target: `<target>-pages`, `<target>-setup` (sign-in) with its teardown
   `<target>-cleanup`, `<target>-specs` (smoke, family F7). It refuses to load without a runner.
 - `scripts/local.ts`, `scripts/prod.ts`: the runners; `scripts/common.ts`: the run, the summary, the password search.
-- `lib/`: the allowlist (`accounts.ts`), targets, the credentials file's checks, the identity check, the session
-  folder, the summary and its reporter; the guards' tests (`*.test.ts`) and their fake app.
+- `lib/`: the allowlist (`accounts.ts`), targets, the credentials file's checks, the identity check, the confirmation
+  at the terminal (`confirm.ts`), the session folder, the summary and its reporter; the guards' tests (`*.test.ts`)
+  and their fake app. `terminal.test.ts` (QA-1b) answers the confirmation in a real pseudo-terminal (`pty.ts`, through
+  util-linux's `script`): an interactive bash, a pasted block as in the README's production lines, then
+  `npm run test:prod-entry` (`prod-entry.ts`: `scripts/prod.ts`'s `main` with its real prompt, a credentials file of
+  fake values and the fake app; `npm run e2e:prod` itself can't be pointed elsewhere), and checks the fake app's
+  request log.
 - `fixtures.ts`: the signed-in contexts, the watch on responses and errors, "Delete all my data", the integrity check.
 - `specs/`: the specs in their order, the sign-in, the cleanup.

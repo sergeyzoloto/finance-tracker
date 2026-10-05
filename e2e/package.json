@@ -9,7 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:guards": "node --test 'lib/*.test.ts'",
+    "test:guards": "node --test --test-concurrency=1 'lib/*.test.ts'",
+    "test:prod-entry": "node lib/prod-entry.ts",
     "e2e:local": "node scripts/local.ts",
     "e2e:prod": "node scripts/prod.ts"
   },

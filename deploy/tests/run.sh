@@ -2259,7 +2259,8 @@ case_switch_off_without_the_numbers() {
 # finish passed, as OPS-2's finish wrote it, and contents holds both pairs; the newest run folders are D's deploy
 # (finished, base C), its D-42 run and two switch off, all three refused; the previous file names C; the switch is on,
 # with switch's three .env copies untracked. E, OPS-2b's commit, changes the api's content (its tests are in the api's
-# build context) unless SAME_API is given; the web's never.
+# build context) unless SAME_API is given; the web's never. With MERGE (QA-1b), E is on a feature branch and origin's
+# main is M, a merge commit of D and E whose tree is E's, as PR #13 merged feature/family-budget (new_merge_target).
 production_2026_10_05() {
   setup_case
   use_containerd
@@ -2319,7 +2320,7 @@ production_2026_10_05() {
   echo "$SHA_C" >"$C/previous"
   touch "$s/fixtures/same-content-web"
   [ -z "${1:-}" ] || touch "$s/fixtures/same-content-api"
-  new_target
+  if [ "${2:-}" = merge ]; then new_merge_target; else new_target; fi
   cp "$C/state/last-good" "$C/last-good.orig"
   cp "$C/state/history" "$C/history.orig"
   : >"$STUB_STATE/calls"
@@ -2413,6 +2414,83 @@ case_b6870f2_run_deploys_ops2b_same_api() {
   ops2b_scripts_after_it
 }
 
+# new_merge_target: E on a feature branch from D, pushed, and on origin's main M, GitHub's merge commit of a pull
+# request: first parent D, second parent E, E's tree (QA-1b, D-57: PR #13's 8d75f83 of b6870f2 and aade401). Sets SHA_E
+# and SHA_M.
+new_merge_target() {
+  (
+    cd "$C/work" || exit 1
+    git checkout -q -b feature
+    echo "revision E" >README
+    git add -A
+    git commit -qm "revision E, on the feature branch"
+    git push -q origin feature
+    git checkout -q main
+    git merge -q --no-ff -m "Merge pull request #13 from feature" feature
+    git push -q origin main
+  )
+  SHA_E=$(git -C "$C/work" rev-parse feature)
+  SHA_M=$(git -C "$C/work" rev-parse main)
+}
+
+# QA-1b (D-57): b6870f2's run deploys M, a merge commit whose tree is its second parent's, on production's state now.
+# Step 1.3 takes M as origin/main and a fast-forward of D; the commits listed are E and M; the merge is a fast-forward
+# to M itself, so HEAD is M with both parents; 3.2 keeps D's images under D's tag and :previous, and the previous file
+# names D; last-good and the history name M. Then OPS-2b's finish, verify, a run of M again (refused, D-42) and
+# rollback.sh to D answered no.
+case_b6870f2_run_deploys_a_merge_commit() {
+  need_b6870f2 || return
+  production_2026_10_05 '' merge
+  check "M's tree is E's" [ "$(git -C "$C/work" rev-parse "$SHA_M^{tree}")" = "$(git -C "$C/work" rev-parse "$SHA_E^{tree}")" ]
+  type_at_terminal "${SHA_M:0:7}"
+  run_script "$VB6870F2/deploy.sh" run "$SHA_M" OPS-1
+  check "deployed" rc_is 0
+  check "1.3: the commits listed, E and M" bash -c "grep -qF '${SHA_M:0:7} Merge pull request #13 from feature' '$C/out' && grep -qF '${SHA_E:0:7} revision E, on the feature branch' '$C/out'"
+  check "the commits' line: E, then M, from D" out_has "Commits: ${SHA_E:0:7}, ${SHA_M:0:7} (${SHA_D:0:7} to ${SHA_M:0:7})"
+  check "no migration added" out_has "Migrations added: none"
+  check "2: asked for M's 7 characters" out_has "Deploy ${SHA_M:0:7} (Merge pull request #13 from feature), stage OPS-1, over ${SHA_D:0:7}."
+  check "3.1: a fast-forward to M" out_has "3.1 Deploy: git merge --ff-only ${SHA_M:0:7}"
+  check "HEAD is M" head_is "$SHA_M"
+  check "HEAD's parents: D, then E" [ "$(git -C "$C/server" rev-parse HEAD^1 HEAD^2 | paste -sd ' ')" = "$SHA_D $SHA_E" ]
+  check "the clone still on main" [ "$(git -C "$C/server" symbolic-ref --short HEAD)" = main ]
+  check "3.2: D's images kept" out_has "The running images, the last good deploy's content, kept as :$SHA_D and :previous"
+  check "3.2: D's api tag" image_is finance-tracker-api "$SHA_D" "$P_API_PREV"
+  check "3.2: D's web tag" image_is finance-tracker-web "$SHA_D" "$P_WEB_RUN"
+  check "no tag of E or M" bash -c "! ls '$STUB_STATE/images/finance-tracker-api' '$STUB_STATE/images/finance-tracker-web' | grep -qE '^($SHA_E|$SHA_M)$'"
+  check "the previous file names D" file_has "$C/previous" "$SHA_D"
+  check "last-good: M" last_good_is "$SHA_M"
+  check "history: good M last" bash -c "tail -n 1 '$C/state/history' | grep -qE '^[0-9TZ:-]+ good $SHA_M '"
+  M_RUN=$(latest_run)
+  check "the run's meta: M over D" bash -c "[ \"\$(sed -n 's/^commit=//p' '$M_RUN/meta')\" = '$SHA_M' ] && [ \"\$(sed -n 's/^base=//p' '$M_RUN/meta')\" = '$SHA_D' ]"
+  check "the run's status deployed" bash -c "grep -qx deployed '$M_RUN/status'"
+
+  type_at_terminal yes yes
+  run_deploy finish
+  check "OPS-2b's finish: exit code 0" rc_is 0
+  check "it finished b6870f2's run of M" bash -c "grep -qx finished '$M_RUN/status'"
+  check "finish: good M last in the history" bash -c "tail -n 1 '$C/state/history' | grep -qE '^[0-9TZ:-]+ good $SHA_M '"
+  run_deploy verify OPS-1
+  check "OPS-2b's verify: OK" out_has "verify OPS-1: OK"
+  check "verify at M" out_has "verify OPS-1 at ${SHA_M:0:7} Merge pull request #13 from feature"
+  cp "$C/state/last-good" "$C/last-good.finished"
+  cp "$C/state/history" "$C/history.finished"
+  : >"$STUB_STATE/calls"
+  sleep 1
+  type_at_terminal "${SHA_M:0:7}"
+  run_deploy run "$SHA_M" OPS-1
+  check "run of M again: refused (D-42)" out_has "${SHA_M:0:7} runs already, deployed and finished cleanly"
+  check "refused at 1.3" out_has 'REFUSED at "1.3 Preflight: git fetch, the commit and what it brings"'
+  sleep 1
+  type_at_terminal no
+  run_rollback "${SHA_D:0:7}"
+  check "rollback.sh: the target is D" out_has "Target: ${SHA_D:0:7} revision D, the commit HEAD's deploy replaced"
+  check "rollback.sh: asked, then not confirmed" out_has 'REFUSED at "5. Confirmation": not confirmed'
+  check "HEAD still M" head_is "$SHA_M"
+  check "no tag, build, start, prune or install" calls_lack "$STATE_CHANGING"
+  check "last-good as finish left it" same_file "$C/state/last-good" "$C/last-good.finished"
+  check "history as finish left it" same_file "$C/state/history" "$C/history.finished"
+}
+
 # ops2b_scripts_after_it: OPS-2b's finish, verify, a run of E again, rollback.sh and switch on what b6870f2's run wrote.
 ops2b_scripts_after_it() {
   type_at_terminal yes yes
@@ -2482,6 +2560,7 @@ CASES=(
   4510003_run_fails_on_a_gone_image 4510003_run_deploys_ops2 ops2_scripts_after_the_4510003_run
   b6870f2_scripts_on_production_now b6870f2_run_deploys_ops2b b6870f2_run_deploys_ops2b_same_api
   switch_off_without_the_numbers
+  b6870f2_run_deploys_a_merge_commit
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

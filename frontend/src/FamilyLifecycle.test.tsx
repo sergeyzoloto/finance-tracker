@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { euroBalances } from './testLedger'
 import type { FamilyBalances, FamilyLedger, FamilyMember, FamilyMemberships, InviteLookup, Me } from './api'
 import type { FamilyData } from './familyData'
 import { FamilyMembers } from './FamilyMembers'
@@ -40,11 +41,11 @@ const home: FamilyLedger = { id: 7, name: 'Home', baseCurrency: 'EUR', splitRule
 const anna: FamilyMember = { id: 70, displayName: 'Anna', role: 'OWNER', status: 'ACTIVE', joinDate: '2026-09-01', hasAccount: true, share: null, leftDate: null }
 const ben: FamilyMember = { id: 72, displayName: 'Ben', role: 'MEMBER', status: 'ACTIVE', joinDate: '2026-09-01', hasAccount: true, share: null, leftDate: null }
 const kid: FamilyMember = { id: 71, displayName: 'Kid', role: 'MEMBER', status: 'ACTIVE', joinDate: '2026-09-01', hasAccount: false, share: null, leftDate: null }
-const balances: FamilyBalances = { currency: 'EUR', members: [
+const balances: FamilyBalances = euroBalances([
   { memberId: 70, displayName: 'Anna', status: 'ACTIVE', hasAccount: true, balance: '-40.00', you: true },
   { memberId: 72, displayName: 'Ben', status: 'ACTIVE', hasAccount: true, balance: '-10.00', you: false },
   { memberId: 71, displayName: 'Kid', status: 'ACTIVE', hasAccount: false, balance: '50.00', you: false },
-] }
+])
 const BALANCES = { 'GET /api/family-ledgers/7/balances': { status: 200, body: balances } }
 
 function familyData(ledger: FamilyLedger, members: FamilyMember[]): FamilyData {
@@ -130,8 +131,8 @@ describe('the members page', () => {
   })
 
   it('lets a member leave after saying what stays, and then takes them to their personal budget', async () => {
-    const calls = stubApi({ 'GET /api/family-ledgers/8/balances': { status: 200, body: { ...balances, members:
-      balances.members.map((b) => ({ ...b, you: b.memberId === 72 })) } },
+    const calls = stubApi({ 'GET /api/family-ledgers/8/balances': { status: 200, body: euroBalances(
+      balances.byCurrency[0].members.map((b) => ({ ...b, you: b.memberId === 72 }))) },
     'DELETE /api/family-ledgers/8/members/me': { status: 204 } })
     const family = familyData({ ...home, id: 8, role: 'MEMBER', memberId: 72, splitRule: 'CUSTOM' },
       [anna, { ...ben, share: 3000 }, { ...kid, share: 0 }])
@@ -166,7 +167,7 @@ describe('the invite page (D-34, D-26)', () => {
   const claim: InviteLookup = {
     ledgerName: 'Home', baseCurrency: 'EUR', invitedBy: 'Mum', kind: 'CLAIM', seatName: 'Sam', joinDate: '2026-09-15',
     expiresAt: '2026-10-04T10:00:00Z', categories: [], merges: [], keptPrivate: [], mayBring: [],
-    displayName: 'Carol', openingBalance: '-10.00', returning: false, correction: null,
+    displayName: 'Carol', openingBalances: [{ currency: 'EUR', amount: '-10.00' }], returning: false,
   }
 
   function renderInvite(lookup: InviteLookup) {
@@ -183,9 +184,10 @@ describe('the invite page (D-34, D-26)', () => {
   })
 
   it('shows a returning member the correction beforehand', async () => {
-    renderInvite({ ...claim, kind: 'NEW_MEMBER', seatName: null, joinDate: '2026-10-01', openingBalance: null,
-      returning: true, correction: '-60.00' })
-    expect((await screen.findByTestId('correction')).textContent).toMatch(/One correction of €60.00 on that day takes from/)
+    renderInvite({ ...claim, kind: 'NEW_MEMBER', seatName: null, joinDate: '2026-10-01', openingBalances: undefined,
+      returning: true, corrections: [{ currency: 'EUR', amount: '-60.00' }, { currency: 'USD', amount: '20.00' }] })
+    expect((await screen.findByTestId('correction')).textContent).toMatch(
+      /One correction on that day of €60.00, which takes from .* and of \$20.00, which adds to what your personal budget shows you owe/)
     expect(screen.getByText(/where you were a member before: you come back in your earlier place/)).toBeDefined()
     expect(screen.queryByTestId('opening-balance')).toBeNull()
   })
@@ -223,9 +225,9 @@ describe('a claim’s join date at 23:30 UTC (F6a)', () => {
 
 describe('Delete all my data', () => {
   const memberships: FamilyMemberships = { left: 1, memberships: [
-    { ledgerId: 8, name: 'Allotment', role: 'OWNER', baseCurrency: 'EUR', balance: '0.00', outcome: 'DELETED',
+    { ledgerId: 8, name: 'Allotment', role: 'OWNER', baseCurrency: 'EUR', balances: [{ currency: 'EUR', amount: '0.00' }], outcome: 'DELETED',
       newOwner: null, pendingInvites: 0, splitRuleReset: false },
-    { ledgerId: 7, name: 'Home', role: 'OWNER', baseCurrency: 'EUR', balance: '-40.00', outcome: 'OWNERSHIP_PASSES',
+    { ledgerId: 7, name: 'Home', role: 'OWNER', baseCurrency: 'EUR', balances: [{ currency: 'EUR', amount: '-40.00' }, { currency: 'USD', amount: '12.00' }], outcome: 'OWNERSHIP_PASSES',
       newOwner: 'Ben', pendingInvites: 1, splitRuleReset: false },
   ] }
 
@@ -239,7 +241,7 @@ describe('Delete all my data', () => {
 
     const home = (await screen.findByText('Home')).closest('li')!
     expect(within(home).getByText('(Owner)')).toBeDefined()
-    expect(within(home).getByText('You are owed €40.00.')).toBeDefined()
+    expect(within(home).getByText('You are owed €40.00 and owe $12.00.')).toBeDefined()
     expect(within(home).getByText('Ben becomes its owner.')).toBeDefined()
     expect(within(home).getByText('Your invite that wasn’t used yet stops working.')).toBeDefined()
     const allotment = screen.getByText('Allotment').closest('li')!

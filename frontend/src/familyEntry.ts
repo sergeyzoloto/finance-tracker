@@ -1,7 +1,6 @@
 import { ApiError, type FamilyLedger, type FamilyMember } from './api'
 import type { EntryForm, FieldErrors } from './entryForm'
 import { expenseProblems, splitRequest, type SplitContext, type SplitPreview } from './expenseForm'
-import type { BaseAmount } from './currency'
 import { fromMinor, parseMinor } from './minorUnits'
 
 // A family expense or income from the personal entry form (C2, F4d) without React: the family budgets a new expense or
@@ -11,12 +10,12 @@ import { fromMinor, parseMinor } from './minorUnits'
 /** What the form's tab makes of it: an expense, or an income, which mirrors it. */
 const nounOf = (form: Pick<EntryForm, 'tab'>) => (form.tab === 'income' ? 'income' : 'expense')
 
-/** The family budgets a new expense or income may go to: any, whatever the entry's currency, since F4e (D-13). */
+/** The family budgets a new expense or income may go to: any, whatever the entry's currency (D-45). */
 export const familiesFor = (families: FamilyLedger[], _currency?: string) => families
 
 /**
  * Why the entry can't be a family expense or income, or undefined if it can: only an entry without a valid currency
- * yet. An entry in another currency than the budget's is converted into it (F4e).
+ * yet. The record is in the entry's own currency, whatever the budget's main currency (D-45).
  */
 export function unavailable(_families: FamilyLedger[], currency: string, _chosen?: FamilyLedger, noun = 'expense'): string | undefined {
   return /^[A-Z]{3}$/.test(currency.trim().toUpperCase()) ? undefined
@@ -24,12 +23,12 @@ export function unavailable(_families: FamilyLedger[], currency: string, _chosen
 }
 
 /**
- * The split's context: who shares the entry's date, the amount in the budget's base currency in its minor unit (the
- * entry's amount, or its conversion, F4e), and the user, who paid or received it.
+ * The split's context: who shares the entry's date, the entry's amount in its own currency's minor unit, which the
+ * record keeps (D-45), and the user, who paid or received it.
  */
-export function splitContext(form: EntryForm, family: FamilyLedger, members: FamilyMember[], base: BaseAmount): SplitContext {
+export function splitContext(form: EntryForm, family: FamilyLedger, members: FamilyMember[]): SplitContext {
   return {
-    ledger: family, members, date: form.date, amount: base.minor, payerId: family.memberId,
+    ledger: family, members, date: form.date, amount: entryAmount(form), payerId: family.memberId,
     noun: nounOf(form),
   }
 }
@@ -41,14 +40,11 @@ export function entryAmount(form: EntryForm): bigint | undefined {
 }
 
 /** What keeps the family expense or income from being saved, beyond the entry's own checks (`validate`). */
-export function familyProblems(form: EntryForm, family: FamilyLedger, preview: SplitPreview, base: BaseAmount): FieldErrors {
+export function familyProblems(form: EntryForm, family: FamilyLedger, preview: SplitPreview): FieldErrors {
   const errors: FieldErrors = {}
   const add = (field: string, message: string) => { (errors[field] ??= []).push(message) }
   const reason = unavailable([family], form.currency, family, nounOf(form))
   if (reason) add('', reason)
-  if (base.problem) add('familyBaseAmount', base.problem)
-  else if (base.state === 'MISSING') add('familyBaseAmount', `Enter the amount in ${family.baseCurrency}.`)
-  else if (base.state === 'PENDING' && form.amount.trim() !== '') add('familyBaseAmount', `The amount in ${family.baseCurrency} is still being converted.`)
   if (form.date !== '' && form.date < family.startDate) {
     add('date', `The family budget ${family.name} starts on ${family.startDate}; an ${nounOf(form)} can’t be earlier.`)
   }
@@ -58,28 +54,28 @@ export function familyProblems(form: EntryForm, family: FamilyLedger, preview: S
 
 /**
  * The request of POST /api/family-ledgers/{id}/records, as the family pages send it (C1, C5): the user paid an expense
- * from the entry's account, or received an income into it, and the memo is their private note, which only their own
- * entry keeps.
+ * from the entry's account, or received an income into it, in the entry's currency, which is the record's (D-45) and
+ * the paying currency (D-89), whatever the account's default (`accountDefault`); the memo is their private note,
+ * which only their own entry keeps.
  */
-export function familyRequest(form: EntryForm, family: FamilyLedger, preview: SplitPreview, base?: BaseAmount) {
+export function familyRequest(form: EntryForm, family: FamilyLedger, preview: SplitPreview,
+  accountDefault: string | null = null) {
   const currency = form.currency.trim().toUpperCase()
   const parsed = parseMinor(form.amount, currency)
   if (!('minor' in parsed)) throw new Error(`A family ${nounOf(form)} needs a valid amount`)
-  // In another currency than the budget's (F4e): the currency, and the base amount when typed in.
   const inCurrency = currency === family.baseCurrency ? {} : { currency }
-  const typedBase = base?.state === 'ENTERED' && base.minor !== undefined
-    ? { baseAmount: fromMinor(base.minor, family.baseCurrency) } : {}
   return {
     type: form.tab === 'income' ? 'INCOME' as const : 'EXPENSE' as const,
     date: form.date,
     categoryId: Number(form.familyCategoryId),
     amount: fromMinor(parsed.minor, currency),
     ...inCurrency,
-    ...typedBase,
+    // Named only where the account's own currency would otherwise be taken (D-89).
+    ...(accountDefault !== null && accountDefault !== currency ? { accountCurrency: currency } : {}),
     comment: form.familyComment.trim() || null,
     payerMemberId: family.memberId,
     paymentAccountId: Number(form.accountId),
-    split: splitRequest(form.familySplit, preview, family.baseCurrency),
+    split: splitRequest(form.familySplit, preview, currency),
     privateNote: form.memo.trim() || null,
   }
 }
@@ -99,7 +95,6 @@ export function familyServerErrors(error: unknown, preview: SplitPreview, payerI
   add('date', problems.date)
   add('familyCategoryId', problems.category)
   add('amount', problems.amount)
-  add('familyBaseAmount', problems.baseAmount)
   add('currency', problems.currency)
   add('accountId', problems.payment)
   add('familyComment', problems.comment)

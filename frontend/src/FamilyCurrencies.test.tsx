@@ -5,9 +5,10 @@ import App from './App'
 import type { Account, Category, Entry, FamilyLedger, FamilyMember, FamilyRecord, FamilyRecordPage, Me } from './api'
 import { testLedger } from './testLedger'
 
-// Other currencies (F4e): the forms with a currency and the base amount with its rate and source, a missing rate at
-// the base amount, the lists and a record's page with both amounts, and the other side of a settlement naming what it
-// got on an account in another currency, on its record's page and its own entry.
+// Currencies (F8b; D-45, D-46, D-47, D-88, D-89): the forms in a record's own currency with no rate, the paying side
+// on an account in another currency, balances and settling up per currency, D-47's total with its rates, "No RUB rate",
+// the lists in each record's currency, and the other side of a settlement naming what it got on an account in another
+// currency, on its record's page and its own entry.
 
 type Answer = { status: number; body?: unknown }
 type Call = { method: string; url: string; body: unknown }
@@ -60,15 +61,15 @@ const base = {
 }
 const expense: FamilyRecord = {
   ...base, id: 5, type: 'EXPENSE', date: '2026-09-12', category: { id: 30, code: 'GROCERIES', name: 'Groceries', archived: false },
-  amount: '72.40', originalAmount: '72.40', originalCurrency: 'EUR', payer: ref(anna), splitMethod: 'EQUAL', shares: [share(anna, '36.20'), share(sam, '36.20')],
+  amount: '72.40', payer: ref(anna), splitMethod: 'EQUAL', shares: [share(anna, '36.20'), share(sam, '36.20')],
   yourPayment: { entryId: 90, accountId: 1, accountName: 'Cash', later: false, amount: '1.00', currency: 'EUR' },
 }
 const income: FamilyRecord = {
   ...base, id: 6, type: 'INCOME', date: '2026-09-13', category: { id: 33, code: 'SALARY', name: 'Salary', archived: false },
-  amount: '1000.00', originalAmount: '1000.00', originalCurrency: 'EUR', payer: ref(sam), splitMethod: 'PERCENT', shares: [share(anna, '500.00', 5000), share(sam, '500.00', 5000)],
+  amount: '1000.00', payer: ref(sam), splitMethod: 'PERCENT', shares: [share(anna, '500.00', 5000), share(sam, '500.00', 5000)],
 }
 const settlement: FamilyRecord = {
-  ...base, id: 7, type: 'SETTLEMENT', date: '2026-09-14', category: null, amount: '36.20', originalAmount: '36.20', originalCurrency: 'EUR', payer: ref(sam), payee: ref(anna),
+  ...base, id: 7, type: 'SETTLEMENT', date: '2026-09-14', category: null, amount: '36.20', payer: ref(sam), payee: ref(anna),
   splitMethod: null, shares: [],
 }
 const noJournal = { content: [], page: 0, size: 200, totalElements: 0, totalPages: 0 }
@@ -115,22 +116,14 @@ afterEach(() => {
 })
 
 
-const conversion = (amount: string, currency: string, date: string, answer: object) => ({
-  [`GET /api/family-ledgers/7/conversion?amount=${amount}&currency=${currency}&date=${date}`]: { status: 200, body: answer },
-})
 const dollars: FamilyRecord = {
-  ...expense, id: 8, amount: '50.00', originalAmount: '56.00', originalCurrency: 'USD', rate: '0.892857142857',
-  rateSource: 'ECB', rateDate: '2026-09-10', shares: [share(anna, '25.00'), share(sam, '25.00')], yourPayment: undefined,
-  payer: ref(sam),
+  ...expense, id: 8, amount: '56.00', currency: 'USD', shares: [share(anna, '28.00'), share(sam, '28.00')],
+  yourPayment: undefined, payer: ref(sam),
 }
 
-describe('the forms in another currency', () => {
-  it('takes an expense paid by a member without an account in dollars, converted with its rate, and splits the base amount', async () => {
+describe('the forms in a record’s own currency (D-45, D-89)', () => {
+  it('takes an expense in dollars paid by a member without an account, split in dollars, with no rate', async () => {
     const calls = app([anna, sam], {
-      ...conversion('56.00', 'USD', '2026-09-30', {
-        amount: '56.00', currency: 'USD', baseAmount: '50.00', baseCurrency: 'EUR', rate: '0.892857142857', rateSource: 'ECB',
-        rateDate: '2026-09-29',
-      }),
       'POST /api/family-ledgers/7/records': { status: 201, body: dollars },
       'GET /api/family-ledgers/7/records/8': { status: 200, body: dollars },
       'GET /api/family-ledgers/7/journal?recordId=8&size=200': { status: 200, body: noJournal },
@@ -138,119 +131,136 @@ describe('the forms in another currency', () => {
     renderApp('/family/7/expenses/new')
     fireEvent.change(await screen.findByLabelText(/^Category/), { target: { value: '30' } })
     fireEvent.change(screen.getByLabelText(/^Paid by/), { target: { value: '71' } })
-    fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'usd' } })
+    fireEvent.change(screen.getByLabelText(/^Currency/), { target: { value: 'usd' } })
     fireEvent.change(screen.getByLabelText('Amount (USD)'), { target: { value: '56' } })
-    const base = await screen.findByLabelText(/^Amount in EUR/)
-    await waitFor(() => expect(base).toHaveProperty('value', '50.00'))
-    expect(screen.getByText('1 USD = 0.892857 EUR, ECB rate of Sep 29, 2026')).toBeDefined()
-    await waitFor(() => expect(screen.getByTestId('share-71').textContent).toContain('€25.00'))
+    await waitFor(() => expect(screen.getByTestId('share-71').textContent).toContain('$28.00'))
+    expect(screen.queryByLabelText(/^Amount in EUR/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Add the expense' }))
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{
       type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '56.00', currency: 'USD', comment: null,
       payerMemberId: 71, split: { method: 'RULE' },
     }]))
+    expect(calls.some((c) => c.url.includes('/conversion'))).toBe(false)
   })
 
-  it('puts a missing rate at the base amount, and sends the base amount typed in', async () => {
+  it('asks what went from an account in another currency, and nothing when it paid in the record’s', async () => {
     const calls = app([anna, sam], {
-      ...conversion('9000.00', 'RUB', '2026-09-30', { amount: '9000.00', currency: 'RUB', baseAmount: null, baseCurrency: 'EUR' }),
-      'POST /api/family-ledgers/7/records': {
-        status: 422, body: {
-          status: 422, detail: 'The record breaks a rule.', violations: [],
-          violationDetails: [{ code: 'RATE_MISSING', memberId: null, message: 'there is no exchange rate from RUB to EUR on or before 2026-09-30: enter the amount in EUR, or add your own rate on the rates page' }],
-        },
-      },
+      'POST /api/family-ledgers/7/records': { status: 201, body: expense },
+      'GET /api/family-ledgers/7/records/5': { status: 200, body: expense },
+      'GET /api/family-ledgers/7/journal?recordId=5&size=200': { status: 200, body: noJournal },
     })
     renderApp('/family/7/expenses/new')
     fireEvent.change(await screen.findByLabelText(/^Category/), { target: { value: '30' } })
-    fireEvent.change(screen.getByLabelText(/^Paid by/), { target: { value: '71' } })
-    fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'RUB' } })
-    fireEvent.change(screen.getByLabelText('Amount (RUB)'), { target: { value: '9000' } })
-    expect(await screen.findByText('There is no exchange rate for RUB on or before Sep 30, 2026: enter the amount in EUR, '
-      + 'or add your own rate on the Rates page.')).toBeDefined()
+    fireEvent.change(screen.getByLabelText('Amount (EUR)'), { target: { value: '50' } })
+    const from = screen.getByLabelText(/^Paid from/)
+    await waitFor(() => expect(from.querySelector('option[value="42"]')).not.toBeNull())
+    fireEvent.change(from, { target: { value: '42' } })
+    // The rouble account pays in roubles by default: the roubles are asked for.
+    expect((screen.getByLabelText(/^Paid in/) as HTMLInputElement).value).toBe('RUB')
+    const roubles = screen.getByLabelText(/^Amount paid in RUB/)
     expect(screen.getByRole('button', { name: 'Add the expense' })).toHaveProperty('disabled', true)
-    fireEvent.change(screen.getByLabelText(/^Amount in EUR/), { target: { value: '92.15' } })
-    expect(screen.getByRole('button', { name: 'Use the exchange rate' })).toBeDefined()
+    fireEvent.change(roubles, { target: { value: '5000' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add the expense' }))
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{
-      type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '9000.00', currency: 'RUB', baseAmount: '92.15',
-      comment: null, payerMemberId: 71, split: { method: 'RULE' },
+      type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '50.00', accountAmount: '5000.00',
+      comment: null, payerMemberId: 70, paymentAccountId: 42, split: { method: 'RULE' },
     }]))
-    // The server's RATE_MISSING (a rate deleted meanwhile) lands at the base amount, saying why.
-    const field = screen.getByLabelText(/^Amount in EUR/).closest('.field')!
-    await waitFor(() => expect(field.textContent).toContain('There is no exchange rate from RUB to EUR on or before 2026-09-30'))
   })
 
-  it('records a settlement from a dollar account in dollars, the account deciding the currency', async () => {
+  it('takes a record paid in its own currency from an account whose default is another, with no amount to name', async () => {
     const calls = app([anna, sam], {
-      ...conversion('40.00', 'USD', '2026-09-30', {
-        amount: '40.00', currency: 'USD', baseAmount: '35.71', baseCurrency: 'EUR', rate: '0.892857142857', rateSource: 'MANUAL',
-        rateDate: '2026-09-01',
-      }),
-      'POST /api/family-ledgers/7/settlements': { status: 201, body: { ...settlement, id: 9 } },
+      'POST /api/family-ledgers/7/records': { status: 201, body: expense },
+      'GET /api/family-ledgers/7/records/5': { status: 200, body: expense },
+      'GET /api/family-ledgers/7/journal?recordId=5&size=200': { status: 200, body: noJournal },
     })
-    renderApp('/family/7/settle?payer=70&payee=71')
-    const from = await screen.findByLabelText(/^Paid from/)
-    await waitFor(() => expect(from.querySelector('option[value="9"]')).not.toBeNull())
-    fireEvent.change(from, { target: { value: '9' } })
-    expect(screen.queryByLabelText('Currency')).toBeNull()
-    fireEvent.change(screen.getByLabelText('Amount (USD)'), { target: { value: '40' } })
-    await waitFor(() => expect(screen.getByLabelText(/^Amount in EUR/)).toHaveProperty('value', '35.71'))
-    expect(screen.getByText('1 USD = 0.892857 EUR, your own rate of Sep 1, 2026')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Record the settlement' }))
-    await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{
-      date: '2026-09-30', amount: '40.00', currency: 'USD', payerMemberId: 70, payeeMemberId: 71, comment: null,
-      paymentAccountId: 9,
-    }]))
+    renderApp('/family/7/expenses/new')
+    fireEvent.change(await screen.findByLabelText(/^Category/), { target: { value: '30' } })
+    fireEvent.change(screen.getByLabelText('Amount (EUR)'), { target: { value: '50' } })
+    const from = screen.getByLabelText(/^Paid from/)
+    await waitFor(() => expect(from.querySelector('option[value="42"]')).not.toBeNull())
+    fireEvent.change(from, { target: { value: '42' } })
+    fireEvent.change(screen.getByLabelText(/^Paid in/), { target: { value: 'eur' } })
+    expect(screen.queryByLabelText(/^Amount paid in/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Add the expense' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)[0]).toMatchObject({
+      amount: '50.00', accountCurrency: 'EUR', paymentAccountId: 42,
+    }))
+    expect(calls.filter((c) => c.method === 'POST')[0].body).not.toHaveProperty('accountAmount')
   })
 })
 
-describe('settling up in another currency', () => {
-  it('keeps what settles as the base amount, and asks for the dollars paid', async () => {
-    const calls = app([anna, sam], {
-      ...conversion('42.50', 'USD', '2026-09-30', {
-        amount: '42.50', currency: 'USD', baseAmount: '36.17', baseCurrency: 'EUR', rate: '0.851', rateSource: 'ECB',
-      }),
-      'POST /api/family-ledgers/7/settlements': { status: 201, body: { ...settlement, id: 9 } },
-    })
-    renderApp('/family/7/settle?payer=70&payee=71&amount=36.20')
-    const from = await screen.findByLabelText(/^Paid from/)
-    await waitFor(() => expect(from.querySelector('option[value="9"]')).not.toBeNull())
-    expect(screen.getByLabelText('Amount (EUR)')).toHaveProperty('value', '36.20')
-    fireEvent.change(from, { target: { value: '9' } })
-    expect(screen.getByLabelText('Amount (USD)')).toHaveProperty('value', '')
-    expect(screen.getByLabelText(/^Amount in EUR/)).toHaveProperty('value', '36.20')
-    fireEvent.change(screen.getByLabelText('Amount (USD)'), { target: { value: '42.50' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Record the settlement' }))
-    await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{
-      date: '2026-09-30', amount: '42.50', currency: 'USD', baseAmount: '36.20', payerMemberId: 70, payeeMemberId: 71,
-      comment: null, paymentAccountId: 9,
-    }]))
-  })
-})
+describe('balances per currency and D-47’s total', () => {
+  const debts = {
+    byCurrency: [
+      { currency: 'EUR', members: [
+        { memberId: 70, displayName: 'Anna', status: 'ACTIVE', hasAccount: true, balance: '-40.00', you: true },
+        { memberId: 71, displayName: 'Sam', status: 'ACTIVE', hasAccount: false, balance: '40.00', you: false }] },
+      { currency: 'USD', members: [
+        { memberId: 70, displayName: 'Anna', status: 'ACTIVE', hasAccount: true, balance: '12.00', you: true },
+        { memberId: 71, displayName: 'Sam', status: 'ACTIVE', hasAccount: false, balance: '-12.00', you: false }] },
+    ],
+    total: {
+      currency: 'EUR', asOf: '2026-09-30',
+      members: [{ memberId: 70, balance: '-29.09' }, { memberId: 71, balance: '29.09' }],
+      rates: [{ currency: 'USD', date: '2026-08-01', perEuro: '1.10', source: 'MANUAL', stale: true }],
+      missingCurrencies: [],
+    },
+  }
 
-describe('both amounts where the currencies differ', () => {
-  it('lists “$56.00 → €50.00” and the base amount alone otherwise, and shows the rate on the record’s page', async () => {
-    const page: FamilyRecordPage = { content: [dollars, expense], page: 0, size: 20, totalElements: 2, totalPages: 1 }
+  it('settles each currency on its own, and shows the total with its rate, manual and stale', async () => {
+    app([anna, sam], { 'GET /api/family-ledgers/7/balances': { status: 200, body: debts } })
+    renderApp('/family/7/balances')
+    expect(await screen.findByText('Sam owes you €40.00.')).toBeDefined()
+    expect(screen.getByText('You owe Sam $12.00.')).toBeDefined()
+    const links = screen.getAllByRole('link', { name: 'Settle up' }).map((l) => l.getAttribute('href'))
+    expect(links).toEqual(['/family/7/settle?payer=71&payee=70&amount=40.00&currency=EUR',
+      '/family/7/settle?payer=70&payee=71&amount=12.00&currency=USD'])
+    expect(screen.getByTestId('total-70').textContent).toBe('≈ -€29.09manualrate stale')
+    expect(screen.getByText('1 EUR = 1.1 USD, manual rate of Aug 1, 2026, rate stale')).toBeDefined()
+    expect(screen.getByTestId('balances-sum-USD').textContent).toBe('$0.00')
+  })
+
+  it('says “No RUB rate” with the way to enter one, and shows no total', async () => {
     app([anna, sam], {
-      'GET /api/family-ledgers/7/records?page=0&size=20': { status: 200, body: page },
-      'GET /api/family-ledgers/7/records/8': { status: 200, body: dollars },
-      'GET /api/family-ledgers/7/journal?recordId=8&size=200': { status: 200, body: noJournal },
+      'GET /api/family-ledgers/7/balances': {
+        status: 200,
+        body: { ...debts, byCurrency: [debts.byCurrency[0], { ...debts.byCurrency[1], currency: 'RUB' }],
+          total: { ...debts.total, members: [], rates: [], missingCurrencies: ['RUB'] } },
+      },
+    })
+    renderApp('/family/7/balances')
+    const none = await screen.findByTestId('total-70')
+    expect(none.textContent).toBe('No RUB rate: enter a rate')
+    expect(none.querySelector('a')!.getAttribute('href')).toBe('/rates')
+  })
+
+  it('opens the settlement in the debt’s currency', async () => {
+    const calls = app([anna, sam], {
+      'POST /api/family-ledgers/7/settlements': { status: 201, body: settlement },
+      'GET /api/family-ledgers/7/records/7': { status: 200, body: settlement },
+      'GET /api/family-ledgers/7/journal?recordId=7&size=200': { status: 200, body: noJournal },
+    })
+    renderApp('/family/7/settle?payer=70&payee=71&amount=12.00&currency=USD')
+    expect(await screen.findByLabelText('Amount (USD)')).toHaveProperty('value', '12.00')
+    fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: 'later' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Record the settlement' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)[0]).toMatchObject({
+      amount: '12.00', currency: 'USD', payerMemberId: 70, payeeMemberId: 71, paymentLater: true,
+    }))
+  })
+})
+
+describe('a record’s amount in its own currency', () => {
+  it('lists each record in its own currency', async () => {
+    app([anna, sam], {
+      'GET /api/family-ledgers/7/records?page=0&size=20': {
+        status: 200, body: { content: [dollars, expense], page: 0, size: 20, totalElements: 2, totalPages: 1 },
+      },
     })
     renderApp('/family/7/expenses')
     const rows = await screen.findAllByRole('row')
-    expect(rows[1].textContent).toContain('$56.00 → €50.00')
+    expect(rows[1].textContent).toContain('$56.00')
     expect(rows[2].textContent).toContain('€72.40')
-    expect(rows[2].textContent).not.toContain('→')
-    cleanup()
-    app([anna, sam], {
-      'GET /api/family-ledgers/7/records/8': { status: 200, body: dollars },
-      'GET /api/family-ledgers/7/journal?recordId=8&size=200': { status: 200, body: noJournal },
-    })
-    renderApp('/family/7/expenses/8')
-    expect(await screen.findByText('$56.00 → €50.00')).toBeDefined()
-    // On the amount, and again at the base amount of the payment fields, which the author may change.
-    expect(screen.getAllByText('1 USD = 0.892857 EUR, ECB rate of Sep 10, 2026')).not.toHaveLength(0)
   })
 })
 
@@ -313,5 +323,133 @@ describe('the other side’s own amount (F4e)', () => {
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([
       { accountId: 42, accountAmount: '3300.00' },
     ]))
+  })
+})
+
+describe('the paying side on a record’s page (D-88, D-89)', () => {
+  const paidInRoubles: FamilyRecord = {
+    ...expense, amount: '50.00', currency: 'EUR', shares: [share(anna, '25.00'), share(sam, '25.00')],
+    yourPayment: { entryId: 90, accountId: 42, accountName: 'Rouble account', later: false, amount: '5000.00', currency: 'RUB' },
+  }
+  const page = (record: FamilyRecord) => app([anna, sam], {
+    'GET /api/family-ledgers/7/records/5': { status: 200, body: record },
+    'GET /api/family-ledgers/7/journal?recordId=5&size=200': { status: 200, body: noJournal },
+    'PATCH /api/family-ledgers/7/records/5?version=0': { status: 200, body: { ...record, version: 1 } },
+  })
+
+  it('keeps what went from the account on a new date, and asks for it again with a new amount', async () => {
+    const calls = page(paidInRoubles)
+    renderApp('/family/7/expenses/5')
+    const yours = await screen.findByRole('link', { name: 'Rouble account' })
+    expect(yours.closest('dd')!.textContent).toMatch(/Rouble account, RUB\s5,000\.00/)
+    fireEvent.change(await screen.findByLabelText(/^Date/), { target: { value: '2026-09-13' } })
+    const save = screen.getByRole('button', { name: 'Save the changes' })
+    expect(save).toHaveProperty('disabled', false)
+    fireEvent.change(screen.getByLabelText('Amount (EUR)'), { target: { value: '60' } })
+    expect(save).toHaveProperty('disabled', true)
+    fireEvent.change(screen.getByLabelText(/^Amount paid in RUB/), { target: { value: '6000' } })
+    fireEvent.click(save)
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([
+      { date: '2026-09-13', amount: '60.00', accountAmount: '6000.00' },
+    ]))
+  })
+
+  it('changes the paying currency alone: in the record’s, with nothing to name', async () => {
+    const calls = page(paidInRoubles)
+    renderApp('/family/7/expenses/5')
+    const paidIn = await screen.findByLabelText(/^Paid in/)
+    await waitFor(() => expect((paidIn as HTMLInputElement).value).toBe('RUB'))
+    fireEvent.change(paidIn, { target: { value: 'eur' } })
+    expect(screen.queryByLabelText(/^Amount paid in/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Save the changes' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([
+      { accountCurrency: 'EUR' },
+    ]))
+  })
+
+  it('shows another member only the record’s own amount and currency', async () => {
+    page({ ...paidInRoubles, payer: ref(ben), yourPayment: undefined, canEditPayment: false, canDelete: false })
+    renderApp('/family/7/expenses/5')
+    const amount = (await screen.findByText('Amount')).nextElementSibling!
+    expect(amount.textContent).toBe('€50.00')
+    expect(screen.queryByText(/RUB/)).toBeNull()
+  })
+})
+
+describe('the report per currency, with D-47’s total', () => {
+  const member = (memberId: number, displayName: string, you = false) =>
+    ({ memberId, displayName, status: 'ACTIVE' as const, hasAccount: memberId !== 71, you })
+  const zero = { expenseShares: '0.00', expensesPaid: '0.00', incomeShares: '0.00', incomesReceived: '0.00', settlementsPaid: '0.00', settlementsReceived: '0.00' }
+  const report = {
+    from: null, to: null, members: [member(70, 'Anna', true), member(71, 'Sam')],
+    byCurrency: [
+      { currency: 'EUR', rows: [{ month: '2026-09', categoryId: 30, categoryName: 'Groceries', categoryType: 'EXPENSE', archived: false, total: '90.00',
+        members: [{ memberId: 70, share: '45.00', paid: '90.00' }, { memberId: 71, share: '45.00', paid: '0.00' }] }],
+      totals: [{ memberId: 70, ...zero, expenseShares: '45.00', expensesPaid: '90.00', net: '-45.00' },
+        { memberId: 71, ...zero, expenseShares: '45.00', net: '45.00' }] },
+      { currency: 'USD', rows: [{ month: '2026-09', categoryId: 30, categoryName: 'Groceries', categoryType: 'EXPENSE', archived: false, total: '22.00',
+        members: [{ memberId: 70, share: '11.00', paid: '0.00' }, { memberId: 71, share: '11.00', paid: '22.00' }] }],
+      totals: [{ memberId: 70, ...zero, expenseShares: '11.00', net: '11.00' },
+        { memberId: 71, ...zero, expenseShares: '11.00', expensesPaid: '22.00', net: '-11.00' }] },
+    ],
+    total: { currency: 'EUR', totals: [{ memberId: 70, ...zero, net: '-35.00' }, { memberId: 71, ...zero, net: '35.00' }],
+      rates: [{ currency: 'USD', date: '2026-09-30', perEuro: '1.10', source: 'ECB', stale: false }], missingCurrencies: [] },
+  }
+
+  it('shows each currency on its own, and the approximate total with its rate', async () => {
+    app([anna, sam], { 'GET /api/family-ledgers/7/report': { status: 200, body: report } })
+    renderApp('/family/7/report')
+    expect(await screen.findByRole('heading', { name: 'In USD' })).toBeDefined()
+    expect(screen.getByTestId('report-total-70').textContent).toBe('Together in EUR: You are owed ≈ €35.00 more')
+    expect(screen.getByText('1 EUR = 1.1 USD, ECB rate of Sep 30, 2026')).toBeDefined()
+    expect(screen.getByText('$22.00')).toBeDefined()
+  })
+
+  it('says “No USD rate” instead of a total', async () => {
+    app([anna, sam], { 'GET /api/family-ledgers/7/report': { status: 200, body: { ...report,
+      total: { currency: 'EUR', totals: [], rates: [], missingCurrencies: ['USD'] } } } })
+    renderApp('/family/7/report')
+    expect((await screen.findByTestId('report-total-70')).textContent).toBe('Together in EUR: No USD rate: enter a rate')
+  })
+})
+
+describe('the rates page (D-49)', () => {
+  const overview = {
+    baseCurrency: 'EUR', missing: [],
+    latest: [
+      { currency: 'RUB', date: '2026-08-01', perEuro: '95.50', source: 'MANUAL', inLedger: true, applies: true, stale: true },
+      { currency: 'USD', date: '2026-09-29', perEuro: '1.1', source: 'ECB', inLedger: true, applies: true, stale: false },
+      { currency: 'CHF', date: '2026-09-01', perEuro: '0.93', source: 'ECB', inLedger: true, applies: false, stale: false },
+    ],
+  }
+
+  it('labels each rate, and takes "1 EUR = 95,50 RUB" with a comma', async () => {
+    const calls = app([anna], {
+      'GET /api/rates': { status: 200, body: overview },
+      'GET /api/rates/manual': { status: 200, body: [] },
+      'POST /api/rates/manual': { status: 200, body: { date: '2026-09-30', base: 'EUR', quote: 'RUB', rate: '95.50' } },
+    })
+    renderApp('/rates')
+    expect((await screen.findByTestId('rate-RUB')).textContent).toContain('manualrate stale')
+    expect(screen.getByTestId('rate-USD').textContent).not.toContain('manual')
+    expect(screen.getByTestId('rate-CHF').textContent).toContain('not used: more than 7 days old')
+    fireEvent.change(screen.getByLabelText('Rate'), { target: { value: '95,50' } })
+    fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'RUB' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save rate' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([
+      { date: '2026-09-30', base: 'EUR', quote: 'RUB', rate: '95.50' },
+    ]))
+  })
+
+  it('refuses a rate that isn’t a number', async () => {
+    const calls = app([anna], {
+      'GET /api/rates': { status: 200, body: overview }, 'GET /api/rates/manual': { status: 200, body: [] },
+    })
+    renderApp('/rates')
+    fireEvent.change(await screen.findByLabelText('Rate'), { target: { value: '95,5,0' } })
+    fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'RUB' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save rate' }))
+    expect(await screen.findByText('Enter the rate as a number, such as 95,50 or 95.50.')).toBeDefined()
+    expect(calls.some((c) => c.method === 'POST')).toBe(false)
   })
 })

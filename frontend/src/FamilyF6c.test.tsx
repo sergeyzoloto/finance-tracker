@@ -110,9 +110,10 @@ describe('the family report (E1)', () => {
 
   it('asks for the period in the URL, and says when it has no record', async () => {
     const calls = budget({
-      'GET /api/family-ledgers/7/report?from=2026-11-01': { status: 200, body: { ...workedReport, from: '2026-11-01', rows: [],
-        totals: workedReport.totals.map((t) => ({ ...t, expenseShares: '0.00', expensesPaid: '0.00', incomeShares: '0.00',
-          incomesReceived: '0.00', settlementsPaid: '0.00', settlementsReceived: '0.00', net: '0.00' })) } },
+      'GET /api/family-ledgers/7/report?from=2026-11-01': { status: 200, body: { ...workedReport, from: '2026-11-01',
+        byCurrency: [{ currency: 'EUR', rows: [], totals: workedReport.byCurrency[0].totals.map((t) => ({ ...t, expenseShares: '0.00',
+          expensesPaid: '0.00', incomeShares: '0.00', incomesReceived: '0.00', settlementsPaid: '0.00', settlementsReceived: '0.00',
+          net: '0.00' })) }] } },
     })
     renderApp(ON, '/family/7/report')
     await screen.findByRole('heading', { name: 'By member' })

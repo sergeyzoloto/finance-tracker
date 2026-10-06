@@ -5,7 +5,7 @@ import App from './App'
 import type {
   Account, Category, Entry, FamilyBalances, FamilyLedger, FamilyMember, FamilyRecord, FamilyRecordPage, Me,
 } from './api'
-import { testLedger } from './testLedger'
+import { euroBalances, testLedger } from './testLedger'
 
 // Incomes and settlements (F4d): the activity's labels, settling up from the balances, the income and settlement
 // forms, a settlement's page for its other side, the family option of a new income in the personal editor, a
@@ -61,15 +61,15 @@ const base = {
 }
 const expense: FamilyRecord = {
   ...base, id: 5, type: 'EXPENSE', date: '2026-09-12', category: { id: 30, code: 'GROCERIES', name: 'Groceries', archived: false },
-  amount: '72.40', originalAmount: '72.40', originalCurrency: 'EUR', payer: ref(anna), splitMethod: 'EQUAL', shares: [share(anna, '36.20'), share(sam, '36.20')],
+  amount: '72.40', payer: ref(anna), splitMethod: 'EQUAL', shares: [share(anna, '36.20'), share(sam, '36.20')],
   yourPayment: { entryId: 90, accountId: 1, accountName: 'Cash', later: false, amount: '1.00', currency: 'EUR' },
 }
 const income: FamilyRecord = {
   ...base, id: 6, type: 'INCOME', date: '2026-09-13', category: { id: 33, code: 'SALARY', name: 'Salary', archived: false },
-  amount: '1000.00', originalAmount: '1000.00', originalCurrency: 'EUR', payer: ref(sam), splitMethod: 'PERCENT', shares: [share(anna, '500.00', 5000), share(sam, '500.00', 5000)],
+  amount: '1000.00', payer: ref(sam), splitMethod: 'PERCENT', shares: [share(anna, '500.00', 5000), share(sam, '500.00', 5000)],
 }
 const settlement: FamilyRecord = {
-  ...base, id: 7, type: 'SETTLEMENT', date: '2026-09-14', category: null, amount: '36.20', originalAmount: '36.20', originalCurrency: 'EUR', payer: ref(sam), payee: ref(anna),
+  ...base, id: 7, type: 'SETTLEMENT', date: '2026-09-14', category: null, amount: '36.20', payer: ref(sam), payee: ref(anna),
   splitMethod: null, shares: [],
 }
 const noJournal = { content: [], page: 0, size: 200, totalElements: 0, totalPages: 0 }
@@ -134,14 +134,11 @@ describe('the activity', () => {
 })
 
 describe('settling up', () => {
-  const balances: FamilyBalances = {
-    currency: 'EUR',
-    members: [
+  const balances: FamilyBalances = euroBalances([
       { memberId: 70, displayName: 'Anna', status: 'ACTIVE', hasAccount: true, balance: '-10.00', you: true },
       { memberId: 71, displayName: 'Sam', status: 'ACTIVE', hasAccount: false, balance: '50.00', you: false },
       { memberId: 72, displayName: 'Ben', status: 'ACTIVE', hasAccount: true, balance: '-40.00', you: false },
-    ],
-  }
+  ])
 
   it('lists the reader’s own debts first, each they may record with “Settle up”, and prefills the settlement', async () => {
     const calls = app([anna, sam, ben], {
@@ -158,7 +155,7 @@ describe('settling up', () => {
     expect(items.map((li) => li.textContent)).toEqual(['Sam owes you €10.00 Settle up', 'Sam owes Ben €40.00'])
     fireEvent.click(within(items[0]).getByRole('link', { name: 'Settle up' }))
 
-    await waitFor(() => expect(where()).toBe('/family/7/settle?payer=71&payee=70&amount=10.00'))
+    await waitFor(() => expect(where()).toBe('/family/7/settle?payer=71&payee=70&amount=10.00&currency=EUR'))
     expect(await screen.findByRole('heading', { name: 'Record a settlement' })).toBeDefined()
     expect(screen.getByLabelText('Paid by')).toHaveProperty('value', '71')
     expect(screen.getByLabelText('Received by')).toHaveProperty('value', '70')

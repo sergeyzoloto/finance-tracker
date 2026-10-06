@@ -1,4 +1,4 @@
-import type { Account, AccountType } from './api'
+import type { Account, AccountType, FamilyBalance, FamilyBalances } from './api'
 import type { Ledger } from './ledger'
 
 // Reference data for tests, shaped like the starter ledger (backend: seed/starter-ledger.json).
@@ -33,3 +33,10 @@ export const testLedger: Ledger = {
   ],
   settings: { baseCurrency: 'EUR', sharedAccountId: null, defaultShareRatio: '0.50' },
 }
+
+/** A family budget's balances in euros only, as GET …/balances answers them (D-45), with a total of nothing to convert. */
+export const euroBalances = (members: FamilyBalance[]): FamilyBalances => ({
+  byCurrency: [{ currency: 'EUR', members }],
+  total: { currency: 'EUR', asOf: '2026-09-30', members: members.map((m) => ({ memberId: m.memberId, balance: m.balance })),
+    rates: [], missingCurrencies: [] },
+})

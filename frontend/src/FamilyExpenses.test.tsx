@@ -3,10 +3,10 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type {
-  Account, Category, FamilyBalances, FamilyChange, FamilyLedger, FamilyMember, FamilyRecord, Me,
+  Account, Category, FamilyBalance, FamilyChange, FamilyLedger, FamilyMember, FamilyRecord, Me,
 } from './api'
 import NewFamily from './NewFamily'
-import { testLedger } from './testLedger'
+import { euroBalances, testLedger } from './testLedger'
 
 // A family budget's expenses, balances and journal (F4b): the add form with its payment and split, the server's 409s
 // and 422s where they belong, an expense's page with what its reader may do, and the balances and journal in words.
@@ -59,7 +59,7 @@ const accounts: Account[] = [
 const ref = (member: FamilyMember) => ({ memberId: member.id, displayName: member.displayName })
 const record: FamilyRecord = {
   id: 5, type: 'EXPENSE', date: '2026-09-12', category: { id: 30, code: 'GROCERIES', name: 'Groceries', archived: false },
-  amount: '10.01', currency: 'EUR', originalAmount: '10.01', originalCurrency: 'EUR', comment: 'Weekly shop', payer: ref(anna),
+  amount: '10.01', currency: 'EUR', comment: 'Weekly shop', payer: ref(anna),
   splitMethod: 'EQUAL',
   shares: [
     { member: ref(anna), amount: '5.01', basisPoints: null, updatedBy: ref(anna), updatedAt: '2026-09-12T10:00:00Z' },
@@ -409,7 +409,7 @@ describe('the list of expenses', () => {
 })
 
 describe('balances', () => {
-  const balances = (members: FamilyBalances['members']): Answer => ({ status: 200, body: { currency: 'EUR', members } })
+  const balances = (members: FamilyBalance[]): Answer => ({ status: 200, body: euroBalances(members) })
   const b = (member: FamilyMember, balance: string, extra: object = {}) => ({
     memberId: member.id, displayName: member.displayName, status: member.status, hasAccount: member.hasAccount, balance,
     you: member.id === 70, ...extra,
@@ -440,7 +440,7 @@ describe('balances', () => {
     expect(screen.getByText('Ben owes you €20.00.')).toBeDefined()
     const rows = within(screen.getByRole('table')).getAllByRole('row')
     expect(rows.map((r) => r.textContent)).toEqual([
-      'AnnaYouis owed €60.00', 'SamNo accountowes €40.00', 'Benowes €20.00', 'Former memberDeleted their datais settled',
+      'MemberEUR', 'AnnaYouis owed €60.00', 'SamNo accountowes €40.00', 'Benowes €20.00', 'Former memberDeleted their datais settled',
       'All together€0.00',
     ])
     expect(within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.textContent))

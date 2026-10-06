@@ -4,13 +4,16 @@ import {
   type RatesOverview,
 } from './api'
 import { CurrencyInput, Errors, Field, Loading } from './components'
-import { daysBetween, missingDays, STALE_AFTER_DAYS } from './dashboard'
-import { formatRate, parseAmount, rateProblem } from './money'
+import { parseRateInput } from './currency'
+import { missingDays } from './dashboard'
+import { formatRate } from './money'
 
 /**
- * Exchange rates for the dashboard in the base currency: the latest rate of each currency, what the user's entries
- * lack, and the user's own manual rates, for currencies the ECB doesn't publish, such as RUB since March 2022. Rates
- * are units of a currency for one euro, as the ECB quotes them.
+ * Exchange rates for every displayed conversion (D-49, D-90, D-91): the dashboard in the base currency and the family
+ * budgets' "≈" totals. Each currency's rate that applies today, with its date and source, "manual" for the user's own
+ * and "rate stale" for one of theirs more than 31 days old, or the latest there is when none applies (an ECB rate more
+ * than 7 days old, which is never used); what the user's entries lack; and the user's own rates, entered as
+ * "1 EUR = 95,50 RUB" with a comma or a dot, for currencies the ECB doesn't publish, such as RUB since March 2022.
  */
 export default function Rates() {
   const overview = useApi<RatesOverview>('/rates')
@@ -24,9 +27,10 @@ export default function Rates() {
     <>
       <h2>Exchange rates</h2>
       <p className="muted">
-        The dashboard converts an amount at the latest rate on or before its day. The ECB’s euro reference rates are
-        loaded every working day; add your own for currencies it doesn’t publish. Yours take precedence on the same day,
-        and only you see them.
+        The dashboard and the family budgets’ totals convert an amount at the latest rate on or before its day. The ECB’s
+        euro reference rates are loaded every working day, and one more than 7 days old is never used; add your own for
+        currencies it doesn’t publish. Yours apply from their date until your next one, take precedence on the same day,
+        and only you see them; one more than 31 days old is marked “rate stale”.
       </p>
       <Errors messages={[overview.error, manual.error]} />
       {overview.data && overview.data.missing.length > 0 && (
@@ -48,11 +52,11 @@ export default function Rates() {
         {!overview.data && !overview.error && <Loading what="rates" />}
         {overview.data && (
           <>
-            {mine.length === 0 ? <p className="empty">Your entries are all in euros.</p> : <RateTable rates={mine} today={today} />}
+            {mine.length === 0 ? <p className="empty">Your entries are all in euros.</p> : <RateTable rates={mine} />}
             {others.length > 0 && (
               <details>
                 <summary>Other currencies ({others.length})</summary>
-                <RateTable rates={others} today={today} />
+                <RateTable rates={others} />
               </details>
             )}
           </>
@@ -76,7 +80,8 @@ export default function Rates() {
   )
 }
 
-function RateTable({ rates, today }: { rates: LatestRate[]; today: string }) {
+/** Each currency's rate as the user sees it today, with its date and source, and the marks of D-49. */
+function RateTable({ rates }: { rates: LatestRate[] }) {
   return (
     <table className="rates">
       <thead>
@@ -88,26 +93,28 @@ function RateTable({ rates, today }: { rates: LatestRate[]; today: string }) {
         </tr>
       </thead>
       <tbody>
-        {rates.map((r) => {
-          const age = r.date === null ? 0 : daysBetween(r.date, today)
-          return (
-            <tr key={r.currency}>
-              <th scope="row">{r.currency}</th>
-              <td className="amount nowrap">{r.perEuro === null ? <span className="missing">no rate</span> : `${formatRate(r.perEuro)} ${r.currency}`}</td>
-              <td className="nowrap">
-                {r.date && formatDate(r.date)}
-                {age > STALE_AFTER_DAYS && <span className="badge stale-rate" title="Newer amounts are converted at this rate too">{age} days old</span>}
-              </td>
-              <td>{r.source === 'MANUAL' ? 'Yours' : r.source ?? ''}</td>
-            </tr>
-          )
-        })}
+        {rates.map((r) => (
+          <tr key={r.currency} data-testid={`rate-${r.currency}`}>
+            <th scope="row">{r.currency}</th>
+            <td className="amount nowrap">{r.perEuro === null ? <span className="missing">no rate</span> : `${formatRate(r.perEuro)} ${r.currency}`}</td>
+            <td className="nowrap">
+              {r.date && formatDate(r.date)}
+              {r.date && r.applies === false && (
+                <span className="badge stale-rate" title="An ECB rate more than 7 days old isn’t used">not used: more than 7 days old</span>
+              )}
+            </td>
+            <td>
+              {r.source === 'MANUAL' ? <span className="badge">manual</span> : r.source ?? ''}
+              {r.stale && <span className="badge stale-rate" title="Your own rate, more than 31 days old">rate stale</span>}
+            </td>
+          </tr>
+        ))}
       </tbody>
     </table>
   )
 }
 
-/** One rate, as units of the currency for one euro. */
+/** One rate, as "1 EUR = 95,50 RUB": units of the currency for one euro, with a comma or a dot (D-49). */
 function AddRate({ currencies, today, onSaved }: { currencies: string[]; today: string; onSaved: () => void }) {
   const [date, setDate] = useState(today)
   const [currency, setCurrency] = useState('')
@@ -117,27 +124,27 @@ function AddRate({ currencies, today, onSaved }: { currencies: string[]; today: 
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    const typed = rateProblem(rate)
-    setProblem(typed)
-    if (typed) return
-    const saved = await save.run(() => api('/rates/manual', 'POST', { date, base: 'EUR', quote: currency, rate: parseAmount(rate) }))
+    const typed = parseRateInput(rate)
+    setProblem('problem' in typed ? typed.problem : undefined)
+    if ('problem' in typed) return
+    const saved = await save.run(() => api('/rates/manual', 'POST', { date, base: 'EUR', quote: currency, rate: typed.rate }))
     if (saved) setRate('')
   }
 
   const failure = save.failure
   const fieldErrors = ['date', 'quote', 'rate'].flatMap((f) => fieldMessages(failure, f))
   return (
-    <form className="add" onSubmit={submit}>
-      <Field label="Date" errors={fieldMessages(failure, 'date')}>
+    <form className="add add-rate" onSubmit={submit}>
+      <Field label="Date" errors={fieldMessages(failure, 'date')} hint="It applies from this date until your next rate.">
         <input type="date" value={date} required onChange={(e) => { setDate(e.target.value); save.clear() }} />
+      </Field>
+      <Field label="1 EUR =" errors={[...(problem ? [problem] : []), ...fieldMessages(failure, 'rate')]}>
+        <input className="amount" inputMode="decimal" value={rate} required placeholder="95,50" aria-label="Rate"
+          onChange={(e) => { setRate(e.target.value); setProblem(undefined); save.clear() }} />
       </Field>
       <Field label="Currency" errors={fieldMessages(failure, 'quote')}>
         <CurrencyInput currencies={currencies} value={currency} required aria-label="Currency"
           onChange={(code) => { setCurrency(code); save.clear() }} />
-      </Field>
-      <Field label={`1 EUR = … ${currency || 'units'}`} errors={[...(problem ? [problem] : []), ...fieldMessages(failure, 'rate')]}>
-        <input className="amount" inputMode="decimal" value={rate} required placeholder="95.50" aria-label="Rate"
-          onChange={(e) => { setRate(e.target.value); setProblem(undefined); save.clear() }} />
       </Field>
       <button className="primary" disabled={save.pending}>Save rate</button>
       <Errors messages={fieldErrors.length > 0 ? [] : [save.error]} />

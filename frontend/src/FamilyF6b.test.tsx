@@ -5,7 +5,7 @@ import App from './App'
 import type { Account, Category, FamilyLedger, FamilyMember, FamilyRecord, InviteLookup, Me } from './api'
 import { inOpeningBalance, sharers, takesPart } from './expenseForm'
 import { savePendingInvite } from './invite'
-import { testLedger } from './testLedger'
+import { euroBalances, testLedger } from './testLedger'
 
 // F6b in the interface: a claimed seat in the record forms before its claim's date (D-35), the leave confirmation of
 // the last member with an account (D-36), a return's own entries on the invite page (D-37), and the switcher right
@@ -60,7 +60,7 @@ const accounts: Account[] = testLedger.accounts
 const ref = (m: FamilyMember) => ({ memberId: m.id, displayName: m.displayName })
 const created: FamilyRecord = {
   id: 6, type: 'EXPENSE', date: '2026-09-15', category: { id: 30, code: 'GROCERIES', name: 'Groceries', archived: false },
-  amount: '10.00', currency: 'EUR', originalAmount: '10.00', originalCurrency: 'EUR', comment: null, payer: ref(carol),
+  amount: '10.00', currency: 'EUR', comment: null, payer: ref(carol),
   splitMethod: 'EQUAL', shares: [], author: ref(carol), createdAt: '2026-09-30T10:00:00Z', updatedBy: ref(carol),
   updatedAt: '2026-09-30T10:00:00Z', version: 0, frozen: false, canEdit: true, canDelete: true, canEditPayment: true,
 }
@@ -151,10 +151,10 @@ describe('the last member with an account leaving (D-36)', () => {
     const calls = budget([anna, kid], {
       // The switcher's list: Home, then never again, so that what it shows after leaving is the app's own.
       'GET /api/family-ledgers': [{ status: 200, body: [owner] }, 'pending'],
-      'GET /api/family-ledgers/7/balances': { status: 200, body: { currency: 'EUR', members: [
+      'GET /api/family-ledgers/7/balances': { status: 200, body: euroBalances([
         { memberId: 70, displayName: 'Anna', status: 'ACTIVE', hasAccount: true, balance: '0.00', you: true },
         { memberId: 71, displayName: 'Kid', status: 'ACTIVE', hasAccount: false, balance: '0.00', you: false },
-      ] } },
+      ]) },
       'DELETE /api/family-ledgers/7/members/me': { status: 204 },
     }, owner)
     renderApp({ ...ON, name: 'Anna' }, '/family/7/members')
@@ -175,7 +175,7 @@ describe('the last member with an account leaving (D-36)', () => {
 
 describe('the members table at 375 px (F6b)', () => {
   it('labels each fact, so that a phone shows a member as one block', async () => {
-    budget([anna, carol, ben, gran], { 'GET /api/family-ledgers/7/balances': { status: 200, body: { currency: 'EUR', members: [] } } })
+    budget([anna, carol, ben, gran], { 'GET /api/family-ledgers/7/balances': { status: 200, body: euroBalances([]) } })
     renderApp(ON, '/family/7/members')
     const row = (await screen.findByText('Ben')).closest('tr')!
     expect(row.closest('table')!.className).toBe('members')
@@ -188,7 +188,7 @@ const TOKEN = 'hdzuQFKxP6EGQ-9rAQCHxEOs0iXpnIkxdLhB9WhL0h0'
 const back: InviteLookup = {
   ledgerName: 'Home', baseCurrency: 'EUR', invitedBy: 'Anna', kind: 'NEW_MEMBER', seatName: null, joinDate: '2026-09-30',
   expiresAt: '2026-10-03T10:00:00Z', categories: [], merges: [], keptPrivate: [], mayBring: [], displayName: 'Ben',
-  openingBalance: null, returning: true, correction: '0.00',
+  returning: true, corrections: [],
   entriesAfterReturn: [{ entryId: 90, date: '2026-10-05', amount: '25.00', currency: 'EUR', memo: 'Lent to the family' }],
 }
 

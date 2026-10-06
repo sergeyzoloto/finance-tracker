@@ -1,5 +1,5 @@
 import type {
-  FamilyBalance, FamilyBalances, FamilyChange, FamilyFieldChange, FamilyMember, FamilyMembershipImpact, FamilyRecord,
+  CurrencyAmount, CurrencyBalances, FamilyBalance, FamilyBalances, FamilyChange, FamilyFieldChange, FamilyMember, FamilyMembershipImpact, FamilyRecord,
   FamilyRecordType, MemberRef, MemberRole, MemberStatus, SplitMethod, SplitRule, ViolationDetail,
 } from './api'
 import { formatDate } from './api'
@@ -92,15 +92,15 @@ export function balanceWords(member: FamilyBalance, currency: string) {
   return `${who} ${member.you ? 'are' : 'is'} owed ${amount}`
 }
 
-/** One member paying another settles part of the balances. */
-export interface Debt { from: FamilyBalance; to: FamilyBalance; amount: string }
+/** One member paying another settles part of the balances, in one currency (D-46). */
+export interface Debt { from: FamilyBalance; to: FamilyBalance; amount: string; currency: string }
 
 /**
  * Who owes whom: the payments that would settle every balance, as few as the rule below finds. The member who owes
  * most pays the one who is owed most, as much as either can, until nobody owes anything; ties go by join order. With
  * two members that is the one payment there is. It only reads the balances; a settlement records a payment (F4d).
  */
-export function whoOwesWhom({ currency, members }: FamilyBalances): Debt[] {
+export function whoOwesWhom({ currency, members }: CurrencyBalances): Debt[] {
   const open = members.map((member, order) => ({ member, order, rest: toMinor(member.balance, currency) ?? 0n }))
   // The largest first, then by join order.
   const largest = (a: bigint, b: bigint) => (a > b ? -1 : a < b ? 1 : 0)
@@ -110,7 +110,7 @@ export function whoOwesWhom({ currency, members }: FamilyBalances): Debt[] {
     const creditor = open.filter((o) => o.rest < 0n).sort((a, b) => largest(-a.rest, -b.rest) || a.order - b.order)[0]
     if (!debtor || !creditor) return debts
     const amount = debtor.rest < -creditor.rest ? debtor.rest : -creditor.rest
-    debts.push({ from: debtor.member, to: creditor.member, amount: fromMinor(amount, currency) })
+    debts.push({ from: debtor.member, to: creditor.member, amount: fromMinor(amount, currency), currency })
     debtor.rest -= amount
     creditor.rest += amount
   }
@@ -135,10 +135,31 @@ export const maySettle = (payer: { memberId: number; hasAccount: boolean }, paye
   me: number, owner: boolean) =>
   payer.memberId === me || payee.memberId === me || (owner && !payer.hasAccount && !payee.hasAccount)
 
-/** The reader's balance in words, member by member: "Sam owes you €40.00", or "You are settled". */
+/**
+ * The reader's balance in words, member by member and currency by currency (D-45): "Sam owes you €40.00", "You owe Sam
+ * $12.00", or "You are settled".
+ */
 export function yourBalance(balances: FamilyBalances): string[] {
-  const yours = whoOwesWhom(balances).filter((d) => d.from.you || d.to.you)
-  return yours.length > 0 ? yours.map((d) => debtSentence(d, balances.currency)) : ['You are settled']
+  const yours = balances.byCurrency.flatMap((inCurrency) => whoOwesWhom(inCurrency))
+    .filter((d) => d.from.you || d.to.you)
+  return yours.length > 0 ? yours.map((d) => debtSentence(d, d.currency)) : ['You are settled']
+}
+
+/** Who owes whom in every currency, the reader's own debts first in each (D-46: each settles in its own currency). */
+export const allDebts = (balances: FamilyBalances): Debt[] =>
+  balances.byCurrency.flatMap((inCurrency) => settleUpOrder(whoOwesWhom(inCurrency)))
+
+/**
+ * Balances in several currencies in words, for the confirmations: "you owe €30.00 and are owed $40.00", or "you are
+ * settled" when every one is 0 (D-45).
+ */
+export function balancesSentence(balances: CurrencyAmount[], who: string | null): string {
+  const open = balances.filter((b) => signOf(b.amount) !== 0)
+  if (open.length === 0) return balanceSentence('0', 'EUR', who)
+  return open.map((b, i) => {
+    const text = balanceSentence(b.amount, b.currency, who)
+    return i === 0 ? text : text.replace(/^(you|.+?) (?=(owe|is|are))/, '').replace(/^owes /, 'owes ')
+  }).join(' and ')
 }
 
 // The change journal (D-16) as sentences. Values come as text: amounts in the base currency, dates, and the names of
@@ -177,6 +198,10 @@ function originalMoney(value: string | null | undefined): string {
   return code ? formatMoney(amount, code) : value
 }
 
+/**
+ * @param currency the family's main currency, for a record created in it before its journal named a currency (D-45):
+ *        each record's amounts are in its own currency
+ */
 export function journalLine(change: FamilyChange, currency: string): JournalLine {
   if (change.action === 'SPLIT_RULE_RESET') {
     return {
@@ -189,6 +214,9 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
   const type = record?.type ?? 'EXPENSE'
   const name = record ? recordName(record) : 'an expense'
   const field = (f: string) => change.changes.find((c) => c.field === f)
+  // The record's currency then: a change of it names both; a creation names one other than the main currency.
+  const currencyChange = field('currency')
+  const then = currencyChange?.new ?? (change.action === 'CREATE' ? currency : record?.currency ?? currency)
   switch (change.action) {
     case 'CREATE': {
       const amount = field('amount')?.new ?? record?.amount
@@ -199,20 +227,20 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
         const payee = field('payee')?.new
         const original = field('originalAmount')?.new
         return {
-          text: `${who} recorded ${name}: ${payer ?? 'someone'} paid ${payee ?? 'someone'} ${original ? `${originalMoney(original)} → ` : ''}${amount ? formatMoney(amount, currency) : ''}.`,
+          text: `${who} recorded ${name}: ${payer ?? 'someone'} paid ${payee ?? 'someone'} ${original ? `${originalMoney(original)} → ` : ''}${amount ? formatMoney(amount, then) : ''}.`,
           details: commented,
         }
       }
       const how = type === 'INCOME' ? 'received by' : 'paid by'
       const original = field('originalAmount')?.new
-      const money = `${original ? `${originalMoney(original)} → ` : ''}${amount ? formatMoney(amount, currency) : ''}`
+      const money = `${original ? `${originalMoney(original)} → ` : ''}${amount ? formatMoney(amount, then) : ''}`
       return {
         text: `${who} added ${name}: ${money}${payer ? `, ${how} ${payer}` : ''}.`,
-        details: [`Split: ${createdSplit(change.changes, currency)}`, ...commented],
+        details: [`Split: ${createdSplit(change.changes, then)}`, ...commented],
       }
     }
     case 'DELETE':
-      return { text: `${who} deleted ${name}${record ? `, ${formatMoney(record.amount, currency)}` : ''}.`, details: [] }
+      return { text: `${who} deleted ${name}${record ? `, ${formatMoney(record.amount, record.currency ?? currency)}` : ''}.`, details: [] }
     default: {
       const parts: [string, string][] = []
       // The payment's fields (F4c), then the family's.
@@ -224,8 +252,11 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
         parts.push(['the amount paid', `${originalMoney(original.old)} → ${originalMoney(original.new)}`])
       }
       if (amount) {
-        parts.push([original ? `the amount in ${currency}` : 'the amount',
-          `${amount.old ? formatMoney(amount.old, currency) : 'none'} → ${amount.new ? formatMoney(amount.new, currency) : 'none'}`])
+        const before = currencyChange?.old ?? then
+        parts.push([original ? `the amount in ${then}` : 'the amount',
+          `${amount.old ? formatMoney(amount.old, before) : 'none'} → ${amount.new ? formatMoney(amount.new, then) : 'none'}`])
+      } else if (currencyChange) {
+        parts.push(['the currency', `${currencyChange.old ?? 'none'} → ${currencyChange.new ?? 'none'}`])
       }
       const payer = field('payer')
       if (payer) parts.push([type === 'INCOME' ? 'the receiver' : 'the payer', `${payer.old ?? 'none'} → ${payer.new ?? 'none'}`])
@@ -273,13 +304,12 @@ export function lastOwner(members: FamilyMember[], me: number) {
  * What leaving, or an owner's removal of a member, does, for its confirmation (D-19): the member's balance, what stays
  * in their personal budget, the records that freeze, the split rule back to equal shares, a budget that closes.
  *
- * @param balance the member's balance in the budget, if it has loaded
+ * @param balances the member's balance in each currency of the budget (D-45), if they have loaded
  */
-export function departureNotes({ member, me, balance, currency, members, splitRule, budget }: {
+export function departureNotes({ member, me, balances, members, splitRule, budget }: {
   member: FamilyMember
   me: number
-  balance: string | undefined
-  currency: string
+  balances: CurrencyAmount[] | undefined
   members: FamilyMember[]
   splitRule: SplitRule
   budget: string
@@ -288,8 +318,9 @@ export function departureNotes({ member, me, balance, currency, members, splitRu
   const last = closesBudget(member, members)
   const notes: string[] = []
   const name = member.displayName
-  if (balance !== undefined) {
-    notes.push(`${sentenceStart(balanceSentence(balance, currency, self ? null : name))}.${signOf(balance) === 0 ? ''
+  if (balances !== undefined) {
+    const settled = balances.every((b) => signOf(b.amount) === 0)
+    notes.push(`${sentenceStart(balancesSentence(balances, self ? null : name))}.${settled ? ''
       : self ? ` That stays in your personal budget, on “Debt to family budget: ${budget}”, which becomes an account of `
         + 'yours; after you leave, you and the others each record a settlement in your own budgets.'
         : member.hasAccount ? ' That stays in their personal budget, on an account of theirs.' : ''}`)
@@ -324,7 +355,7 @@ export const closesBudget = (member: FamilyMember, members: FamilyMember[]) => m
 
 /** What "Delete all my data" does to one of the user's family budgets, in words (D-20). */
 export function deletionNotes(impact: FamilyMembershipImpact): string[] {
-  const notes = [`${sentenceStart(balanceSentence(impact.balance, impact.baseCurrency, null))}.`]
+  const notes = [`${sentenceStart(balancesSentence(impact.balances, null))}.`]
   if (impact.outcome === 'DELETED') {
     notes.push('Nobody else in it has an account, so it is deleted with its records.')
     return notes

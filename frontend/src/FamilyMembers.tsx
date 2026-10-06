@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { api, ApiError, fieldMessages, formatDate, sentence, type FamilyBalances, type FamilyMember, type SplitRule } from './api'
+import { api, ApiError, fieldMessages, formatDate, sentence, type CurrencyAmount, type FamilyBalances, type FamilyMember, type SplitRule } from './api'
 import { basisPointsToPercent, equalShares, percentToBasisPoints, WHOLE } from './basisPoints'
 import { Errors } from './components'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
@@ -49,8 +49,9 @@ export function FamilyMembers({ family }: { family: FamilyData }) {
       </div>
       {departing && (
         <Departure key={departing.id} member={departing} family={family}
-          balance={balances.data?.members.find((b) => b.memberId === departing.id)?.balance}
-          currency={balances.data?.currency ?? family.ledger.baseCurrency} onClose={() => setDeparting(null)} />
+          balances={balances.data?.byCurrency.map((c) => ({ currency: c.currency,
+            amount: c.members.find((b) => b.memberId === departing.id)?.balance ?? '0' }))}
+          onClose={() => setDeparting(null)} />
       )}
       {family.owner ? (
         <form className="add" onSubmit={submit}>
@@ -159,11 +160,10 @@ function MemberRow({ member, family, custom, onInvite, onDepart }: {
  * request. The last owner is told to make another member an owner first, as the server's 409 `LAST_OWNER` says too.
  * After leaving, the reader is taken to their personal budget.
  */
-function Departure({ member, family, balance, currency, onClose }: {
+function Departure({ member, family, balances, onClose }: {
   member: FamilyMember
   family: FamilyData
-  balance: string | undefined
-  currency: string
+  balances: CurrencyAmount[] | undefined
   onClose: () => void
 }) {
   const self = member.id === family.ledger.memberId
@@ -173,7 +173,7 @@ function Departure({ member, family, balance, currency, onClose }: {
     if (self) family.left?.()
     else onClose()
   })
-  const notes = departureNotes({ member, me: family.ledger.memberId, balance, currency, members: family.members,
+  const notes = departureNotes({ member, me: family.ledger.memberId, balances, members: family.members,
     splitRule: family.ledger.splitRule, budget: family.ledger.name })
   const lastOwnerRefused = go.failure instanceof ApiError && go.failure.code === 'LAST_OWNER'
   return (

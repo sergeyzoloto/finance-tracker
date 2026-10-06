@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, ApiError, errorMessage, fieldMessages, formatDate, sentence, type FamilyLedger, type InviteLookup } from './api'
 import { Errors, Field, Loading } from './components'
-import { balanceSentence } from './family'
+import { balancesSentence } from './family'
 import { clearPendingInvite, pendingInvite } from './invite'
 
 /** The code of accepting's 409 while the user's own entries wait on their former debt account (D-37). */
@@ -158,21 +158,26 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
         {claim ? <>, to take the place of <strong>{lookup.seatName}</strong>.</>
           : lookup.returning ? ', where you were a member before: you come back in your earlier place.' : ', as a new member.'}
       </p>
-      {claim && lookup.openingBalance != null && (
+      {claim && lookup.openingBalances != null && (
         <p data-testid="opening-balance">
-          Before {formatDate(lookup.joinDate)}, <strong>{balanceSentence(lookup.openingBalance, lookup.baseCurrency,
-            lookup.seatName)}</strong>. That becomes your opening balance in the family budget, and in your personal
-          budget on that day.
+          Before {formatDate(lookup.joinDate)}, <strong>{balancesSentence(lookup.openingBalances, lookup.seatName)}</strong>.
+          That becomes your opening balance in the family budget, and in your personal budget on that day
+          {lookup.openingBalances.length > 1 ? ', in each currency' : ''}.
         </p>
       )}
-      {lookup.returning && lookup.correction != null && (
+      {lookup.returning && lookup.corrections != null && (
         <p data-testid="correction">
-          {signOf(lookup.correction) === 0
+          {lookup.corrections.every((c) => signOf(c.amount) === 0)
             ? 'Your personal budget already shows your balance with the family budget as it is: no correction is needed.'
-            : <>One correction of <strong>{formatMoney(abs(lookup.correction), lookup.baseCurrency)}</strong> on that day
-              {signOf(lookup.correction) > 0 ? ' adds to' : ' takes from'} what your personal budget shows you owe the family
-              budget, so that it matches the family budget again: for example, for entries of it you changed or deleted
-              since you left, or records of before that changed meanwhile.</>}
+            : <>One correction on that day{' '}
+              {lookup.corrections.filter((c) => signOf(c.amount) !== 0).map((c, i) => (
+                <span key={c.currency}>
+                  {i > 0 ? ' and ' : ''}of <strong>{formatMoney(abs(c.amount), c.currency)}</strong>
+                  {signOf(c.amount) > 0 ? ', which adds to' : ', which takes from'} what your personal budget shows you owe
+                </span>
+              ))}{' '}
+              the family budget, so that it matches the family budget again: for example, for entries of it you changed
+              or deleted since you left, or records of before that changed meanwhile.</>}
         </p>
       )}
       {toMove.length > 0 && (

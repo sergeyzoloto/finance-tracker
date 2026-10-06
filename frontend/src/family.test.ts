@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { FamilyBalance, FamilyBalances, FamilyChange, FamilyMember, FamilyMembershipImpact, MemberRef } from './api'
+import type { CurrencyBalances, FamilyBalance, FamilyBalances, FamilyChange, FamilyMember, FamilyMembershipImpact, MemberRef } from './api'
 import {
-  balanceSentence, balanceWords, closesBudget, debtSentence, deletionNotes, departureNotes, journalLine, lastOwner, maySettle,
+  allDebts, balanceSentence, balancesSentence, balanceWords, closesBudget, debtSentence, deletionNotes, departureNotes, journalLine, lastOwner, maySettle,
   settleUpOrder, violationsByMember, whoOwesWhom, yourBalance,
 } from './family'
+import { formatMoney } from './money'
 
 describe('violationsByMember', () => {
   it('sorts the violations of a 422 by the member each names', () => {
@@ -28,20 +29,23 @@ describe('violationsByMember', () => {
 
 const balance = (memberId: number, displayName: string, amount: string, extra: Partial<FamilyBalance> = {}): FamilyBalance =>
   ({ memberId, displayName, status: 'ACTIVE', hasAccount: false, balance: amount, you: false, ...extra })
-const budget = (...members: FamilyBalance[]): FamilyBalances => ({ currency: 'EUR', members })
+const budget = (...members: FamilyBalance[]): CurrencyBalances => ({ currency: 'EUR', members })
+const NO_TOTAL = { currency: 'EUR', asOf: '2026-10-15', members: [], rates: [], missingCurrencies: [] }
+/** A family budget's balances with one or more currencies. */
+const all = (...byCurrency: CurrencyBalances[]): FamilyBalances => ({ byCurrency, total: NO_TOTAL })
 
 describe('balances in words', () => {
   it('reads two members from the reader’s side', () => {
     const owedToYou = budget(balance(1, 'Anna', '-40.00', { you: true, hasAccount: true }), balance(2, 'Sam', '40.00'))
-    expect(yourBalance(owedToYou)).toEqual(['Sam owes you €40.00'])
+    expect(yourBalance(all(owedToYou))).toEqual(['Sam owes you €40.00'])
     expect(owedToYou.members.map((m) => balanceWords(m, 'EUR'))).toEqual(['You are owed €40.00', 'Sam owes €40.00'])
 
     const youOwe = budget(balance(1, 'Anna', '12.50', { you: true, hasAccount: true }), balance(2, 'Sam', '-12.50'))
-    expect(yourBalance(youOwe)).toEqual(['You owe Sam €12.50'])
+    expect(yourBalance(all(youOwe))).toEqual(['You owe Sam €12.50'])
     expect(balanceWords(youOwe.members[0], 'EUR')).toBe('You owe €12.50')
 
     const settled = budget(balance(1, 'Anna', '0.00', { you: true, hasAccount: true }), balance(2, 'Sam', '0.00'))
-    expect(yourBalance(settled)).toEqual(['You are settled'])
+    expect(yourBalance(all(settled))).toEqual(['You are settled'])
     expect(settled.members.map((m) => balanceWords(m, 'EUR'))).toEqual(['You are settled', 'Sam is settled'])
   })
 
@@ -49,19 +53,33 @@ describe('balances in words', () => {
     const three = budget(balance(1, 'Anna', '-60.00', { you: true, hasAccount: true }), balance(2, 'Sam', '40.00'),
       balance(3, 'Kid', '20.00'))
     expect(whoOwesWhom(three).map((d) => debtSentence(d, 'EUR'))).toEqual(['Sam owes you €40.00', 'Kid owes you €20.00'])
-    expect(yourBalance(three)).toEqual(['Sam owes you €40.00', 'Kid owes you €20.00'])
+    expect(yourBalance(all(three))).toEqual(['Sam owes you €40.00', 'Kid owes you €20.00'])
 
     // Two owed by one; the reader is owed, and sees only their own part.
     const other = budget(balance(1, 'Anna', '-30.00', { you: true, hasAccount: true }), balance(2, 'Sam', '-10.00'),
       balance(3, 'Kid', '40.00'))
     expect(whoOwesWhom(other).map((d) => debtSentence(d, 'EUR'))).toEqual(['Kid owes you €30.00', 'Kid owes Sam €10.00'])
-    expect(yourBalance(other)).toEqual(['Kid owes you €30.00'])
+    expect(yourBalance(all(other))).toEqual(['Kid owes you €30.00'])
 
     // Settled among the others: nothing about the reader.
     const theirs = budget(balance(1, 'Anna', '0.00', { you: true, hasAccount: true }), balance(2, 'Sam', '-0.01'),
       balance(3, 'Kid', '0.01'))
-    expect(yourBalance(theirs)).toEqual(['You are settled'])
+    expect(yourBalance(all(theirs))).toEqual(['You are settled'])
     expect(whoOwesWhom(theirs).map((d) => debtSentence(d, 'EUR'))).toEqual(['Kid owes Sam €0.01'])
+  })
+
+  it('reads every currency on its own (D-45, D-46)', () => {
+    const euros = budget(balance(1, 'Anna', '-40.00', { you: true, hasAccount: true }), balance(2, 'Sam', '40.00'))
+    const dollars = { currency: 'USD', members: [balance(1, 'Anna', '12.00', { you: true, hasAccount: true }), balance(2, 'Sam', '-12.00')] }
+    expect(yourBalance(all(euros, dollars))).toEqual(['Sam owes you €40.00', 'You owe Sam $12.00'])
+    expect(allDebts(all(euros, dollars)).map((d) => `${d.from.displayName}→${d.to.displayName} ${d.amount} ${d.currency}`))
+      .toEqual(['Sam→Anna 40.00 EUR', 'Anna→Sam 12.00 USD'])
+    expect(balancesSentence([{ currency: 'EUR', amount: '30.00' }, { currency: 'USD', amount: '-40.00' }], null))
+      .toBe('you owe €30.00 and are owed $40.00')
+    expect(balancesSentence([{ currency: 'EUR', amount: '30.00' }, { currency: 'RUB', amount: '-900.00' }], 'Sam'))
+      .toBe(`Sam owes €30.00 and is owed ${formatMoney('900.00', 'RUB')}`)
+    expect(balancesSentence([{ currency: 'EUR', amount: '0.00' }], 'Sam')).toBe('Sam is settled')
+    expect(balancesSentence([], null)).toBe('you are settled')
   })
 
   it('settles every balance, whatever their order', () => {
@@ -239,7 +257,7 @@ describe('leaving, removal and Delete all my data (F6a)', () => {
   })
 
   it('says what leaving does: the balance kept, the entries kept, the rule back to equal shares', () => {
-    expect(departureNotes({ member: dad, me: 72, balance: '-10.00', currency: 'EUR', members: [mum, dad, kid],
+    expect(departureNotes({ member: dad, me: 72, balances: [{ currency: 'EUR', amount: '-10.00' }], members: [mum, dad, kid],
       splitRule: 'CUSTOM', budget: 'Home' })).toEqual([
       'You are owed €10.00. That stays in your personal budget, on “Debt to family budget: Home”, which becomes an '
         + 'account of yours; after you leave, you and the others each record a settlement in your own budgets.',
@@ -252,30 +270,30 @@ describe('leaving, removal and Delete all my data (F6a)', () => {
   })
 
   it('says what a removal does, and that a budget is deleted without another member with an account (D-36)', () => {
-    expect(departureNotes({ member: kid, me: 70, balance: '0.00', currency: 'EUR', members: [mum, kid],
+    expect(departureNotes({ member: kid, me: 70, balances: [{ currency: 'EUR', amount: '0.00' }], members: [mum, kid],
       splitRule: 'EQUAL', budget: 'Home' })).toEqual([
       'Kid is settled.',
       'If a record names Kid, they stay in it as a member who left, and those records can no longer be changed; '
         + 'otherwise they are removed altogether. Invites to take their place stop working.',
     ])
-    expect(departureNotes({ member: mum, me: 70, balance: undefined, currency: 'EUR', members: [mum, kid],
+    expect(departureNotes({ member: mum, me: 70, balances: undefined, members: [mum, kid],
       splitRule: 'EQUAL', budget: 'Home' })).toContain(
       'Nobody else here has an account, so the family budget “Home” and its records will be deleted: its members '
         + 'without an account, categories, journal and invites go with it.')
     // Leaving as the last one: no word of the others seeing their name, as nobody will.
-    expect(departureNotes({ member: mum, me: mum.id, balance: '0.00', currency: 'EUR', members: [mum, kid],
+    expect(departureNotes({ member: mum, me: mum.id, balances: [{ currency: 'EUR', amount: '0.00' }], members: [mum, kid],
       splitRule: 'EQUAL', budget: 'Home' }).join(' ')).not.toContain('The others keep seeing your name')
     expect(closesBudget(mum, [mum, kid])).toBe(true)
     expect(closesBudget(mum, [mum, dad])).toBe(false)
     expect(closesBudget(kid, [mum, kid])).toBe(false)
-    expect(departureNotes({ member: dad, me: 70, balance: '5.00', currency: 'EUR', members: [mum, dad],
+    expect(departureNotes({ member: dad, me: 70, balances: [{ currency: 'EUR', amount: '5.00' }], members: [mum, dad],
       splitRule: 'EQUAL', budget: 'Home' })[0]).toBe('Dad owes €5.00. That stays in their personal budget, on an '
         + 'account of theirs.')
   })
 
   it('says what Delete all my data does to a family budget', () => {
     const impact: FamilyMembershipImpact = { ledgerId: 7, name: 'Home', role: 'OWNER', baseCurrency: 'EUR',
-      balance: '-50.00', outcome: 'OWNERSHIP_PASSES', newOwner: 'Dad', pendingInvites: 2, splitRuleReset: true }
+      balances: [{ currency: 'EUR', amount: '-50.00' }], outcome: 'OWNERSHIP_PASSES', newOwner: 'Dad', pendingInvites: 2, splitRuleReset: true }
     expect(deletionNotes(impact)).toEqual([
       'You are owed €50.00.',
       'Its records stay, with your name replaced by “Former member” and your comments erased; those that involve you '
@@ -284,7 +302,7 @@ describe('leaving, removal and Delete all my data (F6a)', () => {
       'Its split rule goes back to equal shares.',
       'Your 2 invites that weren’t used yet stop working.',
     ])
-    expect(deletionNotes({ ...impact, outcome: 'DELETED', newOwner: null, balance: '0.00' })).toEqual([
+    expect(deletionNotes({ ...impact, outcome: 'DELETED', newOwner: null, balances: [] })).toEqual([
       'You are settled.', 'Nobody else in it has an account, so it is deleted with its records.',
     ])
   })

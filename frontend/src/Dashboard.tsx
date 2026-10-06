@@ -8,9 +8,9 @@ import CashFlowTable from './CashFlowTable'
 import { lazyWithReload } from './chunkReload'
 import { Amounts, ErrorBoundary, Errors, Loading } from './components'
 import {
-  cashFlowTables, convertedCashFlowTable, daysBetween, DEFAULT_PRESET, inBaseFromQuery, LOAN_ACCOUNTS, loanSides,
+  cashFlowTables, convertedCashFlowTable, DEFAULT_PRESET, inBaseFromQuery, LOAN_ACCOUNTS, loanSides,
   mergeMissing, MISSING, missingDays, monthsBetween, PERIOD_LABELS, periodFromQuery, PRESETS, settlementSentence,
-  STALE_AFTER_DAYS, total, type CashFlowTable as Table, type Cell, type PeriodChoice,
+  total, usedRateText, type CashFlowTable as Table, type Cell, type PeriodChoice,
 } from './dashboard'
 import EmptyLedger from './EmptyLedger'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
@@ -249,26 +249,25 @@ function BaseNetWorthTile({ worth, asOf }: { worth: ConvertedNetWorth; asOf: str
             </tr>
           </tbody>
         </table>
-        {worth.rates.length > 0 && <UsedRates rates={worth.rates} asOf={asOf} />}
+        {worth.rates.length > 0 && <UsedRates rates={worth.rates} />}
       </div>
     </div>
   )
 }
 
-/** The rate of each currency on the day, marked where it is old. */
-function UsedRates({ rates, asOf }: { rates: Rate[]; asOf: string }) {
+/**
+ * The rate of each currency on the day (D-49, D-90): an ECB one at most 7 days old, or the user's own, marked "manual",
+ * and "rate stale" when that is more than 31 days old.
+ */
+function UsedRates({ rates }: { rates: Rate[] }) {
   return (
     <p className="muted small">
       At the rates{' '}
-      {rates.map((r, i) => {
-        const age = daysBetween(r.date, asOf)
-        return (
-          <span key={r.currency} className={age > STALE_AFTER_DAYS ? 'stale-rate' : undefined}>
-            {i > 0 && '; '}1 EUR = {formatRate(r.perEuro)} {r.currency} of {formatDate(r.date)}
-            {age > STALE_AFTER_DAYS && ` (${age} days old)`}
-          </span>
-        )
-      })}
+      {rates.map((r, i) => (
+        <span key={r.currency} className={r.stale ? 'stale-rate' : undefined}>
+          {i > 0 && '; '}{usedRateText(r)}
+        </span>
+      ))}
       . <Link to="/rates">Rates</Link>
     </p>
   )

@@ -10,8 +10,6 @@ import { newSplit, previewSplit, type SplitContext, type SplitPreview } from './
 import {
   entryAmount, familiesFor, familyProblems, familyRequest, familyServerErrors, memberField, splitContext, unavailable,
 } from './familyEntry'
-import type { BaseAmount } from './currency'
-import { BaseAmountField, useBaseAmount } from './FamilyCurrency'
 import { SplitEditor } from './FamilySplit'
 import { accountById, counterpartyNamed, knownCurrencies, sharedAccount, type Ledger } from './ledger'
 import { amountProblem, formatMoney, parseAmount, rate } from './money'
@@ -44,8 +42,6 @@ interface Props {
 /** A family expense's or income's budget as the form has chosen it, with what its split needs. */
 interface FamilyExpense {
   ledger: FamilyLedger
-  /** The entry's amount in the budget's base currency (F4e). */
-  base: BaseAmount
   categories?: Category[]
   context?: SplitContext
   preview?: SplitPreview
@@ -57,17 +53,15 @@ function useFamilyExpense(form: EntryForm, families?: FamilyLedger[]): FamilyExp
   const chosen = isFamilyRecord(form) ? families?.find((f) => String(f.id) === form.familyId) : undefined
   const members = useApi<FamilyMember[]>(chosen ? `/family-ledgers/${chosen.id}/members` : null)
   const categories = useApi<Category[]>(chosen ? `/family-ledgers/${chosen.id}/categories` : null)
-  const currency = form.currency.trim().toUpperCase()
-  const base = useBaseAmount(`/family-ledgers/${chosen?.id}`, currency, chosen?.baseCurrency ?? currency,
-    chosen ? entryAmount(form) : undefined, form.date, form.familyBaseAmount === '' ? undefined : form.familyBaseAmount)
   if (!chosen) return undefined
-  const context = members.data ? splitContext(form, chosen, members.data, base) : undefined
+  // A record in the entry's own currency, paid in it (D-45, D-89): no rate, no conversion.
+  const currency = form.currency.trim().toUpperCase()
+  const context = members.data ? splitContext(form, chosen, members.data) : undefined
   return {
     ledger: chosen,
-    base,
     categories: categories.data,
     context,
-    preview: context ? previewSplit(form.familySplit, context, chosen.baseCurrency) : undefined,
+    preview: context ? previewSplit(form.familySplit, context, /^[A-Z]{3}$/.test(currency) ? currency : chosen.baseCurrency) : undefined,
     error: members.error ?? categories.error,
   }
 }
@@ -95,7 +89,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
     if (isFamilyRecord(form)) {
       if (!family?.preview) (problems[''] ??= []).push(family?.error ?? 'The family budget is still loading.')
       else {
-        for (const [field, messages] of Object.entries(familyProblems(form, family.ledger, family.preview, family.base))) {
+        for (const [field, messages] of Object.entries(familyProblems(form, family.ledger, family.preview))) {
           (problems[field] ??= []).push(...messages)
         }
       }
@@ -104,7 +98,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
     if (Object.keys(problems).length > 0) return
     setBusy(true)
     const failed = isFamilyRecord(form) && family?.preview
-      ? await saveFamily(family.ledger, family.preview, family.base, andNew)
+      ? await saveFamily(family.ledger, family.preview, andNew)
       : await run(() => onSave(form, andNew))
     setBusy(false)
     if (failed) {
@@ -112,16 +106,16 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
     } else if (andNew) {
       // The next entry is often like this one: same day, account and currency.
       setForm({ ...form, payee: '', memo: '', amount: '', toAmount: '', categoryId: '', refund: false, counterparty: '',
-        postings: [blankPosting(form.currency), blankPosting(form.currency)], familyCategoryId: '', familyComment: '',
-        familyBaseAmount: '' })
+        postings: [blankPosting(form.currency), blankPosting(form.currency)], familyCategoryId: '', familyComment: '' })
       setSaved(true)
     }
   }
 
   /** Creates the family expense or income (C2) through the family budget's endpoint; the messages if it failed. */
-  async function saveFamily(chosen: FamilyLedger, preview: SplitPreview, base: BaseAmount, andNew: boolean): Promise<FieldErrors | undefined> {
+  async function saveFamily(chosen: FamilyLedger, preview: SplitPreview, andNew: boolean): Promise<FieldErrors | undefined> {
     try {
-      await onSaveFamily!(chosen.id, familyRequest(form, chosen, preview, base), andNew)
+      await onSaveFamily!(chosen.id, familyRequest(form, chosen, preview,
+        accountById(ledger, Number(form.accountId))?.defaultCurrency ?? null), andNew)
       return undefined
     } catch (e) {
       return familyServerErrors(e, preview, chosen.memberId)
@@ -174,7 +168,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
       </div>
       {familyOn && family?.context && family.preview && (
         <SplitEditor form={form.familySplit} preview={family.preview} context={family.context}
-          currency={family.ledger.baseCurrency} byMember={byMember} problems={errors.familySplit ?? []}
+          currency={/^[A-Z]{3}$/.test(form.currency.trim().toUpperCase()) ? form.currency.trim().toUpperCase() : family.ledger.baseCurrency} byMember={byMember} problems={errors.familySplit ?? []}
           you={family.ledger.memberId}
           onChange={(familySplit) => change({ ...form, familySplit }, ['familySplit', 'familyMember'])} />
       )}
@@ -354,11 +348,6 @@ function FamilyRecordFields({ form, errors, change, families, family }: FieldsPr
         <CategorySelect categories={ofType} type={type} value={form.familyCategoryId}
           onChange={(familyCategoryId) => change({ ...form, familyCategoryId }, ['familyCategoryId'])} />
       </Field>
-      <BaseAmountField base={family.base} currency={form.currency.trim().toUpperCase()}
-        baseCurrency={family.ledger.baseCurrency} date={form.date}
-        entered={form.familyBaseAmount === '' ? undefined : form.familyBaseAmount}
-        onEntered={(text) => change({ ...form, familyBaseAmount: text ?? '' }, ['familyBaseAmount'])}
-        errors={errors.familyBaseAmount ?? []} />
       <Field label="Comment for the family budget" errors={errors.familyComment} className="wide"
         hint={`Every member of ${family.ledger.name} sees it.`}>
         <input value={form.familyComment} maxLength={500}

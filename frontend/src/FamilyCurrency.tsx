@@ -1,80 +1,112 @@
-import { useApi, type FamilyConversion } from './api'
+import { Link } from 'react-router'
+import type { Account, Rate } from './api'
 import { CurrencyInput, Field } from './components'
-import { baseAmount, conversionPath, missingRate, rateLine, type BaseAmount } from './currency'
-import { fromMinor } from './minorUnits'
+import { marks, payingCurrency, rateNotes, type PayingSideForm } from './currency'
+import { formatMoney } from './money'
 
-// The base amount of a family record in another currency (F4e, D-13): the server converts the amount as it would for
-// the reader, with the ECB's rate or their own, and the form shows it with its rate and source, editable.
+// Currencies on the family pages (F8b; D-45, D-47, D-88, D-89): a record's currency, the reader's paying side, and
+// D-47's "≈" total in the main currency with its rates.
 
-/**
- * The base amount of the amount the form holds: the amount itself in the base currency, the one the user typed, or the
- * server's conversion (GET /conversion), which a change of the amount, the currency or the date asks for again.
- */
-export function useBaseAmount(familyPath: string, currency: string, baseCurrency: string, amount: bigint | undefined,
-  date: string, entered: string | undefined): BaseAmount {
-  const typed = entered !== undefined && entered.trim() !== ''
-  const conversion = useApi<FamilyConversion>(typed ? null : conversionPath(familyPath, currency, baseCurrency, amount, date))
-  return baseAmount({ currency, baseCurrency, amount, entered, conversion: conversion.data, loading: conversion.loading })
-}
-
-/**
- * The amount in the base currency, for an amount in another one: the conversion, shown with its rate and source, which
- * the user may overwrite; without a rate, a line that says why it is needed. Nothing in the base currency.
- *
- * @param entered what the user typed; undefined while the conversion stands
- * @param errors the server's objections to it, RATE_MISSING among them
- */
-export function BaseAmountField({ base, currency, baseCurrency, date, entered, onEntered, errors }: {
-  base: BaseAmount
-  currency: string
-  baseCurrency: string
-  date: string
-  entered: string | undefined
-  onEntered: (text: string | undefined) => void
-  errors: string[]
-}) {
-  if (currency === baseCurrency) return null
-  const typed = entered !== undefined
-  const shown = (base.state === 'RATE' || base.state === 'KEPT') && base.minor !== undefined
-    ? fromMinor(base.minor, baseCurrency) : ''
-  const line = base.state === 'KEPT' ? base.line
-    : base.state === 'RATE' && base.conversion ? rateLine(base.conversion)
-    : base.state === 'MISSING' ? missingRate(currency, baseCurrency, date)
-      : base.state === 'PENDING' ? 'Converting…' : undefined
-  return (
-    <Field label={`Amount in ${baseCurrency}`} errors={[...(base.problem ? [base.problem] : []), ...errors]}
-      hint={(
-        <>
-          {typed ? `Entered by you; the family budget counts it in ${baseCurrency}. ` : line}
-          {typed && (
-            <button type="button" className="link" onClick={() => onEntered(undefined)}>Use the exchange rate</button>
-          )}
-        </>
-      )}>
-      <input className="amount" inputMode="decimal" autoComplete="off" value={typed ? entered : shown}
-        placeholder={base.state === 'MISSING' ? '0.00' : ''} onChange={(e) => onEntered(e.target.value)} />
-    </Field>
-  )
-}
-
-/** The currency of an amount whose account doesn't decide it: a three-letter code, suggesting the usual ones. */
-export function CurrencyField({ value, onChange, suggestions, errors, label = 'Currency' }: {
+/** A currency field: a three-letter code, suggesting the usual ones. */
+export function CurrencyField({ value, onChange, suggestions, errors, label = 'Currency', hint }: {
   value: string
   onChange: (code: string) => void
   suggestions: string[]
   errors: string[]
   label?: string
+  hint?: string
 }) {
   const problem = /^[A-Z]{3}$/.test(value) ? [] : ['Enter a three-letter currency code, such as USD.']
   return (
-    <Field label={label} errors={[...problem, ...errors]} className="narrow">
+    <Field label={label} errors={[...problem, ...errors]} className="narrow" hint={hint}>
       <CurrencyInput currencies={[...new Set(suggestions)]} value={value} onChange={onChange} />
     </Field>
   )
 }
 
-/** The currencies a form suggests: the base currency, the reader's accounts' currencies, and a few common ones. */
-export function currencySuggestions(baseCurrency: string, accountCurrencies: (string | null)[]): string[] {
-  return [...new Set([baseCurrency, ...accountCurrencies.filter((c): c is string => c !== null), 'EUR', 'USD', 'GBP',
+/** The currencies a form suggests: the main currency, the reader's accounts' currencies, and a few common ones. */
+export function currencySuggestions(mainCurrency: string, accountCurrencies: (string | null)[]): string[] {
+  return [...new Set([mainCurrency, ...accountCurrencies.filter((c): c is string => c !== null), 'EUR', 'USD', 'GBP',
     'CHF', 'RUB', 'JPY'])]
+}
+
+/**
+ * The reader's own side on their account (D-89): the currency the account paid or received in, by default the
+ * account's own (or the record's for an account without one), which an account holds any number of; and, when that
+ * isn't the record's, what went from or into it. Only the reader sees either (D-88).
+ *
+ * @param kept the paying currency the side is in now, while it stays on the same account
+ * @param keptAmount what the side holds now in `kept`, shown until something makes it be asked again
+ */
+export function PayingSideFields({ account, recordCurrency, side, onChange, way, errors, suggestions, kept, keptAmount }: {
+  account: Account | undefined
+  recordCurrency: string
+  side: PayingSideForm
+  onChange: (side: PayingSideForm) => void
+  /** "paid" or "received" */
+  way: 'paid' | 'received'
+  errors: { currency: string[]; amount: string[] }
+  suggestions: string[]
+  kept?: string
+  keptAmount?: string
+}) {
+  const paying = payingCurrency(account, recordCurrency, side.currency, kept)
+  const other = paying !== recordCurrency
+  return (
+    <>
+      <CurrencyField label={way === 'paid' ? 'Paid in' : 'Received in'} value={paying} errors={errors.currency}
+        suggestions={[recordCurrency, ...suggestions]}
+        hint={`The currency that went ${way === 'paid' ? 'from' : 'into'} the account. Only you see it.`}
+        onChange={(code) => onChange({ currency: code, amountText: '' })} />
+      {other && (
+        <Field label={`Amount ${way} in ${paying}`} errors={errors.amount}
+          hint={`What went ${way === 'paid' ? 'from' : 'into'} your account, in ${paying}. Only you see it; the difference goes through your currency exchange.`}>
+          <input className="amount" inputMode="decimal" autoComplete="off" value={side.amountText}
+            placeholder={keptAmount && paying === kept ? keptAmount : '0.00'}
+            onChange={(e) => onChange({ ...side, currency: side.currency ?? paying, amountText: e.target.value })} />
+        </Field>
+      )}
+    </>
+  )
+}
+
+/**
+ * D-47's total as a line: "≈ €209.09", with the rates' dates and sources, and "manual" and "rate stale" where they
+ * apply; or, without a rate for a currency, "No RUB rate" with a link to the rates page.
+ */
+export function TotalAmount({ amount, currency, rates, missing }: {
+  amount: string | undefined
+  currency: string
+  rates: Rate[]
+  missing: string[]
+}) {
+  if (missing.length > 0) return <NoRate currencies={missing} />
+  if (amount === undefined) return null
+  const { manual, stale } = marks(rates)
+  return (
+    <span className="total-amount">
+      {rates.length > 0 ? '≈ ' : ''}{formatMoney(amount, currency)}
+      {manual && <span className="badge">manual</span>}
+      {stale && <span className="badge warning">rate stale</span>}
+    </span>
+  )
+}
+
+/** The rates a total used, one line each, under it. */
+export function RateNotes({ rates }: { rates: Rate[] }) {
+  if (rates.length === 0) return null
+  return (
+    <ul className="rate-notes small muted">
+      {rateNotes(rates).map((note) => <li key={note}>{note}</li>)}
+    </ul>
+  )
+}
+
+/** "No RUB rate": no total, and where to enter one (D-47). */
+export function NoRate({ currencies }: { currencies: string[] }) {
+  return (
+    <span className="no-rate">
+      {currencies.map((c) => `No ${c} rate`).join(', ')}: <Link to="/rates">enter a rate</Link>
+    </span>
+  )
 }

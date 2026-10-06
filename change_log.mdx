@@ -3,6 +3,53 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · The interface per currency: records, paying side, balances, totals, report, rates (F8b, commit 6a)
+
+Commit on `feature/family-budget`, after commit 5: "feat(frontend): records in their own currency, the paying side,
+balances, totals and rates (F8b)", whose hash F8b's report names. Not pushed; nothing deployed, and production not
+accessed. Frontend only: it reads the API's new fields, while the backend still also sends the deprecated ones, which
+commit 6b removes.
+
+**Changes**
+- The expense, income and settlement forms (`FamilyExpenseForm.tsx`, `FamilySettlement.tsx`) and a record's edit forms
+  (`FamilyExpenses.tsx`): the record's own currency (the main one by default) and amount, split in it (D-45); "Amount in
+  EUR", the conversion and `/conversion` are gone. On the reader's own account: "Paid in" (or "Received in"), the paying
+  currency, by default the account's (D-89), and "Amount paid in RUB" when it isn't the record's, asked again only
+  when the amount, currency, account or paying currency changes. `accountCurrency` is sent only where it differs from
+  what the server would take. Only the reader sees either (D-88).
+- `PaymentEntry.tsx`: the record's amount in the record's currency, and the entry's own paying side as above.
+- The personal editor's family option (`EntryForms.tsx`, `familyEntry.ts`): a record in the entry's own currency, paid
+  in it from the entry's account, `accountCurrency` named only when the account's default is another; no base amount.
+- Balances (`FamilyBalances.tsx`): a column per currency, "All together" per currency, who owes whom and "Settle up"
+  per currency (the link carries `currency`, D-46), and with several currencies D-47's total per member, "≈", with
+  "manual" and "rate stale", the rates' dates and sources, or "No RUB rate: enter a rate" linking `/rates`. The overview
+  and the departure confirmation read every currency.
+- The report (`FamilyReport.tsx`, `familyReport.ts`): each member's totals and the months per currency, and the total
+  in the main currency as "≈" with its rates, or "No USD rate".
+- The journal (`family.ts`): each record's amounts in its own currency, a change of currency, a deletion in the
+  record's currency.
+- The invite page: a claim's opening balance and a return's correction per currency; the delete screen's notes per
+  currency (`balancesSentence`).
+- The rates page: the rate that applies today with its date, its source as "ECB" or "manual", "rate stale", "not used:
+  more than 7 days old"; a new rate entered as "1 EUR = 95,50 RUB" with a comma or a dot (`parseRateInput`).
+- The dashboard names each rate with its source and "rate stale" (`usedRateText`), D-90; the 7-day flag of its own is
+  gone (the server applies D-49).
+- `api.ts`: `Me.email`, `CurrencyAmount`, `CurrencyBalances`, `BalancesTotal`, `FamilyReportSection`,
+  `FamilyReportTotals`, `Rate.stale`, `LatestRate.applies` and `stale`; `FamilyRecord` without the paying-side fields;
+  `FamilyConversion` and `RateSourceName` gone.
+- Tests: `currency.test.ts`, `family.test.ts`, `familyReport.test.ts`, `dashboard.test.ts` and
+  `FamilyCurrencies.test.tsx` rewritten or extended for the above; the other family tests' fixtures take the new shapes
+  (`testLedger.euroBalances`).
+- `CLAUDE.md`.
+
+**Verified**
+- `npm test` in `frontend/`: 312 passed (301 before F8b). `npm run build`: built.
+- Commits 4 and 5, each in a scratch worktree at its own commit, `./mvnw -B -o clean verify`: 431 and 434 tests, 0
+  failures.
+
+**Open**
+- Commit 6b removes the deprecated API fields and `/conversion` from the backend.
+
 ## 2026-10-06 · One today for the api (D-53) and the account's email in `/api/me` (D-54) (F8b, commit 5)
 
 Commit on `feature/family-budget`, after commit 4: "feat(api): one today and the account's email in /api/me, D-53,

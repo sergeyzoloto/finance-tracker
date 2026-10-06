@@ -4,7 +4,8 @@ import { csrfToken, logIn } from './auth'
 // The ledger's API (docs/adr/0001-double-entry-ledger.md). Amounts are decimal strings; see money.ts.
 
 /** The signed-in user. `features` says what the backend has switched on; a missing field counts as off. */
-export interface Me { name: string; features?: { familyLedgers?: boolean } }
+/** The signed-in user: their name, their account's email (D-54, F8b) and which features are on. */
+export interface Me { name: string; email?: string | null; features?: { familyLedgers?: boolean } }
 
 /** Whether the family budget is switched on (D-25): off in production until F7. */
 export const familyLedgersOn = (me: Me) => me.features?.familyLedgers === true
@@ -85,8 +86,8 @@ export interface FamilyMembershipImpact {
   name: string
   role: MemberRole
   baseCurrency: string
-  /** What the user owes the budget: positive if they owe, negative if they are owed. */
-  balance: string
+  /** What the user owes the budget in each currency, the main one first (D-45): positive if they owe. */
+  balances: CurrencyAmount[]
   outcome: 'STAYS' | 'OWNERSHIP_PASSES' | 'DELETED'
   /** Who becomes an owner, by display name, when the ownership passes. */
   newOwner: string | null
@@ -145,12 +146,15 @@ export interface InviteLookup {
   mayBring: { categoryId: number; code: string; name: string; type: CategoryType }[]
   /** The account's name, to prefill the name the other members will see. */
   displayName: string | null
-  /** A claim's opening balance: what the place owes the family before the join date, negative if owed (D-34). */
-  openingBalance?: string | null
+  /**
+   * A claim's opening balance in each currency, the main one first: what the place owes the family before the join
+   * date, negative if owed (D-34, D-45); empty when nothing is owed.
+   */
+  openingBalances?: CurrencyAmount[]
   /** Whether the user was a member before and comes back (D-26). */
   returning?: boolean
-  /** For a returning member, the correction that brings their debt to the family budget in line (D-26). */
-  correction?: string | null
+  /** For a returning member, the correction in each currency that brings their debt in line (D-26, D-45). */
+  corrections?: CurrencyAmount[]
   /**
    * For a returning member, their own entries on their former debt account dated after the join date, which belong to
    * no record of the family budget: accepting waits until they are moved or deleted (F6b, D-37). Null otherwise.
@@ -158,11 +162,14 @@ export interface InviteLookup {
   entriesAfterReturn?: EntryAfterReturn[] | null
 }
 
+/** An amount in a currency, as the per-currency lists give it (D-45). */
+export interface CurrencyAmount { currency: string; amount: string }
+
 /** One of the returning user's own entries (D-37): `amount` is what it adds to the debt that account shows. */
 export interface EntryAfterReturn { entryId: number; date: string; amount: string; currency: string; memo: string | null }
 
-// A family budget's expenses (F4a), incomes and settlements (F4d): the API calls them records. Amounts are in the
-// budget's base currency.
+// A family budget's expenses (F4a), incomes and settlements (F4d): the API calls them records. Each is in its own
+// currency, its shares too (D-45); the budget's main currency is only the default and the currency of totals (D-47).
 /** A member as a record, a balance or the journal names them: "Former member" once they deleted their data. */
 export interface MemberRef { memberId: number; displayName: string }
 /** How a record's amount is split: EQUAL comes from the budget's rule, PERCENT from the rule or the record's own. */
@@ -213,15 +220,6 @@ export interface FamilyRecord {
    * later”, its date and amount don't change and it isn't deleted (D-28). Only for who would otherwise change it.
    */
   lockedBy?: MemberRef
-  /** The amount as paid, received or settled, in `originalCurrency` (F4e); `amount` is in the base currency. */
-  originalAmount: string
-  originalCurrency: string
-  /** Base units for one of the original currency, where the base amount was converted (F4e). */
-  rate?: string
-  /** ECB, MANUAL (the acting member's own rate) or ENTERED; missing in the base currency (F4e). */
-  rateSource?: RateSourceName
-  /** The day of the rate, on or before the record's date. */
-  rateDate?: string
   /**
    * How the reader paid it, or received an income: only for its payer or receiver with an account, and missing for
    * everyone else (D-16); for a settlement, the reader's own side.
@@ -231,21 +229,11 @@ export interface FamilyRecord {
 /** The payer's own view of their payment: their payment entry, and the account, or "Specify later" with none. */
 export interface YourPayment {
   entryId: number; accountId: number | null; accountName: string | null; later: boolean
-  /** What went from or into the account or "Specify later", in `currency`: the reader's own side (F4e). */
+  /**
+   * What went from or into the account or "Specify later", in `currency`, the paying currency (D-89): the reader's own
+   * side, which nobody else sees (D-88).
+   */
   amount: string; currency: string
-}
-/** Where a record's base amount came from (F4e, D-13). */
-export type RateSourceName = 'ECB' | 'MANUAL' | 'ENTERED'
-/** An amount as the family budget would take it on a day: GET /family-ledgers/{id}/conversion (F4e). */
-export interface FamilyConversion {
-  amount: string
-  currency: string
-  /** Null when no rate converts it: the record then needs it entered. */
-  baseAmount: string | null
-  baseCurrency: string
-  rate?: string
-  rateSource?: RateSourceName
-  rateDate?: string
 }
 export interface FamilyRecordPage { content: FamilyRecord[]; page: number; size: number; totalElements: number; totalPages: number }
 /** How a new or changed record is split (D-12). RULE is the budget's rule; percentages go in basis points. */
@@ -264,20 +252,43 @@ export interface FamilyBalance {
   /** The member who reads. */
   you: boolean
 }
-/** Every member's balance, by join order; they sum to zero. */
-export interface FamilyBalances { currency: string; members: FamilyBalance[] }
+/** Every member's balance in one currency, by join order; they sum to zero. */
+export interface CurrencyBalances { currency: string; members: FamilyBalance[] }
+/**
+ * Every member's balance in each currency of the records, the main currency first (D-45), and D-47's total in the main
+ * currency, for display only.
+ */
+export interface FamilyBalances { byCurrency: CurrencyBalances[]; total: BalancesTotal }
+/**
+ * D-47's total: each member's balances together in the main currency, by the reader's own rates as of `asOf`, today
+ * (D-49); no members, and `missingCurrencies` named, when a currency has no rate.
+ */
+export interface BalancesTotal {
+  currency: string
+  asOf: string
+  members: { memberId: number; balance: string }[]
+  rates: Rate[]
+  missingCurrencies: string[]
+}
 /**
  * The family report (E1, F6c): the expenses and incomes by month and category, each member's share and what they paid
- * (an expense) or received (an income), and each member's totals with the settlements, in the base currency.
+ * (an expense) or received (an income), and each member's totals with the settlements, in each currency of the
+ * period's records, the main currency first (D-45); and D-47's total in the main currency.
  */
 export interface FamilyReport {
-  currency: string
   from: string | null
   to: string | null
   members: { memberId: number; displayName: string; status: MemberStatus; hasAccount: boolean; you: boolean }[]
-  rows: FamilyReportRow[]
-  totals: FamilyReportTotal[]
+  byCurrency: FamilyReportSection[]
+  total: FamilyReportTotals
 }
+/** The report in one currency, from its records only. */
+export interface FamilyReportSection { currency: string; rows: FamilyReportRow[]; totals: FamilyReportTotal[] }
+/**
+ * D-47's total: each member's totals in the main currency, each month at its month-end rate and the current month at
+ * today's (D-49), by the reader's own rates; none, and `missingCurrencies` named, when a currency has no rate.
+ */
+export interface FamilyReportTotals { currency: string; totals: FamilyReportTotal[]; rates: Rate[]; missingCurrencies: string[] }
 export interface FamilyReportRow {
   /** "2026-09" */
   month: string
@@ -312,7 +323,7 @@ export interface FamilyChange {
   about: MemberRef | null
   changes: FamilyFieldChange[]
   /** The record as it is now, deleted or not; null for a system change. */
-  record: { date: string; category: string | null; amount: string; deleted: boolean; type?: FamilyRecordType } | null
+  record: { date: string; category: string | null; amount: string; deleted: boolean; type?: FamilyRecordType; currency?: string } | null
 }
 export interface FamilyJournalPage { content: FamilyChange[]; page: number; size: number; totalElements: number; totalPages: number }
 
@@ -394,14 +405,20 @@ export interface IntegrityViolation {
   familyBalance?: string
 }
 
-// Reports with currency=BASE: every amount converted to the user's base currency at the latest rate on or before its
-// day. A figure that needs a rate that doesn't exist is null, and `missingRates` says which.
+// Reports with currency=BASE: every amount converted to the user's base currency by D-49's rules (D-90, D-91): the
+// latest rate on or before its day, an ECB rate at most 7 days old, the user's own from its day until their next. A
+// figure that needs a rate that doesn't apply is null, and `missingRates` says which.
 
 /** No rate for `currency` on `days` days from `from` to `to`. */
 export interface MissingRate { currency: string; from: string; to: string; days: number }
 export type RateSource = 'ECB' | 'MANUAL'
-/** Units of `currency` for one euro, from `date` on. */
-export interface Rate { currency: string; date: string; perEuro: string; source: RateSource }
+/**
+ * Units of `currency` for one euro, from `date` on, as a figure used it: `stale` for a manual rate more than 31 days
+ * older than the day it converted on (D-49).
+ */
+export interface Rate { currency: string; date: string; perEuro: string; source: RateSource; stale?: boolean }
+/** A rate as a displayed figure names it. */
+export type DisplayRate = Rate
 export interface ConvertedBalance {
   accountId: number
   accountCode: string
@@ -410,6 +427,8 @@ export interface ConvertedBalance {
   currency: string
   balance: string | null
   missingRates: MissingRate[]
+  /** The rates `balance` used (D-90). */
+  rates?: Rate[]
 }
 export interface ConvertedNetWorth {
   currency: string
@@ -420,7 +439,7 @@ export interface ConvertedNetWorth {
   unrealizedRevaluation: string | null
   /** What currency exchanges gained: FX_EXCHANGE's displayed balance; positive for a gain. */
   realizedExchangeResult: string | null
-  /** The rate used for each currency with a balance, possibly from long before the day. */
+  /** The rate used for each currency with a balance: an ECB one at most 7 days old, or the user's own (D-49). */
   rates: Rate[]
   missingRates: MissingRate[]
 }
@@ -433,12 +452,20 @@ export interface ConvertedCashFlowRow {
   missingRates: MissingRate[]
   familyLedgerId?: number
   familyLedgerName?: string
+  /** The rates `total` used (D-90). */
+  rates?: Rate[]
 }
 export interface ExchangeResult { month: string; realized: string | null; unrealized: string | null; missingRates: MissingRate[] }
 export interface ConvertedCashFlow { currency: string; rows: ConvertedCashFlowRow[]; exchangeResults: ExchangeResult[] }
 
-/** A currency's latest rate as the user sees it; `date` is null for a currency without any. */
-export interface LatestRate { currency: string; date: string | null; perEuro: string | null; source: RateSource | null; inLedger: boolean }
+/**
+ * A currency's rate as the user sees it today: the one that applies (D-49, D-91), else the latest there is, which
+ * `applies` false marks (an ECB rate more than 7 days old); `date` is null for a currency without any.
+ */
+export interface LatestRate {
+  currency: string; date: string | null; perEuro: string | null; source: RateSource | null; inLedger: boolean
+  applies?: boolean; stale?: boolean
+}
 export interface RatesOverview { baseCurrency: string; latest: LatestRate[]; missing: MissingRate[] }
 /** A manual rate as stored: `rate` units of `quote` for one `base`, which is EUR. */
 export interface ManualRate { date: string; base: string; quote: string; rate: string }

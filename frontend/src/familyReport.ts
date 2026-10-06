@@ -1,4 +1,4 @@
-import { type FamilyReport, type FamilyReportRow, type FamilyReportTotal } from './api'
+import { type FamilyReportRow, type FamilyReportTotal } from './api'
 import { abs, formatMoney, signOf, sum } from './money'
 
 /**
@@ -15,12 +15,12 @@ export interface ReportMonth {
   incomes: string
 }
 
-/** The rows by month, in the report's order, with each month's expenses and incomes added up. */
-export function reportMonths(report: FamilyReport): ReportMonth[] {
+/** One currency's rows by month, in the report's order, with each month's expenses and incomes added up. */
+export function reportMonths(rows: FamilyReportRow[]): ReportMonth[] {
   const months: ReportMonth[] = []
-  for (const row of report.rows) {
+  for (const row of rows) {
     let month = months.at(-1)
-    if (month?.month !== row.month) {
+    if (month === undefined || month.month !== row.month) {
       month = { month: row.month, rows: [], expenses: '0', incomes: '0' }
       months.push(month)
     }

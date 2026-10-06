@@ -3,7 +3,8 @@ import { Link } from 'react-router'
 import { api, ApiError, formatDate, sentence, useApi, type Entry, type FamilyRecord } from './api'
 import { AccountSelect, Errors, Field } from './components'
 import { paymentAccounts } from './expenseForm'
-import { recordRateLine } from './currency'
+import { newPayingSide, sidePatch, type PayingSideForm } from './currency'
+import { PayingSideFields } from './FamilyCurrency'
 import { RECORD_NOUNS } from './family'
 import { accountById, type Ledger } from './ledger'
 import { fromMinor, parseMinor, toMinor } from './minorUnits'
@@ -14,7 +15,7 @@ const LATER = 'later'
 /** A change of the payment as PATCH /api/entries/{id}/family-payment takes it: only what changed. */
 export interface PaymentPatch {
   date?: string; amount?: string; accountId?: number; later?: true; memo?: string | null
-  currency?: string; accountAmount?: string
+  currency?: string; accountCurrency?: string; accountAmount?: string
 }
 
 /** Where the server's objections to a payment go. */
@@ -40,8 +41,7 @@ export function paymentProblems(failure: Error | undefined, noun = 'expense'): P
     if (code === 'AMOUNTS_NEEDED') {
       problems.amount.push(`This ${noun} is split by amounts: change its amount on the ${noun}’s page, with the new amounts.`)
     } else {
-      // A missing rate (F4e) is the amount's: its message says to enter it in the base currency on the record's page.
-      const field: keyof Problems = ['AMOUNT', 'RATE_MISSING', 'BASE_AMOUNT'].includes(code) ? 'amount'
+      const field: keyof Problems = code === 'AMOUNT' ? 'amount'
         : code === 'PAYMENT' ? 'payment' : code === 'JOINED_AFTER' ? 'date' : code === 'ACCOUNT_AMOUNT' ? 'accountAmount' : 'other'
       problems[field].push(sentence(message))
     }
@@ -53,8 +53,10 @@ export function paymentProblems(failure: Error | undefined, noun = 'expense'): P
 /**
  * The user's own side of a family record, as an entry of their personal ledger: their payment for a family expense
  * (F4c; D-14), what they received of a family income, or their side of a settlement (F4d; D-24). Its account, or
- * "Specify later", changes here, and for a payment or a receipt also its date, amount and private note, as the user's
- * change of the record: the other members' shares follow on the server. Deleting it deletes the record, after a
+ * "Specify later", changes here, with the currency the account paid or received in and, where that isn't the
+ * record's, what went from or into it (D-89, only the user sees it, D-88); and for a payment or a receipt also its date,
+ * the record's amount in the record's own currency (D-45) and the private note, as the user's change of the record: the
+ * other members' shares follow on the server. Deleting it deletes the record, after a
  * confirmation that names the family budget. A settlement's date and amount change here only for the side who recorded
  * it, who alone deletes it; a settlement takes no note.
  */
@@ -69,50 +71,49 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
   const settlement = family.link === 'SETTLEMENT'
   const type = settlement ? 'SETTLEMENT' : family.recordType === 'INCOME' ? 'INCOME' : 'EXPENSE'
   const noun = RECORD_NOUNS[type]
-  // The side's own account is the entry's first line; the other is the family budget's debt account.
+  // The side's own account is the entry's first line, in the paying currency (D-89); the record's amount is its own.
   const side = entry.postings[0]
   const out = signOf(side.amount) < 0
-  const currency = side.currency
   const account = accountById(ledger, side.accountId)
   const initialPayment = account?.system && account.code === 'UNSPECIFIED_PAYMENTS' ? LATER : String(side.accountId)
-  const minor = toMinor(side.amount, currency) ?? 0n
-  const initialAmount = fromMinor(minor < 0n ? -minor : minor, currency)
+  const sideMinor = toMinor(side.amount, side.currency) ?? 0n
+  const sideAmount = fromMinor(sideMinor < 0n ? -sideMinor : sideMinor, side.currency)
   // A settlement's date and amount are its recorder's; everything else here is the user's own.
   const mayChangeRecord = !settlement || record.data?.canEditPayment === true
   const mayDelete = !settlement || record.data?.canDelete === true
-  // The payer's, the receiver's and the recorder's side is in the record's own currency; the other side of a settlement
-  // names what went from or into an account of theirs in another currency than the base (F4e).
+  // The payer's, the receiver's and the recorder's side follows the record's amount; the other side of a settlement
+  // names its own amount whenever it names an account in another currency (F4e, D-89).
   const sideIsRecord = !settlement || record.data?.canEdit === true
-  const baseCurrency = record.data?.currency
+  const recordCurrency = record.data?.currency
 
   const [date, setDate] = useState(entry.entryDate)
-  const [amountText, setAmount] = useState(initialAmount)
+  const [amountText, setAmount] = useState<string>()
   const [payment, setPayment] = useState(initialPayment)
+  const [paying, setPaying] = useState<PayingSideForm>(newPayingSide)
   const [memo, setMemo] = useState(entry.memo ?? '')
   const [failure, setFailure] = useState<Error>()
   const [busy, setBusy] = useState(false)
 
-  const [ownText, setOwnText] = useState('')
-  const chosen = payment !== LATER && payment !== initialPayment ? accountById(ledger, Number(payment)) : undefined
-  // A newly chosen account with a currency of its own decides the record's currency, so its amount is asked again.
-  const newCurrency = sideIsRecord && chosen?.defaultCurrency && chosen.defaultCurrency !== currency ? chosen.defaultCurrency : undefined
-  const amountCurrency = newCurrency ?? currency
-  const parsed = parseMinor(amountText, amountCurrency)
-  const ownCurrency = !sideIsRecord && baseCurrency && chosen?.defaultCurrency && chosen.defaultCurrency !== baseCurrency
-    ? chosen.defaultCurrency : undefined
-  const own = ownCurrency ? parseMinor(ownText, ownCurrency) : undefined
+  // The record's amount, in its currency, until the user types another.
+  const shownAmount = amountText ?? record.data?.amount ?? ''
+  const parsed = parseMinor(shownAmount, recordCurrency ?? side.currency)
+  const amountChanged = amountText !== undefined && 'minor' in parsed && record.data !== undefined
+    && parsed.minor !== toMinor(record.data.amount, record.data.currency)
+  const accountChanged = payment !== initialPayment
+  const chosen = payment !== LATER ? accountById(ledger, Number(payment)) : undefined
+  const kept = !accountChanged ? side.currency : undefined
+  const paid = recordCurrency === undefined ? { patch: {} }
+    : sidePatch({ account: chosen, currency: recordCurrency, side: paying, kept,
+      moves: sideIsRecord && amountChanged, accountChanged })
   const patch: PaymentPatch = {
     ...(date !== entry.entryDate ? { date } : {}),
-    ...('minor' in parsed && (newCurrency || fromMinor(parsed.minor, currency) !== initialAmount) ? { amount: fromMinor(parsed.minor, amountCurrency) } : {}),
-    ...(newCurrency ? { currency: newCurrency } : {}),
-    ...(payment !== initialPayment ? (payment === LATER ? { later: true as const } : { accountId: Number(payment) }) : {}),
-    ...(ownCurrency && own && 'minor' in own ? { accountAmount: fromMinor(own.minor, ownCurrency) } : {}),
+    ...(amountChanged && 'minor' in parsed ? { amount: fromMinor(parsed.minor, recordCurrency!) } : {}),
+    ...(accountChanged ? (payment === LATER ? { later: true as const } : { accountId: Number(payment) }) : {}),
+    ...('patch' in paid ? paid.patch : {}),
     ...(!settlement && memo.trim() !== (entry.memo ?? '') ? { memo: memo.trim() || null } : {}),
   }
   const changed = Object.keys(patch).length > 0
-  const ready = changed && date !== '' && 'minor' in parsed && !busy && (!newCurrency || patch.amount !== undefined)
-    && (!ownCurrency || (own !== undefined && 'minor' in own))
-  const foreign = record.data && record.data.originalCurrency && record.data.originalCurrency !== record.data.currency
+  const ready = changed && date !== '' && 'minor' in parsed && !busy && !('problem' in paid)
   // The accounts the backend takes, and the one it has, archived or not.
   const choices = paymentAccounts(ledger.accounts)
   if (initialPayment !== LATER && account && !choices.includes(account)) choices.push(account)
@@ -192,35 +193,24 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
           <Field label="Date" errors={problems.date}>
             <input type="date" value={date} required disabled={!mayChangeRecord} onChange={(e) => setDate(e.target.value)} />
           </Field>
-          <Field label={`Amount (${amountCurrency})`} errors={[...(amountText.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}
-            hint={record.data && foreign && sideIsRecord ? (
-              <>
-                The family budget counts it as {formatMoney(record.data.amount, record.data.currency)}
-                {recordRateLine(record.data) ? ` (${recordRateLine(record.data)})` : ''}
-                {patch.amount !== undefined || patch.date !== undefined ? '; it is converted again when you save' : ''}.
-              </>
-            ) : undefined}>
-            <input className="amount" inputMode="decimal" value={amountText} autoComplete="off" disabled={!mayChangeRecord}
+          <Field label={`Amount of the ${noun} (${recordCurrency ?? side.currency})`}
+            errors={[...(shownAmount.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}
+            hint={side.currency !== recordCurrency && recordCurrency
+              ? `Your side: ${formatMoney(sideAmount, side.currency)}, which only you see.` : undefined}>
+            <input className="amount" inputMode="decimal" value={shownAmount} autoComplete="off" disabled={!mayChangeRecord}
               onChange={(e) => setAmount(e.target.value)} />
           </Field>
           <Field label={accountLabel} errors={problems.payment}
             hint="“Specify later” keeps it under “Payments without a specified account”.">
-            <AccountSelect accounts={choices} value={payment} onChange={(value) => {
-              setPayment(value)
-              // In another currency, the amount is asked again.
-              const next = value !== LATER ? accountById(ledger, Number(value)) : undefined
-              if (sideIsRecord && next?.defaultCurrency && next.defaultCurrency !== currency) setAmount('')
-            }}>
+            <AccountSelect accounts={choices} value={payment} onChange={(value) => { setPayment(value); setPaying(newPayingSide()) }}>
               <option value={LATER}>Specify later</option>
             </AccountSelect>
           </Field>
-          {ownCurrency && (
-            <Field label={`Amount ${out ? 'paid' : 'received'} in ${ownCurrency}`}
-              errors={[...(ownText.trim() !== '' && own && 'problem' in own ? [own.problem] : []), ...problems.accountAmount]}
-              hint={`What went ${out ? 'from' : 'into'} the account. Only you see it; the settlement stays ${formatMoney(record.data!.amount, baseCurrency!)}.`}>
-              <input className="amount" inputMode="decimal" value={ownText} autoComplete="off" placeholder="0.00"
-                onChange={(e) => setOwnText(e.target.value)} />
-            </Field>
+          {chosen && recordCurrency && (
+            <PayingSideFields account={chosen} recordCurrency={recordCurrency} side={paying} onChange={setPaying}
+              way={out ? 'paid' : 'received'} kept={kept} keptAmount={kept ? sideAmount : undefined}
+              suggestions={choices.map((a) => a.defaultCurrency).filter((c): c is string => c !== null)}
+              errors={{ currency: [], amount: [...('problem' in paid && (paying.amountText !== '' || accountChanged || amountChanged) ? [paid.problem] : []), ...problems.accountAmount] }} />
           )}
           {!settlement && (
             <Field label="Note, only you see it" errors={problems.memo} className="wide"

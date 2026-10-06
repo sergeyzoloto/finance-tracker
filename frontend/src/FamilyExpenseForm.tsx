@@ -6,8 +6,8 @@ import {
   expenseProblems, inOpeningBalance, newSplit, paymentAccounts, previewSplit, splitRequest, type SplitContext, type SplitForm,
 } from './expenseForm'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
-import { accountCurrency } from './currency'
-import { BaseAmountField, CurrencyField, currencySuggestions, useBaseAmount } from './FamilyCurrency'
+import { newPayingSide, payingCurrency, payingSideRequest, serverDefault, type PayingSideForm } from './currency'
+import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCurrency'
 import { SplitEditor } from './FamilySplit'
 import { fromMinor, parseMinor } from './minorUnits'
 
@@ -52,11 +52,12 @@ function rememberPayment(ledgerId: number, type: RecordType, payment: string) {
 
 /**
  * A new family expense (C1) at `/family/{ledgerId}/expenses/new`, or a new family income (C5, F4d) at
- * `/family/{ledgerId}/incomes/new`, which mirrors it: the date, a family category of its type, the amount in the paying
- * or receiving account's currency (or, for a member without an account or "Specify later", a currency picked, F4e), its
- * amount in the base currency with the rate and its source, editable, who paid or received it, the user's account if
- * it was them (D-14), the split of the base amount with every member's amount before saving (D-12, the tie to the payer
- * or receiver), and a comment. The server's objections appear next to the field or member they name.
+ * `/family/{ledgerId}/incomes/new`, which mirrors it: the date, a family category of its type, its currency (the main
+ * currency by default) and amount (D-45), who paid or received it, the user's account if it was them (D-14) with the
+ * currency it paid or received in and, when that isn't the record's, what went from or into it (D-89, only the user
+ * sees it, D-88), the split of the amount in its currency with every member's amount before saving (D-12, the tie to
+ * the payer or receiver), and a comment. No rate is used (D-87). The server's objections appear next to the field or
+ * member they name.
  */
 export default function NewRecord({ family, type = 'EXPENSE' }: { family: FamilyData; type?: RecordType }) {
   const navigate = useNavigate()
@@ -76,8 +77,8 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   const [chosenPayment, setPayment] = useState<string>()
   const [split, setSplit] = useState<SplitForm>(newSplit)
   const [comment, setComment] = useState('')
-  const [chosenCurrency, setCurrency] = useState(base)
-  const [entered, setEntered] = useState<string>()
+  const [currency, setCurrency] = useState(base)
+  const [side, setSide] = useState<PayingSideForm>(newPayingSide)
   const save = useFamilyMutation(family)
 
   const payers = members.filter((m) => m.status === 'ACTIVE' && (m.id === ledger.memberId || !m.hasAccount))
@@ -91,19 +92,19 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   const payment = chosenPayment
     ?? (remembered === LATER || eligible.some((a) => String(a.id) === remembered) ? remembered : '')
 
-  // The amount is in the paying account's currency, if it has one; else as picked (D-13, F4e).
+  // The record's own currency (D-45); the account pays in whichever currency the user names (D-89).
   const account = payerIsMe && !opening && payment !== LATER ? eligible.find((a) => String(a.id) === payment) : undefined
-  const currency = accountCurrency(account, chosenCurrency)
   const currencyValid = /^[A-Z]{3}$/.test(currency)
   const parsed = parseMinor(amountText, currencyValid ? currency : base)
   const amount = 'minor' in parsed ? parsed.minor : undefined
-  const baseAmount = useBaseAmount(family.path, currency, base, amount, date, entered)
-  const context: SplitContext = { ledger, members, date, amount: baseAmount.minor, payerId: Number(payer), noun: words.noun }
-  const preview = previewSplit(split, context, base)
+  const paying = payingCurrency(account, currency, side.currency)
+  const sideRequest = account ? payingSideRequest(paying, currency, side, true, serverDefault(account, currency)) : undefined
+  const context: SplitContext = { ledger, members, date, amount, payerId: Number(payer), noun: words.noun }
+  const preview = previewSplit(split, context, currencyValid ? currency : base)
   const dateProblem = date === '' ? 'Enter a date.'
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${words.noun} can’t be earlier.` : undefined
   const ready = !dateProblem && categoryId !== '' && amount !== undefined && currencyValid && payer !== ''
-    && baseAmount.minor !== undefined && !baseAmount.problem
+    && (sideRequest === undefined || 'request' in sideRequest)
     && (!payerIsMe || opening || payment !== '') && preview.problems.length === 0
 
   const problems = expenseProblems(save.failure, preview.rows.map((r) => r.member.id), Number(payer), 'date')
@@ -112,13 +113,13 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
     event.preventDefault()
     if (!ready) return
     const how = payerIsMe && !opening ? (payment === LATER ? { paymentLater: true } : { paymentAccountId: Number(payment) }) : {}
-    // The currency only when it isn't the base currency, the base amount only when typed in: else the server's.
+    // The currency only when it isn't the main currency; the paying side with the account (D-89).
     const inCurrency = currency === base ? {} : { currency }
-    const typedBase = baseAmount.state === 'ENTERED' ? { baseAmount: fromMinor(baseAmount.minor!, base) } : {}
+    const paid = sideRequest && 'request' in sideRequest ? sideRequest.request : {}
     void save.run(async () => {
       const created = await api<FamilyRecord>(`${family.path}/records`, 'POST', {
-        type, date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), ...inCurrency, ...typedBase,
-        comment: comment.trim() || null, payerMemberId: Number(payer), ...how, split: splitRequest(split, preview, base),
+        type, date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), ...inCurrency, ...paid,
+        comment: comment.trim() || null, payerMemberId: Number(payer), ...how, split: splitRequest(split, preview, currency),
       })
       if (payerIsMe && !opening) rememberPayment(ledger.id, type, payment)
       navigate(`${family.page}/expenses/${created.id}`)
@@ -145,13 +146,10 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
             <input className="amount" inputMode="decimal" value={amountText} autoComplete="off" placeholder="0.00"
               onChange={(e) => setAmountText(e.target.value)} />
           </Field>
-          {!account?.defaultCurrency && (
-            <CurrencyField value={chosenCurrency} errors={problems.currency}
-              suggestions={currencySuggestions(base, eligible.map((a) => a.defaultCurrency))}
-              onChange={(code) => { setCurrency(code); setEntered(undefined) }} />
-          )}
-          <BaseAmountField base={baseAmount} currency={currency} baseCurrency={base} date={date} entered={entered}
-            onEntered={setEntered} errors={problems.baseAmount} />
+          <CurrencyField value={currency} errors={problems.currency}
+            suggestions={currencySuggestions(base, eligible.map((a) => a.defaultCurrency))}
+            hint={`The ${words.noun}’s own currency; its shares are in it.`}
+            onChange={(code) => { setCurrency(code); setSide({ ...side, amountText: '' }) }} />
           <Field label={words.by} errors={problems.payer}>
             <select value={payer} onChange={(e) => setPayer(e.target.value)}>
               {payers.map((m) => (
@@ -162,17 +160,27 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
           {opening && reader && <OpeningBalanceNote joinDate={reader.joinDate} noun={words.noun} />}
           {payerIsMe && !opening && (
             <Field label={words.from} errors={problems.payment} hint={words.later}>
-              <AccountSelect accounts={eligible} value={payment} onChange={setPayment}>
+              <AccountSelect accounts={eligible} value={payment} onChange={(value) => { setPayment(value); setSide(newPayingSide()) }}>
                 <option value={LATER}>Specify later</option>
               </AccountSelect>
             </Field>
+          )}
+          {account && (
+            <PayingSideFields account={account} recordCurrency={currency} side={side} onChange={setSide}
+              way={type === 'INCOME' ? 'received' : 'paid'}
+              suggestions={eligible.map((a) => a.defaultCurrency).filter((c): c is string => c !== null)}
+              errors={{
+                currency: [],
+                amount: [...(sideRequest && 'problem' in sideRequest && (side.amountText !== '' || save.failure) ? [sideRequest.problem] : []),
+                  ...problems.accountAmount],
+              }} />
           )}
           <Field label="Comment (optional)" errors={problems.comment} className="wide"
             hint="Every member of the family budget sees it.">
             <input value={comment} maxLength={500} onChange={(e) => setComment(e.target.value)} />
           </Field>
         </div>
-        <SplitEditor form={split} preview={preview} context={context} currency={base} onChange={setSplit}
+        <SplitEditor form={split} preview={preview} context={context} currency={currencyValid ? currency : base} onChange={setSplit}
           byMember={problems.byMember} problems={problems.split} you={ledger.memberId} />
         <div className="actions">
           <button className="primary" disabled={!ready || save.pending}>{save.pending ? 'Saving…' : words.add}</button>

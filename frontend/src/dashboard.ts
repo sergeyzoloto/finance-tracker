@@ -1,8 +1,8 @@
 import {
   formatDate, isoDate, type CashFlowRow, type CategoryType, type ConvertedCashFlow, type CounterpartyBalance,
-  type MissingRate, type SharedSettlement,
+  type MissingRate, type Rate, type SharedSettlement,
 } from './api'
-import { abs, formatMoney, isZero, negate, signOf, sum } from './money'
+import { abs, formatMoney, formatRate, isZero, negate, signOf, sum } from './money'
 
 // The dashboard without React: the period in the URL, the cash flow as a monthly pivot, and who owes whom. Every
 // figure comes from the report endpoints; amounts in different currencies are never added together. In the base
@@ -226,8 +226,6 @@ export function daysBetween(from: string, to: string) {
   return Math.round((utc(to) - utc(from)) / 86_400_000)
 }
 
-/** A rate this many days older than the day it converts on is worth pointing out: the ECB publishes every working day. */
-export const STALE_AFTER_DAYS = 7
 
 /** "You owe €30.00 to Family budget." or "Family budget owes you €30.00." */
 export function settlementSentence(settlement: SharedSettlement, accountName: string) {
@@ -252,3 +250,10 @@ export function loanSides(balance: CounterpartyBalance, positive: 'owesYou' | 'y
   const amount = abs(balance.balance)
   return { owesYou: side === 'owesYou' ? amount : null, youOwe: side === 'youOwe' ? amount : null }
 }
+
+/**
+ * A rate a figure in the base currency used, in words (D-49, D-90): "1 EUR = 95.5 RUB, manual rate of Aug 1, 2026 (rate
+ * stale)", the ECB's or the user's own.
+ */
+export const usedRateText = (r: Rate) =>
+  `1 EUR = ${formatRate(r.perEuro)} ${r.currency}, ${r.source === 'MANUAL' ? 'manual' : 'ECB'} rate of ${formatDate(r.date)}${r.stale ? ' (rate stale)' : ''}`

@@ -52,7 +52,7 @@ const accounts: Account[] = [
 const ref = (member: FamilyMember) => ({ memberId: member.id, displayName: member.displayName })
 const record: FamilyRecord = {
   id: 5, type: 'EXPENSE', date: '2026-09-12', category: { id: 30, code: 'GROCERIES', name: 'Groceries', archived: false },
-  amount: '10.01', currency: 'EUR', originalAmount: '10.01', originalCurrency: 'EUR', comment: null, payer: ref(anna),
+  amount: '10.01', currency: 'EUR', comment: null, payer: ref(anna),
   splitMethod: 'EQUAL',
   shares: [
     { member: ref(anna), amount: '5.01', basisPoints: null, updatedBy: ref(anna), updatedAt: '2026-09-12T10:00:00Z' },
@@ -176,11 +176,8 @@ describe('a new expense marked as family (C2)', () => {
     expect(await screen.findByText('Every member of Trip sees it.')).toBeDefined()
   })
 
-  it('converts an entry in another currency than the budget’s, and sends the base amount only when typed in (F4e)', async () => {
+  it('keeps an entry in dollars as a dollar record, split in dollars, with no rate (D-45)', async () => {
     const calls = ledger([home], {
-      'GET /api/family-ledgers/7/conversion?amount=56.00&currency=USD&date=2026-09-30': {
-        status: 200, body: { amount: '56.00', currency: 'USD', baseAmount: '50.00', baseCurrency: 'EUR', rate: '0.892857142857', rateSource: 'ECB', rateDate: '2026-09-29' },
-      },
       'POST /api/family-ledgers/7/records': { status: 201, body: { ...record, id: 6 } },
     })
     renderApp('/entries/new')
@@ -190,23 +187,18 @@ describe('a new expense marked as family (C2)', () => {
     fireEvent.click(option)
     fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '56' } })
-    // The base amount, with its rate and source; the split is of the base amount.
-    const base = await screen.findByLabelText(/^Amount in EUR/)
-    await waitFor(() => expect(base).toHaveProperty('value', '50.00'))
-    expect(screen.getByText('1 USD = 0.892857 EUR, ECB rate of Sep 29, 2026')).toBeDefined()
-    await waitFor(() => expect(screen.getByTestId('share-71').textContent).toContain('€25.00'))
+    expect(screen.queryByLabelText(/^Amount in EUR/)).toBeNull()
+    await waitFor(() => expect(screen.getByTestId('share-71').textContent).toContain('$28.00'))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{
       type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '56.00', currency: 'USD', comment: null,
       payerMemberId: 70, paymentAccountId: 9, split: { method: 'RULE' }, privateNote: null,
     }]))
+    expect(calls.some((c) => c.url.includes('/conversion'))).toBe(false)
   })
 
-  it('takes a typed base amount, and puts a missing rate at the base amount', async () => {
+  it('pays a rouble record from a euro account in roubles, naming the paying currency (D-89)', async () => {
     const calls = ledger([home], {
-      'GET /api/family-ledgers/7/conversion?amount=9000.00&currency=RUB&date=2026-09-30': {
-        status: 200, body: { amount: '9000.00', currency: 'RUB', baseAmount: null, baseCurrency: 'EUR' },
-      },
       'POST /api/family-ledgers/7/records': { status: 201, body: { ...record, id: 6 } },
     })
     renderApp('/entries/new')
@@ -215,15 +207,9 @@ describe('a new expense marked as family (C2)', () => {
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'RUB' } })
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '9000' } })
-    expect(await screen.findByText('There is no exchange rate for RUB on or before Sep 30, 2026: enter the amount in EUR, '
-      + 'or add your own rate on the Rates page.')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    expect(calls.some((c) => c.method === 'POST')).toBe(false)
-    fireEvent.change(screen.getByLabelText(/^Amount in EUR/), { target: { value: '92.15' } })
-    expect(screen.getByText(/Entered by you/)).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{
-      type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '9000.00', currency: 'RUB', baseAmount: '92.15',
+      type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '9000.00', currency: 'RUB', accountCurrency: 'RUB',
       comment: null, payerMemberId: 70, paymentAccountId: 1, split: { method: 'RULE' }, privateNote: null,
     }]))
   })
@@ -238,13 +224,13 @@ describe('the payer’s own payment entry', () => {
     })
     renderApp('/entries/91')
     expect(await screen.findByRole('heading', { name: 'Family payment' })).toBeDefined()
-    expect(screen.getByLabelText(/^Amount/)).toHaveProperty('value', '10.01')
+    await waitFor(() => expect(screen.getByLabelText(/^Amount of the expense/)).toHaveProperty('value', '10.01'))
     expect(screen.getByLabelText(/^Note, only you see it/)).toHaveProperty('value', 'Old card')
     expect(await screen.findByText('Groceries, €10.01, shared by Anna, Sam.')).toBeDefined()
     expect(screen.getByRole('link', { name: 'Open the expense' }).getAttribute('href')).toBe('/family/7/expenses/5')
 
     fireEvent.change(screen.getByLabelText(/^Date/), { target: { value: '2026-09-13' } })
-    fireEvent.change(screen.getByLabelText(/^Amount/), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText(/^Amount of the expense/), { target: { value: '12' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toEqual([{
       method: 'PATCH', url: '/api/entries/91/family-payment?version=2', body: { date: '2026-09-13', amount: '12.00' },

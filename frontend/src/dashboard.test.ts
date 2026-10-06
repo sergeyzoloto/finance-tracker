@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ConvertedCashFlow, CounterpartyBalance, MissingRate, SharedSettlement } from './api'
 import {
   convertedCashFlowTable, daysBetween, inBaseFromQuery, loanSides, mergeMissing, MISSING, monthsBetween,
-  periodFromQuery, settlementSentence, total,
+  periodFromQuery, settlementSentence, total, usedRateText,
 } from './dashboard'
 import { formatMoney } from './money'
 
@@ -118,5 +118,14 @@ describe('amounts in the base currency', () => {
   it('counts the days between two dates across a change to summer time', () => {
     expect(daysBetween('2026-03-28', '2026-03-30')).toBe(2)
     expect(daysBetween('2022-03-01', '2026-09-26')).toBe(1670)
+  })
+})
+
+describe('the rates a figure used (D-49, D-90)', () => {
+  it('names the source and date, and marks a stale manual rate', () => {
+    expect(usedRateText({ currency: 'USD', date: '2026-09-29', perEuro: '1.1', source: 'ECB', stale: false }))
+      .toBe('1 EUR = 1.1 USD, ECB rate of Sep 29, 2026')
+    expect(usedRateText({ currency: 'RUB', date: '2026-08-01', perEuro: '95.5', source: 'MANUAL', stale: true }))
+      .toBe('1 EUR = 95.5 RUB, manual rate of Aug 1, 2026 (rate stale)')
   })
 })

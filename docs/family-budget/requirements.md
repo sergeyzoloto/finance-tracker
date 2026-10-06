@@ -46,6 +46,8 @@ Amended in F8a on 2026-10-06: new D-45 to D-49 and D-58 to D-87 (each marked as 
 
 Amended in F8b on 2026-10-06: new D-88 to D-91 (decided by the PM), about who sees the paying side, the paying currency and the rates of every displayed conversion; F4e's choice that every member sees the paying side is replaced by D-88.
 
+Amended in F8b-fix on 2026-10-06: new D-92 to D-96 (decided by the PM), about the month-end rate, the journal's currencies, a red CI on the commit to deploy, the number of check runs and F8's commit to deploy.
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -290,6 +292,13 @@ Added in F8b (2026-10-06, decided by the PM)
 - D-89 (decided by the PM; answers F8a's questions 2 and 3). The currency taken from the paying account (`accountCurrency`) is chosen per payment. Its default is the account's default currency, else the record's currency; the user, or the import, can change it. `accountAmount` is required when that currency differs from the record's. It is asked again when the record's amount or currency, the account, or the paying currency changes; a change of date or comment keeps it. An account holds several currencies, so a USD record paid in USD from an account whose default is EUR needs neither `FX_EXCHANGE` nor `accountAmount`.
 - D-90 (decided by the PM). D-49's rules apply to every displayed conversion, the personal dashboard and reports included: one rule set, and no displayed total ever uses a stale rate.
 - D-91 (decided by the PM). Among the applicable rates (an ECB rate at most 7 days old, and the viewing user's manual rates from their date until the next one), the most recent date wins. On the same date, the manual rate wins.
+
+Added in F8b-fix (2026-10-06, decided by the PM)
+- D-92 (decided by the PM). The month-end rate is used only in the family monthly report (D-47's total of a month). The personal cash flow converts each posting at the rate of its own date (ADR 0002).
+- D-93 (decided by the PM). Every family journal row with an amount stores its own currency. Built in F8c.
+- D-94 (decided by the PM). If CI on the commit to deploy fails only on a frontend test, the failed job may be re-run once. If the re-run passes, the deploy goes on and the next stage fixes the test; if it fails again, stop.
+- D-95 (decided by the PM). When `main` and `feature/family-budget` are pushed at the same commit, CI runs twice, so the commit has 10 check runs: each of the five names twice, all `completed success`. 5 (one run) is fine too.
+- D-96 (decided by the PM). CI on F8b's last commit, `87ceedf` (M), failed only in the job Frontend, in both runs (CI #60 on `main`, CI #61 on `feature/family-budget`), on attempt 1 and again on the re-run D-94 allows: `Family.test.tsx`, "shows the budget with the user's role, and what its creation could not finish", whose balances answer had a pre-F8 shape. So M is not deployed. A narrow fix on top of M, test code only (F8b-fix), becomes the new commit to deploy, M′, and F8 is deployed from M′ with the same checklist. The error boundary, guards in the application and everything else stay in F8c.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

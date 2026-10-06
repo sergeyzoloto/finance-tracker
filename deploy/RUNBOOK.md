@@ -714,9 +714,9 @@ changed):
 
 ## F8's deploy checklist with the suite
 
-**Commit to deploy (M):** `feature/family-budget`'s head after F8b, the last commit F8b's report names in full; `main`
-fast-forwards to it in step 1 (D-57), so M is `origin/main` and a fast-forward of the running `8d75f83`. M holds this
-checklist, so the checklist can't name M's hash itself: the report does, and every block below that takes it says
+**Commit to deploy (M):** `feature/family-budget`'s head after F8b-fix (D-96), the last commit F8b-fix's report names
+in full, not F8b's last commit; `main` fast-forwards to it in step 1 (D-57), so M is `origin/main` and a fast-forward
+of the running `8d75f83`. M holds this checklist, so the checklist can't name M's hash itself: the report does, and every block below that takes it says
 `<M>`; type M's full hash (40 characters) there before pasting the block. Pasted as it is, bash reads `<M>` as a
 redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `F8` (`deploy/checks/F8.sql` and `F8.expected`): F8a and
 F8b together, once (D-77). **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before,
@@ -734,9 +734,9 @@ What runs and why:
 
 - `run` is the clone's script, `8d75f83`'s (OPS-2b's `deploy.sh`, which F8 doesn't change; bash reads it before the
   merge). Its step 1.3 requires M to be `origin/main` after `git fetch` and a fast-forward of `HEAD` (`8d75f83`): M
-  descends from it through QA-1, QA-1b (`6fdc989`), F8a and F8b. 1.3 lists every commit from `8d75f83` to M (QA-1's,
-  F8a's eight and F8b's), "Migrations added: V11__multi_currency_family_records.sql", and under `deploy/`:
-  `RUNBOOK.md`, `checks/F8.expected`, `checks/F8.sql`, `rollback.sh`, `tests/mutate.sh`, `tests/run.sh` and
+  descends from it through QA-1, QA-1b (`6fdc989`), F8a, F8b and F8b-fix. 1.3 lists every commit from `8d75f83` to M
+  (QA-1's, F8a's eight, F8b's and F8b-fix's), "Migrations added: V11__multi_currency_family_records.sql", and under
+  `deploy/`: `RUNBOOK.md`, `checks/F8.expected`, `checks/F8.sql`, `rollback.sh`, `tests/mutate.sh`, `tests/run.sh` and
   `tests/stubs/docker`. `finance.caddy`, the postgres service and `pg-backup/finance.conf` don't change.
 - Both images are rebuilt with new content: the backend (F8a, F8b) and the frontend (F8b) change. Compose recreates
   `api` and `web`; signed-in browser sessions end. The api migrates the database to V11 at its start (Flyway: "Successfully
@@ -757,8 +757,8 @@ What runs and why:
 - `finish` has no time limit after `run`'s summary: the suite may take its time; run nothing else of `deploy.sh` or
   `rollback.sh` between `run` and `finish` but what this checklist names.
 
-**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted F8b
-and named M.
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted
+F8b-fix and named M.
 
 ```bash
 # On the laptop
@@ -766,7 +766,7 @@ cd ~/dev/finance-tracker && git fetch origin && git checkout feature/family-budg
 ```
 
 You should see no line from `git status --short`, a fast-forward of `main` from `6fdc989`, the push of both branches,
-and M in full with its parent and F8b's last subject: exactly the commit F8b's report names. If the merge says `Not
+and M in full with its parent and F8b-fix's last subject: exactly the commit F8b-fix's report names. If the merge says `Not
 possible to fast-forward`, or the hash is another, stop and tell the PM. CI starts with the push, on M; don't start
 "CI on Ubuntu 26.04" now (step 9 says when, D-44).
 
@@ -777,8 +777,9 @@ CI on M, read only, from GitHub's public API, once the five jobs have had time t
 M=<M>; curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
 ```
 
-You should see `5`, then `Backend`, `Deploy scripts`, `Dependency updates`, `Frontend` and `Web image`, each
-`completed success`. Anything else: stop; `run`'s gate (1.5) would refuse anyway.
+You should see `10`, then `Backend`, `Deploy scripts`, `Dependency updates`, `Frontend` and `Web image` twice each,
+each `completed success` (D-95: pushing `main` and `feature/family-budget` at one commit starts CI twice); `5`, each name
+once, if only one run happened. Anything else: stop; `run`'s gate (1.5) would refuse anyway.
 
 **2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
 
@@ -843,8 +844,8 @@ It prints ("Deploying with deploy.sh" lists the steps):
   `good`, both images "the recorded image", the read-only role's line.
 - 1.3: the fetch; the commits from `8d75f83` to M; `Migrations added: V11__multi_currency_family_records.sql`; under
   `deploy/` the seven files listed above.
-- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 5 check runs, every one completed with
-  success (…)`. 1.6: the F8 files. 1.7: the 21 numbers of step 3.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (…)` (D-95; `5 check runs` if only one run happened). 1.6: the F8 files. 1.7: the 21 numbers of step 3.
 - 1.8: a fresh dump, its restore test `PASS`, and the before-dump preserved in the run folder (D-43), with its SHA-256.
 - 2: `Deploy <M's 7 characters> (<its subject>), stage F8, over 8d75f83.` and the commits line; type the 7 characters.
 - 3.1: `git merge --ff-only <M>`: `Fast-forward` and the files. 3.2: the running images kept as

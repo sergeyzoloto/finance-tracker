@@ -3,6 +3,62 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · F8b-fix: CI's red Frontend job on `87ceedf` (D-96)
+
+Two commits on `feature/family-budget` on top of M = `87ceedf`: `075e99d` "test(family): F8-shaped balances in the
+overview's test, and three waits for loads (F8b-fix)", and the commit of this entry, "docs: F8b-fix in F8's checklist,
+D-92 to D-96 (F8b-fix)", whose full hash the report names: the new commit to deploy, M′ (D-96). Test code and
+documentation only. Not pushed, nothing merged into `main`; production not accessed.
+
+**Changes**
+- The cause: `Family.test.tsx`, "shows the budget with the user's role, and what its creation could not finish",
+  answered `GET /api/family-ledgers/7/balances` with the pre-F8 shape `{ currency: 'EUR', members: [] }` (stubs are
+  matched by method and path, not by call order). The overview renders `YourBalance` as soon as that load answers, and
+  `yourBalance` reads `balances.byCurrency.flatMap`: a `TypeError` in render, with no error boundary, so React unmounts
+  the whole tree (`<div />`). Only the timing varies: before line 259 (CI #61, an assertion failure), or later (CI #60,
+  Vitest's unhandled error, which fails the run). The test now answers with `euroBalances` (`testLedger.ts`, as
+  `FamilyExpenses`, `FamilyF6b` and `FamilyLifecycle` do), the reader at 0.00, and waits for "You are settled." and
+  "Nothing recorded yet." before its assertions, so no request outlives it.
+- Found while verifying, already at `87ceedf` (1 failure in 12 full runs there): `FamilyPayer.test.tsx`, "moves a
+  payment from “Specify later” to an account" and "says where the amount of an expense split by amounts changes",
+  acted before the record had loaded (Save needs it), and `FamilyRecords.test.tsx`, "lets its other side put their
+  part on an account, and nothing else", chose account 2 before the accounts had loaded; each now and then sent no
+  PATCH. They wait for the record's sentence and for the account's option.
+- `FamilyLedgerApiTests.aBudgetWithoutRecordsHasItsMainCurrencyInItsBalances`: a budget without records answers
+  `byCurrency` with its main currency, every member at zero, and a total; also with a member without an account and
+  one without records, after a member's delete-all (who then gets 404), and after a change of the main currency.
+- `deploy/RUNBOOK.md`, "F8's deploy checklist with the suite": M is `feature/family-budget`'s head after F8b-fix,
+  named in full by F8b-fix's report; steps 1 and 1.5 expect 10 check runs (D-95; 5 after one run); 1.3's commits
+  include F8b-fix's; the files under `deploy/` are the same seven. Nothing else in the checklist changed.
+- `docs/family-budget/requirements.md`: D-92 to D-96, decided by the PM.
+
+**Verified**
+- Reproduced at `87ceedf`, clean `npm ci`, Node 24.21.0, npm 11.19.0, Vitest 5.0.2: `npm test` 312 passed and
+  `Errors 1 error` (the `TypeError` in `yourBalance`, `npm test` exit 1) in 3 of 3 runs, and in 2 of 3 on Node 22.19.0;
+  `CI=true taskset -c 0 npx vitest run src/Family.test.tsx` 2 of 3 runs `1 failed`, the body `<div />` at
+  `Family.test.tsx:259`, as CI #61. F8b's "312 passed" read the Tests line only. With the old body put back into the
+  fixed test, it fails 3 of 3: the waits catch it every time.
+- The three other tests, with the record (or the accounts) answered 300 ms late in a scratch copy: before, 2 (1)
+  failed; after, all passed.
+- After the fix: `Family.test.tsx` alone on one core 5 of 5, the full suite on one core with `CI=true TZ=UTC` 5 of 5,
+  `npm test` 15 of 15 on Node 24.21.0 and 5 of 5 on Node 22.19.0: 312 passed each time, no Errors line. `npm run build`
+  built.
+- Backend: `./mvnw -B clean verify` 435 tests, 0 failures, BUILD SUCCESS.
+- The backend can't answer balances without `byCurrency`: `FamilyRecordService.balances` always puts the main currency
+  first, `FamilyBalances` has no `@JsonInclude` and the application sets no inclusion, a non-member (a FORMER one
+  included) gets 404, and an error never reaches `useApi`'s data.
+- `npm run e2e:local` against `./dev.sh`'s stack (stopped afterwards), on this tree before the commits: 8 passed
+  (pages, sign-in, smoke, family F7 and F8, each also at 375 px, cleanup), `Result: PASSED`, 0 password hits.
+
+**Open**
+- With a load answered 300 ms late, five more frontend tests fail, though none failed in about 70 natural runs: with
+  `/api/accounts` late, `FamilyCurrencies.test.tsx` "keeps what went from the account on a new date, and asks for it
+  again with a new amount", `FamilyRecords.test.tsx` "mirrors the expense form with “Received by” and “Received into”,
+  and sends an INCOME" and "lists the reader’s own debts first, …"; with `/members` late, `FamilyPayer.test.tsx`'s C2
+  tests "creates the expense in the family budget, …" and "pays a rouble record from a euro account in roubles, …". For
+  F8c, with the error boundary and the application's guards (D-96).
+- The PM repeats step 1 of F8's checklist with M′; CI on M′ is to show 10 check runs, all `completed success` (D-95).
+
 ## 2026-10-06 · F8's deploy checks and checklist; F8b's end (F8b, commit 8)
 
 Commit on `feature/family-budget`, after commit 7: "docs(deploy): F8's checks and deploy checklist (F8b)", whose hash

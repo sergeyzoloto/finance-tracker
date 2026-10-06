@@ -1,7 +1,8 @@
 import type { Account } from './accounts.ts'
 
-// Who the app says is signed in (D-52, guards 2 and 5). `/api/me` answers `{ name, features: { familyLedgers } }`; the
-// name is the token's (Keycloak's first and last name), which the allowlist commits for each account.
+// Who the app says is signed in (D-52, guards 2 and 5). `/api/me` answers `{ name, email, features: { familyLedgers } }`;
+// since F8 (D-54) the check compares the email, the token's, with the one the allowlist commits for each account. The
+// name is only quoted in a refusal.
 
 export type Family = 'on' | 'off'
 
@@ -15,17 +16,19 @@ export function familyFrom(value: string | undefined): Family {
 }
 
 /**
- * Checks `/api/me`'s answer after a sign-in, before any other request of the account: the account it names, then the
- * family switch.
+ * Checks `/api/me`'s answer after a sign-in, before any other request of the account: the account's email it names
+ * (D-54), then the family switch.
  *
  * @throws RunAborted on any mismatch, without echoing more than the name the app reported
  */
 export function checkMe(me: unknown, account: Account, family: Family) {
-  const answer = me as { name?: unknown; features?: { familyLedgers?: unknown } } | null
-  const name = typeof answer?.name === 'string' ? answer.name : undefined
-  if (name !== account.name) {
-    throw new RunAborted(`Signed in for ${account.label}, but /api/me reports ${name === undefined ? 'no name'
-      : `"${name.slice(0, 80)}"`}, not "${account.name}". The run stops here, with no further request from any account.`)
+  const answer = me as { name?: unknown; email?: unknown; features?: { familyLedgers?: unknown } } | null
+  const email = typeof answer?.email === 'string' ? answer.email : undefined
+  if (email?.toLowerCase() !== account.email.toLowerCase()) {
+    const name = typeof answer?.name === 'string' ? ` (${JSON.stringify(answer.name.slice(0, 80))})` : ''
+    throw new RunAborted(`Signed in for ${account.label}, but /api/me reports ${email === undefined ? 'no email'
+      : `"${email.slice(0, 80)}"`}${name}, not "${account.email}". The run stops here, with no further request from any `
+      + 'account.')
   }
   const on = answer?.features?.familyLedgers
   if (on !== (family === 'on')) {

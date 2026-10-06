@@ -3,6 +3,7 @@ package com.example.financetracker.ledger.api;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.report.AccountBalance;
 import com.example.financetracker.ledger.report.CashFlowRow;
@@ -38,9 +39,11 @@ class ReportController {
             + "on its own";
 
     private final ReportService reports;
+    private final Today today;
 
-    ReportController(ReportService reports) {
+    ReportController(ReportService reports, Today today) {
         this.reports = reports;
+        this.today = today;
     }
 
     /** The displayed balance of every account that isn't archived, per currency (rule 4). */
@@ -113,7 +116,8 @@ class ReportController {
         return reports.integrityCheck(ledger);
     }
 
-    private static LocalDate asOfOrToday(LocalDate asOf) {
-        return asOf != null ? asOf : LocalDate.now();
+    /** The day asked about, by default the api's today ({@link Today}, D-53). */
+    private LocalDate asOfOrToday(LocalDate asOf) {
+        return asOf != null ? asOf : today.date();
     }
 }

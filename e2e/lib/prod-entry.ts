@@ -21,6 +21,7 @@ if (!logPath) throw new Error('E2E_FAKE_LOG is missing: this entry is for lib/te
 const { A, B } = TEST_ROLES
 const fake = await startFake({
   names: { [A.login]: A.name, [B.login]: B.name },
+  emails: { [A.login]: A.email, [B.login]: B.email },
   passwords: { [A.login]: TEST_PASSWORD, [B.login]: TEST_PASSWORD },
 })
 const root = mkdtempSync(join(tmpdir(), 'e2e-prod-entry-'))

@@ -3,6 +3,31 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · One today for the api (D-53) and the account's email in `/api/me` (D-54) (F8b, commit 5)
+
+Commit on `feature/family-budget`, after commit 4: "feat(api): one today and the account's email in /api/me, D-53,
+D-54 (F8b)", whose hash F8b's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- D-53: `DemoController` (the demo's last day) and `ReportController` (every report's default `asOf`) take `Today`
+  instead of `LocalDate.now()`. F8a's survey confirmed: in `backend/src/main`, besides `Today` itself, these two were
+  the only dates taken from the clock; the rest are instants (`Instant.now()`, SQL `now()`) of timestamps, not days.
+- D-54: `GET /api/me` adds `email`, the token's `email` claim (additive; null without one).
+- `e2e/lib/identity.ts`: `checkMe` compares `/api/me`'s email with the allowlisted account's (without regard to case)
+  instead of its name, which a refusal only quotes; an answer without an email is refused. The fake app reports an
+  email per login (`emails`), `lib/prod-entry.ts` and the guards' tests with it; "naming someone else" is now another
+  account's email under the right name. The summary's line is unchanged. `e2e/README.md` says so.
+- `TodayApiTests` (new): with the clock at 2026-09-10T23:30Z (the JVM's zone already on the 11th), the balances
+  without `asOf` leave out an entry of the 11th, by account and in the base currency; the demo ends on the api's today;
+  `/api/me` names the account's email.
+
+**Verified**
+- `TodayApiTests` 3 of 3; `npm run test:guards` in `e2e/` 32 of 32; `npm run typecheck` in `e2e/` clean. The whole
+  backend at this commit: in the last entry.
+
+**Open**
+- The frontend's `Me` type takes `email` with commit 6.
+
 ## 2026-10-06 · D-47's totals in the main currency for the family's balances and report (F8b, commit 4)
 
 Commit on `feature/family-budget`, after commit 3: "feat(family): D-47's totals of balances and the report (F8b)",

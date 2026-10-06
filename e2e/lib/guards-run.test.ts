@@ -21,8 +21,9 @@ afterEach(async () => {
   artifacts = undefined
 })
 
-async function run(names: Record<string, string>, passwords: Record<string, string>) {
-  fake = await startFake({ names, passwords })
+async function run(names: Record<string, string>, passwords: Record<string, string>,
+  emails: Record<string, string> = { [TEST_ROLES.A.login]: TEST_ROLES.A.email, [TEST_ROLES.B.login]: TEST_ROLES.B.email }) {
+  fake = await startFake({ names, passwords, emails })
   process.env.E2E_TEST_APP = String(fake.appPort)
   process.env.E2E_TEST_KEYCLOAK = String(fake.keycloakPort)
   artifacts = mkdtempSync(join(tmpdir(), 'e2e-guards-run-'))
@@ -56,7 +57,9 @@ describe('the guards with a real browser', { timeout: 120_000 }, () => {
   })
 
   test("/api/me naming someone else: the run aborts, with no further request from any account", async () => {
-    const { status, log } = await run({ [A.login]: A.name, [B.login]: 'Someone Else' }, both)
+    // B's own name, but another account's email (D-54: the email decides).
+    const { status, log } = await run({ [A.login]: A.name, [B.login]: B.name }, both,
+      { [A.login]: A.email, [B.login]: 'someone.else@example.invalid' })
     assert.equal(status, 1)
     // A was checked; B's /api/me named someone else: nothing after it, not even A's cleanup.
     assert.deepEqual(api(log), [`GET /api/me ${A.login}`, `GET /api/me ${B.login}`])

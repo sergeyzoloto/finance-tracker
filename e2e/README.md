@@ -48,9 +48,11 @@ In Keycloak's admin console, https://auth.finance-nl.com/admin/ (only from your 
 
 - There is no username field: the realm has "Email as username" on, so the email is the username, and the suite
   signs in with it.
-- The first and last name matter: `/api/me` reports the full name, and the suite stops unless it is exactly
-  `E2E Account A` or `E2E Account B` (D-52, guard 2). The realm's user profile requires both names; without them
-  Keycloak would ask for them at the first sign-in, and the suite would stop there.
+- The email matters: since F8 (D-54) `/api/me` reports the account's email, and the suite stops unless it is exactly
+  `e2e-a@finance-nl.com` or `e2e-b@finance-nl.com` (D-52, guard 2; compared without regard to case). Until F8 it
+  compared the full name. Give both a first and last name all the same (`E2E Account A`, `E2E Account B`): the
+  realm's user profile requires them, without them Keycloak would ask for them at the first sign-in, and the summary
+  quotes the name.
 - **Credentials → Set password**: a long random password of its own for each (for example the output of
   `openssl rand -base64 30`), **Temporary off**. No OTP: add no other credential and no required action.
 - **Role mapping**: assign nothing. The app needs the client role `finance-tracker` → `user`, which every user of the

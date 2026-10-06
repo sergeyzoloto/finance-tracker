@@ -10,8 +10,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 class MeController {
 
-    /** @param features which features the app has switched on, so that the frontend shows only those */
-    record Me(String name, Features features) {
+    /**
+     * @param email the signed-in account's email, the token's {@code email} claim; null if it has none (D-54, F8b,
+     *        additive), which the end-to-end suite's identity check compares
+     * @param features which features the app has switched on, so that the frontend shows only those
+     */
+    record Me(String name, String email, Features features) {
     }
 
     /** @param familyLedgers the family budget (D-25): off until F7 in production */
@@ -26,7 +30,8 @@ class MeController {
 
     @GetMapping("/api/me")
     Me me(Authentication authentication) {
-        return new Me(CurrentUserResolver.displayName((Jwt) authentication.getCredentials()),
+        Jwt jwt = (Jwt) authentication.getCredentials();
+        return new Me(CurrentUserResolver.displayName(jwt), jwt.getClaimAsString("email"),
                 new Features(family.enabled()));
     }
 }

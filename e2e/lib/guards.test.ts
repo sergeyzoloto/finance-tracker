@@ -121,13 +121,18 @@ describe('the allowlist (guard 2)', () => {
     assert.match(refusal(() => readCredentials(file, PROD_ACCOUNTS)), /E2E_A_USERNAME .* isn't e2e-a@finance-nl.com/)
   })
 
-  test('/api/me reporting someone else aborts', () => {
-    assert.throws(() => checkMe({ name: 'Sergey Zolotko', features: { familyLedgers: true } }, PROD_ACCOUNTS.A, 'on'),
-      (e) => e instanceof RunAborted && /reports "Sergey Zolotko", not "E2E Account A".*no further request/.test(e.message))
-    assert.throws(() => checkMe({ name: 'E2E Account B', features: { familyLedgers: true } }, PROD_ACCOUNTS.A, 'on'), RunAborted)
-    assert.throws(() => checkMe({ features: { familyLedgers: true } }, PROD_ACCOUNTS.A, 'on'), /reports no name/)
+  test('/api/me reporting someone else aborts (D-54: by the email)', () => {
+    const on = { familyLedgers: true }
+    assert.throws(() => checkMe({ name: 'Someone', email: 'owner@example.com', features: on }, PROD_ACCOUNTS.A, 'on'),
+      (e) => e instanceof RunAborted
+        && /reports "owner@example.com" \("Someone"\), not "e2e-a@finance-nl.com".*no further request/.test(e.message))
+    assert.throws(() => checkMe({ name: 'E2E Account A', email: 'e2e-b@finance-nl.com', features: on }, PROD_ACCOUNTS.A,
+      'on'), RunAborted)
+    // The right name is not enough: an answer without the email is refused.
+    assert.throws(() => checkMe({ name: 'E2E Account A', features: on }, PROD_ACCOUNTS.A, 'on'), /reports no email/)
     assert.throws(() => checkMe(null, PROD_ACCOUNTS.A, 'on'), RunAborted)
-    checkMe({ name: 'E2E Account A', features: { familyLedgers: true } }, PROD_ACCOUNTS.A, 'on')
+    checkMe({ name: 'E2E Account A', email: 'e2e-a@finance-nl.com', features: on }, PROD_ACCOUNTS.A, 'on')
+    checkMe({ name: 'Renamed', email: 'E2E-A@finance-nl.com', features: on }, PROD_ACCOUNTS.A, 'on')
   })
 })
 
@@ -139,10 +144,10 @@ describe('E2E_FAMILY (guard 5)', () => {
   })
 
   test('a mismatch with /api/me aborts', () => {
-    assert.throws(() => checkMe({ name: 'E2E Account A', features: { familyLedgers: true } }, PROD_ACCOUNTS.A, 'off'),
+    assert.throws(() => checkMe({ name: 'E2E Account A', email: 'e2e-a@finance-nl.com', features: { familyLedgers: true } }, PROD_ACCOUNTS.A, 'off'),
       /E2E_FAMILY=off, but \/api\/me reports familyLedgers true/)
-    assert.throws(() => checkMe({ name: 'E2E Account A', features: { familyLedgers: false } }, PROD_ACCOUNTS.A, 'on'), RunAborted)
-    assert.throws(() => checkMe({ name: 'E2E Account A' }, PROD_ACCOUNTS.A, 'off'), RunAborted)
+    assert.throws(() => checkMe({ name: 'E2E Account A', email: 'e2e-a@finance-nl.com', features: { familyLedgers: false } }, PROD_ACCOUNTS.A, 'on'), RunAborted)
+    assert.throws(() => checkMe({ name: 'E2E Account A', email: 'e2e-a@finance-nl.com' }, PROD_ACCOUNTS.A, 'off'), RunAborted)
   })
 })
 

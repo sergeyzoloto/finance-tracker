@@ -10,6 +10,8 @@ export interface Logged { server: 'app' | 'keycloak'; method: string; path: stri
 export interface FakeOptions {
   /** What /api/me names for each login: an account's name, or someone else's. */
   names: Record<string, string>
+  /** The email /api/me reports for each login (D-54): an account's, or someone else's. */
+  emails: Record<string, string>
   /** The password each login must give at the fake Keycloak. */
   passwords: Record<string, string>
   familyLedgers?: boolean
@@ -54,7 +56,8 @@ export async function startFake(options: FakeOptions): Promise<Fake> {
     if (!url.pathname.startsWith('/api/')) return void res.writeHead(404).end()
     if (!user) return void res.writeHead(401).end()
     if (url.pathname === '/api/me') {
-      return json(res, { name: options.names[user] ?? user, features: { familyLedgers: options.familyLedgers ?? true } })
+      return json(res, { name: options.names[user] ?? user, email: options.emails[user] ?? null,
+        features: { familyLedgers: options.familyLedgers ?? true } })
     }
     if (url.pathname === '/api/me/data' && req.method === 'DELETE') {
       return void res.writeHead(req.headers['x-xsrf-token'] === `x-${user}` ? 204 : 403).end()

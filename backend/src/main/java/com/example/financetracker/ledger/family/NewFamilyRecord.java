@@ -18,12 +18,14 @@ import java.time.LocalDate;
  *        answers or journal (F4c, C2); or null
  * @param amount the record's amount, in {@code currency}, which its shares split (D-45)
  * @param currency the record's currency (D-45); null for the family ledger's main currency
- * @param accountAmount what went from or into the payer's account, in that account's currency, when it isn't the
- *        record's (D-87); null otherwise
+ * @param accountAmount what went from or into the payer's account, in the paying currency, when that isn't the
+ *        record's (D-87, D-89); null otherwise
+ * @param accountCurrency the paying currency, what the payer's account paid or received in (D-89, F8b); null for the
+ *        account's default currency, else the record's
  */
 public record NewFamilyRecord(String type, LocalDate date, long categoryId, BigDecimal amount, String comment,
         long payerMemberId, Long paymentAccountId, boolean paymentLater, RecordSplit split, String privateNote,
-        String currency, BigDecimal accountAmount) {
+        String currency, BigDecimal accountAmount, String accountCurrency) {
 
     public NewFamilyRecord {
         if (!type.equals("EXPENSE") && !type.equals("INCOME")) {

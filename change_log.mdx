@@ -3,6 +3,45 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · The paying currency per payment and the paying side its member's own (F8b, commit 2)
+
+Commit on `feature/family-budget`, after commit 1: "feat(family): the paying currency per payment, the paying side its
+member's own (F8b)", whose hash F8b's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- D-89: `accountCurrency` on POST `/records` and `/settlements`, PATCH `/records/{id}` and PATCH
+  `/api/entries/{id}/family-payment` (`@CurrencyCode`), stored in `original_currency` with no migration. The paying
+  currency is the one named; else, on the same account, the one chosen before when it isn't that account's default;
+  else the account's default currency, else the record's. In the record's currency the side is the record's amount (no
+  `FX_EXCHANGE`, no `accountAmount`), so a dollar record paid in dollars from a euro account is an ordinary payment in
+  dollars. `accountAmount` is required (422 `ACCOUNT_AMOUNT`) when the paying currency differs from the record's, and
+  asked again when the record's amount or currency, the account or the paying currency changes; a change of date,
+  comment, category or split keeps it. A paying currency other than the record's with "Specify later" or without an
+  account of the caller's is 422 `ACCOUNT_AMOUNT`. The other side of a settlement chooses its own the same way.
+- `ACCOUNT_AMOUNT`'s messages name the side's currency ("your side is in EUR and the expense in USD: name the amount
+  that went from the account") instead of the account's.
+- D-88: a record's `originalAmount`, `originalCurrency`, `rate`, `rateSource` and `rateDate` are only in the answers of
+  the member whose side it is (the payer or receiver with an account, a settlement's recorder), and left out for
+  everyone else. The journal never stored the paying side since F8a; a stored F4e `originalAmount` change is now shown
+  only to the member who made it. The journal's `record` gains `currency` (additive).
+- `DataIsolationApiTests`: `ALICE_BANK` is in dollars again, as before F8a. Her euro records pay from it either in euros
+  (`accountCurrency`) or with the dollars named (`accountAmount`); `aPaymentIsThePayersOwn` checks that Bob's answers,
+  journal and balances hold neither her 65.43 USD nor `USD`, nor `originalAmount` or `originalCurrency`.
+- `FamilyCurrencyPostingApiTests`: `aDollarRecordPaidInDollarsFromAEuroAccount` (no `FX_EXCHANGE`, no
+  `accountAmount`; the same record paid in euros needs it and goes through `FX_EXCHANGE`; Bob sees neither the side's
+  amount nor its currency in the record, the list or the journal; "Specify later" refuses another paying currency),
+  `theAccountAmountIsAskedAgainOnlyWhenTheSideMoves` (kept on a new date and comment; asked on a new amount, currency,
+  account and paying currency; the choice of dollars stays with a new amount; the same through the payment entry) and
+  `aSettlementsOtherSideChoosesItsPayingCurrency`. `FamilyCurrencyApiTests`' messages updated.
+- `docs/adr/0004-multi-currency-family-ledger.md` (commit 1) and `CLAUDE.md`: `accountCurrency`, D-88 and the
+  journal's `currency`.
+
+**Verified**
+- `./mvnw -B clean verify`: 420 tests, 0 failures (417 before, three new).
+
+**Open**
+- The deprecated paying-side fields of the record answer go in commit 6, with their last users in the frontend.
+
 ## 2026-10-06 · CI on Ubuntu 26.04 for `8d75f83`; D-88 to D-91 (F8b, commit 1)
 
 Commit on `feature/family-budget`, after `eb8ab49`: "docs: CI on Ubuntu 26.04 for 8d75f83, D-88 to D-91 (F8b)", whose

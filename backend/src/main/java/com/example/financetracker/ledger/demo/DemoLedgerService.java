@@ -187,11 +187,11 @@ public class DemoLedgerService {
             familyRecords.create(owner, personalLedger, new NewFamilyRecord(record.type(), record.date(),
                     familyCategories.get(record.category()), record.amountValue(), record.comment(),
                     mine ? me : partner, mine ? accounts.get(record.account()) : null, false, split, null,
-                    record.currency(), null));
+                    record.currency(), null, null));
         }
         for (DemoFamily.Settlement settlement : plan.settlements()) {
             familyRecords.settle(owner, personalLedger, new NewSettlement(settlement.date(), settlement.amountValue(),
-                    partner, me, settlement.comment(), accounts.get(settlement.account()), false, null, null));
+                    partner, me, settlement.comment(), accounts.get(settlement.account()), false, null, null, null));
         }
         return created.id();
     }

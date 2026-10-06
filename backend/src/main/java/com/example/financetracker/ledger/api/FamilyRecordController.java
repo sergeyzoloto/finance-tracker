@@ -64,8 +64,11 @@ class FamilyRecordController {
      *        it in its currency (D-45)
      * @param currency the record's currency (F4e, additive), by default the family's main currency
      * @param baseAmount accepted and ignored since F8a, deprecated: no rate converts a record (D-87)
-     * @param accountAmount if you paid or received it with an account in another currency than the record's: what went
-     *        from or into that account, in its currency (D-87, additive); 422 {@code ACCOUNT_AMOUNT} without it
+     * @param accountAmount if you paid or received it in another currency than the record's: what went from or into
+     *        your account, in the paying currency (D-87, D-89); 422 {@code ACCOUNT_AMOUNT} without it
+     * @param accountCurrency the paying currency, what your account paid or received in (D-89, F8b, additive): by
+     *        default the account's default currency, else the record's. An account holds several currencies, so a
+     *        dollar record paid in dollars from an account whose default is euros needs no {@code accountAmount}
      * @param payerMemberId who paid an expense or received an income: yourself, or a member without an account (D-14)
      * @param paymentAccountId if you paid: the account of your personal ledger you paid with, or for an income received
      *        it into. It stays private: no answer about the record names it (D-16)
@@ -78,7 +81,7 @@ class FamilyRecordController {
     record NewRecord(RecordType type, @NotNull LocalDate date, @NotNull Long categoryId, @NotNull BigDecimal amount,
             @Size(max = 500) String comment, @NotNull Long payerMemberId, Long paymentAccountId, Boolean paymentLater,
             @Valid Split split, @Size(max = 500) String privateNote, @CurrencyCode String currency,
-            @Deprecated BigDecimal baseAmount, BigDecimal accountAmount) {
+            @Deprecated BigDecimal baseAmount, BigDecimal accountAmount, @CurrencyCode String accountCurrency) {
     }
 
     /** The types of record with a category and shares; a settlement is recorded through {@code /settlements}. */
@@ -109,8 +112,9 @@ class FamilyRecordController {
      * @param amount the settlement's amount, above 0, with at most its currency's minor unit's decimals
      * @param currency the settlement's currency (F4e, additive), by default the family's main currency
      * @param baseAmount accepted and ignored since F8a, deprecated, as for a record
-     * @param accountAmount if your side is on an account in another currency than the settlement's: what went from or
-     *        into it, in its currency (D-87, additive)
+     * @param accountAmount if your side is in another currency than the settlement's: what went from or into your
+     *        account, in the paying currency (D-87, D-89)
+     * @param accountCurrency your paying currency (D-89, F8b, additive), as for a record
      * @param payerMemberId who paid
      * @param payeeMemberId who received. You are one of the two, unless you are an owner recording a settlement between
      *        two members without an account
@@ -122,7 +126,7 @@ class FamilyRecordController {
     record NewSettlementRequest(@NotNull LocalDate date, @NotNull BigDecimal amount, @NotNull Long payerMemberId,
             @NotNull Long payeeMemberId, @Size(max = 500) String comment, Long paymentAccountId,
             Boolean paymentLater, @CurrencyCode String currency, @Deprecated BigDecimal baseAmount,
-            BigDecimal accountAmount) {
+            BigDecimal accountAmount, @CurrencyCode String accountCurrency) {
     }
 
     /** @param basisPoints for PERCENT; @param amount for AMOUNT */
@@ -163,6 +167,8 @@ class FamilyRecordController {
         private String currency;
         private BigDecimal baseAmount;
         private BigDecimal accountAmount;
+        @CurrencyCode
+        private String accountCurrency;
 
         public Long getCategoryId() {
             return categoryId;
@@ -265,11 +271,23 @@ class FamilyRecordController {
             this.accountAmount = accountAmount;
         }
 
+        /**
+         * Your paying currency (D-89): left out, your side's as it is, or for a newly named account its default
+         * currency, else the record's.
+         */
+        public String getAccountCurrency() {
+            return accountCurrency;
+        }
+
+        public void setAccountCurrency(String accountCurrency) {
+            this.accountCurrency = accountCurrency;
+        }
+
         FamilyRecordChanges changes() {
             return new FamilyRecordChanges(categoryId, changesComment,
                     comment == null || comment.isBlank() ? null : comment.strip(),
                     split == null ? null : split.toSplit(), date, amount, payerMemberId, paymentAccountId,
-                    Boolean.TRUE.equals(paymentLater), false, null, currency, accountAmount);
+                    Boolean.TRUE.equals(paymentLater), false, null, currency, accountAmount, accountCurrency);
         }
     }
 
@@ -306,7 +324,7 @@ class FamilyRecordController {
                 record.payerMemberId(), record.paymentAccountId(), Boolean.TRUE.equals(record.paymentLater()),
                 record.split() == null ? null : record.split().toSplit(),
                 record.privateNote() == null || record.privateNote().isBlank() ? null : record.privateNote().strip(),
-                record.currency(), record.accountAmount()));
+                record.currency(), record.accountAmount(), record.accountCurrency()));
     }
 
     /**
@@ -321,7 +339,7 @@ class FamilyRecordController {
                 settlement.amount(), settlement.payerMemberId(), settlement.payeeMemberId(),
                 settlement.comment() == null || settlement.comment().isBlank() ? null : settlement.comment().strip(),
                 settlement.paymentAccountId(), Boolean.TRUE.equals(settlement.paymentLater()), settlement.currency(),
-                settlement.accountAmount()));
+                settlement.accountAmount(), settlement.accountCurrency()));
     }
 
     /**

@@ -112,14 +112,14 @@ class FamilyCurrencyApiTests extends FamilyApiTest {
                 {"date": "2026-09-10", "categoryId": %d, "amount": "50.00", "payerMemberId": %d,
                  "paymentAccountId": %d%s}""";
         assertThat(details(post(alice, uri + "/records", paid.formatted(groceries, mum, usdCard, "")))).containsExactly(
-                "ACCOUNT_AMOUNT %d the account is in USD and the expense in EUR: name the amount that went from it"
+                "ACCOUNT_AMOUNT %d your side is in USD and the expense in EUR: name the amount that went from the account"
                         .formatted(mum));
         assertThat(details(post(alice, uri + "/records", paid.formatted(groceries, mum, usdCard,
                 ", \"accountAmount\": \"54.001\"")))).containsExactly(
                 "ACCOUNT_AMOUNT %d the amount 54.001 has more decimals than USD has (2)".formatted(mum));
         assertThat(details(post(alice, uri + "/records", paid.formatted(groceries, mum, accountId(alice, "CASH"),
-                ", \"accountAmount\": \"54.00\"")))).containsExactly(("ACCOUNT_AMOUNT %d the account is in EUR, the "
-                        + "expense's currency, so what went from it is the expense's amount").formatted(mum));
+                ", \"accountAmount\": \"54.00\"")))).containsExactly(("ACCOUNT_AMOUNT %d your side is in EUR, the "
+                        + "expense's currency, so what went from the account is the expense's amount").formatted(mum));
         assertThat(details(post(alice, uri + "/records", """
                 {"date": "2026-09-10", "categoryId": %d, "amount": "50.00", "payerMemberId": %d, "paymentLater": true,
                  "accountAmount": "54.00"}""".formatted(groceries, mum)))).containsExactly(("ACCOUNT_AMOUNT %d name "
@@ -134,8 +134,8 @@ class FamilyCurrencyApiTests extends FamilyApiTest {
         assertThat(shares(record)).containsExactly("Mum 16.68 null", "Dad 16.66 null", "Kid 16.66 null");
 
         assertThat(details(patch(alice, path + "?version=0", """
-                {"amount": "60.00"}"""))).containsExactly(("ACCOUNT_AMOUNT %d the account is in USD and the expense "
-                        + "in EUR: name the amount that went from it").formatted(mum));
+                {"amount": "60.00"}"""))).containsExactly(("ACCOUNT_AMOUNT %d your side is in USD and the expense "
+                        + "in EUR: name the amount that went from the account").formatted(mum));
         JsonNode more = ok(patch(alice, path + "?version=0", """
                 {"amount": "60.00", "accountAmount": "64.80"}"""));
         assertThat(money(more) + ", " + own(more)).isEqualTo("60.00 EUR, 64.80 USD");
@@ -182,10 +182,10 @@ class FamilyCurrencyApiTests extends FamilyApiTest {
         assertThat(own(his)).isEqualTo("50.00 EUR");
         assertThat(details(patch(bob, path + "?version=0", """
                 {"paymentAccountId": %d}""".formatted(rubAccount)))).containsExactly(
-                "ACCOUNT_AMOUNT %d the account is in RUB: name the amount that went into it".formatted(dad));
+                "ACCOUNT_AMOUNT %d your side is in RUB: name the amount that went into the account".formatted(dad));
         assertThat(details(patch(bob, path + "?version=0", """
                 {"paymentAccountId": %d, "accountAmount": "49"}""".formatted(accountId(bob, "CASH")))))
-                .containsExactly(("ACCOUNT_AMOUNT %d the account is in EUR, the settlement's currency, so your side "
+                .containsExactly(("ACCOUNT_AMOUNT %d your side is in EUR, the settlement's currency, so it "
                         + "is the settlement's amount").formatted(dad));
         assertThat(details(patch(bob, path + "?version=0", """
                 {"paymentLater": true, "accountAmount": "5000"}"""))).containsExactly(("ACCOUNT_AMOUNT %d name the "

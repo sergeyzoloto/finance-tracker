@@ -617,7 +617,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
         long alicesRecord = created(post(alice, inA + "/records", """
                 {"date": "2026-08-20", "categoryId": %d, "amount": "60", "comment": "Weekly shop",
-                 "payerMemberId": %d, "paymentAccountId": %d}""".formatted(groceriesInA,
+                 "payerMemberId": %d, "paymentAccountId": %d, "accountAmount": "65.43"}""".formatted(groceriesInA,
                 find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong(), alicesBank)));
         long bobsRecordInA = created(post(bob, inA + "/records", """
                 {"date": "2026-08-21", "categoryId": %d, "amount": "9", "payerMemberId": %d}"""
@@ -747,8 +747,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
         JsonNode paid = body(post(alice, inA + "/records", """
                 {"date": "2026-08-20", "categoryId": %d, "amount": "60", "payerMemberId": %d, "paymentAccountId": %d,
-                 "privateNote": "ALICE_PRIVATE_NOTE"}""".formatted(groceriesInA, mumInA, alicesBank)),
-                HttpStatus.CREATED);
+                 "accountAmount": "65.43", "privateNote": "ALICE_PRIVATE_NOTE"}""".formatted(groceriesInA, mumInA,
+                alicesBank)), HttpStatus.CREATED);
         JsonNode later = body(post(alice, inA + "/records", """
                 {"date": "2026-08-21", "categoryId": %d, "amount": "8", "payerMemberId": %d, "paymentLater": true,
                  "privateNote": "ALICE_PRIVATE_LATER"}""".formatted(groceriesInA, mumInA)), HttpStatus.CREATED);
@@ -760,11 +760,16 @@ class DataIsolationApiTests extends LedgerApiTest {
                 "/records/" + later.get("id").asLong(), "/journal", "/balances");
         for (String read : reads) {
             // bobReads refuses anything with "ALICE" in it: her notes included.
-            assertThat(fieldNames(bobReads(inA + read))).as(read).doesNotContain("yourPayment", "privateNote", "memo",
-                    "entryId", "accountId", "accountName");
+            JsonNode bobs = bobReads(inA + read);
+            assertThat(fieldNames(bobs)).as(read).doesNotContain("yourPayment", "privateNote", "memo",
+                    "entryId", "accountId", "accountName", "originalAmount", "originalCurrency");
+            // Her side's dollars are hers alone, in the answers and the journal (D-88).
+            assertThat(bobs.toString()).as(read).doesNotContain("65.43", "USD");
             assertThat(ok(get(alice, inA + read)).toString()).as(read).doesNotContain("ALICE_PRIVATE");
         }
         assertThat(ok(get(alice, inA + "/records")).get("content").findValues("yourPayment")).hasSize(2);
+        assertThat(paid.get("yourPayment").get("amount").asText() + " " + paid.get("yourPayment").get("currency")
+                .asText()).isEqualTo("65.43 USD");
 
         SoftAssertions softly = new SoftAssertions();
         String payment = "/api/entries/%d/family-payment?version=0";
@@ -846,7 +851,8 @@ class DataIsolationApiTests extends LedgerApiTest {
 
         JsonNode paid = body(post(alice, inA + "/settlements", """
                 {"date": "2026-08-20", "amount": "40", "payerMemberId": %d, "payeeMemberId": %d,
-                 "paymentAccountId": %d}""".formatted(mumInA, bobInA, alicesBank)), HttpStatus.CREATED);
+                 "paymentAccountId": %d, "accountCurrency": "EUR"}""".formatted(mumInA, bobInA, alicesBank)),
+                HttpStatus.CREATED);
         long settlement = paid.get("id").asLong();
         long alicesSide = paid.get("yourPayment").get("entryId").asLong();
         assertThat(paid.get("yourPayment").get("accountId").asLong()).isEqualTo(alicesBank);
@@ -947,7 +953,8 @@ class DataIsolationApiTests extends LedgerApiTest {
 
         JsonNode received = body(post(alice, inA + "/records", """
                 {"type": "INCOME", "date": "2026-08-20", "categoryId": %d, "amount": "1000", "payerMemberId": %d,
-                 "paymentAccountId": %d, "privateNote": "ALICE_PRIVATE_BONUS"}""".formatted(salaryInA, mumInA,
+                 "paymentAccountId": %d, "accountAmount": "1087.65", "privateNote": "ALICE_PRIVATE_BONUS"}"""
+                .formatted(salaryInA, mumInA,
                 alicesBank)), HttpStatus.CREATED);
         long alicesReceipt = received.get("yourPayment").get("entryId").asLong();
         assertThat(received.get("yourPayment").get("accountId").asLong()).isEqualTo(alicesBank);
@@ -1011,7 +1018,8 @@ class DataIsolationApiTests extends LedgerApiTest {
                 {"code": "BOB_WALLET", "name": "BOB_PRIVATE_WALLET", "type": "ASSET"}"""));
         JsonNode paid = body(post(alice, inA + "/settlements", """
                 {"date": "2026-08-20", "amount": "40", "payerMemberId": %d, "payeeMemberId": %d,
-                 "paymentAccountId": %d}""".formatted(mumInA, bobInA, alicesBank)), HttpStatus.CREATED);
+                 "paymentAccountId": %d, "accountCurrency": "EUR"}""".formatted(mumInA, bobInA, alicesBank)),
+                HttpStatus.CREATED);
         String path = inA + "/records/" + paid.get("id").asLong();
         assertThat(paid.has("lockedBy")).isFalse();
         ok(patch(bob, path + "?version=0", """
@@ -1135,7 +1143,7 @@ class DataIsolationApiTests extends LedgerApiTest {
                 {"code": "RENT", "name": "Rent", "type": "EXPENSE"}"""));
         created(post(alice, inA + "/records", """
                 {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
-                 "paymentAccountId": %d}""".formatted(rentInA, mumInA, alicesBank)));
+                 "paymentAccountId": %d, "accountCurrency": "EUR"}""".formatted(rentInA, mumInA, alicesBank)));
         created(post(alice, inA + "/records", """
                 {"date": "2026-08-20", "categoryId": %d, "amount": "30.00", "payerMemberId": %d}"""
                 .formatted(rentInA, sam)));
@@ -1147,7 +1155,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         long giftsInB = find(ok(get(alice, inB + "/categories")), "code", "ALICE_GIFTS").get("id").asLong();
         created(post(alice, inB + "/records", """
                 {"type": "INCOME", "date": "2026-08-12", "categoryId": %d, "amount": "77.77", "payerMemberId": %d,
-                 "paymentAccountId": %d, "comment": "ALICE_PRIVATE_COMMENT"}""".formatted(giftsInB, aliceInB,
+                 "paymentAccountId": %d, "accountCurrency": "EUR", "comment": "ALICE_PRIVATE_COMMENT"}"""
+                .formatted(giftsInB, aliceInB,
                 alicesBank)));
         String tokenOfB = invite(alice, inB, """
                 {"kind": "NEW_MEMBER"}""");
@@ -1281,7 +1290,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
         long record = created(post(alice, inA + "/records", """
                 {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
-                 "paymentAccountId": %d}""".formatted(groceriesInA, mumInA, alicesBank)));
+                 "paymentAccountId": %d, "accountCurrency": "EUR"}""".formatted(groceriesInA, mumInA, alicesBank)));
         long invite = body(post(alice, inA + "/invites", """
                 {"kind": "NEW_MEMBER"}"""), HttpStatus.CREATED).get("id").asLong();
         long familyB = newFamily(alice, """
@@ -1392,7 +1401,7 @@ class DataIsolationApiTests extends LedgerApiTest {
                 {"displayName": "Sam"}"""));
         created(post(alice, inA + "/records", """
                 {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
-                 "paymentAccountId": %d}""".formatted(created(post(alice, inA + "/categories", """
+                 "paymentAccountId": %d, "accountCurrency": "EUR"}""".formatted(created(post(alice, inA + "/categories", """
                         {"code": "RENT", "name": "Rent", "type": "EXPENSE"}""")), mumInA, alicesBank)));
         long familyB = newFamily(alice, """
                 {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice"}""").get("id").asLong();
@@ -1456,7 +1465,8 @@ class DataIsolationApiTests extends LedgerApiTest {
                 {"code": "RENT", "name": "Rent", "type": "EXPENSE"}"""));
         created(post(alice, inA + "/records", """
                 {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
-                 "paymentAccountId": %d, "privateNote": "ALICE_PRIVATE_RENT"}""".formatted(rentInA, mumInA,
+                 "paymentAccountId": %d, "accountAmount": "97.65", "privateNote": "ALICE_PRIVATE_RENT"}"""
+                .formatted(rentInA, mumInA,
                 alicesBank)));
         assertThat(call(bob, HttpMethod.DELETE, inA + "/members/me", null)).hasStatus(HttpStatus.NO_CONTENT);
         LocalDate later = jdbc.sql("SELECT current_date + 3").query(LocalDate.class).single();
@@ -1625,7 +1635,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
         long record = created(post(alice, inA + "/records", """
                 {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
-                 "paymentAccountId": %d, "privateNote": "ALICE_PRIVATE_NOTE"}"""
+                 "paymentAccountId": %d, "accountCurrency": "EUR", "privateNote": "ALICE_PRIVATE_NOTE"}"""
                 .formatted(groceriesInA, mumInA, alicesBank)));
         long familyB = newFamily(alice, """
                 {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice",
@@ -1738,9 +1748,9 @@ class DataIsolationApiTests extends LedgerApiTest {
      * database's triggers, so that her integrity check reports something.
      */
     private void writeAlicesLedger() throws IOException {
-        // Without a currency of its own, it pays a family record in the record's currency (D-87, ADR 0004).
+        // In dollars by default, as before F8a; it pays a family record in whichever currency she names (D-89).
         alicesBank = created(post(alice, "/api/accounts", """
-                {"code": "ALICE_BANK", "name": "Alice's bank", "type": "ASSET"}"""));
+                {"code": "ALICE_BANK", "name": "Alice's bank", "type": "ASSET", "defaultCurrency": "USD"}"""));
         alicesLoans = created(post(alice, "/api/accounts", """
                 {"code": "ALICE_LOANS", "name": "Alice's loans", "type": "ASSET", "requiresCounterparty": true}"""));
         alicesSharedAccount = created(post(alice, "/api/accounts", """

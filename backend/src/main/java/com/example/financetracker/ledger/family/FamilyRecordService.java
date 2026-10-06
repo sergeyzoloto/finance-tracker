@@ -146,8 +146,9 @@ public class FamilyRecordService {
         if (amountValid(violations)) {
             amount = inMinorUnits(request.amount(), currency);
             // The paying side once the payer and their account are valid, so that its rules don't add to theirs.
-            side = violations.isEmpty() ? payingSide(personal, payment, amount, currency, request.accountAmount(), null,
-                    true, request.payerMemberId(), violations, type, way(type, true)) : null;
+            side = violations.isEmpty() ? payingSide(personal, payment, amount, currency, request.accountAmount(),
+                    request.accountCurrency(), null, null, true, request.payerMemberId(), violations, type,
+                    way(type, true)) : null;
             shares = split(request.split(), amount, scale, request.date(), request.payerMemberId(), ledger, members,
                     Set.of(), violations, type);
         }
@@ -520,13 +521,14 @@ public class FamilyRecordService {
                         row.getObject("record_id", Long.class),
                         ref(members, row.getObject("changed_by_member_id", Long.class)),
                         ref(members, row.getObject("about_member_id", Long.class)),
-                        changes(row.getString("changes"), members, categories),
+                        changes(row.getString("changes"), members, categories,
+                                Objects.equals(row.getObject("changed_by_member_id", Long.class), family.memberId())),
                         row.getObject("record_id") == null ? null : new FamilyChangeView.RecordSummary(
                                 row.getObject("record_date", LocalDate.class),
                                 categoryName(categories, row.getObject("category_id", Long.class)),
                                 row.getBigDecimal("base_amount").setScale(ShareSplit.minorUnit(row.getString("currency")),
                                         RoundingMode.UNNECESSARY),
-                                row.getBoolean("deleted"), row.getString("type"))))
+                                row.getBoolean("deleted"), row.getString("type"), row.getString("currency"))))
                 .list();
         return new FamilyJournalPage(content, page, size, total, Math.toIntExact((total + size - 1) / size));
     }
@@ -600,8 +602,9 @@ public class FamilyRecordService {
         if (violations.isEmpty()) {
             // The recorder's own side: on their account, in its currency with what went from or into it (D-87).
             amount = inMinorUnits(request.amount(), currency);
-            side = payingSide(personal, payment, amount, currency, request.accountAmount(), null, true,
-                    family.memberId(), violations, SETTLEMENT, way(SETTLEMENT, request.payerMemberId() == family.memberId()));
+            side = payingSide(personal, payment, amount, currency, request.accountAmount(), request.accountCurrency(),
+                    null, null, true, family.memberId(), violations, SETTLEMENT,
+                    way(SETTLEMENT, request.payerMemberId() == family.memberId()));
         }
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
@@ -716,19 +719,22 @@ public class FamilyRecordService {
                 // Recorded by an owner between two members without an account: nobody's account.
                 side = Side.of(amount, currency);
             } else if (recordersSide && !(payment instanceof FamilyPostingService.Unchanged)) {
-                side = payingSide(personal, payment, amount, currency, changes.accountAmount(), sideOf(record),
-                        amountChanged, family.memberId(), violations, SETTLEMENT, way);
+                side = payingSide(personal, payment, amount, currency, changes.accountAmount(),
+                        changes.accountCurrency(), record, ownAccountOf(family, record), amountChanged,
+                        family.memberId(), violations, SETTLEMENT, way);
             } else if (recordersSide) {
                 side = keptSide(family, personal, record, amount, currency, amountChanged, changes.accountAmount(),
-                        violations, way);
+                        changes.accountCurrency(), violations, way);
             }
         }
         if (payment instanceof FamilyPostingService.OwnAccount own && ownSide && !recordersSide) {
-            payment = otherSidesAccount(personal, own, changes.accountAmount(), currency, amount, record,
-                    family.memberId(), violations);
+            payment = otherSidesAccount(personal, own, changes.accountAmount(), changes.accountCurrency(), currency,
+                    amount, record, family.memberId(), violations);
         } else if (!recordersSide && changes.accountAmount() != null) {
             violations.add(new Violation(ACCOUNT_AMOUNT, family.memberId(), ("name the amount only with an account of "
                     + "yours in another currency than %s").formatted(currency)));
+        } else if (!recordersSide && changes.accountCurrency() != null && !changes.accountCurrency().equals(currency)) {
+            violations.add(otherCurrencyWithoutAccount(family.memberId(), SETTLEMENT, currency));
         }
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
@@ -1132,111 +1138,148 @@ public class FamilyRecordService {
     }
 
     /**
-     * The paying side of the member who names how they paid or received (D-87): on an account in the record's
-     * currency, or one without a currency, the record's amount; on an account in another currency, what went from or
-     * into it, which they name ({@code accountAmount}), or as it was if neither the amount nor that currency changed;
-     * on "Specify later", or for a member without an account, the record's amount. No rate is ever used.
+     * The paying side of the member who names how they paid or received (D-87, D-89): on an account, in the paying
+     * currency, which they choose per payment; by default their side's as it is on the same account when they chose
+     * it, else the account's default currency, else the record's. In the record's currency it is the record's amount;
+     * in another, what went from or into the account, which they name ({@code accountAmount}), or as it was if neither
+     * the record's amount or currency, nor the account, nor the paying currency changed. On "Specify later", or for a
+     * member without an account, the record's amount in the record's currency. No rate is ever used.
      *
-     * @param current the side as the record has it; null for a new record
+     * @param requested the paying currency the member names; null for the default
+     * @param before the record as it is; null for a new record or a side that is new to this member
+     * @param currentAccountId the account the member's side is on now; null for "Specify later", none or a new side
      * @param amountMoves whether the record's amount or currency changes, which the side's own amount must follow
      */
     private Side payingSide(LedgerScope personal, Payment payment, BigDecimal amount, String currency,
-            BigDecimal accountAmount, Side current, boolean amountMoves, long memberId, List<Violation> violations,
-            String type, String way) {
+            BigDecimal accountAmount, String requested, RecordRow before, Long currentAccountId, boolean amountMoves,
+            long memberId, List<Violation> violations, String type, String way) {
         if (payment instanceof FamilyPostingService.OwnAccount own) {
-            String accountCurrency = accountCurrency(personal, own.accountId());
-            if (accountCurrency == null || accountCurrency.equals(currency)) {
+            String accountDefault = accountCurrency(personal, own.accountId());
+            Side current = before == null ? null : sideOf(before);
+            boolean sameAccount = current != null && currentAccountId != null && currentAccountId == own.accountId();
+            // The paying currency: as named; else on the same account the one chosen before, when it isn't the
+            // default that account then had; else the account's default, else the record's (D-89).
+            String paying;
+            if (requested != null) {
+                paying = requested;
+            } else if (sameAccount && !current.currency().equals(
+                    accountDefault == null ? before.currency() : accountDefault)) {
+                paying = current.currency();
+            } else {
+                paying = accountDefault == null ? currency : accountDefault;
+            }
+            if (paying.equals(currency)) {
                 if (accountAmount != null && accountAmount.compareTo(amount) != 0) {
-                    violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("the account is in %s, the %s's currency, "
-                            + "so what went %s it is the %s's amount").formatted(currency, noun(type), way,
+                    violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("your side is in %s, the %s's currency, "
+                            + "so what went %s the account is the %s's amount").formatted(currency, noun(type), way,
                             noun(type))));
                 }
                 return Side.of(amount, currency);
             }
             if (accountAmount == null) {
-                if (current != null && !amountMoves && current.currency().equals(accountCurrency)) {
+                if (sameAccount && !amountMoves && current.currency().equals(paying)) {
                     return current;
                 }
-                violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("the account is in %s and the %s in %s: name "
-                        + "the amount that went %s it").formatted(accountCurrency, noun(type), currency, way)));
+                violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("your side is in %s and the %s in %s: name "
+                        + "the amount that went %s the account").formatted(paying, noun(type), currency, way)));
                 return Side.of(amount, currency);
             }
-            int before = violations.size();
-            checkAmount(accountAmount, accountCurrency, ShareSplit.minorUnit(accountCurrency), violations);
-            violations.replaceAll(v -> violations.indexOf(v) >= before && v.code().equals(AMOUNT)
+            int before0 = violations.size();
+            checkAmount(accountAmount, paying, ShareSplit.minorUnit(paying), violations);
+            violations.replaceAll(v -> violations.indexOf(v) >= before0 && v.code().equals(AMOUNT)
                     ? new Violation(ACCOUNT_AMOUNT, memberId, v.message()) : v);
-            return violations.size() > before ? Side.of(amount, currency)
-                    : Side.entered(inMinorUnits(accountAmount, accountCurrency), accountCurrency);
+            return violations.size() > before0 ? Side.of(amount, currency)
+                    : Side.entered(inMinorUnits(accountAmount, paying), paying);
         }
         if (accountAmount != null) {
             violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("name the amount only with an account of yours in "
                     + "another currency than the %s's, %s").formatted(noun(type), currency)));
+        } else if (requested != null && !requested.equals(currency)) {
+            violations.add(otherCurrencyWithoutAccount(memberId, type, currency));
         }
         return Side.of(amount, currency);
     }
 
+    /** A paying currency named without an account of the member's: "Specify later" is in the record's currency. */
+    private static Violation otherCurrencyWithoutAccount(long memberId, String type, String currency) {
+        return new Violation(ACCOUNT_AMOUNT, memberId, ("a paying currency other than the %s's, %s, goes only with an "
+                + "account of yours; \"Specify later\" is in %s").formatted(noun(type), currency, currency));
+    }
+
+    /** The account the caller's own side of the record is on now; null for "Specify later" or none. */
+    private Long ownAccountOf(LedgerScope family, RecordRow record) {
+        OwnPayment current = posting.ownPayments(family, List.of(record.id())).get(record.id());
+        return current == null || current.later() ? null : current.accountId();
+    }
+
     /**
-     * The paying side after a change of an expense or an income that names no account: the payer's own side follows
-     * the record's amount, on the account it is on (asking for what went from or into it in another currency); a payer
-     * without an account, or one whose part is in their opening balance, has the record's amount; another member's
-     * side doesn't change.
+     * The paying side after a change of an expense or an income: as the payer names it, on the account they name or
+     * keep; if they name nothing, the payer's own side follows the record's amount on the account it is on (asking for
+     * what went from or into it in another currency); a payer without an account, or one whose part is in their
+     * opening balance, has the record's amount; another member's side doesn't change.
      */
     private Side changedSide(LedgerScope family, LedgerScope personal, RecordRow record, FamilyRecordChanges changes,
             Payment payment, long payerId, LocalDate date, BigDecimal amount, String currency, boolean amountChanged,
             Map<Long, Member> members, List<Violation> violations) {
         String way = way(record.type(), true);
+        boolean samePayer = payerId == record.payerId() && payerId == family.memberId();
         if (!(payment instanceof FamilyPostingService.Unchanged)) {
-            return payingSide(personal, payment, amount, currency, changes.accountAmount(), sideOf(record),
+            return payingSide(personal, payment, amount, currency, changes.accountAmount(), changes.accountCurrency(),
+                    samePayer ? record : null, samePayer ? ownAccountOf(family, record) : null,
                     amountChanged || payerId != record.payerId(), payerId, violations, record.type(), way);
         }
         Member payer = members.get(payerId);
         boolean posted = payer != null && payer.hasAccount() && !payer.joinDate().isAfter(date);
-        if (payerId == record.payerId() && posted && payerId == family.memberId()) {
+        if (samePayer && posted) {
             return keptSide(family, personal, record, amount, currency, amountChanged, changes.accountAmount(),
-                    violations, way);
+                    changes.accountCurrency(), violations, way);
         }
         if (payerId != record.payerId() || !posted) {
-            return payingSide(personal, payment, amount, currency, changes.accountAmount(), null, true, payerId,
-                    violations, record.type(), way);
+            return payingSide(personal, payment, amount, currency, changes.accountAmount(), changes.accountCurrency(),
+                    null, null, true, payerId, violations, record.type(), way);
         }
         return sideOf(record);
     }
 
     /**
-     * The acting member's own side as it is, on its account or "Specify later", after a change of the record's amount
-     * or of what went from or into the account (D-87).
+     * The acting member's own side as it is, on its account or "Specify later", after a change of the record's amount,
+     * of what went from or into the account, or of the paying currency (D-87, D-89).
      */
     private Side keptSide(LedgerScope family, LedgerScope personal, RecordRow record, BigDecimal amount,
-            String currency, boolean amountChanged, BigDecimal accountAmount, List<Violation> violations, String way) {
-        if (!amountChanged && accountAmount == null) {
+            String currency, boolean amountChanged, BigDecimal accountAmount, String accountCurrency,
+            List<Violation> violations, String way) {
+        if (!amountChanged && accountAmount == null
+                && (accountCurrency == null || accountCurrency.equals(record.originalCurrency()))) {
             return sideOf(record);
         }
         OwnPayment current = posting.ownPayments(family, List.of(record.id())).get(record.id());
         Payment kept = current == null || current.later() ? new FamilyPostingService.Later(null)
                 : new FamilyPostingService.OwnAccount(current.accountId(), null);
-        return payingSide(personal, kept, amount, currency, accountAmount, sideOf(record), amountChanged,
-                family.memberId(), violations, record.type(), way);
+        return payingSide(personal, kept, amount, currency, accountAmount, accountCurrency, record,
+                current == null || current.later() ? null : current.accountId(), amountChanged, family.memberId(),
+                violations, record.type(), way);
     }
 
     /**
      * The account the other side of a settlement puts their part on (F4e): in the settlement's currency their part is
-     * its amount; in another currency, the amount they name for it, which only their own entry holds (D-87).
+     * its amount; in another paying currency (D-89: as they name it, else the account's default), the amount they name
+     * for it, which only their own entry holds (D-87).
      */
     private Payment otherSidesAccount(LedgerScope personal, FamilyPostingService.OwnAccount own,
-            BigDecimal accountAmount, String currency, BigDecimal amount, RecordRow record, long memberId,
-            List<Violation> violations) {
-        String accountCurrency = accountCurrency(personal, own.accountId());
-        String in = accountCurrency == null ? currency : accountCurrency;
+            BigDecimal accountAmount, String requested, String currency, BigDecimal amount, RecordRow record,
+            long memberId, List<Violation> violations) {
+        String accountDefault = accountCurrency(personal, own.accountId());
+        String in = requested != null ? requested : accountDefault == null ? currency : accountDefault;
         if (in.equals(currency)) {
             if (accountAmount != null && accountAmount.compareTo(amount) != 0) {
-                violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("the account is in %s, the settlement's "
-                        + "currency, so your side is the settlement's amount").formatted(currency)));
+                violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("your side is in %s, the settlement's "
+                        + "currency, so it is the settlement's amount").formatted(currency)));
             }
             return new FamilyPostingService.OwnAccount(own.accountId(), null, amount, currency);
         }
         String way = record.payerId() == memberId ? "from" : "into";
         if (accountAmount == null) {
-            violations.add(new Violation(ACCOUNT_AMOUNT, memberId, "the account is in %s: name the amount that went %s it"
+            violations.add(new Violation(ACCOUNT_AMOUNT, memberId, "your side is in %s: name the amount that went %s the account"
                     .formatted(in, way)));
             return own;
         }
@@ -1736,6 +1779,11 @@ public class FamilyRecordService {
             OwnPayment payment = own.get(row.id());
             Long lockedBy = placed.get(row.id());
             boolean mayEditPayment = mayDelete && lockedBy == null;
+            // The paying side is its member's alone (D-88): the payer's, the receiver's, or a settlement's recorder's.
+            boolean sidesOwn = members.get(family.memberId()).hasAccount() && (row.type().equals(SETTLEMENT)
+                    ? row.authorId() == family.memberId()
+                            && (row.payerId() == family.memberId() || Objects.equals(row.payeeId(), family.memberId()))
+                    : row.payerId() == family.memberId());
             return new FamilyRecordView(row.id(), row.type(), row.date(),
                     row.categoryId() == null ? null : categories.get(row.categoryId()),
                     row.amount().setScale(scale, RoundingMode.UNNECESSARY), row.currency(), row.comment(),
@@ -1751,8 +1799,10 @@ public class FamilyRecordService {
                             payment.accountName(), payment.later(), inMinorUnits(payment.amount(), payment.currency()),
                             payment.currency()),
                     ref(members, row.payeeId()), lockedBy == null ? null : ref(members, lockedBy),
-                    inMinorUnits(row.originalAmount(), row.originalCurrency()), row.originalCurrency(),
-                    row.rate() == null ? null : Money.normalize(row.rate()), row.rateSource(), row.rateDate());
+                    sidesOwn ? inMinorUnits(row.originalAmount(), row.originalCurrency()) : null,
+                    sidesOwn ? row.originalCurrency() : null,
+                    sidesOwn && row.rate() != null ? Money.normalize(row.rate()) : null,
+                    sidesOwn ? row.rateSource() : null, sidesOwn ? row.rateDate() : null);
         }).toList();
     }
 
@@ -1782,12 +1832,20 @@ public class FamilyRecordService {
         return change;
     }
 
-    /** The stored changes, with members and categories named as they are now. */
-    private List<Change> changes(String stored, Map<Long, Member> members, Map<Long, CategoryRef> categories) {
+    /**
+     * The stored changes, with members and categories named as they are now. A paying side's amount, which F4e's
+     * journal stored as {@code originalAmount} (no change writes it since F8a), is its member's alone (D-88): only the
+     * member who made the change reads it.
+     */
+    private List<Change> changes(String stored, Map<Long, Member> members, Map<Long, CategoryRef> categories,
+            boolean ownChange) {
         try {
             List<Change> changes = new ArrayList<>();
             for (JsonNode change : json.readTree(stored)) {
                 String field = change.path("field").asText();
+                if (field.equals("originalAmount") && !ownChange) {
+                    continue;
+                }
                 JsonNode member = change.get("member");
                 changes.add(new Change(field, member == null || member.isNull() ? null : ref(members, member.asLong()),
                         value(field, change.get("old"), members, categories),

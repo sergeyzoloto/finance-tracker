@@ -16,9 +16,12 @@ import java.time.LocalDate;
  *        specified account"
  * @param amount the settlement's amount, in {@code currency}
  * @param currency the settlement's currency (D-46); null for the family ledger's main currency
- * @param accountAmount what went from or into the recorder's account, in that account's currency, when it isn't the
- *        settlement's (D-87); null otherwise
+ * @param accountAmount what went from or into the recorder's account, in the paying currency, when that isn't the
+ *        settlement's (D-87, D-89); null otherwise
+ * @param accountCurrency the recorder's paying currency (D-89, F8b); null for the account's default currency, else the
+ *        settlement's
  */
 public record NewSettlement(LocalDate date, BigDecimal amount, long payerMemberId, long payeeMemberId, String comment,
-        Long paymentAccountId, boolean paymentLater, String currency, BigDecimal accountAmount) {
+        Long paymentAccountId, boolean paymentLater, String currency, BigDecimal accountAmount,
+        String accountCurrency) {
 }

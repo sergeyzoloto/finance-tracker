@@ -17,25 +17,27 @@ import java.time.LocalDate;
  * @param accountAmount what went from or into the caller's own account, in its currency, when it isn't the record's
  *        (D-87): for the payer, the receiver or a settlement's recorder, and for the other side of a settlement, whose
  *        own entry alone holds it (F4e)
+ * @param accountCurrency the caller's paying currency (D-89, F8b): what their account paid or received in; null keeps
+ *        the side's, or for a newly named account takes its default currency, else the record's
  */
 public record FamilyRecordChanges(Long categoryId, boolean changesComment, String comment, RecordSplit split,
         LocalDate date, BigDecimal amount, Long payerMemberId, Long paymentAccountId, boolean paymentLater,
-        boolean changesNote, String note, String currency, BigDecimal accountAmount) {
+        boolean changesNote, String note, String currency, BigDecimal accountAmount, String accountCurrency) {
 
     /** A change of the family fields only. */
     public static FamilyRecordChanges family(Long categoryId, boolean changesComment, String comment,
             RecordSplit split) {
         return new FamilyRecordChanges(categoryId, changesComment, comment, split, null, null, null, null, false, false,
-                null, null, null);
+                null, null, null, null);
     }
 
     /**
-     * Whether it names a payment field: the date, the amount, its currency, the payer, the account (with its amount),
-     * or the note.
+     * Whether it names a payment field: the date, the amount, its currency, the payer, the account (with its amount and
+     * its paying currency), or the note.
      */
     boolean changesPayment() {
         return date != null || amount != null || currency != null || payerMemberId != null || namesAccount()
-                || changesNote || accountAmount != null;
+                || changesNote || accountAmount != null || accountCurrency != null;
     }
 
     /** Whether it names the amount or its currency. */

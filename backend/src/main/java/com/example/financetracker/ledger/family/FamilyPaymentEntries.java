@@ -41,14 +41,17 @@ public class FamilyPaymentEntries implements FamilyPayments {
      * @param later "Specify later": "Payments without a specified account"
      * @param note the payer's private note, on the entry only
      * @param currency the record's new currency, which needs its amount (D-45)
-     * @param accountAmount what went from or into the account, in its currency, when that isn't the record's (D-87)
+     * @param accountAmount what went from or into the account, in the paying currency, when that isn't the record's
+     *        (D-87, D-89)
+     * @param accountCurrency the paying currency (D-89, F8b); null keeps the side's, or for a newly named account takes
+     *        its default currency, else the record's
      */
     public record PaymentEdit(LocalDate date, BigDecimal amount, Long accountId, boolean later, boolean changesNote,
-            String note, String currency, BigDecimal accountAmount) {
+            String note, String currency, BigDecimal accountAmount, String accountCurrency) {
 
         public PaymentEdit(LocalDate date, BigDecimal amount, Long accountId, boolean later, boolean changesNote,
                 String note) {
-            this(date, amount, accountId, later, changesNote, note, null, null);
+            this(date, amount, accountId, later, changesNote, note, null, null, null);
         }
     }
 
@@ -86,7 +89,7 @@ public class FamilyPaymentEntries implements FamilyPayments {
         return records.update(familyOf(personal, payment), personal, payment.recordId(), null,
                 new FamilyRecordChanges(null, false, null, null, edit.date(), edit.amount(), null, edit.accountId(),
                         edit.later(), edit.changesNote(), edit.note(), edit.currency(),
-                        edit.accountAmount()));
+                        edit.accountAmount(), edit.accountCurrency()));
     }
 
     /** {@inheritDoc} The caller has checked the entry's version. */

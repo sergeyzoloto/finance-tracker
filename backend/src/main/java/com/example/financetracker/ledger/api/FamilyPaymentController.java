@@ -50,6 +50,8 @@ class FamilyPaymentController {
         private String currency;
         private BigDecimal baseAmount;
         private BigDecimal accountAmount;
+        @CurrencyCode
+        private String accountCurrency;
 
         public LocalDate getDate() {
             return date;
@@ -132,9 +134,21 @@ class FamilyPaymentController {
             this.accountAmount = accountAmount;
         }
 
+        /**
+         * The paying currency (D-89): what the account paid or received in; left out, the side's as it is, or for a
+         * newly named account its default currency, else the record's.
+         */
+        public String getAccountCurrency() {
+            return accountCurrency;
+        }
+
+        public void setAccountCurrency(String accountCurrency) {
+            this.accountCurrency = accountCurrency;
+        }
+
         PaymentEdit edit() {
             return new PaymentEdit(date, amount, accountId, Boolean.TRUE.equals(later), changesMemo,
-                    memo == null || memo.isBlank() ? null : memo.strip(), currency, accountAmount);
+                    memo == null || memo.isBlank() ? null : memo.strip(), currency, accountAmount, accountCurrency);
         }
     }
 

@@ -15,8 +15,9 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  * @param type EXPENSE (F4a), INCOME or SETTLEMENT (F4d)
  * @param category the family category; null for a settlement
  * @param amount in the family's base currency, with its minor unit's decimals: the base amount (D-13)
- * @param originalAmount the amount as paid, received or settled, in {@code originalCurrency} (F4e, additive); the base
- *        amount when that is the base currency
+ * @param originalAmount the paying side (D-87): what went from or into the account of the payer, the receiver or a
+ *        settlement's recorder, in {@code originalCurrency}; only in that member's own answers (D-88, F8b), and left out
+ *        for everyone else, as {@code originalCurrency}, {@code rate}, {@code rateSource} and {@code rateDate} are
  * @param rate units of the base currency for one of the original currency that the base amount was converted with;
  *        left out when the base amount was entered or the currencies are the same (F4e, additive)
  * @param rateSource ECB, MANUAL (the acting member's own rate, where the ECB has none) or ENTERED; left out when the
@@ -49,7 +50,8 @@ public record FamilyRecordView(long id, String type, LocalDate date, CategoryRef
         MemberRef author, Instant createdAt, MemberRef updatedBy, Instant updatedAt, int version, boolean frozen,
         boolean canEdit, boolean canDelete, boolean canEditPayment,
         @JsonInclude(Include.NON_NULL) YourPayment yourPayment, @JsonInclude(Include.NON_NULL) MemberRef payee,
-        @JsonInclude(Include.NON_NULL) MemberRef lockedBy, BigDecimal originalAmount, String originalCurrency,
+        @JsonInclude(Include.NON_NULL) MemberRef lockedBy, @JsonInclude(Include.NON_NULL) BigDecimal originalAmount,
+        @JsonInclude(Include.NON_NULL) String originalCurrency,
         @JsonInclude(Include.NON_NULL) BigDecimal rate, @JsonInclude(Include.NON_NULL) String rateSource,
         @JsonInclude(Include.NON_NULL) LocalDate rateDate) {
 

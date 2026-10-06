@@ -26,11 +26,13 @@ public record FamilyChangeView(long id, Instant at, String action, Long recordId
      * A record as the journal names it: only family data, as in {@link FamilyRecordView}.
      *
      * @param category the family category's name; null for a record without one, such as a settlement
-     * @param amount in the family's base currency, with its minor unit's decimals
+     * @param amount the record's amount in its own currency, with its minor unit's decimals
      * @param deleted whether the record is deleted, which only the journal still shows
      * @param type EXPENSE or SETTLEMENT (F4d, additive)
+     * @param currency the record's currency, which {@code amount} is in (D-45; F8b, additive)
      */
-    public record RecordSummary(LocalDate date, String category, BigDecimal amount, boolean deleted, String type) {
+    public record RecordSummary(LocalDate date, String category, BigDecimal amount, boolean deleted, String type,
+            String currency) {
     }
 
     /**

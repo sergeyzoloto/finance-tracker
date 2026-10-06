@@ -140,8 +140,8 @@ class FamilyCurrencyPostingApiTests extends FamilyApiTest {
         List<String> bobsPosted = posted(bob, paid);
 
         assertThat(details(patch(bob, path + "?version=0", """
-                {"amount": "12000"}"""))).containsExactly(("ACCOUNT_AMOUNT %d the account is in EUR and the expense in "
-                        + "RUB: name the amount that went from it").formatted(dad));
+                {"amount": "12000"}"""))).containsExactly(("ACCOUNT_AMOUNT %d your side is in EUR and the expense in "
+                        + "RUB: name the amount that went from the account").formatted(dad));
         assertThat(ok(get(bob, path)).get("version").asInt()).isZero();
         assertThat(entries(bob)).isEqualTo(bobsBefore);
         assertThat(entries(alice)).isEqualTo(alicesBefore);
@@ -165,6 +165,147 @@ class FamilyCurrencyPostingApiTests extends FamilyApiTest {
         assertThat(entries(bob)).isEmpty();
         assertThat(entries(alice)).isEmpty();
         assertThat(debt(bob)).isEmpty();
+    }
+
+    /**
+     * D-89: the paying currency is chosen per payment. A 56.00 USD expense paid in dollars from Alice's euro cash, an
+     * account that holds any currency, is an ordinary payment in dollars: no FX_EXCHANGE and no {@code accountAmount}.
+     * Left to the cash's default, euros, it asks for the euros (422), and with them goes through FX_EXCHANGE. The paying
+     * side is hers alone (D-88): Bob's answers and the journal hold neither its amount nor its currency.
+     */
+    @Test
+    void aDollarRecordPaidInDollarsFromAEuroAccount() throws IOException {
+        String paid = """
+                {"date": "2026-09-10", "categoryId": %d, "amount": "56.00", "currency": "USD", "payerMemberId": %d,
+                 "paymentAccountId": %d, "split": %s%s}""";
+        JsonNode inDollars = created(post(alice, uri + "/records", paid.formatted(groceries, mum, alicesCash, halves(),
+                ", \"accountCurrency\": \"USD\"")));
+        long aliceDebt = accountId(alice, "FAMILY_DEBT_" + family);
+        assertThat(lines(alice, inDollars.get("yourPayment").get("entryId").asLong())).containsExactly(
+                alicesCash + " USD -56.00", aliceDebt + " USD 56.00");
+        assertThat(own(inDollars)).isEqualTo("56.00 USD");
+
+        assertThat(details(post(alice, uri + "/records", paid.formatted(groceries, mum, alicesCash, halves(), ""))))
+                .containsExactly(("ACCOUNT_AMOUNT %d your side is in EUR and the expense in USD: name the amount that "
+                        + "went from the account").formatted(mum));
+        JsonNode inEuros = created(post(alice, uri + "/records", paid.formatted(groceries, mum, alicesCash, halves(),
+                ", \"accountCurrency\": \"EUR\", \"accountAmount\": \"51.50\"")));
+        long fx = accountId(alice, "FX_EXCHANGE");
+        assertThat(lines(alice, inEuros.get("yourPayment").get("entryId").asLong())).containsExactly(
+                alicesCash + " EUR -51.50", fx + " EUR 51.50", fx + " USD -56.00", aliceDebt + " USD 56.00");
+        assertThat(own(inEuros)).isEqualTo("51.50 EUR");
+        assertThat(inEuros.get("originalAmount").asText() + " " + inEuros.get("originalCurrency").asText())
+                .isEqualTo("51.50 EUR");
+
+        // D-88: Bob sees the record's amount, currency and shares, and nothing of her side.
+        for (String read : List.of("/records/" + inEuros.get("id").asLong(), "/records",
+                "/journal?recordId=" + inEuros.get("id").asLong())) {
+            JsonNode his = ok(get(bob, uri + read));
+            assertThat(his.findValues("originalAmount")).as(read).isEmpty();
+            assertThat(his.findValues("originalCurrency")).as(read).isEmpty();
+            assertThat(his.findValues("yourPayment")).as(read).isEmpty();
+            assertThat(his.toString()).as(read).doesNotContain("51.50", "EUR");
+        }
+        JsonNode his = ok(get(bob, uri + "/records/" + inEuros.get("id").asLong()));
+        assertThat(his.get("amount").asText() + " " + his.get("currency").asText()).isEqualTo("56.00 USD");
+        assertThat(his.get("shares").findValuesAsText("amount")).containsExactly("28.00", "28.00");
+        // The paying currency goes only with an account of hers: "Specify later" is in the record's currency.
+        assertThat(details(post(alice, uri + "/records", """
+                {"date": "2026-09-10", "categoryId": %d, "amount": "56.00", "currency": "USD", "payerMemberId": %d,
+                 "paymentLater": true, "accountCurrency": "EUR"}""".formatted(groceries, mum)))).containsExactly(
+                ("ACCOUNT_AMOUNT %d a paying currency other than the expense's, USD, goes only with an account of "
+                        + "yours; \"Specify later\" is in USD").formatted(mum));
+    }
+
+    /**
+     * D-89: {@code accountAmount} is asked again when the record's amount or currency, the account or the paying
+     * currency changes, and kept when only the date or the comment changes. Alice pays 56.00 USD from her euro cash,
+     * 51.50 EUR; each refused change leaves the record at its version.
+     */
+    @Test
+    void theAccountAmountIsAskedAgainOnlyWhenTheSideMoves() throws IOException {
+        long savings = accountId(alice, "SAVINGS_ACCOUNT");
+        JsonNode paid = created(post(alice, uri + "/records", """
+                {"date": "2026-09-10", "categoryId": %d, "amount": "56.00", "currency": "USD", "payerMemberId": %d,
+                 "paymentAccountId": %d, "accountAmount": "51.50", "split": %s}"""
+                .formatted(groceries, mum, alicesCash, halves())));
+        String path = uri + "/records/" + paid.get("id").asLong();
+        String asked = ("ACCOUNT_AMOUNT %d your side is in EUR and the expense in USD: name the amount that went from "
+                + "the account").formatted(mum);
+
+        JsonNode dated = ok(patch(alice, path + "?version=0", """
+                {"date": "2026-09-11"}"""));
+        assertThat(own(dated) + " v" + dated.get("version").asInt()).isEqualTo("51.50 EUR v1");
+        JsonNode commented = ok(patch(alice, path + "?version=1", """
+                {"comment": "Market"}"""));
+        assertThat(own(commented) + " v" + commented.get("version").asInt()).isEqualTo("51.50 EUR v2");
+
+        assertThat(details(patch(alice, path + "?version=2", """
+                {"amount": "60.00"}"""))).containsExactly(asked);
+        assertThat(details(patch(alice, path + "?version=2", """
+                {"currency": "GBP", "amount": "45.00"}"""))).containsExactly(asked.replace("USD", "GBP"));
+        assertThat(details(patch(alice, path + "?version=2", """
+                {"paymentAccountId": %d}""".formatted(savings)))).containsExactly(asked);
+        assertThat(details(patch(alice, path + "?version=2", """
+                {"accountCurrency": "GBP"}"""))).containsExactly(asked.replace("in EUR", "in GBP"));
+        assertThat(ok(get(alice, path)).get("version").asInt()).isEqualTo(2);
+        assertThat(own(ok(get(alice, path)))).isEqualTo("51.50 EUR");
+
+        // To another account in euros, with its euros: the side moves, neither version nor journal (D-16).
+        JsonNode moved = ok(patch(alice, path + "?version=2", """
+                {"paymentAccountId": %d, "accountAmount": "51.60"}""".formatted(savings)));
+        assertThat(own(moved) + " v" + moved.get("version").asInt()).isEqualTo("51.60 EUR v2");
+        // In dollars from the same savings account: the record's amount, no amount to name.
+        JsonNode dollars = ok(patch(alice, path + "?version=2", """
+                {"accountCurrency": "USD"}"""));
+        assertThat(own(dollars)).isEqualTo("56.00 USD");
+        assertThat(lines(alice, dollars.get("yourPayment").get("entryId").asLong())).containsExactly(
+                savings + " USD -56.00", accountId(alice, "FAMILY_DEBT_" + family) + " USD 56.00");
+        // The choice stays with the payment: a new amount keeps it in dollars, and asks for nothing.
+        JsonNode more = ok(patch(alice, path + "?version=2", """
+                {"amount": "58.00"}"""));
+        assertThat(own(more) + " v" + more.get("version").asInt()).isEqualTo("58.00 USD v3");
+        // Through her payment entry (F4c): back to euros, with them.
+        long entry = more.get("yourPayment").get("entryId").asLong();
+        int entryVersion = ok(get(alice, "/api/entries/" + entry)).get("version").asInt();
+        assertThat(details(patch(alice, "/api/entries/%d/family-payment?version=%d".formatted(entry, entryVersion),
+                """
+                {"accountCurrency": "EUR"}"""))).containsExactly(asked);
+        assertThat(patch(alice, "/api/entries/%d/family-payment?version=%d".formatted(entry, entryVersion), """
+                {"accountCurrency": "EUR", "accountAmount": "53.40"}""")).hasStatus(HttpStatus.OK);
+        assertThat(own(ok(get(alice, path)))).isEqualTo("53.40 EUR");
+        assertThat(changes(ok(get(bob, uri + "/journal?recordId=" + paid.get("id").asLong()))))
+                .noneMatch(change -> change.contains("53.40") || change.contains("51.5"));
+    }
+
+    /**
+     * D-89 for a settlement's other side: Bob puts his side of a 20.00 USD settlement on his euro cash in dollars,
+     * with nothing to name, or in euros with the euros.
+     */
+    @Test
+    void aSettlementsOtherSideChoosesItsPayingCurrency() throws IOException {
+        JsonNode settled = created(post(alice, uri + "/settlements", """
+                {"date": "2026-09-10", "amount": "20.00", "currency": "USD", "payerMemberId": %d, "payeeMemberId": %d,
+                 "paymentAccountId": %d}""".formatted(mum, dad, usdCard)));
+        String path = uri + "/records/" + settled.get("id").asLong();
+        assertThat(details(patch(bob, path + "?version=0", """
+                {"paymentAccountId": %d}""".formatted(bobsCash)))).containsExactly(
+                "ACCOUNT_AMOUNT %d your side is in EUR: name the amount that went into the account".formatted(dad));
+        JsonNode inDollars = ok(patch(bob, path + "?version=0", """
+                {"paymentAccountId": %d, "accountCurrency": "USD"}""".formatted(bobsCash)));
+        assertThat(own(inDollars)).isEqualTo("20.00 USD");
+        assertThat(lines(bob, inDollars.get("yourPayment").get("entryId").asLong())).containsExactly(
+                bobsCash + " USD 20.00", accountId(bob, "FAMILY_DEBT_" + family) + " USD -20.00");
+        JsonNode inEuros = ok(patch(bob, path + "?version=0", """
+                {"paymentAccountId": %d, "accountCurrency": "EUR", "accountAmount": "18.30"}""".formatted(bobsCash)));
+        assertThat(own(inEuros)).isEqualTo("18.30 EUR");
+        assertThat(ok(get(alice, path)).toString()).doesNotContain("18.30");
+    }
+
+    /** The reader's own side, from their {@code yourPayment}, as "amount CUR". */
+    private static String own(JsonNode record) {
+        return record.get("yourPayment").get("amount").asText() + " " + record.get("yourPayment").get("currency")
+                .asText();
     }
 
     /** Mum and Dad half each. */

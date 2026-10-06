@@ -14,7 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -36,8 +35,6 @@ import com.example.financetracker.ledger.family.ShareSplit.Weight;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService.OwnPayment;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService.Payment;
-import com.example.financetracker.ledger.rates.RateService;
-import com.example.financetracker.ledger.rates.RecordRate;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,7 +46,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * A family ledger's records (C1, C3, C5, D2; D-6, D-12, D-14, D-16; ADR 0003, topics D and H): family expenses (F4a),
- * incomes and settlements (F4d) in the base currency, their shares, the members' balances and the change journal. Every method takes the family ledger's
+ * incomes and settlements (F4d), their shares, the members' balances and the change journal. Each record is in its own
+ * currency, the family's main currency unless chosen, and its shares are split in it (D-45, ADR 0004); no exchange rate
+ * is ever used (D-87): a side on an account in another currency names what went from or into it, and the posting
+ * service routes it through the member's FX_EXCHANGE. Every method takes the family ledger's
  * {@link LedgerScope} of the member who acts, from {@code LedgerAccess.member}; the payment's account comes from their
  * personal ledger's. Each change is journaled and posted into the members' personal ledgers by
  * {@link FamilyPostingService} in the same transaction.
@@ -87,11 +87,10 @@ public class FamilyRecordService {
     public static final String AMOUNTS_NEEDED = "AMOUNTS_NEEDED";
     /** The receiver of a settlement (F4d). */
     public static final String PAYEE = "PAYEE";
-    /** No exchange rate converts the original amount: the request gives the base amount (F4e, D-13). */
-    public static final String RATE_MISSING = "RATE_MISSING";
-    /** The base amount as entered (F4e). */
-    public static final String BASE_AMOUNT = "BASE_AMOUNT";
-    /** What the other side of a settlement names for their account in another currency than the base (F4e). */
+    /**
+     * What went from or into a member's account in another currency than the record's (D-87): the payer's, the
+     * receiver's, or a side's of a settlement (F4e).
+     */
     public static final String ACCOUNT_AMOUNT = "ACCOUNT_AMOUNT";
 
     private static final String EXPENSE = "EXPENSE";
@@ -99,7 +98,7 @@ public class FamilyRecordService {
     private static final String SETTLEMENT = "SETTLEMENT";
 
     private static final String RECORDS = """
-            SELECT r.id, r.type, r.record_date, r.category_id, r.base_amount, r.comment, r.payer_member_id,
+            SELECT r.id, r.type, r.record_date, r.category_id, r.base_amount, r.currency, r.comment, r.payer_member_id,
                    r.payee_member_id, r.split_method, r.author_member_id, r.created_at, r.updated_by_member_id,
                    r.updated_at, r.version, r.original_amount, r.original_currency, r.base_rate, r.base_rate_source,
                    r.base_rate_date
@@ -108,13 +107,11 @@ public class FamilyRecordService {
 
     private final JdbcClient jdbc;
     private final FamilyPostingService posting;
-    private final RateService rates;
     private final ObjectMapper json;
 
-    FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, RateService rates, ObjectMapper json) {
+    FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, ObjectMapper json) {
         this.jdbc = jdbc;
         this.posting = posting;
-        this.rates = rates;
         this.json = json;
     }
 
@@ -134,19 +131,25 @@ public class FamilyRecordService {
         Ledger ledger = lockLedger(family);
         String type = request.type();
         requireStarted(ledger, request.date(), type);
-        int scale = ShareSplit.minorUnit(ledger.baseCurrency());
+        // The record's own currency, the main currency unless chosen (D-45): its amount and its shares are in it.
+        String currency = request.currency() == null ? ledger.baseCurrency() : request.currency();
+        int scale = ShareSplit.minorUnit(currency);
         Map<Long, Member> members = members(family);
         List<Violation> violations = new ArrayList<>();
         checkCategory(family, request.categoryId(), type, violations);
-        String currency = request.currency() == null ? ledger.baseCurrency() : request.currency();
-        checkAmount(request.amount(), currency, ShareSplit.minorUnit(currency), violations);
+        checkAmount(request.amount(), currency, scale, violations);
         Member payer = members.get(request.payerMemberId());
         Payment payment = payment(family, personal, request, payer, violations);
-        Base base = amountValid(violations) ? base(family, ledger, request.amount(), currency, request.date(),
-                request.baseAmount(), violations) : null;
-        List<Share> shares = base == null ? List.of()
-                : split(request.split(), base.amount(), scale, request.date(), request.payerMemberId(), ledger,
-                        members, Set.of(), violations, type);
+        BigDecimal amount = null;
+        Side side = null;
+        List<Share> shares = List.of();
+        if (amountValid(violations)) {
+            amount = inMinorUnits(request.amount(), currency);
+            side = payingSide(personal, payment, amount, currency, request.accountAmount(), null, true,
+                    request.payerMemberId(), violations, type, way(type, true));
+            shares = split(request.split(), amount, scale, request.date(), request.payerMemberId(), ledger, members,
+                    Set.of(), violations, type);
+        }
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
         }
@@ -154,16 +157,16 @@ public class FamilyRecordService {
         String method = method(request.split(), ledger);
         long recordId = jdbc.sql("""
                 INSERT INTO family_record (ledger_id, type, record_date, category_id, payer_member_id,
-                    original_amount, original_currency, base_amount, base_rate, base_rate_source, base_rate_date,
-                    split_method, comment, author_member_id, updated_by_member_id)
-                VALUES (:ledgerId, :type, :date, :categoryId, :payerId, :original, :currency, :amount, :rate, :source,
-                        :rateDate, :method, :comment, :memberId, :memberId)
+                    original_amount, original_currency, base_amount, currency, base_rate, base_rate_source,
+                    base_rate_date, split_method, comment, author_member_id, updated_by_member_id)
+                VALUES (:ledgerId, :type, :date, :categoryId, :payerId, :original, :originalCurrency, :amount,
+                        :currency, :rate, :source, :rateDate, :method, :comment, :memberId, :memberId)
                 RETURNING id""")
                 .param("ledgerId", family.ledgerId()).param("type", type).param("date", request.date())
                 .param("categoryId", request.categoryId()).param("payerId", request.payerMemberId())
-                .param("original", inMinorUnits(request.amount(), currency)).param("currency", currency)
-                .param("amount", base.amount()).param("rate", base.rate()).param("source", base.source())
-                .param("rateDate", base.rateDate()).param("method", method)
+                .param("original", side.amount()).param("originalCurrency", side.currency())
+                .param("amount", amount).param("currency", currency).param("rate", side.rate())
+                .param("source", side.source()).param("rateDate", side.rateDate()).param("method", method)
                 .param("comment", request.comment()).param("memberId", family.memberId())
                 .query(Long.class).single();
         for (Share share : shares) {
@@ -173,9 +176,9 @@ public class FamilyRecordService {
         List<Map<String, Object>> changes = new ArrayList<>();
         changes.add(change("date", null, null, request.date().toString()));
         changes.add(change("category", null, null, request.categoryId()));
-        changes.add(change("amount", null, null, text(base.amount(), scale)));
+        changes.add(change("amount", null, null, text(amount, scale)));
         if (!currency.equals(ledger.baseCurrency())) {
-            changes.add(change("originalAmount", null, null, original(request.amount(), currency)));
+            changes.add(change("currency", null, null, currency));
         }
         changes.add(change("payer", null, null, request.payerMemberId()));
         changes.add(change("splitMethod", null, null, method));
@@ -244,13 +247,13 @@ public class FamilyRecordService {
         boolean mayEditPayment = payer.hasAccount() ? record.payerId() == family.memberId() : mayEditFamily;
         LocalDate date = changes.date() == null ? record.date() : changes.date();
         long payerId = changes.payerMemberId() == null ? record.payerId() : changes.payerMemberId();
-        // A split that comes with a change of the base amount belongs to the payment's change: under AMOUNT it has to
-        // come (D-14). The base amount changes with the amounts, and with the date of a record in another currency.
-        boolean movesBase = changes.amount() != null && changes.amount().compareTo(record.originalAmount()) != 0
-                || changes.currency() != null || changes.baseAmount() != null
-                || !date.equals(record.date()) && !record.originalCurrency().equals(ledger.baseCurrency());
+        // The record's currency, or a new one with its amount (D-45). A split that comes with a change of the amount
+        // belongs to the payment's change: under AMOUNT it has to come (D-14).
+        String currency = changes.currency() == null ? record.currency() : changes.currency();
+        boolean movesAmount = changes.amount() != null && changes.amount().compareTo(record.amount()) != 0
+                || !currency.equals(record.currency());
         boolean familyFields = changes.categoryId() != null || changes.changesComment()
-                || changes.split() != null && !(mayEditPayment && movesBase);
+                || changes.split() != null && !(mayEditPayment && movesAmount);
         String type = record.type();
         if (familyFields && !mayEditFamily) {
             throw new ConflictException(("Only the %s's author or an owner of the family budget can change its "
@@ -269,7 +272,8 @@ public class FamilyRecordService {
         if (!date.equals(record.date())) {
             requireStarted(ledger, date, record.type());
         }
-        int scale = ShareSplit.minorUnit(ledger.baseCurrency());
+        int scale = ShareSplit.minorUnit(currency);
+        int oldScale = ShareSplit.minorUnit(record.currency());
 
         List<Violation> violations = new ArrayList<>();
         long categoryId = record.categoryId();
@@ -277,30 +281,27 @@ public class FamilyRecordService {
             checkCategory(family, changes.categoryId(), type, violations);
             categoryId = changes.categoryId();
         }
-        if (changes.accountAmount() != null) {
-            violations.add(new Violation(ACCOUNT_AMOUNT, family.memberId(), "only the other side of a settlement names "
-                    + "an amount for their account; the %s's amount is its own".formatted(noun(type))));
-        }
         Map<Long, ShareRow> oldShares = shares(family, List.of(recordId)).getOrDefault(recordId, Map.of());
         Set<Long> guests = guests(record, oldShares, members);
         Payment payment = changedPayment(family, personal, record, changes, date, payerId, members, guests,
                 violations);
-        // The original amount in its currency, as the payer paid it (D-13).
-        String currency = changes.currency() == null ? record.originalCurrency() : changes.currency();
-        BigDecimal original = changes.amount() == null ? record.originalAmount() : changes.amount();
-        if (!currency.equals(record.originalCurrency()) && changes.amount() == null) {
+        // The record's amount in its currency, or in its new one, which needs its amount (D-45).
+        BigDecimal amount = record.amount();
+        if (!currency.equals(record.currency()) && changes.amount() == null) {
             violations.add(new Violation(AMOUNT, null, "the %s is in %s now, not %s: give its amount in %s"
-                    .formatted(noun(type), currency, record.originalCurrency(), currency)));
+                    .formatted(noun(type), currency, record.currency(), currency)));
         } else if (changes.amount() != null) {
-            checkAmount(changes.amount(), currency, ShareSplit.minorUnit(currency), violations);
+            checkAmount(changes.amount(), currency, scale, violations);
+            if (amountValid(violations)) {
+                amount = inMinorUnits(changes.amount(), currency);
+            }
         }
-        Base base = baseOf(record);
-        if (amountValid(violations) && (movesBase || !currency.equals(record.originalCurrency()))) {
-            Base again = base(family, ledger, original, currency, date, changes.baseAmount(), violations);
-            base = again == null ? base : again;
+        boolean amountChanged = amount.compareTo(record.amount()) != 0 || !currency.equals(record.currency());
+        Side side = sideOf(record);
+        if (amountValid(violations)) {
+            side = changedSide(family, personal, record, changes, payment, payerId, date, amount, currency,
+                    amountChanged, members, violations);
         }
-        BigDecimal amount = base.amount();
-        boolean amountChanged = amount.compareTo(record.amount()) != 0;
         String comment = changes.changesComment() ? changes.comment() : record.comment();
         List<Share> newShares = null;
         String method = record.splitMethod();
@@ -324,10 +325,7 @@ public class FamilyRecordService {
         if (categoryId != record.categoryId()) {
             journal.add(change("category", null, record.categoryId(), categoryId));
         }
-        if (amountChanged) {
-            journal.add(change("amount", null, text(record.amount(), scale), text(amount, scale)));
-        }
-        journalOriginal(journal, record, original, currency, ledger);
+        journalAmount(journal, record, amount, currency);
         if (payerId != record.payerId()) {
             journal.add(change("payer", null, record.payerId(), payerId));
         }
@@ -346,7 +344,7 @@ public class FamilyRecordService {
                 if (old == null || share == null || old.amount().compareTo(share.amount()) != 0
                         || !Objects.equals(old.basisPoints(), share.basisPoints())) {
                     if (old == null || share == null || old.amount().compareTo(share.amount()) != 0) {
-                        journal.add(change("share", memberId, old == null ? null : text(old.amount(), scale),
+                        journal.add(change("share", memberId, old == null ? null : text(old.amount(), oldScale),
                                 share == null ? null : text(share.amount(), scale)));
                     }
                     jdbc.sql("DELETE FROM family_share WHERE record_id = :recordId AND member_id = :memberId "
@@ -365,27 +363,30 @@ public class FamilyRecordService {
             journal.add(change("comment", null, record.comment(), comment));
         }
         boolean recordChanged = !journal.isEmpty() || rewritten;
+        boolean sideChanged = !sameSide(side, sideOf(record));
         if (recordChanged) {
             jdbc.sql("""
                     UPDATE family_record
                     SET record_date = :date, category_id = :categoryId, payer_member_id = :payerId,
-                        original_amount = :original, original_currency = :currency, base_amount = :amount,
-                        base_rate = :rate, base_rate_source = :source, base_rate_date = :rateDate, comment = :comment,
-                        split_method = :method, updated_by_member_id = :memberId, updated_at = now(),
-                        version = version + 1
+                        original_amount = :original, original_currency = :originalCurrency, base_amount = :amount,
+                        currency = :currency, base_rate = :rate, base_rate_source = :source, base_rate_date = :rateDate,
+                        comment = :comment, split_method = :method, updated_by_member_id = :memberId,
+                        updated_at = now(), version = version + 1
                     WHERE id = :recordId AND ledger_id = :ledgerId""")
                     .param("date", date).param("categoryId", categoryId).param("payerId", payerId)
-                    .param("original", inMinorUnits(original, currency)).param("currency", currency)
-                    .param("amount", amount.setScale(scale, RoundingMode.UNNECESSARY)).param("rate", base.rate())
-                    .param("source", base.source()).param("rateDate", base.rateDate()).param("comment", comment)
+                    .param("original", side.amount()).param("originalCurrency", side.currency())
+                    .param("amount", amount).param("currency", currency).param("rate", side.rate())
+                    .param("source", side.source()).param("rateDate", side.rateDate()).param("comment", comment)
                     .param("method", method).param("memberId", family.memberId()).param("recordId", recordId)
                     .param("ledgerId", family.ledgerId())
                     .update();
             if (!journal.isEmpty()) {
                 journal(family, recordId, "UPDATE", journal);
             }
+        } else if (sideChanged) {
+            updateSide(family, recordId, side);
         }
-        if (recordChanged || !(payment instanceof FamilyPostingService.Unchanged)) {
+        if (recordChanged || sideChanged || !(payment instanceof FamilyPostingService.Unchanged)) {
             posting.post(family, recordId, payment);
         }
         return get(family, recordId);
@@ -452,18 +453,19 @@ public class FamilyRecordService {
                 SELECT m.id, m.display_name, m.status, m.user_sub IS NOT NULL AS has_account,
                        coalesce((SELECT sum(CASE r.type WHEN 'EXPENSE' THEN s.amount ELSE -s.amount END)
                                  FROM family_share s JOIN family_record r ON r.id = s.record_id
-                                 WHERE s.member_id = m.id AND r.ledger_id = :ledgerId AND r.deleted_at IS NULL), 0)
+                                 WHERE s.member_id = m.id AND r.ledger_id = :ledgerId AND r.deleted_at IS NULL
+                                   AND r.currency = :currency), 0)
                        - coalesce((SELECT sum(CASE r.type WHEN 'INCOME' THEN -r.base_amount ELSE r.base_amount END)
                                    FROM family_record r
                                    WHERE r.payer_member_id = m.id AND r.ledger_id = :ledgerId
-                                     AND r.deleted_at IS NULL), 0)
+                                     AND r.deleted_at IS NULL AND r.currency = :currency), 0)
                        + coalesce((SELECT sum(r.base_amount) FROM family_record r
                                    WHERE r.payee_member_id = m.id AND r.ledger_id = :ledgerId
-                                     AND r.deleted_at IS NULL), 0) AS balance
+                                     AND r.deleted_at IS NULL AND r.currency = :currency), 0) AS balance
                 FROM ledger_member m
                 WHERE m.ledger_id = :ledgerId
                 ORDER BY m.join_date, m.id""")
-                .param("ledgerId", family.ledgerId())
+                .param("ledgerId", family.ledgerId()).param("currency", currency)
                 .query((row, n) -> new FamilyBalances.MemberBalance(row.getLong("id"), row.getString("display_name"),
                         MemberStatus.valueOf(row.getString("status")), row.getBoolean("has_account"),
                         row.getBigDecimal("balance").setScale(scale, RoundingMode.UNNECESSARY),
@@ -484,7 +486,7 @@ public class FamilyRecordService {
                 .param("ledgerId", family.ledgerId());
         var rows = jdbc.sql("""
                 SELECT c.id, c.changed_at, c.action, c.record_id, c.changed_by_member_id, c.about_member_id,
-                       c.changes::text AS changes, r.type, r.record_date, r.category_id, r.base_amount,
+                       c.changes::text AS changes, r.type, r.record_date, r.category_id, r.base_amount, r.currency,
                        r.deleted_at IS NOT NULL AS deleted
                 FROM family_record_change c
                 LEFT JOIN family_record r ON r.id = c.record_id AND r.ledger_id = c.ledger_id
@@ -498,8 +500,6 @@ public class FamilyRecordService {
         long total = count.query(Long.class).single();
         Map<Long, Member> members = members(family);
         Map<Long, CategoryRef> categories = categories(family);
-        int scale = ShareSplit.minorUnit(jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
-                .param("ledgerId", family.ledgerId()).query(String.class).single());
         List<FamilyChangeView> content = rows.query((row, n) -> new FamilyChangeView(row.getLong("id"),
                         row.getTimestamp("changed_at").toInstant(), row.getString("action"),
                         row.getObject("record_id", Long.class),
@@ -509,7 +509,8 @@ public class FamilyRecordService {
                         row.getObject("record_id") == null ? null : new FamilyChangeView.RecordSummary(
                                 row.getObject("record_date", LocalDate.class),
                                 categoryName(categories, row.getObject("category_id", Long.class)),
-                                row.getBigDecimal("base_amount").setScale(scale, RoundingMode.UNNECESSARY),
+                                row.getBigDecimal("base_amount").setScale(ShareSplit.minorUnit(row.getString("currency")),
+                                        RoundingMode.UNNECESSARY),
                                 row.getBoolean("deleted"), row.getString("type"))))
                 .list();
         return new FamilyJournalPage(content, page, size, total, Math.toIntExact((total + size - 1) / size));
@@ -534,12 +535,12 @@ public class FamilyRecordService {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
         requireStarted(ledger, request.date(), SETTLEMENT);
-        int scale = ShareSplit.minorUnit(ledger.baseCurrency());
+        // In one currency, the main currency unless chosen, whose balances it settles (D-46).
+        String currency = request.currency() == null ? ledger.baseCurrency() : request.currency();
+        int scale = ShareSplit.minorUnit(currency);
         Map<Long, Member> members = members(family);
         List<Violation> violations = new ArrayList<>();
-        // Its original amount is in its currency, the base currency unless chosen; its base amount settles (D-13).
-        String currency = request.currency() == null ? ledger.baseCurrency() : request.currency();
-        checkAmount(request.amount(), currency, ShareSplit.minorUnit(currency), violations);
+        checkAmount(request.amount(), currency, scale, violations);
         Member payer = active(members, request.payerMemberId(), PAYER, violations);
         Member payee = active(members, request.payeeMemberId(), PAYEE, violations);
         boolean namesAccount = request.paymentAccountId() != null || request.paymentLater();
@@ -579,31 +580,37 @@ public class FamilyRecordService {
                 }
             }
         }
-        Base base = amountValid(violations) ? base(family, ledger, request.amount(), currency, request.date(),
-                request.baseAmount(), violations) : null;
+        BigDecimal amount = null;
+        Side side = null;
+        if (amountValid(violations)) {
+            // The recorder's own side: on their account, in its currency with what went from or into it (D-87).
+            amount = inMinorUnits(request.amount(), currency);
+            side = payingSide(personal, payment, amount, currency, request.accountAmount(), null, true,
+                    family.memberId(), violations, SETTLEMENT, way(SETTLEMENT, request.payerMemberId() == family.memberId()));
+        }
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
         }
 
         long recordId = jdbc.sql("""
                 INSERT INTO family_record (ledger_id, type, record_date, payer_member_id, payee_member_id,
-                    original_amount, original_currency, base_amount, base_rate, base_rate_source, base_rate_date,
-                    comment, author_member_id, updated_by_member_id)
-                VALUES (:ledgerId, 'SETTLEMENT', :date, :payerId, :payeeId, :original, :currency, :amount, :rate,
-                        :source, :rateDate, :comment, :memberId, :memberId)
+                    original_amount, original_currency, base_amount, currency, base_rate, base_rate_source,
+                    base_rate_date, comment, author_member_id, updated_by_member_id)
+                VALUES (:ledgerId, 'SETTLEMENT', :date, :payerId, :payeeId, :original, :originalCurrency, :amount,
+                        :currency, :rate, :source, :rateDate, :comment, :memberId, :memberId)
                 RETURNING id""")
                 .param("ledgerId", family.ledgerId()).param("date", request.date())
                 .param("payerId", request.payerMemberId()).param("payeeId", request.payeeMemberId())
-                .param("original", inMinorUnits(request.amount(), currency)).param("currency", currency)
-                .param("amount", base.amount()).param("rate", base.rate()).param("source", base.source())
-                .param("rateDate", base.rateDate()).param("comment", request.comment())
+                .param("original", side.amount()).param("originalCurrency", side.currency())
+                .param("amount", amount).param("currency", currency).param("rate", side.rate())
+                .param("source", side.source()).param("rateDate", side.rateDate()).param("comment", request.comment())
                 .param("memberId", family.memberId())
                 .query(Long.class).single();
         List<Map<String, Object>> changes = new ArrayList<>();
         changes.add(change("date", null, null, request.date().toString()));
-        changes.add(change("amount", null, null, text(base.amount(), scale)));
+        changes.add(change("amount", null, null, text(amount, scale)));
         if (!currency.equals(ledger.baseCurrency())) {
-            changes.add(change("originalAmount", null, null, original(request.amount(), currency)));
+            changes.add(change("currency", null, null, currency));
         }
         changes.add(change("payer", null, null, request.payerMemberId()));
         changes.add(change("payee", null, null, request.payeeMemberId()));
@@ -625,24 +632,23 @@ public class FamilyRecordService {
         Map<Long, Member> members = members(family);
         boolean changesRecord = changes.date() != null || changes.changesAmount() || changes.changesComment();
         boolean ownSide = record.payerId() == family.memberId() || record.payeeId() == family.memberId();
-        // The recorder's own side is in the record's original currency; the other side's in the base currency, or
-        // in their account's with the amount they name (F4e).
+        // The recorder's own side is in original_* (D-87); the other side's in the settlement's currency, or in
+        // their account's with the amount they name (F4e), which only their entry holds.
         boolean recordersSide = ownSide && record.authorId() == family.memberId();
         if ((changesRecord || !ownSide) && !maySettle(family, record)) {
             throw new ConflictException(notRecorder(record, members, "change the settlement's date, amount or comment"));
         }
         requireNotFrozen(family, record, members);
         LocalDate date = changes.date() == null ? record.date() : changes.date();
-        boolean currencyMoves = changes.currency() != null && !changes.currency().equals(record.originalCurrency());
+        String currency = changes.currency() == null ? record.currency() : changes.currency();
         if (!date.equals(record.date()) || changes.amount() != null
-                && changes.amount().compareTo(record.originalAmount()) != 0 || currencyMoves
-                || changes.baseAmount() != null && changes.baseAmount().compareTo(record.amount()) != 0) {
+                && changes.amount().compareTo(record.amount()) != 0 || !currency.equals(record.currency())) {
             requireNotPlaced(family, record, members, "its date and amount can't change");
         }
         if (!date.equals(record.date())) {
             requireStarted(ledger, date, SETTLEMENT);
         }
-        int scale = ShareSplit.minorUnit(ledger.baseCurrency());
+        int scale = ShareSplit.minorUnit(currency);
 
         List<Violation> violations = new ArrayList<>();
         if (changes.categoryId() != null) {
@@ -675,66 +681,73 @@ public class FamilyRecordService {
             violations.add(new Violation(PAYMENT, family.memberId(), "you neither pay nor receive this settlement, so "
                     + "no account of yours is in it"));
         }
-        // The recorder's side follows the record: its original amount, in its currency (D-13).
-        String currency = changes.currency() == null ? record.originalCurrency() : changes.currency();
-        BigDecimal original = changes.amount() == null ? record.originalAmount() : changes.amount();
-        if (!currency.equals(record.originalCurrency()) && changes.amount() == null) {
+        // Its amount in its currency, or in a new one, which needs its amount (D-46).
+        BigDecimal amount = record.amount();
+        if (!currency.equals(record.currency()) && changes.amount() == null) {
             violations.add(new Violation(AMOUNT, null, "the settlement is in %s now, not %s: give its amount in %s"
-                    .formatted(currency, record.originalCurrency(), currency)));
+                    .formatted(currency, record.currency(), currency)));
         } else if (changes.amount() != null) {
-            checkAmount(changes.amount(), currency, ShareSplit.minorUnit(currency), violations);
+            checkAmount(changes.amount(), currency, scale, violations);
+            if (amountValid(violations)) {
+                amount = inMinorUnits(changes.amount(), currency);
+            }
         }
-        Base base = baseOf(record);
-        boolean movesBase = changes.changesAmount() || !currency.equals(record.originalCurrency())
-                || !date.equals(record.date()) && !currency.equals(ledger.baseCurrency());
-        if (amountValid(violations) && movesBase) {
-            Base again = base(family, ledger, original, currency, date, changes.baseAmount(), violations);
-            base = again == null ? base : again;
+        boolean amountChanged = amount.compareTo(record.amount()) != 0 || !currency.equals(record.currency());
+        boolean bySide = record.authorId() == record.payerId() || Objects.equals(record.authorId(), record.payeeId());
+        Side side = sideOf(record);
+        if (amountValid(violations)) {
+            String way = way(SETTLEMENT, record.authorId() == record.payerId());
+            if (!bySide) {
+                // Recorded by an owner between two members without an account: nobody's account.
+                side = Side.of(amount, currency);
+            } else if (recordersSide && !(payment instanceof FamilyPostingService.Unchanged)) {
+                side = payingSide(personal, payment, amount, currency, changes.accountAmount(), sideOf(record),
+                        amountChanged, family.memberId(), violations, SETTLEMENT, way);
+            } else if (recordersSide) {
+                side = keptSide(family, personal, record, amount, currency, amountChanged, changes.accountAmount(),
+                        violations, way);
+            }
         }
         if (payment instanceof FamilyPostingService.OwnAccount own && ownSide && !recordersSide) {
-            payment = otherSidesAccount(personal, own, changes.accountAmount(), ledger, base, record, family.memberId(),
-                    violations);
-        } else if (changes.accountAmount() != null) {
-            violations.add(new Violation(ACCOUNT_AMOUNT, family.memberId(), recordersSide
-                    ? "your side is the settlement's own amount; change its amount instead"
-                    : "name the amount only with an account of yours in another currency than %s"
-                            .formatted(ledger.baseCurrency())));
+            payment = otherSidesAccount(personal, own, changes.accountAmount(), currency, amount, record,
+                    family.memberId(), violations);
+        } else if (!recordersSide && changes.accountAmount() != null) {
+            violations.add(new Violation(ACCOUNT_AMOUNT, family.memberId(), ("name the amount only with an account of "
+                    + "yours in another currency than %s").formatted(currency)));
         }
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
         }
-        BigDecimal amount = base.amount();
 
         List<Map<String, Object>> journal = new ArrayList<>();
         if (!date.equals(record.date())) {
             journal.add(change("date", null, record.date().toString(), date.toString()));
         }
-        boolean amountChanged = amount.compareTo(record.amount()) != 0;
-        if (amountChanged) {
-            journal.add(change("amount", null, text(record.amount(), scale), text(amount, scale)));
-        }
-        journalOriginal(journal, record, original, currency, ledger);
+        journalAmount(journal, record, amount, currency);
         String comment = changes.changesComment() ? changes.comment() : record.comment();
         if (!Objects.equals(comment, record.comment())) {
             journal.add(change("comment", null, record.comment(), comment));
         }
+        boolean sideChanged = !sameSide(side, sideOf(record));
         if (!journal.isEmpty()) {
             jdbc.sql("""
                     UPDATE family_record
-                    SET record_date = :date, original_amount = :original, original_currency = :currency,
-                        base_amount = :amount, base_rate = :rate, base_rate_source = :source,
+                    SET record_date = :date, original_amount = :original, original_currency = :originalCurrency,
+                        base_amount = :amount, currency = :currency, base_rate = :rate, base_rate_source = :source,
                         base_rate_date = :rateDate, comment = :comment, updated_by_member_id = :memberId,
                         updated_at = now(), version = version + 1
                     WHERE id = :recordId AND ledger_id = :ledgerId""")
-                    .param("date", date).param("original", inMinorUnits(original, currency))
-                    .param("currency", currency).param("amount", amount.setScale(scale, RoundingMode.UNNECESSARY))
-                    .param("rate", base.rate()).param("source", base.source()).param("rateDate", base.rateDate())
-                    .param("comment", comment).param("memberId", family.memberId()).param("recordId", record.id())
+                    .param("date", date).param("original", side.amount()).param("originalCurrency", side.currency())
+                    .param("amount", amount).param("currency", currency).param("rate", side.rate())
+                    .param("source", side.source()).param("rateDate", side.rateDate()).param("comment", comment)
+                    .param("memberId", family.memberId()).param("recordId", record.id())
                     .param("ledgerId", family.ledgerId())
                     .update();
             journal(family, record.id(), "UPDATE", journal);
+        } else if (sideChanged) {
+            updateSide(family, record.id(), side);
         }
-        if (!journal.isEmpty() || !(payment instanceof FamilyPostingService.Unchanged)) {
+        if (!journal.isEmpty() || sideChanged || !(payment instanceof FamilyPostingService.Unchanged)) {
             posting.post(family, record.id(), payment);
         }
         return get(family, record.id());
@@ -1043,17 +1056,57 @@ public class FamilyRecordService {
         return new FamilyPostingService.OwnAccount(accountId, note);
     }
 
-    // --- Currencies (F4e; D-13) ---
+    // --- Currencies (D-45, D-87; ADR 0004) ---
 
     /**
-     * How a record's base amount was found: converted at a rate (ECB or MANUAL, with the rate and its day), ENTERED, or
-     * the original amount itself in the base currency (no source).
+     * The paying side (D-87): what went from or into the account of the payer, the receiver or a settlement's recorder,
+     * in that account's currency, as {@code original_amount} and {@code original_currency} hold it. It is the record's
+     * amount in the record's currency, unless it is on an account in another currency, with the amount entered
+     * ({@code ENTERED}); a record converted at a rate before V11 keeps its rate and source (D-13).
      */
-    private record Base(BigDecimal amount, BigDecimal rate, String source, LocalDate rateDate) {
+    private record Side(BigDecimal amount, String currency, BigDecimal rate, String source, LocalDate rateDate) {
+
+        static Side of(BigDecimal amount, String currency) {
+            return new Side(amount, currency, null, null, null);
+        }
+
+        static Side entered(BigDecimal amount, String currency) {
+            return new Side(amount, currency, null, "ENTERED", null);
+        }
     }
 
-    private static Base baseOf(RecordRow record) {
-        return new Base(record.amount(), record.rate(), record.rateSource(), record.rateDate());
+    private static Side sideOf(RecordRow record) {
+        return new Side(record.originalAmount(), record.originalCurrency(), record.rate(), record.rateSource(),
+                record.rateDate());
+    }
+
+    private static boolean sameSide(Side one, Side other) {
+        return one.amount().compareTo(other.amount()) == 0 && one.currency().equals(other.currency())
+                && Objects.equals(one.source(), other.source()) && Objects.equals(one.rateDate(), other.rateDate())
+                && (one.rate() == null ? other.rate() == null
+                        : other.rate() != null && one.rate().compareTo(other.rate()) == 0);
+    }
+
+    /** The paying side alone: it changes neither the record's version nor its journal (D-16). */
+    private void updateSide(LedgerScope family, long recordId, Side side) {
+        jdbc.sql("""
+                UPDATE family_record
+                SET original_amount = :original, original_currency = :originalCurrency, base_rate = :rate,
+                    base_rate_source = :source, base_rate_date = :rateDate
+                WHERE id = :recordId AND ledger_id = :ledgerId""")
+                .param("original", side.amount()).param("originalCurrency", side.currency())
+                .param("rate", side.rate()).param("source", side.source()).param("rateDate", side.rateDate())
+                .param("recordId", recordId).param("ledgerId", family.ledgerId())
+                .update();
+    }
+
+    /** Which way a side's money went: "from" the account that paid, "into" the one that received. */
+    private static String way(String type, boolean pays) {
+        return switch (type) {
+            case INCOME -> "into";
+            case SETTLEMENT -> pays ? "from" : "into";
+            default -> "from";
+        };
     }
 
     /** The account's own currency, null if it holds any (an account's default currency is optional). */
@@ -1064,131 +1117,165 @@ public class FamilyRecordService {
     }
 
     /**
-     * The base amount (D-13): the original amount in the base currency; else the one the request gives, which always
-     * wins; else converted at the ECB's rate of the record's date or the latest before it, or where the ECB has none
-     * the acting member's own manual rate, rounded HALF_UP to the base currency's minor unit (rule 3).
+     * The paying side of the member who names how they paid or received (D-87): on an account in the record's
+     * currency, or one without a currency, the record's amount; on an account in another currency, what went from or
+     * into it, which they name ({@code accountAmount}), or as it was if neither the amount nor that currency changed;
+     * on "Specify later", or for a member without an account, the record's amount. No rate is ever used.
      *
-     * @return null after adding a violation: no rate ({@code RATE_MISSING}), or a base amount that can't be one
+     * @param current the side as the record has it; null for a new record
+     * @param amountMoves whether the record's amount or currency changes, which the side's own amount must follow
      */
-    private Base base(LedgerScope family, Ledger ledger, BigDecimal original, String currency, LocalDate date,
-            BigDecimal requested, List<Violation> violations) {
-        String baseCurrency = ledger.baseCurrency();
-        int scale = ShareSplit.minorUnit(baseCurrency);
-        if (currency.equals(baseCurrency)) {
-            if (requested != null && requested.compareTo(original) != 0) {
-                violations.add(new Violation(BASE_AMOUNT, null, ("the amount is in %s, the family budget's currency, "
-                        + "so it is the base amount too").formatted(baseCurrency)));
-                return null;
+    private Side payingSide(LedgerScope personal, Payment payment, BigDecimal amount, String currency,
+            BigDecimal accountAmount, Side current, boolean amountMoves, long memberId, List<Violation> violations,
+            String type, String way) {
+        if (payment instanceof FamilyPostingService.OwnAccount own) {
+            String accountCurrency = accountCurrency(personal, own.accountId());
+            if (accountCurrency == null || accountCurrency.equals(currency)) {
+                if (accountAmount != null && accountAmount.compareTo(amount) != 0) {
+                    violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("the account is in %s, the %s's currency, "
+                            + "so what went %s it is the %s's amount").formatted(currency, noun(type), way,
+                            noun(type))));
+                }
+                return Side.of(amount, currency);
             }
-            return new Base(original.setScale(scale, RoundingMode.UNNECESSARY), null, null, null);
-        }
-        if (requested != null) {
+            if (accountAmount == null) {
+                if (current != null && !amountMoves && current.currency().equals(accountCurrency)) {
+                    return current;
+                }
+                violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("the account is in %s and the %s in %s: name "
+                        + "the amount that went %s it").formatted(accountCurrency, noun(type), currency, way)));
+                return Side.of(amount, currency);
+            }
             int before = violations.size();
-            checkAmount(requested, baseCurrency, scale, violations);
+            checkAmount(accountAmount, accountCurrency, ShareSplit.minorUnit(accountCurrency), violations);
             violations.replaceAll(v -> violations.indexOf(v) >= before && v.code().equals(AMOUNT)
-                    ? new Violation(BASE_AMOUNT, null, v.message().replace("the amount", "the base amount")) : v);
-            return violations.size() > before ? null
-                    : new Base(requested.setScale(scale, RoundingMode.UNNECESSARY), null, "ENTERED", null);
+                    ? new Violation(ACCOUNT_AMOUNT, memberId, v.message()) : v);
+            return violations.size() > before ? Side.of(amount, currency)
+                    : Side.entered(inMinorUnits(accountAmount, accountCurrency), accountCurrency);
         }
-        Optional<RecordRate> rate = rates.recordRate(family.userId(), currency, baseCurrency, date);
-        if (rate.isEmpty()) {
-            violations.add(new Violation(RATE_MISSING, null, ("there is no exchange rate from %s to %s on or before %s: "
-                    + "enter the amount in %s, or add your own rate on the rates page").formatted(currency,
-                    baseCurrency, date, baseCurrency)));
-            return null;
+        if (accountAmount != null) {
+            violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("name the amount only with an account of yours in "
+                    + "another currency than the %s's, %s").formatted(noun(type), currency)));
         }
-        BigDecimal amount = rate.get().convert(original, scale);
-        if (amount.signum() <= 0 || amount.precision() - amount.scale() > 15) {
-            violations.add(new Violation(BASE_AMOUNT, null, ("%s %s comes to %s %s, which can't be a base amount: enter "
-                    + "the amount in %s").formatted(original.toPlainString(), currency, amount.toPlainString(),
-                    baseCurrency, baseCurrency)));
-            return null;
-        }
-        return new Base(amount, rate.get().rate(), rate.get().source().name(), rate.get().date());
+        return Side.of(amount, currency);
     }
 
     /**
-     * The account the other side of a settlement puts their part on (F4e): in the base currency their part is the
-     * base amount; in another currency, the amount they name for it, which only their own entry holds.
+     * The paying side after a change of an expense or an income that names no account: the payer's own side follows
+     * the record's amount, on the account it is on (asking for what went from or into it in another currency); a payer
+     * without an account, or one whose part is in their opening balance, has the record's amount; another member's
+     * side doesn't change.
+     */
+    private Side changedSide(LedgerScope family, LedgerScope personal, RecordRow record, FamilyRecordChanges changes,
+            Payment payment, long payerId, LocalDate date, BigDecimal amount, String currency, boolean amountChanged,
+            Map<Long, Member> members, List<Violation> violations) {
+        String way = way(record.type(), true);
+        if (!(payment instanceof FamilyPostingService.Unchanged)) {
+            return payingSide(personal, payment, amount, currency, changes.accountAmount(), sideOf(record),
+                    amountChanged || payerId != record.payerId(), payerId, violations, record.type(), way);
+        }
+        Member payer = members.get(payerId);
+        boolean posted = payer != null && payer.hasAccount() && !payer.joinDate().isAfter(date);
+        if (payerId == record.payerId() && posted && payerId == family.memberId()) {
+            return keptSide(family, personal, record, amount, currency, amountChanged, changes.accountAmount(),
+                    violations, way);
+        }
+        if (payerId != record.payerId() || !posted) {
+            return payingSide(personal, payment, amount, currency, changes.accountAmount(), null, true, payerId,
+                    violations, record.type(), way);
+        }
+        return sideOf(record);
+    }
+
+    /**
+     * The acting member's own side as it is, on its account or "Specify later", after a change of the record's amount
+     * or of what went from or into the account (D-87).
+     */
+    private Side keptSide(LedgerScope family, LedgerScope personal, RecordRow record, BigDecimal amount,
+            String currency, boolean amountChanged, BigDecimal accountAmount, List<Violation> violations, String way) {
+        if (!amountChanged && accountAmount == null) {
+            return sideOf(record);
+        }
+        OwnPayment current = posting.ownPayments(family, List.of(record.id())).get(record.id());
+        Payment kept = current == null || current.later() ? new FamilyPostingService.Later(null)
+                : new FamilyPostingService.OwnAccount(current.accountId(), null);
+        return payingSide(personal, kept, amount, currency, accountAmount, sideOf(record), amountChanged,
+                family.memberId(), violations, record.type(), way);
+    }
+
+    /**
+     * The account the other side of a settlement puts their part on (F4e): in the settlement's currency their part is
+     * its amount; in another currency, the amount they name for it, which only their own entry holds (D-87).
      */
     private Payment otherSidesAccount(LedgerScope personal, FamilyPostingService.OwnAccount own,
-            BigDecimal accountAmount, Ledger ledger, Base base, RecordRow record, long memberId,
+            BigDecimal accountAmount, String currency, BigDecimal amount, RecordRow record, long memberId,
             List<Violation> violations) {
         String accountCurrency = accountCurrency(personal, own.accountId());
-        String currency = accountCurrency == null ? ledger.baseCurrency() : accountCurrency;
-        if (currency.equals(ledger.baseCurrency())) {
-            if (accountAmount != null && accountAmount.compareTo(base.amount()) != 0) {
-                violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("the account is in %s, the family budget's "
+        String in = accountCurrency == null ? currency : accountCurrency;
+        if (in.equals(currency)) {
+            if (accountAmount != null && accountAmount.compareTo(amount) != 0) {
+                violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("the account is in %s, the settlement's "
                         + "currency, so your side is the settlement's amount").formatted(currency)));
             }
-            return new FamilyPostingService.OwnAccount(own.accountId(), null, base.amount(), currency);
+            return new FamilyPostingService.OwnAccount(own.accountId(), null, amount, currency);
         }
         String way = record.payerId() == memberId ? "from" : "into";
         if (accountAmount == null) {
             violations.add(new Violation(ACCOUNT_AMOUNT, memberId, "the account is in %s: name the amount that went %s it"
-                    .formatted(currency, way)));
+                    .formatted(in, way)));
             return own;
         }
         int before = violations.size();
-        checkAmount(accountAmount, currency, ShareSplit.minorUnit(currency), violations);
+        checkAmount(accountAmount, in, ShareSplit.minorUnit(in), violations);
         violations.replaceAll(v -> violations.indexOf(v) >= before && v.code().equals(AMOUNT)
                 ? new Violation(ACCOUNT_AMOUNT, memberId, v.message()) : v);
         return violations.size() > before ? own
-                : new FamilyPostingService.OwnAccount(own.accountId(), null, inMinorUnits(accountAmount, currency),
-                        currency);
+                : new FamilyPostingService.OwnAccount(own.accountId(), null, inMinorUnits(accountAmount, in), in);
     }
 
-    /** The journal's change of the original amount or its currency, unless both are in the base currency (topic H). */
-    private static void journalOriginal(List<Map<String, Object>> journal, RecordRow record, BigDecimal original,
-            String currency, Ledger ledger) {
-        boolean changed = !currency.equals(record.originalCurrency())
-                || original.compareTo(record.originalAmount()) != 0;
-        boolean inBase = currency.equals(ledger.baseCurrency())
-                && record.originalCurrency().equals(ledger.baseCurrency());
-        if (changed && !inBase) {
-            journal.add(change("originalAmount", null, original(record.originalAmount(), record.originalCurrency()),
-                    original(original, currency)));
+    /**
+     * The journal's change of the record's amount and of its currency (topic H, D-45). What went from or into a
+     * member's account is the private side of their payment, never journaled (D-16).
+     */
+    private static void journalAmount(List<Map<String, Object>> journal, RecordRow record, BigDecimal amount,
+            String currency) {
+        if (amount.compareTo(record.amount()) != 0) {
+            journal.add(change("amount", null, text(record.amount(), ShareSplit.minorUnit(record.currency())),
+                    text(amount, ShareSplit.minorUnit(currency))));
         }
-    }
-
-    /** An original amount as the journal stores it: "9000.00 RUB". */
-    private static String original(BigDecimal amount, String currency) {
-        return inMinorUnits(amount, currency).toPlainString() + " " + currency;
+        if (!currency.equals(record.currency())) {
+            journal.add(change("currency", null, record.currency(), currency));
+        }
     }
 
     private static BigDecimal inMinorUnits(BigDecimal amount, String currency) {
         return amount.setScale(ShareSplit.minorUnit(currency), RoundingMode.UNNECESSARY);
     }
 
-    /** Whether no amount was refused, so that a base amount and shares can follow from it. */
+    /** Whether no amount was refused, so that shares can follow from it. */
     private static boolean amountValid(List<Violation> violations) {
         return violations.stream().noneMatch(v -> v.code().equals(AMOUNT));
     }
 
     /**
-     * An amount in another currency as the family budget would take it (F4e): its base amount, with the rate and its
-     * source, as {@link #create} would convert it for the member who asks; the base amount null if no rate converts
-     * it, for the request to give it.
+     * What F4e's forms ask before saving (D-13), rate-free since F8a (D-87): the amount itself in the family's main
+     * currency; in another currency no base amount and no rate, since a record keeps its own currency (D-45).
      *
      * @throws RuleViolationException if the amount can't be one
+     * @deprecated until F8b's forms stop asking
      */
+    @Deprecated
     @Transactional(readOnly = true)
     public FamilyConversion conversion(LedgerScope family, BigDecimal amount, String currency, LocalDate date) {
-        Ledger ledger = jdbc.sql("SELECT start_date, base_currency, split_rule FROM ledger WHERE id = :ledgerId")
-                .param("ledgerId", family.ledgerId())
-                .query((row, n) -> new Ledger(row.getObject("start_date", LocalDate.class),
-                        row.getString("base_currency"), SplitRule.valueOf(row.getString("split_rule"))))
-                .single();
+        String main = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
+                .param("ledgerId", family.ledgerId()).query(String.class).single();
         List<Violation> violations = new ArrayList<>();
         checkAmount(amount, currency, ShareSplit.minorUnit(currency), violations);
         if (!violations.isEmpty()) {
             throw RuleViolationException.of(violations);
         }
-        Base base = base(family, ledger, amount, currency, date, null, violations);
-        return new FamilyConversion(inMinorUnits(amount, currency), currency, base == null ? null : base.amount(),
-                ledger.baseCurrency(), base == null || base.rate() == null ? null : Money.normalize(base.rate()),
-                base == null ? null : base.source(),
-                base == null ? null : base.rateDate());
+        return new FamilyConversion(inMinorUnits(amount, currency), currency,
+                currency.equals(main) ? inMinorUnits(amount, main) : null, main, null, null, null);
     }
 
     private static Violation noAccount(Member payer) {
@@ -1507,10 +1594,13 @@ public class FamilyRecordService {
 
     /**
      * @param categoryId null for a settlement
+     * @param amount the record's amount, in {@code currency} (D-45)
+     * @param originalAmount the paying side, in {@code originalCurrency} (D-87)
      * @param payeeId who received a settlement; null otherwise
      * @param splitMethod null for a settlement
      */
-    private record RecordRow(long id, String type, LocalDate date, Long categoryId, BigDecimal amount, String comment,
+    private record RecordRow(long id, String type, LocalDate date, Long categoryId, BigDecimal amount,
+            String currency, String comment,
             long payerId, Long payeeId, String splitMethod, long authorId, Instant createdAt, long updatedById,
             Instant updatedAt, int version, BigDecimal originalAmount, String originalCurrency, BigDecimal rate,
             String rateSource, LocalDate rateDate) {
@@ -1605,9 +1695,6 @@ public class FamilyRecordService {
         if (rows.isEmpty()) {
             return List.of();
         }
-        String currency = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
-                .param("ledgerId", family.ledgerId()).query(String.class).single();
-        int scale = ShareSplit.minorUnit(currency);
         Map<Long, Member> members = members(family);
         Map<Long, CategoryRef> categories = categories(family);
         Map<Long, Map<Long, ShareRow>> shares = shares(family, rows.stream().map(RecordRow::id).toList());
@@ -1622,6 +1709,8 @@ public class FamilyRecordService {
                 .filter(row -> row.type().equals(SETTLEMENT) && maySettle(family, row)).map(RecordRow::id).toList());
         List<Long> joinOrder = new ArrayList<>(members.keySet());
         return rows.stream().map(row -> {
+            // In the record's own currency (D-45).
+            int scale = ShareSplit.minorUnit(row.currency());
             Map<Long, ShareRow> recordShares = shares.getOrDefault(row.id(), Map.of());
             boolean frozen = frozen(row, recordShares, members);
             Member payer = members.get(row.payerId());
@@ -1634,7 +1723,7 @@ public class FamilyRecordService {
             boolean mayEditPayment = mayDelete && lockedBy == null;
             return new FamilyRecordView(row.id(), row.type(), row.date(),
                     row.categoryId() == null ? null : categories.get(row.categoryId()),
-                    row.amount().setScale(scale, RoundingMode.UNNECESSARY), currency, row.comment(),
+                    row.amount().setScale(scale, RoundingMode.UNNECESSARY), row.currency(), row.comment(),
                     ref(members, row.payerId()), row.splitMethod(), recordShares.values().stream()
                             .sorted(Comparator.comparing(s -> joinOrder.indexOf(s.memberId())))
                             .map(s -> new ShareView(ref(members, s.memberId()),
@@ -1743,7 +1832,8 @@ public class FamilyRecordService {
 
     private static RecordRow recordRow(ResultSet row, int n) throws SQLException {
         return new RecordRow(row.getLong("id"), row.getString("type"), row.getObject("record_date", LocalDate.class),
-                row.getObject("category_id", Long.class), row.getBigDecimal("base_amount"), row.getString("comment"),
+                row.getObject("category_id", Long.class), row.getBigDecimal("base_amount"), row.getString("currency"),
+                row.getString("comment"),
                 row.getLong("payer_member_id"), row.getObject("payee_member_id", Long.class),
                 row.getString("split_method"), row.getLong("author_member_id"),
                 row.getTimestamp("created_at").toInstant(), row.getLong("updated_by_member_id"),

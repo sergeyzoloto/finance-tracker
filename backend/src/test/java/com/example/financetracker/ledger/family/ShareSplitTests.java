@@ -45,6 +45,17 @@ class ShareSplitTests {
                 new Share(PAYER, amount("0.00"), null));
     }
 
+    /** A record's own currency decides the minor unit (D-45, D-12): three decimals for a dinar. */
+    @Test
+    void aCurrencyWithThreeDecimals() {
+        assertThat(ShareSplit.percent(amount("1.001"), ShareSplit.minorUnit("KWD"),
+                List.of(new Weight(PARTNER, 5000, 5000), new Weight(PAYER, 5000, 5000)), PAYER)).containsExactly(
+                new Share(PARTNER, amount("0.500"), 5000), new Share(PAYER, amount("0.501"), 5000));
+        assertThat(ShareSplit.equal(amount("0.010"), 3, List.of(PARTNER, KID, PAYER), PAYER)).containsExactly(
+                new Share(PARTNER, amount("0.003"), null), new Share(KID, amount("0.003"), null),
+                new Share(PAYER, amount("0.004"), null));
+    }
+
     @Test
     void aCurrencyWithoutMinorUnits() {
         assertThat(ShareSplit.minorUnit("JPY")).isZero();

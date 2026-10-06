@@ -183,10 +183,13 @@ public class DemoLedgerService {
                     : new RecordSplit(RecordSplit.Method.PERCENT, List.of(
                             new RecordSplit.ShareInput(me, record.yourBasisPoints(), null),
                             new RecordSplit.ShareInput(partner, 10_000 - record.yourBasisPoints(), null)), null);
+            // A record whose euros are given is a record in euros, paid with the amount in the account's currency
+            // (D-87).
+            boolean inEuros = record.baseAmountValue() != null;
             familyRecords.create(owner, personalLedger, new NewFamilyRecord(record.type(), record.date(),
-                    familyCategories.get(record.category()), record.amountValue(), record.comment(),
-                    mine ? me : partner, mine ? accounts.get(record.account()) : null, false, split, null,
-                    record.currency(), record.baseAmountValue()));
+                    familyCategories.get(record.category()), inEuros ? record.baseAmountValue() : record.amountValue(),
+                    record.comment(), mine ? me : partner, mine ? accounts.get(record.account()) : null, false, split,
+                    null, inEuros ? null : record.currency(), inEuros ? record.amountValue() : null));
         }
         for (DemoFamily.Settlement settlement : plan.settlements()) {
             familyRecords.settle(owner, personalLedger, new NewSettlement(settlement.date(), settlement.amountValue(),

@@ -187,9 +187,9 @@ public class FamilyPostingService {
         }
         Record record = jdbc.sql("""
                 SELECT r.type, r.record_date, r.deleted_at IS NOT NULL AS deleted, r.payer_member_id,
-                       r.payee_member_id, r.author_member_id, r.category_id, r.base_amount, l.base_currency,
+                       r.payee_member_id, r.author_member_id, r.category_id, r.base_amount, r.currency,
                        r.original_amount, r.original_currency
-                FROM family_record r JOIN ledger l ON l.id = r.ledger_id
+                FROM family_record r
                 WHERE r.id = :recordId AND r.ledger_id = :familyId
                 FOR UPDATE OF r""")
                 .param("recordId", recordId).param("familyId", family.ledgerId())
@@ -197,7 +197,7 @@ public class FamilyPostingService {
                         row.getBoolean("deleted"), row.getLong("payer_member_id"),
                         row.getObject("payee_member_id", Long.class), row.getLong("author_member_id"),
                         row.getObject("category_id", Long.class), row.getBigDecimal("base_amount"),
-                        row.getString("base_currency"), row.getBigDecimal("original_amount"),
+                        row.getString("currency"), row.getBigDecimal("original_amount"),
                         row.getString("original_currency")))
                 .optional()
                 .orElseThrow(() -> new IllegalStateException("No record " + recordId + " in " + family));

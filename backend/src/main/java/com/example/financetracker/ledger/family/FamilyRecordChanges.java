@@ -12,36 +12,35 @@ import java.time.LocalDate;
  * @param paymentAccountId the account of the caller's personal ledger they paid with, when they are the payer
  * @param paymentLater "Specify later", when the caller is the payer
  * @param note the payer's private note, which only their payment entry holds (F4c)
- * @param amount the original amount, in the record's original currency or in {@code currency}
- * @param currency the original currency (F4e), where the account doesn't decide it
- * @param baseAmount the amount in the base currency, as entered (F4e); null to keep it, or to have it from the rate
- *        when the original amount, its currency or the date changes (D-13)
- * @param accountAmount for the other side of a settlement who puts their part on an account in another currency than
- *        the base currency: what went from or into it, in its currency (F4e); only their own entry holds it
+ * @param amount the record's amount, in its currency or in {@code currency}
+ * @param currency the record's new currency (D-45), which needs its amount
+ * @param accountAmount what went from or into the caller's own account, in its currency, when it isn't the record's
+ *        (D-87): for the payer, the receiver or a settlement's recorder, and for the other side of a settlement, whose
+ *        own entry alone holds it (F4e)
  */
 public record FamilyRecordChanges(Long categoryId, boolean changesComment, String comment, RecordSplit split,
         LocalDate date, BigDecimal amount, Long payerMemberId, Long paymentAccountId, boolean paymentLater,
-        boolean changesNote, String note, String currency, BigDecimal baseAmount, BigDecimal accountAmount) {
+        boolean changesNote, String note, String currency, BigDecimal accountAmount) {
 
     /** A change of the family fields only. */
     public static FamilyRecordChanges family(Long categoryId, boolean changesComment, String comment,
             RecordSplit split) {
         return new FamilyRecordChanges(categoryId, changesComment, comment, split, null, null, null, null, false, false,
-                null, null, null, null);
+                null, null, null);
     }
 
     /**
-     * Whether it names a payment field: the date, the amount, its currency, the base amount, the payer, the account
-     * (with its amount), or the note.
+     * Whether it names a payment field: the date, the amount, its currency, the payer, the account (with its amount),
+     * or the note.
      */
     boolean changesPayment() {
-        return date != null || amount != null || currency != null || baseAmount != null || payerMemberId != null
-                || namesAccount() || changesNote || accountAmount != null;
+        return date != null || amount != null || currency != null || payerMemberId != null || namesAccount()
+                || changesNote || accountAmount != null;
     }
 
-    /** Whether it changes an amount: the original amount, its currency, or the base amount (F4e). */
+    /** Whether it names the amount or its currency. */
     boolean changesAmount() {
-        return amount != null || currency != null || baseAmount != null;
+        return amount != null || currency != null;
     }
 
     /** Whether it says how the caller paid: an account, or "Specify later". */

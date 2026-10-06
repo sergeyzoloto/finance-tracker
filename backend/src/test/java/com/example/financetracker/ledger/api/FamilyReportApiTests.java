@@ -13,8 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 /**
- * The family report (E1, F6c; ADR 0003 topic J, "F6c plan"): a worked example with numbers, in euros, with an expense
- * in dollars, an income, a settlement, a deleted record and a member who left; its bounds; who may read it; and E3's
+ * The family report (E1, F6c; ADR 0003 topic J, "F6c plan"): a worked example with numbers, in euros, with an income,
+ * a settlement, a deleted record and a member who left; its bounds; who may read it; and E3's
  * check against the balances and the members' personal cash flow ({@link #checkFamilyReport}).
  */
 class FamilyReportApiTests extends FamilyApiTest {
@@ -23,7 +23,7 @@ class FamilyReportApiTests extends FamilyApiTest {
      * Mum, Dad and Kid in September and October, then Dad leaves:
      * <ul>
      * <li>09-05, groceries 90.00 paid by Mum, equal shares: 30.00 each;
-     * <li>09-12, rent of 58.75 dollars paid by Dad, 50.00 in euros as entered, half each for Mum and Dad: 25.00;
+     * <li>09-12, rent of 50.00 paid by Dad, half each for Mum and Dad: 25.00;
      * <li>09-15, groceries 40.00 paid by Mum, deleted: not in the report;
      * <li>09-20, salary 300.00 received by Mum, equal shares: 100.00 each;
      * <li>09-25, Dad pays Mum 20.00;
@@ -36,8 +36,7 @@ class FamilyReportApiTests extends FamilyApiTest {
     void theWorkedExample() throws IOException {
         created(post(alice, uri + "/records", expense("2026-09-05", groceries, "90.00", mum, "\"paymentLater\": true,")));
         created(post(bob, uri + "/records", """
-                {"date": "2026-09-12", "categoryId": %d, "amount": "58.75", "currency": "USD", "baseAmount": "50.00",
-                 "payerMemberId": %d, "paymentLater": true, "split": {"method": "PERCENT", "shares": [
+                {"date": "2026-09-12", "categoryId": %d, "amount": "50.00", "payerMemberId": %d, "paymentLater": true, "split": {"method": "PERCENT", "shares": [
                    {"memberId": %d, "basisPoints": 5000}, {"memberId": %d, "basisPoints": 5000},
                    {"memberId": %d, "basisPoints": 0}]}}""".formatted(rent, dad, mum, dad, kid)));
         JsonNode deleted = created(post(alice, uri + "/records",

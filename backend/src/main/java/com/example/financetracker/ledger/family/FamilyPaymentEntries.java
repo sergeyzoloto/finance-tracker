@@ -36,21 +36,19 @@ public class FamilyPaymentEntries implements FamilyPayments {
      * A change of the payment: fields left null stay as they are; the note changes, also to none, when
      * {@code changesNote} is set.
      *
-     * @param amount the record's original amount, in its currency, which is the entry's account's (F4e)
+     * @param amount the record's amount, in its currency (D-45)
      * @param accountId the account of the personal ledger it is paid from
      * @param later "Specify later": "Payments without a specified account"
      * @param note the payer's private note, on the entry only
-     * @param currency the original currency, where the account doesn't decide it (F4e)
-     * @param baseAmount the amount in the family's base currency, as entered (F4e)
-     * @param accountAmount for the other side of a settlement: what went from or into their account in another
-     *        currency than the base currency (F4e)
+     * @param currency the record's new currency, which needs its amount (D-45)
+     * @param accountAmount what went from or into the account, in its currency, when that isn't the record's (D-87)
      */
     public record PaymentEdit(LocalDate date, BigDecimal amount, Long accountId, boolean later, boolean changesNote,
-            String note, String currency, BigDecimal baseAmount, BigDecimal accountAmount) {
+            String note, String currency, BigDecimal accountAmount) {
 
         public PaymentEdit(LocalDate date, BigDecimal amount, Long accountId, boolean later, boolean changesNote,
                 String note) {
-            this(date, amount, accountId, later, changesNote, note, null, null, null);
+            this(date, amount, accountId, later, changesNote, note, null, null);
         }
     }
 
@@ -87,7 +85,7 @@ public class FamilyPaymentEntries implements FamilyPayments {
         }
         return records.update(familyOf(personal, payment), personal, payment.recordId(), null,
                 new FamilyRecordChanges(null, false, null, null, edit.date(), edit.amount(), null, edit.accountId(),
-                        edit.later(), edit.changesNote(), edit.note(), edit.currency(), edit.baseAmount(),
+                        edit.later(), edit.changesNote(), edit.note(), edit.currency(),
                         edit.accountAmount()));
     }
 

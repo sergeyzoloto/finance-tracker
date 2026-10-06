@@ -21,12 +21,12 @@ class FamilyClaimApiTests extends FamilyApiTest {
     private final String carol = newUser();
 
     /**
-     * The worked example. Kid shared and paid records before and after 2026-09-15, in euros and dollars, while
+     * The worked example. Kid shared and paid records before and after 2026-09-15, while
      * nobody's account was theirs; Carol takes the place from that date.
      * <ul>
-     * <li>Before it: Kid's third of 90.00 (+30.00), a third of 30.00 Kid paid ($35.30 → €30.00: +10.00 −30.00), and
+     * <li>Before it: Kid's third of 90.00 (+30.00), a third of 30.00 Kid paid (+10.00 −30.00), and
      * 20.00 Kid paid Mum (−20.00): −10.00, the opening balance.
-     * <li>From it: a third of 60.00 (+20.00), a third of 45.00 Kid paid ($52.94 → €45.00: +15.00 −45.00), 120.00 of
+     * <li>From it: a third of 60.00 (+20.00), a third of 45.00 Kid paid (+15.00 −45.00), 120.00 of
      * salary Kid received (+120.00 −40.00), 10.00 Mum paid Kid (+10.00), 5.00 Kid paid Dad (−5.00): +75.00.
      * </ul>
      * Carol's family balance is 65.00, and so is her debt account from the moment the claim commits (D-10).
@@ -38,16 +38,14 @@ class FamilyClaimApiTests extends FamilyApiTest {
         created(post(alice, uri + "/records", expense("2026-09-05", groceries, "90.00", mum,
                 "\"paymentAccountId\": %d,".formatted(alicesCurrent))));
         long kidsDollars = created(post(alice, uri + "/records", """
-                {"date": "2026-09-10", "categoryId": %d, "amount": "35.30", "currency": "USD", "baseAmount": "30.00",
-                 "payerMemberId": %d}""".formatted(groceries, kid))).get("id").asLong();
+                {"date": "2026-09-10", "categoryId": %d, "amount": "30.00", "payerMemberId": %d}""".formatted(groceries, kid))).get("id").asLong();
         created(post(alice, uri + "/settlements", """
                 {"date": "2026-09-12", "amount": "20.00", "payerMemberId": %d, "payeeMemberId": %d,
                  "paymentAccountId": %d}""".formatted(kid, mum, alicesCurrent)));
         created(post(alice, uri + "/records", expense("2026-09-20", groceries, "60.00", mum,
                 "\"paymentAccountId\": %d,".formatted(alicesCurrent))));
         long kidPaidLater = created(post(alice, uri + "/records", """
-                {"date": "2026-09-22", "categoryId": %d, "amount": "52.94", "currency": "USD", "baseAmount": "45.00",
-                 "payerMemberId": %d}""".formatted(groceries, kid))).get("id").asLong();
+                {"date": "2026-09-22", "categoryId": %d, "amount": "45.00", "payerMemberId": %d}""".formatted(groceries, kid))).get("id").asLong();
         created(post(alice, uri + "/records", """
                 {"type": "INCOME", "date": "2026-09-24", "categoryId": %d, "amount": "120.00", "payerMemberId": %d}"""
                 .formatted(salary, kid)));
@@ -86,13 +84,11 @@ class FamilyClaimApiTests extends FamilyApiTest {
         long placeholder = accountId(carol, "UNSPECIFIED_PAYMENTS");
         long unallocated = accountId(carol, "UNALLOCATED");
         long opening = accountId(carol, "OPENING_BALANCE");
-        long fx = accountId(carol, "FX_EXCHANGE");
         assertThat(postedEntries(carol)).containsExactlyInAnyOrder(
                 "FAMILY_OPENING OPENING_BALANCE %d:10.00:null %d:-10.00:null".formatted(debt, opening),
                 "FAMILY_SHARE SHARE %d:20.00:%d %d:-20.00:null".formatted(unallocated, groceries, debt),
                 "FAMILY_SHARE SHARE %d:15.00:%d %d:-15.00:null".formatted(unallocated, groceries, debt),
-                "FAMILY_PAYMENT PAYMENT %d:-52.94:null %d:52.94:null %d:-45.00:null %d:45.00:null"
-                        .formatted(placeholder, fx, fx, debt),
+                "FAMILY_PAYMENT PAYMENT %d:-45.00:null %d:45.00:null".formatted(placeholder, debt),
                 "FAMILY_SHARE SHARE %d:-40.00:%d %d:40.00:null".formatted(unallocated, salary, debt),
                 "FAMILY_PAYMENT PAYMENT %d:120.00:null %d:-120.00:null".formatted(placeholder, debt),
                 "FAMILY_SETTLEMENT SETTLEMENT %d:10.00:null %d:-10.00:null".formatted(placeholder, debt),
@@ -110,17 +106,17 @@ class FamilyClaimApiTests extends FamilyApiTest {
             assertThat(ok(get(user, "/api/reports/integrity"))).as("integrity of %s", user).isEmpty();
         }
 
-        // What Kid paid in dollars from the join date is Carol's to put on an account now, and only hers (D-14).
+        // What Kid paid from the join date is Carol's to put on an account now, and only hers (D-14).
         JsonNode asCarol = ok(get(carol, uri + "/records/" + kidPaidLater));
         assertThat(asCarol.get("yourPayment").get("later").asBoolean()).isTrue();
-        assertThat(asCarol.get("yourPayment").get("amount").asText()).isEqualTo("52.94");
+        assertThat(asCarol.get("yourPayment").get("amount").asText()).isEqualTo("45.00");
         assertThat(asCarol.get("canEditPayment").asBoolean()).isTrue();
         assertThat(asCarol.get("author").get("displayName").asText()).isEqualTo("Mum");
         JsonNode asAlice = ok(get(alice, uri + "/records/" + kidPaidLater));
         assertThat(asAlice.get("canEditPayment").asBoolean()).isFalse();
         assertThat(asAlice.get("canEdit").asBoolean()).isTrue();
         assertThat(detail(patch(alice, uri + "/records/" + kidPaidLater + "?version=0", """
-                {"amount": "50.00", "currency": "USD", "baseAmount": "42.50"}"""), HttpStatus.CONFLICT))
+                {"amount": "42.50"}"""), HttpStatus.CONFLICT))
                 .isEqualTo("Only Carol, who paid it, can change the expense's date, amount, payer or paying account.");
 
         // A record before the join date is in her opening balance: the author changes it as before, and her opening
@@ -138,7 +134,7 @@ class FamilyClaimApiTests extends FamilyApiTest {
                         + "part of their opening balance and has no account of theirs").formatted(kid));
         // Her own change of what she paid then: the balance before the join date moves, and the opening with it.
         ok(patch(carol, uri + "/records/" + kidsDollars + "?version=1", """
-                {"amount": "47.06", "currency": "USD", "baseAmount": "40.00", "split": {"method": "AMOUNT",
+                {"amount": "40.00", "split": {"method": "AMOUNT",
                  "shares": [{"memberId": %d, "amount": "10.00"}, {"memberId": %d, "amount": "10.00"},
                   {"memberId": %d, "amount": "20.00"}]}}""".formatted(mum, dad, kid)));
         assertThat(balances(carol)).containsExactly("Mum -105.00", "Dad 40.00", "Carol 65.00 you");

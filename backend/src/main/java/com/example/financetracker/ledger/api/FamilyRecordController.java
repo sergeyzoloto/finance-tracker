@@ -42,8 +42,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * A family ledger's records, balances and change journal (F4a; ADR 0003, topics D, H and I), for its ACTIVE members
  * only: anyone else gets 404, the answer for a family ledger that doesn't exist, for reads and writes alike. Records are
- * family expenses, incomes and settlements (F4d), with an original amount in any currency and a base amount in the
- * family's base currency (F4e, D-13). A
+ * family expenses, incomes and settlements (F4d), each in its own currency, whose shares and balances are in it (D-45,
+ * ADR 0004); a member's account in another currency names what went from or into it (D-87). A
  * settlement is recorded through {@code /settlements}, the resource ADR 0003 names for it, and is read, changed and
  * deleted as a record. No answer holds a member's accounts, personal categories or personal entries (C4), except the
  * caller's own payment or side of a settlement, for their eyes only ({@code yourPayment}, F4c).
@@ -60,13 +60,12 @@ class FamilyRecordController {
      *
      * @param type EXPENSE, the default, or INCOME (F4d, additive)
      * @param categoryId a family category of the record's type
-     * @param amount the original amount, as paid or received, above 0, with at most its currency's minor unit's
-     *        decimals
-     * @param currency the original currency (F4e, additive): the paying account's when it has one, which this may
-     *        only repeat; else as chosen here, by default the family's base currency
-     * @param baseAmount the amount in the family's base currency (F4e, additive), which always wins; left out, it is
-     *        converted at the ECB's rate of the date or the latest before it, else at your own manual rate, and with
-     *        no rate the answer is 422 {@code RATE_MISSING}. In the base currency it is the amount itself
+     * @param amount the record's amount, above 0, with at most its currency's minor unit's decimals; its shares split
+     *        it in its currency (D-45)
+     * @param currency the record's currency (F4e, additive), by default the family's main currency
+     * @param baseAmount accepted and ignored since F8a, deprecated: no rate converts a record (D-87)
+     * @param accountAmount if you paid or received it with an account in another currency than the record's: what went
+     *        from or into that account, in its currency (D-87, additive); 422 {@code ACCOUNT_AMOUNT} without it
      * @param payerMemberId who paid an expense or received an income: yourself, or a member without an account (D-14)
      * @param paymentAccountId if you paid: the account of your personal ledger you paid with, or for an income received
      *        it into. It stays private: no answer about the record names it (D-16)
@@ -79,7 +78,7 @@ class FamilyRecordController {
     record NewRecord(RecordType type, @NotNull LocalDate date, @NotNull Long categoryId, @NotNull BigDecimal amount,
             @Size(max = 500) String comment, @NotNull Long payerMemberId, Long paymentAccountId, Boolean paymentLater,
             @Valid Split split, @Size(max = 500) String privateNote, @CurrencyCode String currency,
-            BigDecimal baseAmount) {
+            @Deprecated BigDecimal baseAmount, BigDecimal accountAmount) {
     }
 
     /** The types of record with a category and shares; a settlement is recorded through {@code /settlements}. */
@@ -105,13 +104,13 @@ class FamilyRecordController {
     }
 
     /**
-     * A settlement (D2, D-24): one member pays another. Its base amount settles the balances (D-13).
+     * A settlement (D2, D-24): one member pays another, in one currency, which it settles (D-46).
      *
-     * @param amount the original amount, as it went from or into your account, above 0, with at most its currency's
-     *        minor unit's decimals
-     * @param currency the original currency (F4e, additive): your account's when it has one; else as chosen here, by
-     *        default the family's base currency
-     * @param baseAmount the amount in the family's base currency (F4e, additive), as for a record
+     * @param amount the settlement's amount, above 0, with at most its currency's minor unit's decimals
+     * @param currency the settlement's currency (F4e, additive), by default the family's main currency
+     * @param baseAmount accepted and ignored since F8a, deprecated, as for a record
+     * @param accountAmount if your side is on an account in another currency than the settlement's: what went from or
+     *        into it, in its currency (D-87, additive)
      * @param payerMemberId who paid
      * @param payeeMemberId who received. You are one of the two, unless you are an owner recording a settlement between
      *        two members without an account
@@ -122,7 +121,8 @@ class FamilyRecordController {
      */
     record NewSettlementRequest(@NotNull LocalDate date, @NotNull BigDecimal amount, @NotNull Long payerMemberId,
             @NotNull Long payeeMemberId, @Size(max = 500) String comment, Long paymentAccountId,
-            Boolean paymentLater, @CurrencyCode String currency, BigDecimal baseAmount) {
+            Boolean paymentLater, @CurrencyCode String currency, @Deprecated BigDecimal baseAmount,
+            BigDecimal accountAmount) {
     }
 
     /** @param basisPoints for PERCENT; @param amount for AMOUNT */
@@ -140,10 +140,10 @@ class FamilyRecordController {
      * member without an account.
      * <li>How you paid, when you are the payer with an account: the account, or "Specify later". It stays private: no
      * answer but yours names it, and the journal doesn't (D-16).
-     * <li>Other currencies (F4e): the amount is the original amount; its currency follows a new account's, else
-     * {@code currency}; a new original amount, currency or date converts the base amount again, unless
-     * {@code baseAmount} gives it, which alone changes it too. The other side of a settlement who puts their part on an
-     * account in another currency names what went from or into it, {@code accountAmount}, which only their entry holds.
+     * <li>Currencies (D-45, D-87): the amount is the record's, in its currency or in a new {@code currency}, which
+     * needs its amount and splits it again. A side on an account in another currency than the record's names what went
+     * from or into it, {@code accountAmount}: the payer, the receiver or a settlement's recorder, also when the amount
+     * changes, and the other side of a settlement, whose entry alone holds it. {@code baseAmount} is ignored since F8a.
      * </ul>
      */
     static final class RecordPatch {
@@ -198,7 +198,7 @@ class FamilyRecordController {
             this.date = date;
         }
 
-        /** The original amount, in its currency, above 0. */
+        /** The record's amount, in its currency or the new one, above 0. */
         public BigDecimal getAmount() {
             return amount;
         }
@@ -233,7 +233,7 @@ class FamilyRecordController {
             this.paymentLater = paymentLater;
         }
 
-        /** The original currency, where the account doesn't decide it (F4e). */
+        /** The record's new currency (D-45), with its amount. */
         public String getCurrency() {
             return currency;
         }
@@ -242,7 +242,12 @@ class FamilyRecordController {
             this.currency = currency;
         }
 
-        /** The amount in the family's base currency, as entered (F4e). */
+        /**
+         * Accepted and ignored since F8a: no rate converts a record (D-87).
+         *
+         * @deprecated until F8b's forms stop sending it
+         */
+        @Deprecated
         public BigDecimal getBaseAmount() {
             return baseAmount;
         }
@@ -251,7 +256,7 @@ class FamilyRecordController {
             this.baseAmount = baseAmount;
         }
 
-        /** For the other side of a settlement: what went from or into their account, in its currency (F4e). */
+        /** What went from or into your account, in its currency, when that isn't the record's (D-87). */
         public BigDecimal getAccountAmount() {
             return accountAmount;
         }
@@ -264,7 +269,7 @@ class FamilyRecordController {
             return new FamilyRecordChanges(categoryId, changesComment,
                     comment == null || comment.isBlank() ? null : comment.strip(),
                     split == null ? null : split.toSplit(), date, amount, payerMemberId, paymentAccountId,
-                    Boolean.TRUE.equals(paymentLater), false, null, currency, baseAmount, accountAmount);
+                    Boolean.TRUE.equals(paymentLater), false, null, currency, accountAmount);
         }
     }
 
@@ -301,7 +306,7 @@ class FamilyRecordController {
                 record.payerMemberId(), record.paymentAccountId(), Boolean.TRUE.equals(record.paymentLater()),
                 record.split() == null ? null : record.split().toSplit(),
                 record.privateNote() == null || record.privateNote().isBlank() ? null : record.privateNote().strip(),
-                record.currency(), record.baseAmount()));
+                record.currency(), record.accountAmount()));
     }
 
     /**
@@ -316,14 +321,16 @@ class FamilyRecordController {
                 settlement.amount(), settlement.payerMemberId(), settlement.payeeMemberId(),
                 settlement.comment() == null || settlement.comment().isBlank() ? null : settlement.comment().strip(),
                 settlement.paymentAccountId(), Boolean.TRUE.equals(settlement.paymentLater()), settlement.currency(),
-                settlement.baseAmount()));
+                settlement.accountAmount()));
     }
 
     /**
-     * An amount in some currency as the family budget would take it on a day (F4e, D-13): its base amount, with the rate
-     * and its source, as a record of yours would get it, for a form to show before saving. Your own manual rates stand
-     * in where the ECB has none; nobody else's do. Without a rate, the base amount is null.
+     * What F4e's forms ask before saving (D-13), rate-free since F8a: the amount itself in the family's main currency,
+     * else no base amount and no rate. No rate converts a record any more (D-87).
+     *
+     * @deprecated until F8b's forms stop calling it
      */
+    @Deprecated
     @GetMapping("/conversion")
     FamilyConversion conversion(CurrentUser user, @PathVariable long ledgerId, @RequestParam BigDecimal amount,
             @RequestParam @CurrencyCode String currency, @RequestParam LocalDate date) {

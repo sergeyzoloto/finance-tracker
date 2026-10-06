@@ -151,21 +151,15 @@ public class FamilyLedgerService {
     }
 
     /**
-     * Renames the ledger or changes its base currency; null leaves a field as it is. The base currency may change
-     * only while the ledger has no records (D-13): shares and balances are in it.
+     * Renames the ledger or changes its base currency, its main currency; null leaves a field as it is. The main
+     * currency is only the default for new records and the currency of displayed totals (D-45, ADR 0004): every
+     * record keeps its own, so it may change at any time.
      *
      * @param owner the ledger, as one of its owners
-     * @throws ConflictException if the base currency changes after the first record
      */
     @Transactional
     public FamilyLedgerView update(LedgerScope owner, String name, String baseCurrency) {
         lock(owner);
-        if (baseCurrency != null && !baseCurrency.equals(get(owner).baseCurrency()) && jdbc.sql(
-                "SELECT EXISTS (SELECT FROM family_record WHERE ledger_id = :ledgerId)")
-                .param("ledgerId", owner.ledgerId()).query(Boolean.class).single()) {
-            throw new ConflictException("The base currency of a family budget can't change once it has a record: its "
-                    + "shares and balances are in it");
-        }
         jdbc.sql("""
                 UPDATE ledger SET name = coalesce(:name, name), base_currency = coalesce(:currency, base_currency)
                 WHERE id = :ledgerId""")

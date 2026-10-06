@@ -59,7 +59,7 @@ class FamilyPaymentController {
             this.date = date;
         }
 
-        /** The record's original amount, in its currency, which is the entry's account's (F4e); above 0. */
+        /** The record's amount, in its currency (D-45); above 0. */
         public BigDecimal getAmount() {
             return amount;
         }
@@ -96,7 +96,7 @@ class FamilyPaymentController {
             this.changesMemo = true;
         }
 
-        /** The original currency, where the account doesn't decide it (F4e). */
+        /** The record's new currency (D-45), with its amount. */
         public String getCurrency() {
             return currency;
         }
@@ -105,7 +105,13 @@ class FamilyPaymentController {
             this.currency = currency;
         }
 
-        /** The amount in the family's base currency, as entered (F4e). */
+        /**
+         * The amount in the family's base currency (F4e). Accepted and ignored since F8a: no rate converts a record's
+         * amount any more (D-87).
+         *
+         * @deprecated until F8b's forms stop sending it
+         */
+        @Deprecated
         public BigDecimal getBaseAmount() {
             return baseAmount;
         }
@@ -115,8 +121,8 @@ class FamilyPaymentController {
         }
 
         /**
-         * For the other side of a settlement: what went from or into the account, in its currency, when that isn't the
-         * family's base currency (F4e). Only this entry holds it.
+         * What went from or into the account, in its currency, when that isn't the record's (D-87); for the other side
+         * of a settlement, only this entry holds it (F4e).
          */
         public BigDecimal getAccountAmount() {
             return accountAmount;
@@ -128,7 +134,7 @@ class FamilyPaymentController {
 
         PaymentEdit edit() {
             return new PaymentEdit(date, amount, accountId, Boolean.TRUE.equals(later), changesMemo,
-                    memo == null || memo.isBlank() ? null : memo.strip(), currency, baseAmount, accountAmount);
+                    memo == null || memo.isBlank() ? null : memo.strip(), currency, accountAmount);
         }
     }
 

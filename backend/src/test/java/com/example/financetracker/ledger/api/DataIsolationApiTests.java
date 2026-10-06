@@ -1048,11 +1048,11 @@ class DataIsolationApiTests extends LedgerApiTest {
     }
 
     /**
-     * Other currencies (F4e): {@code GET /conversion} answers Bob on B and on either personal ledger, and Carol on A, B
-     * and Alice's personal ledger, as a missing family ledger does. In A it converts with the caller's own manual rate
-     * only: Alice's roubles convert at her rate, Bob's at none. Alice settles in dollars with Bob, who puts his side on
-     * his rouble account with the roubles he got: that amount, his account and its currency are in his answers only,
-     * and Carol's view stays as it was.
+     * Other currencies (F4e, F8a): {@code GET /conversion} answers Bob on B and on either personal ledger, and Carol on
+     * A, B and Alice's personal ledger, as a missing family ledger does. In A it uses nobody's rate since F8a (D-87):
+     * neither Alice's manual rates nor anyone else's reach an answer. Alice settles in dollars with Bob, who puts his
+     * side on his rouble account with the roubles he got: that amount, his account and its currency are in his answers
+     * only, and Carol's view stays as it was.
      */
     @Test
     void aConversionAndASidesOwnAmountAreTheMembersOwn() throws IOException {
@@ -1082,8 +1082,8 @@ class DataIsolationApiTests extends LedgerApiTest {
                     conversion.formatted(MISSING), null);
         }
         softly.assertAll();
-        // In A, each with their own rate: Alice's converts, and Bob gets none of hers.
-        assertThat(ok(get(alice, conversion.formatted(familyA))).get("baseAmount").asText()).isEqualTo("90.00");
+        // In A, no rate: not Alice's, and so none of hers for Bob.
+        assertThat(ok(get(alice, conversion.formatted(familyA))).get("baseAmount").isNull()).isTrue();
         JsonNode bobs = bobReads(conversion.formatted(familyA));
         assertThat(bobs.get("baseAmount").isNull()).isTrue();
         assertThat(fieldNames(bobs)).doesNotContain("rate", "rateSource", "rateDate");
@@ -1094,7 +1094,7 @@ class DataIsolationApiTests extends LedgerApiTest {
                 {"date": "2026-08-20", "amount": "56.00", "currency": "USD", "payerMemberId": %d, "payeeMemberId": %d,
                  "paymentAccountId": %d}""".formatted(mumInA, bobInA, alicesBank)), HttpStatus.CREATED);
         String path = inA + "/records/" + paid.get("id").asLong();
-        assertThat(paid.get("amount").asText()).isEqualTo("50.00");
+        assertThat(paid.get("amount").asText() + " " + paid.get("currency").asText()).isEqualTo("56.00 USD");
         // His own write: his side on his rouble account, with what he got.
         JsonNode his = ok(patch(bob, path + "?version=0", """
                 {"paymentAccountId": %d, "accountAmount": "4321.98"}""".formatted(bobsRoubles)));
@@ -1625,8 +1625,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
         long record = created(post(alice, inA + "/records", """
                 {"date": "2026-08-10", "categoryId": %d, "amount": "90.00", "payerMemberId": %d,
-                 "paymentAccountId": %d, "currency": "USD", "baseAmount": "90.00",
-                 "privateNote": "ALICE_PRIVATE_NOTE"}"""
+                 "paymentAccountId": %d, "privateNote": "ALICE_PRIVATE_NOTE"}"""
                 .formatted(groceriesInA, mumInA, alicesBank)));
         long familyB = newFamily(alice, """
                 {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice",
@@ -1739,8 +1738,9 @@ class DataIsolationApiTests extends LedgerApiTest {
      * database's triggers, so that her integrity check reports something.
      */
     private void writeAlicesLedger() throws IOException {
+        // Without a currency of its own, it pays a family record in the record's currency (D-87, ADR 0004).
         alicesBank = created(post(alice, "/api/accounts", """
-                {"code": "ALICE_BANK", "name": "Alice's bank", "type": "ASSET", "defaultCurrency": "USD"}"""));
+                {"code": "ALICE_BANK", "name": "Alice's bank", "type": "ASSET"}"""));
         alicesLoans = created(post(alice, "/api/accounts", """
                 {"code": "ALICE_LOANS", "name": "Alice's loans", "type": "ASSET", "requiresCounterparty": true}"""));
         alicesSharedAccount = created(post(alice, "/api/accounts", """

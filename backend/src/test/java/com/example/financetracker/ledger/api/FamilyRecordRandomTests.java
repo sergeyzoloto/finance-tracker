@@ -23,8 +23,8 @@ import org.springframework.http.HttpStatus;
  * date, amount, payer or paying account, and settlements (F4d): recorded by a side with an account, changed by their
  * recorder (date, amount, comment, account) or put on an account by their other side, and deleted; while the other
  * side's part is on an account of theirs, the recorder's change of the date or amount and their deletion answer 409
- * (D-28). A quarter of the expenses, incomes and settlements are in dollars (F4e), converted at the acting member's own
- * rate or with the base amount entered, some paid from Alice's dollar card. After every operation the family ledger's
+ * (D-28). A quarter of the expenses and incomes are paid in dollars, some from Alice's dollar card, which names what went
+ * from it (D-87; until F8a's commit 7 the records themselves are in euros). After every operation the family ledger's
  * invariants hold
  * ({@link FamilyInvariants}): the balances sum to zero, each debt account shows its member's family balance on every
  * record's date, and every posted entry balances; and since F6c the family report agrees with the balances and with each
@@ -75,7 +75,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         Map<String, List<Long>> accounts = Map.of(
                 alice, List.of(accountId(alice, "CASH"), accountId(alice, "CURRENT_ACCOUNT")),
                 bob, List.of(accountId(bob, "CASH")));
-        // Dollars (F4e): each member's own rate, and a dollar card of Alice's.
+        // Dollars: each member's own rate, which no record uses since F8a (D-87), and a dollar card of Alice's.
         ok(post(alice, "/api/rates/manual", """
                 {"date": "2026-08-31", "base": "EUR", "quote": "USD", "rate": "1.10"}"""));
         ok(post(bob, "/api/rates/manual", """
@@ -101,16 +101,23 @@ class FamilyRecordRandomTests extends LedgerApiTest {
             } else if (choice < 45 || live.isEmpty()) {
                 long payer = random.nextInt(3) == 0 ? kid : self.get(actor);
                 boolean dollars = random.nextInt(4) == 0;
-                String payment = payer == kid ? "" : random.nextInt(4) == 0 ? "\"paymentLater\": true,"
-                        : "\"paymentAccountId\": %d,".formatted(dollars && actor.equals(alice) && random.nextBoolean()
-                                ? dollarCard : pick(accounts.get(actor)));
+                boolean card = false;
+                String payment = "";
+                if (payer != kid && random.nextInt(4) == 0) {
+                    payment = "\"paymentLater\": true,";
+                } else if (payer != kid) {
+                    card = dollars && actor.equals(alice) && random.nextBoolean();
+                    payment = "\"paymentAccountId\": %d,".formatted(card ? dollarCard : pick(accounts.get(actor)));
+                }
                 BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
                 String type = random.nextInt(4) == 0 ? "INCOME" : "EXPENSE";
                 String split = split(members, amount);
-                // In dollars, a split by amounts needs the base amount they add up to; else now and then entered.
-                String currency = !dollars ? "" : split.contains("AMOUNT") || random.nextInt(4) == 0
-                        ? "\"currency\": \"USD\", \"baseAmount\": \"%s\",".formatted(amount)
-                        : "\"currency\": \"USD\",";
+                if (dollars && !split.contains("AMOUNT")) {
+                    // F4e's draw of whether to enter the base amount, kept so that the seed's operations stay.
+                    random.nextInt(4);
+                }
+                // The dollar card names its dollars (D-87).
+                String currency = card ? "\"accountAmount\": \"%s\",".formatted(dollars(amount)) : "";
                 JsonNode record = body(post(actor, uri + "/records", """
                         {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", %s %s "payerMemberId": %d,
                          "split": %s}""".formatted(type, LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)),
@@ -132,8 +139,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 JsonNode settled = body(post(actor, uri + "/settlements", """
                         {"date": "%s", "amount": "%s", "payerMemberId": %d, "payeeMemberId": %d, %s%s}"""
                         .formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)), amount, pays ? own : other,
-                                pays ? other : own, payment(accounts.get(actor)),
-                                dollars ? ", \"currency\": \"USD\"" : "")), HttpStatus.CREATED);
+                                pays ? other : own, payment(accounts.get(actor)), "")), HttpStatus.CREATED);
                 if (dollars) {
                     done.merge("in dollars", 1, Integer::sum);
                 }
@@ -207,6 +213,9 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 }
                 boolean byAmounts = current.get("splitMethod").asText().equals("AMOUNT");
                 boolean dollars = record.currency().equals("USD");
+                // The editor's own side on the dollar card, which a new amount asks the dollars of (D-87).
+                boolean onTheCard = payer == record.payer() && fields.isEmpty() && current.has("yourPayment")
+                        && current.get("yourPayment").get("currency").asText().equals("USD");
                 boolean newDate = random.nextBoolean();
                 if (newDate) {
                     fields.add("\"date\": \"%s\"".formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30))));
@@ -215,8 +224,8 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 if (fields.isEmpty() || random.nextBoolean() || dollars && byAmounts && newDate) {
                     BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
                     fields.add("\"amount\": \"%s\"".formatted(amount));
-                    if (dollars && byAmounts) {
-                        fields.add("\"baseAmount\": \"%s\"".formatted(amount));
+                    if (onTheCard) {
+                        fields.add("\"accountAmount\": \"%s\"".formatted(dollars(amount)));
                     }
                     if (byAmounts) {
                         fields.add("\"split\": " + amounts(members, amount));
@@ -273,6 +282,11 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         }
         assertThat(ok(get(alice, uri + "/records?size=200")).get("totalElements").asInt())
                 .isEqualTo(live.size() + settlements.size());
+    }
+
+    /** What a euro amount came to on Alice's dollar card. */
+    private static BigDecimal dollars(BigDecimal euros) {
+        return euros.multiply(new BigDecimal("1.1")).setScale(2, java.math.RoundingMode.HALF_UP);
     }
 
     /** The record's amount, as the family reads it. */

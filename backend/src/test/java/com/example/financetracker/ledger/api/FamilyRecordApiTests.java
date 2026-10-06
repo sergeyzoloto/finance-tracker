@@ -277,8 +277,8 @@ class FamilyRecordApiTests extends FamilyApiTest {
     }
 
     /**
-     * 409 for what the ledger's state rules out: a date before its start (D-27), also as a change, a new base currency
-     * after the first record (D-13), removing a member who shares records, deleting a category that anything uses, and
+     * 409 for what the ledger's state rules out: a date before its start (D-27), also as a change, removing a member who
+     * shares records, deleting a category that anything uses, and
      * a record that involves a member who deleted their data (D-19, D-20).
      */
     @Test
@@ -297,9 +297,10 @@ class FamilyRecordApiTests extends FamilyApiTest {
         assertThat(detail(patch(alice, record, """
                 {"date": "2026-08-31"}"""), HttpStatus.CONFLICT)).isEqualTo("The family budget starts on 2026-09-01, "
                 + "and an expense can't be dated before its start date.");
-        assertThat(detail(patch(alice, uri, """
-                {"baseCurrency": "USD"}"""), HttpStatus.CONFLICT)).isEqualTo("The base currency of a family budget "
-                + "can't change once it has a record: its shares and balances are in it.");
+        // The main currency changes with records since F8a (D-45): each record keeps its own.
+        ok(patch(alice, uri, """
+                {"baseCurrency": "USD"}"""));
+        assertThat(ok(get(alice, record.replace("?version=0", ""))).get("currency").asText()).isEqualTo("EUR");
         assertThat(ok(patch(alice, uri, """
                 {"baseCurrency": "EUR", "name": "Our home"}""")).get("name").asText()).isEqualTo("Our home");
         assertThat(detail(delete(alice, uri + "/categories/" + groceries), HttpStatus.CONFLICT))

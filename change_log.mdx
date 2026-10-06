@@ -3,6 +3,56 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · Family records in their own currency, no rate (F8a, commit 3)
+
+Commit on `feature/family-budget`, after `279a5e6`: "feat(family): records and shares in their own currency, no rate
+(F8a)", whose hash F8a's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `FamilyRecordService`: a record's `currency` is its own (the main currency when left out); its amount, its shares
+  (`ShareSplit` at that currency's minor unit, D-12) and the amounts of a split are checked and stored in it, and a new
+  currency needs its amount and splits again. No rate is looked up (D-87): what went from or into the payer's, the
+  receiver's or a settlement recorder's account in another currency than the record's is `accountAmount`, required then
+  (422 `ACCOUNT_AMOUNT`), stored in `original_amount` and `original_currency` with the source `ENTERED`; on an account in
+  the record's currency or without one, on "Specify later" and for a member without an account it is the record's
+  amount. A new amount asks for it again; a new date or comment keeps it; it alone changes neither version nor journal
+  (D-16). The other side of a settlement names it against the settlement's currency. The journal records `amount` and
+  a new `currency`, never the paying side's own amount (F4e's `originalAmount` isn't written any more). A settlement is
+  in one currency (D-46). `balances` counts the main currency's records only until commit 5.
+- Removed, not only unused: `RateService.recordRate`, `RecordRate`, `ExchangeRateRepository.findLatestShared` and
+  `findLatestManual`, and the codes `RATE_MISSING` and `BASE_AMOUNT`. They served D-13's conversion alone; F8b's
+  displayed totals follow D-49's own rules (an ECB rate at most 7 days old, month-end rates, manual rates labelled),
+  which these didn't implement, so keeping them would keep D-66's stale-rate path alive for nothing.
+- `GET …/conversion` stays, deprecated and rate-free (the amount itself in the main currency, else none), and the
+  request field `baseAmount` is accepted and ignored, deprecated, until F8b's forms stop sending them.
+- `FamilyLedgerService.update`: the main currency changes while records exist (V11 dropped the database's freeze).
+- `FamilyPostingService`: a record's shares and debt lines in the record's currency (the record's `currency` in place
+  of the ledger's); commit 4 reworks the rest.
+- The demo's dollar weekend is a euro record paid with its dollars from the dollar account (D-87's shape, the same
+  numbers) until commit 5 makes it a dollar record.
+- Tests: `FamilyCurrencyApiTests` rewritten for D-45 and D-87 (records in EUR, USD and RUB in a euro budget; a rouble
+  record dated 2026 with no rouble rate stored anywhere; odd minor units, 10.01 USD, 1001 JPY and 1.001 BHD; the
+  `ACCOUNT_AMOUNT` rules through creation, edits and "Specify later"; a settlement in euros paid from dollars and its
+  other side's roubles, and one in dollars; no rate, and the main currency changing). `ShareSplitTests`: three
+  decimals. `FamilyInvariants` checks each currency (balances summing to zero, every debt account per currency),
+  moved up from commit 7 because every family test runs it after each test. F4e's dollar requests in
+  `FamilyClaimApiTests`, `FamilyReportApiTests`, `FamilyRecordRandomTests` (a euro record paid with the dollar card's
+  dollars) and `FamilyClaimRandomTests` (euros, its counts updated) translated; `DataIsolationApiTests`: Alice's bank
+  account has no currency, and the conversion check uses nobody's rate; `FamilyRecordApiTests`: the main currency
+  changes with records.
+
+**Verified**
+- `./mvnw -B clean verify`: 407 tests, 0 failures (`FamilyCurrencyApiTests` has 5 tests where F4e's had 6), and
+  `ShareSplitTests` 9 of 9 with the new case. The new currency tests passed at the first run; the claim random test's
+  six rounds kept every invariant, with fewer refusals (amount edits of former dollar records no longer reconvert), so
+  its expected counts changed.
+
+**Open**
+- Balances, the report, the invite lookup and the deletion preview are still in the main currency (commits 5 and 6),
+  and the integrity check reports a debt account's lines in another currency as a difference (commit 7).
+- Whether the paying side's amount in another currency (`originalAmount`, deprecated) should stay visible to every
+  member, as F4e decided, or be the payer's alone: F8b's question (ADR 0004).
+
 ## 2026-10-06 · ADR 0004 and V11: a family record's own currency (F8a, commit 2)
 
 Commit on `feature/family-budget`, after `d599312`: "feat(db): ADR 0004 and V11, a family record's own currency (F8a)",

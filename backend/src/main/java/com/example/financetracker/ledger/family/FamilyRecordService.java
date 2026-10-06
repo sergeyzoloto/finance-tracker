@@ -439,17 +439,32 @@ public class FamilyRecordService {
     }
 
     /**
-     * Every member's balance, B(m) = their expense shares − the expenses they paid + the incomes they received − their
-     * income shares − the settlements they paid + the settlements they received, over the records that aren't deleted
-     * (ADR 0003, topic D). The balances sum to zero,
+     * Every member's balance in each currency (D-45, ADR 0004), B(m) = their expense shares − the expenses they paid +
+     * the incomes they received − their income shares − the settlements they paid + the settlements they received, over
+     * the records in that currency that aren't deleted (ADR 0003, topic D). In each currency the balances sum to zero,
      * since every record's shares add up to its amount and a settlement moves as much to one as from the other.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public FamilyBalances balances(LedgerScope family) {
-        String currency = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
+        String main = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
                 .param("ledgerId", family.ledgerId()).query(String.class).single();
+        List<String> currencies = new ArrayList<>(List.of(main));
+        currencies.addAll(jdbc.sql("""
+                SELECT DISTINCT currency FROM family_record
+                WHERE ledger_id = :ledgerId AND deleted_at IS NULL AND currency <> :main
+                ORDER BY currency""")
+                .param("ledgerId", family.ledgerId()).param("main", main).query(String.class).list());
+        List<FamilyBalances.CurrencyBalances> byCurrency = new ArrayList<>();
+        for (String currency : currencies) {
+            byCurrency.add(new FamilyBalances.CurrencyBalances(currency, balancesIn(family, currency)));
+        }
+        return new FamilyBalances(main, byCurrency.getFirst().members(), byCurrency);
+    }
+
+    /** Every member's balance in the currency, by join order. */
+    private List<FamilyBalances.MemberBalance> balancesIn(LedgerScope family, String currency) {
         int scale = ShareSplit.minorUnit(currency);
-        List<FamilyBalances.MemberBalance> balances = jdbc.sql("""
+        return jdbc.sql("""
                 SELECT m.id, m.display_name, m.status, m.user_sub IS NOT NULL AS has_account,
                        coalesce((SELECT sum(CASE r.type WHEN 'EXPENSE' THEN s.amount ELSE -s.amount END)
                                  FROM family_share s JOIN family_record r ON r.id = s.record_id
@@ -471,7 +486,6 @@ public class FamilyRecordService {
                         row.getBigDecimal("balance").setScale(scale, RoundingMode.UNNECESSARY),
                         row.getLong("id") == family.memberId()))
                 .list();
-        return new FamilyBalances(currency, balances);
     }
 
     /**

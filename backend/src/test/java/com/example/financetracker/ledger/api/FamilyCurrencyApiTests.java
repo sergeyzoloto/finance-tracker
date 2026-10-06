@@ -229,6 +229,62 @@ class FamilyCurrencyApiTests extends FamilyApiTest {
                 {"baseCurrency": "EUR"}"""));
     }
 
+    /**
+     * Balances and the report per currency (D-45, D-46): 90.00 EUR paid by Kid in equal thirds, 60.00 USD paid with
+     * Alice's dollar card half each for Mum and Dad, 9000 RUB paid by Dad all on Mum, and Dad paying Mum back her 30.00
+     * USD. In euros Kid is owed 60.00; in dollars nobody owes anything; in roubles Mum owes Dad 9000.00. The old fields
+     * are the main currency's; the report agrees with the balances in each currency, and so do the debt accounts.
+     */
+    @Test
+    void balancesAndTheReportPerCurrency() throws IOException {
+        created(post(alice, uri + "/records", expense("2026-09-10", groceries, "90.00", kid, "")));
+        created(post(alice, uri + "/records", """
+                {"date": "2026-09-11", "categoryId": %d, "amount": "60.00", "currency": "USD", "payerMemberId": %d,
+                 "paymentAccountId": %d, "split": {"method": "PERCENT", "shares": [{"memberId": %d, "basisPoints": 5000},
+                 {"memberId": %d, "basisPoints": 5000}]}}""".formatted(groceries, mum, usdCard, mum, dad)));
+        created(post(bob, uri + "/records", """
+                {"date": "2026-09-12", "categoryId": %d, "amount": "9000", "currency": "RUB", "payerMemberId": %d,
+                 "paymentAccountId": %d, "split": {"method": "ONE_MEMBER", "memberId": %d}}"""
+                .formatted(groceries, dad, rubAccount, mum)));
+        created(post(bob, uri + "/settlements", """
+                {"date": "2026-09-13", "amount": "30.00", "currency": "USD", "payerMemberId": %d, "payeeMemberId": %d,
+                 "paymentLater": true}""".formatted(dad, mum)));
+
+        JsonNode balances = ok(get(alice, uri + "/balances"));
+        assertThat(perCurrency(balances)).containsExactly(
+                "EUR: Mum 30.00 you, Dad 30.00, Kid -60.00",
+                "RUB: Mum 9000.00 you, Dad -9000.00, Kid 0.00",
+                "USD: Mum 0.00 you, Dad 0.00, Kid 0.00");
+        assertThat(balances(alice)).containsExactly("Mum 30.00 you", "Dad 30.00", "Kid -60.00");
+
+        JsonNode report = checkFamilyReport(alice, family, java.util.Map.of(alice, java.time.LocalDate.of(2026, 9, 1),
+                bob, java.time.LocalDate.of(2026, 9, 1)));
+        assertThat(report.get("byCurrency").findValuesAsText("currency")).containsExactly("EUR", "RUB", "USD");
+        JsonNode dollars = report.get("byCurrency").get(2);
+        assertThat(dollars.get("rows").get(0).get("total").asText()).isEqualTo("60.00");
+        assertThat(dollars.get("totals").get(0).toString()).contains("\"expenseShares\":\"30.00\"",
+                "\"expensesPaid\":\"60.00\"", "\"settlementsReceived\":\"30.00\"", "\"net\":\"0.00\"");
+        assertThat(report.get("rows")).isEqualTo(report.get("byCurrency").get(0).get("rows"));
+        // A period without dollars: no dollar section; the main currency's is always there.
+        assertThat(ok(get(alice, uri + "/report?from=2026-09-12&to=2026-09-12")).get("byCurrency")
+                .findValuesAsText("currency")).containsExactly("EUR", "RUB");
+        // D-10 in each currency: no row of the integrity check.
+        assertThat(ok(get(alice, "/api/reports/integrity"))).isEmpty();
+        assertThat(ok(get(bob, "/api/reports/integrity"))).isEmpty();
+    }
+
+    /** The balances in each currency as "CUR: name balance[ you], …". */
+    private static java.util.List<String> perCurrency(JsonNode balances) {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        for (JsonNode inCurrency : balances.get("byCurrency")) {
+            java.util.List<String> members = new java.util.ArrayList<>();
+            inCurrency.get("members").forEach(m -> members.add(m.get("displayName").asText() + " "
+                    + m.get("balance").asText() + (m.get("you").asBoolean() ? " you" : "")));
+            lines.add(inCurrency.get("currency").asText() + ": " + String.join(", ", members));
+        }
+        return lines;
+    }
+
     /** A record's amount as "amount CUR", with the deprecated rate fields absent. */
     private static String money(JsonNode record) {
         assertThat(record.has("rate")).isFalse();

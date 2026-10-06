@@ -44,9 +44,12 @@ class DemoFamilyTests {
         assertThat(plan.records()).extracting(DemoFamily.Record::payer)
                 .contains(DemoFamily.Who.YOU, DemoFamily.Who.PARTNER);
         assertThat(plan.records()).filteredOn(r -> r.yourBasisPoints() != null).hasSize(1);
-        // The one in dollars gives its amount in euros, so that loading the demo needs no rate.
-        assertThat(plan.records()).filteredOn(r -> !r.currency().equals("EUR"))
-                .singleElement().satisfies(r -> assertThat(r.baseAmountValue()).isEqualByComparingTo("205.10"));
+        // The one in dollars stays in dollars (D-45), paid from the dollar account: no rate, no amount in euros.
+        assertThat(plan.records()).filteredOn(r -> !r.currency().equals("EUR")).singleElement().satisfies(r -> {
+            assertThat(r.currency()).isEqualTo("USD");
+            assertThat(r.amountValue()).isEqualByComparingTo("240.00");
+            assertThat(r.account()).isEqualTo("USD_ACCOUNT");
+        });
         assertThat(plan.records()).filteredOn(r -> r.payer() == DemoFamily.Who.PARTNER)
                 .allSatisfy(r -> assertThat(r.account()).isNull());
         assertThat(plan.records()).extracting(DemoFamily.Record::category)

@@ -21,8 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The family report (E1; ADR 0003 topic J, "F6c plan"): a family ledger's expenses and incomes by month and category,
- * each member's share of them and what they paid or received, and each member's totals with the settlements, in the
- * base currency. It reads the records and their shares (ADR 0003 topic D) on every call and stores nothing (rule 13).
+ * each member's share of them and what they paid or received, and each member's totals with the settlements, in each
+ * currency of the records (D-45, ADR 0004). It reads the records and their shares (ADR 0003 topic D) on every call and stores nothing (rule 13).
  * Every method takes the family ledger's {@link LedgerScope} of the member who reads, from {@code LedgerAccess.member}.
  */
 @Service
@@ -50,18 +50,38 @@ public class FamilyReportService {
         if (from != null && to != null && from.isAfter(to)) {
             throw new IllegalArgumentException("'from' must not be after 'to'");
         }
-        String currency = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
+        String main = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
                 .param("ledgerId", family.ledgerId()).query(String.class).single();
-        int scale = ShareSplit.minorUnit(currency);
+        LocalDate first = from == null ? EARLIEST : from;
+        LocalDate last = to == null ? LATEST : to;
+        List<String> currencies = new ArrayList<>(List.of(main));
+        currencies.addAll(jdbc.sql("""
+                SELECT DISTINCT currency FROM family_record
+                WHERE ledger_id = :ledgerId AND deleted_at IS NULL AND currency <> :main
+                  AND record_date BETWEEN :from AND :to
+                ORDER BY currency""")
+                .param("ledgerId", family.ledgerId()).param("main", main).param("from", first).param("to", last)
+                .query(String.class).list());
         List<FamilyReport.Member> members = members(family);
+        Map<Long, Category> categories = categories(family);
+        List<FamilyReport.CurrencyReport> byCurrency = new ArrayList<>();
+        for (String currency : currencies) {
+            byCurrency.add(section(family, currency, first, last, members, categories));
+        }
+        FamilyReport.CurrencyReport inMain = byCurrency.getFirst();
+        return new FamilyReport(main, from, to, members, inMain.rows(), inMain.totals(), byCurrency);
+    }
+
+    /** The report of the records in one currency. */
+    private FamilyReport.CurrencyReport section(LedgerScope family, String currency, LocalDate from, LocalDate to,
+            List<FamilyReport.Member> members, Map<Long, Category> categories) {
+        int scale = ShareSplit.minorUnit(currency);
         Map<Long, Integer> joinOrder = new HashMap<>();
         members.forEach(member -> joinOrder.put(member.memberId(), joinOrder.size()));
-        Map<Long, Category> categories = categories(family);
-
         Map<RowKey, Map<Long, BigDecimal[]>> rows = new LinkedHashMap<>();
         Map<Long, BigDecimal[]> totals = new LinkedHashMap<>();
         members.forEach(member -> totals.put(member.memberId(), zeros(Total.values().length)));
-        for (Line line : lines(family, from == null ? EARLIEST : from, to == null ? LATEST : to)) {
+        for (Line line : lines(family, currency, from, to)) {
             BigDecimal[] total = totals.get(line.memberId());
             switch (line.type()) {
                 case "EXPENSE" -> {
@@ -96,7 +116,7 @@ public class FamilyReportService {
                     .map(entry -> new FamilyReport.Contribution(entry.getKey(), money(entry.getValue()[0], scale),
                             money(entry.getValue()[1], scale)))
                     .toList();
-            // Every record has one payer or receiver, who paid or received its whole base amount.
+            // Every record has one payer or receiver, who paid or received its whole amount.
             BigDecimal total = contributions.stream().map(FamilyReport.Contribution::paid)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             report.add(new FamilyReport.Row(key.month(), key.categoryId(), category.name(), category.type(),
@@ -118,7 +138,7 @@ public class FamilyReportService {
                     money(t[Total.SETTLEMENTS_PAID.ordinal()], scale),
                     money(t[Total.SETTLEMENTS_RECEIVED.ordinal()], scale), money(net, scale));
         }).toList();
-        return new FamilyReport(currency, from, to, members, report, memberTotals);
+        return new FamilyReport.CurrencyReport(currency, report, memberTotals);
     }
 
     /** Every member, by join order, as {@code FamilyRecordService.balances} lists them. */
@@ -145,17 +165,17 @@ public class FamilyReportService {
     }
 
     /**
-     * One line per month, record type, category and member: their shares, what they paid (an expense or a settlement)
+     * One line per month, record type, category and member, of the records in the currency: their shares, what they paid (an expense or a settlement)
      * or received (an income, as its payer), and what they received of settlements.
      */
-    private List<Line> lines(LedgerScope family, LocalDate from, LocalDate to) {
+    private List<Line> lines(LedgerScope family, String currency, LocalDate from, LocalDate to) {
         // The date is truncated as a timestamp without time zone, as ReportService.cashFlow does, so that the month
         // doesn't depend on the session's time zone.
         return jdbc.sql("""
                 WITH r AS (SELECT r.id, r.type, r.category_id, r.payer_member_id, r.payee_member_id, r.base_amount,
                                   date_trunc('month', r.record_date::timestamp)::date AS month
                            FROM family_record r
-                           WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL
+                           WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL AND r.currency = :currency
                              AND r.record_date BETWEEN :from AND :to)
                 SELECT r.month, r.type, r.category_id, s.member_id,
                        sum(s.amount) AS share, 0::numeric AS paid, 0::numeric AS received
@@ -167,7 +187,7 @@ public class FamilyReportService {
                 UNION ALL
                 SELECT r.month, r.type, r.category_id, r.payee_member_id, 0, 0, sum(r.base_amount)
                 FROM r WHERE r.type = 'SETTLEMENT' GROUP BY r.month, r.type, r.category_id, r.payee_member_id""")
-                .param("ledgerId", family.ledgerId())
+                .param("ledgerId", family.ledgerId()).param("currency", currency)
                 .param("from", from)
                 .param("to", to)
                 .query((row, n) -> new Line(YearMonth.from(row.getObject("month", LocalDate.class)),

@@ -217,7 +217,8 @@ abstract class LedgerApiTest extends IntegrationTest {
      * each member's totals are the sums of their rows, and their net over every record is their balance; and for each
      * member with an account in {@code personal} (their sub, and their join date), their personal cash flow's lines of
      * the family's categories are, month by month and category by category, their shares in the report of the records
-     * from their join date.
+     * from their join date. Each check holds in each currency of the report (D-45, F8a), and the deprecated fields are
+     * the main currency's.
      *
      * @return the report of every record, as {@code reader} reads it
      */
@@ -225,44 +226,62 @@ abstract class LedgerApiTest extends IntegrationTest {
             throws IOException {
         String uri = "/api/family-ledgers/" + familyId;
         JsonNode report = ok(get(reader, uri + "/report"));
-        Map<Long, BigDecimal[]> sums = new HashMap<>();
-        for (JsonNode row : report.get("rows")) {
-            String what = row.get("month").asText() + " " + row.get("categoryName").asText();
-            int at = row.get("categoryType").asText().equals("EXPENSE") ? 0 : 2;
-            BigDecimal shares = BigDecimal.ZERO;
-            BigDecimal paid = BigDecimal.ZERO;
-            for (JsonNode contribution : row.get("members")) {
-                BigDecimal share = new BigDecimal(contribution.get("share").asText());
-                BigDecimal itsPaid = new BigDecimal(contribution.get("paid").asText());
-                shares = shares.add(share);
-                paid = paid.add(itsPaid);
-                BigDecimal[] sum = sums.computeIfAbsent(contribution.get("memberId").asLong(),
-                        id -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
-                sum[at] = sum[at].add(share);
-                sum[at + 1] = sum[at + 1].add(itsPaid);
-            }
-            assertThat(shares).as("the shares of " + what).isEqualByComparingTo(row.get("total").asText());
-            assertThat(paid).as("what was paid or received of " + what)
-                    .isEqualByComparingTo(row.get("total").asText());
+        JsonNode balancesAnswer = ok(get(reader, uri + "/balances"));
+        // The deprecated fields are the main currency's section (F8a).
+        JsonNode main = report.get("byCurrency").get(0);
+        assertThat(main.get("currency").asText()).isEqualTo(report.get("currency").asText());
+        assertThat(report.get("rows")).isEqualTo(main.get("rows"));
+        assertThat(report.get("totals")).isEqualTo(main.get("totals"));
+        assertThat(balancesAnswer.get("members")).isEqualTo(balancesAnswer.get("byCurrency").get(0).get("members"));
+        Map<String, Map<Long, String>> balances = new HashMap<>();
+        for (JsonNode inCurrency : balancesAnswer.get("byCurrency")) {
+            Map<Long, String> members = new HashMap<>();
+            inCurrency.get("members").forEach(member -> members.put(member.get("memberId").asLong(),
+                    member.get("balance").asText()));
+            balances.put(inCurrency.get("currency").asText(), members);
         }
-        Map<Long, String> balances = new HashMap<>();
-        ok(get(reader, uri + "/balances")).get("members").forEach(member -> balances.put(
-                member.get("memberId").asLong(), member.get("balance").asText()));
-        assertThat(report.get("totals")).hasSameSizeAs(balances.keySet());
-        for (JsonNode total : report.get("totals")) {
-            long member = total.get("memberId").asLong();
-            BigDecimal[] sum = sums.getOrDefault(member,
-                    new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
-            String[] fields = {"expenseShares", "expensesPaid", "incomeShares", "incomesReceived"};
-            for (int i = 0; i < fields.length; i++) {
-                assertThat(new BigDecimal(total.get(fields[i]).asText())).as(fields[i] + " of member " + member)
-                        .isEqualByComparingTo(sum[i]);
+        for (JsonNode section : report.get("byCurrency")) {
+            String currency = section.get("currency").asText();
+            Map<Long, BigDecimal[]> sums = new HashMap<>();
+            for (JsonNode row : section.get("rows")) {
+                String what = row.get("month").asText() + " " + row.get("categoryName").asText() + " " + currency;
+                int at = row.get("categoryType").asText().equals("EXPENSE") ? 0 : 2;
+                BigDecimal shares = BigDecimal.ZERO;
+                BigDecimal paid = BigDecimal.ZERO;
+                for (JsonNode contribution : row.get("members")) {
+                    BigDecimal share = new BigDecimal(contribution.get("share").asText());
+                    BigDecimal itsPaid = new BigDecimal(contribution.get("paid").asText());
+                    shares = shares.add(share);
+                    paid = paid.add(itsPaid);
+                    BigDecimal[] sum = sums.computeIfAbsent(contribution.get("memberId").asLong(),
+                            id -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                                    BigDecimal.ZERO});
+                    sum[at] = sum[at].add(share);
+                    sum[at + 1] = sum[at + 1].add(itsPaid);
+                }
+                assertThat(shares).as("the shares of " + what).isEqualByComparingTo(row.get("total").asText());
+                assertThat(paid).as("what was paid or received of " + what)
+                        .isEqualByComparingTo(row.get("total").asText());
             }
-            BigDecimal net = sum[0].subtract(sum[1]).subtract(sum[2]).add(sum[3])
-                    .subtract(new BigDecimal(total.get("settlementsPaid").asText()))
-                    .add(new BigDecimal(total.get("settlementsReceived").asText()));
-            assertThat(new BigDecimal(total.get("net").asText())).as("the net of member " + member)
-                    .isEqualByComparingTo(net).isEqualByComparingTo(balances.get(member));
+            // Over every record, each member's net in a currency is their balance in it (D-1, D-45).
+            Map<Long, String> inCurrency = balances.getOrDefault(currency, Map.of());
+            assertThat(section.get("totals")).hasSize(balancesAnswer.get("members").size());
+            for (JsonNode total : section.get("totals")) {
+                long member = total.get("memberId").asLong();
+                BigDecimal[] sum = sums.getOrDefault(member,
+                        new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                String[] fields = {"expenseShares", "expensesPaid", "incomeShares", "incomesReceived"};
+                for (int i = 0; i < fields.length; i++) {
+                    assertThat(new BigDecimal(total.get(fields[i]).asText()))
+                            .as(fields[i] + " of member " + member + " in " + currency).isEqualByComparingTo(sum[i]);
+                }
+                BigDecimal net = sum[0].subtract(sum[1]).subtract(sum[2]).add(sum[3])
+                        .subtract(new BigDecimal(total.get("settlementsPaid").asText()))
+                        .add(new BigDecimal(total.get("settlementsReceived").asText()));
+                assertThat(new BigDecimal(total.get("net").asText()))
+                        .as("the net of member " + member + " in " + currency).isEqualByComparingTo(net)
+                        .isEqualByComparingTo(inCurrency.getOrDefault(member, "0"));
+            }
         }
         // D-40: the family's categories, so that a member's own entries in one (merged in by D-11) are added to
         // their share below; the family report alone only has a row where a record exists.
@@ -277,13 +296,16 @@ abstract class LedgerApiTest extends IntegrationTest {
             JsonNode own = ok(get(user, uri + "/report?from=" + member.getValue()));
             long me = StreamSupport.stream(own.get("members").spliterator(), false)
                     .filter(m -> m.get("you").asBoolean()).findFirst().orElseThrow().get("memberId").asLong();
+            // Month, category and currency: the personal cash flow keeps each currency apart, as the report does.
             Map<String, BigDecimal> shares = new TreeMap<>();
-            for (JsonNode row : own.get("rows")) {
-                for (JsonNode contribution : row.get("members")) {
-                    BigDecimal share = new BigDecimal(contribution.get("share").asText());
-                    if (contribution.get("memberId").asLong() == me && share.signum() != 0) {
-                        shares.merge(row.get("month").asText() + " " + row.get("categoryName").asText(), share,
-                                BigDecimal::add);
+            for (JsonNode section : own.get("byCurrency")) {
+                for (JsonNode row : section.get("rows")) {
+                    for (JsonNode contribution : row.get("members")) {
+                        BigDecimal share = new BigDecimal(contribution.get("share").asText());
+                        if (contribution.get("memberId").asLong() == me && share.signum() != 0) {
+                            shares.merge(row.get("month").asText() + " " + row.get("categoryName").asText() + " "
+                                    + section.get("currency").asText(), share, BigDecimal::add);
+                        }
                     }
                 }
             }
@@ -300,7 +322,8 @@ abstract class LedgerApiTest extends IntegrationTest {
                             if (posting.path("categoryId").asLong() == category.getKey()) {
                                 BigDecimal amount = new BigDecimal(posting.get("amount").asText());
                                 BigDecimal signed = type.equals("EXPENSE") ? amount : amount.negate();
-                                shares.merge(month + " " + category.getValue(), signed, BigDecimal::add);
+                                shares.merge(month + " " + category.getValue() + " "
+                                        + posting.get("currency").asText(), signed, BigDecimal::add);
                             }
                         }
                     }
@@ -311,7 +334,8 @@ abstract class LedgerApiTest extends IntegrationTest {
             Map<String, String> cashFlow = new TreeMap<>();
             for (JsonNode row : ok(get(user, "/api/reports/cash-flow?from=" + member.getValue() + "&to=2100-12-31"))) {
                 if (row.path("familyLedgerId").asLong() == familyId) {
-                    cashFlow.merge(row.get("month").asText() + " " + row.get("categoryName").asText(),
+                    cashFlow.merge(row.get("month").asText() + " " + row.get("categoryName").asText() + " "
+                            + row.get("currency").asText(),
                             new BigDecimal(row.get("total").asText()).stripTrailingZeros().toPlainString(),
                             (a, b) -> new BigDecimal(a).add(new BigDecimal(b)).stripTrailingZeros().toPlainString());
                 }

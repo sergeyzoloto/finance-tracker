@@ -9,7 +9,7 @@ import java.util.List;
 /**
  * The demo's family budget (H1, D-23; ADR 0003 topic J, "F6c plan"), invented from scratch like {@link DemoLedger}:
  * the user and an invented partner without an account share six months of groceries, bills, a weekend away in US
- * dollars and the sale of an old bike, and the partner pays the user back now and then. Plain Java: what to record,
+ * dollars (a record in dollars, D-45, whose half the partner owes in dollars) and the sale of an old bike, and the partner pays the user back now and then. Plain Java: what to record,
  * not how. {@code DemoLedgerService} records it through the family budget's own services, so every rule holds for it as
  * for any family budget.
  * <p>
@@ -46,20 +46,15 @@ public final class DemoFamily {
      * A family expense or income.
      *
      * @param account the code of the user's account that paid or received it, when the user did; null for the partner
-     * @param currency the original currency; the account's
-     * @param baseAmount the amount in euros, given when the currency is another, so that no rate is needed
+     * @param currency the record's currency (D-45); the account's
      * @param yourBasisPoints the user's share in basis points of a record split by percentages; null for the rule's
      *        equal shares
      */
-    public record Record(LocalDate date, String type, String category, String amount, String currency,
-            String baseAmount, Who payer, String account, String comment, Integer yourBasisPoints) {
+    public record Record(LocalDate date, String type, String category, String amount, String currency, Who payer,
+            String account, String comment, Integer yourBasisPoints) {
 
         public BigDecimal amountValue() {
             return new BigDecimal(amount);
-        }
-
-        public BigDecimal baseAmountValue() {
-            return baseAmount == null ? null : new BigDecimal(baseAmount);
         }
     }
 
@@ -85,22 +80,22 @@ public final class DemoFamily {
         String[] water = {"38.60", "41.20", "36.90", "39.75", "42.10", "37.45"};
         for (int month = 0; month < DemoLedger.MONTHS; month++) {
             LocalDate base = today.minusMonths(DemoLedger.MONTHS - 1 - month);
-            records.add(new Record(day(base, 2, start, today), "EXPENSE", "GROCERIES", shops[month], "EUR", null,
+            records.add(new Record(day(base, 2, start, today), "EXPENSE", "GROCERIES", shops[month], "EUR",
                     Who.YOU, CURRENT, month == 0 ? "The big shop for both of us" : null, null));
-            records.add(new Record(day(base, 10, start, today), "EXPENSE", "UTILITIES", water[month], "EUR", null,
+            records.add(new Record(day(base, 10, start, today), "EXPENSE", "UTILITIES", water[month], "EUR",
                     Who.PARTNER, null, null, null));
             switch (month) {
                 case 1 -> settlements.add(new Settlement(day(base, 1, start, today), "40.00", CURRENT,
                         "Sam's part of the first months"));
                 case 2 -> records.add(new Record(day(base, 6, start, today), "EXPENSE", "TRAVEL", "240.00", "USD",
-                        "205.10", Who.YOU, DOLLARS, "Two nights by the lake", null));
+                        Who.YOU, DOLLARS, "Two nights by the lake", null));
                 case 3 -> {
-                    records.add(new Record(day(base, 8, start, today), "EXPENSE", "GROCERIES", "86.50", "EUR", null,
+                    records.add(new Record(day(base, 8, start, today), "EXPENSE", "GROCERIES", "86.50", "EUR",
                             Who.PARTNER, null, "Food for the birthday party, 60/40", 6000));
                     settlements.add(new Settlement(day(base, 1, start, today), "55.00", CURRENT, null));
                 }
                 case 4 -> records.add(new Record(day(base, 5, start, today), "INCOME", "OTHER_INCOME", "120.00", "EUR",
-                        null, Who.YOU, CURRENT, "Sold the old bike", null));
+                        Who.YOU, CURRENT, "Sold the old bike", null));
                 case 5 -> settlements.add(new Settlement(day(base, 1, start, today), "50.00", CURRENT, null));
                 default -> {
                 }

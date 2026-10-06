@@ -370,7 +370,11 @@ class FamilyRecordController {
         records.delete(access.member(user.id(), ledgerId), recordId, version);
     }
 
-    /** Every member's balance in the base currency; they sum to zero, and "you" marks the caller's (D1). */
+    /**
+     * Every member's balance in each currency of the records (D-45, additive {@code byCurrency}); in each currency they
+     * sum to zero, and "you" marks the caller's (D1). The old {@code currency} and {@code members} are the main
+     * currency's, deprecated until F8b.
+     */
     @GetMapping("/balances")
     FamilyBalances balances(CurrentUser user, @PathVariable long ledgerId) {
         return records.balances(access.member(user.id(), ledgerId));
@@ -378,7 +382,8 @@ class FamilyRecordController {
 
     /**
      * The family report (E1, F6c): the expenses and incomes by month and category, with each member's share and what
-     * they paid or received, and each member's totals with the settlements, in the base currency. Records dated from
+     * they paid or received, and each member's totals with the settlements, in each currency of the records (D-45,
+     * additive {@code byCurrency}; the old {@code rows} and {@code totals} are the main currency's). Records dated from
      * {@code from} to {@code to}, both included; either left out is open.
      */
     @GetMapping("/report")

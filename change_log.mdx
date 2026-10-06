@@ -3,6 +3,42 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · Balances, the report and the integrity check per currency; the demo's dollars (F8a, commit 5)
+
+Commit on `feature/family-budget`, after `8f667c5`: "feat(family): balances, report and integrity per currency (F8a)",
+whose hash F8a's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `GET …/balances`: `byCurrency` (additive), every member's balance in each currency of the records that aren't
+  deleted, the main currency first, then alphabetically; in each currency they sum to zero. `currency` and `members`
+  stay as the main currency's, `@Deprecated` until F8b. A settlement is in one currency and settles only it (D-46); no
+  total across currencies is computed (D-47 is F8b's display). `FamilyBalances.in(currency)` gives a currency's
+  balances, all zero for a currency without records.
+- `GET …/report` (E1): `byCurrency` (additive), the rows and each member's totals per currency, the main currency
+  always first, then each other currency of a record of the period; `currency`, `rows` and `totals` stay as the main
+  currency's, `@Deprecated`. D-40's personal rows needed no change: the personal cash flow already keeps each currency
+  apart, and `LedgerApiTest.checkFamilyReport` now checks E1 and E3 per currency (keyed by month, category and
+  currency), and that the deprecated fields are the main currency's section.
+- The integrity check's family rows (D-10) per currency, moved up from commit 7 because the demo's dollar record now
+  puts dollar lines on a debt account: one row per currency in which the member's debt account and their family balance
+  differ, a currency of the debt account without records counting as a balance of 0. `IntegrityViolation`'s
+  `debtBalance` and `familyBalance` are in the row's `currency`.
+- The H1 demo family: the weekend away is a record of 240.00 USD paid from the dollar account (D-45), no euros given;
+  `DemoFamily.Record` loses `baseAmount`. Its balances: 185.70 and −185.70 in euros, −120.00 and 120.00 in dollars
+  (Sam owes half the weekend in dollars, which the euro settlements don't repay, D-46); the report's euro totals
+  359.10 shares and 378.40 paid for the user, and 120.00 and 240.00 in dollars.
+- Tests: `FamilyCurrencyApiTests.balancesAndTheReportPerCurrency` (euros, dollars settled to zero, roubles; the old
+  fields; a period without dollars; no integrity row); `DemoDataApiTests` and `DemoFamilyTests` with the demo's new
+  numbers; the controller's documentation.
+
+**Verified**
+- `./mvnw -B clean verify`: 414 tests, 0 failures, with `checkFamilyReport` per currency in every test that calls it
+  (the random tests after each operation included).
+
+**Open**
+- The deletion preview, the invite lookup's opening balance and correction, and the opening balances and corrections
+  themselves are per currency in commit 6.
+
 ## 2026-10-06 · Posting per currency (F8a, commit 4)
 
 Commit on `feature/family-budget`, after `90abd92`: "feat(family): posting per currency (F8a)", whose hash F8a's report

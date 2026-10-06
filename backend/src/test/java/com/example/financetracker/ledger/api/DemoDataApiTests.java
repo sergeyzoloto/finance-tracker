@@ -119,20 +119,30 @@ class DemoDataApiTests extends LedgerApiTest {
         JsonNode records = ok(get(user, uri + "/records?size=200"));
         assertThat(records.get("totalElements").asInt()).isEqualTo(18);
         assertThat(records.get("content").findValuesAsText("type")).containsOnly("EXPENSE", "INCOME", "SETTLEMENT");
-        assertThat(records.get("content").findValuesAsText("originalCurrency")).contains("USD");
+        // The weekend away stays in dollars (D-45).
+        assertThat(records.get("content").findValuesAsText("currency")).contains("EUR", "USD");
         JsonNode categories = ok(get(user, "/api/categories"));
         for (String code : List.of("GROCERIES", "OTHER_INCOME", "TRAVEL", "UTILITIES")) {
             assertThat(categories.findValues("code")).as(code).filteredOn(c -> c.asText().equals(code)).hasSize(1);
             assertThat(find(categories, "code", code).get("familyLedgerId").asLong()).as(code).isEqualTo(family);
         }
-        assertThat(ok(get(user, uri + "/balances")).get("members").findValuesAsText("balance"))
-                .containsExactly("83.15", "-83.15");
+        JsonNode balances = ok(get(user, uri + "/balances"));
+        assertThat(balances.get("byCurrency").findValuesAsText("currency")).containsExactly("EUR", "USD");
+        assertThat(balances.get("byCurrency").get(0).get("members").findValuesAsText("balance"))
+                .containsExactly("185.70", "-185.70");
+        // Sam owes half the weekend's 240.00 dollars, which no settlement in euros repays (D-46).
+        assertThat(balances.get("byCurrency").get(1).get("members").findValuesAsText("balance"))
+                .containsExactly("-120.00", "120.00");
 
         FamilyInvariants.check(jdbc, family);
         JsonNode report = checkFamilyReport(user, family, Map.of(user, LocalDate.parse(demo.get("from").asText())));
-        assertThat(report.get("totals").get(0).get("expenseShares").asText()).isEqualTo("461.65");
-        assertThat(report.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("583.50");
+        assertThat(report.get("totals").get(0).get("expenseShares").asText()).isEqualTo("359.10");
+        assertThat(report.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("378.40");
         assertThat(report.get("totals").get(1).get("settlementsPaid").asText()).isEqualTo("145.00");
+        JsonNode dollars = report.get("byCurrency").get(1);
+        assertThat(dollars.get("currency").asText()).isEqualTo("USD");
+        assertThat(dollars.get("totals").get(0).get("expenseShares").asText()).isEqualTo("120.00");
+        assertThat(dollars.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("240.00");
         assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
     }
 

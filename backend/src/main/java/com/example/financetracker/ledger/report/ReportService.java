@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -474,42 +475,53 @@ public class ReportService {
                 .list());
         if (ledger.type() == LedgerType.PERSONAL) {
             for (LedgerScope family : access.families(ledger.userId())) {
-                familyDifference(ledger, family).ifPresent(violations::add);
+                violations.addAll(familyDifferences(ledger, family));
             }
         }
         return violations;
     }
 
     /**
-     * D-10 for one family membership: the displayed balance of the member's debt account for the family ledger, which
-     * the posting service keeps, against their family balance, which the records give (FamilyRecordService). The debt
-     * account is in the family's base currency only (F4e, D-13): a posting to it in another currency is a difference
-     * too.
+     * D-10 for one family membership, in each currency (D-45, ADR 0004): the displayed balance of the member's debt
+     * account for the family ledger in that currency, which the posting service keeps, against their family balance in
+     * it, which the records give (FamilyRecordService). A currency of the debt account in which the family has no
+     * record counts with a family balance of 0. One row per currency that differs, the main currency first.
      */
-    private Optional<IntegrityViolation> familyDifference(LedgerScope personal, LedgerScope family) {
+    private List<IntegrityViolation> familyDifferences(LedgerScope personal, LedgerScope family) {
         FamilyBalances balances = records.balances(family);
-        BigDecimal familyBalance = balances.members().stream().filter(FamilyBalances.MemberBalance::you)
-                .map(FamilyBalances.MemberBalance::balance).findFirst().orElse(BigDecimal.ZERO);
-        record Debt(BigDecimal balance, long foreign) {
-        }
-        Debt debt = jdbc.sql("""
-                SELECT coalesce(-sum(p.amount) FILTER (WHERE p.currency = :base), 0) AS balance,
-                       count(*) FILTER (WHERE p.currency <> :base) AS foreign
+        Map<String, BigDecimal> debts = new LinkedHashMap<>();
+        jdbc.sql("""
+                SELECT p.currency, -sum(p.amount) AS balance
                 FROM account a
                 JOIN posting p ON p.account_id = a.id
                 JOIN journal_entry e ON e.id = p.entry_id
-                WHERE a.ledger_id = :ledgerId AND e.ledger_id = :ledgerId AND a.family_ledger_id = :familyId""")
-                .param("base", balances.currency()).param("ledgerId", personal.ledgerId())
-                .param("familyId", family.ledgerId())
-                .query((row, n) -> new Debt(row.getBigDecimal("balance"), row.getLong("foreign")))
-                .single();
-        if (debt.balance().compareTo(familyBalance) == 0 && debt.foreign() == 0) {
-            return Optional.empty();
+                WHERE a.ledger_id = :ledgerId AND e.ledger_id = :ledgerId AND a.family_ledger_id = :familyId
+                GROUP BY p.currency
+                ORDER BY p.currency""")
+                .param("ledgerId", personal.ledgerId()).param("familyId", family.ledgerId())
+                .query(row -> {
+                    debts.put(row.getString("currency"), row.getBigDecimal("balance"));
+                });
+        Set<String> currencies = new LinkedHashSet<>();
+        balances.byCurrency().forEach(inCurrency -> currencies.add(inCurrency.currency()));
+        currencies.addAll(debts.keySet());
+        List<IntegrityViolation> differences = new ArrayList<>();
+        String name = null;
+        for (String currency : currencies) {
+            BigDecimal familyBalance = balances.in(currency).members().stream()
+                    .filter(FamilyBalances.MemberBalance::you).map(FamilyBalances.MemberBalance::balance).findFirst()
+                    .orElse(BigDecimal.ZERO);
+            BigDecimal debt = debts.getOrDefault(currency, BigDecimal.ZERO);
+            if (debt.compareTo(familyBalance) != 0) {
+                if (name == null) {
+                    name = jdbc.sql("SELECT name FROM ledger WHERE id = :familyId")
+                            .param("familyId", family.ledgerId()).query(String.class).single();
+                }
+                differences.add(new IntegrityViolation(currency, BigDecimal.ZERO, BigDecimal.ZERO, family.ledgerId(),
+                        name, debt, familyBalance));
+            }
         }
-        String name = jdbc.sql("SELECT name FROM ledger WHERE id = :familyId").param("familyId", family.ledgerId())
-                .query(String.class).single();
-        return Optional.of(new IntegrityViolation(balances.currency(), BigDecimal.ZERO, BigDecimal.ZERO,
-                family.ledgerId(), name, debt.balance(), familyBalance));
+        return differences;
     }
 
     /** The currencies of the amounts, and the one they are converted to. */

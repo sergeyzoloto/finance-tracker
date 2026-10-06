@@ -34,13 +34,17 @@ class FamilyCurrencyApiTests extends FamilyApiTest {
     /**
      * Three records of the rule's equal shares among Mum, Dad and Kid: 90.00 EUR paid by Kid, 56.00 USD paid with
      * Alice's dollar card, and 9000 RUB paid from Bob's rouble account in 2026, long after the ECB's last rouble rate,
-     * with no rouble rate stored anywhere. Each keeps its amount and currency; the dollars split 18.68, 18.66 and 18.66,
-     * the payer taking the remainder (D-12).
+     * with no rouble rate that either of them could use: no ECB rate and none of their own. (Other users' manual
+     * rates sit in the same database, left by whichever classes ran before this one: the order differs between
+     * runners, as Ubuntu 26.04's did in CI #4, so only the rates of this test's users count.) Each keeps its amount and
+     * currency; the dollars split 18.68, 18.66 and 18.66, the payer taking the remainder (D-12).
      */
     @Test
     void recordsInEurosDollarsAndRoublesKeepTheirCurrency() throws IOException {
-        assertThat(jdbc.sql("SELECT count(*) FROM exchange_rate WHERE quote_currency = 'RUB'").query(Long.class)
-                .single()).isZero();
+        assertThat(jdbc.sql("""
+                SELECT count(*) FROM exchange_rate
+                WHERE quote_currency = 'RUB' AND (user_id IS NULL OR user_id IN (:alice, :bob))""")
+                .param("alice", alice).param("bob", bob).query(Long.class).single()).isZero();
         JsonNode euros = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "90.00", kid, "")));
         assertThat(money(euros)).isEqualTo("90.00 EUR");
         assertThat(shares(euros)).containsExactly("Mum 30.00 null", "Dad 30.00 null", "Kid 30.00 null");

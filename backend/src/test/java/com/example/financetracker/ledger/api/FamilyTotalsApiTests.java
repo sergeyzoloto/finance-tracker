@@ -90,6 +90,39 @@ class FamilyTotalsApiTests extends FamilyApiTest {
     }
 
     /**
+     * D-53 at the turn of a month: at 23:30 UTC on 31 October Amsterdam and the JVM's own zone (Pacific/Kiritimati in
+     * the tests) are already in November, but the api's today is the 31st. The balances' total is as of the 31st at the
+     * rate of the 31st, not at Alice's rate of 1 November, which is tomorrow's; and October is still the current month,
+     * so its amounts in the report are at today's rate, not at a month-end rate of its own.
+     */
+    @Test
+    void theTotalsTakeTheApisTodayAtTheTurnOfAMonth() throws IOException {
+        clock.set(Instant.parse("2026-10-31T23:30:00Z"), ZoneOffset.UTC);
+        for (String[] rate : new String[][] {{"2026-10-31", "1.10"}, {"2026-11-01", "2.00"}}) {
+            ok(post(alice, "/api/rates/manual", """
+                    {"date": "%s", "base": "EUR", "quote": "USD", "rate": "%s"}""".formatted(rate[0], rate[1])));
+        }
+        created(post(alice, uri + "/records", """
+                {"date": "2026-10-20", "categoryId": %d, "amount": "110.00", "currency": "USD", "payerMemberId": %d,
+                 "split": {"method": "ONE_MEMBER", "memberId": %d}}""".formatted(groceries, kid, mum)));
+
+        JsonNode balances = ok(get(alice, uri + "/balances")).get("total");
+        assertThat(balances.get("asOf").asText()).isEqualTo("2026-10-31");
+        assertThat(members(balances)).containsExactly(mum + " 100.00", dad + " 0.00", kid + " -100.00");
+        assertThat(rates(balances)).containsExactly("USD 2026-10-31 1.10 MANUAL");
+
+        JsonNode report = ok(get(alice, uri + "/report")).get("total");
+        assertThat(report.get("totals").get(0).get("expenseShares").asText()).isEqualTo("100.00");
+        assertThat(rates(report)).containsExactly("USD 2026-10-31 1.10 MANUAL");
+
+        clock.set(Instant.parse("2026-11-01T00:30:00Z"), ZoneOffset.UTC);
+        JsonNode next = ok(get(alice, uri + "/balances")).get("total");
+        assertThat(next.get("asOf").asText()).isEqualTo("2026-11-01");
+        assertThat(members(next)).containsExactly(mum + " 55.00", dad + " 0.00", kid + " -55.00");
+        assertThat(rates(next)).containsExactly("USD 2026-11-01 2.00 MANUAL");
+    }
+
+    /**
      * "No RUB rate": the ECB's last rouble rate (2022-03-01) never applies in 2026 (D-49), so a rouble record leaves no
      * total. Alice's rate of 1 August 2026, 95.50, then gives one, labelled manual and stale on 15 October.
      */

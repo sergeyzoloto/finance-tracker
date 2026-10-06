@@ -42,6 +42,8 @@ Amended in QA-1b on 2026-10-05: new D-53, D-54, D-55 and D-57 (decided by the PM
 
 Amended after the F6c deploy on 2026-10-02: new D-40 (decided by the PM), the planned stages (F6c confirmed as built, F7's way of switching and its check in production).
 
+Amended in F8a on 2026-10-06: new D-45 to D-49 and D-58 to D-87 (each marked as decided by the owner or by the PM), D-13 superseded by D-45 and D-87, D-64 narrowed by D-75, and the planned stages (F8a, F8b, F8c, D-77).
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -86,7 +88,7 @@ Split rule
 - D-12. Each family ledger has a default split rule: equal shares, or custom percentages summing to 100. The custom percentages are stored and sent by the API as integer basis points summing to exactly 10000; the interface shows and accepts percentages with two decimals and converts them with integer arithmetic. It applies to expenses and incomes, and only to new records. A record can override it with percentages, with amounts, or "entirely on one member". Amounts are rounded to the currency's minor unit. The remainder goes to the member with the largest share; on a tie, to the payer (the recipient for income), then by join order. So the shares always sum to the record amount. As built in F4a and kept after its review: each share is cut down to the minor unit, and the remainder, never negative, goes as above; 10.01 split 50/50 gives the payer 5.01. HALF_UP stays the rule for single amounts, such as conversions.
 
 Currency
-- D-13. A family ledger has a base currency that cannot change after its first record. Shares, balances and debts are kept in the base currency and fixed at entry. A record keeps the original amount and currency plus the base amount.
+- D-13 (superseded by D-45 and D-87, 2026-10-06). A family ledger has a base currency that cannot change after its first record. Shares, balances and debts are kept in the base currency and fixed at entry. A record keeps the original amount and currency plus the base amount.
   - If the payment card is in the base currency, the base amount is the actual card charge.
   - Otherwise the base amount defaults to the ECB rate for the record date and can be edited.
   - Cross-currency personal entries go through FX_EXCHANGE as they do today.
@@ -234,6 +236,53 @@ Added in QA-1b (2026-10-05)
 - D-56 (decided by the owner). OPS-2b's deploy runs the end-to-end suite in place of its manual browser checks and smoke test. That run is also QA-1's first production run, F7's check. It runs from `feature/qa-1`'s last commit (QA-1b's), since the deployed commit predates the suite. If the suite stops before the specs that need a sign-in ran, OPS-2b's browser checks and smoke test are done by hand and `finish` answers from them; if a spec fails, `finish` is answered `no` and nothing more happens until the PM has read the summary. The runbook's "OPS-2b's deploy checklist with the suite".
 - D-57 (decided by the PM). Merges into `main` are fast-forwards made on the laptop, as the checklists say, so that a checklist can name the commit to deploy before the deploy; no pull request is merged on GitHub with a merge commit. PR #13's merge commit (`8d75f839eb980666c674f7b000de7ec0ec0b2959`, parents `b6870f2` and `aade401`, `aade401`'s tree) stays: no force-push, no revert. OPS-2b deploys `origin/main`'s head, that merge commit; `b6870f2`'s `run` takes it as `origin/main` and a fast-forward of `b6870f2` (`deploy/tests/run.sh`, case `b6870f2_run_deploys_a_merge_commit`). `feature/qa-1` holds it (a merge that changed no file), so `main` fast-forwards to `feature/qa-1` after the deploy.
 
+Added in F8a (2026-10-06): the decisions of F8's planning and of D3b-0's review, recorded as the owner and the PM took them
+- D-45 (decided by the owner). One multi-currency family ledger. Every family entry keeps its own currency, and shares and rounding are computed in it. The ledger's main currency (the former base currency) is only the default for new entries and for display. When the payer's account is in another currency, the difference goes through `FX_EXCHANGE` in the payer's personal ledger. Balances, the zero sum in the family, D-10, the opening balance at a seat's claim, `FAMILY_CORRECTION`, leaving and "Delete all my data" all hold per currency. The migration stays additive (D-22). Supersedes D-13 with D-87.
+- D-46 (decided by the owner). A settlement (repayment) is in one currency only, the currency of the debt it repays. Offsetting debt across currencies goes to "Later".
+- D-47 (decided by the owner, details by the PM). Balances and the report are shown per currency, plus a total in the main currency for display only.
+  - The total is never posted and never used in settlements.
+  - It shows "≈", the rate's date and the rate's source.
+  - If any currency has no rate, there is no total: the page shows "no RUB rate" (for that currency) with a link to enter one.
+- D-48 (decided by the PM). The partner's import is D3c, after D3b. Merging two family ledgers goes to "Later". From D3b on, every imported entry records which member imported it.
+- D-49 (decided by the owner, details by the PM). Rates.
+  - The source is the ECB; RUB after 2022-03-01 is entered by hand.
+  - Balances use the latest available rate. The monthly report uses each month's month-end rate; the current month uses the latest available.
+  - "The rate on a date" is the latest published on or before it. An ECB rate older than 7 days is not used.
+  - Manual rates belong to their user and apply from their date until the next one.
+  - A total that uses a manual rate older than 31 days is marked "rate stale". Each member sees totals by their own rates, labelled "manual".
+  - Input is written as "1 EUR = 95,50 RUB". No float anywhere; the total is rounded once, at the end, to the main currency's minor unit.
+- D-58 (decided by the PM). A second production run of the end-to-end suite is allowed once, after fixing the cause, only if the first run stopped before sending anything: "Refused, nothing done", "Not confirmed", or "No terminal … nothing done". After a failed sign-in or ABORTED there is no retry: the checklist's manual checks are done, and `finish` is answered from them.
+- D-59 (decided by the PM). If a spec or the cleanup fails, `finish` is not run until the PM has read the summary. If the app is broken: answer `no`, then decide on a rollback. If the suite is wrong: check that item by hand.
+- D-60 (decided by the PM). "CI on Ubuntu 26.04" for a deployed commit that has already been pushed past runs on a temporary branch at exactly that commit. The branch is deleted afterwards.
+- D-61 (decided by the PM). Each export goes into its own dated folder, `data/private/export-YYYY-MM-DD/`. The import never relies on a fixed folder or fixed file names.
+- D-62 (decided by the PM). Opening balances come from the first row of the dailyBalance file. The separate opening-balances file planned earlier is dropped.
+- D-63 (decided by the PM). The daily files are the reconciliation reference for D3b and D3c: per account × currency, at every month-end up to the export date, with Excel's values rounded half-up to the minor unit.
+- D-64 (decided by the PM). The partner's first name stays out of tracked files. Code finds the monthly family column by the prefix `PL_family_`.
+  - Narrowed by D-75: only the partner's name is banned from tracked files; generic export file names may stay as hints.
+- D-65 (decided by the PM). From the partner's data, D3b-0 reports only what the designs need: no balances or sums of his personal accounts.
+- D-66 (decided by the PM). The stale-rate bug: `recordRate` takes an ECB rate of any age, and the ECB stopped publishing RUB on 2022-03-01. The bug disappears in F8a, because no rate is used in posting any more (D-87). The 7-day limit for displayed totals comes in F8b (D-49). Until F8 is deployed, no RUB family records are created in production.
+- D-67 (decided by the PM). The reconciliation compares `UNALLOCATED` + `RESERVE` as one equity balance. Excel's 1st-of-month sweep is not imported.
+- D-68 (decided by the PM). The import's dry run computes, per currency, the drift caused by D-12's share rounding and reports it as explained. Any unexplained difference above 0.01 fails the reconciliation.
+- D-69 (decided by the PM). Month-ends from the month of the older of the two exports onwards are shown in the reconciliation but do not fail it.
+- D-70 (decided by the PM). The imported family ledger starts on 2017-11-01. Its opening family debt is 0, so no starting-balance record is needed.
+- D-71 (decided by the PM). A conversion of the family debt between currencies is imported as two settlements, one per currency, paid through the importer's `FX_EXCHANGE`. Each settlement stays in one currency (D-46).
+- D-72 (decided by the PM). Family-flagged rows with the category "-" are imported as ordinary transfers, with the flag ignored. Zero-amount rows are skipped and counted in the dry run.
+- D-73 (decided by the PM). The owner's direct family-debt ↔ `UNALLOCATED` rows of 2018–2019 become records paid by the seat, 100 % the owner's share, in their own category. The one without a category goes to `OTHERINC`.
+- D-74 (decided by the PM). A family row whose `CUR_FAMILY` differs from the paying account's currency becomes a record in `CUR_FAMILY`. Its amount is first rounded half-up to the minor unit, and the paying side follows D-87.
+- D-75 (decided by the PM). Narrows D-64: only the partner's name is banned from tracked files; generic export file names may stay as hints.
+- D-76 (decided by the PM). ADR 0001's "both halves are rounded up" is wrong: Excel keeps the halves unrounded; the app rounds by D-12.
+- D-77 (decided by the PM). The stage order: F8a (model and posting) and F8b (interface, reports, rates, D-53, D-54), then one deploy. Then F8c (refunds, counterparty payments, the payee, sync fields) and D3b, then a deploy and the import.
+- D-78 (decided by the PM). Only the partner's family rows (Family = "да", category other than "-") leave the laptop. The import page filters his file in the browser before uploading.
+- D-79 (decided by the owner). A refund is an expense with a minus, in the same category, entered with a "Refund" toggle. It reduces the category in reports and is split by the same shares.
+- D-80 (decided by the owner). A family expense may be paid from an account that requires a counterparty, such as `CREDITOR_DEBT`. The counterparty is then required.
+- D-81 (decided by the owner). The payee stays on the payer's own personal entry and is visible only to the payer. The other member sees the date, category and amount.
+- D-82 (decided by the owner). Option C: D3b imports the partner's family rows as records paid by his seat, subject to his consent before the import. D3c then covers his claim and his personal history.
+- D-83 (decided by the owner). For the months before the partner's ledger starts, there is one record per month and currency, paid by the seat. Its amount is twice Excel's monthly lump, split 50/50, in a new category "Без детализации".
+- D-84 (decided by the owner). The owner's direct EUR income rows family-debt ← `UNALLOCATED` (`BENEFIT`, `OTHERINC`, `CASHBACK`) are his half of family incomes the partner received. Under D-82 they are not imported.
+- D-85 (decided by the owner). Excel's defects are fixed at the source before D3b's export: the USD monthly-lump formula, the missing `LOANS_ASSET_EUR` column, and a closing row for the EUR loan. D-63 declares no exceptions for them.
+- D-86 (decided by the owner). IDs in both ledgers are permanent: never renumbered, and the numbers of deleted rows are never reused.
+- D-87 (decided by the PM; clarifies D-45). No exchange rate is ever used in a posting. When the paying account's currency differs from that of the record or settlement, the amount taken from the account is entered by the user, or comes from the import. `FX_EXCHANGE` in the payer's personal ledger takes the difference. Rates serve displayed totals only (D-47). D-13's conversion is superseded.
+
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
 - F2a: migration V5, stronger isolation tests, these documents; deployed on its own.
@@ -257,6 +306,7 @@ Added in QA-1b (2026-10-05)
   - Prerequisite: the client address of IPv6 clients (F6a's residual risk: with an AAAA record for app.finance-nl.com and Docker's IPv6 off, every IPv6 client could reach the api as one address) is settled before the switch goes on, so that D-29's per-address limit counts the browser's real address for them too. Settled by D-38 (2026-10-02): such an address is the bridge's gateway, a private one, for which only the per-user limit applies.
 - After the F7 deploy (2026-10-02, decided by the PM): F7's deploy passed every check of `deploy.sh run`, but the privacy policy answered 403 (the deploy scripts' `umask 077` wrote the changed `privacy.html` with mode 600, which the web image kept and nginx couldn't read); `finish` recorded the browser checks as passed by mistake, the switch went on, and by D-41 it was switched off again. F7b, a stage of its own: the web image readable whatever the checkout's modes, with CI building it from a copy with the server's modes; page checks in the deploy scripts (`run`, `verify`, `finish`, `rollback.sh`), and `finish` recording the browser checks as failed, without asking, when a page fails; git commands that write the working tree under `umask 022`, everything else under 077; `switch`'s text. Its checks are `deploy/checks/F7b.sql`. F7's production check moves to F7b's checklist, after its `finish` and `switch on`. F7's report claimed that the `edge` network's subnet check proves D-29's per-address limit counts real clients; it doesn't (with Docker's IPv6 off, IPv6 clients arrive as the bridge's gateway, D-38's case), and the check is dropped from the checklists.
 - After F7: the Excel import, with Family rows going into a family ledger.
+- F8 (D-45, D-77): the multi-currency family ledger. F8a: the model and posting (schema V11, shares and records per currency, posting, balances and settlements, membership flows, the integrity check, the rollback guard), backend only. F8b: the interface, the report's screen, rates (D-47, D-49), D-53, D-54, the end-to-end suite and the deploy checklist. One deploy after F8a and F8b. F8c, before D3b: refunds (D-79), payments from counterparty accounts (D-80), the payer's payee (D-81) and the import's sync fields. Then D3b (the owner's import, D-82) and a deploy; D3c (the partner's claim and import, D-48) after it.
 
 ## Later
 Found along the way; not part of a stage yet.

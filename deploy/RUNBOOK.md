@@ -644,6 +644,7 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-05 | `8d75f83` (merge of PR #13; parents `b6870f2` and `aade401`); the api rebuilt and recreated, the web image unchanged | OPS-2b: defect 5, the tests' isolation, D-50, Flyway V10, the switch on. `deploy/deploy.sh run 8d75f83… OPS-2b`, executed by `b6870f2`'s script, at 15:08:34Z, run folder `/var/lib/finance-deploy/runs/2026-10-05T150834Z-8d75f83`. The before-dump was kept in the run folder (D-43, the first one kept in production; its name and size are in the run's meta) and its restore test passed. Flyway stayed at V10 ("No migration necessary", 15:11:03Z); the D-25 line "on" at 15:11:05Z. The api was recreated, since the tests are part of its build context: `sha256:fc9004a8611f…` (content `sha256:f4add3bcaa8f…`); the web image is unchanged, `sha256:bba7ff04771a…` (content `sha256:2a604232772e…`). `b6870f2`'s images are kept as the previous ones: api `sha256:6d6f35b82a50…`, web `sha256:bba7ff04771a…`. The end-to-end suite's first production run (QA-1, D-56) from `6fdc989` with a clean tree, 16:36:35Z to 16:37:08Z, `E2E_FAMILY=on`: pages, sign-in, smoke, family F7 and the cleanup passed, both test accounts' data deleted and both signed out, `Result: PASSED`, the password search over the artifacts 0 hits; this closes F7's check with two accounts. `finish` passed at 18:19:27Z, about three hours after `run` (no time limit; the wait was the PM's review of the suite's summary). `verify OPS-2b` OK at 18:25:00Z: image store containerd, platform linux/amd64 (defect 5 closed in production), both images "the recorded image", the pages 5 of 5, the stage's checks as expected (0 ECB rouble rates after 2022-03-01), all 21 numbers as before the deploy (every `family_*` 0, users 3). Rollback acceptance: `rollback.sh b6870f2` answered `no` between two read-only looks, which matched line for line. Then `main` and `feature/family-budget` fast-forwarded to `6fdc989` (QA-1b) and pushed; production stays on `8d75f83`, since the QA-1 commits change no image. "CI on Ubuntu 26.04" for `8d75f83` hadn't run; it runs under D-60 before 2026-10-19, and F8b records the result. |
 | 2026-10-04 | `b6870f2`; nothing on the server | "CI on Ubuntu 26.04" (D-44), `workflow_dispatch` on `main` at `b6870f2`, started after the acceptance checks (the row below): run #1, `37227790313`, 19:18:49Z to 19:28:24Z, on Ubuntu 26.04.1 with Docker 29.4.2. Backend failed: 404 tests, 1 failure, `RateApiTests.aManualRateIsTheUsersOwn` (`RateApiTests.java:31`), expected "2026-09-01" but was "2026-09-25"; Maven finished at 19:28:20Z. Frontend (19:18:55Z to 19:19:23Z), Web image (19:18:53Z to 19:19:21Z) and Deploy scripts (19:18:53Z to 19:24:26Z) completed with success (the run's jobs, read from GitHub's public API on 2026-10-05). Its check runs belong to `b6870f2`, deployed and finished, so they hold up no deploy. OPS-2b looks for the cause. |
 | 2026-10-04 | `b6870f2`; nothing changed | OPS-2's acceptance checks, each block alone. The read-only block before and after D-42's check printed the same: the previous file names `45100032b97b…`; `:previous` is api `sha256:6d6f35b8…` and web `sha256:bba7ff04…`; `deploy/app/.env` and its three copies are 600 root. D-42: `deploy/deploy.sh run b6870f2b6272… OPS-2` at 19:14:58Z (`2026-10-04T191458Z-b6870f2`), REFUSED at 1.3, "Nothing changed: no merge, no image tagged, built or started", with no CI line and no dump; its 1.2 printed "Image store: unknown, platform unknown" (defect 5) and "The running images are the last good deploy's content". Defect 1: `deploy/deploy.sh switch off` at 19:16:29Z and at 19:16:44Z, both answered `no`: each reached "2. Confirmation", each said "The latest run that isn't refused: 2026-10-04T191023Z-b6870f2, finished", and nothing changed; their 1.4 also printed "Image store: unknown, platform unknown". The switch stays on. |
 | 2026-10-04 | `b6870f2`; read only | `deploy/deploy.sh verify OPS-2`: OK at 19:14:35Z. Both images "the recorded image", each with its content identity; but the line before them said "Image store: unknown, platform unknown", while `docker info` and `docker version` answer as in the pre-flight (defect 5). |
@@ -682,34 +683,28 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-04T19:16:44Z (the second `switch off` of OPS-2's acceptance checks, answered `no`):
+As of 2026-10-05T18:25:00Z (`verify OPS-2b`, OK), followed by OPS-2b's rollback acceptance (answered `no`, nothing
+changed):
 
-- `b6870f2` (OPS-2) on Flyway V10 since 2026-10-04T19:14:27Z (its `finish`), with family budgets switched on since
-  2026-10-03T09:25:40Z. The containers run api `sha256:bb3bdef3d2a9…` (content `sha256:9315f0d932d0…`) and web
-  `sha256:bba7ff04771a…` (content `sha256:2a6042327728…`), which `last-good` names with their contents
-  (`finish=passed`). The manifest list `bb3bdef3…` is gone from the store while its container runs it; `:latest`
-  names `sha256:41e46a733329…` and `sha256:827620f31177…`, the same contents.
-- The rollback state: `/root/finance-tracker.previous` and `:previous` name `4510003` (api `sha256:6d6f35b8…`, web
-  `sha256:bba7ff04…`), and `:f0425c0…` and `:8ede02e…` are kept. `rollback.sh`'s target is `4510003`, the commit
-  OPS-2's run replaced, its api accepted by content. A rollback to `f0425c0` is pointless (its web serves `/privacy`
-  with 403). The way back from the family budget is `deploy/deploy.sh switch off`, which works in this state (OPS-2's
-  acceptance checks, the row of 19:16Z).
-- Defect 5, open until OPS-2b is deployed: `run`'s step 1.2, `verify` and `switch`'s step 1.4 print "Image store:
-  unknown, platform unknown", although `docker info` and `docker version` answer (the pre-flight of 2026-10-04). The
-  content identities themselves are read, and the verdicts were right (`verify` named both images "the recorded
-  image").
-- A correction: OPS-2's report, and this section until OPS-2's deploy, gave an empty `run` of `4510003` as the way
-  around defect 1 before OPS-2. With `last-good` naming api `bb3bdef3…`, which the pre-flight found gone from the
-  store, that run would also have FAILED at step 3.2, after the merge (`docker tag` of a gone ID; the case
-  `4510003_run_fails_on_a_gone_image`), unless the one-time remedy ran first. It was never needed.
-- The clone holds three untracked copies of `.env`, `switch`'s (600 root).
-- F7's production check (two test accounts) has not been run; it also covers OPS-2's smoke test, which wasn't
-  performed in full. The suite's first attempt (2026-10-05, from `22b64d5`) stopped at its own confirmation, "No
-  terminal to type the confirmation at", after `E2E PROD` was typed: QA-1b's defect, fixed on `feature/qa-1`. Nothing
-  reached production. OPS-2b's deploy runs the suite (D-56).
-- `origin/main` is `8d75f83`, PR #13's merge commit of `b6870f2` and `aade401` (OPS-2b), with `aade401`'s tree;
-  [OPS-2b's deploy checklist with the suite](#ops-2bs-deploy-checklist-with-the-suite) deploys it (D-57).
-- "CI on Ubuntu 26.04" on `b6870f2` failed in Backend (`RateApiTests`); OPS-2b looks for the cause.
+- `8d75f83` (OPS-2b, PR #13's merge commit of `b6870f2` and `aade401`) on Flyway V10 since 2026-10-05T18:19:27Z (its
+  `finish`, passed), with family budgets switched on since 2026-10-03T09:25:40Z. The containers run api
+  `sha256:fc9004a8611f…` (content `sha256:f4add3bcaa8f…`) and web `sha256:bba7ff04771a…` (content
+  `sha256:2a604232772e…`), both "the recorded image" for `verify`.
+- The rollback state: `:previous` and the previous-commit file name `b6870f2` (api `sha256:6d6f35b82a50…`, web
+  `sha256:bba7ff04771a…`). `rollback.sh`'s target is `b6870f2`; `rollback.sh b6870f2` was answered `no` in the
+  acceptance checks, between two read-only looks that matched line for line. The way back from the family budget is
+  `deploy/deploy.sh switch off`.
+- Defect 5 is closed in production: `verify OPS-2b` named the image store (containerd) and the platform (linux/amd64).
+- The run's before-dump is kept in its run folder (D-43), the first one kept in production, with its restore test
+  passed.
+- The end-to-end suite's first production run (2026-10-05, from `6fdc989`) passed, with both test accounts' data
+  deleted and both signed out: F7's check with two accounts is closed, and OPS-2's smoke test with it.
+- The numbers: 21, as before the deploy; every `family_*` is 0, users 3. No family record exists in production. Until
+  F8 is deployed, no rouble family records are created in production (D-66).
+- `main` and `feature/family-budget` are at `6fdc989` (QA-1b) and pushed. The QA-1 commits change no image, so
+  production stays on `8d75f83`.
+- "CI on Ubuntu 26.04" for `8d75f83` hadn't run when this was written. It runs under D-60 (a temporary branch at
+  exactly that commit, deleted afterwards) before 2026-10-19, and F8b records the result.
 
 ## OPS-2b's deploy checklist with the suite
 

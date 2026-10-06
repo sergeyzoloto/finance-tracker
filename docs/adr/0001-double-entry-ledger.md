@@ -52,8 +52,8 @@ A script checked the three files (the numbers are from the 299-row sample):
 | Check                                                                                                                                  | Result                                                                                                                                                                                                                                                                                                                                                 |
 | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | a) Every row with a category has `UNALLOCATED` on exactly one side                                                                    | Holds for all 220 rows with a category. The other 79 rows (category `-`) never touch `UNALLOCATED`: they are transfers.                                                                                                                                                                                                                                        |
-| b) Family rows change `UNALLOCATED` by half of Sum, and `FAMILY_EXP` holds the other half                                               | 81 Family rows, all expenses. 79 split exactly. The 2 rows with an odd number of cents round **both** halves up, so together the halves come to 0.01 more than Sum.                                                                                                                                                                                   |
-| c) With the Family half posted to `FAMILY_DEBT`, the total change of ASSET accounts equals the total change of LIABILITIES accounts | Off by 0.02, which is exactly the two odd-cent Family rows at 0.01 each. Without the Family half the totals don't come close, so the half has to be a real posting. Rebuilt with the rules below (debit +, credit −, split by rule 7), all 299 entries balance exactly. |
+| b) Family rows change `UNALLOCATED` by half of Sum, and `FAMILY_EXP` holds the other half                                               | 81 Family rows, all expenses. 79 split exactly. In the 2 rows with an odd number of cents, Excel keeps both halves unrounded (half a cent below the minor unit), so together they still come to Sum; the app rounds them by D-12. (Corrected on 2026-10-06, D-76: this row first said both halves were rounded up.)                                                                                                                                                                                   |
+| c) With the Family half posted to `FAMILY_DEBT`, the total change of ASSET accounts equals the total change of LIABILITIES accounts | Off by 0.02, which the sample's check put down to the two odd-cent Family rows at 0.01 each; that explanation rested on the halves being rounded up, which D-76 corrects (row b). Without the Family half the totals don't come close, so the half has to be a real posting. Rebuilt with the rules below (debit +, credit −, split by rule 7), all 299 entries balance exactly. |
 | d) `Столбец1` is TRUE exactly when `CASH` is on one side                                                                                | All 68 TRUE rows have `CASH` on a side, and none of the 231 FALSE rows do. It is a derived filter column.                                                                                                                                                                                                                                                         |
 
 More from the same run:
@@ -127,8 +127,8 @@ How a workbook row maps onto the model, for the importer:
 - One mechanism covers transfers, shared expenses, loans, currency exchange and opening balances.
   None of them needs its own table or a special case in the reports.
 - Refunds net out within their category, with no workaround.
-- Shared expenses no longer create a cent from nothing: the workbook's 0.01 overshoot on odd-cent
-  rows goes away.
+- Shared expenses are always split into amounts of the currency's minor unit that add up to the
+  total. Excel keeps the halves of an odd-cent row unrounded (D-76); the app rounds them by D-12.
 - Amounts become signed, which removes the reason category types were frozen (commit `20829c6`):
   changing a type no longer re-signs stored history. The type still decides how a category's
   postings read, though. After a flip, an expense reads as an income reversal. So the freeze stays
@@ -189,9 +189,11 @@ These are the points where the samples contradict the rules or can't confirm the
 - **Missing borrower.** One `LOANS_ASSET` row has the literal text `NULL` as its borrower, which
   breaks rule 8. It needs a counterparty before it can be imported. `NULL` also appears as text in
   `CODE_ITEM` on the 79 rows without a category.
-- **Odd-cent Family rows.** The two rows import with `UNALLOCATED` 0.01 lower each than in the
-  workbook, because rule 7 gives the extra half-cent to the other side. The workbook itself is out
-  of balance by that amount.
+- **Odd-cent Family rows.** Excel keeps both halves of such a row unrounded, with a third decimal
+  (D-76, which corrects the earlier statement that it rounds both up). The app splits them into
+  amounts of the minor unit: family records by D-12 (`ShareSplit`), and the importer's legacy
+  rule-7 rows, as `EntryMapper` does until D3b, with the extra cent on the other side. Either way
+  the halves differ from Excel's by half a cent each, which the reconciliation explains (D-68).
 - **Currency exchange.** `CUR_DEBIT`, `SUM_DEBIT`, `CUR_CREDIT` and `SUM_CREDIT` are empty
   throughout the sample, so how the workbook records an exchange is still unknown.
 - **Opening balances.** The sample contains none. How the workbook's first rows establish

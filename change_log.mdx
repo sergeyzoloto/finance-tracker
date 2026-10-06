@@ -3,6 +3,38 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · OPS-2b's deploy recorded, F8's decisions, ADR 0001's odd-cent rows (F8a, commit 1)
+
+Commit on `feature/family-budget`, from `6fdc989`: "docs: OPS-2b's deploy facts and F8's decisions (F8a)", whose hash F8a's
+report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions": a row for OPS-2b's deploy of `8d75f83` (2026-10-05): `run` at 15:08:34Z by
+  `b6870f2`'s script, the before-dump kept in the run folder (D-43) with its restore test passed, Flyway V10 unchanged,
+  the api recreated (`sha256:fc9004a8611f…`, content `sha256:f4add3bcaa8f…`), the web image unchanged, `b6870f2`'s
+  images as the previous ones; the end-to-end suite's first production run from `6fdc989` (16:36:35Z to 16:37:08Z,
+  `Result: PASSED`, 0 password hits), which closes F7's check with two accounts; `finish` passed at 18:19:27Z; `verify
+  OPS-2b` OK at 18:25:00Z (containerd, linux/amd64: defect 5 closed in production; 21 numbers as before); the rollback
+  acceptance answered `no`; `main` and `feature/family-budget` at `6fdc989`. "Production now" rewritten for that state,
+  with `b6870f2` as the rollback target and "CI on Ubuntu 26.04" for `8d75f83` still to run under D-60.
+- `CLAUDE.md`: production runs `8d75f83` since its `finish`; the suite's first production run and defect 5's closure.
+- `docs/family-budget/requirements.md`: D-45 to D-49 and D-58 to D-87, each marked as decided by the owner or by the
+  PM; D-13 marked as superseded by D-45 and D-87; D-64 as decided, with D-75's narrowing under it; the planned stages
+  F8a, F8b and F8c (D-77).
+- ADR 0001 (D-76): Excel keeps both halves of an odd-cent Family row unrounded; the statement that it rounds both up is
+  replaced, in the samples' table and in "What gets easier" and "What the import still has to settle". `EntryMapper`
+  stays as it is until D3b.
+
+**Verified**
+- The baseline before this commit, on `6fdc989`: `./mvnw -B clean verify` 407 tests, 0 failures; `npm test` in
+  `frontend/` 301 passed; `npm run typecheck` in `e2e/` clean.
+- Documentation only: `git diff --stat` names `CLAUDE.md`, `deploy/RUNBOOK.md`, `docs/adr/0001-double-entry-ledger.md`,
+  `docs/family-budget/requirements.md` and this file. The new revision row holds no pipe character inside its cells.
+
+**Open**
+- The before-dump's name and size are in the run's meta on the server, which this task doesn't read.
+- "CI on Ubuntu 26.04" for `8d75f83` (D-60), before 2026-10-19; F8b records it.
+
 ## 2026-10-05 · The production runner's confirmation at a real terminal, `main`'s merge commit, OPS-2b's deploy with the suite (QA-1b)
 
 Commits on `feature/qa-1`, from `22b64d5`: `acea1b4` ("Merge origin/main (PR #13's merge commit) into feature/qa-1

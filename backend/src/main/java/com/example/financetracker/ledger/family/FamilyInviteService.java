@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -233,11 +234,21 @@ public class FamilyInviteService {
         Long returning = requireAcceptable(personal, invite);
         Preview preview = invites.preview(invite);
         Matches matches = matches(personal, preview.categories());
-        int scale = ShareSplit.minorUnit(preview.baseCurrency());
-        BigDecimal correction = returning == null ? null : invites.leftMemberBalance(invite, returning, preview.today())
-                .subtract(posting.formerDebtBalance(personal, invite.ledgerId(), returning, preview.baseCurrency(),
-                        preview.today()))
-                .setScale(scale, RoundingMode.UNNECESSARY);
+        String main = preview.baseCurrency();
+        // Per currency (D-45): the correction is the balance before the join date less what the former debt account
+        // shows, in each currency of either.
+        List<CurrencyAmount> corrections = null;
+        if (returning != null) {
+            Map<String, BigDecimal> balances = invites.leftMemberBalances(invite, returning, preview.today());
+            Map<String, BigDecimal> shown = posting.formerDebtBalances(personal, invite.ledgerId(), returning,
+                    preview.today());
+            Map<String, BigDecimal> differences = new LinkedHashMap<>(balances);
+            shown.forEach((currency, amount) -> differences.merge(currency, amount.negate(), BigDecimal::add));
+            corrections = amounts(differences, main);
+        }
+        BigDecimal correction = corrections == null ? null : mainAmount(corrections, main);
+        List<CurrencyAmount> openings = preview.seatBalances() == null ? null
+                : amounts(preview.seatBalances(), main);
         List<InviteLookup.EntryAfterReturn> after = returning == null ? null
                 : posting.entriesAfterReturn(personal, invite.ledgerId(), returning, preview.today()).stream()
                         .map(e -> new InviteLookup.EntryAfterReturn(e.entryId(), e.date(), Money.normalize(e.amount()),
@@ -249,8 +260,26 @@ public class FamilyInviteService {
                 preview.categories().stream().filter(c -> !c.archived())
                         .map(c -> new FamilyCategory(c.code(), c.name(), c.type())).toList(),
                 matches.merges(), matches.kept(), matches.mayBring(), accountName,
-                preview.seatBalance() == null ? null : preview.seatBalance().setScale(scale, RoundingMode.UNNECESSARY),
-                returning != null, correction, after);
+                openings == null ? null : mainAmount(openings, main), returning != null, correction, after, openings,
+                corrections);
+    }
+
+    /**
+     * The amounts that aren't 0, at each currency's minor unit, the main currency first, then by currency.
+     */
+    private static List<CurrencyAmount> amounts(Map<String, BigDecimal> byCurrency, String main) {
+        return byCurrency.entrySet().stream().filter(entry -> entry.getValue().signum() != 0)
+                .sorted(Comparator.comparing((Map.Entry<String, BigDecimal> entry) -> !entry.getKey().equals(main))
+                        .thenComparing(Map.Entry::getKey))
+                .map(entry -> new CurrencyAmount(entry.getKey(), entry.getValue()
+                        .setScale(ShareSplit.minorUnit(entry.getKey()), RoundingMode.UNNECESSARY)))
+                .toList();
+    }
+
+    /** The main currency's amount of the list, 0 if it has none. */
+    private static BigDecimal mainAmount(List<CurrencyAmount> amounts, String main) {
+        return amounts.stream().filter(amount -> amount.currency().equals(main)).map(CurrencyAmount::amount)
+                .findFirst().orElse(BigDecimal.ZERO.setScale(ShareSplit.minorUnit(main)));
     }
 
     /**

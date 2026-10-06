@@ -8,7 +8,9 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import com.example.financetracker.ledger.ConflictException;
@@ -40,22 +42,29 @@ public class LedgerInvites {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /**
-     * A member's family balance from the records dated before a day (ADR 0003, topic D): their expense shares − the
-     * expenses they paid + the incomes they received − their income shares − the settlements they paid + the
-     * settlements they received.
+     * A member's family balance in each currency from the records dated before a day (ADR 0003, topic D; D-45): their
+     * expense shares − the expenses they paid + the incomes they received − their income shares − the settlements they
+     * paid + the settlements they received; the ledger's main currency always, and each other currency of a record
+     * before the day.
      */
-    private static final String BALANCE_BEFORE = """
-            SELECT coalesce((SELECT sum(CASE r.type WHEN 'EXPENSE' THEN s.amount ELSE -s.amount END)
+    private static final String BALANCES_BEFORE = """
+            SELECT c.currency,
+                   coalesce((SELECT sum(CASE r.type WHEN 'EXPENSE' THEN s.amount ELSE -s.amount END)
                              FROM family_share s JOIN family_record r ON r.id = s.record_id
                              WHERE s.member_id = :memberId AND r.ledger_id = :ledgerId AND r.deleted_at IS NULL
-                               AND r.record_date < :before), 0)
+                               AND r.record_date < :before AND r.currency = c.currency), 0)
                    - coalesce((SELECT sum(CASE r.type WHEN 'INCOME' THEN -r.base_amount ELSE r.base_amount END)
                                FROM family_record r
                                WHERE r.payer_member_id = :memberId AND r.ledger_id = :ledgerId AND r.deleted_at IS NULL
-                                 AND r.record_date < :before), 0)
+                                 AND r.record_date < :before AND r.currency = c.currency), 0)
                    + coalesce((SELECT sum(r.base_amount) FROM family_record r
                                WHERE r.payee_member_id = :memberId AND r.ledger_id = :ledgerId AND r.deleted_at IS NULL
-                                 AND r.record_date < :before), 0)""";
+                                 AND r.record_date < :before AND r.currency = c.currency), 0) AS balance
+            FROM (SELECT base_currency AS currency, 0 AS main FROM ledger WHERE id = :ledgerId
+                  UNION SELECT currency, 1 FROM family_record
+                        WHERE ledger_id = :ledgerId AND deleted_at IS NULL AND record_date < :before
+                          AND currency <> (SELECT base_currency FROM ledger WHERE id = :ledgerId)) c
+            ORDER BY c.main, c.currency""";
 
     /**
      * A pending invite.
@@ -77,11 +86,12 @@ public class LedgerInvites {
      * account or record.
      *
      * @param today today (the api's, {@link Today}), a new member's join date
-     * @param seatBalance a claim's seat's family balance from the records before its join date, which the user takes
-     *        on as an opening balance (D-18, D-34): positive when the seat owes the family; null for a new member
+     * @param seatBalances a claim's seat's family balance in each currency from the records before its join date,
+     *        which the user takes on as an opening balance (D-18, D-34, D-45): positive when the seat owes the family;
+     *        the main currency first, then each other currency of a record before it; null for a new member
      */
     public record Preview(String ledgerName, String baseCurrency, String invitedBy, String seatName, LocalDate today,
-            List<FamilyCategory> categories, BigDecimal seatBalance) {
+            List<FamilyCategory> categories, Map<String, BigDecimal> seatBalances) {
     }
 
     /** A category of the family ledger, as the invite shows it: no id. */
@@ -173,12 +183,10 @@ public class LedgerInvites {
                 .query((row, n) -> new FamilyCategory(row.getString("code"), row.getString("name"),
                         row.getString("type"), row.getBoolean("archived")))
                 .list();
-        BigDecimal seatBalance = invite.claim() ? jdbc.sql(BALANCE_BEFORE)
-                .param("ledgerId", invite.ledgerId()).param("memberId", invite.seatMemberId())
-                .param("before", invite.joinDate())
-                .query(BigDecimal.class).single() : null;
+        Map<String, BigDecimal> seatBalances = invite.claim()
+                ? balancesBefore(invite.ledgerId(), invite.seatMemberId(), invite.joinDate()) : null;
         return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), today.date(),
-                categories, seatBalance);
+                categories, seatBalances);
     }
 
     /** The user's membership in the invite's family ledger, if any; a FORMER one has no sub any more (D-20). */
@@ -211,13 +219,20 @@ public class LedgerInvites {
     }
 
     /**
-     * The family balance of the user's LEFT membership from the records dated before the day (D-26): what the
-     * correction of their return starts from. Read for the invite's holder, who isn't an ACTIVE member.
+     * The family balance of the user's LEFT membership in each currency from the records dated before the day (D-26,
+     * D-45): what the correction of their return starts from. Read for the invite's holder, who isn't an ACTIVE member.
      */
-    public BigDecimal leftMemberBalance(Invite invite, long memberId, LocalDate before) {
-        return jdbc.sql(BALANCE_BEFORE).param("ledgerId", invite.ledgerId()).param("memberId", memberId)
-                .param("before", before)
-                .query(BigDecimal.class).single();
+    public Map<String, BigDecimal> leftMemberBalances(Invite invite, long memberId, LocalDate before) {
+        return balancesBefore(invite.ledgerId(), memberId, before);
+    }
+
+    private Map<String, BigDecimal> balancesBefore(long ledgerId, long memberId, LocalDate before) {
+        Map<String, BigDecimal> balances = new LinkedHashMap<>();
+        jdbc.sql(BALANCES_BEFORE).param("ledgerId", ledgerId).param("memberId", memberId).param("before", before)
+                .query(row -> {
+                    balances.put(row.getString("currency"), row.getBigDecimal("balance"));
+                });
+        return balances;
     }
 
     /**

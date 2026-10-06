@@ -3,6 +3,38 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · Opening balances, corrections, invites and the deletion preview per currency (F8a, commit 6)
+
+Commit on `feature/family-budget`, after `d2bf6f5`: "feat(family): membership flows per currency (F8a)", whose hash
+F8a's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `FamilyPostingService.openings`: a claimed seat's opening balance (D-31, D-35) and a returning member's correction
+  (D-26, D-39) are still one entry each (V7's unique opening link), now with a pair of lines (debt account and
+  `OPENING_BALANCE`) per currency whose amount isn't 0, by currency; the currencies are those of the ledger's records
+  and of the member's debt account. A currency that comes to 0 loses its pair, and an entry with none goes. For one
+  currency the entry is what it was. `formerDebtBalances` (was `formerDebtBalance`) reads the former debt account per
+  currency. The detach is unchanged.
+- `LedgerInvites`: the seat's balance before the join date and a returning member's balance per currency (the main
+  currency first, then each other currency of a record before the day).
+- The invite lookup: `openingBalances` and `corrections` (additive, lists of `currency` and `amount`, each currency
+  whose amount isn't 0, the main currency first); `openingBalance` and `correction` stay as the main currency's,
+  `@Deprecated`. A new record type `CurrencyAmount`.
+- The deletion preview (`GET /api/me/family-memberships`, D-20): `balances` per currency (additive), `balance` stays as
+  the main currency's, `@Deprecated`. `release_family_memberships` stores no balance and is unchanged.
+- `FamilyCurrencyMembershipApiTests` (new): a claim taking on 30.00 EUR and −20.00 USD in one opening entry, its dollar
+  pair moving with the claimer's own change of a dollar record before her date and the euro pair going with the euro
+  record's deletion; a member owing 30.00 EUR and owed 40.00 USD, listed so by the deletion preview, who leaves and
+  returns with no correction, then gets one entry of +10.00 EUR and −20.00 USD when records before the return change.
+  The integrity check and the invariants per currency after each step.
+
+**Verified**
+- `./mvnw -B clean verify`: 416 tests, 0 failures; the claim, return, membership, invite and delete-all tests of F5 to
+  F6c unchanged and passing.
+
+**Open**
+- F8b shows the per-currency lists on the invite page and the delete screen.
+
 ## 2026-10-06 · Balances, the report and the integrity check per currency; the demo's dollars (F8a, commit 5)
 
 Commit on `feature/family-budget`, after `8f667c5`: "feat(family): balances, report and integrity per currency (F8a)",

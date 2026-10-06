@@ -3,6 +3,38 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · Posting per currency (F8a, commit 4)
+
+Commit on `feature/family-budget`, after `90abd92`: "feat(family): posting per currency (F8a)", whose hash F8a's report
+names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `FamilyPostingService`: a record's shares and every line on a debt account are in the record's own currency (D-45);
+  the paying side (`original_amount` in `original_currency`) is on its account in the account's currency, and when
+  that isn't the record's, the side goes through the member's own `FX_EXCHANGE` (rule 9, D-87): the account and
+  `FX_EXCHANGE` in the account's currency, `FX_EXCHANGE` and the debt account in the record's. `FX_EXCHANGE` keeps the
+  difference; no rate decides it. The base-currency notions of F4e (`Amounts.base`, the base-currency check of a side)
+  are the record's amount and currency now. Commit 3 already read the record's currency; this commit renames and
+  documents it and adds the tests. The opening balances and corrections follow in commit 6.
+- `CrossLedgerWriter`: documented that lines may be in any currency and that a debt account's default currency (the
+  main currency when it was created) is only a default; it holds a line in every currency the records are in. The
+  writer's checks were already currency-free (D-8's accounts only).
+- `FamilyCurrencyPostingApiTests` (new): 56.00 USD paid with a dollar card (no `FX_EXCHANGE`, both shares in dollars,
+  each debt account holding euros and dollars); 9000 RUB paid from euro cash as 95.50 EUR and a 3000 RUB income
+  received into it as 31.00 EUR (through `FX_EXCHANGE`, shares in roubles); a seat without an account paying 30.00 USD
+  (no payment entry, shares in dollars); a settlement of 20.00 USD paid from euro cash as 18.40 EUR; and D-14: a refused
+  change (a new amount without the cash's euros) leaves the record and every entry of both members as they were, a
+  change re-posts all of them in place (same entries, each version +1) in the one request, and the deletion removes
+  them all.
+
+**Verified**
+- `FamilyCurrencyPostingApiTests` 5 of 5; the invariants per currency after each.
+- `./mvnw -B clean verify`: 413 tests, 0 failures.
+
+**Open**
+- The opening balance of a claimed seat and a returning member's correction still sum every currency's records as
+  one (commit 6); balances and the report are per currency in commit 5.
+
 ## 2026-10-06 · Family records in their own currency, no rate (F8a, commit 3)
 
 Commit on `feature/family-budget`, after `279a5e6`: "feat(family): records and shares in their own currency, no rate

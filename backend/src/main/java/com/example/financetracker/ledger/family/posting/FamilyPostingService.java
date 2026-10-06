@@ -36,12 +36,14 @@ import org.springframework.transaction.annotation.Transactional;
  * account, or "Specify later"; the other side's part goes to their "Payments without a specified account" (D-24), and
  * they move it to an account themselves.
  * </ul>
- * Shares and the debt accounts are in the family's base currency. A side in another currency (F4e, D-13) goes through
- * the member's FX_EXCHANGE as a personal currency exchange does (rule 9): the account in its currency, FX_EXCHANGE the
- * other way in that currency and again in the base currency, and the debt account in the base currency. The payer's
- * payment, an income's receipt and the side of a settlement's recorder are in the record's original currency; the other
- * side of a settlement is in the base currency on their placeholder, or in their own account's currency with the
- * amount they name for it, which only their entry holds.
+ * Every record is in its own currency (D-45, ADR 0004): its shares and every line on a debt account are in it, so a
+ * member's debt account holds as many currencies as the family's records, and D-10 holds in each. A side on an account
+ * in another currency (D-87) goes through the member's FX_EXCHANGE as a personal currency exchange does (rule 9): the
+ * account in its currency, FX_EXCHANGE the other way in that currency and again in the record's, and the debt account
+ * in the record's; FX_EXCHANGE keeps the difference, and no rate is used. The payer's payment, an income's receipt and
+ * the side of a settlement's recorder are as the record's paying side holds them ({@code original_amount} in
+ * {@code original_currency}); the other side of a settlement is in the record's currency on their placeholder, or in
+ * their own account's currency with the amount they name for it, which only their entry holds.
  * <p>
  * A member who joined after the family ledger's start date by taking a seat (F5, D-18) has a family balance from the
  * records before their join date, which they shared as a member without an account: it arrives as one opening balance
@@ -181,6 +183,7 @@ public class FamilyPostingService {
     }
 
     private void postRecord(LedgerScope family, long recordId, Payment payment) {
+        // The record's amount in its own currency (D-45), and its paying side (D-87).
         record Record(String type, LocalDate date, boolean deleted, long payerId, Long payeeId, long authorId,
                 Long categoryId, BigDecimal amount, String currency, BigDecimal originalAmount,
                 String originalCurrency) {
@@ -228,8 +231,8 @@ public class FamilyPostingService {
         writer.links(family, recordId).forEach(link -> existing.put(key(link.memberId(), link.type()), link));
 
         // The payer's payment, or the settlement's two sides, while their members are posted. The payer's, the
-        // receiver's and the recorder's side is in the record's original currency; the other side of a settlement is
-        // in the base currency, unless they put it on an account of theirs in another one.
+        // receiver's and the recorder's side is the record's paying side; the other side of a settlement is in the
+        // record's currency, unless they put it on an account of theirs in another one.
         boolean settlement = record.type().equals("SETTLEMENT");
         List<Side> sides = settlement
                 ? List.of(new Side(record.payerId(), LinkType.SETTLEMENT, true, record.authorId() == record.payerId()),
@@ -438,14 +441,17 @@ public class FamilyPostingService {
      * a settlement.
      *
      * @param out whether money went out of the member's hands: they paid
-     * @param original whether it is in the record's original amount and currency: the payer's, the receiver's and a
-     *        settlement's recorder's; the other side of a settlement is in the base amount, or in their own amount
+     * @param original whether it is the record's paying side: the payer's, the receiver's and a settlement's
+     *        recorder's; the other side of a settlement is in the record's amount, or in their own amount
      */
     private record Side(long memberId, LinkType link, boolean out, boolean original) {
     }
 
-    /** A record's original amount and currency, and its base amount in the family's base currency. */
-    private record Amounts(BigDecimal original, String originalCurrency, BigDecimal base, String baseCurrency) {
+    /**
+     * A record's paying side (D-87: what went from or into the paying account, in its currency), and the record's own
+     * amount in its own currency (D-45), which the debt accounts take.
+     */
+    private record Amounts(BigDecimal original, String originalCurrency, BigDecimal amount, String currency) {
     }
 
     /**
@@ -457,9 +463,9 @@ public class FamilyPostingService {
     private PostedEntry side(LedgerScope family, Side side, Link existing, Payment payment, long recordId,
             LocalDate date, Amounts amounts) {
         boolean acting = side.memberId() == family.memberId();
-        // On the placeholder: the record's original amount, or for the other side of a settlement its base amount.
-        BigDecimal placed = side.original() ? amounts.original() : amounts.base();
-        String placedIn = side.original() ? amounts.originalCurrency() : amounts.baseCurrency();
+        // On the placeholder: the record's paying side, or for the other side of a settlement the record's amount.
+        BigDecimal placed = side.original() ? amounts.original() : amounts.amount();
+        String placedIn = side.original() ? amounts.originalCurrency() : amounts.currency();
         if (acting && payment instanceof OwnAccount own) {
             return own.amount() == null || side.original()
                     ? ownSide(family, side, recordId, date, own.accountId(), placed, placedIn, amounts, own.note())
@@ -486,7 +492,7 @@ public class FamilyPostingService {
             return ownSide(family, side, recordId, date, current.accountId(), placed, placedIn, amounts,
                     current.memo());
         }
-        if (current.currency().equals(amounts.baseCurrency()) && current.amount().compareTo(amounts.base()) != 0) {
+        if (current.currency().equals(amounts.currency()) && current.amount().compareTo(amounts.amount()) != 0) {
             throw wouldChange(family, recordId, side.memberId());
         }
         return ownSide(family, side, recordId, date, current.accountId(), current.amount(), current.currency(), amounts,
@@ -550,9 +556,9 @@ public class FamilyPostingService {
     }
 
     /**
-     * A side with the member's own account: the account −amount and the debt account +base amount for the side that
-     * paid, the other way round for the side that received; through FX_EXCHANGE if the amount isn't in the base
-     * currency.
+     * A side with the member's own account: the account −amount and the debt account +the record's amount for the side
+     * that paid, the other way round for the side that received; through FX_EXCHANGE if the account's amount isn't in
+     * the record's currency (D-87).
      */
     private PostedEntry ownSide(LedgerScope family, Side side, long recordId, LocalDate date, long accountId,
             BigDecimal amount, String currency, Amounts amounts, String note) {
@@ -569,25 +575,26 @@ public class FamilyPostingService {
     }
 
     /**
-     * A side's lines, the account's first: in the base currency the account and the debt account; in another currency
-     * the account and FX_EXCHANGE in it, then FX_EXCHANGE and the debt account in the base currency (rule 9).
+     * A side's lines, the account's first: in the record's currency the account and the debt account; in another
+     * currency the account and FX_EXCHANGE in it, then FX_EXCHANGE and the debt account in the record's currency (rule
+     * 9, D-87). FX_EXCHANGE keeps the difference between the two amounts, which no rate decides.
      */
     private List<Line> lines(LedgerScope family, Side side, long accountId, BigDecimal amount, String currency,
             Amounts amounts) {
         long debt = writer.debtAccount(family, side.memberId());
         BigDecimal paid = side.out() ? amount.negate() : amount;
-        BigDecimal paidBase = side.out() ? amounts.base().negate() : amounts.base();
-        if (currency.equals(amounts.baseCurrency())) {
-            if (amount.compareTo(amounts.base()) != 0) {
-                throw new IllegalStateException("A side in the base currency %s is the base amount %s, not %s"
-                        .formatted(currency, amounts.base(), amount));
+        BigDecimal owed = side.out() ? amounts.amount().negate() : amounts.amount();
+        if (currency.equals(amounts.currency())) {
+            if (amount.compareTo(amounts.amount()) != 0) {
+                throw new IllegalStateException("A side in the record's currency %s is its amount %s, not %s"
+                        .formatted(currency, amounts.amount(), amount));
             }
             return List.of(new Line(accountId, currency, paid, null), new Line(debt, currency, paid.negate(), null));
         }
         long fx = writer.fxExchange(family, side.memberId());
         return List.of(new Line(accountId, currency, paid, null), new Line(fx, currency, paid.negate(), null),
-                new Line(fx, amounts.baseCurrency(), paidBase, null),
-                new Line(debt, amounts.baseCurrency(), paidBase.negate(), null));
+                new Line(fx, amounts.currency(), owed, null),
+                new Line(debt, amounts.currency(), owed.negate(), null));
     }
 
     private static EntryKind kind(LinkType link) {

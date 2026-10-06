@@ -26,8 +26,9 @@ import org.springframework.stereotype.Component;
  * Before it writes an entry, it checks every line against the member's accounts that D-8 allows: their debt account for
  * this family ledger; UNALLOCATED with one of the family's categories, for a share; "Payments without a specified
  * account", for a payment or a settlement; OPENING_BALANCE, for an opening balance or a correction; and the payer's
- * own account for their payment, and their FX_EXCHANGE for one in another currency than the base currency (F4e), only
- * when the payer is the member who acts (D-14). Nothing else: not another user's
+ * own account for their payment, and their FX_EXCHANGE for one in another currency than the record's (F4e, D-87), only
+ * when the payer is the member who acts (D-14). Lines may be in any currency: a record posts in its own (D-45), so a
+ * debt account holds several. Nothing else: not another user's
  * cards, other accounts or personal categories. Its one other operation is the detach of a member who leaves or is
  * removed ({@link #detach}, D-19), which creates personal categories in their ledger and moves references to them. The database's triggers (V7) check the same while
  * {@code app.writer} is {@code family-posting}, which the writer sets for its own statements only.
@@ -85,7 +86,7 @@ class CrossLedgerWriter {
 
     /**
      * The member's FX_EXCHANGE, the system account of every personal ledger (rule 4), for a side in another currency
-     * than the base currency (rule 9).
+     * than the record's (rule 9, D-87).
      *
      * @throws IllegalStateException if their ledger has none
      */
@@ -111,9 +112,11 @@ class CrossLedgerWriter {
     }
 
     /**
-     * The member's "Debt to family budget" for this family ledger, created on first need: a system LIABILITY in the
-     * family's base currency, code {@code FAMILY_DEBT_<ledger id>}, named after the family (topic E). If the member
-     * has an account of their own with that code, the next free {@code _2}, {@code _3} and so on.
+     * The member's "Debt to family budget" for this family ledger, created on first need: a system LIABILITY whose
+     * default currency is the family's main currency at that moment, only a default (V2): it holds a line in every
+     * currency the family's records are in (D-45, ADR 0004). Code {@code FAMILY_DEBT_<ledger id>}, named after the
+     * family (topic E). If the member has an account of their own with that code, the next free {@code _2}, {@code _3}
+     * and so on.
      */
     long debtAccount(LedgerScope family, long memberId) {
         MemberLedger member = memberLedger(family, memberId);

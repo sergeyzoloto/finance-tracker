@@ -70,9 +70,7 @@ public class FamilyReportService {
         for (String currency : currencies) {
             byCurrency.add(section(family, currency, first, last, members, categories));
         }
-        FamilyReport.CurrencyReport inMain = byCurrency.getFirst();
-        return new FamilyReport(main, from, to, members, inMain.rows(), inMain.totals(), byCurrency,
-                totals.report(family, main, first, last, members));
+        return new FamilyReport(from, to, members, byCurrency, totals.report(family, main, first, last, members));
     }
 
     /** The report of the records in one currency. */

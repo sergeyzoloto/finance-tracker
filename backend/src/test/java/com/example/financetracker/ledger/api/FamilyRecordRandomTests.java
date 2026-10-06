@@ -277,7 +277,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         assertThat(settlements).hasSize(20);
         assertThat(settlements.values()).extracting(Settlement::currency).contains("EUR", "USD");
         Map<Long, BigDecimal> balances = FamilyInvariants.check(jdbc, family);
-        JsonNode answered = ok(get(bob, uri + "/balances")).get("members");
+        JsonNode answered = ok(get(bob, uri + "/balances")).get("byCurrency").get(0).get("members");
         for (JsonNode member : answered) {
             assertThat(new BigDecimal(member.get("balance").asText())).as(member.get("displayName").asText())
                     .isEqualByComparingTo(balances.get(member.get("memberId").asLong()));

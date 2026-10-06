@@ -22,14 +22,7 @@ import com.example.financetracker.ledger.family.FamilyInviteView.InviteKind;
  * @param keptPrivate the user's categories with a family category's code but of the other type: they stay private
  * @param mayBring the user's categories, not archived, whose code the family doesn't have: they may bring them
  * @param displayName the user's account name, to prefill the name the other members will see (D-3)
- * @param openingBalance for a claim, the seat's family balance before the join date in the main currency, which the
- *        user takes on as their opening balance (D-18, D-34): positive when the seat owes the family, negative when the
- *        family owes it; null for a new member (additive, F6a); deprecated since F8a for {@code openingBalances}
  * @param returning whether the user was a member who left and comes back by this invite (D-26; additive, F6a)
- * @param correction for a returning member, the one correction dated on the join date that makes their debt to the
- *        family budget show their family balance: their balance before the join date less what their former debt
- *        account shows (D-26), in the main currency, positive when it adds to what they owe; null otherwise
- *        (additive, F6a); deprecated since F8a for {@code corrections}
  * @param entriesAfterReturn for a returning member, their own entries on their former debt account dated after the
  *        join date that belong to no record of the family budget, oldest first: while there is one, accepting answers
  *        409 {@code ENTRIES_AFTER_RETURN}, and they move or delete them first (D-37); null otherwise (additive, F6b)
@@ -42,8 +35,7 @@ import com.example.financetracker.ledger.family.FamilyInviteView.InviteKind;
 public record InviteLookup(String ledgerName, String baseCurrency, String invitedBy, InviteKind kind, String seatName,
         LocalDate joinDate, Instant expiresAt, List<FamilyCategory> categories, List<CategoryMerge> merges,
         List<CategoryKept> keptPrivate, List<CategoryChoice> mayBring, String displayName,
-        @Deprecated BigDecimal openingBalance, boolean returning, @Deprecated BigDecimal correction,
-        List<EntryAfterReturn> entriesAfterReturn, List<CurrencyAmount> openingBalances,
+        boolean returning, List<EntryAfterReturn> entriesAfterReturn, List<CurrencyAmount> openingBalances,
         List<CurrencyAmount> corrections) {
 
     /**

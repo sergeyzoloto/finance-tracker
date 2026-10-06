@@ -12,15 +12,11 @@ import com.example.financetracker.ledger.rates.RateBook;
  * zero. A settlement moves one currency's balances only (D-46). {@code total} is D-47's total in the main currency,
  * for display only (F8b).
  *
- * @param currency the family's main currency, whose balances {@code members} are; deprecated since F8a for
- *        {@code byCurrency}, until F8b's interface reads it
- * @param members by join order, the balances in the main currency; deprecated since F8a for {@code byCurrency}
  * @param byCurrency the balances in each currency, the main currency first, then every other currency of a record that
- *        isn't deleted, alphabetically (F8a, additive)
+ *        isn't deleted, alphabetically (F8a); the main currency's always, all zero without a record in it
  * @param total each member's balances together in the main currency, approximately (D-47; F8b, additive)
  */
-public record FamilyBalances(@Deprecated String currency, @Deprecated List<MemberBalance> members,
-        List<CurrencyBalances> byCurrency, Total total) {
+public record FamilyBalances(List<CurrencyBalances> byCurrency, Total total) {
 
     /**
      * D-47's total: each member's balances in every currency converted to the main currency at the rates that apply

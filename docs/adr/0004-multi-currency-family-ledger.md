@@ -139,7 +139,10 @@ a rate when its payer changes the date of a record paid in another currency (F4e
 
 ### API changes (additive)
 
-Old fields stay, deprecated in code, until F8b moves the frontend to the new ones.
+Old fields stay, deprecated in code, until F8b moves the frontend to the new ones. F8b then removed them, with
+`/conversion` and the request field `baseAmount`: a record's `originalAmount`, `originalCurrency`, `rate`,
+`rateSource` and `rateDate`; the balances' `currency` and `members`; the report's `currency`, `rows` and `totals`;
+the invite lookup's `openingBalance` and `correction`; the deletion preview's `balance`.
 
 - A record's `amount` and `currency` are the record's own (they were the base amount and the base currency; the same
   for records in the main currency). `originalAmount`, `originalCurrency`, `rate`, `rateSource` and `rateDate` are

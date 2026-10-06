@@ -13,19 +13,14 @@ import com.example.financetracker.ledger.rates.RateBook;
  * each member's contribution, from the records that aren't deleted, in each currency of its records (D-45, ADR 0004).
  * {@code total} is D-47's total in the main currency, for display only (F8b).
  *
- * @param currency the family's main currency, whose report {@code rows} and {@code totals} are; deprecated since F8a
- *        for {@code byCurrency}
  * @param from the first day counted, as asked; null for no bound
  * @param to the last day counted, as asked; null for no bound
  * @param members every member, by join order, as the balances name them
- * @param rows the main currency's rows; deprecated since F8a for {@code byCurrency}
- * @param totals the main currency's totals; deprecated since F8a for {@code byCurrency}
  * @param byCurrency the report in each currency: the main currency first, then every other currency of a record of the
- *        period, alphabetically (F8a, additive)
+ *        period, alphabetically (F8a)
  * @param total each member's totals together in the main currency, approximately (D-47; F8b, additive)
  */
-public record FamilyReport(@Deprecated String currency, LocalDate from, LocalDate to, List<Member> members,
-        @Deprecated List<Row> rows, @Deprecated List<MemberTotal> totals, List<CurrencyReport> byCurrency,
+public record FamilyReport(LocalDate from, LocalDate to, List<Member> members, List<CurrencyReport> byCurrency,
         Total total) {
 
     /**

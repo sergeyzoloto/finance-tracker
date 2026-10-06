@@ -246,7 +246,6 @@ public class FamilyInviteService {
             shown.forEach((currency, amount) -> differences.merge(currency, amount.negate(), BigDecimal::add));
             corrections = amounts(differences, main);
         }
-        BigDecimal correction = corrections == null ? null : mainAmount(corrections, main);
         List<CurrencyAmount> openings = preview.seatBalances() == null ? null
                 : amounts(preview.seatBalances(), main);
         List<InviteLookup.EntryAfterReturn> after = returning == null ? null
@@ -260,8 +259,7 @@ public class FamilyInviteService {
                 preview.categories().stream().filter(c -> !c.archived())
                         .map(c -> new FamilyCategory(c.code(), c.name(), c.type())).toList(),
                 matches.merges(), matches.kept(), matches.mayBring(), accountName,
-                openings == null ? null : mainAmount(openings, main), returning != null, correction, after, openings,
-                corrections);
+                returning != null, after, openings, corrections);
     }
 
     /**
@@ -274,12 +272,6 @@ public class FamilyInviteService {
                 .map(entry -> new CurrencyAmount(entry.getKey(), entry.getValue()
                         .setScale(ShareSplit.minorUnit(entry.getKey()), RoundingMode.UNNECESSARY)))
                 .toList();
-    }
-
-    /** The main currency's amount of the list, 0 if it has none. */
-    private static BigDecimal mainAmount(List<CurrencyAmount> amounts, String main) {
-        return amounts.stream().filter(amount -> amount.currency().equals(main)).map(CurrencyAmount::amount)
-                .findFirst().orElse(BigDecimal.ZERO.setScale(ShareSplit.minorUnit(main)));
     }
 
     /**

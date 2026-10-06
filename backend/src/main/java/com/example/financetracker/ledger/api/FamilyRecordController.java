@@ -8,7 +8,6 @@ import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.api.CurrencyCode;
 import com.example.financetracker.ledger.family.FamilyBalances;
-import com.example.financetracker.ledger.family.FamilyConversion;
 import com.example.financetracker.ledger.family.FamilyJournalPage;
 import com.example.financetracker.ledger.family.FamilyRecordChanges;
 import com.example.financetracker.ledger.family.FamilyRecordPage;
@@ -63,7 +62,6 @@ class FamilyRecordController {
      * @param amount the record's amount, above 0, with at most its currency's minor unit's decimals; its shares split
      *        it in its currency (D-45)
      * @param currency the record's currency (F4e, additive), by default the family's main currency
-     * @param baseAmount accepted and ignored since F8a, deprecated: no rate converts a record (D-87)
      * @param accountAmount if you paid or received it in another currency than the record's: what went from or into
      *        your account, in the paying currency (D-87, D-89); 422 {@code ACCOUNT_AMOUNT} without it
      * @param accountCurrency the paying currency, what your account paid or received in (D-89, F8b, additive): by
@@ -81,7 +79,7 @@ class FamilyRecordController {
     record NewRecord(RecordType type, @NotNull LocalDate date, @NotNull Long categoryId, @NotNull BigDecimal amount,
             @Size(max = 500) String comment, @NotNull Long payerMemberId, Long paymentAccountId, Boolean paymentLater,
             @Valid Split split, @Size(max = 500) String privateNote, @CurrencyCode String currency,
-            @Deprecated BigDecimal baseAmount, BigDecimal accountAmount, @CurrencyCode String accountCurrency) {
+            BigDecimal accountAmount, @CurrencyCode String accountCurrency) {
     }
 
     /** The types of record with a category and shares; a settlement is recorded through {@code /settlements}. */
@@ -111,7 +109,6 @@ class FamilyRecordController {
      *
      * @param amount the settlement's amount, above 0, with at most its currency's minor unit's decimals
      * @param currency the settlement's currency (F4e, additive), by default the family's main currency
-     * @param baseAmount accepted and ignored since F8a, deprecated, as for a record
      * @param accountAmount if your side is in another currency than the settlement's: what went from or into your
      *        account, in the paying currency (D-87, D-89)
      * @param accountCurrency your paying currency (D-89, F8b, additive), as for a record
@@ -125,8 +122,8 @@ class FamilyRecordController {
      */
     record NewSettlementRequest(@NotNull LocalDate date, @NotNull BigDecimal amount, @NotNull Long payerMemberId,
             @NotNull Long payeeMemberId, @Size(max = 500) String comment, Long paymentAccountId,
-            Boolean paymentLater, @CurrencyCode String currency, @Deprecated BigDecimal baseAmount,
-            BigDecimal accountAmount, @CurrencyCode String accountCurrency) {
+            Boolean paymentLater, @CurrencyCode String currency, BigDecimal accountAmount,
+            @CurrencyCode String accountCurrency) {
     }
 
     /** @param basisPoints for PERCENT; @param amount for AMOUNT */
@@ -165,7 +162,6 @@ class FamilyRecordController {
         private Boolean paymentLater;
         @CurrencyCode
         private String currency;
-        private BigDecimal baseAmount;
         private BigDecimal accountAmount;
         @CurrencyCode
         private String accountCurrency;
@@ -248,20 +244,6 @@ class FamilyRecordController {
             this.currency = currency;
         }
 
-        /**
-         * Accepted and ignored since F8a: no rate converts a record (D-87).
-         *
-         * @deprecated until F8b's forms stop sending it
-         */
-        @Deprecated
-        public BigDecimal getBaseAmount() {
-            return baseAmount;
-        }
-
-        public void setBaseAmount(BigDecimal baseAmount) {
-            this.baseAmount = baseAmount;
-        }
-
         /** What went from or into your account, in its currency, when that isn't the record's (D-87). */
         public BigDecimal getAccountAmount() {
             return accountAmount;
@@ -342,19 +324,6 @@ class FamilyRecordController {
                 settlement.accountAmount(), settlement.accountCurrency()));
     }
 
-    /**
-     * What F4e's forms ask before saving (D-13), rate-free since F8a: the amount itself in the family's main currency,
-     * else no base amount and no rate. No rate converts a record any more (D-87).
-     *
-     * @deprecated until F8b's forms stop calling it
-     */
-    @Deprecated
-    @GetMapping("/conversion")
-    FamilyConversion conversion(CurrentUser user, @PathVariable long ledgerId, @RequestParam BigDecimal amount,
-            @RequestParam @CurrencyCode String currency, @RequestParam LocalDate date) {
-        return records.conversion(access.member(user.id(), ledgerId), amount, currency, date);
-    }
-
     @GetMapping("/records/{recordId}")
     FamilyRecordView record(CurrentUser user, @PathVariable long ledgerId, @PathVariable long recordId) {
         return records.get(access.member(user.id(), ledgerId), recordId);
@@ -390,8 +359,7 @@ class FamilyRecordController {
 
     /**
      * Every member's balance in each currency of the records (D-45, additive {@code byCurrency}); in each currency they
-     * sum to zero, and "you" marks the caller's (D1). The old {@code currency} and {@code members} are the main
-     * currency's, deprecated until F8b.
+     * sum to zero, and "you" marks the caller's (D1); and D-47's total in the main currency, for display only.
      */
     @GetMapping("/balances")
     FamilyBalances balances(CurrentUser user, @PathVariable long ledgerId) {
@@ -400,8 +368,8 @@ class FamilyRecordController {
 
     /**
      * The family report (E1, F6c): the expenses and incomes by month and category, with each member's share and what
-     * they paid or received, and each member's totals with the settlements, in each currency of the records (D-45,
-     * additive {@code byCurrency}; the old {@code rows} and {@code totals} are the main currency's). Records dated from
+     * they paid or received, and each member's totals with the settlements, in each currency of the records (D-45),
+     * with D-47's total in the main currency for display only. Records dated from
      * {@code from} to {@code to}, both included; either left out is open.
      */
     @GetMapping("/report")

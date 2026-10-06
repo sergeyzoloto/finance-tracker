@@ -90,7 +90,7 @@ class FamilyReturnApiTests extends FamilyApiTest {
     void anEarlierRecordThatIncludesHimRepostsIntoTheCorrection() throws IOException {
         dadLeaves();
         JsonNode lookup = ok(inviteCall(bob, "lookup", token(newMemberInvite(), null)));
-        assertThat(lookup.get("correction").asText()).isEqualTo("0.00");
+        assertThat(lookup.get("corrections")).isEmpty();
         assertThat(lookup.get("entriesAfterReturn")).isEmpty();
         accept(bob, newMemberInvite(), "Dad");
         long debt = accountId(bob, "FAMILY_DEBT_" + family);
@@ -146,7 +146,7 @@ class FamilyReturnApiTests extends FamilyApiTest {
         JsonNode lookup = ok(inviteCall(bob, "lookup", token(token, null)));
         assertThat(lookup.get("returning").asBoolean()).isTrue();
         // His balance −10.00, less what the account shows by today: −10.00 + 4.00.
-        assertThat(lookup.get("correction").asText()).isEqualTo("-4.00");
+        assertThat(lookup.get("corrections").toString()).isEqualTo("[{\"currency\":\"EUR\",\"amount\":\"-4.00\"}]");
         assertThat(lookup.get("entriesAfterReturn")).hasSize(1);
         JsonNode entry = lookup.get("entriesAfterReturn").get(0);
         assertThat(entry.get("entryId").asLong()).isEqualTo(future.get("id").asLong());

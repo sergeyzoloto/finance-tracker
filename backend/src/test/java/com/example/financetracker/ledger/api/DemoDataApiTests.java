@@ -136,9 +136,11 @@ class DemoDataApiTests extends LedgerApiTest {
 
         FamilyInvariants.check(jdbc, family);
         JsonNode report = checkFamilyReport(user, family, Map.of(user, LocalDate.parse(demo.get("from").asText())));
-        assertThat(report.get("totals").get(0).get("expenseShares").asText()).isEqualTo("359.10");
-        assertThat(report.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("378.40");
-        assertThat(report.get("totals").get(1).get("settlementsPaid").asText()).isEqualTo("145.00");
+        JsonNode euros = report.get("byCurrency").get(0);
+        assertThat(euros.get("currency").asText()).isEqualTo("EUR");
+        assertThat(euros.get("totals").get(0).get("expenseShares").asText()).isEqualTo("359.10");
+        assertThat(euros.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("378.40");
+        assertThat(euros.get("totals").get(1).get("settlementsPaid").asText()).isEqualTo("145.00");
         JsonNode dollars = report.get("byCurrency").get(1);
         assertThat(dollars.get("currency").asText()).isEqualTo("USD");
         assertThat(dollars.get("totals").get(0).get("expenseShares").asText()).isEqualTo("120.00");

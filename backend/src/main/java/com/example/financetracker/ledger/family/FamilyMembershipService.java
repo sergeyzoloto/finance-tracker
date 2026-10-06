@@ -53,16 +53,14 @@ public class FamilyMembershipService {
      * What "Delete all my data" does to one family ledger the user is an ACTIVE member of (D-20), as the confirmation
      * screen lists it: their role and balance there, and what becomes of the ledger.
      *
-     * @param balance what the user owes the family ledger, in its main currency: positive if they owe, negative if
-     *        they are owed; deprecated since F8a for {@code balances}
      * @param newOwner the display name of who becomes an owner, for {@link Outcome#OWNERSHIP_PASSES}; else null
      * @param pendingInvites the user's invites of it that stop working
      * @param splitRuleReset whether its custom split rule goes back to equal shares
      * @param balances what the user owes the family ledger in each currency of its records, the main currency first, as
-     *        its balances list them (D-20, D-45; additive, F8a)
+     *        its balances list them (D-20, D-45; F8a), positive where they owe
      */
     public record MembershipImpact(long ledgerId, String name, MemberRole role, String baseCurrency,
-            @Deprecated BigDecimal balance, Outcome outcome, String newOwner, int pendingInvites,
+            Outcome outcome, String newOwner, int pendingInvites,
             boolean splitRuleReset, List<CurrencyAmount> balances) {
     }
 
@@ -166,7 +164,7 @@ public class FamilyMembershipService {
                             .filter(FamilyBalances.MemberBalance::you).findFirst().orElseThrow().balance()))
                     .toList();
             impacts.add(new MembershipImpact(family.ledgerId(), ledger.name(), family.role(), ledger.baseCurrency(),
-                    balances.getFirst().amount(), outcome, outcome == Outcome.OWNERSHIP_PASSES ? ledger.earliest()
+                    outcome, outcome == Outcome.OWNERSHIP_PASSES ? ledger.earliest()
                             : null, ledger.pending(), outcome != Outcome.DELETED && ledger.rule() == SplitRule.CUSTOM
                                     && ledger.share() != null && ledger.share() > 0, balances));
         }

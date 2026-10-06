@@ -48,7 +48,6 @@ class FamilyPaymentController {
         private boolean changesMemo;
         @CurrencyCode
         private String currency;
-        private BigDecimal baseAmount;
         private BigDecimal accountAmount;
         @CurrencyCode
         private String accountCurrency;
@@ -105,21 +104,6 @@ class FamilyPaymentController {
 
         public void setCurrency(String currency) {
             this.currency = currency;
-        }
-
-        /**
-         * The amount in the family's base currency (F4e). Accepted and ignored since F8a: no rate converts a record's
-         * amount any more (D-87).
-         *
-         * @deprecated until F8b's forms stop sending it
-         */
-        @Deprecated
-        public BigDecimal getBaseAmount() {
-            return baseAmount;
-        }
-
-        public void setBaseAmount(BigDecimal baseAmount) {
-            this.baseAmount = baseAmount;
         }
 
         /**

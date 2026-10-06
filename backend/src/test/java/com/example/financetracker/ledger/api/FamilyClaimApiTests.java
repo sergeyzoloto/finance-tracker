@@ -68,7 +68,8 @@ class FamilyClaimApiTests extends FamilyApiTest {
         assertThat(lookup.get("baseCurrency").asText()).isEqualTo("EUR");
         assertThat(lookup.get("displayName").asText()).isEqualTo("User " + carol);
         // The seat's balance before the join date, which she takes on (D-34): the family owed Kid 10.00.
-        assertThat(lookup.get("openingBalance").asText()).isEqualTo("-10.00");
+        assertThat(lookup.get("openingBalances").toString()).isEqualTo("[{\"currency\":\"EUR\",\"amount\":\"-10.00\"}]");
+        assertThat(lookup.has("openingBalance")).isFalse();
 
         String token = kidsPlace("2026-09-15");
         JsonNode joined = accept(carol, token, "Carol");

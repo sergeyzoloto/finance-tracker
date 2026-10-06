@@ -194,8 +194,7 @@ class FamilyCurrencyPostingApiTests extends FamilyApiTest {
         assertThat(lines(alice, inEuros.get("yourPayment").get("entryId").asLong())).containsExactly(
                 alicesCash + " EUR -51.50", fx + " EUR 51.50", fx + " USD -56.00", aliceDebt + " USD 56.00");
         assertThat(own(inEuros)).isEqualTo("51.50 EUR");
-        assertThat(inEuros.get("originalAmount").asText() + " " + inEuros.get("originalCurrency").asText())
-                .isEqualTo("51.50 EUR");
+        assertThat(inEuros.has("originalAmount") || inEuros.has("originalCurrency")).isFalse();
 
         // D-88: Bob sees the record's amount, currency and shares, and nothing of her side.
         for (String read : List.of("/records/" + inEuros.get("id").asLong(), "/records",

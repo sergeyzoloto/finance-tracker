@@ -38,7 +38,7 @@ class FamilyCurrencyMembershipApiTests extends FamilyApiTest {
 
         JsonNode lookup = ok(inviteCall(carol, "lookup", token(kidsPlace("2026-09-15"), null)));
         assertThat(amounts(lookup.get("openingBalances"))).containsExactly("EUR 30.00", "USD -20.00");
-        assertThat(lookup.get("openingBalance").asText()).isEqualTo("30.00");
+        assertThat(lookup.has("openingBalance")).isFalse();
         assertThat(lookup.get("corrections").isNull()).isTrue();
         accept(carol, kidsPlace("2026-09-15"), "Carol");
         long debt = accountId(carol, "FAMILY_DEBT_" + family);
@@ -72,7 +72,7 @@ class FamilyCurrencyMembershipApiTests extends FamilyApiTest {
                  "paymentLater": true}""".formatted(groceries, dad)));
         JsonNode preview = ok(get(bob, "/api/me/family-memberships")).get("memberships").get(0);
         assertThat(amounts(preview.get("balances"))).containsExactly("EUR 30.00", "USD -40.00");
-        assertThat(preview.get("balance").asText()).isEqualTo("30.00");
+        assertThat(preview.has("balance")).isFalse();
 
         assertThat(delete(bob, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
         String invite = newInvite(alice, """
@@ -80,7 +80,7 @@ class FamilyCurrencyMembershipApiTests extends FamilyApiTest {
         JsonNode lookup = ok(inviteCall(bob, "lookup", token(invite, null)));
         assertThat(lookup.get("returning").asBoolean()).isTrue();
         assertThat(lookup.get("corrections")).isEmpty();
-        assertThat(lookup.get("correction").asText()).isEqualTo("0.00");
+        assertThat(lookup.has("correction")).isFalse();
         accept(bob, invite, "Dad");
         assertThat(openingLines(bob, "FAMILY_CORRECTION")).isEmpty();
         integrity(alice, bob);

@@ -1056,14 +1056,13 @@ class DataIsolationApiTests extends LedgerApiTest {
     }
 
     /**
-     * Other currencies (F4e, F8a): {@code GET /conversion} answers Bob on B and on either personal ledger, and Carol on
-     * A, B and Alice's personal ledger, as a missing family ledger does. In A it uses nobody's rate since F8a (D-87):
-     * neither Alice's manual rates nor anyone else's reach an answer. Alice settles in dollars with Bob, who puts his
-     * side on his rouble account with the roubles he got: that amount, his account and its currency are in his answers
-     * only, and Carol's view stays as it was.
+     * Other currencies (F4e, F8a, F8b): Alice settles in dollars with Bob, who puts his side on his rouble account with
+     * the roubles he got: that amount, his account and its currency are in his answers only, and Carol's view stays as
+     * it was. D-47's total uses each member's own rates (D-49): Alice's dollar rate gives her one, and never reaches
+     * Bob's answer, which, with no rate of his own, names the dollars missing. F4e's {@code /conversion} is gone.
      */
     @Test
-    void aConversionAndASidesOwnAmountAreTheMembersOwn() throws IOException {
+    void aSidesOwnAmountAndTheRatesOfATotalAreTheMembersOwn() throws IOException {
         String carol = newUser();
         Map<String, JsonNode> carolsViewBefore = view(carol);
         ok(post(alice, "/api/rates/manual", """
@@ -1080,21 +1079,17 @@ class DataIsolationApiTests extends LedgerApiTest {
                 {"name": "ALICE_SECRET_BUDGET", "baseCurrency": "EUR", "displayName": "Alice",
                  "startDate": "2026-08-01"}""").get("id").asLong();
 
-        String conversion = "/api/family-ledgers/%d/conversion?amount=9000&currency=RUB&date=2026-08-20";
         SoftAssertions softly = new SoftAssertions();
         for (long ledger : List.of(familyB, personalLedger(alice), personalLedger(bob))) {
-            answersAsIfMissing(softly, HttpMethod.GET, conversion, ledger, null);
+            answersAsIfMissing(softly, HttpMethod.GET, "/api/family-ledgers/%d/balances", ledger, null);
         }
         for (long ledger : List.of(familyA, familyB, personalLedger(alice))) {
-            answersAsIfMissingTo(softly, carol, HttpMethod.GET, conversion.formatted(ledger),
-                    conversion.formatted(MISSING), null);
+            answersAsIfMissingTo(softly, carol, HttpMethod.GET, "/api/family-ledgers/%d/balances".formatted(ledger),
+                    "/api/family-ledgers/%d/balances".formatted(MISSING), null);
         }
         softly.assertAll();
-        // In A, no rate: not Alice's, and so none of hers for Bob.
-        assertThat(ok(get(alice, conversion.formatted(familyA))).get("baseAmount").isNull()).isTrue();
-        JsonNode bobs = bobReads(conversion.formatted(familyA));
-        assertThat(bobs.get("baseAmount").isNull()).isTrue();
-        assertThat(fieldNames(bobs)).doesNotContain("rate", "rateSource", "rateDate");
+        assertThat(get(alice, inA + "/conversion?amount=9000&currency=RUB&date=2026-08-20"))
+                .hasStatus(HttpStatus.NOT_FOUND);
 
         long bobsRoubles = created(post(bob, "/api/accounts", """
                 {"code": "BOB_RUB", "name": "BOB_PRIVATE_ROUBLES", "type": "ASSET", "defaultCurrency": "RUB"}"""));
@@ -1113,6 +1108,14 @@ class DataIsolationApiTests extends LedgerApiTest {
             assertThat(alices.toString()).as(read).doesNotContain("4321", "RUB", "BOB_");
             assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsRoubles));
         }
+        // D-47's total by each member's own rates: Alice's dollar rate gives hers, and none of hers reaches Bob's.
+        JsonNode alicesTotal = ok(get(alice, inA + "/balances")).get("total");
+        assertThat(alicesTotal.get("missingCurrencies")).isEmpty();
+        assertThat(alicesTotal.get("rates").findValuesAsText("perEuro")).containsExactly("1.12");
+        JsonNode bobsTotal = bobReads(inA + "/balances").get("total");
+        assertThat(bobsTotal.get("missingCurrencies").toString()).isEqualTo("[\"USD\"]");
+        assertThat(bobsTotal.get("rates")).isEmpty();
+        assertThat(bobsTotal.toString()).doesNotContain("1.12");
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
@@ -1235,7 +1238,7 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .findValuesAsText("id"));
         SoftAssertions carols = new SoftAssertions();
         for (String path : List.of("", "/members", "/categories", "/records", "/balances", "/journal", "/invites",
-                "/conversion?amount=1&currency=USD&date=2026-08-12")) {
+                "/report")) {
             answersAsIfMissingTo(carols, carol, HttpMethod.GET, inB + path, "/api/family-ledgers/" + MISSING + path,
                     null);
         }
@@ -1351,7 +1354,6 @@ class DataIsolationApiTests extends LedgerApiTest {
                 new FamilyRequest(HttpMethod.DELETE, "/records/" + record + "?version=0", null),
                 new FamilyRequest(HttpMethod.GET, "/balances", null),
                 new FamilyRequest(HttpMethod.GET, "/journal", null),
-                new FamilyRequest(HttpMethod.GET, "/conversion?amount=1&currency=USD&date=2026-08-12", null),
                 new FamilyRequest(HttpMethod.POST, "/invites", """
                         {"kind": "NEW_MEMBER"}"""),
                 new FamilyRequest(HttpMethod.GET, "/invites", null),
@@ -1412,7 +1414,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(bobs.get("memberships").findValuesAsText("ledgerId")).containsExactly(String.valueOf(familyA));
         JsonNode bobInHome = bobs.get("memberships").get(0);
         assertThat(bobInHome.get("role").asText()).isEqualTo("MEMBER");
-        assertThat(bobInHome.get("balance").asText()).isEqualTo("30.00");
+        assertThat(bobInHome.get("balances").get(0).get("amount").asText()).isEqualTo("30.00");
         assertThat(bobInHome.get("pendingInvites").asInt()).isZero();
         assertThat(bobs.get("left").asLong()).isZero();
         JsonNode carols = ok(get(carol, "/api/me/family-memberships"));
@@ -1654,7 +1656,7 @@ class DataIsolationApiTests extends LedgerApiTest {
 
         Map<String, String> alicesRows = digestOf(alice);
         JsonNode bobs = bobReads(report.formatted(familyA));
-        assertThat(bobs.get("rows").get(0).get("total").asText()).isEqualTo("90.00");
+        assertThat(bobs.get("byCurrency").get(0).get("rows").get(0).get("total").asText()).isEqualTo("90.00");
         assertThat(bobs.get("members").findValuesAsText("displayName")).containsExactly("Mum", "Dad");
         assertThat(bobs.toString()).doesNotContain(alice, "@example.com", "ALICE_PRIVATE_NOTE", "ALICE_",
                 "Alice's bank");

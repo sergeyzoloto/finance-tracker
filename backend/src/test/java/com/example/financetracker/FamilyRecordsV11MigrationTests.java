@@ -110,12 +110,12 @@ class FamilyRecordsV11MigrationTests {
         // The family balances, as V10 computed them.
         JsonNode balances = get("/api/family-ledgers/" + FAMILY + "/balances", ALICE);
         Map<String, BigDecimal> after = new LinkedHashMap<>();
-        balances.path("members").forEach(m -> after.put(m.path("displayName").asText(),
+        balances.path("byCurrency").path(0).path("members").forEach(m -> after.put(m.path("displayName").asText(),
                 new BigDecimal(m.path("balance").asText())));
         assertThat(after).isEqualTo(BALANCES_BEFORE);
         assertThat(BALANCES_BEFORE).containsEntry("Alice", new BigDecimal("22.54"))
                 .containsEntry("Bob", new BigDecimal("-7.47")).containsEntry("Sam", new BigDecimal("-15.07"));
-        assertThat(balances.path("currency").asText()).isEqualTo("EUR");
+        assertThat(balances.path("byCurrency").findValuesAsText("currency")).containsExactly("EUR");
         // The integrity check: each debt account shows its member's family balance, so no row for the family budget, as
         // before; and each personal ledger adds up.
         for (String sub : List.of(ALICE, BOB)) {
@@ -123,19 +123,19 @@ class FamilyRecordsV11MigrationTests {
         }
         assertThat(DEBT_BEFORE).containsEntry("Alice", BALANCES_BEFORE.get("Alice"))
                 .containsEntry("Bob", BALANCES_BEFORE.get("Bob"));
-        // The dollar expense reads as it did: 50.00 EUR, paid with 54.00 USD at the ECB's rate.
+        // The dollar expense reads as it did: 50.00 EUR, paid with 54.00 USD at the ECB's rate, a side which since F8b
+        // only its payer's answer names (D-88).
         JsonNode records = get("/api/family-ledgers/" + FAMILY + "/records", BOB).path("content");
         JsonNode dollars = null;
         for (JsonNode record : records) {
-            if (record.path("originalCurrency").asText().equals("USD") && record.has("rate")) {
+            if (record.path("yourPayment").path("currency").asText().equals("USD")) {
                 dollars = record;
             }
         }
         assertThat(dollars).isNotNull();
         assertThat(dollars.path("amount").asText()).isEqualTo("50.00");
         assertThat(dollars.path("currency").asText()).isEqualTo("EUR");
-        assertThat(dollars.path("originalAmount").asText()).isEqualTo("54.00");
-        assertThat(dollars.path("rateSource").asText()).isEqualTo("ECB");
+        assertThat(dollars.has("originalAmount") || dollars.has("rateSource")).isFalse();
         assertThat(dollars.path("yourPayment").path("amount").asText()).isEqualTo("54.00");
         assertThat(dollars.path("yourPayment").path("currency").asText()).isEqualTo("USD");
     }

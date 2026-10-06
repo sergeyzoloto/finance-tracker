@@ -217,8 +217,7 @@ abstract class LedgerApiTest extends IntegrationTest {
      * each member's totals are the sums of their rows, and their net over every record is their balance; and for each
      * member with an account in {@code personal} (their sub, and their join date), their personal cash flow's lines of
      * the family's categories are, month by month and category by category, their shares in the report of the records
-     * from their join date. Each check holds in each currency of the report (D-45, F8a), and the deprecated fields are
-     * the main currency's.
+     * from their join date. Each check holds in each currency of the report (D-45, F8a).
      *
      * @return the report of every record, as {@code reader} reads it
      */
@@ -227,12 +226,8 @@ abstract class LedgerApiTest extends IntegrationTest {
         String uri = "/api/family-ledgers/" + familyId;
         JsonNode report = ok(get(reader, uri + "/report"));
         JsonNode balancesAnswer = ok(get(reader, uri + "/balances"));
-        // The deprecated fields are the main currency's section (F8a).
-        JsonNode main = report.get("byCurrency").get(0);
-        assertThat(main.get("currency").asText()).isEqualTo(report.get("currency").asText());
-        assertThat(report.get("rows")).isEqualTo(main.get("rows"));
-        assertThat(report.get("totals")).isEqualTo(main.get("totals"));
-        assertThat(balancesAnswer.get("members")).isEqualTo(balancesAnswer.get("byCurrency").get(0).get("members"));
+        // The deprecated single-currency fields went in F8b; only the sections per currency remain.
+        assertThat(report.has("rows") || report.has("totals") || balancesAnswer.has("members")).isFalse();
         Map<String, Map<Long, String>> balances = new HashMap<>();
         for (JsonNode inCurrency : balancesAnswer.get("byCurrency")) {
             Map<Long, String> members = new HashMap<>();
@@ -265,7 +260,7 @@ abstract class LedgerApiTest extends IntegrationTest {
             }
             // Over every record, each member's net in a currency is their balance in it (D-1, D-45).
             Map<Long, String> inCurrency = balances.getOrDefault(currency, Map.of());
-            assertThat(section.get("totals")).hasSize(balancesAnswer.get("members").size());
+            assertThat(section.get("totals")).hasSize(balancesAnswer.get("byCurrency").get(0).get("members").size());
             for (JsonNode total : section.get("totals")) {
                 long member = total.get("memberId").asLong();
                 BigDecimal[] sum = sums.getOrDefault(member,

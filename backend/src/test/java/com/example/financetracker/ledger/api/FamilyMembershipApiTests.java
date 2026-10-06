@@ -283,7 +283,7 @@ class FamilyMembershipApiTests extends FamilyApiTest {
                 {"kind": "NEW_MEMBER"}""");
         JsonNode lookup = ok(inviteCall(carol, "lookup", token(token, null)));
         assertThat(lookup.get("keptPrivate").findValuesAsText("code")).containsExactly("RENT");
-        assertThat(lookup.get("openingBalance").isNull()).isTrue();
+        assertThat(lookup.get("openingBalances").isNull()).isTrue();
         accept(carol, token, "Carol");
         assertThat(ok(get(carol, "/api/categories")).findValuesAsText("code").stream()
                 .filter(code -> code.equals("GROCERIES"))).hasSize(1);
@@ -391,9 +391,9 @@ class FamilyMembershipApiTests extends FamilyApiTest {
                 {"kind": "NEW_MEMBER"}""");
         JsonNode lookup = ok(inviteCall(bob, "lookup", token(token, null)));
         assertThat(lookup.get("returning").asBoolean()).isTrue();
-        assertThat(lookup.get("correction").asText()).isEqualTo("-60.00");
+        assertThat(lookup.get("corrections").toString()).isEqualTo("[{\"currency\":\"EUR\",\"amount\":\"-60.00\"}]");
         assertThat(lookup.get("joinDate").asText()).isEqualTo(today().toString());
-        assertThat(lookup.get("openingBalance").isNull()).isTrue();
+        assertThat(lookup.get("openingBalances").isNull()).isTrue();
 
         JsonNode back = accept(bob, token, "Dad");
         assertThat(back.get("memberId").asLong()).isEqualTo(dad);
@@ -455,7 +455,7 @@ class FamilyMembershipApiTests extends FamilyApiTest {
         assertThat(delete(bob, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
         String token = newInvite(alice, """
                 {"kind": "NEW_MEMBER"}""");
-        assertThat(ok(inviteCall(bob, "lookup", token(token, null))).get("correction").asText()).isEqualTo("0.00");
+        assertThat(ok(inviteCall(bob, "lookup", token(token, null))).get("corrections")).isEmpty();
 
         accept(bob, token, "Dad");
 
@@ -531,7 +531,8 @@ class FamilyMembershipApiTests extends FamilyApiTest {
         assertThat(inAllotment.get("baseCurrency").asText()).isEqualTo("USD");
         JsonNode inHome = alices.get("memberships").get(1);
         assertThat(inHome.get("role").asText()).isEqualTo("OWNER");
-        assertThat(inHome.get("balance").asText()).isEqualTo("-50.00");
+        assertThat(inHome.get("balances").toString()).isEqualTo("[{\"currency\":\"EUR\",\"amount\":\"-50.00\"}]");
+        assertThat(inHome.has("balance")).isFalse();
         assertThat(inHome.get("outcome").asText()).isEqualTo("OWNERSHIP_PASSES");
         assertThat(inHome.get("newOwner").asText()).isEqualTo("Dad");
         assertThat(inHome.get("pendingInvites").asInt()).isEqualTo(1);
@@ -542,7 +543,7 @@ class FamilyMembershipApiTests extends FamilyApiTest {
         assertThat(bobs.get("memberships").findValuesAsText("name")).containsExactly("Bob's club", "Home");
         JsonNode bobInHome = bobs.get("memberships").get(1);
         assertThat(bobInHome.get("role").asText()).isEqualTo("MEMBER");
-        assertThat(bobInHome.get("balance").asText()).isEqualTo("30.00");
+        assertThat(bobInHome.get("balances").get(0).get("amount").asText()).isEqualTo("30.00");
         assertThat(bobInHome.get("outcome").asText()).isEqualTo("STAYS");
         assertThat(bobInHome.get("newOwner").isNull()).isTrue();
         assertThat(bobInHome.get("pendingInvites").asInt()).isZero();

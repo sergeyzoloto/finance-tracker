@@ -56,7 +56,8 @@ class FamilyReportApiTests extends FamilyApiTest {
         assertThat(delete(bob, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
 
         JsonNode report = checkFamilyReport(alice, family, Map.of(alice, LocalDate.of(2026, 9, 1)));
-        assertThat(report.get("currency").asText()).isEqualTo("EUR");
+        assertThat(report.get("byCurrency").findValuesAsText("currency")).containsExactly("EUR");
+        assertThat(report.get("total").get("rates")).isEmpty();
         assertThat(report.get("from").isNull()).isTrue();
         assertThat(members(report)).containsExactly("Mum ACTIVE account you", "Dad LEFT account", "Kid ACTIVE");
         assertThat(rows(report)).containsExactly(
@@ -133,7 +134,7 @@ class FamilyReportApiTests extends FamilyApiTest {
     private static List<String> rows(JsonNode report) {
         Map<Long, String> names = names(report);
         List<String> rows = new ArrayList<>();
-        report.get("rows").forEach(row -> {
+        report.get("byCurrency").get(0).get("rows").forEach(row -> {
             List<String> members = new ArrayList<>();
             row.get("members").forEach(c -> members.add(names.get(c.get("memberId").asLong()) + " "
                     + c.get("share").asText() + "/" + c.get("paid").asText()));
@@ -148,7 +149,7 @@ class FamilyReportApiTests extends FamilyApiTest {
     private static List<String> totals(JsonNode report) {
         Map<Long, String> names = names(report);
         List<String> totals = new ArrayList<>();
-        report.get("totals").forEach(t -> totals.add(names.get(t.get("memberId").asLong()) + " "
+        report.get("byCurrency").get(0).get("totals").forEach(t -> totals.add(names.get(t.get("memberId").asLong()) + " "
                 + t.get("expenseShares").asText() + " " + t.get("expensesPaid").asText() + " "
                 + t.get("incomeShares").asText() + " " + t.get("incomesReceived").asText() + " "
                 + t.get("settlementsPaid").asText() + " " + t.get("settlementsReceived").asText() + " = "

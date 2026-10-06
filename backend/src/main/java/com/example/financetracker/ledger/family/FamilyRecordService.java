@@ -24,7 +24,6 @@ import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.access.MemberRole;
-import com.example.financetracker.ledger.domain.Money;
 import com.example.financetracker.ledger.family.FamilyChangeView.Change;
 import com.example.financetracker.ledger.family.FamilyRecordView.CategoryRef;
 import com.example.financetracker.ledger.family.FamilyRecordView.MemberRef;
@@ -463,8 +462,7 @@ public class FamilyRecordService {
         for (String currency : currencies) {
             byCurrency.add(new FamilyBalances.CurrencyBalances(currency, balancesIn(family, currency)));
         }
-        return new FamilyBalances(main, byCurrency.getFirst().members(), byCurrency,
-                totals.balances(family, main, byCurrency));
+        return new FamilyBalances(byCurrency, totals.balances(family, main, byCurrency));
     }
 
     /** Every member's balance in the currency, by join order. */
@@ -1319,27 +1317,6 @@ public class FamilyRecordService {
         return violations.stream().noneMatch(v -> v.code().equals(AMOUNT));
     }
 
-    /**
-     * What F4e's forms ask before saving (D-13), rate-free since F8a (D-87): the amount itself in the family's main
-     * currency; in another currency no base amount and no rate, since a record keeps its own currency (D-45).
-     *
-     * @throws RuleViolationException if the amount can't be one
-     * @deprecated until F8b's forms stop asking
-     */
-    @Deprecated
-    @Transactional(readOnly = true)
-    public FamilyConversion conversion(LedgerScope family, BigDecimal amount, String currency, LocalDate date) {
-        String main = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
-                .param("ledgerId", family.ledgerId()).query(String.class).single();
-        List<Violation> violations = new ArrayList<>();
-        checkAmount(amount, currency, ShareSplit.minorUnit(currency), violations);
-        if (!violations.isEmpty()) {
-            throw RuleViolationException.of(violations);
-        }
-        return new FamilyConversion(inMinorUnits(amount, currency), currency,
-                currency.equals(main) ? inMinorUnits(amount, main) : null, main, null, null, null);
-    }
-
     private static Violation noAccount(Member payer) {
         return new Violation(PAYMENT, payer.id(), ("%s has no account, so there is no account of theirs to pay with")
                 .formatted(payer.displayName()));
@@ -1783,11 +1760,6 @@ public class FamilyRecordService {
             OwnPayment payment = own.get(row.id());
             Long lockedBy = placed.get(row.id());
             boolean mayEditPayment = mayDelete && lockedBy == null;
-            // The paying side is its member's alone (D-88): the payer's, the receiver's, or a settlement's recorder's.
-            boolean sidesOwn = members.get(family.memberId()).hasAccount() && (row.type().equals(SETTLEMENT)
-                    ? row.authorId() == family.memberId()
-                            && (row.payerId() == family.memberId() || Objects.equals(row.payeeId(), family.memberId()))
-                    : row.payerId() == family.memberId());
             return new FamilyRecordView(row.id(), row.type(), row.date(),
                     row.categoryId() == null ? null : categories.get(row.categoryId()),
                     row.amount().setScale(scale, RoundingMode.UNNECESSARY), row.currency(), row.comment(),
@@ -1802,11 +1774,7 @@ public class FamilyRecordService {
                     payment == null ? null : new FamilyRecordView.YourPayment(payment.entryId(), payment.accountId(),
                             payment.accountName(), payment.later(), inMinorUnits(payment.amount(), payment.currency()),
                             payment.currency()),
-                    ref(members, row.payeeId()), lockedBy == null ? null : ref(members, lockedBy),
-                    sidesOwn ? inMinorUnits(row.originalAmount(), row.originalCurrency()) : null,
-                    sidesOwn ? row.originalCurrency() : null,
-                    sidesOwn && row.rate() != null ? Money.normalize(row.rate()) : null,
-                    sidesOwn ? row.rateSource() : null, sidesOwn ? row.rateDate() : null);
+                    ref(members, row.payeeId()), lockedBy == null ? null : ref(members, lockedBy));
         }).toList();
     }
 

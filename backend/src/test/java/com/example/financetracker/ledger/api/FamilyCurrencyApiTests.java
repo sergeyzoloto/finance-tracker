@@ -204,20 +204,17 @@ class FamilyCurrencyApiTests extends FamilyApiTest {
     }
 
     /**
-     * No rate is looked up anywhere (D-87): F4e's conversion answers only the main currency's amount itself. The main
-     * currency changes while records exist, and each record keeps its own; a new one takes the new main currency.
+     * No rate is looked up anywhere (D-87), even with the user's own dollar rate stored, and F4e's conversion is gone
+     * (404, F8b). The main currency changes while records exist, and each record keeps its own; a new one takes the new
+     * main currency.
      */
     @Test
     void noRateAndTheMainCurrencyChanges() throws IOException {
         jdbc.sql("""
                 INSERT INTO exchange_rate (rate_date, base_currency, quote_currency, rate, source, user_id)
                 VALUES (DATE '2026-09-01', 'EUR', 'USD', 1.25, 'MANUAL', ?)""").param(alice).update();
-        assertThat(ok(get(alice, uri + "/conversion?amount=11.20&currency=USD&date=2026-09-12"))).isEqualTo(
-                json.readTree("""
-                        {"amount": "11.20", "currency": "USD", "baseAmount": null, "baseCurrency": "EUR"}"""));
-        assertThat(ok(get(alice, uri + "/conversion?amount=11.2&currency=EUR&date=2026-09-12"))).isEqualTo(
-                json.readTree("""
-                        {"amount": "11.20", "currency": "EUR", "baseAmount": "11.20", "baseCurrency": "EUR"}"""));
+        assertThat(get(alice, uri + "/conversion?amount=11.20&currency=USD&date=2026-09-12"))
+                .hasStatus(HttpStatus.NOT_FOUND);
 
         JsonNode euros = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "30.00", kid, "")));
         assertThat(ok(patch(alice, uri, """
@@ -264,7 +261,7 @@ class FamilyCurrencyApiTests extends FamilyApiTest {
         assertThat(dollars.get("rows").get(0).get("total").asText()).isEqualTo("60.00");
         assertThat(dollars.get("totals").get(0).toString()).contains("\"expenseShares\":\"30.00\"",
                 "\"expensesPaid\":\"60.00\"", "\"settlementsReceived\":\"30.00\"", "\"net\":\"0.00\"");
-        assertThat(report.get("rows")).isEqualTo(report.get("byCurrency").get(0).get("rows"));
+        assertThat(report.has("rows")).isFalse();
         // A period without dollars: no dollar section; the main currency's is always there.
         assertThat(ok(get(alice, uri + "/report?from=2026-09-12&to=2026-09-12")).get("byCurrency")
                 .findValuesAsText("currency")).containsExactly("EUR", "RUB");

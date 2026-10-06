@@ -232,9 +232,10 @@ class UserDataApiTests extends LedgerApiTest {
 
         assertThat(rowsOf(scenario.alice())).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
         JsonNode balancesAfter = ok(get(scenario.bob(), uri + "/balances"));
-        assertThat(balancesAfter.get("members").findValuesAsText("balance"))
-                .isEqualTo(balancesBefore.get("members").findValuesAsText("balance"));
-        assertThat(balancesAfter.get("members").findValuesAsText("displayName")).contains("Former member")
+        assertThat(balancesAfter.get("byCurrency").get(0).get("members").findValuesAsText("balance"))
+                .isEqualTo(balancesBefore.get("byCurrency").get(0).get("members").findValuesAsText("balance"));
+        assertThat(balancesAfter.get("byCurrency").get(0).get("members").findValuesAsText("displayName"))
+                .contains("Former member")
                 .doesNotContain("Alice");
         assertThat(personal(digestOf(scenario.bob()))).isEqualTo(bobsPersonalRows);
         FamilyInvariants.check(jdbc, scenario.family());

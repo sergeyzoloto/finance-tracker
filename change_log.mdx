@@ -3,6 +3,35 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · The deprecated API fields and `/conversion` removed (F8b, commit 6b)
+
+Commit on `feature/family-budget`, after commit 6a: "refactor(family): remove the deprecated fields and /conversion
+(F8b)", whose hash F8b's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- Removed, now that the frontend reads the per-currency fields (commit 6a): a record's `originalAmount`,
+  `originalCurrency`, `rate`, `rateSource` and `rateDate` (the paying side is only in `yourPayment`, D-88); the
+  balances' `currency` and `members`; the report's `currency`, `rows` and `totals`; the invite lookup's
+  `openingBalance` and `correction`; the deletion preview's `balance`; the request field `baseAmount` of records,
+  settlements and the payment entry (a client that still sends it is ignored, as any unknown field); and
+  `GET /api/family-ledgers/{id}/conversion` with `FamilyConversion` and `FamilyRecordService.conversion`. The
+  database is unchanged: the rate columns stay, as ADR 0004 says.
+- Tests read `byCurrency`, `openingBalances`, `corrections` and `balances`, and check the removed fields are absent.
+  `FamilySwitchOffApiTests` counts 33 family endpoints (34 with `/conversion`); `ApiTests`' OpenAPI paths lose it.
+  `DataIsolationApiTests.aSidesOwnAmountAndTheRatesOfATotalAreTheMembersOwn` (was `aConversionAndASidesOwnAmount…`):
+  `/conversion` answers 404, and D-47's total uses each member's own rates: Alice's dollar rate gives hers, while
+  Bob's answer names the dollars missing and holds none of her rates.
+- `docs/adr/0004-multi-currency-family-ledger.md` ("API changes") and `CLAUDE.md`.
+
+**Verified**
+- `./mvnw -B -o clean verify` in the working tree: 434 tests, 1 error (`DemoDataApiTests` still reading the report's
+  `totals`), then fixed and that class run again: 6 of 6. The whole suite at this commit in a scratch worktree: in the
+  last entry.
+- `npm test` in `frontend/`: 312 passed (unchanged by this commit).
+
+**Open**
+- None for the API; the e2e suite follows (commit 7).
+
 ## 2026-10-06 · The interface per currency: records, paying side, balances, totals, report, rates (F8b, commit 6a)
 
 Commit on `feature/family-budget`, after commit 5: "feat(frontend): records in their own currency, the paying side,

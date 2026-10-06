@@ -105,9 +105,9 @@ abstract class FamilyApiTest extends LedgerApiTest {
                 .toList();
     }
 
-    /** The balances as the user reads them, as "name balance" and " you" for their own. */
+    /** The balances in the main currency, EUR, as the user reads them, as "name balance" and " you" for their own. */
     protected List<String> balances(String user) throws IOException {
-        JsonNode balances = ok(get(user, uri + "/balances"));
+        JsonNode balances = ok(get(user, uri + "/balances")).get("byCurrency").get(0);
         assertThat(balances.get("currency").asText()).isEqualTo("EUR");
         return StreamSupport.stream(balances.get("members").spliterator(), false)
                 .map(b -> b.get("displayName").asText() + " " + b.get("balance").asText()

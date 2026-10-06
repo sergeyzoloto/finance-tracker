@@ -1,7 +1,8 @@
 # ADR 0004: The multi-currency family ledger
 
 Status: accepted for F8a (2026-10-06). Implements D-45, D-46, D-87, D-12 per currency and D-66 of
-[the requirements](../family-budget/requirements.md); D-47 and D-49 (displayed totals and rates) are F8b's. Supersedes
+[the requirements](../family-budget/requirements.md); D-47 and D-49 (displayed totals and rates) are F8b's. Amended in
+F8b (2026-10-06) for D-88 (who sees the paying side) and D-89 (the paying currency chosen per payment). Supersedes
 D-13 and the parts of [ADR 0003](0003-family-budget-membership-and-cross-ledger-posting.md) (topic D, "The base
 currency"; topic E, "F4e as built: other currencies") that keep shares, balances and debt in one base currency.
 
@@ -51,12 +52,19 @@ Production holds no family record (every `family_*` count is 0 since OPS-2b's de
 
 The payer's payment, an income's receipt and the recorder's side of a settlement are on the account the member names.
 
-- If the account's currency (its `default_currency`) is the record's, or the account has none, the side is the
-  record's amount in the record's currency: the account and `Debt(L)`, as before F4e.
-- Otherwise the member enters what went from or into the account, in its currency (`accountAmount`), and the side goes
+- The side's currency, the paying currency, is chosen per payment (D-89, F8b: `accountCurrency` in the request). It
+  defaults to the account's currency (its `default_currency`), else, for an account without one, to the record's;
+  the member, or the import, may name another. An account holds several currencies (V2), so a dollar record paid in
+  dollars from an account whose default is euros is an ordinary side in dollars. F8a had no `accountCurrency`: the
+  side's currency was always the account's default, which is still the default.
+- If the paying currency is the record's, the side is the record's amount in the record's currency: the account and
+  `Debt(L)`, as before F4e.
+- Otherwise the member enters what went from or into the account, in the paying currency (`accountAmount`), and the side goes
   through their FX_EXCHANGE as rule 9 has it and F4e built it: the account and FX_EXCHANGE in the account's currency,
   FX_EXCHANGE and `Debt(L)` in the record's currency. No rate is looked up: without `accountAmount` the answer is 422
   `ACCOUNT_AMOUNT`, never a conversion. FX_EXCHANGE shows the difference, as for any personal exchange.
+- `accountAmount` is asked again (422 `ACCOUNT_AMOUNT` without it) when the record's amount or currency, the account
+  or the paying currency changes, and kept when only the date, the comment, the category or the split changes (D-89).
 - "Specify later" is in the record's currency; moving it to an account in another currency asks for `accountAmount`.
 - The other side of a settlement works as F4e built it, with the record's currency where F4e had the base currency:
   their placeholder in the record's currency, or their own account with the amount they name for it, which only their
@@ -71,9 +79,12 @@ the record's currency. When they differ, `base_rate_source` is `ENTERED` (both a
 member changes their side's amount (D-8, D-14): it changes neither the record's version nor its journal (D-16), like the
 account it is on.
 
-**Who sees it.** As in F4e, `originalAmount` and `originalCurrency` (now deprecated) are in every member's answer, and
-`yourPayment` holds the member's own side. Whether the paying side's amount in another currency should be the payer's
-alone, as the other side's `accountAmount` of a settlement is, is an open question for F8b's interface.
+**Who sees it** (D-88, F8b; replaces F4e's choice). The paying side's amount and currency are the member's whose side it
+is, as the other side of a settlement and the payee (D-81) are: only `yourPayment` holds them, in that member's own
+answers. Every other member sees the record's amount, currency, date, category and shares. `originalAmount`,
+`originalCurrency`, `rate`, `rateSource` and `rateDate` are removed from the answer (F8b), and the journal shows a
+change of the paying side's amount (`originalAmount`) only to the member whose side it is. Until F8b, as in F4e, the
+deprecated `originalAmount` and `originalCurrency` were in every member's answer.
 
 ### No rate in the family path (D-66, D-87)
 

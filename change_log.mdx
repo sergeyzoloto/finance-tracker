@@ -3,6 +3,34 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · CI on Ubuntu 26.04 for `8d75f83`; D-88 to D-91 (F8b, commit 1)
+
+Commit on `feature/family-budget`, after `eb8ab49`: "docs: CI on Ubuntu 26.04 for 8d75f83, D-88 to D-91 (F8b)", whose
+hash F8b's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `deploy/RUNBOOK.md`: "Production now" records the result of "CI on Ubuntu 26.04" for `8d75f83` (D-44, D-60), which
+  F8a left to run: run #3 of the workflow (`workflow_dispatch`) on the temporary branch `ci-ubuntu-26.04-8d75f83`, at
+  exactly `8d75f83`, Success in 8m 4s; Backend, Frontend (25 test files, 301 tests), Web image and Deploy scripts all
+  passed; the temporary branch was deleted afterwards. "Deployed revisions" has a row for it (nothing on the server).
+- `CLAUDE.md`: the same result in the deployment's line, and the decisions now run to D-91. CLAUDE.md held no "still to
+  run" line of its own.
+- `docs/family-budget/requirements.md`: D-88 (the paying side's amount and currency only for its own member, the
+  journal included), D-89 (`accountCurrency` chosen per payment, its default, when `accountAmount` is needed and asked
+  again), D-90 (D-49's rules for every displayed conversion, the personal dashboard and reports included) and D-91
+  (the most recent applicable rate wins, the manual one on the same date), each decided by the PM.
+- `docs/adr/0004-multi-currency-family-ledger.md`: amended for D-88 ("Who sees it" replaces F4e's choice) and D-89 (the
+  paying currency chosen per payment; `accountAmount` asked again on a change of amount, currency, account or paying
+  currency, kept on a change of date or comment).
+
+**Verified**
+- Documentation only. Baseline at `eb8ab49` before this commit: `./mvnw -B clean verify`, `npm test` (301 passed) and
+  `npm run build` in `frontend/`, `npm run typecheck` in `e2e/`; their results are in F8b's last entry.
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1.
+
+**Open**
+- F8b's commits 2 to 8.
+
 ## 2026-10-06 · The rollback guard below V11; F8a's end (F8a, commit 8)
 
 Commit on `feature/family-budget`, after `1a394a3`: "fix(deploy): rollback.sh refuses below V11 while records would be

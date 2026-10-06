@@ -44,6 +44,8 @@ Amended after the F6c deploy on 2026-10-02: new D-40 (decided by the PM), the pl
 
 Amended in F8a on 2026-10-06: new D-45 to D-49 and D-58 to D-87 (each marked as decided by the owner or by the PM), D-13 superseded by D-45 and D-87, D-64 narrowed by D-75, and the planned stages (F8a, F8b, F8c, D-77).
 
+Amended in F8b on 2026-10-06: new D-88 to D-91 (decided by the PM), about who sees the paying side, the paying currency and the rates of every displayed conversion; F4e's choice that every member sees the paying side is replaced by D-88.
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -282,6 +284,12 @@ Added in F8a (2026-10-06): the decisions of F8's planning and of D3b-0's review,
 - D-85 (decided by the owner). Excel's defects are fixed at the source before D3b's export: the USD monthly-lump formula, the missing `LOANS_ASSET_EUR` column, and a closing row for the EUR loan. D-63 declares no exceptions for them.
 - D-86 (decided by the owner). IDs in both ledgers are permanent: never renumbered, and the numbers of deleted rows are never reused.
 - D-87 (decided by the PM; clarifies D-45). No exchange rate is ever used in a posting. When the paying account's currency differs from that of the record or settlement, the amount taken from the account is entered by the user, or comes from the import. `FX_EXCHANGE` in the payer's personal ledger takes the difference. Rates serve displayed totals only (D-47). D-13's conversion is superseded.
+
+Added in F8b (2026-10-06, decided by the PM)
+- D-88 (decided by the PM; replaces F4e's choice that every member sees the paying side). The paying side's account amount and currency are visible only to the member whose side it is, as the other side of a settlement and the payee (D-81) already are. Other members see the record's amount, currency, date, category and shares. The journal never shows the paying side to other members.
+- D-89 (decided by the PM; answers F8a's questions 2 and 3). The currency taken from the paying account (`accountCurrency`) is chosen per payment. Its default is the account's default currency, else the record's currency; the user, or the import, can change it. `accountAmount` is required when that currency differs from the record's. It is asked again when the record's amount or currency, the account, or the paying currency changes; a change of date or comment keeps it. An account holds several currencies, so a USD record paid in USD from an account whose default is EUR needs neither `FX_EXCHANGE` nor `accountAmount`.
+- D-90 (decided by the PM). D-49's rules apply to every displayed conversion, the personal dashboard and reports included: one rule set, and no displayed total ever uses a stale rate.
+- D-91 (decided by the PM). Among the applicable rates (an ECB rate at most 7 days old, and the viewing user's manual rates from their date until the next one), the most recent date wins. On the same date, the manual rate wins.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

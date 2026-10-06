@@ -3,6 +3,45 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · ADR 0004 and V11: a family record's own currency (F8a, commit 2)
+
+Commit on `feature/family-budget`, after `d599312`: "feat(db): ADR 0004 and V11, a family record's own currency (F8a)",
+whose hash F8a's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `docs/adr/0004-multi-currency-family-ledger.md`: the model (a record's currency, shares, balances, settlements,
+  opening balances and corrections per currency), the paying side in the account's currency with its amount entered
+  (D-87), no rate in the family path (D-66), existing records converted rather than a legacy mode, why V11 is additive,
+  the rollback condition, the API changes, and what F8b and F8c add.
+- `V11__multi_currency_family_records.sql`: `family_record.currency`, filled with each record's family ledger's base
+  currency (deleted records included) and then NOT NULL; `family_record_check_currencies` replaces V8's
+  `family_record_check_currency` (fills a currency an insert leaves out from the ledger, as an image before V11 writes,
+  and checks the paying side in `original_*` against the record's currency: the same amount without a source, or
+  another currency with one); V7's freeze of the base currency dropped. Column comments say what each amount is in.
+  The update's queued deferred check runs before the `ALTER TABLE` (`SET CONSTRAINTS ALL IMMEDIATE`). V1 to V10
+  untouched.
+- `FamilyRecordsV11MigrationTests` (new): a database at V10 with a family ledger in euros, Alice, Bob and Sam (no
+  account), and four records with their shares, posted entries and links as V10's code writes them (an expense in
+  euros split three ways, one paid in dollars converted at the ECB's rate through Bob's `FX_EXCHANGE`, one paid by Sam
+  with its euros entered, a settlement whose other side waits on "Specify later"). V10's own statements give the
+  balances and what each debt account shows; the application then starts on it, Flyway applies V11, and its answers give
+  the same.
+- `LedgerBackfillMigrationTests`: V10 pinned as a target, then V11, which changes no row but the new column, `EUR` for
+  the chain's settlement. `LedgerSchemaTests`: the base currency changes while a record exists, and the record keeps
+  its currency; V11's trigger's messages, a record in its own currency, a paying side in euros for a dollar record
+  only with a source, and the currency's format.
+
+**Verified**
+- `FamilyRecordsV11MigrationTests`: Flyway at V11; every record `EUR EUR`; every entry, posting, link, share and
+  account as before; the balances Alice 22.54, Bob −7.47, Sam −15.07 (synthetic) both by V10's statement and by
+  `GET …/balances`; each debt account equal to its member's balance before; `GET /api/reports/integrity` empty for both
+  users; the dollar expense still 50.00 EUR from 54.00 USD at the ECB's rate.
+- The code of before F8a runs on V11 unchanged (it writes no currency, which the trigger fills): `./mvnw -B clean verify`
+  on this commit, 408 tests (the baseline's 407 and the new class), 0 failures.
+
+**Open**
+- The code still converts at rates (D-13) until commit 3, and balances are in the main currency until commit 5.
+
 ## 2026-10-06 · OPS-2b's deploy recorded, F8's decisions, ADR 0001's odd-cent rows (F8a, commit 1)
 
 Commit on `feature/family-budget`, from `6fdc989`: "docs: OPS-2b's deploy facts and F8's decisions (F8a)", whose hash F8a's

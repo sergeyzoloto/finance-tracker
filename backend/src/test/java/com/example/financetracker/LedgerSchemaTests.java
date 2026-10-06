@@ -532,7 +532,8 @@ class LedgerSchemaTests {
     /**
      * A family ledger's start date (D-27): set for a family ledger only, today for code that leaves it out, and fixed
      * once set. A record is dated on or after it, its category has its type, and at commit its shares add up to its
-     * amount; a share goes to an ACTIVE member; the base currency is fixed by the first record (V7; topic D).
+     * amount; a share goes to an ACTIVE member (V7; topic D). The base currency, fixed by the first record until V11, is
+     * the main currency since then and changes with records (D-45), which keep their own currency.
      */
     @Test
     void familyRecordsFitTheirLedgerAndTheirShares() throws SQLException {
@@ -569,10 +570,11 @@ class LedgerSchemaTests {
         db.commit();
 
         long mine = record;
-        assertFails(() -> update("UPDATE ledger SET base_currency = 'USD' WHERE id = ?", ledger), CHECK_VIOLATION,
-                "family ledger %d: the base currency cannot change once the ledger has a record".formatted(ledger));
-        db.rollback();
-        update("UPDATE ledger SET base_currency = base_currency, name = 'Renamed' WHERE id = ?", ledger);
+        update("UPDATE ledger SET base_currency = 'USD' WHERE id = ?", ledger);
+        db.commit();
+        assertThat(number("SELECT count(*) FROM family_record WHERE ledger_id = ? AND currency = 'EUR'", ledger))
+                .isOne();
+        update("UPDATE ledger SET base_currency = 'EUR', name = 'Renamed' WHERE id = ?", ledger);
         db.commit();
         update("UPDATE ledger_member SET status = 'LEFT', left_date = current_date WHERE id = ?", boris);
         db.commit();
@@ -586,10 +588,12 @@ class LedgerSchemaTests {
     }
 
     /**
-     * Records in other currencies (V8; D-13, F4e). In the base currency a record's base amount is its original amount,
-     * without a rate; in another one it says where its base amount came from: a rate of the ECB or of the member, with
-     * the rate's day, or entered, without a rate. The writer posts a payment in another currency through the payer's
-     * FX_EXCHANGE, only in the ledger it names as the acting payer's own and only for a payment or a settlement side.
+     * Records in other currencies (V8, V11; D-13, F4e, D-45, D-87). A record has its own currency, its ledger's base
+     * currency when an insert leaves it out (an image before V11). A paying side in the record's currency is the
+     * record's amount, without a rate; one in another currency says where the record's amount came from: a rate of the
+     * ECB or of the member, with the rate's day (records converted before V11), or entered, without a rate. The writer
+     * posts a side in another currency through the member's FX_EXCHANGE, only in the ledger it names as the acting
+     * member's own and only for a payment or a settlement side.
      */
     @Test
     void recordsInOtherCurrenciesAndTheirExchange() throws SQLException {
@@ -609,13 +613,13 @@ class LedgerSchemaTests {
         BigDecimal rate = new BigDecimal("0.92");
         Date day = Date.valueOf(LocalDate.of(2026, 9, 25));
         assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "EUR", nine, null, null, null, anna,
-                anna), CHECK_VIOLATION, "in the base currency EUR, the base amount is the amount, without a rate");
+                anna), CHECK_VIOLATION, "paid in its own currency EUR, the paying side is the amount, without a rate");
         db.rollback();
         assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "EUR", ten, null, "ENTERED", null, anna,
-                anna), CHECK_VIOLATION, "in the base currency EUR, the base amount is the amount, without a rate");
+                anna), CHECK_VIOLATION, "paid in its own currency EUR, the paying side is the amount, without a rate");
         db.rollback();
         assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, null, null, null, anna,
-                anna), CHECK_VIOLATION, "an amount in USD needs the source of its base amount in EUR");
+                anna), CHECK_VIOLATION, "a paying side in USD for an amount in EUR needs the amount's source");
         db.rollback();
         assertFails(() -> insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, null, "ECB", null, anna,
                 anna), CHECK_VIOLATION, "family_record_rate_source_check");
@@ -628,13 +632,33 @@ class LedgerSchemaTests {
         db.rollback();
         long converted = insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, rate, "ECB", day, anna, anna);
         share(family, converted, anna, "9.20", anna);
+        assertThat(number("SELECT count(*) FROM family_record WHERE id = ? AND currency = 'EUR'", converted)).isOne();
+        db.commit();
+        // A record in its own currency (V11, D-45): paid in it, the paying side is its amount; paid from an account in
+        // another currency, with the amount entered (D-87).
+        String own = """
+                INSERT INTO family_record (ledger_id, type, record_date, category_id, payer_member_id, original_amount,
+                    original_currency, base_amount, currency, base_rate_source, split_method, author_member_id,
+                    updated_by_member_id)
+                VALUES (?, 'EXPENSE', current_date, ?, ?, ?, ?, ?, ?, ?, 'EQUAL', ?, ?)""";
+        long inDollars = insert(own, family, groceriesOfFamily, anna, ten, "USD", ten, "USD", null, anna, anna);
+        share(family, inDollars, anna, "10.00", anna);
+        db.commit();
+        assertFails(() -> insert(own, family, groceriesOfFamily, anna, nine, "EUR", ten, "USD", null, anna, anna),
+                CHECK_VIOLATION, "a paying side in EUR for an amount in USD needs the amount's source");
+        db.rollback();
+        assertFails(() -> insert(own, family, groceriesOfFamily, anna, ten, "USD", ten, "usd", "ENTERED", anna, anna),
+                CHECK_VIOLATION, "family_record_currency_check");
+        db.rollback();
+        long fromEuros = insert(own, family, groceriesOfFamily, anna, nine, "EUR", ten, "USD", "ENTERED", anna, anna);
+        share(family, fromEuros, anna, "10.00", anna);
         long entered = insert(insert, family, groceriesOfFamily, anna, ten, "USD", nine, null, "ENTERED", null, anna,
                 anna);
         share(family, entered, anna, "9.20", anna);
         db.commit();
         // A change back to the base currency drops the rate with it.
         assertFails(() -> update("UPDATE family_record SET original_currency = 'EUR', original_amount = 9.20 "
-                + "WHERE id = ?", converted), CHECK_VIOLATION, "in the base currency EUR, the base amount is the amount");
+                + "WHERE id = ?", converted), CHECK_VIOLATION, "paid in its own currency EUR, the paying side is the amount");
         db.rollback();
         update("UPDATE family_record SET original_currency = 'EUR', original_amount = 9.20, base_rate = NULL, "
                 + "base_rate_source = NULL, base_rate_date = NULL WHERE id = ?", converted);

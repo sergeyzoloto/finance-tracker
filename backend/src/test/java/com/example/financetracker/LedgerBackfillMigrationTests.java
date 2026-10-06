@@ -20,7 +20,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 /**
  * V5's backfill, on rows as the code before it writes them: a database migrated to V4 gets the rows of several users,
  * each known to other tables, and then V5. Every sub gets one personal ledger with itself as its one owner, and every
- * row its user's ledger, whether or not the sub has a users or user_settings row.
+ * row its user's ledger, whether or not the sub has a users or user_settings row. Then each later migration on those
+ * rows, to V11's record currency (F8a).
  */
 class LedgerBackfillMigrationTests {
 
@@ -199,13 +200,35 @@ class LedgerBackfillMigrationTests {
                             FROM ledger_member m)""";
             String beforeV10 = strings(unchanged).getFirst();
             Map<String, Long> rowsBeforeV10 = rows();
-            MigrateResult v10 = flyway(null).migrate();
+            MigrateResult v10 = flyway("10").migrate();
             assertThat(v10.success).isTrue();
             assertThat(v10.targetSchemaVersion).isEqualTo("10");
             assertThat(rows()).isEqualTo(rowsBeforeV10);
             assertThat(strings(unchanged).getFirst()).isEqualTo(beforeV10);
             assertThat(strings("SELECT display_name FROM ledger_member WHERE claimed_seat ORDER BY id"))
                     .containsExactly("Una");
+
+            // V11 (F8a) gives every record its family ledger's base currency, which its amount and shares were in, and
+            // changes nothing else (ADR 0004, "Existing records").
+            String everyRow = """
+                    SELECT (SELECT string_agg(a::text, '|' ORDER BY a.id) FROM account a)
+                        || (SELECT string_agg(c::text, '|' ORDER BY c.id) FROM category c)
+                        || (SELECT string_agg(e::text, '|' ORDER BY e.id) FROM journal_entry e)
+                        || (SELECT string_agg(p::text, '|' ORDER BY p.id) FROM posting p)
+                        || (SELECT string_agg((to_jsonb(r) - 'currency')::text, '|' ORDER BY r.id)
+                            FROM family_record r)
+                        || (SELECT string_agg(i::text, '|' ORDER BY i.id) FROM ledger_invite i)
+                        || (SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m)
+                        || (SELECT string_agg(l::text, '|' ORDER BY l.id) FROM ledger l)""";
+            String beforeV11 = strings(everyRow).getFirst();
+            Map<String, Long> rowsBeforeV11 = rows();
+            MigrateResult v11 = flyway(null).migrate();
+            assertThat(v11.success).isTrue();
+            assertThat(v11.targetSchemaVersion).isEqualTo("11");
+            assertThat(rows()).isEqualTo(rowsBeforeV11);
+            assertThat(strings(everyRow).getFirst()).isEqualTo(beforeV11);
+            assertThat(strings("SELECT r.currency || ' ' || l.base_currency FROM family_record r "
+                    + "JOIN ledger l ON l.id = r.ledger_id ORDER BY r.id")).containsExactly("EUR EUR");
         } finally {
             db.close();
         }

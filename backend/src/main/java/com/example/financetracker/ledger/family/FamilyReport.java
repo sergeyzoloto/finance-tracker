@@ -6,11 +6,12 @@ import java.time.YearMonth;
 import java.util.List;
 
 import com.example.financetracker.ledger.domain.CategoryType;
+import com.example.financetracker.ledger.rates.RateBook;
 
 /**
  * The family report (E1; ADR 0003 topic J, "F6c plan"): the family's expenses and incomes by month and category, with
  * each member's contribution, from the records that aren't deleted, in each currency of its records (D-45, ADR 0004).
- * No total across currencies is computed here (D-47 is F8b's, for display only).
+ * {@code total} is D-47's total in the main currency, for display only (F8b).
  *
  * @param currency the family's main currency, whose report {@code rows} and {@code totals} are; deprecated since F8a
  *        for {@code byCurrency}
@@ -21,9 +22,24 @@ import com.example.financetracker.ledger.domain.CategoryType;
  * @param totals the main currency's totals; deprecated since F8a for {@code byCurrency}
  * @param byCurrency the report in each currency: the main currency first, then every other currency of a record of the
  *        period, alphabetically (F8a, additive)
+ * @param total each member's totals together in the main currency, approximately (D-47; F8b, additive)
  */
 public record FamilyReport(@Deprecated String currency, LocalDate from, LocalDate to, List<Member> members,
-        @Deprecated List<Row> rows, @Deprecated List<MemberTotal> totals, List<CurrencyReport> byCurrency) {
+        @Deprecated List<Row> rows, @Deprecated List<MemberTotal> totals, List<CurrencyReport> byCurrency,
+        Total total) {
+
+    /**
+     * D-47's total: each member's totals in every currency converted to the main currency, each month's amounts at the
+     * month's month-end rate and the current month's at today's (D-49), by the rates of the member who reads, and
+     * rounded once to its minor unit. For display only.
+     *
+     * @param totals in {@code members}' order; empty if a currency has no rate
+     * @param rates the rates it used, each with its date, source and stale mark; empty if all is in the main currency
+     * @param missingCurrencies the currencies without a rate, which leave no total; empty otherwise
+     */
+    public record Total(String currency, List<MemberTotal> totals, List<RateBook.Rate> rates,
+            List<String> missingCurrencies) {
+    }
 
     /**
      * The report in one currency, from its records only.

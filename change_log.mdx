@@ -3,6 +3,34 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · D-47's totals in the main currency for the family's balances and report (F8b, commit 4)
+
+Commit on `feature/family-budget`, after commit 3: "feat(family): D-47's totals of balances and the report (F8b)",
+whose hash F8b's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `FamilyTotals` (new): each member's figures in the family's main currency, for display only, by the reader's own
+  rates under `RateBook`'s rules (D-49, D-90, D-91), each total rounded once to the main currency's minor unit, with
+  the rates it used (date, source, `stale`). If a currency it needs has no rate, there is no total: the members are
+  empty and `missingCurrencies` names the currency. Never stored, posted or settled.
+- `GET …/balances` gains `total` (`currency`, `asOf`: today, `members` with each `balance`, `rates`,
+  `missingCurrencies`): every currency's balance at the rate that applies today.
+- `GET …/report` gains `total` (`currency`, `totals` with each member's seven fields, `rates`, `missingCurrencies`):
+  each month's amounts at the month's month-end rate, the current month (and later ones) at today's.
+- The personal dashboard and reports follow the same rules since commit 3 (D-90).
+- `FamilyTotalsApiTests` (new, as of 15 October 2026): in euros only the total is the balance; Alice's own dollar rates
+  give her balances' total at today's rate (230.00 USD at 1.10, 209.09 EUR) and her report's at September's month-end
+  rate and October's latest (200.00 EUR), while Bob, with no rate of his own, gets no total naming USD and none of her
+  rates; a rouble record leaves no total while the only rouble rate is the ECB's of 2022, and Alice's rate of
+  1 August gives one marked manual and stale.
+- `docs/adr/0004-multi-currency-family-ledger.md` ("Totals for display") and `CLAUDE.md`.
+
+**Verified**
+- `./mvnw -B clean verify` on this commit in a scratch worktree: see F8b's report and the last entry.
+
+**Open**
+- The screens' "≈" total (commit 6).
+
 ## 2026-10-06 · One rate rule set for every displayed conversion (F8b, commit 3)
 
 Commit on `feature/family-budget`, after commit 2: "feat(rates): D-49's rules for every displayed conversion, D-90,

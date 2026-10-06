@@ -108,11 +108,13 @@ public class FamilyRecordService {
     private final JdbcClient jdbc;
     private final FamilyPostingService posting;
     private final ObjectMapper json;
+    private final FamilyTotals totals;
 
-    FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, ObjectMapper json) {
+    FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, ObjectMapper json, FamilyTotals totals) {
         this.jdbc = jdbc;
         this.posting = posting;
         this.json = json;
+        this.totals = totals;
     }
 
     /**
@@ -444,7 +446,8 @@ public class FamilyRecordService {
      * Every member's balance in each currency (D-45, ADR 0004), B(m) = their expense shares − the expenses they paid +
      * the incomes they received − their income shares − the settlements they paid + the settlements they received, over
      * the records in that currency that aren't deleted (ADR 0003, topic D). In each currency the balances sum to zero,
-     * since every record's shares add up to its amount and a settlement moves as much to one as from the other.
+     * since every record's shares add up to its amount and a settlement moves as much to one as from the other. With
+     * D-47's total in the main currency, for display only ({@link FamilyTotals}).
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public FamilyBalances balances(LedgerScope family) {
@@ -460,7 +463,8 @@ public class FamilyRecordService {
         for (String currency : currencies) {
             byCurrency.add(new FamilyBalances.CurrencyBalances(currency, balancesIn(family, currency)));
         }
-        return new FamilyBalances(main, byCurrency.getFirst().members(), byCurrency);
+        return new FamilyBalances(main, byCurrency.getFirst().members(), byCurrency,
+                totals.balances(family, main, byCurrency));
     }
 
     /** Every member's balance in the currency, by join order. */

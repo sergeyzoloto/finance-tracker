@@ -33,9 +33,11 @@ public class FamilyReportService {
     private static final LocalDate LATEST = LocalDate.of(9999, 12, 31);
 
     private final JdbcClient jdbc;
+    private final FamilyTotals totals;
 
-    FamilyReportService(JdbcClient jdbc) {
+    FamilyReportService(JdbcClient jdbc, FamilyTotals totals) {
         this.jdbc = jdbc;
+        this.totals = totals;
     }
 
     /**
@@ -69,7 +71,8 @@ public class FamilyReportService {
             byCurrency.add(section(family, currency, first, last, members, categories));
         }
         FamilyReport.CurrencyReport inMain = byCurrency.getFirst();
-        return new FamilyReport(main, from, to, members, inMain.rows(), inMain.totals(), byCurrency);
+        return new FamilyReport(main, from, to, members, inMain.rows(), inMain.totals(), byCurrency,
+                totals.report(family, main, first, last, members));
     }
 
     /** The report of the records in one currency. */

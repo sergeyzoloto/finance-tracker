@@ -151,6 +151,21 @@ Old fields stay, deprecated in code, until F8b moves the frontend to the new one
   to their single amounts, which stay as the main currency's.
 - The integrity check's family rows are per currency.
 
+## Totals for display (F8b; D-47, D-49, D-90, D-91)
+
+`GET …/balances` and `GET …/report` carry `total`: each member's figures in the main currency, for display only
+(`FamilyTotals`). It is never stored, posted or settled; balances, settlements and posting stay per currency.
+
+- The rates are those of the member who reads (their own manual rates, the shared ECB ones) by `RateBook`'s rules
+  (ADR 0002, "Conversion since F8b"): an ECB rate at most 7 days old, a manual one from its date until the next, the
+  most recent applicable date winning, the manual one on the same date, and the "stale" mark past 31 days.
+- The balances' total converts each currency's balance at the rate that applies today. The report's total converts
+  each month's amounts at the month's month-end rate, the current month (and any later one) at today's.
+- Each total is rounded HALF_UP once, at its end, to the main currency's minor unit, and names the rates it used
+  (`rates`: currency, date, perEuro, source, `stale`).
+- If a currency the total needs has no applicable rate, there is no total: `members` (or `totals`) is empty and
+  `missingCurrencies` names it, such as `RUB` after the ECB stopped publishing it.
+
 ## What F8b and F8c add
 
 - **F8b:** the interface (balances and settle-up per currency, the forms' currency and `accountAmount`, the record pages),

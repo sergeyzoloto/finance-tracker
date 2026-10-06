@@ -708,6 +708,268 @@ changed):
   temporary branch `ci-ubuntu-26.04-8d75f83`, at exactly `8d75f83`, Success in 8m 4s; Backend, Frontend (25 test
   files, 301 tests), Web image and Deploy scripts all passed. The temporary branch was deleted afterwards. Recorded in
   F8b (the row of "Deployed revisions" above).
+- The next deploy is F8 (F8a and F8b together, D-77, Flyway V11): "F8's deploy checklist with the suite" below. After
+  it, the rollback target is `8d75f83`, the V10 code on the V11 schema, which `rollback.sh` accepts while no family
+  record is in another currency than its budget's (ADR 0004, "The rollback condition").
+
+## F8's deploy checklist with the suite
+
+**Commit to deploy (M):** `feature/family-budget`'s head after F8b, the last commit F8b's report names in full; `main`
+fast-forwards to it in step 1 (D-57), so M is `origin/main` and a fast-forward of the running `8d75f83`. M holds this
+checklist, so the checklist can't name M's hash itself: the report does, and every block below that takes it says
+`<M>`; type M's full hash (40 characters) there before pasting the block. Pasted as it is, bash reads `<M>` as a
+redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `F8` (`deploy/checks/F8.sql` and `F8.expected`): F8a and
+F8b together, once (D-77). **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before,
+during and after this deploy. **The suite:** run from a clean checkout of M itself (QA-1 and QA-1b are in M), with
+`E2E_FAMILY=on`; it replaces the browser checks and the smoke test (D-51, D-56). This checklist is for this deploy only;
+don't run it again for another.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
+`cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it
+does nothing. A command that asks a question (`deploy.sh run`, `finish`, `rollback.sh`, and on the laptop
+`npm run e2e:prod`) is alone in its block; type its answer on the keyboard, after the question, never paste it.
+
+What runs and why:
+
+- `run` is the clone's script, `8d75f83`'s (OPS-2b's `deploy.sh`, which F8 doesn't change; bash reads it before the
+  merge). Its step 1.3 requires M to be `origin/main` after `git fetch` and a fast-forward of `HEAD` (`8d75f83`): M
+  descends from it through QA-1, QA-1b (`6fdc989`), F8a and F8b. 1.3 lists every commit from `8d75f83` to M (QA-1's,
+  F8a's eight and F8b's), "Migrations added: V11__multi_currency_family_records.sql", and under `deploy/`:
+  `RUNBOOK.md`, `checks/F8.expected`, `checks/F8.sql`, `rollback.sh`, `tests/mutate.sh`, `tests/run.sh` and
+  `tests/stubs/docker`. `finance.caddy`, the postgres service and `pg-backup/finance.conf` don't change.
+- Both images are rebuilt with new content: the backend (F8a, F8b) and the frontend (F8b) change. Compose recreates
+  `api` and `web`; signed-in browser sessions end. The api migrates the database to V11 at its start (Flyway: "Successfully
+  applied 1 migration to schema "app", now at version v11"), additive (ADR 0004, "Why V11 is additive"): a column
+  filled from each record's budget, a trigger function replaced, V7's freeze dropped; production holds no family record
+  now, so nothing is filled.
+- 3.2 keeps the running images (`8d75f83`'s api `sha256:fc9004a8611f…`, web `sha256:bba7ff04771a…`) as
+  `:8d75f839eb980666c674f7b000de7ec0ec0b2959` and `:previous`, and `/root/finance-tracker.previous` then names `8d75f83`;
+  it removes the tags of the oldest of the revisions it keeps, as "Deploying with deploy.sh" says.
+- 4.4 compares `F8.sql`'s output with `F8.expected`: Flyway's latest row V11, `family_record.currency` not null, V11's
+  function and trigger, V8's and V7's functions gone, 0 records in another currency than their budget's (ADR 0004's
+  rollback condition), 0 unbalanced entries, 0 ECB rouble rates after 2022-03-01. The numbers (`numbers.sql`) are
+  unchanged by V11, which adds no table.
+- After the merge the clone holds F8a's `rollback.sh`: below V11 from a database at V11 it counts the records in another
+  currency than their budget's, refuses while that isn't 0, and goes on otherwise. So `8d75f83` (the V10 code on the V11
+  schema) is a safe rollback target while the count is 0, which the suite's cleanup keeps (step 7 checks it), and
+  becomes one that needs a restore once members record in other currencies (ADR 0004, "The rollback condition").
+- `finish` has no time limit after `run`'s summary: the suite may take its time; run nothing else of `deploy.sh` or
+  `rollback.sh` between `run` and `finish` but what this checklist names.
+
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted F8b
+and named M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git fetch origin && git checkout feature/family-budget && git status --short && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git log -1 --format='%H %P %s'
+```
+
+You should see no line from `git status --short`, a fast-forward of `main` from `6fdc989`, the push of both branches,
+and M in full with its parent and F8b's last subject: exactly the commit F8b's report names. If the merge says `Not
+possible to fast-forward`, or the hash is another, stop and tell the PM. CI starts with the push, on M; don't start
+"CI on Ubuntu 26.04" now (step 9 says when, D-44).
+
+CI on M, read only, from GitHub's public API, once the five jobs have had time to finish (about ten minutes); type M:
+
+```bash
+# On the laptop
+M=<M>; curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see `5`, then `Backend`, `Deploy scripts`, `Dependency updates`, `Frontend` and `Web image`, each
+`completed success`. Anything else: stop; `run`'s gate (1.5) would refuse anyway.
+
+**2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-api:b6870f2b6272aebe0b5989a2128f2a28bf63af44 finance-tracker-api:45100032b97bc2809ab7b8ec9538735ebbd8426a finance-tracker-api:f0425c09b2d4492d9e836dc77bc384319e2003c1 finance-tracker-web:previous finance-tracker-web:latest finance-tracker-web:b6870f2b6272aebe0b5989a2128f2a28bf63af44 finance-tracker-web:45100032b97bc2809ab7b8ec9538735ebbd8426a finance-tracker-web:f0425c09b2d4492d9e836dc77bc384319e2003c1; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+}
+```
+
+You should see, as "Production now" left it after OPS-2b (2026-10-05):
+
+- Docker server 29.8.2, linux/amd64 (or a later patch the PM knows of); Compose; `Image store:
+  [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: 8d75f839eb980666c674f7b000de7ec0ec0b2959 Merge pull request #13 from sergeyzoloto/feature/family-budget`, or a
+  later commit of `main` if only documentation was pulled since; `git status --short` listing only the three
+  `?? deploy/app/.env.2…` copies; `previous file: b6870f2b6272aebe0b5989a2128f2a28bf63af44`.
+- `last-good`: `commit=8d75f839eb980666c674f7b000de7ec0ec0b2959`, `api_image=sha256:fc9004a8611f…`,
+  `web_image=sha256:bba7ff04771a…`, `api_content=sha256:f4add3bcaa8f…`, `web_content=sha256:2a604232772e…`,
+  `source=deploy`, `finish=passed 2026-10-05T18:19:27Z`.
+- The history ending with OPS-2b's `good 8d75f83…` lines; the newest run folder `…-8d75f83`.
+- The containers on api `sha256:fc9004a8611f…` (content `sha256:f4add3bcaa8f…`) and web `sha256:bba7ff04771a…`
+  (content `sha256:2a604232772e…`).
+- `:previous` and `:b6870f2…` of the api `sha256:6d6f35b8…`, of the web `sha256:bba7ff04…`; the tags of `4510003…` and
+  `f0425c0…` as OPS-2b's run left them.
+- The log lines of the api's start of 2026-10-05, the D-25 line "on"; `1`; `600 root` for `.env` and its copies.
+
+If anything differs, stop and send it to the PM: a difference in the images or `last-good` changes what 3.2 does.
+
+**3. On the server: verify, read only**, with the running script.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-2b
+```
+
+You should see `verify OPS-2b: OK`: both images "the recorded image", `Image store: containerd, platform linux/amd64`,
+the pages 5 of 5, Flyway V10, the D-25 line "on", `OPS-2b.expected`'s 6 lines, and the 21 numbers. Keep the numbers:
+step 4 prints them again, and step 7 compares with them.
+
+**4. On the server: the deploy**, alone in its block; type M's 7 characters at the confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> F8
+```
+
+It prints ("Deploying with deploy.sh" lists the steps):
+
+- 1.2: `HEAD: 8d75f83 Merge pull request #13 …`, the running images, `Last good deploy: 8d75f83 … (deploy)`, its status
+  `good`, both images "the recorded image", the read-only role's line.
+- 1.3: the fetch; the commits from `8d75f83` to M; `Migrations added: V11__multi_currency_family_records.sql`; under
+  `deploy/` the seven files listed above.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 5 check runs, every one completed with
+  success (…)`. 1.6: the F8 files. 1.7: the 21 numbers of step 3.
+- 1.8: a fresh dump, its restore test `PASS`, and the before-dump preserved in the run folder (D-43), with its SHA-256.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage F8, over 8d75f83.` and the commits line; type the 7 characters.
+- 3.1: `git merge --ff-only <M>`: `Fast-forward` and the files. 3.2: the running images kept as
+  `:8d75f839eb980666c674f7b000de7ec0ec0b2959` and `:previous`, and the oldest kept revision's tags removed. 3.3: api and
+  web built (the api's build runs Maven: a few minutes). 3.4: both recreated. 3.5: `api: healthy, web: healthy` (the api
+  takes up to two minutes: it migrates first). 3.6: `Pages: 5 of 5 as expected`.
+- 4.1: `Latest row: 11 multi currency family records true; the highest migration in <M>: V11`, the line `Successfully
+  applied 1 migration to schema "app", now at version v11` and `Started: …`, of this deploy's time. 4.2: the D-25 line
+  "on" of this deploy's time. 4.3: `The same numbers`. 4.4: the 9 lines of `F8.expected`. 4.5: `finance.conf: not
+  installed (unchanged)`. 4.6: an after-dump and `PASS`.
+- 5: the summary, with `Numbers: the same before and after (…)` (keep it for step 7), then `Left for you: the browser
+  checks and the smoke test of the stage's checklist, then: deploy/deploy.sh finish`: here, the suite of step 5.
+
+A FAILED line: stop, read it, and send it to the PM; it prints the rollback command, which isn't run. The way back is
+the last block, and only for a failed deploy.
+
+**5. On the laptop: the end-to-end suite against production** (D-51, D-56), in place of the browser checks and the
+smoke test, from a clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && git status --short && git log -1 --format='%H %s'
+```
+
+You should see no line from `git status --short`, then M in full. If `git status` lists anything, or the commit is
+another, stop.
+
+Then the suite, alone in its block. Read its banner (the target https://app.finance-nl.com, `e2e-a
+(e2e-a@finance-nl.com)`, `e2e-b (e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, M and "clean tree"), then type `E2E PROD`
+after the question and press Enter.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+It takes about three minutes. Since F8 the identity check compares `/api/me`'s email with the account's (D-54). Paste
+its summary into the chat, from `===== E2E summary =====` to the password search's line. You should see `Commit:` M
+`(clean tree)`, `E2E_FAMILY: on`, `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`,
+`family F8 passed`, `cleanup passed`, both accounts `sign-in checked (/api/me: E2E Account A)` (and B) with their data
+deleted and signed out, `Result: PASSED` and `Password search over the artifacts: 0 hits`. Family F8 enters a manual
+RUB rate for `e2e-a` and checks after Delete all my data that none is left; the cleanup deletes both accounts' data
+again.
+
+- A second run is allowed once, after fixing the cause, only if the first stopped before sending anything ("Refused,
+  nothing done", "Not confirmed", "No terminal … nothing done", D-58). After a failed sign-in or `ABORTED` there is no
+  retry: do the browser checks and the smoke test of [OPS-2b's appendix](#appendix-ops-2bs-browser-checks-and-smoke-test-by-hand)
+  by hand, and answer `finish` from them.
+- If a spec or the cleanup failed (`Result: FAILED`): don't run `finish` until the PM has read the summary (D-59). If
+  the app is broken, `finish` is answered `no` and the PM decides on the rollback; if the suite is wrong, that item is
+  checked by hand instead. A failed cleanup names what to delete by hand.
+- Nothing of F8 is left to check by hand: every point of its plan is a spec of the suite.
+
+**6. On the server: finish**, only after step 5, alone in its block; type `yes` or `no` to each question: `yes` to both
+only if step 5's summary says `Result: PASSED` with 0 password hits (or, after a run that stopped before the specs, only
+if the appendix's checks passed in full); otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-<M's 7 characters>`, the pages 5 of 5, the two
+answers, "Family numbers after the smoke test: the family lines as before the deploy" (the suite deletes everything it
+made), the images and "Done". After `no`: `NOT PASSED: …`, exit status 3, and the rollback command, which isn't run.
+
+**7. On the server: verify F8, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify F8
+```
+
+You should see `verify F8 at <M's 7 characters> …: OK`: both images "the recorded image", the pages 5 of 5, Flyway V11,
+the D-25 line "on", `F8.expected`'s 9 lines (among them `records in another currency than their budget's 0`: after
+the suite, ADR 0004's rollback condition still holds, so `8d75f83` stays a rollback target), and the numbers exactly
+those of step 4's `Numbers:` line: the suite leaves no row of `e2e-a` or `e2e-b`, manual rates included. A real user
+signing up or writing meanwhile explains a difference in their own lines only, and a real member recording in another
+currency than their budget's a count above 0 (then the rollback in the last block needs a restore); judge it before
+going on.
+
+**8. Acceptance: `rollback.sh 8d75f83` goes past V11 to its question**, changing nothing. Each block alone, in this
+order.
+
+The rollback state, before:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous finance-tracker-api:8d75f839eb980666c674f7b000de7ec0ec0b2959 finance-tracker-web:8d75f839eb980666c674f7b000de7ec0ec0b2959; cat /var/lib/finance-deploy/last-good; }
+```
+
+You should see `8d75f839eb980666c674f7b000de7ec0ec0b2959`; the api's and the web's previous images twice each
+(`sha256:fc9004a8…` and `sha256:bba7ff04…`, or other IDs of the same content, as the containerd store gives); and
+`last-good` with `commit=` M and `finish=passed …`.
+
+`rollback.sh 8d75f83`, alone in its block; type `no` at its question.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh 8d75f83
+```
+
+You should see step 1 the image store and platform; step 2 `Target: 8d75f83 Merge pull request #13 …, the commit HEAD's
+deploy replaced (…-<M's 7 characters>); its status, its newest line in the history: good`; step 3 the api and web
+images accepted (by ID or by content); step 4 `Flyway's latest row: 11 multi currency family records true; the
+target's highest migration: V10` and `No family record in another currency than its family budget's main currency: the
+code before V11 reads every record as it is.`, and no REFUSED for V11; then the question, and after `no`: `REFUSED at
+"5. Confirmation": not confirmed` and "Nothing changed." Then the block "The rollback state, before" again: the same
+lines.
+
+**9. CI on Ubuntu 26.04 (D-44)**, only now: CLAUDE.md allows it only on a commit that is deployed and finished, which
+M now is, and "Run workflow" runs on the branch's head, which is M as long as nothing else is pushed to `main`. On
+GitHub, Actions → "CI on Ubuntu 26.04" → "Run workflow" on `main`; check that the run names M. Expected: every job
+green. If `main` has moved past M by then, run it under D-60: a temporary branch at exactly M, deleted afterwards. Send
+its result to the PM.
+
+**10. Last, only for a failed deploy where the site is down: the rollback**, alone in its block; type `ROLLBACK
+8d75f83` at its question. It goes to `8d75f83`, the V10 code on the V11 schema, which works while no family record is
+in another currency than its budget's (step 7's count); `rollback.sh` refuses otherwise, and then only a restore from
+the dump preserved before this deploy goes back.
+
+```bash
+# On the server: only for a failed deploy where the site is down
+cd /opt/finance-tracker && deploy/rollback.sh 8d75f83
+```
 
 ## OPS-2b's deploy checklist with the suite
 

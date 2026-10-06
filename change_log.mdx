@@ -3,6 +3,50 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · F8's deploy checks and checklist; F8b's end (F8b, commit 8)
+
+Commit on `feature/family-budget`, after commit 7: "docs(deploy): F8's checks and deploy checklist (F8b)", whose hash
+F8b's report names; it is the commit to deploy (M) once the PM accepts F8b. Not pushed; nothing deployed, and
+production not accessed.
+
+**Changes**
+- `deploy/checks/F8.sql` and `F8.expected` (9 lines): Flyway's latest row V11, `family_record.currency` not null, V11's
+  function and trigger `family_record_check_currencies`, V8's `family_record_check_currency` and V7's
+  `ledger_check_base_currency` gone, ADR 0004's rollback condition (records in another currency than their budget's)
+  0, unbalanced entries 0, ECB rouble rates after 2022-03-01 0. No family counter is pinned. `numbers.sql` is
+  unchanged: V11 adds no table.
+- `deploy/RUNBOOK.md`: "F8's deploy checklist with the suite", built as OPS-2b's: the commit M (F8b's last, named in
+  the report; the checklist can't hold its own hash, and an unreplaced `<M>` runs nothing), the stage F8, the switch
+  on throughout; what runs and why (the clone's `deploy.sh` of `8d75f83`, the 26 commits from `8d75f83`, V11 added, the
+  seven files under `deploy/`, both images rebuilt, the rollback guard after the merge); 1. `main` and
+  `feature/family-budget` fast-forwarded to M and pushed (D-57), CI on M read through GitHub's API; 2. the read-only
+  pre-flight with the expected state after OPS-2b; 3. `verify OPS-2b`; 4. `deploy/deploy.sh run <M> F8` with what each
+  step prints; 5. the suite from a clean checkout of M with `E2E_FAMILY=on`, under D-58 and D-59, nothing left by hand;
+  6. `finish`, only after the suite; 7. `verify F8`: the stage's checks, the numbers as before the suite, the rollback
+  condition 0 after it; 8. `rollback.sh 8d75f83` answered `no` between two read-only looks, which must pass V11's guard
+  ("No family record in another currency …") to its question; 9. "CI on Ubuntu 26.04" on M, only now (D-44, D-60);
+  10. the rollback to `8d75f83`, last and alone, only for a failed deploy. "Production now" names the next deploy.
+- `CLAUDE.md`: F8b's state and the deploy it waits for.
+
+**Verified**
+- `F8.sql` on a throwaway `postgres:17-alpine` (my own container, removed afterwards) migrated to V11 by Flyway 11 from
+  the repository's migrations, run as a role like `finance_checks` (no superuser, `pg_read_all_data`, read only) with
+  `deploy.sh`'s psql flags: its output equals `F8.expected`. No backslash in the file.
+- Bash on an unreplaced placeholder: `deploy/deploy.sh run <M> F8` fails at the redirection and runs nothing (no file
+  created); `M=<M>; …` is a syntax error.
+- `deploy/tests/run.sh` 92 of 92; `deploy/tests/mutate.sh` every one of 54 mutations caught; ShellCheck v0.11.0 as CI
+  runs it: clean.
+- At F8b's end, on this tree: `./mvnw -B clean verify` 434 tests, 0 failures; `npm test` in `frontend/` 312 passed;
+  `npm run build` built; `npm run typecheck` in `e2e/` clean; `npm run e2e:local` as in commit 7's entry (the
+  application and the specs are unchanged since): `Result: PASSED` at 1280 and 375 px. The dev stack was stopped
+  afterwards with `./stop.sh`.
+
+**Open**
+- The PM's acceptance of F8b, then F8's deploy by this checklist; the production run of the suite is the owner's.
+- F8c: refunds (D-79), counterparty payments (D-80), the payer's payee (D-81), the import's sync fields.
+- The questions in F8b's report: month-end rates for the personal cash flow; the journal's currency for amounts of a
+  record created before its budget's main currency changed.
+
 ## 2026-10-06 · The end-to-end suite for F8: family F7 per currency, a new family F8 (F8b, commit 7)
 
 Commit on `feature/family-budget`, after commit 6b: "test(e2e): family F7 per currency and a family F8 spec (F8b)",

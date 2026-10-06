@@ -1,0 +1,9 @@
+flyway latest 11 multi currency family records true
+column family_record.currency character nullable NO
+function family_record_check_currencies 1
+trigger family_record_check_currencies 1
+function family_record_check_currency (V8) 0
+function ledger_check_base_currency (V7) 0
+records in another currency than their budget's 0
+unbalanced entries 0
+ECB rouble rates after 2022-03-01 0

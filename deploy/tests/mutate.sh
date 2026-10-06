@@ -213,7 +213,8 @@ mutation "don't check the preserved copy" \
 
 # OPS-2, defect 3: rollback.sh's refusal below V7 without the preserved dump.
 mutation_in rollback.sh "don't name the preserved dump below V7" \
-  '; $(preserved_dump_of "$DR_DIR")"' '"' \
+  'is below V7: that needs a restore from a dump (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"' \
+  'is below V7: that needs a restore from a dump (deploy/RUNBOOK.md, \"Restore from a backup\")"' \
   rollback_below_v7
 
 # OPS-2, defect 4: images compared by ID again, so a rebuild of the same content looks like a failed run's.
@@ -322,6 +323,12 @@ mutation "let switch on go on without the numbers" \
   $'      [ "$direction" = off ] || fail "$NUMBERS_WHY"\n      say "WARNING: $NUMBERS_WHY; switching' \
   $'      say "WARNING: $NUMBERS_WHY; switching' \
   switch_off_without_the_numbers
+
+# F8a (ADR 0004, "The rollback condition"): rollback.sh's refusal below V11 removed.
+mutation_in rollback.sh "drop the refusal below V11" \
+  'if [[ $db_version =~ ^[0-9]+$ ]] && [ "$db_version" -ge 11 ] && [ "$target_max" -lt 11 ]; then' \
+  'if false; then' \
+  rollback_below_v11
 
 echo
 if [ "$survived" -eq 0 ]; then

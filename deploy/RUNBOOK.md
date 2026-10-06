@@ -1422,9 +1422,13 @@ that one), a commit whose images are missing or aren't the recorded ones (since 
 recorded content is `INFO`), without the read-only role (then it names
 [Roll an update back](#roll-an-update-back), the manual way), and, by D-22, a commit below
 V7 while production holds family records: the code before F4a can't read the entry kinds the family budget posts, so
-that needs [Restore from a backup](#restore-from-a-backup) of the dump taken before the deploy. Otherwise every
-migration is additive (D-22): the previous image runs on the newer schema, and Flyway in it ignores the migrations
-it doesn't know.
+that needs [Restore from a backup](#restore-from-a-backup) of the dump taken before the deploy. Since F8a it also
+refuses, from a database at V11 or later, a commit below V11 while a family record is in another currency than its
+family budget's main currency (`family_record.currency` other than `ledger.base_currency`, deleted records included):
+the code before V11 reads a record's amount and shares as amounts in the main currency, so it would misread those
+records in its balances, report, posting and integrity check (ADR 0004, "The rollback condition"). That too needs a
+restore, of a dump taken before the first such record. Otherwise every migration is additive (D-22): the previous
+image runs on the newer schema, and Flyway in it ignores the migrations it doesn't know.
 
 It shows what it will do and asks you to type `ROLLBACK` and the commit's first 7 characters. Then it checks out the
 commit (detached; under `umask 022` since F7b), tags its images as the ones to run, starts api and web
@@ -1725,6 +1729,15 @@ for i in $(seq 60); do s=$(docker inspect -f '{{.State.Health.Status}}' finance-
   ```bash
   # On the server (read only)
   cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -U finance -d finance -c "SELECT count(*) FROM app.family_record" </dev/null
+  ```
+- **Past V11, only while no family record is in another currency than its budget's main currency** (F8a; ADR 0004,
+  "The rollback condition"). The images before V11 read a record's amount and shares as amounts in the family
+  budget's main currency. Check it before the block above, on a database at V11 or later; it must print `0`, else going
+  back means restoring a dump taken before the first such record:
+
+  ```bash
+  # On the server (read only)
+  cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -A -t -U finance -d finance -c "SELECT count(*) FROM app.family_record r JOIN app.ledger l ON l.id = r.ledger_id WHERE r.currency <> l.base_currency" </dev/null
   ```
 
 To go forward again, leave the detached checkout first, **on the server**:

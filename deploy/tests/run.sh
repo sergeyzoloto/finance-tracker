@@ -137,6 +137,7 @@ EOF
   echo healthy >"$s/fixtures/health-web"
   echo "9 family invites true" >"$s/fixtures/flyway"
   echo 0 >"$s/fixtures/family_records"
+  echo 0 >"$s/fixtures/family_records_misread"
   cp "$ROOT/deploy/checks/OPS-1.expected" "$s/fixtures/stage"
   numbers 0 >"$s/fixtures/numbers"
   cp "$HERE/fixtures/check-runs-success.json" "$s/fixtures/ci"
@@ -181,6 +182,13 @@ new_target() {
         api) sed -i 's/mem_limit: 768m/mem_limit: 769m/' deploy/app/docker-compose.yml ;;
         conf) echo "# changed" >>deploy/pg-backup/finance.conf ;;
         privacy) mkdir -p frontend/public && echo '<h1>Privacy policy</h1>' >frontend/public/privacy.html ;;
+        migrations11)
+          for v in 10 11; do
+            for f in "$ROOT"/backend/src/main/resources/db/migration/V"${v}"__*.sql; do
+              echo "-- placeholder" >"backend/src/main/resources/db/migration/$(basename "$f")"
+            done
+          done
+          ;;
         migrations)
           for v in 7 8 9; do
             for f in "$ROOT"/backend/src/main/resources/db/migration/V"${v}"__*.sql; do
@@ -1128,6 +1136,42 @@ case_rollback_below_v7() {
   type_at_terminal "no"
   run_rollback "${SHA_D:0:7}"
   check "without family records it gets to the confirmation" out_has "No family record: the code before V7 can run on this database."
+  rollback_refused "not confirmed"
+}
+
+# F8a (ADR 0004, "The rollback condition"): from a database at V11, going back to a commit below V11 is refused while a
+# family record is in another currency than its budget's main currency, which that code would read as the main
+# currency's; without one it goes on to the confirmation; from a database below V11 nothing is asked.
+case_rollback_below_v11() {
+  setup_case
+  new_target migrations11
+  echo "11 multi currency family records true" >"$STUB_STATE/fixtures/flyway"
+  deploy_e
+  [ "$RC" -eq 0 ] || { echo "    setup: the deploy of E failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  : >"$STUB_STATE/calls"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+  fixture family_records_misread 2
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  rollback_refused "production holds 2 family records in another currency than their family budget's main currency, and ${SHA_D:0:7} is below V11"
+  check "says what the target would misread" out_has "it would read their amounts and shares as amounts in the budget's main currency"
+  check "names the way back: a restore" out_has "going back needs a restore from a dump taken before the first of them"
+  check "names the dump preserved before the deploy (D-43)" out_has "the dump taken before HEAD's deploy is preserved as $C/state/runs/"
+  check "counted as the read-only role" calls_have "psql .*r.currency <> l.base_currency"
+  fixture family_records_misread 0
+  type_at_terminal "no"
+  run_rollback "${SHA_D:0:7}"
+  check "without such records it gets to the confirmation" out_has "No family record in another currency than its family budget's main currency"
+  rollback_refused "not confirmed"
+  # A database below V11: nothing to misread, and no such count.
+  echo "10 claimed seats and family deletion true" >"$STUB_STATE/fixtures/flyway"
+  fixture family_records_misread 5
+  : >"$STUB_STATE/calls"
+  type_at_terminal "no"
+  run_rollback "${SHA_D:0:7}"
+  check "no count below V11" calls_lack "psql .*r.currency <> l.base_currency"
+  check "no word of it" out_lacks "in another currency than"
   rollback_refused "not confirmed"
 }
 
@@ -2543,7 +2587,7 @@ CASES=(
   switch_on_and_off switch_wrong_confirmation switch_secret_never_printed switch_failure_prints_the_way_back
   run_names_the_running_revision
   finish_on_an_ops1_run
-  rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7
+  rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7 rollback_below_v11
   old_tags_removed
   pasted_ahead_is_discarded yes_no_asks_again finish_skips_refused_runs newest_line_decides_status
   step_1_3_says_push_first

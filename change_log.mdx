@@ -3,6 +3,54 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · The rollback guard below V11; F8a's end (F8a, commit 8)
+
+Commit on `feature/family-budget`, after `1a394a3`: "fix(deploy): rollback.sh refuses below V11 while records would be
+misread (F8a)", whose hash F8a's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `deploy/rollback.sh`, step 4: from a database whose Flyway version is 11 or later, a target whose highest migration
+  is below V11 is refused, changing nothing, while `SELECT count(*) FROM app.family_record r JOIN app.ledger l ON l.id
+  = r.ledger_id WHERE r.currency <> l.base_currency` (read as `finance_checks`, deleted records included) isn't 0: ADR
+  0004's rollback condition. The refusal says how many records, that the target would read their amounts and shares as
+  amounts in the budget's main currency in its balances, report, posting and integrity check, that going back needs a
+  restore of a dump taken before the first of them, and names the dump preserved before HEAD's deploy (D-43). With none
+  it says so and goes on to the confirmation; below V11 it asks nothing.
+- `deploy/tests/run.sh`: case `rollback_below_v11` (92 cases): E adds V10 and V11, the database at V11; two such records
+  refuse it with the reason, the way back and the dump; none goes on to the confirmation, answered `no`; at V10 there is
+  no count and no word of it. The `docker` stub answers the count from `fixtures/family_records_misread`.
+- `deploy/tests/mutate.sh`: "drop the refusal below V11" (`if false; then` for the guard's condition), caught by
+  `rollback_below_v11` (54 mutations). The mutation "don't name the preserved dump below V7" names its V7 text in full,
+  which the new refusal's ending repeats.
+- `deploy/RUNBOOK.md`: "Roll back with rollback.sh" states the refusal below V11; "Roll an update back" (the manual
+  fallback) has the same read-only count to run before going back past V11.
+- `CLAUDE.md`: F8's stages and F8a's state, V11, records and shares per currency, the paying side and `accountAmount`,
+  `/conversion` and `baseAmount` deprecated, `byCurrency`, posting and the integrity check per currency, the rollback
+  guard, the new tests, 92 cases and 54 mutations.
+
+**Verified**
+- `deploy/tests/run.sh`: 92 of 92. `deploy/tests/mutate.sh`: every one of 54 mutations caught, the new one by
+  `rollback_below_v11`. ShellCheck v0.11.0 as CI runs it: clean.
+- At the end of F8a: `./mvnw -B clean verify` 417 tests, 0 failures; `npm test` in `frontend/` 301 passed; `npm run
+  build` in `frontend/` built; `npm run typecheck` in `e2e/` (the only package with that script) clean.
+- `npm run e2e:local` once, on `./dev.sh`'s stack rebuilt with F8a (the local database migrated to V11: "Successfully
+  applied 1 migration … now at version v11"): pages, sign-in, smoke, smoke at 375 px and cleanup passed; family F7 and
+  family F7 at 375 px failed at `03-family-f7.spec.ts:41`, `expect(fact(b.page, 'Amount')).toContainText('€50.00')`
+  receiving "$54.00": B's dollar expense entered with euros is a dollar record under D-45, the D-13 expectation D3b-0
+  named, which F8b updates. `Result: FAILED`; both accounts' data deleted and signed out; password search 0 hits. The
+  spec stops there, so its later expectations of D-13 (the balances, the report's euros, "Amount in EUR") weren't
+  reached. `02-smoke` passed, unlike D3b-0's expectation: the old fields of balances and the report stay the main
+  currency's, so the old screens still sum the euro balances to €0.00.
+- `git diff --numstat 6fdc989..HEAD`: nothing under `frontend/` or `e2e/`.
+
+**Open**
+- F8b: the interface (balances and settle-up per currency, the forms' currency and `accountAmount`, the invite page and
+  the delete screen per currency), the report's screen, D-47's totals with D-49's rates, D-53, D-54, the specs that
+  expect D-13 (`02-smoke`'s and `03-family-f7`'s), `deploy/checks/F8.*` and the deploy checklist; the deprecated fields'
+  last users go. Whether the paying side's amount in another currency stays visible to every member (ADR 0004).
+- F8c: refunds (D-79), payments from counterparty accounts (D-80), the payer's payee (D-81), the import's sync fields.
+- "CI on Ubuntu 26.04" for `8d75f83` (D-60), before 2026-10-19.
+
 ## 2026-10-06 · Invariants, the integrity check and the random tests in several currencies (F8a, commit 7)
 
 Commit on `feature/family-budget`, after `ac20d3d`: "test(family): random tests and the integrity check in several

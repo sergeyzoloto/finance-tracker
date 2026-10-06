@@ -12,7 +12,9 @@
 # "ROLLBACK <first 7 characters>" is typed at the terminal. Then, as the runbook's "Roll an update back": the clone to
 # that commit (detached), its images retagged, api and web started, health checked. The database and
 # /etc/pg-backup/finance.conf stay as they are. Going back below V7 while production holds family records is refused
-# (D-22): that needs a restore from a dump.
+# (D-22): that needs a restore from a dump. So is going back below V11 from a database at V11 or later while a family
+# record is in another currency than its family budget's main currency (F8a; ADR 0004, "The rollback condition"): the
+# code before V11 would read its amounts as amounts in the main currency.
 #
 # Like deploy.sh, it is functions only and its last line calls main: the checkout replaces this file while it runs.
 # The test variables are deploy.sh's (deploy/common.sh).
@@ -77,7 +79,7 @@ target_image() {
 }
 
 cmd_rollback() {
-  local arg=$1 head sha api_now web_now target_max family flyway problem tag_api tag_web
+  local arg=$1 head sha api_now web_now target_max family flyway db_version misread problem tag_api tag_web
   [[ $arg =~ ^[0-9a-f]{7,40}$ ]] || usage
   PHASE=refusing
   trap on_exit_rollback EXIT
@@ -131,6 +133,16 @@ cmd_rollback() {
     [ "$family" = 0 ] \
       || fail "production holds $family family records, and ${sha:0:7} is below V7: that needs a restore from a dump (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"
     say "No family record: the code before V7 can run on this database."
+  fi
+  db_version=${flyway%% *}
+  if [[ $db_version =~ ^[0-9]+$ ]] && [ "$db_version" -ge 11 ] && [ "$target_max" -lt 11 ]; then
+    # ADR 0004, "The rollback condition": the code before V11 reads a record's amount and shares as amounts in its
+    # family ledger's base currency. It misreads exactly the records in another currency, deleted ones included.
+    misread=$(sql_query "SELECT count(*) FROM app.family_record r JOIN app.ledger l ON l.id = r.ledger_id WHERE r.currency <> l.base_currency") \
+      || fail "could not count the family records in another currency than their family budget's main currency"
+    [ "$misread" = 0 ] \
+      || fail "production holds $misread family records in another currency than their family budget's main currency, and ${sha:0:7} is below V11: it would read their amounts and shares as amounts in the budget's main currency, in its balances, report, posting and integrity check (ADR 0004, \"The rollback condition\"); going back needs a restore from a dump taken before the first of them (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"
+    say "No family record in another currency than its family budget's main currency: the code before V11 reads every record as it is."
   fi
 
   heading "5. Confirmation"

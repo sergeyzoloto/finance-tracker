@@ -132,6 +132,8 @@ psql_call() {
   else
     case $args in
       *flyway_schema_history*) f=$(next_fixture flyway) ;;
+      # rollback.sh's count of the records an image before V11 would misread (ADR 0004).
+      *"r.currency <> l.base_currency"*) f=$(next_fixture family_records_misread) ;;
       *app.family_record*) f=$(next_fixture family_records) ;;
       *) echo "docker stub: unknown query: $args" >&2; exit 99 ;;
     esac

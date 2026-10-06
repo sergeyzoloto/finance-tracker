@@ -145,8 +145,9 @@ public class FamilyRecordService {
         List<Share> shares = List.of();
         if (amountValid(violations)) {
             amount = inMinorUnits(request.amount(), currency);
-            side = payingSide(personal, payment, amount, currency, request.accountAmount(), null, true,
-                    request.payerMemberId(), violations, type, way(type, true));
+            // The paying side once the payer and their account are valid, so that its rules don't add to theirs.
+            side = violations.isEmpty() ? payingSide(personal, payment, amount, currency, request.accountAmount(), null,
+                    true, request.payerMemberId(), violations, type, way(type, true)) : null;
             shares = split(request.split(), amount, scale, request.date(), request.payerMemberId(), ledger, members,
                     Set.of(), violations, type);
         }
@@ -298,7 +299,7 @@ public class FamilyRecordService {
         }
         boolean amountChanged = amount.compareTo(record.amount()) != 0 || !currency.equals(record.currency());
         Side side = sideOf(record);
-        if (amountValid(violations)) {
+        if (violations.isEmpty()) {
             side = changedSide(family, personal, record, changes, payment, payerId, date, amount, currency,
                     amountChanged, members, violations);
         }
@@ -596,7 +597,7 @@ public class FamilyRecordService {
         }
         BigDecimal amount = null;
         Side side = null;
-        if (amountValid(violations)) {
+        if (violations.isEmpty()) {
             // The recorder's own side: on their account, in its currency with what went from or into it (D-87).
             amount = inMinorUnits(request.amount(), currency);
             side = payingSide(personal, payment, amount, currency, request.accountAmount(), null, true,
@@ -709,7 +710,7 @@ public class FamilyRecordService {
         boolean amountChanged = amount.compareTo(record.amount()) != 0 || !currency.equals(record.currency());
         boolean bySide = record.authorId() == record.payerId() || Objects.equals(record.authorId(), record.payeeId());
         Side side = sideOf(record);
-        if (amountValid(violations)) {
+        if (violations.isEmpty()) {
             String way = way(SETTLEMENT, record.authorId() == record.payerId());
             if (!bySide) {
                 // Recorded by an owner between two members without an account: nobody's account.

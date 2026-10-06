@@ -3,6 +3,42 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · Invariants, the integrity check and the random tests in several currencies (F8a, commit 7)
+
+Commit on `feature/family-budget`, after `ac20d3d`: "test(family): random tests and the integrity check in several
+currencies (F8a)", whose hash F8a's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- Already per currency from earlier commits, as their entries say: `FamilyInvariants` (commit 3: the zero sum and each
+  debt account against its member's balance in every currency, on every record's date, D-1 and D-10) and the
+  integrity check's family rows (commit 5).
+- `FamilyRecordRandomTests`: records and settlements in euros, dollars (a quarter) and roubles (an eighth), paid from
+  the members' accounts in all three (a euro cash and current account, Alice's dollar card, Bob's rouble account) or
+  "Specify later", naming what went from or into an account in another currency on creation, on each new amount (from
+  the reader's own `yourPayment`) and when an account is named, the other side of a settlement too; a seat without an
+  account pays and receives. The seed's 240 operations: 30 records and settlements in dollars, 17 in roubles, 36 paid
+  from an account in another currency, six locks (D-28); the invariants, E1 and E3 per currency after each.
+- `FamilyLifecycleRandomTests` (leave and return, D-19, D-26, D-36, D-39): records in euros, dollars or roubles paid
+  "later" or from euro cash with the amount named, a fifth of them settlements in one currency (D-46) with a member with
+  or without an account; a new amount names the account's amount when the side is in another currency. 154 operations,
+  four rounds ending with the budget gone; the integrity check per currency for all four users after each.
+- `FamilyClaimRandomTests`: a quarter of the records and settlements in dollars again, now dollar records paid from
+  euro cash with the euros named (D-87), so the claimer's opening balance has a pair per currency (D-31, D-35).
+- `FamilyCategoryApiTests.theIntegrityCheckComparesEachCurrency`: a dollar share changed past the triggers gives one
+  row in dollars and none in euros; euro lines on the debt account rewritten as francs give a row in each currency,
+  francs against a family balance of 0.
+- `FamilyRecordService`: the paying side's rules run only once the other rules passed, so that an invalid request (a
+  settlement with oneself, a record before a claim's date) gets no second, misleading `ACCOUNT_AMOUNT` violation (found
+  by tallying the claim random test's refusals: all were D-14's, D-15's, D-27's or D-32's rules).
+
+**Verified**
+- `./mvnw -B clean verify`: 417 tests, 0 failures. The three random tests' expected counts are the seeds' new mixes;
+  no operation answered anything but 200, 201, 204, 409 or 422, and every refusal of the claim test is one of the rules
+  named above.
+
+**Open**
+- The rollback guard (commit 8).
+
 ## 2026-10-06 · Opening balances, corrections, invites and the deletion preview per currency (F8a, commit 6)
 
 Commit on `feature/family-budget`, after `d2bf6f5`: "feat(family): membership flows per currency (F8a)", whose hash

@@ -20,7 +20,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 /**
  * Taking a seat at random (F5; D-18, D-10; ADR 0003, topic K), from a fixed seed. Each round, Alice and Bob keep a
  * family budget with two members without an account, Kid and Gran: expenses, incomes and settlements at random, a
- * quarter in dollars with the base amount entered, many paid or received by Kid or Gran. Then a new user takes one of
+ * quarter of them records in dollars (D-45; since F8a), paid from euro cash with the euros named (D-87), many paid or
+ * received by Kid or Gran, so that the claimer's opening balance has a pair of lines per currency. Then a new user takes one of
  * the two places from a random join date in September, and the three of them go on: new records, payment edits, family
  * edits and deletions of records before and after the join date, each by whoever the round picks, so that some are
  * refused (409, 422) and none fails. After the claim and after every operation the family's invariants hold
@@ -60,10 +61,10 @@ class FamilyClaimRandomTests extends LedgerApiTest {
 
     /** What the seed makes of six rounds. */
     private static final Map<String, Integer> EXPECTED_COUNTS = Map.ofEntries(Map.entry("claims", 6),
-            Map.entry("creates", 71), Map.entry("creates before the join date naming the seat", 21),
-            Map.entry("amounts", 16), Map.entry("amounts by the claimer", 17), Map.entry("dates", 8),
-            Map.entry("dates across the join date", 13), Map.entry("comments", 6), Map.entry("accounts", 6),
-            Map.entry("deletes", 8), Map.entry("tried before the join date", 40), Map.entry("refused", 65));
+            Map.entry("creates", 68), Map.entry("creates before the join date naming the seat", 7),
+            Map.entry("amounts", 11), Map.entry("amounts by the claimer", 12), Map.entry("dates", 3),
+            Map.entry("dates across the join date", 11), Map.entry("comments", 6), Map.entry("accounts", 7),
+            Map.entry("deletes", 12), Map.entry("tried before the join date", 38), Map.entry("refused", 80));
 
     private void round(Map<String, Integer> done) throws IOException {
         seat = null;
@@ -153,7 +154,12 @@ class FamilyClaimRandomTests extends LedgerApiTest {
                 if (choice < 60) {
                     // The amount, by whoever: the payer with an account, or the author or an owner of a guest's.
                     BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(20_000), 2);
-                    answer = patch(actor, path, "{\"amount\": \"%s\"}".formatted(amount));
+                    // From an account in another currency than the record's, with what went from it (D-87).
+                    boolean elsewhere = record.has("yourPayment")
+                            && !record.get("yourPayment").get("currency").asText().equals(record.get("currency").asText());
+                    answer = patch(actor, path, elsewhere
+                            ? "{\"amount\": \"%s\", \"accountAmount\": \"%s\"}".formatted(amount, amount.add(BigDecimal.ONE))
+                            : "{\"amount\": \"%s\"}".formatted(amount));
                     count(done, answer, actor.equals(claimer) ? "amounts by the claimer" : "amounts");
                 } else if (choice < 78) {
                     LocalDate date = LocalDate.parse(record.get("date").asText());
@@ -169,7 +175,10 @@ class FamilyClaimRandomTests extends LedgerApiTest {
                     count(done, answer, "comments");
                 } else if (choice < 92 && record.has("yourPayment")) {
                     answer = patch(actor, path, random.nextBoolean() ? "{\"paymentLater\": true}"
-                            : "{\"paymentAccountId\": %d}".formatted(cash.get(actor)));
+                            : record.get("currency").asText().equals("EUR")
+                                    ? "{\"paymentAccountId\": %d}".formatted(cash.get(actor))
+                                    : "{\"paymentAccountId\": %d, \"accountAmount\": \"%s\"}".formatted(cash.get(actor),
+                                            new BigDecimal(record.get("amount").asText()).add(BigDecimal.TEN)));
                     count(done, answer, "accounts");
                 } else {
                     answer = delete(actor, path);
@@ -197,21 +206,21 @@ class FamilyClaimRandomTests extends LedgerApiTest {
     }
 
     /**
-     * An expense or an income in euros (F4e's quarter in dollars with the base amount entered waits for the claim's
-     * opening balance per currency, F8a's commit 6); of the rule, or after the claim half
+     * An expense or an income, a quarter of them in dollars (D-45), paid from the actor's euro cash with the euros named
+     * (D-87) or "later"; of the rule, or after the claim half
      * the time all on the seat or half on it. The claimer's own record before their join date goes without an
      * account three times in four (D-32, D-35).
      */
     private MvcTestResult record(String actor, String uri, long payer, long own, long cash, Map<String, Long> category) {
         String type = random.nextInt(4) == 0 ? "INCOME" : "EXPENSE";
         BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(30_000), 2);
-        // Drawn as when a quarter were in dollars, so that each round's operations stay as they were.
-        random.nextInt(4);
-        String currency = "";
+        boolean dollars = random.nextInt(4) == 0;
+        String currency = dollars ? "\"currency\": \"USD\"," : "";
         LocalDate date = LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30));
         boolean seatsOwnBefore = seat != null && own == seat && date.isBefore(claimDate) && random.nextInt(4) > 0;
         String payment = payer != own || seatsOwnBefore ? "" : random.nextInt(3) == 0 ? "\"paymentLater\": true,"
-                : "\"paymentAccountId\": %d,".formatted(cash);
+                : "\"paymentAccountId\": %d,%s".formatted(cash,
+                        dollars ? " \"accountAmount\": \"%s\",".formatted(amount.add(BigDecimal.ONE)) : "");
         String split = "";
         if (seat != null && random.nextBoolean()) {
             split = own == seat || random.nextBoolean()
@@ -226,14 +235,19 @@ class FamilyClaimRandomTests extends LedgerApiTest {
                 .formatted(type, date, category.get(type), amount, currency, payment, payer, split));
     }
 
-    /** A settlement between the actor and someone else, either way. */
+    /**
+     * A settlement between the actor and someone else, either way, a quarter in dollars from the actor's euro cash, with
+     * the euros named (D-46, D-87).
+     */
     private MvcTestResult settle(String actor, String uri, long own, long other, long cash) {
         boolean pays = random.nextBoolean();
+        LocalDate date = LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30));
+        BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(10_000), 2);
+        String dollars = random.nextInt(4) == 0
+                ? ", \"currency\": \"USD\", \"accountAmount\": \"%s\"".formatted(amount.add(BigDecimal.ONE)) : "";
         return post(actor, uri + "/settlements", """
-                {"date": "%s", "amount": "%s", "payerMemberId": %d, "payeeMemberId": %d, "paymentAccountId": %d}"""
-                .formatted(LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)),
-                        BigDecimal.valueOf(1 + random.nextInt(10_000), 2), pays ? own : other, pays ? other : own,
-                        cash));
+                {"date": "%s", "amount": "%s", "payerMemberId": %d, "payeeMemberId": %d, "paymentAccountId": %d%s}"""
+                .formatted(date, amount, pays ? own : other, pays ? other : own, cash, dollars));
     }
 
     private void check(long family, String... users) throws IOException {

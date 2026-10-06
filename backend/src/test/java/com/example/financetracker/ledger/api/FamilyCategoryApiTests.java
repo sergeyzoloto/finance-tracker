@@ -172,6 +172,43 @@ class FamilyCategoryApiTests extends LedgerApiTest {
     }
 
     /**
+     * D-10 per currency (D-45, F8a): a 10.00 USD record beside a 10.00 EUR one, then one dollar share changed past the
+     * triggers by a cent each way: one row for dollars, none for euros. A line on Bob's debt account in a currency of no
+     * record, written past the triggers too, is a row of its own, against a family balance of 0.
+     */
+    @Test
+    void theIntegrityCheckComparesEachCurrency() throws IOException {
+        post(alice, uri + "/records", """
+                {"date": "2026-09-10", "categoryId": %d, "amount": "10", "payerMemberId": %d, "paymentLater": true}"""
+                .formatted(groceries, mum));
+        long record = body(post(alice, uri + "/records", """
+                {"date": "2026-09-11", "categoryId": %d, "amount": "10", "currency": "USD", "payerMemberId": %d,
+                 "paymentLater": true}""".formatted(groceries, mum)), HttpStatus.CREATED).get("id").asLong();
+        assertThat(ok(get(bob, "/api/reports/integrity"))).isEmpty();
+
+        transactions.executeWithoutResult(status -> {
+            jdbc.sql("SET LOCAL session_replication_role = replica").update();
+            jdbc.sql("UPDATE family_share SET amount = amount + CASE member_id WHEN ? THEN 0.01 ELSE -0.01 END "
+                    + "WHERE record_id = ?").params(dad, record).update();
+        });
+        assertThat(ok(get(bob, "/api/reports/integrity"))).isEqualTo(json.readTree("""
+                [{"currency": "USD", "postingSum": "0.00", "balanceSheetGap": "0.00", "familyLedgerId": %d,
+                  "familyLedgerName": "Home", "debtBalance": "5.00", "familyBalance": "5.01"}]""".formatted(family)));
+
+        long debt = accountId(bob, "FAMILY_DEBT_" + family);
+        transactions.executeWithoutResult(status -> {
+            jdbc.sql("SET LOCAL session_replication_role = replica").update();
+            jdbc.sql("UPDATE posting SET currency = 'CHF' WHERE account_id = ? AND currency = 'EUR'").param(debt)
+                    .update();
+            jdbc.sql("UPDATE posting SET currency = 'CHF' WHERE currency = 'EUR' AND entry_id IN "
+                    + "(SELECT entry_id FROM posting WHERE account_id = ?)").param(debt).update();
+        });
+        assertThat(ok(get(bob, "/api/reports/integrity")).findValuesAsText("currency")).containsExactly("EUR",
+                "USD", "CHF");
+        assertThat(ok(get(bob, "/api/reports/integrity")).get(2).get("familyBalance").asText()).isEqualTo("0.00");
+    }
+
+    /**
      * The demo loads for an ACTIVE member of a family budget whose ledger is otherwise empty, and touches no data of
      * their family budgets. Since F6c (H1) it creates its own family budget, which brings the demo's categories with a
      * family category's code and type, merged (D-11): the starter category that came back beside a merged one is the

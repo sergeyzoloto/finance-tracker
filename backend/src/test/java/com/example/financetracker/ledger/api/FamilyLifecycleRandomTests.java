@@ -22,7 +22,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * A membership's lifecycle at random (F6a; D-19, D-20, D-26; ADR 0003, topic K), from a fixed seed. Each round, four
  * users and Kid, who has no account, keep a family budget that Alice created on 2026-09-01, Bob and Carol in it from
  * the start and Dave outside. Then, operation after operation, a member with an account picked from the database:
- * records an expense or an income (by themselves or by Kid), changes an amount, deletes a record, leaves, removes a
+ * records an expense or an income (by themselves or by Kid), or now and then a settlement, in euros, dollars or roubles
+ * (D-45, D-46; F8a), paying "later" or from their euro cash, which names what went from or into it for another currency
+ * (D-87); changes an amount, deletes a record, leaves, removes a
  * member, makes another member an owner, sets a custom or an equal split rule, invites someone who left (or is outside)
  * back, or deletes all their data. Some are refused (409, 422); none fails, and none answers 404, since every actor is
  * an ACTIVE member. After every operation the family's invariants hold, those of members who left and returned
@@ -37,8 +39,12 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
     private static final int ROUNDS = 6;
     private static final int OPERATIONS = 40;
     private static final AtomicInteger ADDRESSES = new AtomicInteger();
+    /** The currencies of the records: the main one, and two others (D-45). */
+    private static final List<String> CURRENCIES = List.of("EUR", "USD", "RUB");
 
     private final Random random = new Random(SEED);
+    /** Whether the last {@link #record} was a settlement. */
+    private boolean settled;
 
     @Test
     void randomLifecyclesKeepTheInvariants() throws IOException {
@@ -50,11 +56,14 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
         assertThat(done).containsExactlyInAnyOrderEntriesOf(EXPECTED);
     }
 
-    /** What the seed makes of six rounds: 214 operations, two rounds ending with the family budget gone (D-36). */
-    private static final Map<String, Integer> EXPECTED = Map.ofEntries(Map.entry("records", 51),
-            Map.entry("amounts", 4), Map.entry("deletes", 5), Map.entry("leaves", 11), Map.entry("removals", 20),
-            Map.entry("owners", 7), Map.entry("split rules", 15), Map.entry("returns", 25),
-            Map.entry("deletions of all data", 3), Map.entry("refused", 73), Map.entry("budgets gone", 2));
+    /**
+     * What the seed makes of six rounds since F8a: 154 operations, records and settlements in three currencies, four
+     * rounds ending with the family budget gone (D-36).
+     */
+    private static final Map<String, Integer> EXPECTED = Map.ofEntries(Map.entry("records", 29),
+            Map.entry("settlements", 11), Map.entry("amounts", 2), Map.entry("deletes", 2), Map.entry("leaves", 14),
+            Map.entry("removals", 9), Map.entry("owners", 6), Map.entry("split rules", 13), Map.entry("returns", 16),
+            Map.entry("deletions of all data", 4), Map.entry("refused", 48), Map.entry("budgets gone", 4));
 
     private void round(Map<String, Integer> done) throws IOException {
         List<String> users = List.of(newUser(), newUser(), newUser(), newUser());
@@ -94,17 +103,17 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
             if (choice < 35) {
                 boolean byKid = members.stream().anyMatch(m -> m.id() == kid && m.status().equals("ACTIVE"))
                         && random.nextInt(3) == 0;
-                answer = record(actor, uri, byKid ? kid : actor.id(), category, today);
+                answer = record(actor, uri, byKid ? kid : actor.id(), category, today, members);
                 what = "records";
             } else if (choice < 45) {
                 Long record = randomRecord(family);
-                answer = record == null ? record(actor, uri, actor.id(), category, today)
+                answer = record == null ? record(actor, uri, actor.id(), category, today, members)
                         : patch(actor.sub(), uri + "/records/" + record + "?version=" + version(record),
-                                "{\"amount\": \"%s\"}".formatted(amount()));
+                                amountChange(record));
                 what = record == null ? "records" : "amounts";
             } else if (choice < 50) {
                 Long record = randomRecord(family);
-                answer = record == null ? record(actor, uri, actor.id(), category, today)
+                answer = record == null ? record(actor, uri, actor.id(), category, today, members)
                         : delete(actor.sub(), uri + "/records/" + record + "?version=" + version(record));
                 what = record == null ? "records" : "deletes";
             } else if (choice < 60) {
@@ -127,7 +136,7 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
                 List<String> outside = users.stream().filter(u -> active.stream().noneMatch(m -> u.equals(m.sub())))
                         .toList();
                 if (outside.isEmpty()) {
-                    answer = record(actor, uri, actor.id(), category, today);
+                    answer = record(actor, uri, actor.id(), category, today, members);
                     what = "records";
                 } else {
                     answer = invite(owner.sub(), uri, pick(outside), names);
@@ -136,6 +145,9 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
             } else {
                 answer = delete(actor.sub(), "/api/me/data");
                 what = "deletions of all data";
+            }
+            if (what.equals("records") && settled) {
+                what = "settlements";
             }
             int status = answer.getResponse().getStatus();
             assertThat(status).as("operation %d (%s): %s", i, what, answer.getResponse().getContentAsString())
@@ -172,16 +184,55 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
                 .list();
     }
 
-    /** An expense or an income of the rule, by the payer, paid "later" when the payer is the actor. */
-    private MvcTestResult record(Member actor, String uri, long payer, Map<String, Long> category, LocalDate today) {
+    /**
+     * An expense or an income of the rule, by the payer, in euros, dollars or roubles (D-45); when the payer is the
+     * actor, paid "later" or from their euro cash, which names what went from or into it for another currency (D-87).
+     * One in five is a settlement instead, in one currency (D-46): the actor pays or receives it, with another member
+     * who is ACTIVE, with or without an account.
+     */
+    private MvcTestResult record(Member actor, String uri, long payer, Map<String, Long> category, LocalDate today,
+            List<Member> members) throws IOException {
+        settled = false;
         String type = random.nextInt(4) == 0 ? "INCOME" : "EXPENSE";
         // A day of September, or today, the join date of whoever returns: the same draws whatever day it runs on.
         int day = random.nextInt(31);
         LocalDate date = day == 30 ? today : LocalDate.of(2026, 9, 1).plusDays(day);
+        String currency = CURRENCIES.get(random.nextInt(CURRENCIES.size()));
+        BigDecimal amount = amount();
+        String payment = "";
+        if (payer == actor.id()) {
+            payment = random.nextBoolean() ? "\"paymentLater\": true,"
+                    : "\"paymentAccountId\": %d,%s".formatted(accountId(actor.sub(), "CASH"),
+                            currency.equals("EUR") ? "" : " \"accountAmount\": \"%s\",".formatted(amount()));
+        }
+        List<Member> others = members.stream()
+                .filter(m -> m.id() != actor.id() && m.status().equals("ACTIVE")).toList();
+        if (random.nextInt(5) == 0 && !others.isEmpty()) {
+            long other = pick(others).id();
+            boolean pays = random.nextBoolean();
+            String own = payer == actor.id() ? payment : random.nextBoolean() ? "\"paymentLater\": true,"
+                    : "\"paymentAccountId\": %d,%s".formatted(accountId(actor.sub(), "CASH"),
+                            currency.equals("EUR") ? "" : " \"accountAmount\": \"%s\",".formatted(amount()));
+            settled = true;
+            return post(actor.sub(), uri + "/settlements", """
+                    {"date": "%s", "amount": "%s", "currency": "%s", %s "payerMemberId": %d, "payeeMemberId": %d}"""
+                    .formatted(date, amount, currency, own, pays ? actor.id() : other, pays ? other : actor.id()));
+        }
         return post(actor.sub(), uri + "/records", """
-                {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", %s "payerMemberId": %d}"""
-                .formatted(type, date, category.get(type), amount(), payer == actor.id() ? "\"paymentLater\": true,"
-                        : "", payer));
+                {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", "currency": "%s", %s
+                 "payerMemberId": %d}""".formatted(type, date, category.get(type), amount, currency, payment, payer));
+    }
+
+    /**
+     * A new amount for the record: with what went from or into the paying account when that is in another currency
+     * than the record's, as only its member names it (D-87).
+     */
+    private String amountChange(long record) {
+        boolean elsewhere = jdbc.sql("SELECT original_currency <> currency FROM family_record WHERE id = ?")
+                .param(record).query(Boolean.class).single();
+        BigDecimal amount = amount();
+        return elsewhere ? "{\"amount\": \"%s\", \"accountAmount\": \"%s\"}".formatted(amount, amount())
+                : "{\"amount\": \"%s\"}".formatted(amount);
     }
 
     /** A custom rule with a random share for each ACTIVE member, or equal shares. */

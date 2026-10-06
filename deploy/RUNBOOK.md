@@ -644,6 +644,9 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-06 | `bfb8cc6`; nothing on the server | "CI on Ubuntu 26.04" (D-44) for `bfb8cc6`, `workflow_dispatch` on `main` at `bfb8cc6`, run #4 (id `37515797578`), created 19:01:20Z and last updated 19:09:51Z: Backend (job `112448248953`, 19:01:26Z to 19:05:31Z) failed, Maven finished at 19:05:27Z, 435 tests and 1 failure, `FamilyCurrencyApiTests.recordsInEurosDollarsAndRoublesKeepTheirCurrency:43`, expected 0L but was 8L; Frontend (19:01:25Z to 19:01:53Z), Web image (19:01:25Z to 19:02:05Z) and Deploy scripts (19:01:25Z to 19:09:50Z) completed with success (the run's jobs, read from GitHub's public API on 2026-10-06). The regular CI's Backend for `bfb8cc6` completed with success at 18:41:28Z and 18:42:11Z. The log's offsets were +14:00, but the test JVM runs in Pacific/Kiritimati in every CI run, the regular one's too (`pom.xml`, `user.timezone`), so the zone is not what differed. F8c-0's finding: the line counted every rouble rate in the one database that all test classes of a JVM share, and in Ubuntu 26.04's class order `BaseCurrencyReportTests` ran before it and had left its 8 manual rouble rates there (reproduced on this laptop: after that class 8 in each of UTC, UTC+14 and UTC-12; the whole suite in reverse class order 14, at UTC+14; the class alone 0). A defect of the tests, as OPS-2b's RUB rate was; the application doesn't use that count. It is fixed in F8c-0's commit (the assertion counts the rates of its own two users). The run's check runs belong to `bfb8cc6`, deployed and finished, so they hold up no deploy. |
+| 2026-10-06 | `bfb8cc6`; nothing changed | F8's rollback acceptance: `deploy/rollback.sh 8d75f83` at 18:57:27Z, run folder `/var/lib/finance-deploy/runs/2026-10-06T185727Z-rollback-8d75f83`. Steps 1 to 4 passed: the images accepted; Flyway 11 against the target's V10; "No family record in another currency…". Answered `no`: REFUSED at "5. Confirmation", nothing changed. The read-only looks before and after were identical. |
+| 2026-10-06 | `bfb8cc68f8ae405f1b344eefd72c9f14a1e410ed` (docs: F8b-fix in F8's checklist, D-92 to D-96), M′; both images rebuilt and recreated | F8: F8a and F8b together (D-77), with QA-1 and QA-1b, Flyway V11, the switch on. M = `87ceedf` was not deployed: CI's Frontend failed in both runs, #60 (`main`) and #61 (`feature/family-budget`), on attempt 1 and on the re-run (attempt 2), `Family.test.tsx` with pre-F8 balances (D-94 stop, D-96, F8b-fix). CI on M′: #62 (`feature/family-budget`) and #63 (`main`), attempt 1, 10 check runs, all success (D-95). Pre-flight at about 18:48Z, as expected with three differences from the checklist's expectations: `git status --short` printed nothing (the `.env` copies are ignored by `.gitignore:38`, `deploy/app/.env.[0-9]*`); the newest run folder was `2026-10-05T182014Z-rollback-b6870f2`, status refused, since OPS-2b's rollback acceptance ran at 18:20:14Z, before `verify` at 18:25:00Z, so "Production now"'s "followed by" of that day was wrong; web had been running since 2026-10-03T09:03:08Z (OPS-2b recreated only the api). `verify OPS-2b`: OK at 18:49:42Z; the 21 numbers: accounts 44, categories 72, counterparties 107, entries 296, import_batches 1, every `family_*` 0, outside_their_ledger 0, personal_ledgers 3, personal_members 3, settings 3, users 3. `deploy/deploy.sh run bfb8cc68f8ae405f1b344eefd72c9f14a1e410ed F8` at 18:50:34Z, run folder `/var/lib/finance-deploy/runs/2026-10-06T185034Z-bfb8cc6`, run by `8d75f83`'s script. 1.2: as expected. 1.3: 29 commits, `99ec88b` to `bfb8cc6` (QA-1, QA-1b, F8a, F8b, F8b-fix); V11; the seven files under `deploy/`. 1.5: 10 check runs, all success. 1.8: dump `finance-2026-10-06T1850Z.dump`, 1446943 bytes, written 18:50:38Z, SHA-256 `056280a0c019013ca00d75d20a9bcfdbd1090a0bf967b7777252d4b25626b7e2`; restore test PASS (19 tables, migration 10); preserved in the run folder (mode 600). Confirmed `bfb8cc6`. 3.2: `8d75f83`'s images kept as `:8d75f839eb980666c674f7b000de7ec0ec0b2959` and `:previous`; the `f0425c0…` tags removed. 3.3: api built (Maven 11.2 s), web built. 3.4: both recreated. 3.5: healthy. 3.6: pages 5 of 5. 4.1: "Successfully applied 1 migration … v11 (execution time 00:00.030s)" at 18:51:40Z; the api started in 7.803 s at 18:51:42Z. 4.2: the D-25 line "on" at 18:51:42Z. 4.3: the same numbers. 4.4: `F8.expected`'s 9 lines. 4.5: `finance.conf` not installed. 4.6: dump `finance-2026-10-06T1851Z.dump`, 1447903 bytes, written 18:51:52Z, SHA-256 `25e1c2698d3b01f533553fb82dbecc07f9f9fc8fd037f2fedbed6d9d36d007d2`; restore test PASS (migration 11). Images: api `sha256:62511293a8f3…` (content `sha256:6df207b65fc0…`), web `sha256:6315d9c555f8…` (content `sha256:5995f2252d25…`). The end-to-end suite from `bfb8cc6` (clean tree), `E2E_FAMILY=on`, 18:53:53Z to 18:54:58Z: pages, sign-in, smoke, family F7, family F8 and cleanup passed; e2e-a and e2e-b sign-in checked, data deleted, signed out; `Result: PASSED`, password search 0 hits. `finish`: browser checks yes at 18:55:50Z, smoke test yes at 18:55:53Z; the family lines as before; `last-good` names `bfb8cc6`. `verify F8`: OK at 18:56:19Z, the numbers as in 4.3. |
 | 2026-10-06 (recorded) | `8d75f83`; nothing on the server | "CI on Ubuntu 26.04" (D-44) for `8d75f83` under D-60: run #3 of the workflow, `workflow_dispatch` on the temporary branch `ci-ubuntu-26.04-8d75f83` at exactly `8d75f83`, Success in 8m 4s. Backend, Frontend (25 test files, 301 tests), Web image and Deploy scripts passed. The temporary branch was deleted afterwards. Its check runs belong to `8d75f83`, deployed and finished, so they hold up no deploy. Reported by the PM and recorded in F8b; the run's start time isn't recorded here. |
 | 2026-10-05 | `8d75f83` (merge of PR #13; parents `b6870f2` and `aade401`); the api rebuilt and recreated, the web image unchanged | OPS-2b: defect 5, the tests' isolation, D-50, Flyway V10, the switch on. `deploy/deploy.sh run 8d75f83… OPS-2b`, executed by `b6870f2`'s script, at 15:08:34Z, run folder `/var/lib/finance-deploy/runs/2026-10-05T150834Z-8d75f83`. The before-dump was kept in the run folder (D-43, the first one kept in production; its name and size are in the run's meta) and its restore test passed. Flyway stayed at V10 ("No migration necessary", 15:11:03Z); the D-25 line "on" at 15:11:05Z. The api was recreated, since the tests are part of its build context: `sha256:fc9004a8611f…` (content `sha256:f4add3bcaa8f…`); the web image is unchanged, `sha256:bba7ff04771a…` (content `sha256:2a604232772e…`). `b6870f2`'s images are kept as the previous ones: api `sha256:6d6f35b82a50…`, web `sha256:bba7ff04771a…`. The end-to-end suite's first production run (QA-1, D-56) from `6fdc989` with a clean tree, 16:36:35Z to 16:37:08Z, `E2E_FAMILY=on`: pages, sign-in, smoke, family F7 and the cleanup passed, both test accounts' data deleted and both signed out, `Result: PASSED`, the password search over the artifacts 0 hits; this closes F7's check with two accounts. `finish` passed at 18:19:27Z, about three hours after `run` (no time limit; the wait was the PM's review of the suite's summary). `verify OPS-2b` OK at 18:25:00Z: image store containerd, platform linux/amd64 (defect 5 closed in production), both images "the recorded image", the pages 5 of 5, the stage's checks as expected (0 ECB rouble rates after 2022-03-01), all 21 numbers as before the deploy (every `family_*` 0, users 3). Rollback acceptance: `rollback.sh b6870f2` answered `no` between two read-only looks, which matched line for line. Then `main` and `feature/family-budget` fast-forwarded to `6fdc989` (QA-1b) and pushed; production stays on `8d75f83`, since the QA-1 commits change no image. "CI on Ubuntu 26.04" for `8d75f83` hadn't run; it runs under D-60 before 2026-10-19, and F8b records the result. |
 | 2026-10-04 | `b6870f2`; nothing on the server | "CI on Ubuntu 26.04" (D-44), `workflow_dispatch` on `main` at `b6870f2`, started after the acceptance checks (the row below): run #1, `37227790313`, 19:18:49Z to 19:28:24Z, on Ubuntu 26.04.1 with Docker 29.4.2. Backend failed: 404 tests, 1 failure, `RateApiTests.aManualRateIsTheUsersOwn` (`RateApiTests.java:31`), expected "2026-09-01" but was "2026-09-25"; Maven finished at 19:28:20Z. Frontend (19:18:55Z to 19:19:23Z), Web image (19:18:53Z to 19:19:21Z) and Deploy scripts (19:18:53Z to 19:24:26Z) completed with success (the run's jobs, read from GitHub's public API on 2026-10-05). Its check runs belong to `b6870f2`, deployed and finished, so they hold up no deploy. OPS-2b looks for the cause. |
@@ -684,33 +687,35 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-05T18:25:00Z (`verify OPS-2b`, OK), followed by OPS-2b's rollback acceptance (answered `no`, nothing
-changed):
+As of 2026-10-06T18:57:27Z (F8's rollback acceptance, answered `no`, nothing changed), after `verify F8`, OK at
+18:56:19Z:
 
-- `8d75f83` (OPS-2b, PR #13's merge commit of `b6870f2` and `aade401`) on Flyway V10 since 2026-10-05T18:19:27Z (its
-  `finish`, passed), with family budgets switched on since 2026-10-03T09:25:40Z. The containers run api
-  `sha256:fc9004a8611f…` (content `sha256:f4add3bcaa8f…`) and web `sha256:bba7ff04771a…` (content
-  `sha256:2a604232772e…`), both "the recorded image" for `verify`.
-- The rollback state: `:previous` and the previous-commit file name `b6870f2` (api `sha256:6d6f35b82a50…`, web
-  `sha256:bba7ff04771a…`). `rollback.sh`'s target is `b6870f2`; `rollback.sh b6870f2` was answered `no` in the
-  acceptance checks, between two read-only looks that matched line for line. The way back from the family budget is
+- `bfb8cc68f8ae405f1b344eefd72c9f14a1e410ed` (M′: F8b-fix on top of F8b; with F8a, QA-1 and QA-1b under them) on
+  Flyway V11, with its `finish` answered (browser checks yes at 18:55:50Z, smoke test yes at 18:55:53Z) and `last-good`
+  naming `bfb8cc6`. Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api
+  `sha256:62511293a8f3…` (content `sha256:6df207b65fc0…`) and web `sha256:6315d9c555f8…` (content
+  `sha256:5995f2252d25…`), both "the recorded image" for `verify`.
+- The numbers, 21, as before the deploy: accounts 44, categories 72, counterparties 107, entries 296, import_batches 1,
+  every `family_*` 0, outside_their_ledger 0, personal_ledgers 3, personal_members 3, settings 3, users 3. No family
+  record exists in production. The F8 deploy's before-dump is kept in its run folder
+  (`2026-10-06T185034Z-bfb8cc6`, mode 600); the restore tests of both dumps passed.
+- The rollback state: `:previous` and the previous-commit file name `8d75f83` (the V10 code on the V11 schema).
+  `rollback.sh`'s target is `8d75f83` while no family record is in another currency than its budget's main currency
+  (ADR 0004, "The rollback condition"); `rollback.sh 8d75f83` was answered `no` in the acceptance checks (steps 1 to 4
+  passed), between two read-only looks that matched. The way back from the family budget is
   `deploy/deploy.sh switch off`.
-- Defect 5 is closed in production: `verify OPS-2b` named the image store (containerd) and the platform (linux/amd64).
-- The run's before-dump is kept in its run folder (D-43), the first one kept in production, with its restore test
-  passed.
-- The end-to-end suite's first production run (2026-10-05, from `6fdc989`) passed, with both test accounts' data
-  deleted and both signed out: F7's check with two accounts is closed, and OPS-2's smoke test with it.
-- The numbers: 21, as before the deploy; every `family_*` is 0, users 3. No family record exists in production. Until
-  F8 is deployed, no rouble family records are created in production (D-66).
-- `main` and `feature/family-budget` are at `6fdc989` (QA-1b) and pushed. The QA-1 commits change no image, so
-  production stays on `8d75f83`.
-- "CI on Ubuntu 26.04" for `8d75f83` passed (D-44, D-60): run #3 of the workflow (`workflow_dispatch`) on the
-  temporary branch `ci-ubuntu-26.04-8d75f83`, at exactly `8d75f83`, Success in 8m 4s; Backend, Frontend (25 test
-  files, 301 tests), Web image and Deploy scripts all passed. The temporary branch was deleted afterwards. Recorded in
-  F8b (the row of "Deployed revisions" above).
-- The next deploy is F8 (F8a and F8b together, D-77, Flyway V11): "F8's deploy checklist with the suite" below. After
-  it, the rollback target is `8d75f83`, the V10 code on the V11 schema, which `rollback.sh` accepts while no family
-  record is in another currency than its budget's (ADR 0004, "The rollback condition").
+- The end-to-end suite from `bfb8cc6` passed on production (2026-10-06, `E2E_FAMILY=on`): F7's and F8's family specs,
+  with both test accounts' data deleted and both signed out.
+- D-98: no real family records are created in production until F8c-0's report has said what the failure of "CI on
+  Ubuntu 26.04" for `bfb8cc6` (run #4, id `37515797578`, 2026-10-06; Backend, 1 test of 435) means for it, and the PM
+  has decided on `switch off`. F8c-0's finding is that the test counted rouble rates that other test classes had left
+  in the database they share, in Ubuntu 26.04's class order; the zone (Pacific/Kiritimati, +14:00, in every CI run) is not the cause, and the
+  application doesn't depend on that count or on the JVM's zone beyond D-53's `Today`, which in the api's image is UTC
+  (`/etc/localtime` is `Etc/UTC`, no `TZ`, no `user.timezone` in `backend/Dockerfile` or `deploy/app/docker-compose.yml`).
+  Recorded in the row above and in `change_log.mdx`; the live container's zone itself wasn't read.
+- `main` and `feature/family-budget` were at `bfb8cc6` and pushed when F8 was deployed (F8c-0's commits are on
+  `feature/family-budget` only, not pushed). CI for `bfb8cc6`: #62 and #63, 10 check runs, all success (D-95).
+- F8 is deployed; "F8's deploy checklist with the suite" below stays as its record and is used for no other deploy.
 
 ## F8's deploy checklist with the suite
 

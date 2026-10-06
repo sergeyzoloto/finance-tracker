@@ -3,6 +3,101 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · F8c-0: CI on Ubuntu 26.04 fails on `bfb8cc6`
+
+Two commits on `feature/family-budget` on top of `bfb8cc6`: `e058c9b` "test(backend): count only the test's own users'
+rouble rates; D-53's today pinned at midnight crossings (F8c-0)", and the commit of this entry, "docs: F8c-0, CI on
+Ubuntu 26.04, F8's deploy facts, D-97 and D-98 (F8c-0)", whose full hash the report names. Test code and documentation
+only; no application code changed. Not pushed, nothing merged into `main`; production not accessed.
+
+**Changes**
+- The cause is not the zone. The run is "CI on Ubuntu 26.04" run #4, id `37515797578` (`workflow_dispatch` on `main` at
+  `bfb8cc6`, created 19:01:20Z); its jobs, from GitHub's public API: Backend `112448248953` failed (19:01:26Z to
+  19:05:31Z), Frontend, Web image and Deploy scripts completed with success. The job's log needs a login (403 to the
+  public API), so the failure's text, `FamilyCurrencyApiTests.recordsInEurosDollarsAndRoublesKeepTheirCurrency:43`,
+  expected 0L but was 8L, is the PM's. The workflow sets no TZ, locale or JVM option; the +14:00 in the log is
+  `pom.xml`'s `user.timezone` (Pacific/Kiritimati), which surefire gives the test JVM in every run, the passing
+  ubuntu-24.04 runs of `bfb8cc6` included, so in all of them the JVM's date differed from UTC's.
+- What line 43 counts: `SELECT count(*) FROM exchange_rate WHERE quote_currency = 'RUB'`, every user's rows, in the one
+  PostgreSQL that all test classes of a JVM share. Other classes leave manual rouble rates there for their random users
+  (`BaseCurrencyReportTests` leaves 8, which is CI's 8; with the whole suite before it, 14 here). So the line passes or fails by class order, which surefire takes from the file system:
+  Ubuntu 24.04's put it first, 26.04's after them. The same kind of fault as OPS-2b's (`LedgerRepositoryTests`' RUB rate).
+- Fix, in the tests only: the line counts the rouble rates that Alice or Bob could use (`user_id IS NULL OR user_id IN
+  (alice, bob)`), which is what "no rouble rate" means for the test; the ECB's own rows stay guarded by
+  `IntegrationTest.noSharedRateLeft`. `JvmDefaultsGuard` is not meant to catch this (it guards the JVM's zone and locale
+  against a class that changes them) and is unchanged.
+- New tests that pin D-53's today at instants that cross midnight: `TodayTests` (plain: `Today` at 2026-10-06 23:30Z,
+  10-07 00:30Z, 10-06 09:30Z and 10:30Z, 10-31 23:30Z and 12-31 23:30Z in UTC, Europe/Amsterdam, Pacific/Kiritimati and
+  Etc/GMT+12, and with no clock bean the JVM's date); `TodayApiTests.theRatesPageTakesTheApisToday` (a manual rate of the
+  api's tomorrow applies to nothing until the clock turns) and `withTheSystemClockTheApisTodayIsTheJvmsAndTheDatabasesDate`
+  (with the system clock, `Today`, the JVM's date and the session's `current_date` are one date, in any JVM zone);
+  `FamilyTotalsApiTests.theTotalsTakeTheApisTodayAtTheTurnOfAMonth` (at 23:30Z on 31 October, with Amsterdam and the JVM
+  already in November, the "≈" total is as of the 31st at the 31st's rate and not at a rate of 1 November; the clock then
+  turned, the total takes the 1st's).
+- The audit of `backend/src/main` for a "today" other than D-53's: no `LocalDate.now()`, `LocalDateTime.now()`,
+  `ZoneId.systemDefault()`, `new Date()`, `java.sql.Date`, `ZonedDateTime` or `Calendar`. Every date the application
+  decides goes through `Today` (12 `today.date()` calls: the reports' default `asOf`, the demo, the rates page, D-47's
+  totals, start, join and left dates, an invite's preview); `Today` takes the `Clock` bean, else
+  `Clock.systemDefaultZone()`. `Instant.now()` and SQL `now()` are instants. `InviteRateLimit` uses `Clock.systemUTC()`
+  for instants and `EcbSchedule`'s cron names Europe/Berlin. SQL `current_date` is only in migrations V5, V6, V7, V9 and
+  V10 (defaults and V9's join-date check); the application passes `today.date()` for start, join and left dates, and the
+  session's zone is the JVM's (the driver sends it), the same as `Today`'s. The three `date_trunc('month', record_date)::date`
+  of `FamilyTotals` go through a `timestamptz` where the report queries use `::timestamp`; tried in PostgreSQL 17.11 over
+  487 zones and every day of 2000 to 2035 (6,403,563 evaluations): 0 differ from the first of the month, so no change.
+- Production's settings, from the files and from the base image: `backend/Dockerfile` starts `java` with no
+  `-Duser.timezone`, `deploy/app/docker-compose.yml` sets no `TZ`, `application.yml` no zone. In `eclipse-temurin:21-jre`
+  with `TZ` unset `/etc/localtime` is `Etc/UTC` and a class run there printed `ZoneId.systemDefault()` as `Etc/UTC`
+  (with `TZ=Europe/Amsterdam`, Amsterdam: today would move with it, and the session's zone with it); `postgres:17.11`
+  reports `TimeZone` `Etc/UTC`. D-53's today in production is therefore the UTC date. The live containers were not read.
+- Answer on production: no wrong result comes from this failure, which is in the tests. By D-53's design the api's today is
+  the UTC date, so between 00:00 and 02:00 in Europe/Amsterdam (until 2026-10-25, then 00:00 to 01:00) it is the previous
+  day: a family budget created, a seat claimed or joined, or a budget left in that hour defaults to that day (the forms leave
+  a date out when it is the browser's today), and the rates page's "applies today", the "≈" totals and a report's default
+  day are those of that day. Severity low: a default one day earlier, nothing lost, dates the user types count as typed;
+  with 0 family records nothing is at stake. Not recommended: `switch off`. Not tried, from the code only: for a browser
+  west of UTC (the evening in America) the api's today is the next day, so an omitted start date is "tomorrow" and a record
+  of the browser's today would be before it (409, D-27); the audience is in the Netherlands.
+- `docs/family-budget/requirements.md`: D-97 and D-98 (decided by the PM), with F8c-0's finding on D-98. `CLAUDE.md`:
+  D-97 as item 4 of "Definition of done", and the guards above in the test description. `deploy/RUNBOOK.md`: F8's rows
+  in "Deployed revisions" (the deploy, its rollback acceptance, and "CI on Ubuntu 26.04" for `bfb8cc6`) and "Production
+  now"; no checklist changed.
+
+**Verified**
+- Before, on the unmodified `bfb8cc6`: `./mvnw -B test -Dtest='BaseCurrencyReportTests,FamilyCurrencyApiTests'
+  -Dsurefire.runOrder=reversealphabetical` exit 1, "Tests run: 14, Failures: 1, Errors: 0, Skipped: 0",
+  `FamilyCurrencyApiTests...:43` expected 0L but was 8L; the same with `-Duser.timezone=UTC` and with
+  `-Duser.timezone=Etc/GMT+12`: exit 1, 14 run, 1 failure, 8 each. `./mvnw -B -q test -Dtest=FamilyCurrencyApiTests` alone:
+  exit 0. `./mvnw -B clean verify -Dsurefire.runOrder=reversealphabetical` (zone Pacific/Kiritimati): exit 1, "Tests run:
+  435, Failures: 1, Errors: 0, Skipped: 0", the same line, but was 14.
+- After, `./mvnw -B clean verify` in each configuration, every one exit 0, "Results: Tests run: 440, Failures: 0, Errors: 0,
+  Skipped: 0", BUILD SUCCESS: default zone (Pacific/Kiritimati, UTC+14); `-Duser.timezone=UTC`;
+  `-Duser.timezone=Etc/GMT+12`; `-Dsurefire.runOrder=reversealphabetical`; `-Dsurefire.runOrder=random
+  -Dsurefire.runOrder.random.seed=20261006`; the same with seed 7 (440 = 435 and the five new tests). In seed 7 and in
+  the reverse order `BaseCurrencyReportTests` ran before `FamilyCurrencyApiTests`. The runs were between 19:23Z and
+  19:52Z on 2026-10-06, when UTC+14's date (7 October) differed from UTC's (6 October); UTC-12's did not (it was
+  the 6th, 07:23 to 07:51), so for UTC-12 only the pinned instants cross midnight.
+- The new tests detect a wrong today: with `Today` falling back to `Clock.systemUTC()`, `TodayTests` fails (1 failure);
+  with `Today` ignoring the clock bean (`LocalDate.now()`), 7 tests fail (`TodayTests`, `TodayApiTests` x3,
+  `FamilyTotalsApiTests` x3). `Today.java` was put back (`git status` showed no change under `src/main`).
+- `cd e2e && npm run e2e:local` against `./dev.sh`'s stack (Node 24.21.0; stopped afterwards with `./stop.sh`), exit 0:
+  "8 passed (2.0m)", the summary: pages passed, sign-in passed, smoke passed, family F7 passed, family F8 passed, smoke,
+  F7 and F8 at 375 px passed, cleanup passed; testuser and testuser2 signed in as checked, data deleted, signed out;
+  `Result: PASSED`, "Password search over the artifacts: 0 hits". It ran on the tree before the commits; no application
+  code changed, so it checks only that the stack still runs.
+- Not run: the frontend suite and `deploy/tests`, as nothing there changed.
+
+**Open**
+- The fix is not tried on the Ubuntu 26.04 runner itself: "CI on Ubuntu 26.04" may start only on a commit that is
+  deployed and finished (D-44), and `e058c9b` is not. The reproduction here forces the failing order with surefire's
+  `runOrder`, not the runner's file system order.
+- The class order stays the file system's. A pin (`runOrder` alphabetical in `pom.xml`) would make every runner run the
+  same order, but would hide such faults; left to the PM. The workflows are unchanged and look right.
+- Fifteen tests of four classes (`UserDataApiTests` 6, `FamilyLedgerApiTests` 5, `FamilyRecordApiTests` 3,
+  `DemoDataApiTests` 1) compare with `LocalDate.now()` and many with the session's `current_date`: right while the clock
+  is the system's (which `TodayApiTests` now pins), and left as they are; one of them at the instant its zone turns
+  midnight (10:00Z at UTC+14) could differ by a day.
+- The live api container's zone was not read (production not accessed); it follows the image as above.
+
 ## 2026-10-06 · F8b-fix: CI's red Frontend job on `87ceedf` (D-96)
 
 Two commits on `feature/family-budget` on top of M = `87ceedf`: `075e99d` "test(family): F8-shaped balances in the

@@ -48,6 +48,8 @@ Amended in F8b on 2026-10-06: new D-88 to D-91 (decided by the PM), about who se
 
 Amended in F8b-fix on 2026-10-06: new D-92 to D-96 (decided by the PM), about the month-end rate, the journal's currencies, a red CI on the commit to deploy, the number of check runs and F8's commit to deploy.
 
+Amended in F8c-0 on 2026-10-06: new D-97 and D-98 (decided by the PM), about what every report states of each test suite it ran, and about family records in production while the failure of "CI on Ubuntu 26.04" on F8's commit was open.
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -299,6 +301,10 @@ Added in F8b-fix (2026-10-06, decided by the PM)
 - D-94 (decided by the PM). If CI on the commit to deploy fails only on a frontend test, the failed job may be re-run once. If the re-run passes, the deploy goes on and the next stage fixes the test; if it fails again, stop.
 - D-95 (decided by the PM). When `main` and `feature/family-budget` are pushed at the same commit, CI runs twice, so the commit has 10 check runs: each of the five names twice, all `completed success`. 5 (one run) is fine too.
 - D-96 (decided by the PM). CI on F8b's last commit, `87ceedf` (M), failed only in the job Frontend, in both runs (CI #60 on `main`, CI #61 on `feature/family-budget`), on attempt 1 and again on the re-run D-94 allows: `Family.test.tsx`, "shows the budget with the user's role, and what its creation could not finish", whose balances answer had a pre-F8 shape. So M is not deployed. A narrow fix on top of M, test code only (F8b-fix), becomes the new commit to deploy, M′, and F8 is deployed from M′ with the same checklist. The error boundary, guards in the application and everything else stay in F8c.
+
+Added in F8c-0 (2026-10-06, decided by the PM)
+- D-97 (decided by the PM). Every report states, for each test suite it ran, the command, its exit status and its whole summary (the Tests and Errors lines, or Maven's Results). "Passed" only with exit status 0. (F8b reported "312 passed" while `npm test` exited 1 with `Errors 1 error`.)
+- D-98 (decided by the PM). Until F8c-0's report says what the failure of "CI on Ubuntu 26.04" on `bfb8cc6` means for production, no real family records are created in production; the switch stays on (0 family records, so nothing is at risk). If the application is affected, the PM decides on `deploy/deploy.sh switch off` (as D-41). F8c-0's finding: the failure is in the tests only, the application isn't affected, and F8c-0 doesn't recommend `switch off` (the PM decides).
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

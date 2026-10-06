@@ -7,6 +7,7 @@ import FamilyCategories from './FamilyCategories'
 import type { FamilyData } from './familyData'
 import { FamilyMembers, FamilySplitRule } from './FamilyMembers'
 import NewFamily from './NewFamily'
+import { euroBalances } from './testLedger'
 
 // The family budget's screens (F3b): hidden while the switch is off, the switcher, creation, and the family pages.
 
@@ -250,12 +251,18 @@ describe('a family budget’s page', () => {
       'GET /api/family-ledgers': { status: 200, body: [home] },
       'GET /api/family-ledgers/7': { status: 200, body: home },
       'GET /api/family-ledgers/7/members': { status: 200, body: [anna] },
-      'GET /api/family-ledgers/7/balances': { status: 200, body: { currency: 'EUR', members: [] } },
+      // As the API answers a budget without records (D-45): its main currency, the reader at zero.
+      'GET /api/family-ledgers/7/balances': { status: 200, body: euroBalances([
+        { memberId: 70, displayName: 'Anna', status: 'ACTIVE', hasAccount: true, balance: '0.00', you: true },
+      ]) },
       'GET /api/family-ledgers/7/records?size=5': { status: 200, body: { content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 } },
     })
     renderApp(ON, { pathname: '/family/7', state: { creationProblems: ['Kid wasn’t added: No.'] } })
 
     expect(await screen.findByRole('heading', { name: 'Home' })).toBeDefined()
+    // The overview's own loads, answered and shown before anything else is checked, so that none outlives the test.
+    expect(await screen.findByText('You are settled.')).toBeDefined()
+    expect(await screen.findByText('Nothing recorded yet.')).toBeDefined()
     expect(screen.getByText('Family budget · EUR · Owner')).toBeDefined()
     expect(screen.getByRole('alert').textContent).toContain('The family budget was created, but not everything was set up:')
     expect(screen.getByRole('alert').textContent).toContain('Kid wasn’t added: No.')

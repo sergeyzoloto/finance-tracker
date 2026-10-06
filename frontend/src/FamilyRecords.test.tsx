@@ -248,7 +248,10 @@ describe('a settlement’s page', () => {
     expect(screen.queryByLabelText(/^Amount/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Delete the settlement' })).toBeNull()
     expect(screen.getByText(/Only Ben, who recorded it, changes its date, amount and comment/)).toBeDefined()
-    fireEvent.change(await screen.findByLabelText(/^Received into/), { target: { value: '2' } })
+    // The account to choose comes with the accounts' own load, which may still be on its way.
+    const into = await screen.findByLabelText(/^Received into/)
+    await within(into).findByRole('option', { name: 'ING' })
+    fireEvent.change(into, { target: { value: '2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save the changes' }))
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toEqual([{
       method: 'PATCH', url: '/api/family-ledgers/7/records/7?version=0', body: { paymentAccountId: 2 },

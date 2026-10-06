@@ -245,7 +245,9 @@ describe('the payer’s own payment entry', () => {
       'PATCH /api/entries/91/family-payment?version=2': { status: 200, body: { ...payment, version: 3 } },
     })
     renderApp('/entries/91')
-    const paidFrom = await screen.findByLabelText(/^Paid from/)
+    // The form saves once the record is there too (its currency and amount), so the test waits for it.
+    await screen.findByText('Groceries, €10.01, shared by Anna, Sam.')
+    const paidFrom = screen.getByLabelText(/^Paid from/)
     expect(paidFrom).toHaveProperty('value', 'later')
     fireEvent.change(paidFrom, { target: { value: '1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -263,7 +265,8 @@ describe('the payer’s own payment entry', () => {
       } },
     })
     renderApp('/entries/91')
-    fireEvent.change(await screen.findByLabelText(/^Amount/), { target: { value: '12' } })
+    await screen.findByText('Groceries, €10.01, shared by Anna, Sam.')
+    fireEvent.change(screen.getByLabelText(/^Amount/), { target: { value: '12' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('This expense is split by amounts: change its amount on the expense’s page, with the new amounts.'))
       .toBeDefined()

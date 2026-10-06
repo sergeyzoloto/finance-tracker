@@ -123,6 +123,44 @@ class FamilyLedgerApiTests extends LedgerApiTest {
         assertThat(ok(get(alice, "/api/settings")).get("baseCurrency").asText()).isEqualTo("EUR");
     }
 
+    /**
+     * A budget without records answers its balances in the F8 shape, as the pages read them (F8b-fix, D-96): the main
+     * currency in {@code byCurrency}, every member at zero, and a total; also with members who have no account or no
+     * record, after a member deleted their data, and after a change of the main currency. A former member reads nothing.
+     */
+    @Test
+    void aBudgetWithoutRecordsHasItsMainCurrencyInItsBalances() throws IOException {
+        JsonNode alone = ok(get(alice, uri + "/balances"));
+        assertThat(alone.get("byCurrency").findValuesAsText("currency")).containsExactly("EUR");
+        assertThat(alone.get("byCurrency").get(0).get("members").findValuesAsText("memberId"))
+                .containsExactly(String.valueOf(alicesMembership));
+        assertThat(alone.get("byCurrency").get(0).get("members").get(0).get("balance").asText()).isEqualTo("0.00");
+        assertThat(alone.get("byCurrency").get(0).get("members").get(0).get("you").asBoolean()).isTrue();
+        assertThat(alone.get("total").get("currency").asText()).isEqualTo("EUR");
+        assertThat(alone.get("total").get("missingCurrencies")).isEmpty();
+
+        body(post(alice, uri + "/members", """
+                {"displayName": "Kid"}"""), HttpStatus.CREATED);
+        join(family, bob, "Ben", "MEMBER", LocalDate.now());
+        for (String reader : List.of(alice, bob)) {
+            JsonNode balances = ok(get(reader, uri + "/balances"));
+            assertThat(balances.get("byCurrency").findValuesAsText("currency")).containsExactly("EUR");
+            assertThat(balances.get("byCurrency").get(0).get("members").findValuesAsText("balance"))
+                    .containsExactly("0.00", "0.00", "0.00");
+        }
+
+        assertThat(delete(bob, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(get(bob, uri + "/balances")).hasStatus(HttpStatus.NOT_FOUND);
+        assertThat(ok(get(alice, uri + "/balances")).get("byCurrency").findValuesAsText("currency"))
+                .containsExactly("EUR");
+
+        ok(patch(alice, uri, """
+                {"baseCurrency": "JPY"}"""));
+        JsonNode inYen = ok(get(alice, uri + "/balances"));
+        assertThat(inYen.get("byCurrency").findValuesAsText("currency")).containsExactly("JPY");
+        assertThat(inYen.get("byCurrency").get(0).get("members").get(0).get("balance").asText()).isEqualTo("0");
+    }
+
     @Test
     void ownersManageMembersWithoutAnAccount() throws IOException {
         JsonNode kid = body(post(alice, uri + "/members", """

@@ -3,6 +3,51 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · The end-to-end suite for F8: family F7 per currency, a new family F8 (F8b, commit 7)
+
+Commit on `feature/family-budget`, after commit 6b: "test(e2e): family F7 per currency and a family F8 spec (F8b)",
+whose hash F8b's report names. Not pushed; nothing deployed, and production not accessed; the agent never ran the
+prod project.
+
+**Changes**
+- `e2e/specs/03-family-f7.spec.ts` follows D-45: B's $54.00 expense stays a dollar record ($27.00 each), so A is owed
+  €80.00 and owes B $27.00; the month's report has a section per currency; B settles the euros and A the dollars
+  (D-46); the settlement lock (D-28) on the euro settlement; both settled in each currency. Its budget, invite, join and
+  leave steps moved to `e2e/family-steps.ts`, which both family specs use.
+- `e2e/specs/04-family-f8.spec.ts` (new, "family F8"): records in EUR, USD and RUB; A's rouble record paid from a euro
+  account, naming the €32.10 that went from it (D-89), which B's record page and journal never show (D-88); balances
+  per currency; "No RUB rate" with its link to the rates page; A enters "1 EUR = 95,50 RUB"; A's total then "≈",
+  labelled manual, with the rates' dates and sources (the ECB's dollar rate, A's rouble rate), while B, without a rate
+  of their own, still sees "No RUB rate"; the month's report per currency with A's total; settle-up in each currency;
+  everyone settled, the integrity check clean; both leave; Delete all my data, after which A's manual rates are empty.
+- `e2e/specs/02-smoke.spec.ts`: the demo family's balances add up per currency (`balances-sum-EUR`, `balances-sum-USD`),
+  its weekend being in dollars since F8a. Nothing else changed.
+- `e2e/family-steps.ts`: joins at least 31 s apart (D-29 allows B 10 invite requests a minute; a local run joins four
+  times, and the dev build's StrictMode looks the invite up twice).
+- `e2e/playwright.config.ts` runs `02` to `04` (and all three at 375 px locally); `lib/reporter.ts` names a
+  `family-f8` spec "family F8", as it did `family-f7`. The summary's format is unchanged; it gains the line of family F8.
+- The interface, found by the 375 px run: the balances table was up to 738 px wide with several currencies; under
+  40rem it is now one block per member with a labelled line per currency and for the total (`index.css`,
+  `data-label` in `FamilyBalances.tsx`), as the members table is; the rates tables no longer force 30rem there.
+- `e2e/README.md` (the specs, the invite limit) and `CLAUDE.md`.
+
+**Verified**
+- `npm run e2e:local` against `./dev.sh`'s stack rebuilt at commit 6b with this commit's working tree (the local
+  database at V11, the ECB's dollar rate of 2026-10-05, its last rouble rate of 2022-03-01): pages, sign-in, smoke,
+  family F7, family F8, and smoke, family F7 and family F8 at 375 px all passed, the cleanup passed, both accounts'
+  data deleted and signed out, `Result: PASSED`, password search 0 hits. Afterwards the local database held 0 manual
+  rates, 0 family records and 0 family budgets. The 375 px layout report: only the personal entry list (439 px) and
+  the dashboard's cash flow table stick out, both known ("Later" in the requirements).
+- Earlier runs on the way: family F7 and F8 failed at an exact label match ("Currency" is followed by its hint in the
+  label), F8 at the currencies' order (the main one first, then alphabetically) and at a "Rate" label matching three
+  fields; twice a narrow F8 hit D-29's per-minute limit, which the pacing fixes.
+- `npm run typecheck` in `e2e/` clean; `npm test` in `frontend/` 312 passed (one run during an e2e run had one
+  failure that two reruns didn't repeat); `npm run build` built.
+- Commit 6b in a scratch worktree, `./mvnw -B -o clean verify`: 434 tests, 0 failures.
+
+**Open**
+- The deploy checks and checklist (commit 8).
+
 ## 2026-10-06 · The deprecated API fields and `/conversion` removed (F8b, commit 6b)
 
 Commit on `feature/family-budget`, after commit 6a: "refactor(family): remove the deprecated fields and /conversion

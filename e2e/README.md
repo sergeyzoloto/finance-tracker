@@ -19,14 +19,15 @@ web.
 | --- | --- | --- |
 | pages | none | `/` (the landing page), `/privacy` and `/privacy.html` (the policy with its section "Family budgets"), `/favicon.svg` and `/favicon.ico` (status and content type), at 1280 and 375 px, with full-page screenshots |
 | smoke | A | sign in; `/api/me`'s `familyLedgers` as `E2E_FAMILY` says; an expense created, changed and deleted; the demo, with "Demo household" and Sam when the family budget is on, its balance and report, then leaving it (which deletes it); the integrity check |
-| family F7 | A and B | F7's check with two accounts: a family budget in EUR, an invite, expenses in EUR and in dollars, an income, the balances and the report, a settlement, the settlement lock (D-28), both settled, both leaving (D-36) |
+| family F7 | A and B | F7's check with two accounts: a family budget in EUR, an invite, expenses in EUR and in dollars (a dollar record since F8, D-45), an income, the balances and the report per currency, a settlement in each currency (D-46), the settlement lock (D-28), both settled, both leaving (D-36) |
+| family F8 | A and B | F8's check: records in EUR, USD and RUB; a rouble record paid from a euro account with the euros named (D-89), which B never sees (D-88); balances and settle-up per currency; D-47's total in EUR, first "No RUB rate" with its link, then A's "1 EUR = 95,50 RUB" on the rates page and the total "≈" labelled manual, with each rate's date and source, while B still sees "No RUB rate" (each member's own rates, D-49); the report per currency; all settled; both leaving; Delete all my data removing A's manual rate |
 
 Every spec starts and ends with "Delete all my data" for each account it uses, and fails on any response of 400 or
 more from the app that it doesn't name with its reason, and on any console or page error there. "Integrity" means
 `GET /api/reports/integrity` answers `[]` for that account.
 
 The run, in order: pages; then one sign-in per account, with tracing off, whose `/api/me` must name that account
-before any other request reaches the API; smoke; family F7; then the cleanup, which deletes both accounts' data
+before any other request reaches the API; smoke; family F7; family F8; then the cleanup, which deletes both accounts' data
 through the API (so nothing provisions them again) and signs them out, even after a failure. It ends with a summary
 to paste into the chat.
 
@@ -108,8 +109,8 @@ local database. Its artifacts (a trace and a screenshot of a failure, and the sc
 spec's trace, not only a failure's (the sign-in records none either way).
 
 The invite limit (D-29: 10 a minute and 50 an hour per user, in the api's memory) counts B's invite requests, about 3
-per family F7 and so about 6 per local run, which has F7 at 1280 and at 375 px: past about eight local runs in an hour,
-family F7 stops at the invite with "B's invite requests hit D-29's limit". Wait, or restart the local backend, which
+per family spec and so about 12 per local run, which has F7 and F8 at 1280 and at 375 px: past about four local runs in
+an hour, a family spec stops at the invite with "B's invite requests hit D-29's limit". Wait, or restart the local backend, which
 forgets the counts:
 
 ```bash

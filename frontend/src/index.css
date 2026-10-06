@@ -222,7 +222,20 @@ ul.invite-list li button { justify-self: start; }
   table.members td.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.3rem; }
   table.members td.actions:empty { display: none; }
   table.members td.actions button { margin-left: 0; }
+  /* The balances per currency (D-45, F8b): each member a block, each currency and the total a labelled line. */
+  table.balances-table thead { display: none; }
+  table.balances-table, table.balances-table tbody, table.balances-table tfoot, table.balances-table tr,
+  table.balances-table th, table.balances-table td { display: block; width: auto; }
+  table.balances-table tr { padding: 0.5rem 0; border-bottom: 1px solid #ddd; }
+  table.balances-table th, table.balances-table td { border: none; padding: 0.1rem 0; white-space: normal; text-align: left; }
+  table.balances-table td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); }
+  table.balances-table td:empty { display: none; }
+  table.rates { min-width: 0; }
 }
+/* D-47's total and a total's rates. */
+.total-amount, .no-rate { white-space: nowrap; }
+ul.rate-notes { margin: 0.25rem 0 0; padding-left: 1.1rem; }
+.badge.warning { border-color: var(--stale); color: var(--stale); }
 
 /* The family report (E1, F6c): no table, each line wraps, so that nothing scrolls sideways at 375 px. */
 .report-period { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: flex-end; }

@@ -14,8 +14,8 @@ if (!artifacts) throw new Error('E2E_ARTIFACTS is missing: run the production su
 const t = target.name
 /** The sign-in and the cleanup record no trace and take no screenshot: the login form is in them (D-52, guards 3, 4). */
 const quiet = { trace: 'off', screenshot: 'off', video: 'off' } as const
-/** Smoke, then family F7, in this order (workers 1, files in order); the guards' tests run a probe instead. */
-const specs = t === 'test' ? /guards-probe\.spec\.ts$/ : /0[23]-[a-z0-9-]+\.spec\.ts$/
+/** Smoke, family F7, then family F8, in this order (workers 1, files in order); the guards' tests run a probe instead. */
+const specs = t === 'test' ? /guards-probe\.spec\.ts$/ : /0[2-4]-[a-z0-9-]+\.spec\.ts$/
 
 const projects: Project[] = [
   // Pages without signing in: run first, on their own.

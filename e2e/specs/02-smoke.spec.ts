@@ -95,10 +95,12 @@ async function theDemoWithItsFamilyBudget(session: Session, watch: Watch) {
 
   await subnav.getByRole('link', { name: 'Balances' }).click()
   await expect(page.getByRole('heading', { name: 'Balances' })).toBeVisible()
-  // The reader's balance in words, then everyone's: together they are zero.
+  // The reader's balance in words, then everyone's: in each currency together they are zero (D-45; the demo's
+  // weekend is in dollars).
   await expect(page.locator('.settlement .sentence').first()).toContainText(/Sam|settled/)
   await expect(page.getByRole('row').filter({ hasText: 'Sam' })).toContainText(/owes|is owed|is settled/)
-  await expect(page.getByTestId('balances-sum')).toHaveText('€0.00')
+  await expect(page.getByTestId('balances-sum-EUR')).toHaveText('€0.00')
+  await expect(page.getByTestId('balances-sum-USD')).toHaveText('$0.00')
   await shot(page, 'smoke-07-family-balances')
 
   await subnav.getByRole('link', { name: 'Report' }).click()

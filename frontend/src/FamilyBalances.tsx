@@ -53,10 +53,14 @@ export default function FamilyBalances({ family }: { family: FamilyData }) {
               </th>
               {data.byCurrency.map((c) => {
                 const balance = c.members.find((b) => b.memberId === m.memberId)
-                return <td key={c.currency} className="amount nowrap">{balance ? balancePhrase(balance, c.currency) : '—'}</td>
+                return (
+                  <td key={c.currency} className="amount nowrap" data-label={c.currency}>
+                    {balance ? balancePhrase(balance, c.currency) : '—'}
+                  </td>
+                )
               })}
               {several && (
-                <td className="amount nowrap" data-testid={`total-${m.memberId}`}>
+                <td className="amount nowrap" data-testid={`total-${m.memberId}`} data-label={`≈ in ${total.currency}`}>
                   <TotalAmount amount={total.members.find((t) => t.memberId === m.memberId)?.balance}
                     currency={total.currency} rates={total.rates} missing={total.missingCurrencies} />
                 </td>
@@ -68,7 +72,7 @@ export default function FamilyBalances({ family }: { family: FamilyData }) {
           <tr>
             <th scope="row">All together</th>
             {data.byCurrency.map((c) => (
-              <td key={c.currency} className="amount nowrap" data-testid={`balances-sum-${c.currency}`}>
+              <td key={c.currency} className="amount nowrap" data-testid={`balances-sum-${c.currency}`} data-label={c.currency}>
                 {formatMoney(sum(c.members.map((m) => m.balance)), c.currency)}
               </td>
             ))}

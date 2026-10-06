@@ -16,6 +16,7 @@ import com.example.financetracker.ledger.ExchangeRateRepository;
 import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.SettingsService;
+import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.Money;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -34,11 +35,13 @@ public class RateService {
     private final JdbcClient jdbc;
     private final ExchangeRateRepository rates;
     private final SettingsService settings;
+    private final Today today;
 
-    RateService(JdbcClient jdbc, ExchangeRateRepository rates, SettingsService settings) {
+    RateService(JdbcClient jdbc, ExchangeRateRepository rates, SettingsService settings, Today today) {
         this.jdbc = jdbc;
         this.rates = rates;
         this.settings = settings;
+        this.today = today;
     }
 
     /**
@@ -57,16 +60,19 @@ public class RateService {
     }
 
     /**
-     * The latest rate of every currency that has one, and of every currency in the user's personal ledger, whether it
-     * has a rate or not; and the days on which the ledger's postings can't be converted to the base currency. The
-     * rates and the base currency are those of the ledger's member.
+     * Of every currency that has a rate, and every currency in the user's personal ledger, the rate that applies today
+     * by D-49's and D-91's rules ({@link RateBook}), with its stale mark, or else the latest there is, which doesn't
+     * apply (an ECB rate more than 7 days old); and the days on which the ledger's postings can't be converted to the
+     * base currency. The rates and the base currency are those of the ledger's member.
      */
     @Transactional(readOnly = true)
     public RatesView overview(LedgerScope personalLedger) {
         String userId = personalLedger.userId();
         String base = settings.get(userId).baseCurrency();
+        LocalDate now = today.date();
         Map<String, RateBook.Rate> latest = new TreeMap<>();
         rates.findLatest(userId).stream().map(RateService::rate).forEach(rate -> latest.put(rate.currency(), rate));
+        RateBook book = rateBook(userId, latest.keySet(), now, now);
 
         Set<String> ledger = new HashSet<>(jdbc.sql("""
                 SELECT p.currency FROM journal_entry e JOIN posting p ON p.entry_id = e.id
@@ -82,9 +88,11 @@ public class RateService {
         currencies.addAll(ledger);
         currencies.remove(RateBook.EURO);
         List<LatestRate> rows = currencies.stream().map(currency -> {
-            RateBook.Rate rate = latest.get(currency);
-            return rate == null ? new LatestRate(currency, null, null, null, ledger.contains(currency))
-                    : new LatestRate(currency, rate.date(), rate.perEuro(), rate.source(), ledger.contains(currency));
+            RateBook.Rate applies = book.rate(currency, now).orElse(null);
+            RateBook.Rate rate = applies != null ? applies : latest.get(currency);
+            return rate == null ? new LatestRate(currency, null, null, null, ledger.contains(currency), false, false)
+                    : new LatestRate(currency, rate.date(), rate.perEuro(), rate.source(), ledger.contains(currency),
+                            applies != null, rate.stale());
         }).toList();
         return new RatesView(base, rows, missing(personalLedger, base));
     }
@@ -181,14 +189,18 @@ public class RateService {
     }
 
     /**
-     * A currency's latest rate as the user sees it.
+     * A currency's rate as the user sees it today: the one that applies (D-49, D-91), else the latest there is.
      *
      * @param date null if the currency has no rate at all
      * @param perEuro units of the currency for one euro
      * @param inLedger whether the user's postings or accounts use the currency, or it is the base currency
+     * @param applies whether a conversion today uses it: false for an ECB rate more than 7 days old, which no figure
+     *        uses (F8b, additive)
+     * @param stale whether it is a manual rate more than 31 days old today, which a figure that uses it is marked for
+     *        (D-49; F8b, additive)
      */
     public record LatestRate(String currency, LocalDate date, BigDecimal perEuro, RateSource source,
-            boolean inLedger) {
+            boolean inLedger, boolean applies, boolean stale) {
     }
 
     /** A manual rate as stored: units of {@code quote} for one euro. */

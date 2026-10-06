@@ -1,6 +1,9 @@
 # ADR 0002: Exchange rates and reports in the base currency
 
-**Status:** Accepted, 2026-09-26. The schema change is `V4__exchange_rate_sources.sql`.
+**Status:** Accepted, 2026-09-26. The schema change is `V4__exchange_rate_sources.sql`. Amended in F8b
+(2026-10-06) by D-49, D-90 and D-91 of [the family budget's requirements](../family-budget/requirements.md): an age
+limit for the ECB's rates, the precedence among applicable rates, the "stale" mark, and rounding to the minor unit
+("Conversion since F8b" below). No schema change.
 
 ## Context
 
@@ -57,7 +60,26 @@ database).
 
 **Rounding.** Each figure is added up from unrounded conversions and then rounded HALF_UP to
 4 decimals (the money scale, rule 3), once. The screens show converted amounts with the currency's
-usual decimals.
+usual decimals. (Since F8b: to the target currency's minor unit, see below.)
+
+**Conversion since F8b (D-49, D-90, D-91).** One rule set for every displayed conversion, the
+dashboard, the personal reports and the family budget's totals (`RateBook`), replacing "There is no
+age limit" above:
+
+- The rate on day D is the latest published on or before D. An ECB rate more than 7 days older than
+  D is never used: RUB after 2022-03-08 has no ECB rate, and its figures are missing until the user
+  enters their own.
+- A manual rate is its user's and applies from its date until that user's next manual rate, at any
+  age. One more than 31 days older than D is marked `stale` wherever it is named.
+- Among the applicable rates (the ECB's within 7 days, the user's latest manual one), the most
+  recent date wins; on the same date the manual one.
+- Each converted figure names the rates it used (`rates`: currency, date, perEuro, source,
+  `stale`): balances, net worth and every cash flow row. The rates page says of each currency's rate
+  whether it `applies` today and whether it is `stale`.
+- A figure is rounded HALF_UP once, at its end, to the minor unit of the currency it is in. Net
+  worth is rounded from the unrounded assets and liabilities.
+- The personal cash flow keeps converting each posting at its own day's rate (the FX results above
+  depend on it); the family report's total takes each month's month-end rate (D-49, ADR 0004).
 
 **FX results.** They are computed from postings and rates on every call and never posted
 (rule 13). Both are **effects on net worth, positive for a gain**:
@@ -81,10 +103,9 @@ the same path, with its own response shape. Any other value of `currency` is a 4
 
 ## Consequences
 
-- RUB after March 2022 is converted at a rate from 2022 until manual rates exist. The screens show
-  that rate's date, and the rates page lists the days on which entries have no rate at all.
-- If silent use of old rates ever becomes a problem, a maximum rate age per source would turn such
-  figures into missing ones. That would change the rule above, so it is left to a later decision.
+- Until F8b, RUB after March 2022 was converted at a rate from 2022 until manual rates existed. Since
+  F8b (D-49) such figures are missing until the user enters a rate, and the rates page lists the days
+  on which entries have no applicable rate.
 - The ECB table grows by about 30 rows per working day. The first load writes about 221,000 rows in
   about 13 seconds.
 - Reports in the base currency read postings and rates in two statements, in one REPEATABLE READ

@@ -32,6 +32,7 @@ import com.example.financetracker.ledger.family.FamilyBalances;
 import com.example.financetracker.ledger.family.FamilyRecordService;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.CategoryType;
+import com.example.financetracker.ledger.rates.ConvertedSum;
 import com.example.financetracker.ledger.rates.MissingRate;
 import com.example.financetracker.ledger.rates.RateBook;
 import com.example.financetracker.ledger.rates.RateService;
@@ -221,7 +222,7 @@ public class ReportService {
             rows.forEach(row -> balance.add(row.balance(), row.currency(), asOf));
             AccountBalance account = rows.getFirst();
             return new ConvertedBalance(account.accountId(), account.accountCode(), account.accountName(),
-                    account.accountType(), base, balance.total(), balance.missing().toList());
+                    account.accountType(), base, balance.total(), balance.missing().toList(), balance.rates());
         }).toList();
     }
 
@@ -292,9 +293,10 @@ public class ReportService {
                 .filter(currency -> !currency.equals(RateBook.EURO))
                 .flatMap(currency -> book.rate(currency, asOf).stream())
                 .toList();
-        return new ConvertedNetWorth(base, assets.total(), liabilities.total(),
-                ConvertedSum.difference(assets.total(), liabilities.total()), revaluation.total(), realized.total(),
-                used, missing(assets, liabilities, revaluation, realized));
+        // Rounded once, from the unrounded figures (D-49).
+        ConvertedSum netWorth = new ConvertedSum(book, base).addAll(assets, false).addAll(liabilities, true);
+        return new ConvertedNetWorth(base, assets.total(), liabilities.total(), netWorth.total(), revaluation.total(),
+                realized.total(), used, missing(assets, liabilities, revaluation, realized));
     }
 
     /**
@@ -380,7 +382,8 @@ public class ReportService {
                 .map(e -> new ConvertedCashFlow.Row(e.getKey().month(), e.getKey().code(),
                         names.get(e.getKey().family() + " " + e.getKey().code()), e.getKey().type(),
                         e.getValue().total(), e.getValue().missing().toList(),
-                        e.getKey().family() == 0 ? null : e.getKey().family(), familyNames.get(e.getKey().family())))
+                        e.getKey().family() == 0 ? null : e.getKey().family(), familyNames.get(e.getKey().family()),
+                        e.getValue().rates()))
                 .toList();
 
         List<ConvertedCashFlow.ExchangeResult> results = new ArrayList<>();

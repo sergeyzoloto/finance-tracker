@@ -3,6 +3,46 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-06 · One rate rule set for every displayed conversion (F8b, commit 3)
+
+Commit on `feature/family-budget`, after commit 2: "feat(rates): D-49's rules for every displayed conversion, D-90,
+D-91 (F8b)", whose hash F8b's report names. Not pushed; nothing deployed, and production not accessed.
+
+**Changes**
+- `RateBook` (D-49, D-90, D-91): the ECB's rates and the user's manual rates are kept apart. On day D, the ECB's latest
+  rate on or before D applies only if at most 7 days old (`ECB_DAYS`); the user's latest manual rate on or before D
+  applies at any age, until their next one. Of the two, the more recent date wins, the manual one on the same date. A
+  manual rate more than 31 days older than D comes back `stale` (`STALE_DAYS`). `used` names the rates a conversion
+  uses. So a rouble amount after 2022-03-08 has no ECB rate: it is missing until the user enters one, never the
+  stale 2022 rate.
+- `ConvertedSum` moved to `ledger.rates` and made public (the family totals of commit 4 use it): it keeps the rates it
+  used, and rounds HALF_UP once, at its end, to its currency's minor unit (it was 4 decimals). Net worth is now its own
+  sum of the unrounded assets and liabilities.
+- The personal reports in the base currency (D-90): `ConvertedBalance` and each `ConvertedCashFlow` row gain `rates`
+  (currency, date, perEuro, source, `stale`); net worth's `rates` carry `stale`. The cash flow still converts each
+  posting at its own day's rate, which ADR 0002's FX results need.
+- `GET /api/rates`: each currency's rate is the one that applies today, else the latest there is, with `applies` and
+  `stale` (additive).
+- Delete all my data (D-20) already deleted the user's manual rates before this stage (`UserDataService.deleteAll`,
+  covered by `UserDataApiTests`' row counts); `RateApiTests.deletingAllMyDataDeletesMyManualRates` now checks it
+  explicitly, and that another user's stay.
+- Manual rates are still stored as units per euro; the "1 EUR = 95,50 RUB" input (comma or dot) is the rates page's,
+  in commit 6.
+- Tests: `RateBookTests` (the ECB's last rouble rate of 2022-03-01 applies to 2022-03-08 and never after, also in
+  2026; a manual rate at any age, stale past 31 days; D-91's precedence, an old ECB rate losing to an older manual one;
+  the rates a cross conversion names), `BaseCurrencyReportTests` (a rouble balance and cash flow after the ECB stopped:
+  missing, then converted at the user's rate of 2022-03-10, named, stale by 2022-04-30; rounding once to JPY's 0
+  decimals) and `RateApiTests` (the rates page's `applies` and `stale` on a fixed day; delete-all).
+- `docs/adr/0002-exchange-rates.md` amended ("Conversion since F8b"), `CLAUDE.md` likewise.
+
+**Verified**
+- `./mvnw -B clean verify` on this commit in a scratch worktree (removed afterwards; the main tree's run was spoiled by
+  the IDE compiling the next commit's half-written class into `target/classes`): 428 tests, 0 failures.
+
+**Open**
+- Whether the personal cash flow should also take month-end rates (D-49's monthly report rule) instead of each
+  posting's own day: kept on posting days for ADR 0002's FX results; a question for the PM.
+
 ## 2026-10-06 · The paying currency per payment and the paying side its member's own (F8b, commit 2)
 
 Commit on `feature/family-budget`, after commit 1: "feat(family): the paying currency per payment, the paying side its

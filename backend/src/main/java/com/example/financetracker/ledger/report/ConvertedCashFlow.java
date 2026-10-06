@@ -6,12 +6,14 @@ import java.util.List;
 
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.rates.MissingRate;
+import com.example.financetracker.ledger.rates.RateBook;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 
 /**
  * Income and expenses per month and category in the user's base currency, each posting converted at the rate on its
- * own day, and per month what exchange rates did.
+ * own day by the rules of {@link RateBook} (D-49, D-90, D-91), and per month what exchange rates did. Each figure is
+ * rounded once, to the base currency's minor unit.
  *
  * @param currency the base currency
  * @param rows ordered by month, category type and category code, as the cash flow in each currency
@@ -26,15 +28,17 @@ public record ConvertedCashFlow(String currency, List<Row> rows, List<ExchangeRe
      * @param missingRates why {@code total} is null; empty otherwise
      * @param familyLedgerId the family budget of a family category, as {@link CashFlowRow#familyLedgerId}
      * @param familyLedgerName its name
+         * @param rates the rates {@code total} used, each with its date, source and stale mark (D-49, D-90); empty for
+         *        a total in the base currency only, or a missing one
      */
     public record Row(YearMonth month, String categoryCode, String categoryName, CategoryType categoryType,
             BigDecimal total, List<MissingRate> missingRates, @JsonInclude(Include.NON_NULL) Long familyLedgerId,
-            @JsonInclude(Include.NON_NULL) String familyLedgerName) {
+            @JsonInclude(Include.NON_NULL) String familyLedgerName, List<RateBook.Rate> rates) {
 
         /** A row of one of the ledger's own categories. */
         public Row(YearMonth month, String categoryCode, String categoryName, CategoryType categoryType,
                 BigDecimal total, List<MissingRate> missingRates) {
-            this(month, categoryCode, categoryName, categoryType, total, missingRates, null, null);
+            this(month, categoryCode, categoryName, categoryType, total, missingRates, null, null, List.of());
         }
     }
 

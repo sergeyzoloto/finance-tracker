@@ -22,7 +22,8 @@ import com.example.financetracker.ledger.rates.RateBook;
  *        converted at the rate on its own day. That is the account's displayed balance (rule 4) in the base currency,
  *        positive for a gain.
  * @param rates the rate used on the day for each currency with a balance, and for the base currency unless it is
- *        EUR. A rate's day can be long before the day of the report, when the currency has no newer rate.
+ *        EUR, with its date, source and stale mark (D-49, D-90): an ECB rate at most 7 days old, or the user's
+ *        manual rate, which may be older and is then marked stale past 31 days.
  * @param missingRates why a figure is null; empty if none is
  */
 public record ConvertedNetWorth(String currency, BigDecimal assets, BigDecimal liabilities, BigDecimal netWorth,

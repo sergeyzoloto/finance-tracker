@@ -4,11 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
+import com.example.financetracker.TestClock;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -18,6 +22,8 @@ class RateApiTests extends LedgerApiTest {
 
     private final String alice = newUser();
     private final String bob = newUser();
+    @Autowired
+    private TestClock clock;
 
     @Test
     void aManualRateIsTheUsersOwn() throws IOException {
@@ -122,6 +128,54 @@ class RateApiTests extends LedgerApiTest {
                 {"date": "2026-08-10", "base": "EUR", "quote": "KZT", "rate": "550"}"""));
         assertThat(ok(get(alice, "/api/rates")).get("missing").toString()).isEqualTo("""
                 [{"currency":"KZT","from":"2026-08-03","to":"2026-08-03","days":1}]""");
+    }
+
+    /**
+     * D-49 on the rates page, as of a fixed today: a manual rate applies at any age and is marked stale past 31 days; an
+     * ECB rate more than 7 days old is shown as the latest there is, which applies to nothing.
+     */
+    @Test
+    void theOverviewSaysWhetherARateAppliesTodayAndWhetherItIsStale() throws IOException {
+        clock.set(Instant.parse("2026-09-20T12:00:00Z"), ZoneOffset.UTC);
+        jdbc.sql("""
+                INSERT INTO exchange_rate (rate_date, base_currency, quote_currency, rate, source, user_id)
+                VALUES (DATE '2026-09-10', 'EUR', 'CHF', 0.93, 'ECB', NULL),
+                       (DATE '2026-09-15', 'EUR', 'GBP', 0.85, 'ECB', NULL)""").update();
+        try {
+            ok(post(alice, "/api/rates/manual", """
+                    {"date": "2026-08-01", "base": "EUR", "quote": "RUB", "rate": "95.50"}"""));
+            ok(post(alice, "/api/rates/manual", """
+                    {"date": "2026-09-01", "base": "EUR", "quote": "KZT", "rate": "550"}"""));
+            JsonNode latest = ok(get(alice, "/api/rates")).get("latest");
+            assertThat(line(latest, "RUB")).isEqualTo("2026-08-01 MANUAL applies stale");
+            assertThat(line(latest, "KZT")).isEqualTo("2026-09-01 MANUAL applies");
+            assertThat(line(latest, "GBP")).isEqualTo("2026-09-15 ECB applies");
+            assertThat(line(latest, "CHF")).isEqualTo("2026-09-10 ECB");
+        } finally {
+            jdbc.sql("DELETE FROM exchange_rate WHERE user_id IS NULL AND quote_currency IN ('CHF', 'GBP')").update();
+            clock.reset();
+        }
+    }
+
+    /** "Delete all my data" (D-20) deletes the user's manual rates, and nobody else's. */
+    @Test
+    void deletingAllMyDataDeletesMyManualRates() throws IOException {
+        ok(post(alice, "/api/rates/manual", """
+                {"date": "2026-09-01", "base": "EUR", "quote": "RUB", "rate": "95.50"}"""));
+        ok(post(bob, "/api/rates/manual", """
+                {"date": "2026-09-01", "base": "EUR", "quote": "RUB", "rate": "97.00"}"""));
+        assertThat(delete(alice, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(jdbc.sql("SELECT count(*) FROM exchange_rate WHERE user_id = ?").param(alice).query(Long.class)
+                .single()).isZero();
+        assertThat(ok(get(alice, "/api/rates/manual"))).isEmpty();
+        assertThat(ok(get(bob, "/api/rates/manual")).findValuesAsText("rate")).containsExactly("97.00");
+    }
+
+    private static String line(JsonNode latest, String currency) {
+        JsonNode rate = StreamSupport.stream(latest.spliterator(), false)
+                .filter(r -> r.get("currency").asText().equals(currency)).findFirst().orElseThrow();
+        return rate.get("date").asText() + " " + rate.get("source").asText()
+                + (rate.get("applies").asBoolean() ? " applies" : "") + (rate.get("stale").asBoolean() ? " stale" : "");
     }
 
     private MvcTestResult csv(String user, String content) {

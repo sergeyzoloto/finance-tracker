@@ -37,6 +37,7 @@ import com.example.financetracker.ledger.rates.RateSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * The reports of {@link ReportService} in the base currency, against real PostgreSQL, with ledgers written through
@@ -69,6 +70,8 @@ class BaseCurrencyReportTests extends IntegrationTest {
     private UserSettingsRepository settings;
     @Autowired
     private LedgerAccess ledgers;
+    @Autowired
+    private JdbcClient jdbc;
 
     private final String user = UUID.randomUUID().toString();
     private LedgerScope ledger;
@@ -131,7 +134,9 @@ class BaseCurrencyReportTests extends IntegrationTest {
 
         assertThat(balance(reports.balancesInBase(ledger, AUG_31), "CASH").balance()).isEqualTo(money("115.00"));
         assertThat(reports.cashFlowInBase(ledger, AUG_1, AUG_31).rows()).containsExactly(new ConvertedCashFlow.Row(
-                YearMonth.of(2026, 8), "GROCERIES", "Groceries", EXPENSE, money("10.00"), List.of()));
+                YearMonth.of(2026, 8), "GROCERIES", "Groceries", EXPENSE, money("10.00"), List.of(), null, null,
+                List.of(new RateBook.Rate("RUB", AUG_1, money("100"), RateSource.MANUAL),
+                        new RateBook.Rate("USD", AUG_1, money("1.25"), RateSource.MANUAL))));
         ConvertedNetWorth netWorth = reports.netWorthInBase(ledger, AUG_31);
         assertThat(netWorth.netWorth()).isEqualTo(money("115.00"));
         // Both rates the conversion went through.
@@ -205,7 +210,8 @@ class BaseCurrencyReportTests extends IntegrationTest {
 
         assertThat(reports.cashFlowInBase(ledger, AUG_1, AUG_31)).isEqualTo(new ConvertedCashFlow("EUR", List.of(
                 new ConvertedCashFlow.Row(YearMonth.of(2026, 8), "GROCERIES", "Groceries", EXPENSE, money("22.50"),
-                        List.of()),
+                        List.of(), null, null, List.of(new RateBook.Rate("RUB", AUG_1, money("100"), RateSource.MANUAL),
+                                new RateBook.Rate("RUB", AUG_15, money("80"), RateSource.MANUAL))),
                 new ConvertedCashFlow.Row(YearMonth.of(2026, 8), "SALARY", "Salary", INCOME, money("2000.00"),
                         List.of())),
                 // The cash account went into the red, and each rouble of that cost more after the rate changed.
@@ -223,6 +229,61 @@ class BaseCurrencyReportTests extends IntegrationTest {
 
         rate(JUL_31, "KZT", "500");
         assertThat(balance(reports.balancesInBase(ledger, AUG_31), "TENGE").balance()).isEqualTo(money("110.00"));
+    }
+
+    /**
+     * D-49 and D-90 in the personal reports: the ECB published its last rouble rate on 2022-03-01. A rouble balance
+     * converts at it for 7 days, and from 2022-03-09 has no rate: never the stale one. The user's own rate of
+     * 2022-03-10 then applies, named with its date and source, and is marked stale once more than 31 days old.
+     */
+    @Test
+    void aRoubleAmountAfterTheEcbStoppedNeedsTheUsersOwnRate() {
+        LocalDate last = LocalDate.of(2022, 3, 1);
+        jdbc.sql("""
+                INSERT INTO exchange_rate (rate_date, base_currency, quote_currency, rate, source, user_id)
+                VALUES (:day, 'EUR', 'RUB', 115.8, 'ECB', NULL)""").param("day", last).update();
+        try {
+            create(new OpeningBalanceCommand(last, null, cash, "RUB", money("11580.00"), null));
+            create(new ExpenseCommand(LocalDate.of(2022, 3, 15), null, null, cash, "RUB", money("1158.00"),
+                    groceries));
+
+            ConvertedBalance week = balance(reports.balancesInBase(ledger, last.plusDays(7)), "CASH");
+            assertThat(week.balance()).isEqualTo(money("100.00"));
+            assertThat(week.rates()).containsExactly(new RateBook.Rate("RUB", last, money("115.8"), RateSource.ECB));
+            ConvertedBalance later = balance(reports.balancesInBase(ledger, LocalDate.of(2022, 3, 15)), "CASH");
+            assertThat(later.balance()).isNull();
+            assertThat(later.rates()).isEmpty();
+            assertThat(later.missingRates()).extracting(MissingRate::currency).containsExactly("RUB");
+            assertThat(reports.cashFlowInBase(ledger, last, LocalDate.of(2022, 3, 31)).rows().getFirst().total())
+                    .isNull();
+            assertThat(reports.netWorthInBase(ledger, LocalDate.of(2026, 9, 25)).netWorth()).isNull();
+
+            rate(LocalDate.of(2022, 3, 10), "RUB", "104.22");
+            ConvertedBalance own = balance(reports.balancesInBase(ledger, LocalDate.of(2022, 3, 15)), "CASH");
+            assertThat(own.balance()).isEqualTo(money("100.00"));
+            assertThat(own.rates()).containsExactly(new RateBook.Rate("RUB", LocalDate.of(2022, 3, 10),
+                    money("104.22"), RateSource.MANUAL));
+            ConvertedNetWorth stale = reports.netWorthInBase(ledger, LocalDate.of(2022, 4, 30));
+            assertThat(stale.netWorth()).isEqualTo(money("100.00"));
+            assertThat(stale.rates()).containsExactly(new RateBook.Rate("RUB", LocalDate.of(2022, 3, 10),
+                    money("104.22"), RateSource.MANUAL, true));
+        } finally {
+            jdbc.sql("DELETE FROM exchange_rate WHERE user_id IS NULL AND quote_currency = 'RUB' AND rate_date = :day")
+                    .param("day", last).update();
+        }
+    }
+
+    /** D-49: a converted figure is rounded once, at its end, to the base currency's minor unit, here JPY's 0. */
+    @Test
+    void aFigureIsRoundedOnceToTheBaseCurrencysMinorUnit() {
+        baseCurrency("JPY");
+        rate(AUG_1, "JPY", "160.004");
+        rate(AUG_1, "RUB", "100");
+        // 3 × 3.33 RUB, each 5.3281… JPY: rounded once to 16 JPY, not three times to 5.
+        for (int i = 0; i < 3; i++) {
+            create(new ExpenseCommand(AUG_10, null, null, cash, "RUB", money("3.33"), groceries));
+        }
+        assertThat(reports.cashFlowInBase(ledger, AUG_1, AUG_31).rows().getFirst().total()).isEqualByComparingTo("16");
     }
 
     private void rate(LocalDate day, String currency, String perEuro) {

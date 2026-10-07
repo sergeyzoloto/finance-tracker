@@ -21,13 +21,14 @@ web.
 | smoke | A | sign in; `/api/me`'s `familyLedgers` as `E2E_FAMILY` says; an expense created, changed and deleted; the demo, with "Demo household" and Sam when the family budget is on, its balance and report, then leaving it (which deletes it); the integrity check |
 | family F7 | A and B | F7's check with two accounts: a family budget in EUR, an invite, expenses in EUR and in dollars (a dollar record since F8, D-45), an income, the balances and the report per currency, a settlement in each currency (D-46), the settlement lock (D-28), both settled, both leaving (D-36) |
 | family F8 | A and B | F8's check: records in EUR, USD and RUB; a rouble record paid from a euro account with the euros named (D-89), which B never sees (D-88); balances and settle-up per currency; D-47's total in EUR, first "No RUB rate" with its link, then A's "1 EUR = 95,50 RUB" on the rates page and the total "≈" labelled manual, with each rate's date and source, while B still sees "No RUB rate" (each member's own rates, D-49); the report per currency; all settled; both leaving; Delete all my data removing A's manual rate |
+| time zone | A | D-100, D-101 (F8c): twice, with the browser (Playwright's `timezoneId`) in America/Los_Angeles and in a zone whose date differs from UTC's at that moment whatever the hour (UTC+14 from 10:00 UTC, UTC-12 before): after Delete all my data the first load saves the browser's zone; `/api/me`'s `timeZone` and `today` are that zone and the date in it, which the test works out with `Intl` (read on both sides of the call, so that midnight can't fall between); Settings says so, with no hint; with the family budget on, a budget created with no start date typed starts that day and an expense dated on the form's date, that day, is accepted (where the browser's date is before UTC's, an omitted start date used to be "tomorrow", 409); ends with Delete all my data, which takes the zone. It runs last, since it leaves another zone for A than UTC while it runs |
 
 Every spec starts and ends with "Delete all my data" for each account it uses, and fails on any response of 400 or
 more from the app that it doesn't name with its reason, and on any console or page error there. "Integrity" means
 `GET /api/reports/integrity` answers `[]` for that account.
 
 The run, in order: pages; then one sign-in per account, with tracing off, whose `/api/me` must name that account
-before any other request reaches the API; smoke; family F7; family F8; then the cleanup, which deletes both accounts' data
+before any other request reaches the API; smoke; family F7; family F8; the time zone; then the cleanup, which deletes both accounts' data
 through the API (so nothing provisions them again) and signs them out, even after a failure. It ends with a summary
 to paste into the chat.
 

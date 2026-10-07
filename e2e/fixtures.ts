@@ -94,8 +94,11 @@ interface Fixtures {
   target: Target
   family: Family
   watch: Watch
-  /** Opens a context of the account in this role, from its saved session, after checking `/api/me` names it. */
-  as: (role: Role) => Promise<Session>
+  /**
+   * Opens a context of the account in this role, from its saved session, after checking `/api/me` names it. The browser
+   * is in the project's time zone (UTC) unless `timezoneId` names another (the time-zone spec, D-100).
+   */
+  as: (role: Role, options?: { timezoneId?: string }) => Promise<Session>
   /** Opens a context without a session. */
   anonymous: () => Promise<Session>
 }
@@ -106,13 +109,13 @@ export const test = base.extend<Fixtures>({
   watch: async ({ target }, use) => use(new Watch(target)),
   as: async ({ browser, target, family, watch }, use, testInfo) => {
     const contexts: BrowserContext[] = []
-    await use(async (role) => {
+    await use(async (role, options = {}) => {
       const dir = sessionDir()
       const stop = aborted(dir)
       if (stop) throw new Error(`The run was aborted: ${stop}`)
       const account = target.roles[role]
       if (!isVerified(dir, account.label)) throw new Error(`${account.label} isn't signed in: its sign-in failed or didn't run.`)
-      const context = await browser.newContext({ ...contextOptions(testInfo.project.use), storageState: statePath(dir, account.label) })
+      const context = await browser.newContext({ ...contextOptions(testInfo.project.use), ...options, storageState: statePath(dir, account.label) })
       contexts.push(context)
       watch.attach(context)
       // The saved session is still this account's, before anything else is asked of it (D-52, guard 2).
@@ -213,5 +216,13 @@ export async function shot(page: Page, name: string) {
   appendFileSync(info.outputPath('layout.jsonl'), `${JSON.stringify(layout)}\n`)
 }
 
-/** Today as the app and the server see it in these runs (UTC): "2026-10-05". */
+/**
+ * Today as the app and the server see it in these runs for an account with the browser in UTC (D-100: the date in the
+ * account's zone, which the first load saves from the browser's): "2026-10-05".
+ */
 export const today = () => new Date().toISOString().slice(0, 10)
+
+/** Today in an IANA zone, "2026-10-05", worked out by the test with `Intl`, not by the app. */
+export const todayIn = (zone: string) => new Intl.DateTimeFormat('en-CA', {
+  timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date())

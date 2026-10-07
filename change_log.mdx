@@ -3,6 +3,160 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-07 · F8c: each user's time zone (D-100, D-101), robustness, test hygiene, F8c's deploy checklist
+
+Eight commits on `feature/family-budget` on top of F8c-0's head `46bf9eb`: `c1113a2` "feat(backend): each user's time
+zone; every today is the acting user's (D-100, D-101) (F8c)", `5582a22` "feat(frontend): the user's zone saved, chosen
+and hinted; today from /api/me; error boundaries and guards (F8c)", `644d36c` "test(frontend): five tests wait for the
+loads they need (F8c)", `d42e0d8` "ci: the backend's test classes run in random order, the seed printed (D-99) (F8c)",
+`3b626e1` "chore(frontend): npm audit fix, source-map-js 1.2.2 (F8c)", `63e8314` "test(e2e): the time zone spec, local
+and production (F8c)", `734eb6e` "docs: F8c's deploy checks and checklist, D-98 lifted, D-99 to D-102, ADR 0002's
+amendment (F8c)", and the commit of this entry, "docs: F8c's change log entry (F8c)", whose full hash the report names:
+M, the commit to deploy. Not pushed, nothing merged into `main`; production not accessed, the deploy scripts unchanged.
+
+**Changes**
+- Step 1, the western-browser claim, verified before anything was built on it. `UserTimeZoneApiTests.withNoZoneAWesternBrowsersOwnTodayIsBeforeTheStartDateItLeftOut`
+  (first written as the desired behaviour, failing on `bfb8cc6`'s code: expected 201 but was 409): at 03:00 UTC on 7 October
+  a budget created with no start date starts on the 7th (UTC's, the api's), and a record dated the 6th, the date of a
+  browser in Los Angeles, is refused with 409, "The family budget starts on 2026-10-07, and an expense can't be dated
+  before its start date." The browser's half, tried with a throwaway test (not kept): with `TZ=America/Los_Angeles` and
+  the clock at that instant the new-budget form offers 2026-10-06 and leaves the start date out of the request (the expense form's
+  default date, `isoDate(new Date())`, is read from the code, not tried). So the claim holds end to end; it now ends with the zone saved from the browser.
+- D-100 and D-101, backend. V12 (`V12__user_time_zone.sql`, its text is in the report): `user_settings.time_zone` (TEXT,
+  nullable, length 1 to 64) and V9's `ledger_invite_check` replaced with one change. `ledger.Today` takes the user:
+  `date(userId)` and `date(LedgerScope)` (the actor's member), UTC while no zone is set, `utc()` for work no user
+  triggers; the clock's own zone plays no part. `SettingsService.setTimeZone` checks the id against
+  `ZoneId.getAvailableZoneIds()` (422 `'…' is not a time zone: use an IANA name such as Europe/Amsterdam`; an offset,
+  an abbreviation, other case or spaces are refused too), PUT `/api/settings/time-zone` sets it for the user and answers
+  `timeZone` and `today`, GET `/api/me` answers `timeZone` (null when unset) and `today`. `UserSettingsRepository.upsert`
+  (the settings' PUT, the demo) leaves the column alone, and "Delete all my data" deletes it with the settings row.
+- Every server-side "today" and the zone it now uses (12 `today.date()` calls of F8c-0, now each with its user):
+  `ReportController` default `asOf` (balances, in base, counterparty balances, net worth, in base, shared settlement):
+  the reader's; `DemoController` the demo's last day: the user's, and the demo family's start with it
+  (`FamilyLedgerService.create`); `RateService.overview` "applies today": the user's; `FamilyTotals.balances` and
+  `report` (the "≈" totals, today's rate and the current month): the reader's; `FamilyLedgerService.create` start date
+  and its "not in the future" check: the creator's; `FamilyLedgerService.addMember` join date: the owner's;
+  `FamilyInviteService.create` default and upper bound of a claim's join date: the owner's; `LedgerInvites.preview`,
+  `join` and `rejoin` (a new member's join date, a return's date, the lookup's `today` and its entries-after-return
+  check): the holder's; `FamilyMembershipService.leave` and `remove` left date: the actor's, the removing owner's for a
+  removal. In a family budget the actor's zone counts, so two members in two zones act on two dates at one instant.
+- Contexts that stay on UTC (ADR 0002, "Amendment, F8c"): the ECB loader and its schedule (`EcbRateLoader`,
+  `EcbSchedule`, cron in Europe/Berlin); the migrations; SQL's `current_date` in V5's personal ledger member (never
+  read), V10's `release_family_memberships` (a FORMER member's `left_date`, written by "Delete all my data", shown
+  nowhere; the database session's date, UTC in production) and V7's start-date default for code that omits it (the
+  application never does); instants (`created_at`, invites' lifetimes, rate limits) have no zone. The one SQL check
+  that follows the user: V9's claim join date "not after today" now accepts the date at UTC+14 (the latest date on
+  earth), whatever the session's zone, so an owner ahead of UTC isn't refused by the database after the api accepted.
+- Rollback (ADR 0002, "Amendment, F8c"): `bfb8cc6`'s code never selects or writes `time_zone` (its upsert names its own
+  four columns), the check on the column holds for null, and V12's other change loosens a check, so it runs on V12
+  and `rollback.sh` needs no new condition; its target's highest migration V11 triggers neither refusal.
+- Frontend. `me.tsx`: `MeProvider` (inside `App`) holds `/api/me`, `useToday()` is every screen's today (new entry,
+  family record and settlement dates, a budget's start date, a claim's join date, the rates form, the dashboard's and
+  the entry list's periods through `dateOfIso`), and no screen reads the browser's clock for a date; the first time it
+  sees no zone it saves the browser's (`Intl.DateTimeFormat().resolvedOptions().timeZone`) once, and it asks again when
+  a tab comes back into view or every 10 minutes, and after "Delete all my data". `TimeZone.tsx`: the hint ("Your
+  browser is in X, and dates here follow Y", `Use X`, Dismiss, remembered in `localStorage` per browser and pair of
+  zones) and Settings' "Time zone" (the zone, today there, a search box over `Intl.supportedValuesOf('timeZone')` and
+  UTC, a list, Save). `vite.config.ts` runs the tests in `TZ=UTC`. The privacy policy names the time zone among the
+  settings it stores (`<h1>Privacy policy</h1>` unchanged, "Last updated: 7 October 2026").
+- Robustness. `Safe` (an `ErrorBoundary` with "Couldn’t show … Reload the page", reset by the address) around the app's
+  routes, around a family budget's tabs and around the overview's widgets (the reader's balance, the latest activity);
+  `useApi` takes a `guard` and an answer it refuses is the error "The server’s answer was not in the form this page
+  expects…", never data. Guards (`guards.ts`) stand before each place that reads nested fields of an answer: the balances
+  (`byCurrency[].members[]`, `total.members/rates/missingCurrencies`: `yourBalance`, `whoOwesWhom`, `settleUpOrder`,
+  the balances page, the members page's departure notes, the overview), the report (`members`, `byCurrency[].rows[].members[]`
+  and `totals[]`, `total.totals/rates/missingCurrencies`), record pages (`content[]` with `payer`, `category`, `shares[].member`:
+  the activity list, the overview, `RecordTable`), and `/api/me` itself (`main.tsx`: a name and today's date, else a notice
+  with Reload). Not guarded, left to the boundaries: a record's `payee` and `yourPayment`, the journal, categories, members.
+- Tests of the above. Backend: `TodayTests` (a table of 8 instants for UTC, Amsterdam, UTC+14, UTC-12 and Los Angeles, a
+  user with no row and one with no zone, whatever the clock's zone; two users at one instant; an id this JVM doesn't
+  know), `UserTimeZoneApiTests` (11 tests, see CLAUDE.md), `LedgerSchemaTests.aClaimsJoinDateMayBeTodayInAnyZone` (the
+  session set to UTC; the column's check), `LedgerBackfillMigrationTests` (V12 changes no row), `DataIsolationApiTests`
+  (Bob's zone is his own), `ApiTests` (the new endpoint). Frontend: `TimeZone.test.tsx` (13: the first-load save and a
+  refusal without a loop, today from `/api/me` against a browser on another date, the start date left out or sent,
+  Settings' search, choice, save and refusal, delete-all asking again, the hint, its dismissal and its return, a tab
+  coming back into view) and `Robust.test.tsx` (11: the guards; a pre-F8 balances answer leaves the budget's page and
+  tabs up with the widget's error; a widget and a tab that throw show `Safe`'s error beside the rest; an app page that
+  throws leaves the header; `Safe` tries again when its key changes). E2E: `05-time-zone.spec.ts`, local and production
+  (below). The older tests now take today from `/api/me`'s fixtures (`today`, `timeZone`), `WithMe` and `TEST_ME`.
+- The five late-load tests (F8b-fix's "Open"): each failed with its request answered 300 ms late and passes now. Late
+  `/api/accounts`: `FamilyCurrencies.test.tsx` "keeps what went from the account on a new date, and asks for it again
+  with a new amount" (Save wasn't yet disabled for a new amount, an `AssertionError` on its `disabled` property; now it waits for it), `FamilyRecords.test.tsx` "mirrors the expense
+  form with “Received by” and “Received into”, and sends an INCOME" (picked an account option not yet there: no POST) and
+  "lists the reader’s own debts first, …" (the same: `expected [] to deeply equal [ { method: 'POST', …(2) } ]`); late
+  `/members`: `FamilyPayer.test.tsx` "creates the expense in the family budget, paid from the entry’s account, …" (`Unable
+  to find an element with the text: Split`) and "pays a rouble record from a euro account in roubles, …" (no POST:
+  Save waited for the split). Each now waits for the option, the legend or the share it needs.
+- D-99: `ci.yml`'s Backend runs `./mvnw -B verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed="$SEED"`,
+  `SEED` the run's number, echoed before and printed by Surefire; `ci-ubuntu-26.yml` keeps the file system's order.
+- `npm audit` in `frontend/`: `source-map-js` 1.0.0 to 1.2.1, high, GHSA-68fv-2mgg-jv7q (event-loop denial of service
+  through indexed source-map section offsets), reached only through `postcss` (Vite's CSS pipeline) and `css-tree`
+  (jsdom): tooling and tests, in neither `dist/` nor the production tree (`npm audit --omit=dev`: 0 vulnerabilities).
+  `npm audit fix` raised it to 1.2.2 in `package-lock.json` only (no `package.json` change); 0 vulnerabilities after.
+- Documentation: `requirements.md` (D-98 lifted, D-99 to D-102, D-53 amended, the planned stage after F8c-0), ADR 0002's
+  "Amendment, F8c", `CLAUDE.md`, `e2e/README.md`, `deploy/checks/F8c.sql` and `F8c.expected` (tried on a throwaway
+  PostgreSQL 17 at V12: the 7 lines as expected; the container removed by name), and `deploy/RUNBOOK.md`: "F8c's deploy
+  checklist with the suite" (M named `<M>`, stage F8c, the switch on, the pre-flight as production is now, 10 check
+  runs, the suite with the time-zone spec, `rollback.sh bfb8cc6`'s acceptance, CI on Ubuntu 26.04 last) and a line
+  each in "Production now" for D-98 and F8c. F8's checklist and the others are unchanged.
+- Choices of mine, for the PM to confirm: the zone check accepts only IANA region names that Java knows; V12 also
+  loosens V9's check (beyond "a nullable column"); the hint's dismissal is kept per pair of zones (browser, saved);
+  the PUT is `/api/settings/time-zone` and answers `timeZone` and `today`; the tab asks `/api/me` again on focus and every
+  10 minutes; a `/api/me` that isn't a name and a date stops the app with a notice; `F8c.sql` keeps F8's one
+  day-to-day-varying line, "records in another currency than their budget's", as asked (see Open).
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B clean verify` on `734eb6e` (clean tree), exit 0: `Tests run: 453, Failures: 0,
+  Errors: 0, Skipped: 0`, BUILD SUCCESS (435 before). Random order, `./mvnw -B clean verify -Dsurefire.runOrder=random
+  -Dsurefire.runOrder.random.seed=<seed>` on the tree before the commits, the same code: seeds 101, 202 and 303, each
+  exit 0, 453 tests, 0 failures. Seed 101's first run, before the fixes, failed 5: three were the new migration or my own
+  new tests (`ApiTests` lists every endpoint, `FamilyRecordsV11MigrationTests` expected V11 as the last version, my
+  `LedgerSchemaTests` test reused token hashes of another test and rolled back its own row), and one was a fault the
+  random order found, below; the same seed green after the fixes.
+- Faults of isolation found by the random order: `DataIsolationApiTests.aReturnsOwnEntriesAndAClaimedSeatAreTheMembersOwn`
+  (seed 101), `expected … not to contain "555"`: the check searched Bob's lookup for Alice's account id as a substring,
+  and the id was 555 in that order, which `expiresAt`'s microseconds ("…006555Z") contain. It depended on the ids that
+  the classes before it had used, so on the order. Fixed: the id is matched as a number of its own (`(?<!\d)555(?!\d)`).
+  No other fault in the three seeds; no state shared between classes was found beyond what F8c-0 guarded.
+- Frontend, `cd frontend && npm test` on `734eb6e` exit 0: `Test Files  27 passed (27)`, `Tests  336 passed (336)`, no
+  Errors line (312 before); `npm run build` exit 0. The five tests, each with the request 300 ms late (a scratch Vitest
+  config that wraps every `fetch` stub, deleted): before 1 failed of 1 each, after 1 passed of 1 each. A sweep of the
+  whole suite with each load late shows others that fail the same way (Open).
+- Deploy scripts, `deploy/tests/run.sh` (no script changed; run for the record) exit 0: `92 passed, 0 failed, of 92 cases`.
+  `deploy/tests/mutate.sh` and ShellCheck not run: no script changed.
+- E2E local, `cd e2e && npm run e2e:local` against `./dev.sh`'s stack, on the clean tree of `734eb6e` (Commit line "(clean
+  tree)"), run 4: exit 0, `Result: PASSED`, `pages passed (2 tests)`, `sign-in passed`, `smoke passed`, `family F7
+  passed`, `family F8 passed`, `time-zone passed (2 tests)` (America/Los_Angeles and Etc/GMT+12), the same at 375 px,
+  `cleanup passed`, 0 password hits; `npm run typecheck` exit 0, `npm run test:guards` exit 0 (32 tests, 0 failed). Five
+  runs in all, in this order: the first two failed in F7 (the activity page showed no table, a blank screenshot) with
+  `ENOSPC: no space left on device` in their logs (the laptop's disk was at 99%, 1.1 GB free, when I looked after the
+  first); the third, with a temporary debugging line in F7 that I removed, and the fourth passed; the fifth failed on the
+  invite limit (429, D-29, as the README says for runs in quick succession). The F7 failures did not come back with space
+  free, and I didn't find another cause.
+- The migration's behaviour against PostgreSQL 17: the Flyway run in the backend tests, `LedgerBackfillMigrationTests` (V12
+  changes no row of V5's rows through V11's), `LedgerSchemaTests` (the session at UTC: UTC+14's date accepted, the day
+  after refused). `F8c.sql` on a throwaway `postgres:17-alpine` migrated to V12 by the migration files: 7 lines equal to
+  `F8c.expected`.
+
+**Open**
+- Late loads: a sweep of the full suite with `/api/accounts`, `/members`, `/categories`, `/balances`, `/records`,
+  `/settings` or `/family-ledgers` answered 300 ms late (none late: 336 pass; `/balances`: 336 pass) fails 1 to 5 tests
+  each: `FamilyRows` "opens an entry of the user’s own in the form, as before" (accounts, categories, settings),
+  `FamilyLifecycle` "lets an owner make a member with an account an owner" (members), `FamilyPayer`'s three C2 tests
+  (categories, family-ledgers), `FamilyExpenses` "says on the overview who owes the reader, with two members" (records),
+  `FamilyF6b` "lists the family budget at once, with no placeholder" and `Invite` "accepts with the name and the categories
+  brought, …" (family-ledgers). Not in F8c's five; for a later stage.
+- `deploy/checks/F8c.expected`'s line "records in another currency than their budget's 0" holds while no member has recorded
+  in another currency; with D-98 lifted it may not at the deploy, and 4.4 then stops with FAILED on that one line (the
+  checklist says so). The PM decides whether to keep it as asked or drop it from F8c.
+- Instants shown in the browser's zone: `formatInstant` (an invite's expiry, a journal row's time) uses the browser's
+  locale and zone, not the saved zone. Not changed.
+- Members in different zones: a budget started by a member at UTC+14 and joined by a member in Los Angeles at the same
+  instant gives that member a join date a day before the start date, and a record of that day is before the start date
+  for everyone (D-27); nothing breaks, the dates are as each actor's day (ADR 0002's amendment).
+- The PM runs F8c's checklist after accepting F8c and naming M; CI on M is to show 10 check runs, all `completed
+  success` (D-95), the two Backend runs in random order (D-99).
+
 ## 2026-10-06 · F8c-0: CI on Ubuntu 26.04 fails on `bfb8cc6`
 
 Two commits on `feature/family-budget` on top of `bfb8cc6`: `e058c9b` "test(backend): count only the test's own users'

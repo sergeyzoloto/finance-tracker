@@ -163,6 +163,8 @@ describe('settling up', () => {
     expect(screen.getByLabelText(/^Date/)).toHaveProperty('value', '2026-09-30')
     // Anna receives it: her account, or "Specify later", is hers to name.
     const into = screen.getByLabelText(/^Received into/)
+    // Her accounts are a load of their own: wait for the one she picks.
+    await waitFor(() => expect(into.querySelector('option[value="2"]')).not.toBeNull())
     expect([...into.querySelectorAll('option')].map((o) => o.textContent)).not.toContain('Debt to family budget: Home')
     const record = screen.getByRole('button', { name: 'Record the settlement' })
     expect(record).toHaveProperty('disabled', true)
@@ -214,6 +216,7 @@ describe('adding an income', () => {
     expect(screen.getByLabelText('Received by')).toHaveProperty('value', '70')
     fireEvent.change(category, { target: { value: '33' } })
     fireEvent.change(screen.getByLabelText(/^Amount \(/), { target: { value: '10.01' } })
+    await waitFor(() => expect(screen.getByLabelText(/^Received into/).querySelector('option[value="2"]')).not.toBeNull())
     fireEvent.change(screen.getByLabelText(/^Received into/), { target: { value: '2' } })
     // D-12: the odd cent to the member who received it.
     expect(screen.getByTestId('share-70').textContent).toContain('€5.01')

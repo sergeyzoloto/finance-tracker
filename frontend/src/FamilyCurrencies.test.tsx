@@ -346,7 +346,8 @@ describe('the paying side on a record’s page (D-88, D-89)', () => {
     const save = screen.getByRole('button', { name: 'Save the changes' })
     expect(save).toHaveProperty('disabled', false)
     fireEvent.change(screen.getByLabelText('Amount (EUR)'), { target: { value: '60' } })
-    expect(save).toHaveProperty('disabled', true)
+    // Once the accounts have loaded, a new amount asks for what went from the rouble account again.
+    await waitFor(() => expect(save).toHaveProperty('disabled', true))
     fireEvent.change(screen.getByLabelText(/^Amount paid in RUB/), { target: { value: '6000' } })
     fireEvent.click(save)
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([

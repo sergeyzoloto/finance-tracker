@@ -141,7 +141,7 @@ describe('a new expense marked as family (C2)', () => {
     expect(screen.queryByLabelText(/^Payee/)).toBeNull()
     expect(screen.queryByLabelText(/^Category/)).toBeNull()
     expect(screen.queryByText('Refund: the money came back')).toBeNull()
-    expect(screen.getByText('Split', { selector: 'legend' })).toBeDefined()
+    expect(await screen.findByText('Split', { selector: 'legend' })).toBeDefined()
     // Only accounts of the user's own money or credit pay it.
     const paidFrom = screen.getByLabelText(/^Paid from/)
     expect([...paidFrom.querySelectorAll('option')].map((o) => o.textContent)).not.toContain('Unallocated')
@@ -207,6 +207,8 @@ describe('a new expense marked as family (C2)', () => {
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'RUB' } })
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '9000' } })
+    // The budget's members are a load of their own: Save waits for the split they make.
+    expect(await screen.findByTestId('share-71')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{
       type: 'EXPENSE', date: '2026-09-30', categoryId: 30, amount: '9000.00', currency: 'RUB', accountCurrency: 'RUB',

@@ -21,7 +21,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * V5's backfill, on rows as the code before it writes them: a database migrated to V4 gets the rows of several users,
  * each known to other tables, and then V5. Every sub gets one personal ledger with itself as its one owner, and every
  * row its user's ledger, whether or not the sub has a users or user_settings row. Then each later migration on those
- * rows, to V12's time zone (F8c).
+ * rows, to V12's time zone (F8c) and V13's refunds and sync fields (F8d).
  */
 class LedgerBackfillMigrationTests {
 
@@ -242,12 +242,32 @@ class LedgerBackfillMigrationTests {
                         || coalesce((SELECT string_agg(l::text, '|' ORDER BY l.id) FROM ledger l), '')""";
             String beforeV12 = strings(withoutZone).getFirst();
             Map<String, Long> rowsBeforeV12 = rows();
-            MigrateResult v12 = flyway(null).migrate();
+            MigrateResult v12 = flyway("12").migrate();
             assertThat(v12.success).isTrue();
             assertThat(v12.targetSchemaVersion).isEqualTo("12");
             assertThat(rows()).isEqualTo(rowsBeforeV12);
             assertThat(strings(withoutZone).getFirst()).isEqualTo(beforeV12);
             assertThat(strings("SELECT count(*) FROM user_settings WHERE time_zone IS NOT NULL")).containsExactly("0");
+
+            // V13 (F8d: refunds, counterparty payments, the journal's currency, the import's sync fields) adds columns
+            // and checks that these rows satisfy, and changes none of them.
+            String withoutSync = """
+                    SELECT coalesce((SELECT string_agg(s::text, '|' ORDER BY s.user_id) FROM user_settings s), '')
+                        || coalesce((SELECT string_agg(a::text, '|' ORDER BY a.id) FROM account a), '')
+                        || coalesce((SELECT string_agg(e::text, '|' ORDER BY e.id) FROM journal_entry e), '')
+                        || coalesce((SELECT string_agg((to_jsonb(r) - 'external_ref' - 'content_hash'
+                               - 'imported_version' - 'imported_by_member_id' - 'imported_at')::text, '|' ORDER BY r.id)
+                            FROM family_record r), '')
+                        || coalesce((SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m), '')
+                        || coalesce((SELECT string_agg(l::text, '|' ORDER BY l.id) FROM ledger l), '')""";
+            String beforeV13 = strings(withoutSync).getFirst();
+            Map<String, Long> rowsBeforeV13 = rows();
+            MigrateResult v13 = flyway(null).migrate();
+            assertThat(v13.success).isTrue();
+            assertThat(v13.targetSchemaVersion).isEqualTo("13");
+            assertThat(rows()).isEqualTo(rowsBeforeV13);
+            assertThat(strings(withoutSync).getFirst()).isEqualTo(beforeV13);
+            assertThat(strings("SELECT count(*) FROM family_record WHERE external_ref IS NOT NULL")).containsExactly("0");
         } finally {
             db.close();
         }

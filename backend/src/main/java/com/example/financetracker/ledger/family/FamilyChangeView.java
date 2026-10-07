@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import com.example.financetracker.ledger.family.FamilyRecordView.MemberRef;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -48,12 +49,13 @@ public record FamilyChangeView(long id, Instant at, String action, Long recordId
      * @param member the member a share is of; null for other fields
      * @param oldValue sent as "old"
      * @param newValue sent as "new"
-     * @param oldCurrency for an {@code amount} or a {@code share}, the currency of {@code old} (D-93, additive); null
+     * @param oldCurrency for an {@code amount} or a {@code share}, the currency of {@code old} (D-93, additive); left out
      *        for other fields, and for a first value
      * @param newCurrency for an {@code amount} or a {@code share}, the currency of {@code new}; null for other fields
      *        and for a removed value
      */
     public record Change(String field, MemberRef member, @JsonProperty("old") String oldValue,
-            @JsonProperty("new") String newValue, String oldCurrency, String newCurrency) {
+            @JsonProperty("new") String newValue, @JsonInclude(JsonInclude.Include.NON_NULL) String oldCurrency,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String newCurrency) {
     }
 }

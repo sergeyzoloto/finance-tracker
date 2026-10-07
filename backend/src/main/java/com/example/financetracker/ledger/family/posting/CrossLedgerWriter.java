@@ -559,7 +559,7 @@ class CrossLedgerWriter {
             throw refused(entry, "only the payer's own payment takes a note, their own");
         }
         if (entry.payeeId() != null && (entry.link() != LinkType.PAYMENT || entry.memberId() != family.memberId()
-                || !counterpartyOf(member.ledgerId(), entry.payeeId()))) {
+                || !counterpartyOf(family, member.ledgerId(), entry.payeeId()))) {
             throw refused(entry, "only the payer's own payment takes a payee, one of their own counterparties");
         }
         if (entry.recordId() != null && !jdbc.sql("""
@@ -580,7 +580,7 @@ class CrossLedgerWriter {
             long account = line.accountId();
             boolean allowed;
             if (line.counterpartyId() != null && !(ownLine.filter(id -> id == account).isPresent()
-                    && counterpartyOf(member.ledgerId(), line.counterpartyId()))) {
+                    && counterpartyOf(family, member.ledgerId(), line.counterpartyId()))) {
                 throw refused(entry, "a counterparty goes only on the line of the payer's own account, and is one of "
                         + "theirs");
             }
@@ -652,7 +652,7 @@ class CrossLedgerWriter {
     }
 
     /** Whether the counterparty is one of the personal ledger's. */
-    private boolean counterpartyOf(long personalLedgerId, long counterpartyId) {
+    private boolean counterpartyOf(LedgerScope family, long personalLedgerId, long counterpartyId) {
         return jdbc.sql("SELECT EXISTS (SELECT FROM counterparty WHERE id = :id AND ledger_id = :ledgerId)")
                 .param("id", counterpartyId).param("ledgerId", personalLedgerId)
                 .query(Boolean.class).single();

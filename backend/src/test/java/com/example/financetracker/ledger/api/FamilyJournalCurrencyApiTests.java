@@ -29,9 +29,9 @@ class FamilyJournalCurrencyApiTests extends FamilyApiTest {
                 }
                 fields.add(field + (change.get("member").isNull() ? "" : " of " + change.get("member")
                         .get("displayName").asText()) + " " + change.get("old").asText()
-                        + (change.get("oldCurrency").isNull() ? "" : "(" + change.get("oldCurrency").asText() + ")")
+                        + (change.path("oldCurrency").isMissingNode() ? "" : "(" + change.path("oldCurrency").asText() + ")")
                         + "→" + change.get("new").asText()
-                        + (change.get("newCurrency").isNull() ? "" : "(" + change.get("newCurrency").asText() + ")"));
+                        + (change.path("newCurrency").isMissingNode() ? "" : "(" + change.path("newCurrency").asText() + ")"));
             }
             rows.add(row.get("action").asText() + " " + row.get("currency").asText() + ": " + String.join(", ", fields));
         }

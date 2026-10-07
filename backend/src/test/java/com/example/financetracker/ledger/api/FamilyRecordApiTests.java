@@ -343,20 +343,23 @@ class FamilyRecordApiTests extends FamilyApiTest {
                 "NOT_ACTIVE_MEMBER %d Member %d is not an active member of the family budget".formatted(dad, dad));
     }
 
-    /** D-27: a start date today by default, earlier allowed, never later; it is the creator's join date. */
+    /**
+     * D-27: a start date today by default, earlier allowed, never later; it is the creator's join date. Today is the
+     * api's, UTC's for a user with no zone (D-101), not the test JVM's (Pacific/Kiritimati: a day ahead from 10:00 UTC on).
+     */
     @Test
     void theStartDateIsTheCreatorsJoinDateAndNeverInTheFuture() throws IOException {
-        String tomorrow = LocalDate.now().plusDays(1).toString();
+        String tomorrow = utcToday().plusDays(1).toString();
         JsonNode future = body(post(alice, "/api/family-ledgers", """
                 {"name": "Later", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "%s"}""".formatted(tomorrow)),
                 HttpStatus.UNPROCESSABLE_ENTITY);
         assertThat(future.get("violationDetails").get(0).get("code").asText()).isEqualTo("START_DATE");
         JsonNode today = newFamily(alice, """
                 {"name": "Today", "baseCurrency": "EUR", "displayName": "Mum"}""");
-        assertThat(today.get("startDate").asText()).isEqualTo(LocalDate.now().toString());
+        assertThat(today.get("startDate").asText()).isEqualTo(utcToday().toString());
         assertThat(ok(get(alice, uri + "/members")).get(0).get("joinDate").asText()).isEqualTo("2026-09-01");
         assertThat(ok(get(alice, "/api/family-ledgers/" + today.get("id").asLong() + "/members")).get(0)
-                .get("joinDate").asText()).isEqualTo(LocalDate.now().toString());
+                .get("joinDate").asText()).isEqualTo(utcToday().toString());
     }
 
     /**

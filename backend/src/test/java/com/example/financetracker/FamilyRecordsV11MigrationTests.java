@@ -99,8 +99,9 @@ class FamilyRecordsV11MigrationTests {
     void theRecordsOfBeforeV11KeepTheirBalancesPostingsAndIntegrity() throws Exception {
         try (Connection db = DriverManager.getConnection(URL + "?currentSchema=app", POSTGRES.getUsername(),
                 POSTGRES.getPassword())) {
-            assertThat(strings(db, "SELECT version FROM flyway_schema_history WHERE success "
-                    + "ORDER BY installed_rank DESC LIMIT 1")).containsExactly("11");
+            // The application migrated the V10 database to the latest version, V11 or a later one.
+            assertThat(strings(db, "SELECT max(version::int)::text FROM flyway_schema_history WHERE success"))
+                    .singleElement().satisfies(version -> assertThat(Integer.parseInt(version)).isGreaterThanOrEqualTo(11));
             // Every record has its ledger's base currency, which its amount and shares were in.
             assertThat(strings(db, "SELECT r.currency || ' ' || l.base_currency FROM family_record r "
                     + "JOIN ledger l ON l.id = r.ledger_id ORDER BY r.id"))

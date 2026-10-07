@@ -85,7 +85,7 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
         JsonNode categories = ok(get(alice, uri + "/categories"));
         Map<String, Long> category = Map.of("EXPENSE", find(categories, "code", "GROCERIES").get("id").asLong(),
                 "INCOME", find(categories, "code", "SALARY").get("id").asLong());
-        LocalDate today = jdbc.sql("SELECT current_date").query(LocalDate.class).single();
+        LocalDate today = utcToday();
 
         for (int i = 0; i < OPERATIONS; i++) {
             List<Member> members = members(family);

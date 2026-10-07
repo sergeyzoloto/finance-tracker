@@ -49,7 +49,7 @@ class ReportController {
     /** The displayed balance of every account that isn't archived, per currency (rule 4). */
     @GetMapping(path = "/balances", params = "!currency")
     List<AccountBalance> balances(LedgerScope ledger, @RequestParam(required = false) LocalDate asOf) {
-        return reports.balances(ledger, asOfOrToday(asOf));
+        return reports.balances(ledger, asOfOrToday(ledger, asOf));
     }
 
     /** The displayed balance of every account that isn't archived, in the base currency. */
@@ -57,7 +57,7 @@ class ReportController {
     List<ConvertedBalance> balancesInBase(LedgerScope ledger, @RequestParam(required = false) LocalDate asOf,
             @Parameter(description = BASE, schema = @Schema(allowableValues = "BASE")) @RequestParam(required = false)
             String currency) {
-        return reports.balancesInBase(ledger, asOfOrToday(asOf));
+        return reports.balancesInBase(ledger, asOfOrToday(ledger, asOf));
     }
 
     /** Income and expenses per month, category and currency, from entries dated {@code from} to {@code to}. */
@@ -87,13 +87,13 @@ class ReportController {
     @GetMapping("/counterparty-balances")
     List<CounterpartyBalance> counterpartyBalances(LedgerScope ledger, @RequestParam String accountCode,
             @RequestParam(required = false) LocalDate asOf) {
-        return reports.counterpartyBalances(ledger, accountCode, asOfOrToday(asOf));
+        return reports.counterpartyBalances(ledger, accountCode, asOfOrToday(ledger, asOf));
     }
 
     /** Assets minus liabilities, per currency. */
     @GetMapping(path = "/net-worth", params = "!currency")
     List<NetWorth> netWorth(LedgerScope ledger, @RequestParam(required = false) LocalDate asOf) {
-        return reports.netWorth(ledger, asOfOrToday(asOf));
+        return reports.netWorth(ledger, asOfOrToday(ledger, asOf));
     }
 
     /** Assets minus liabilities in the base currency, with the realized and unrealized results of exchange rates. */
@@ -101,13 +101,13 @@ class ReportController {
     ConvertedNetWorth netWorthInBase(LedgerScope ledger, @RequestParam(required = false) LocalDate asOf,
             @Parameter(description = BASE, schema = @Schema(allowableValues = "BASE")) @RequestParam(required = false)
             String currency) {
-        return reports.netWorthInBase(ledger, asOfOrToday(asOf));
+        return reports.netWorthInBase(ledger, asOfOrToday(ledger, asOf));
     }
 
     /** What is open between the user and the shared budget, per currency (rule 7). */
     @GetMapping("/shared-settlement")
     List<SharedSettlement> sharedSettlement(LedgerScope ledger, @RequestParam(required = false) LocalDate asOf) {
-        return reports.sharedSettlement(ledger, asOfOrToday(asOf));
+        return reports.sharedSettlement(ledger, asOfOrToday(ledger, asOf));
     }
 
     /** The currencies in which the user's ledger doesn't add up; empty for a sound ledger. */
@@ -116,8 +116,8 @@ class ReportController {
         return reports.integrityCheck(ledger);
     }
 
-    /** The day asked about, by default the api's today ({@link Today}, D-53). */
-    private LocalDate asOfOrToday(LocalDate asOf) {
-        return asOf != null ? asOf : today.date();
+    /** The day asked about, by default the reader's own today ({@link Today}, D-53, D-100). */
+    private LocalDate asOfOrToday(LedgerScope ledger, LocalDate asOf) {
+        return asOf != null ? asOf : today.date(ledger);
     }
 }

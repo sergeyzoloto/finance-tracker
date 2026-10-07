@@ -46,7 +46,7 @@ public class FamilyTotals {
 
     /** Each member's balance in the main currency, as of today, from their balance in each currency. */
     FamilyBalances.Total balances(LedgerScope family, String main, List<FamilyBalances.CurrencyBalances> byCurrency) {
-        LocalDate now = today.date();
+        LocalDate now = today.date(family);
         RateBook book = rates.rateBook(family.userId(),
                 byCurrency.stream().map(FamilyBalances.CurrencyBalances::currency).toList(), now, now);
         Map<Long, ConvertedSum> sums = new LinkedHashMap<>();
@@ -73,7 +73,7 @@ public class FamilyTotals {
      */
     FamilyReport.Total report(LedgerScope family, String main, LocalDate from, LocalDate to,
             List<FamilyReport.Member> members) {
-        LocalDate now = today.date();
+        LocalDate now = today.date(family);
         record Amount(LocalDate month, String currency, long memberId, String field, BigDecimal amount) {
         }
         List<Amount> amounts = jdbc.sql("""

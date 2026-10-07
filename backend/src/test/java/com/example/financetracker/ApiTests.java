@@ -96,6 +96,8 @@ class ApiTests extends IntegrationTest {
                 new Object[] {GET, "/api/settings", null},
                 new Object[] {PUT, "/api/settings", """
                         {"baseCurrency": "EUR", "defaultShareRatio": "0.5"}"""},
+                new Object[] {PUT, "/api/settings/time-zone", """
+                        {"timeZone": "Europe/Amsterdam"}"""},
                 new Object[] {POST, "/api/demo-data", null},
                 new Object[] {DELETE, "/api/me/data", null},
                 new Object[] {GET, "/api/family-ledgers", null},
@@ -260,6 +262,7 @@ class ApiTests extends IntegrationTest {
                         .sorted().toList()));
         assertThat(operations).containsExactlyInAnyOrderEntriesOf(Map.ofEntries(
                 Map.entry("/api/me", List.of("get")),
+                Map.entry("/api/settings/time-zone", List.of("put")),
                 Map.entry("/api/accounts", List.of("get", "post")),
                 Map.entry("/api/accounts/{id}", List.of("patch")),
                 Map.entry("/api/categories", List.of("get", "post")),

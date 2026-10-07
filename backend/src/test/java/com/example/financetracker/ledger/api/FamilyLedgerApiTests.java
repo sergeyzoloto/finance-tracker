@@ -56,7 +56,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
         assertThat(members.get(0).get("displayName").asText()).isEqualTo("Anna");
         assertThat(members.get(0).get("role").asText()).isEqualTo("OWNER");
         assertThat(members.get(0).get("status").asText()).isEqualTo("ACTIVE");
-        assertThat(members.get(0).get("joinDate").asText()).isEqualTo(LocalDate.now().toString());
+        assertThat(members.get(0).get("joinDate").asText()).isEqualTo(utcToday().toString());
         assertThat(members.get(0).get("hasAccount").asBoolean()).isTrue();
         assertThat(members.get(0).get("share").isNull()).isTrue();
 
@@ -141,7 +141,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
 
         body(post(alice, uri + "/members", """
                 {"displayName": "Kid"}"""), HttpStatus.CREATED);
-        join(family, bob, "Ben", "MEMBER", LocalDate.now());
+        join(family, bob, "Ben", "MEMBER", utcToday());
         for (String reader : List.of(alice, bob)) {
             JsonNode balances = ok(get(reader, uri + "/balances"));
             assertThat(balances.get("byCurrency").findValuesAsText("currency")).containsExactly("EUR");
@@ -205,7 +205,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
     /** Any ACTIVE member with an account changes the name the others see, and only their own (D-3). */
     @Test
     void aMemberWithAnAccountChangesTheirOwnDisplayName() throws IOException {
-        long bobsMembership = join(family, bob, "Ben", "MEMBER", LocalDate.now());
+        long bobsMembership = join(family, bob, "Ben", "MEMBER", utcToday());
         long kid = memberId(post(alice, uri + "/members", """
                 {"displayName": "Kid"}"""));
         String me = uri + "/members/me";
@@ -299,7 +299,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
 
     @Test
     void anyMemberAddsFamilyCategoriesAndOwnersManageThem() throws IOException {
-        join(family, bob, "Ben", "MEMBER", LocalDate.now());
+        join(family, bob, "Ben", "MEMBER", utcToday());
         JsonNode bobs = body(post(bob, uri + "/categories", """
                 {"code": "HOLIDAYS", "name": "Holidays", "type": "EXPENSE"}"""), HttpStatus.CREATED);
         long holidays = bobs.get("id").asLong();
@@ -350,7 +350,7 @@ class FamilyLedgerApiTests extends LedgerApiTest {
     /** Every owner's action answers 409 to a member, and changes nothing (D-15); reading and adding categories don't. */
     @Test
     void aMemberWhoIsNotAnOwnerGets409ForEveryOwnersAction() throws IOException {
-        join(family, bob, "Ben", "MEMBER", LocalDate.now());
+        join(family, bob, "Ben", "MEMBER", utcToday());
         long kid = memberId(post(alice, uri + "/members", """
                 {"displayName": "Kid"}"""));
         long groceries = find(ok(get(alice, uri + "/categories")), "code", "GROCERIES").get("id").asLong();

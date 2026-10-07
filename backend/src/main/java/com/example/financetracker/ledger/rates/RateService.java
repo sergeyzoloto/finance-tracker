@@ -69,7 +69,7 @@ public class RateService {
     public RatesView overview(LedgerScope personalLedger) {
         String userId = personalLedger.userId();
         String base = settings.get(userId).baseCurrency();
-        LocalDate now = today.date();
+        LocalDate now = today.date(personalLedger);
         Map<String, RateBook.Rate> latest = new TreeMap<>();
         rates.findLatest(userId).stream().map(RateService::rate).forEach(rate -> latest.put(rate.currency(), rate));
         RateBook book = rateBook(userId, latest.keySet(), now, now);

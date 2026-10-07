@@ -355,6 +355,10 @@ class DataIsolationApiTests extends LedgerApiTest {
                 HttpStatus.CREATED);
         ok(bobsRequest(HttpMethod.PUT, "/api/settings", """
                 {"baseCurrency": "GBP", "defaultShareRatio": "0.5", "userId": "%s"}""".formatted(alice)));
+        // D-100: his zone is his own, whatever else the body names.
+        ok(bobsRequest(HttpMethod.PUT, "/api/settings/time-zone", """
+                {"timeZone": "Asia/Kolkata", "userId": "%s"}""".formatted(alice)));
+        assertThat(bobReads("/api/me").get("timeZone").asText()).isEqualTo("Asia/Kolkata");
         assertThat(bobReads("/api/counterparties").findValuesAsText("name")).contains("Planted");
         assertThat(bobReads("/api/entries").get("totalElements").asLong()).isEqualTo(5);
         assertThat(bobReads("/api/settings").get("baseCurrency").asText()).isEqualTo("GBP");
@@ -1471,7 +1475,7 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .formatted(rentInA, mumInA,
                 alicesBank)));
         assertThat(call(bob, HttpMethod.DELETE, inA + "/members/me", null)).hasStatus(HttpStatus.NO_CONTENT);
-        LocalDate later = jdbc.sql("SELECT current_date + 3").query(LocalDate.class).single();
+        LocalDate later = utcToday().plusDays(3);
         long bobsEntry = created(post(bob, "/api/entries", """
                 {"kind": "MANUAL", "entryDate": "%s", "memo": "BOB_AFTER_RETURN", "postings": [
                   {"accountId": %d, "currency": "EUR", "amount": "-7.00"},
@@ -1485,7 +1489,9 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(bobs.get("entriesAfterReturn").findValuesAsText("entryId"))
                 .containsExactly(String.valueOf(bobsEntry));
         assertThat(bobs.get("entriesAfterReturn").get(0).get("memo").asText()).isEqualTo("BOB_AFTER_RETURN");
-        assertThat(bobs.toString()).doesNotContain("ALICE_", String.valueOf(alicesBank), alice, "@example.com");
+        assertThat(bobs.toString()).doesNotContain("ALICE_", alice, "@example.com");
+        // Her account's id as a number of its own: the digits inside another number (a timestamp's microseconds) aren't it.
+        assertThat(bobs.toString()).doesNotContainPattern("(?<!\\d)" + alicesBank + "(?!\\d)");
         String memberships = membershipsBut(-1);
         MvcTestResult refused = bobsRequest(() -> inviteCall(bob, "accept",
                 "{\"token\": \"%s\", \"displayName\": \"Dad\", \"categoryIds\": []}".formatted(backToA)));

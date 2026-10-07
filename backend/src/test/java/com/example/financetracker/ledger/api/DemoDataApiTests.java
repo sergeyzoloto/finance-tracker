@@ -36,7 +36,7 @@ class DemoDataApiTests extends LedgerApiTest {
         // Long before the demo starts, so that every dollar amount has a rate in the base currency.
         ok(post(user, "/api/rates/manual", """
                 {"date": "2020-01-01", "base": "EUR", "quote": "USD", "rate": "1.10"}"""));
-        LocalDate today = LocalDate.now();
+        LocalDate today = utcToday();
 
         JsonNode demo = ok(post(user, "/api/demo-data", null));
 

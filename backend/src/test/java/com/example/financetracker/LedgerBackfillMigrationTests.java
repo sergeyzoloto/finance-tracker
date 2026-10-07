@@ -21,7 +21,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * V5's backfill, on rows as the code before it writes them: a database migrated to V4 gets the rows of several users,
  * each known to other tables, and then V5. Every sub gets one personal ledger with itself as its one owner, and every
  * row its user's ledger, whether or not the sub has a users or user_settings row. Then each later migration on those
- * rows, to V11's record currency (F8a).
+ * rows, to V12's time zone (F8c).
  */
 class LedgerBackfillMigrationTests {
 
@@ -222,13 +222,32 @@ class LedgerBackfillMigrationTests {
                         || (SELECT string_agg(l::text, '|' ORDER BY l.id) FROM ledger l)""";
             String beforeV11 = strings(everyRow).getFirst();
             Map<String, Long> rowsBeforeV11 = rows();
-            MigrateResult v11 = flyway(null).migrate();
+            MigrateResult v11 = flyway("11").migrate();
             assertThat(v11.success).isTrue();
             assertThat(v11.targetSchemaVersion).isEqualTo("11");
             assertThat(rows()).isEqualTo(rowsBeforeV11);
             assertThat(strings(everyRow).getFirst()).isEqualTo(beforeV11);
             assertThat(strings("SELECT r.currency || ' ' || l.base_currency FROM family_record r "
                     + "JOIN ledger l ON l.id = r.ledger_id ORDER BY r.id")).containsExactly("EUR EUR");
+
+            // V12 (F8c, D-101) adds the settings' time zone, null for everyone, and changes nothing else.
+            String withoutZone = """
+                    SELECT coalesce((SELECT string_agg((to_jsonb(s) - 'time_zone')::text, '|' ORDER BY s.user_id)
+                            FROM user_settings s), '')
+                        || coalesce((SELECT string_agg(a::text, '|' ORDER BY a.id) FROM account a), '')
+                        || coalesce((SELECT string_agg(e::text, '|' ORDER BY e.id) FROM journal_entry e), '')
+                        || coalesce((SELECT string_agg(r::text, '|' ORDER BY r.id) FROM family_record r), '')
+                        || coalesce((SELECT string_agg(i::text, '|' ORDER BY i.id) FROM ledger_invite i), '')
+                        || coalesce((SELECT string_agg(m::text, '|' ORDER BY m.id) FROM ledger_member m), '')
+                        || coalesce((SELECT string_agg(l::text, '|' ORDER BY l.id) FROM ledger l), '')""";
+            String beforeV12 = strings(withoutZone).getFirst();
+            Map<String, Long> rowsBeforeV12 = rows();
+            MigrateResult v12 = flyway(null).migrate();
+            assertThat(v12.success).isTrue();
+            assertThat(v12.targetSchemaVersion).isEqualTo("12");
+            assertThat(rows()).isEqualTo(rowsBeforeV12);
+            assertThat(strings(withoutZone).getFirst()).isEqualTo(beforeV12);
+            assertThat(strings("SELECT count(*) FROM user_settings WHERE time_zone IS NOT NULL")).containsExactly("0");
         } finally {
             db.close();
         }

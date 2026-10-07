@@ -284,7 +284,7 @@ public class FamilyMembershipService {
         jdbc.sql("""
                 UPDATE ledger_member SET status = 'LEFT', role = 'MEMBER', share_bp = NULL, left_date = :today
                 WHERE id = :memberId AND ledger_id = :ledgerId""")
-                .param("today", today.date()).param("memberId", memberId).param("ledgerId", family.ledgerId())
+                .param("today", today.date(family)).param("memberId", memberId).param("ledgerId", family.ledgerId())
                 .update();
         if (!othersWithAccount) {
             // Nobody with an account is left to see it: it is deleted with its records, as "Delete all my data" deletes

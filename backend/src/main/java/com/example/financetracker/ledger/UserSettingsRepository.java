@@ -27,6 +27,15 @@ public interface UserSettingsRepository extends Repository<UserSettings, String>
             + "ON CONFLICT (user_id) DO NOTHING")
     boolean insertIfAbsent(String userId, String baseCurrency);
 
+    /** The user's time zone, an IANA id (D-101); empty when they have no row or have set none. */
+    @Query("SELECT time_zone FROM user_settings WHERE user_id = :userId")
+    Optional<String> findTimeZone(String userId);
+
+    /** Sets the zone of the user's row, which must exist; {@code upsert} leaves it alone. */
+    @Modifying
+    @Query("UPDATE user_settings SET time_zone = :timeZone WHERE user_id = :userId")
+    boolean updateTimeZone(String userId, String timeZone);
+
     /** Inserts or replaces the user's row. */
     default void save(UserSettings settings) {
         upsert(settings.userId(), settings.baseCurrency(), settings.sharedAccountId(), settings.defaultShareRatio());

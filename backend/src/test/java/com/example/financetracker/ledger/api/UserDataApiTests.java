@@ -167,7 +167,9 @@ class UserDataApiTests extends LedgerApiTest {
         assertThat(jdbc.sql("SELECT split_rule FROM ledger WHERE id = ?").param(scenario.family())
                 .query(String.class).single()).isEqualTo("EQUAL");
         assertThat(jdbc.sql("SELECT left_date FROM ledger_member WHERE ledger_id = ? AND status = 'FORMER'")
-                .param(scenario.family()).query(LocalDate.class).single()).isEqualTo(LocalDate.now());
+                .param(scenario.family()).query(LocalDate.class).single())
+                // The date the database decides (release_family_memberships, D-101: no user's zone), its session's.
+                .isEqualTo(jdbc.sql("SELECT current_date").query(LocalDate.class).single());
         assertThat(rowsOf(scenario.alice())).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
         assertThat(personal(digestOf(scenario.bob()))).isEqualTo(bobsPersonalRows);
         // Bob, the new owner, may do what owners do; Alice, back as a new user, isn't in the ledger.
@@ -194,11 +196,11 @@ class UserDataApiTests extends LedgerApiTest {
         long groceries = ok(get(user, uri + "/categories")).get(0).get("id").asLong();
         body(post(user, uri + "/records", """
                 {"date": "%s", "categoryId": %d, "amount": "30", "payerMemberId": %d, "paymentAccountId": %d}"""
-                .formatted(LocalDate.now(), groceries, created.get("memberId").asLong(), accountId(user, "CASH"))),
+                .formatted(utcToday(), groceries, created.get("memberId").asLong(), accountId(user, "CASH"))),
                 HttpStatus.CREATED);
         body(post(user, uri + "/records", """
                 {"date": "%s", "categoryId": %d, "amount": "4", "payerMemberId": %d, "paymentLater": true}"""
-                .formatted(LocalDate.now(), groceries, created.get("memberId").asLong())), HttpStatus.CREATED);
+                .formatted(utcToday(), groceries, created.get("memberId").asLong())), HttpStatus.CREATED);
         assertThat(jdbc.sql("SELECT count(*) FROM posting p JOIN journal_entry e ON e.id = p.entry_id "
                 + "WHERE e.user_id = ? AND p.category_id = ?").params(user, groceries).query(Long.class).single())
                 .isEqualTo(2);
@@ -300,7 +302,7 @@ class UserDataApiTests extends LedgerApiTest {
                     {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "%s"}""".formatted(jdbc.sql(
                     "SELECT id FROM ledger_member WHERE ledger_id = ? AND display_name = 'Kid'")
                     .param(scenario.family()).query(Long.class).single(),
-                    jdbc.sql("SELECT current_date").query(LocalDate.class).single())), HttpStatus.CREATED);
+                    utcToday())), HttpStatus.CREATED);
         }
         body(post(soleOwner, "/api/family-ledgers/" + soleFamily + "/invites", """
                 {"kind": "NEW_MEMBER"}"""), HttpStatus.CREATED);
@@ -344,7 +346,7 @@ class UserDataApiTests extends LedgerApiTest {
         long club = newFamily(bob, """
                 {"name": "Club", "baseCurrency": "EUR", "displayName": "Bob", "splitRule": "CUSTOM"}""")
                 .get("id").asLong();
-        long aliceInClub = join(club, alice, "Anna", "MEMBER", LocalDate.now());
+        long aliceInClub = join(club, alice, "Anna", "MEMBER", utcToday());
         long bobInClub = jdbc.sql("SELECT id FROM ledger_member WHERE ledger_id = ? AND user_sub = ?").params(club, bob)
                 .query(Long.class).single();
         ok(put(bob, "/api/family-ledgers/" + club + "/split-rule", """
@@ -426,11 +428,11 @@ class UserDataApiTests extends LedgerApiTest {
         long groceries = ok(get(alice, uri + "/categories")).get(0).get("id").asLong();
         body(post(alice, uri + "/records", """
                 {"date": "%s", "categoryId": %d, "amount": "30", "comment": "Alice's shop", "payerMemberId": %d,
-                 "paymentAccountId": %d}""".formatted(LocalDate.now(), groceries, created.get("memberId").asLong(),
+                 "paymentAccountId": %d}""".formatted(utcToday(), groceries, created.get("memberId").asLong(),
                 accountId(alice, "CASH"))), HttpStatus.CREATED);
         body(post(bob, uri + "/records", """
                 {"date": "%s", "categoryId": %d, "amount": "12", "payerMemberId": %d, "paymentLater": true}"""
-                .formatted(LocalDate.now(), groceries, bobs)), HttpStatus.CREATED);
+                .formatted(utcToday(), groceries, bobs)), HttpStatus.CREATED);
         return new Scenario(alice, bob, family);
     }
 

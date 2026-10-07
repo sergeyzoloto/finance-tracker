@@ -85,7 +85,7 @@ public class LedgerInvites {
      * invites, the seat's name and opening balance for a claim, and the family's categories. No member id, sub,
      * account or record.
      *
-     * @param today today (the api's, {@link Today}), a new member's join date
+     * @param today the holder's today ({@link Today}, D-100), a new member's join date
      * @param seatBalances a claim's seat's family balance in each currency from the records before its join date,
      *        which the user takes on as an opening balance (D-18, D-34, D-45): positive when the seat owes the family;
      *        the main currency first, then each other currency of a record before it; null for a new member
@@ -162,7 +162,7 @@ public class LedgerInvites {
     }
 
     /** What the invite shows before it is accepted. */
-    public Preview preview(Invite invite) {
+    public Preview preview(String userId, Invite invite) {
         record Ledger(String name, String baseCurrency, String invitedBy, String seatName) {
         }
         Ledger ledger = jdbc.sql("""
@@ -185,7 +185,7 @@ public class LedgerInvites {
                 .list();
         Map<String, BigDecimal> seatBalances = invite.claim()
                 ? balancesBefore(invite.ledgerId(), invite.seatMemberId(), invite.joinDate()) : null;
-        return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), today.date(),
+        return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), today.date(userId),
                 categories, seatBalances);
     }
 
@@ -280,7 +280,7 @@ public class LedgerInvites {
                     FROM ledger WHERE id = :ledgerId
                     RETURNING id""")
                     .param("userId", userId).param("name", displayName).param("ledgerId", invite.ledgerId())
-                    .param("today", today.date())
+                    .param("today", today.date(userId))
                     .query(Long.class).single();
         }
         jdbc.sql("""
@@ -309,7 +309,7 @@ public class LedgerInvites {
                     share_bp = (SELECT CASE split_rule WHEN 'CUSTOM' THEN 0 END FROM ledger WHERE id = m.ledger_id)
                 WHERE ledger_id = :ledgerId AND user_sub = :userId AND status = 'LEFT'
                 RETURNING id""")
-                .param("today", today.date()).param("name", displayName).param("ledgerId", invite.ledgerId())
+                .param("today", today.date(userId)).param("name", displayName).param("ledgerId", invite.ledgerId())
                 .param("userId", userId)
                 .query(Long.class).optional()
                 .orElseThrow(() -> new ConflictException("You are not a member who left this family budget"));

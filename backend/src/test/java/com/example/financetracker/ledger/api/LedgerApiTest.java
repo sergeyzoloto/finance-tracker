@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -71,6 +72,15 @@ abstract class LedgerApiTest extends IntegrationTest {
 
     @Autowired
     protected JdbcClient jdbc;
+
+    /**
+     * The api's today for a user who has set no time zone (D-101): the UTC date. The JVM of the tests runs in
+     * Pacific/Kiritimati and the database session with it, so neither {@code LocalDate.now()} nor {@code current_date}
+     * is it.
+     */
+    protected static LocalDate utcToday() {
+        return LocalDate.now(ZoneOffset.UTC);
+    }
 
     protected static String newUser() {
         return UUID.randomUUID().toString();

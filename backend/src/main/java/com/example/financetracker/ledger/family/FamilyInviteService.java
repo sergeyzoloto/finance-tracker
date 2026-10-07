@@ -122,7 +122,7 @@ public class FamilyInviteService {
                 .param("ledgerId", owner.ledgerId())
                 .query(LocalDate.class)
                 .single();
-        LocalDate now = today.date();
+        LocalDate now = today.date(owner);
         int lifetime = hours == null ? DEFAULT_HOURS : hours;
         if (lifetime < 1 || lifetime > MAX_HOURS) {
             throw new IllegalArgumentException("An invite lasts from 1 to %d hours".formatted(MAX_HOURS));
@@ -141,8 +141,8 @@ public class FamilyInviteService {
             if (seat.hasAccount()) {
                 throw new ConflictException(seat.displayName() + " has an account already, so nobody takes their place");
             }
-            // Left out, it is today: the server's, as for a start date, so that a browser a time zone ahead, already
-            // on the next day, can offer its today without its being in the future here (F6a).
+            // Left out, it is today in the owner's zone, as for a start date (D-101); the page sends it only when it differs
+            // from /api/me's today, which is this one.
             joinDate = joinDate == null ? now : joinDate;
             if (joinDate.isBefore(startDate) || joinDate.isAfter(now)) {
                 violations.add(new Violation(JOIN_DATE, seatMemberId, ("the join date %s is not between the family "
@@ -232,7 +232,7 @@ public class FamilyInviteService {
         requirePersonal(personal);
         Invite invite = invites.pending(token);
         Long returning = requireAcceptable(personal, invite);
-        Preview preview = invites.preview(invite);
+        Preview preview = invites.preview(personal.userId(), invite);
         Matches matches = matches(personal, preview.categories());
         String main = preview.baseCurrency();
         // Per currency (D-45): the correction is the balance before the join date less what the former debt account
@@ -293,7 +293,7 @@ public class FamilyInviteService {
         if (invites.nameTaken(invite, displayName, returning)) {
             throw new ConflictException("The family budget has a member named %s already".formatted(displayName));
         }
-        Preview preview = invites.preview(invite);
+        Preview preview = invites.preview(personal.userId(), invite);
         if (returning != null) {
             int entries = posting.entriesAfterReturn(personal, invite.ledgerId(), returning, preview.today()).size();
             if (entries > 0) {

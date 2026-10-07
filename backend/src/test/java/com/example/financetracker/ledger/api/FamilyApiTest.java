@@ -197,9 +197,9 @@ abstract class FamilyApiTest extends LedgerApiTest {
                 .formatted(displayName, List.of(categoryIds)))));
     }
 
-    /** The database's today, which a new member joins on and which a claim's join date can't pass. */
+    /** The api's today for these users, who set no time zone: the UTC date (D-101). */
     protected LocalDate today() {
-        return jdbc.sql("SELECT current_date").query(LocalDate.class).single();
+        return utcToday();
     }
 
     protected static List<Long> ids(JsonNode array) {

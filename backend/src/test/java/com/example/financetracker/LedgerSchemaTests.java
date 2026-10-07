@@ -1027,6 +1027,49 @@ class LedgerSchemaTests {
     }
 
     /**
+     * V12 (F8c, D-101): a claim's join date is checked against the latest date anywhere, the one at UTC+14, in place
+     * of the session's {@code current_date}: its owner's zone, which the api decides it in, may be a day ahead of the
+     * database session's (UTC in production). The session is set to UTC here, whatever zone the test JVM runs in.
+     * The user's time zone column starts null and is limited to 64 characters.
+     */
+    @Test
+    void aClaimsJoinDateMayBeTodayInAnyZone() throws SQLException {
+        db.createStatement().execute("SET TIME ZONE 'UTC'");
+        long family = sharedLedger();
+        long owner = member(family, "SHARED", user, "OWNER");
+        long seat = seat(family);
+        db.commit();
+        String insert = """
+                INSERT INTO ledger_invite (ledger_id, token_hash, seat_member_id, join_date, created_by_member_id,
+                                           expires_at)
+                VALUES (?, ?, ?, ?, ?, now() + interval '72 hours')""";
+        LocalDate utc = LocalDate.parse(strings("SELECT (now() AT TIME ZONE 'UTC')::date::text").getFirst());
+        LocalDate ahead = LocalDate.parse(strings(
+                "SELECT (now() AT TIME ZONE 'Pacific/Kiritimati')::date::text").getFirst());
+        assertThat(ahead).isIn(utc, utc.plusDays(1));
+        // Hashes of their own: the class's tests share one database, whose token hashes are unique.
+        insert(insert, family, hash(201), seat, utc, owner);
+        // The date at UTC+14, a day ahead of UTC's for fourteen hours of each day, is today there, so it is accepted.
+        insert(insert, family, hash(202), seat, ahead, owner);
+        db.commit();
+        // Nowhere on earth is it already the day after.
+        assertFails(() -> insert(insert, family, hash(203), seat, ahead.plusDays(1), owner), CHECK_VIOLATION,
+                "is not between the start of family ledger");
+        db.rollback();
+
+        update("INSERT INTO user_settings (user_id, base_currency) VALUES (?, 'EUR')", user);
+        assertThat(strings("SELECT time_zone FROM user_settings WHERE user_id = ?", user)).containsExactly((String) null);
+        update("UPDATE user_settings SET time_zone = 'Europe/Amsterdam' WHERE user_id = ?", user);
+        db.commit();
+        assertFails(() -> update("UPDATE user_settings SET time_zone = '' WHERE user_id = ?", user), CHECK_VIOLATION,
+                "user_settings_time_zone_length");
+        db.rollback();
+        assertFails(() -> update("UPDATE user_settings SET time_zone = repeat('x', 65) WHERE user_id = ?", user),
+                CHECK_VIOLATION, "user_settings_time_zone_length");
+        db.rollback();
+    }
+
+    /**
      * V9's invites (F5; D-17, D-18, D-20): a token's hash of 32 bytes, once; created by an ACTIVE owner with an account
      * of a family ledger, never of a personal one; a claim's seat an ACTIVE member without an account, with a join
      * date from the start date to today; at most seven days; revoked, used or declined once, for good, and nothing else

@@ -89,7 +89,7 @@ public class FamilyLedgerService {
         if (personal.type() != LedgerType.PERSONAL) {
             throw new IllegalArgumentException("A family ledger is created from its creator's personal ledger");
         }
-        LocalDate now = today.date();
+        LocalDate now = today.date(personal);
         LocalDate starts = startDate == null ? now : startDate;
         if (starts.isAfter(now)) {
             throw RuleViolationException.of(List.of(new Violation(START_DATE, null,
@@ -190,7 +190,7 @@ public class FamilyLedgerService {
         long memberId = jdbc.sql("""
                 INSERT INTO ledger_member (ledger_id, ledger_type, display_name, role, status, join_date, share_bp)
                 VALUES (:ledgerId, 'SHARED', :displayName, 'MEMBER', 'ACTIVE', :today, :share) RETURNING id""")
-                .param("ledgerId", owner.ledgerId()).param("displayName", displayName).param("today", today.date())
+                .param("ledgerId", owner.ledgerId()).param("displayName", displayName).param("today", today.date(owner))
                 .param("share", rule == SplitRule.CUSTOM ? 0 : null)
                 .query(Long.class).single();
         return member(owner, memberId);

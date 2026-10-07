@@ -1,6 +1,8 @@
 package com.example.financetracker.ledger;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.Money;
@@ -16,10 +18,12 @@ public class SettingsService {
 
     private final UserSettingsRepository settings;
     private final AccountRepository accounts;
+    private final Today today;
 
-    SettingsService(UserSettingsRepository settings, AccountRepository accounts) {
+    SettingsService(UserSettingsRepository settings, AccountRepository accounts, Today today) {
         this.settings = settings;
         this.accounts = accounts;
+        this.today = today;
     }
 
     /** The user's settings, or the defaults for a user who has none. */
@@ -49,6 +53,29 @@ public class SettingsService {
                 defaultShareRatio);
         settings.save(updated);
         return view(updated);
+    }
+
+    /** The user's time zone as {@code /api/me} reports it, with today's date in it (D-100, D-101). */
+    public record TimeZoneView(String timeZone, LocalDate today) {
+    }
+
+    /**
+     * Sets the user's time zone (D-100, D-101): the date there is D-53's today for everything they do from now on.
+     *
+     * @param userId a user the request provisioned, who therefore has a settings row
+     * @param timeZone an IANA zone id such as "Europe/Amsterdam" or "UTC"; an offset or an abbreviation is no id
+     * @throws RuleViolationException (422) if the id isn't a time zone the api knows
+     */
+    @Transactional
+    public TimeZoneView setTimeZone(String userId, String timeZone) {
+        if (timeZone == null || !ZoneId.getAvailableZoneIds().contains(timeZone)) {
+            throw new RuleViolationException("'%s' is not a time zone: use an IANA name such as Europe/Amsterdam"
+                    .formatted(timeZone));
+        }
+        if (!settings.updateTimeZone(userId, timeZone)) {
+            throw new NotFoundException("Settings not found");
+        }
+        return new TimeZoneView(timeZone, today.date(ZoneId.of(timeZone)));
     }
 
     private static SettingsView view(UserSettings settings) {

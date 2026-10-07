@@ -3,6 +3,91 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-07 · F8c-fix: the PM's review of F8c (D-103 to D-106), a nameless account, no polling
+
+Five commits on `feature/family-budget` on top of F8c's `d9d52e4`: `f939b8c` "feat(backend): GET /api/settings/time-zones
+lists the accepted zones; tests for D-103 and an account with no name (F8c-fix)", `ed3682f` "feat(frontend): a zone is
+offered only if the api accepts it, no polling, a nameless account works (D-103, D-106, F8c-fix)", `8a0cfc2` "chore(deploy):
+F8c's checks have no line for records in another currency (D-105, F8c-fix)", `a43dd2d` "docs: D-103 to D-106, F8c's
+checklist for F8c-fix, CLAUDE.md (F8c-fix)", and the commit of this entry, "docs: F8c-fix's change log entry (F8c-fix)",
+whose full hash the report names: M, the commit to deploy. Not pushed, nothing merged into `main`; production not accessed,
+the deploy scripts and the earlier checklists unchanged.
+
+**Changes**
+- Choice 6, what the app checks in `/api/me`'s answer before it stops with a notice (`isMe` in `guards.ts`, read by
+  `main.tsx`, and by `MeProvider` for every later answer). Before: `name` had to be a string and `today` a date, so an
+  account with no name got the notice, since the api sends `"name": null` for a token with neither `name` nor
+  `preferred_username` (`CurrentUserResolver.displayName`). Now the answer must be an object whose `today` is a string of the
+  form `2026-10-07`, and that is the only thing the app can't run without (every default date is it, D-101). The rest is
+  optional as the api sends it: `name`, `email` and `timeZone` may be a string, null or missing (a field that is there
+  but of another kind, a number or a list, is still refused), and `features` may be an object, null or missing (missing
+  counts as every feature off). The api's own requirements of a token are unchanged: a non-blank `sub`, the issuer, `aud`
+  and the role. The header shows `name`, else the `email`; a new family budget's "Your name in this budget" starts empty
+  for a nameless account and Create stays disabled until a name is typed (the demo already falls back to "You"). Tests: a
+  frontend one (`Robust.test.tsx`, "an account with an email and no name": the guard on the exact JSON the api sends, the
+  header, the family form, and the first load saving the zone for such an account) and an API one
+  (`UserTimeZoneApiTests.anAccountWithNoNameAtAllWorks`: a token with only `sub`, `email` and the role gets 200 from
+  `/api/me` with `name` null and `timeZone` null, is provisioned by `/api/accounts`, sets and reads a zone, and loads the demo
+  with its family budget).
+- D-103. `SettingsService.setTimeZone` already accepted exactly `ZoneId.getAvailableZoneIds()` (case-sensitive); that is now
+  the stated rule, with a test that every id of that set is accepted (`UTC`, `Etc/UTC`, `Etc/GMT+5` and `Asia/Calcutta`
+  among them) and that other case, offsets and abbreviations are 422. New `GET /api/settings/time-zones` (behind login like
+  the rest) lists that set. Frontend: `MeProvider.acceptedZones` asks it once per page load, only when something offers a
+  zone; `ZoneHint` shows "Use X" only if X is in the list, and shows nothing while it is being asked or if the api can't
+  say; Settings' search list keeps to accepted names once the list has been asked for (when the picker is first used, so the
+  page itself still asks for nothing). First load: any failure of saving the browser's zone (422, 500, a dropped
+  connection) leaves the zone unset and the app as it is, with no error and no second try until the next page load; a browser
+  that reports `UTC` saves `UTC`. Tests: `TimeZone.test.tsx` (UTC saved; the three failures with no alert and one PUT even
+  after the tab comes back into view; a hint for a zone the api's list lacks or can't give; no list request when the zones
+  are the same; the picker's filter) and `UserTimeZoneApiTests.aZoneIsAcceptedIfAndOnlyIfJavaKnowsItsId`; the endpoint is in
+  `ApiTests` (401 without login, the OpenAPI paths) and `DataIsolationApiTests` (Bob reads it).
+- D-105. `deploy/checks/F8c.sql` and `F8c.expected` lose "records in another currency than their budget's" (6 lines left;
+  the file's header says why). Tried on a throwaway `postgres:17.11` migrated to V12 by the importer profile of the backend
+  (container `f8cfix-check-db`, removed by name afterwards): the output equals `F8c.expected`, `diff` silent. In the runbook's
+  "F8c's deploy checklist with the suite": the stage's 6 lines, 4.4's paragraph about a line that may differ is replaced
+  by "no line can differ legitimately", step 7's and step 10's talk of such records and of a restore is replaced by
+  "its V11 condition doesn't apply, and `bfb8cc6` reads such records correctly", the commits (15, F8c-fix's five) and the
+  new endpoint are named, and M is F8c-fix's head. The other checklists, `deploy.sh`, `rollback.sh` and `deploy/tests/`
+  are unchanged.
+- D-106. No poll. `MeProvider` asks `/api/me` again when the tab becomes visible (its last answer older than a minute) and
+  once at the next midnight of the saved zone, UTC while none is saved (`msUntilMidnight` in `timeZone.ts`: a delay by the
+  browser's clock, never a date shown; two seconds of slack, at least a minute after the last answer, a zone this browser
+  doesn't know counts as UTC): one `setTimeout`, armed again after each answer, failed or not, and when the zone or the date
+  changes. The ten-minute interval and the window's `focus` listener are gone. Tests (`TimeZone.test.tsx`, "the date
+  turning over"): the midnight arithmetic; no request while idle for hours, while hidden, or on a focus event; a request at
+  the midnight of Amsterdam with the tab hidden and none before it, then the next one a day later; the timer armed again
+  after a failed answer; a tab shown after midnight (the timer never ran, a sleeping laptop) gets the new today.
+- D-104 is recorded in `requirements.md` and not built (F8d).
+- Documentation: `requirements.md` (D-103 to D-106 and the amendment line), `CLAUDE.md` (the `/api/me` check, the time-zone
+  endpoints, the first load, no polling, the hint's source, the new tests), `deploy/RUNBOOK.md` (above, and "Production
+  now"'s F8c line names F8c-fix).
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>` on
+  `a43dd2d`, three seeds, each exit 0: seeds 101, 202 and 303, each `Tests run: 455, Failures: 0, Errors: 0, Skipped: 0`,
+  BUILD SUCCESS (453 before; the two new tests are the nameless account and D-103's).
+- Frontend, `cd frontend && npm test`, exit 0: `Test Files  27 passed (27)`, `Tests  349 passed (349)` (336 before this task); `npm run build` exit 0 (`tsc -b`, then Vite).
+- `deploy/tests/run.sh`, exit 0: `92 passed, 0 failed, of 92 cases`; `deploy/tests/mutate.sh`, exit 0: `Every mutation was
+  caught.` (no script changed, so ShellCheck was not run).
+- End to end, `cd e2e && npm run typecheck`, exit 0; `npm run test:guards`, exit 0: `tests 32, suites 10, pass 32, fail 0,
+  cancelled 0, skipped 0`.
+- `cd e2e && npm run e2e:local`, exit 0, on `a43dd2d` (clean tree, stack rebuilt by `./dev.sh`): 12 passed (2.2m), `Result:
+  PASSED`, `Password search over the artifacts: 0 hits`; pages, sign-in, smoke, family F7, family F8, time-zone (2 tests,
+  America/Los_Angeles and Etc/GMT+12) at 1280 px and the same at 375 px, cleanup; both accounts' data deleted and signed
+  out. The run on M, which differs from `a43dd2d` by this entry only, is in the report.
+- Free disk space: 6.0 GB before, 5.9 GB after the stack was rebuilt (the check before starting was 6.0 GB, above the 5 GB
+  floor).
+
+**Open**
+- D-104 (a join date never before the start date, clamped by the server) is for F8d.
+- The midnight request of an idle tab goes through `api`, so a session that has expired meanwhile ends with the redirect to
+  the login, as any other request would; that was already so with the old ten-minute check. A tab whose session is still
+  valid asks once a day, which keeps nothing alive that its user hadn't kept alive.
+- A browser zone that the browser knows and Java doesn't (a newer tz database than the api's JDK) is neither saved on the
+  first load (422, silent, UTC) nor offered by the hint; the user can still pick an accepted zone in Settings.
+- `npm run e2e:prod` is the owner's, after the deploy; not run. F8c's checklist is for M, not for `d9d52e4`.
+- Nothing left unautomated that the stage's checklist doesn't already name (a real user's zone, a look after `finish`).
+
 ## 2026-10-07 · F8c: each user's time zone (D-100, D-101), robustness, test hygiene, F8c's deploy checklist
 
 Eight commits on `feature/family-budget` on top of F8c-0's head `46bf9eb`: `c1113a2` "feat(backend): each user's time

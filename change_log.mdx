@@ -3,6 +3,167 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-07 · F8e: test hygiene (D-117 to D-119), the leaving date's clamp, the time-zone spec's fixed titles, F8d's deploy facts
+
+Six commits on `feature/family-budget` on top of F8d's `05397a7` (production runs it since 2026-10-07): `bbf6d20` "fix(backend):
+a leaving or removal date is never before the member's join date (D-118)", `d7b30ad` "test(backend): no implicit clock
+(D-117), answers read as parsed values (D-119)", `c7d035b` "test(e2e): the time-zone spec's titles are fixed, numbers are
+looked for whole (D-119)", `88a6dbb` "test(backend): the isolation checks of an account or entry id stay on those fields
+(D-119)", `970d1e2` "docs: D-117 to D-119, F8e's checks and deploy checklist, F8d's deploy facts (F8e)", and the commit of
+this entry, "docs: F8e's change log entry (F8e)", whose full hash the report names: M, the commit to deploy. Not pushed,
+nothing merged into `main`; production not accessed, no earlier checklist and no deploy script changed.
+
+**Changes**
+- D-117, no implicit clock (`WallClock`, `TestHygieneTests`). Eight calls of `Instant.now()` in five classes of the application
+  became `WallClock.now()`, the system's UTC clock named in one place: `AccountService.archivedAt` (`:90`), `EntryService`
+  create, update and the replace (`:88`, `:104`, `:123`), `SessionAccessTokenFilter`'s expiry check (`:168`),
+  `EcbSchedule`'s startup load (`:42`) and `ImportService`'s start and its batch record (`:115`, `:194`). In the tests:
+  `ApiTests:53` and `:54`, `FakeKeycloak:109` and `:277`, `AccessTokenTests:41`, `SessionAccessTokenFilterTests:79`,
+  `LedgerRepositoryTests:74`, `ReportServiceTests:370`, and `TestClock`'s `Clock.systemDefaultZone()` (`:14`, `:23`) became
+  `Clock.systemUTC()`. No call of `LocalDate.now()`, `LocalDateTime.now()`, `ZonedDateTime.now()` or `OffsetDateTime.now()`
+  without a clock or zone was left (the audit found none in main or test code, only `LedgerApiTest`'s Javadoc naming one;
+  `TodayTests:110` and `:113` and `LedgerApiTest.utcToday` name a zone). The dates were already `Today`'s; `WallClock` is
+  not `Today`'s clock (the tests move that one and read timestamps back against real time). One ArchUnit rule over every
+  main and test class (`TestHygieneTests.noClassAsksTheImplicitClock`) refuses `now()` with no argument on `Instant`,
+  `LocalDate`, `LocalDateTime`, `LocalTime`, `OffsetDateTime`, `OffsetTime`, `ZonedDateTime`, `Year`, `YearMonth` and
+  `MonthDay`, and `Clock.systemDefaultZone()`, a method reference and a lambda included; it is tried on
+  `hygiene/fixtures/ImplicitClocks` (eleven ways to break it, and a call that names its clock or zone, which it allows).
+  Not covered, and not used anywhere: `System.currentTimeMillis()`, `new Date()`, `ZoneId.systemDefault()`.
+- D-118, a leaving or removal date. `FamilyMembershipService` writes `left_date = GREATEST(the acting user's today,
+  join_date)`. The new `UserTimeZoneApiTests.aLeavingDateIsNeverBeforeTheJoinDate` (Alice at UTC+14 opens the budget on
+  the 7th; Carol, Dan and Frank in Los Angeles join on the 7th; Carol leaves on her own 6th and Bob, an owner, removes
+  Dan on his: left on the 7th; Frank leaves on the 8th: the 8th) failed before the fix with `["2026-10-06", "2026-10-06"]`
+  and passes after. `membersInDifferentZonesEachActOnTheirOwnToday` expected Bob's left date to be the 6th, before his
+  join date, as D-114 had noted; it expects the 7th now. No migration: a FORMER member's `left_date` (a deleted account's,
+  `release_family_memberships`' `current_date`, the database session's, UTC) is unchanged. Production holds no family
+  member, so there is no data to fix. `F8e.sql` counts LEFT members who left before they joined: 0.
+- D-119, tests read answers as parsed values. The audit went through every test that turns an answer into text, in the
+  backend (148 lines with `toString()`, most of them ids and dates, 19 raw-body lines and 175 `contains`-like lines looked at), the frontend and the
+  end-to-end suite.
+  - The reproduction, before the fix: `AnswersTests.aTimestampIsNotAnAmount` ran the assertion of
+    `FamilyCurrencyPostingApiTests:206` on an answer with `"updatedAt":"2026-10-07T12:38:51.500757Z"` and failed with CI's
+    message, `Expecting actual: "{…}" not to contain: ["51.50", "EUR"] but found: ["51.50"]`. It passes now through
+    `Answers`, and keeps a test that the old text search still finds it (`RawAnswerSearch.serialisedTree`).
+  - `Answers` (test helper): `values` (every leaf, whole), `numbers` (whole numbers and decimals in the leaves, found
+    inside a string too, such as `FAMILY_DEBT_12`; dates, timestamps, UUIDs and hashes give none, so 12 is not found in 123 or
+    in `2026-10-12`, and 51.50 not in `51.500757`), `mentions` and `assertNoneMention` (a word in a string value or a field
+    name; a needle made only of the characters of a number, a date or a timestamp is refused with an
+    `IllegalArgumentException` that says to use `values` or `numbers`), `names`, `json` (parses an expected value), `of`
+    (an answer parsed, any status) and `rawText` (the body as written, for comparing whole answers and for messages).
+  - Number, id and amount searches that could match inside another value, changed to `Answers.numbers` or to the field
+    they were about: `FamilyCurrencyPostingApiTests:207` ("51.50", the failing one), `:279` ("53.40", "51.50", "51.5", which
+    had searched the journal's formatted strings) and `:303` ("18.30"); `FamilyTotalsApiTests:89` ("1.10", "1.20", which
+    `…:51.100…` in any timestamp would match); `DataIsolationApiTests:778` ("65.43"), `:1119` ("4321", "4321.98"), `:1129`
+    ("1.12"), `:1245` ("77.77" and Alice's account id), `:1435` and `:1438` (an account id, a budget id), `:1502` (her
+    account id, which a regular expression with lookarounds had searched for in the text, and which a timestamp's `:55.`
+    still matched), `:1513` (an entry id); `FamilyClaimApiTests:102` (`FAMILY_DEBT_<id>` as a substring of the text, which
+    `FAMILY_DEBT_123` satisfied: now the codes of the report's accounts); `FamilyMembershipApiTests:173` and
+    `FamilyCurrencyApiTests:266` (fields found by `"field":"x"` in the text: now the fields).
+  - Word searches (a name, a note, a code, a field's name) that went through the serialized tree, now
+    `Answers.assertNoneMention` or `Answers.mentions`: 26 in `DataIsolationApiTests`, 5 in `FamilyCounterpartyPaymentApiTests`,
+    4 in `FamilyPaymentApiTests`, 2 in `FamilyClaimApiTests` and one each in `EntryApiTests`, `FamilyClaimedSeatApiTests`,
+    `FamilyImportSyncApiTests`, `FamilyIncomeApiTests`, `FamilyInviteApiTests` (the invite token in the list),
+    `FamilyRecordApiTests`, `FamilySettlementApiTests`, `FamilyCurrencyPostingApiTests` ("EUR") and `FamilySwitchOffApiTests`.
+  - Whole answers compared as text, now `isEqualTo(Answers.json(…))`: `FamilyMembershipApiTests` (3), `FamilyReturnApiTests` (2),
+    `FamilyClaimApiTests`, `ImportApiTests`, `ReportApiTests` (3), `RateApiTests` (3), `FamilyTotalsApiTests` (3),
+    `DataIsolationApiTests`. Raw text, now `Answers.rawText` or `Answers.of`: `FamilySwitchOffApiTests` (2),
+    `FamilyInviteApiTests` (3: the token searched in raw answers, a 43-character random token that no value can contain),
+    `FamilyLifecycleRandomTests` and `FamilyClaimRandomTests` (messages), `DataIsolationApiTests` (3: the invalid-token
+    answers compared with each other), `BrowserLoginTests`, `AccessTokenTests` and `FamilyRecordsV11MigrationTests` (parsed).
+  - The guard: `TestHygieneTests.noTestSearchesTheTextOfAnAnswer`, an ArchUnit rule over the compiled test classes. A
+    class other than `Answers` and `IntegrationTest` may not call `JsonNode.toString()` or `toPrettyString()`,
+    `MockHttpServletResponse.getContentAsString()` or `getContentAsByteArray()`, `MvcTestResultAssert.bodyText()` or
+    `hasBodyTextEqualTo()`, or `ObjectMapper.writeValueAsString()`. Why this and not a lint or a CI check: it runs in
+    `./mvnw verify` and so in both CI Backend jobs and locally with no new job; it sees the bytecode, so it can't be
+    dodged by a different spelling of the same call; and it is tried on `hygiene/fixtures/RawAnswerSearch`, which breaks
+    it five ways, so a rule that stops matching fails its own test. What it can't see: a body turned into text some other
+    way (`"" + node`, a `String` built from the bytes); `Answers.rawText` is the one sanctioned door, with a Javadoc that says
+    what it is for. Run on `05397a7`'s tests it finds 84 calls (Verified).
+  - The end-to-end specs looked for amounts in rendered text with `toContainText('32.10')`, `'€12.34'`, `'€23.45'`,
+    `'95.5'` and `hasText: '€40.00'` (eight places in `02-smoke`, `04-family-f8` and `05-family-f8d`): now `wholeNumber()`
+    (`fixtures.ts`: not the tail of 132.10 or 1,032.10, nor the head of 32.105). `e2e/lib/spec-hygiene.test.ts`, in
+    `npm run test:guards`, fails on a number-like string given to `toContainText`, `toContain`, `toMatch` or `hasText`; run on
+    the specs as they were it finds exactly those eight.
+  - The frontend: no test searches an API answer's text. Its `textContent` checks of an amount (`'€5.01'` and the like) read
+    one scoped element of a rendered mocked answer, with fixed values and a fixed `today`, so they are deterministic and
+    stay as they are; `toHaveTextContent` isn't used.
+- The time-zone e2e spec's title no longer depends on the hour. Its two tests were titled with the zone, and the second
+  zone is picked by the UTC hour (UTC+14 from 10:00, else UTC-12), so a run that crossed 10:00 UTC between the runner's
+  listing and the worker's run lost its test ("Test not found in the worker process"; it happened to F8d's third e2e
+  run). Now the titles are fixed (`time zone: Los Angeles`, `time zone: a zone whose date isn't UTC's`) and the zone is
+  picked inside the test, with the zone as an annotation. Proof: a scratch Playwright project (not kept) with the old
+  structure and the new one, under a preloaded fake `Date` that gives each process its own frozen clock, the first at
+  09:59:59Z and each later one two seconds after: the old structure failed with "Test not found in the worker process"
+  (1 passed, 1 failed), the new one passed both tests (the runner at hour 9 and the worker at hour 10 agree on the titles).
+  The harness mirrors the spec's structure, not the spec itself, which needs the stack; the spec ran for real in the local
+  run below.
+- Documentation: `requirements.md` D-117 to D-119 and a line in "Planned stages"; `deploy/checks/F8e.sql` and `F8e.expected`
+  (23 lines: F8d's 22, plus D-118's); `deploy/RUNBOOK.md`: F8d's three rows in "Deployed revisions" (the deploy, the
+  rollback acceptance, and run #6 of "CI on Ubuntu 26.04", whose job states I read from GitHub's public API: the run's
+  conclusion is `cancelled`, Deploy scripts having been cancelled in its "Mutations" step at 12:44:10Z, besides the Backend
+  failure the PM named), "Production now" after F8d, and "F8e's deploy checklist with the suite", modelled on F8d's:
+  `<M>`, stage F8e, the switch on, no migration (so `rollback.sh 05397a7` has no new condition; V13's still applies to any
+  target below V13), the api recreated and the web image unchanged in content, the pre-flight's expectations after F8d (the
+  log grep now includes Flyway's "Successfully applied" line, which F8c's missed), the acceptance against `05397a7`;
+  `CLAUDE.md` and `e2e/README.md`. The earlier checklists and the deploy scripts are unchanged.
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>` on `970d1e2`
+  (the code of M; M adds this entry only), three seeds, run between 13:25Z and 13:41Z with the JVM's date (UTC+14) already 2026-10-08, so
+  every run was after 10:00 UTC: seeds 20261007, 20261008 and 20261009, each exit 0, `Tests run: 489, Failures: 0, Errors: 0,
+  Skipped: 0`, `BUILD SUCCESS` (4:51, 5:25 and 5:31 min). The 489 tests are F8d's 480 plus `AnswersTests` (4),
+  `TestHygieneTests` (4) and `aLeavingDateIsNeverBeforeTheJoinDate`. Three earlier runs of the same seeds, on `c7d035b` and
+  `88a6dbb`, also exited 0.
+- The rules on the code as it was: `TestHygieneTests` copied with `Answers` and the fixtures into a scratch worktree of
+  `05397a7` (removed afterwards): both rules failed, D-117 with 18 calls (the eight main and eight test calls of
+  `Instant.now()`, and `TestClock`'s `Clock.systemDefaultZone()` twice) and D-119 with 84 calls; the two tests of the rules on
+  their fixtures passed.
+- `UserTimeZoneApiTests.aLeavingDateIsNeverBeforeTheJoinDate` failed before the fix (`["2026-10-06", "2026-10-06"]` where
+  the 7th was expected) and passes; `AnswersTests.aTimestampIsNotAnAmount` failed with CI's message before `Answers` existed
+  and passes.
+- Frontend, `cd frontend && npm test`: exit 0, `Test Files  28 passed (28)`, `Tests  365 passed (365)`, no Errors line;
+  `npm run build`: exit 0. F8e changes no frontend file; these are the regular checks.
+- Deploy tests, `deploy/tests/run.sh`: exit 0, `93 passed, 0 failed, of 93 cases`. No deploy script and no test of them
+  changed, so `mutate.sh` was not run.
+- End to end, `cd e2e`: `npm run typecheck` exit 0; `npm run test:guards` exit 0, 35 tests, 35 pass (three of them
+  `spec-hygiene.test.ts`); `npm run e2e:local` on `970d1e2` with a clean tree, `E2E_FAMILY=on`, 13:21:09Z to 13:24:28Z: exit 0,
+  `Result: PASSED`, `Password search over the artifacts: 0 hits`; pages (2 tests), sign-in, smoke, family F7, family F8,
+  family F8d (25.5 s), time-zone (2 tests, `time zone: Los Angeles` and `time zone: a zone whose date isn't UTC's`, 7.0 s),
+  the same specs at 375 px, and cleanup passed; both accounts' data deleted and signed out. The stack was `./dev.sh`'s,
+  stopped afterwards with `./stop.sh`.
+- The title fix across 10:00 UTC, the scratch Playwright project under a faked clock (see Changes): old structure exit 1,
+  "Test not found in the worker process"; new structure exit 0.
+- `deploy/checks/F8e.sql` on a throwaway `postgres:17.11` (my container `f8e-checks-db`, removed with its volume) migrated to
+  V13 by `flyway/flyway:11` from the repository's migrations, run as a role like `finance_checks` (no superuser,
+  `pg_read_all_data`, `default_transaction_read_only = on`) with `deploy.sh`'s psql flags: 23 lines equal to `F8e.expected`,
+  `diff` silent. No backslash in the file.
+- GitHub's public API for run #6 of "CI on Ubuntu 26.04" (id `37622039071`): `cancelled`; Backend `failure` in its step
+  "Build and test", Frontend and Web image `success`, Deploy scripts `cancelled` in "Mutations".
+- This entry compiled with `@mdx-js/mdx` (installed in a scratch folder only).
+- Free disk space: 6.7 GB at the start, 2.7 GB at the end: below the floor of 5 GB, so the next task starts short. It was
+  3.1 GB at my first look, after one Maven run. I did not find where the 4 GB went: the repository (372 MB), this task's
+  scratch folder (about 90 MB) and `backend/target` (a few MB between builds) don't hold it, and `docker system df` showed
+  images 7.7 GB and build cache 5.1 GB at two looks, unchanged. I ran no `docker … prune` (CLAUDE.md forbids it) and
+  deleted nothing I hadn't made.
+
+**Open**
+- The PM confirms the agent's choices: `Answers` as the one door (with `rawText` for whole-answer comparisons and
+  messages, which the rule can't police); `WallClock` for every instant, so that no test moves it; a FORMER member's
+  `left_date` left alone (a deleted account's, UTC `current_date`, which can precede a join date that D-104 clamped ahead;
+  nothing reads it, and fixing it needs a migration); the frontend's `textContent` checks left as they are.
+- The e2e hygiene check is a test of `npm run test:guards`, which CI doesn't run (no CI job runs `e2e/`); it runs when someone
+  runs the guards. A CI step would need Node 24 and no stack; not added, since CI wasn't in the task.
+- Not covered by the D-117 rule: `System.currentTimeMillis()`, `System.nanoTime()` (durations), `new Date()` and
+  `ZoneId.systemDefault()`; nothing uses a wall-clock date through them today.
+- "CI on Ubuntu 26.04" for `05397a7` was cancelled during Deploy scripts' "Mutations" step (the API doesn't say by whom):
+  that job didn't finish on that runner. Its Backend failure is the test fixed here. Re-run it on F8e's M after F8e's
+  deploy (step 9 of the checklist) and let it finish.
+- D-118's clamp isn't visible in the end-to-end suite (a second member whose today is before the budget's start date is not
+  set up there); the backend test proves it. Production has no family member.
+- Nothing in F8e needs a migration, a rollback condition or a change to the deploy scripts. `rollback.sh 05397a7` after
+  F8e's deploy has none of its own; V13's condition still applies to any target below V13.
+- D3b follows F8e.
+
 ## 2026-10-07 · F8d: refunds, counterparty payments and the payer's payee (D-79 to D-81), the journal's currencies (D-93), the import's sync fields (D-48), D-104 and D-107
 
 Thirteen commits on `feature/family-budget` on top of F8c-fix's `b6258f6` (production runs it since 2026-10-07): `07f197a`

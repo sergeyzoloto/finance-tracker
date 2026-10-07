@@ -5,12 +5,13 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-07 · F8e: test hygiene (D-117 to D-119), the leaving date's clamp, the time-zone spec's fixed titles, F8d's deploy facts
 
-Six commits on `feature/family-budget` on top of F8d's `05397a7` (production runs it since 2026-10-07): `bbf6d20` "fix(backend):
+Seven commits on `feature/family-budget` on top of F8d's `05397a7` (production runs it since 2026-10-07): `bbf6d20` "fix(backend):
 a leaving or removal date is never before the member's join date (D-118)", `d7b30ad` "test(backend): no implicit clock
 (D-117), answers read as parsed values (D-119)", `c7d035b` "test(e2e): the time-zone spec's titles are fixed, numbers are
 looked for whole (D-119)", `88a6dbb` "test(backend): the isolation checks of an account or entry id stay on those fields
-(D-119)", `970d1e2` "docs: D-117 to D-119, F8e's checks and deploy checklist, F8d's deploy facts (F8e)", and the commit of
-this entry, "docs: F8e's change log entry (F8e)", whose full hash the report names: M, the commit to deploy. Not pushed,
+(D-119)", `970d1e2` "docs: D-117 to D-119, F8e's checks and deploy checklist, F8d's deploy facts (F8e)", `0a2c079` "docs: F8e's change log entry (F8e)",
+and the commit of this correction, "docs: CI run #6 and #7 facts, D-120 to D-124 (F8e)", whose full hash the report
+names: M, the commit to deploy. Not pushed,
 nothing merged into `main`; production not accessed, no earlier checklist and no deploy script changed.
 
 **Changes**
@@ -99,9 +100,12 @@ nothing merged into `main`; production not accessed, no earlier checklist and no
   run below.
 - Documentation: `requirements.md` D-117 to D-119 and a line in "Planned stages"; `deploy/checks/F8e.sql` and `F8e.expected`
   (23 lines: F8d's 22, plus D-118's); `deploy/RUNBOOK.md`: F8d's three rows in "Deployed revisions" (the deploy, the
-  rollback acceptance, and run #6 of "CI on Ubuntu 26.04", whose job states I read from GitHub's public API: the run's
-  conclusion is `cancelled`, Deploy scripts having been cancelled in its "Mutations" step at 12:44:10Z, besides the Backend
-  failure the PM named), "Production now" after F8d, and "F8e's deploy checklist with the suite", modelled on F8d's:
+  rollback acceptance, and run #6 of "CI on Ubuntu 26.04", whose job states and annotations I read from GitHub's public
+  API: the run's conclusion is `cancelled`, Deploy scripts having been cancelled in its "Mutations" step at 12:44:08Z,
+  confirmed by its annotation, "Canceling since a higher priority waiting request for CI on Ubuntu
+  26.04-refs/heads/main exists" (the workflow's concurrency group with `cancel-in-progress: true`: run #7, id
+  `37622990093`, was dispatched on the same ref at 12:42:51Z, and its jobs started at 12:44:13Z; no `timeout-minutes`
+  exists), besides the Backend failure the PM named; run #7 on `05397a7` passed all four jobs and is the all-green run), "Production now" after F8d, and "F8e's deploy checklist with the suite", modelled on F8d's:
   `<M>`, stage F8e, the switch on, no migration (so `rollback.sh 05397a7` has no new condition; V13's still applies to any
   target below V13), the api recreated and the web image unchanged in content, the pre-flight's expectations after F8d (the
   log grep now includes Flyway's "Successfully applied" line, which F8c's missed), the acceptance against `05397a7`;
@@ -109,7 +113,7 @@ nothing merged into `main`; production not accessed, no earlier checklist and no
 
 **Verified**
 - Backend, `cd backend && ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>` on `970d1e2`
-  (the code of M; M adds this entry only), three seeds, run between 13:25Z and 13:41Z with the JVM's date (UTC+14) already 2026-10-08, so
+  (the code of M; M adds documentation only), three seeds, run between 13:25Z and 13:41Z with the JVM's date (UTC+14) already 2026-10-08, so
   every run was after 10:00 UTC: seeds 20261007, 20261008 and 20261009, each exit 0, `Tests run: 489, Failures: 0, Errors: 0,
   Skipped: 0`, `BUILD SUCCESS` (4:51, 5:25 and 5:31 min). The 489 tests are F8d's 480 plus `AnswersTests` (4),
   `TestHygieneTests` (4) and `aLeavingDateIsNeverBeforeTheJoinDate`. Three earlier runs of the same seeds, on `c7d035b` and
@@ -138,7 +142,9 @@ nothing merged into `main`; production not accessed, no earlier checklist and no
   `pg_read_all_data`, `default_transaction_read_only = on`) with `deploy.sh`'s psql flags: 23 lines equal to `F8e.expected`,
   `diff` silent. No backslash in the file.
 - GitHub's public API for run #6 of "CI on Ubuntu 26.04" (id `37622039071`): `cancelled`; Backend `failure` in its step
-  "Build and test", Frontend and Web image `success`, Deploy scripts `cancelled` in "Mutations".
+  "Build and test", Frontend and Web image `success`, Deploy scripts `cancelled` in "Mutations" at 12:44:08Z, its
+  annotation "Canceling since a higher priority waiting request for CI on Ubuntu 26.04-refs/heads/main exists" (the job
+  logs answer 403). Run #7 (id `37622990093`, dispatched 12:42:51Z): all four jobs `success`, last updated 12:52:48Z.
 - This entry compiled with `@mdx-js/mdx` (installed in a scratch folder only).
 - Free disk space: 6.7 GB at the start, 2.7 GB at the end: below the floor of 5 GB, so the next task starts short. It was
   3.1 GB at my first look, after one Maven run. I did not find where the 4 GB went: the repository (372 MB), this task's
@@ -151,13 +157,16 @@ nothing merged into `main`; production not accessed, no earlier checklist and no
   messages, which the rule can't police); `WallClock` for every instant, so that no test moves it; a FORMER member's
   `left_date` left alone (a deleted account's, UTC `current_date`, which can precede a join date that D-104 clamped ahead;
   nothing reads it, and fixing it needs a migration); the frontend's `textContent` checks left as they are.
-- The e2e hygiene check is a test of `npm run test:guards`, which CI doesn't run (no CI job runs `e2e/`); it runs when someone
-  runs the guards. A CI step would need Node 24 and no stack; not added, since CI wasn't in the task.
-- Not covered by the D-117 rule: `System.currentTimeMillis()`, `System.nanoTime()` (durations), `new Date()` and
-  `ZoneId.systemDefault()`; nothing uses a wall-clock date through them today.
-- "CI on Ubuntu 26.04" for `05397a7` was cancelled during Deploy scripts' "Mutations" step (the API doesn't say by whom):
-  that job didn't finish on that runner. Its Backend failure is the test fixed here. Re-run it on F8e's M after F8e's
-  deploy (step 9 of the checklist) and let it finish.
+- Backlog: `npm run test:guards` in CI. The e2e hygiene check is a test of it, and no CI job runs `e2e/`, so it runs only
+  when someone runs the guards. A CI step would need Node 24 and no stack; not added, since CI wasn't in the task.
+- Backlog: `System.currentTimeMillis()`, `new Date()` and `ZoneId.systemDefault()` in the D-117 rule (and
+  `System.nanoTime()` for durations, which is no date); nothing uses a wall-clock date through them today.
+- Backlog (D-121): restrict the callers of `Answers.rawText` by an ArchUnit list.
+- Run #6 of "CI on Ubuntu 26.04" for `05397a7` was cancelled during Deploy scripts' "Mutations" step by the workflow's
+  concurrency group (confirmed by the job's annotation) when run #7 was dispatched on the same ref; #7 passed all four
+  jobs. Run #6's Backend failure is the test fixed here. After F8e's deploy, dispatch it once on M and wait for it to
+  the end (step 9 of the checklist, D-124): a second dispatch on the same ref cancels the first.
+- D-120 to D-124 record the owner's decisions and the agent's choices that the PM confirmed in review (`requirements.md`).
 - D-118's clamp isn't visible in the end-to-end suite (a second member whose today is before the budget's start date is not
   set up there); the backend test proves it. Production has no family member.
 - Nothing in F8e needs a migration, a rollback condition or a change to the deploy scripts. `rollback.sh 05397a7` after

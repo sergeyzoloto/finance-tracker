@@ -8,6 +8,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.example.financetracker.TestClock;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
@@ -81,11 +82,11 @@ class FamilyTotalsApiTests extends FamilyApiTest {
 
         for (String part : List.of("/balances", "/report")) {
             JsonNode bobs = ok(get(bob, uri + part)).get("total");
-            assertThat(bobs.get("missingCurrencies").toString()).as(part).isEqualTo("[\"USD\"]");
+            assertThat(bobs.get("missingCurrencies")).as(part).isEqualTo(Answers.json("[\"USD\"]"));
             assertThat(bobs.get(part.equals("/balances") ? "members" : "totals")).as(part).isEmpty();
             assertThat(bobs.get("rates")).as(part).isEmpty();
             // Alice's rates are hers: none of them reaches Bob's answer.
-            assertThat(bobs.toString()).as(part).doesNotContain("1.10", "1.20");
+            assertThat(Answers.numbers(bobs)).as(part).doesNotContain("1.10", "1.20");
         }
     }
 
@@ -136,10 +137,10 @@ class FamilyTotalsApiTests extends FamilyApiTest {
                     {"date": "2026-10-01", "categoryId": %d, "amount": "9550", "currency": "RUB", "payerMemberId": %d,
                      "split": {"method": "ONE_MEMBER", "memberId": %d}}""".formatted(groceries, kid, mum)));
             JsonNode none = ok(get(alice, uri + "/balances")).get("total");
-            assertThat(none.get("missingCurrencies").toString()).isEqualTo("[\"RUB\"]");
+            assertThat(none.get("missingCurrencies")).isEqualTo(Answers.json("[\"RUB\"]"));
             assertThat(none.get("members")).isEmpty();
-            assertThat(ok(get(alice, uri + "/report")).get("total").get("missingCurrencies").toString())
-                    .isEqualTo("[\"RUB\"]");
+            assertThat(ok(get(alice, uri + "/report")).get("total").get("missingCurrencies"))
+                    .isEqualTo(Answers.json("[\"RUB\"]"));
 
             ok(post(alice, "/api/rates/manual", """
                     {"date": "2026-08-01", "base": "EUR", "quote": "RUB", "rate": "95.50"}"""));

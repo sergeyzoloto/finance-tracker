@@ -17,6 +17,7 @@ import java.util.function.LongFunction;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -137,8 +138,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         SoftAssertions softly = new SoftAssertions();
         for (String uri : READS) {
             softly.assertThat(bobsView.get(uri)).as("Bob's %s", uri).isEqualTo(bobsViewBefore.get(uri));
-            softly.assertThat(bobsView.get(uri).toString()).as("Bob's %s", uri)
-                    .doesNotContain("Alice", "ALICE", alice);
+            softly.check(() -> Answers.assertNoneMention("Bob's " + uri, bobsView.get(uri), "Alice", "ALICE", alice));
             // Her answer differs, so her ledger would have shown in his if it leaked.
             softly.assertThat(alicesView.get(uri)).as("Alice's %s", uri).isNotEqualTo(bobsView.get(uri));
         }
@@ -393,7 +393,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         Map<String, JsonNode> bobsView = bobsView();
         SoftAssertions softly = new SoftAssertions();
         for (String uri : READS) {
-            softly.assertThat(bobsView.get(uri).toString()).as("Bob's %s", uri).doesNotContain("Alice", "ALICE", alice);
+            softly.check(() -> Answers.assertNoneMention("Bob's " + uri, bobsView.get(uri), "Alice", "ALICE", alice));
         }
         softly.assertAll();
         assertThat(bobsView.get("/api/reports/integrity")).isEmpty();
@@ -523,18 +523,22 @@ class DataIsolationApiTests extends LedgerApiTest {
                 "GROCERIES").get("id").asLong(), null)).hasStatus(HttpStatus.CONFLICT);
 
         // No family answer, to anyone, names a sub or an email address.
-        List<String> answers = new ArrayList<>();
+        List<JsonNode> answers = new ArrayList<>();
         for (String user : List.of(alice, bob, carol)) {
-            answers.add(get(user, "/api/family-ledgers").getResponse().getContentAsString());
+            answers.add(Answers.of(get(user, "/api/family-ledgers")));
             for (long ledger : List.of(familyA, familyB, familyC)) {
                 for (String read : List.of("", "/members", "/categories")) {
-                    answers.add(get(user, "/api/family-ledgers/" + ledger + read).getResponse().getContentAsString());
+                    answers.add(Answers.of(get(user, "/api/family-ledgers/" + ledger + read)));
                 }
             }
         }
-        assertThat(answers).allSatisfy(answer -> assertThat(answer)
-                .doesNotContain(alice, bob, carol, "@example.com", "User ", "\"sub\"", "userSub", "email"));
-        assertThat(String.join("", answers)).contains("Mum", "Dad", "Grandma", "Alice's cousin", "Bob");
+        assertThat(answers).allSatisfy(answer -> {
+            Answers.assertNoneMention(answer, alice, bob, carol, "@example.com", "User ", "userSub", "email");
+            assertThat(Answers.names(answer)).doesNotContain("sub");
+        });
+        for (String name : List.of("Mum", "Dad", "Grandma", "Alice's cousin", "Bob")) {
+            assertThat(Answers.mentions(answers, name)).as(name).isTrue();
+        }
 
         // Bob's personal answers gain A's family category, and nothing of B's or of Alice's own (D-11, F4a).
         Map<String, JsonNode> bobsViewAfter = bobsView();
@@ -669,12 +673,13 @@ class DataIsolationApiTests extends LedgerApiTest {
         softly.assertAll();
 
         // In A, Bob reads the family's data: Alice as "Mum", and nothing of her own.
-        List<String> answers = new ArrayList<>();
+        List<JsonNode> answers = new ArrayList<>();
         for (String read : List.of("/records", "/records/" + alicesRecord, "/balances", "/journal")) {
-            answers.add(bobReads(inA + read).toString());
+            answers.add(bobReads(inA + read));
         }
-        String all = String.join("", answers);
-        assertThat(all).contains("Mum", "Dad", "Kid", "Weekly shop");
+        for (String word : List.of("Mum", "Dad", "Kid", "Weekly shop")) {
+            assertThat(Answers.mentions(answers, word)).as(word).isTrue();
+        }
         Map<String, JsonNode> alicesView = view(alice);
         List<String> alicesOwn = new ArrayList<>();
         for (JsonNode account : alicesView.get("/api/accounts")) {
@@ -682,9 +687,9 @@ class DataIsolationApiTests extends LedgerApiTest {
             alicesOwn.add(account.get("name").asText());
         }
         assertThat(alicesOwn).contains("ALICE_BANK", "FAMILY_DEBT_" + familyA, "Debt to family budget: Home");
-        for (String answer : answers) {
-            assertThat(answer).doesNotContain(alicesOwn.toArray(String[]::new));
-            assertThat(fieldNames(json.readTree(answer))).doesNotContain("accountId", "entryId", "account", "entry",
+        for (JsonNode answer : answers) {
+            Answers.assertNoneMention(answer, alicesOwn.toArray(String[]::new));
+            assertThat(fieldNames(answer)).doesNotContain("accountId", "entryId", "account", "entry",
                     "postings", "userId", "sub", "email", "paymentAccountId");
         }
         // Every id in them is one of A's records, members or categories: none is an account's or an entry's.
@@ -770,8 +775,9 @@ class DataIsolationApiTests extends LedgerApiTest {
             assertThat(fieldNames(bobs)).as(read).doesNotContain("yourPayment", "privateNote", "memo",
                     "entryId", "accountId", "accountName", "originalAmount", "originalCurrency");
             // Her side's dollars are hers alone, in the answers and the journal (D-88).
-            assertThat(bobs.toString()).as(read).doesNotContain("65.43", "USD");
-            assertThat(ok(get(alice, inA + read)).toString()).as(read).doesNotContain("ALICE_PRIVATE");
+            assertThat(Answers.numbers(bobs)).as(read).doesNotContain("65.43");
+            Answers.assertNoneMention(read, bobs, "USD");
+            Answers.assertNoneMention(read, ok(get(alice, inA + read)), "ALICE_PRIVATE");
         }
         assertThat(ok(get(alice, inA + "/records")).get("content").findValues("yourPayment")).hasSize(2);
         assertThat(paid.get("yourPayment").get("amount").asText() + " " + paid.get("yourPayment").get("currency")
@@ -818,7 +824,7 @@ class DataIsolationApiTests extends LedgerApiTest {
                 {"memo": "BOB_PRIVATE_NOTE"}""")).get("memo").asText()).isEqualTo("BOB_PRIVATE_NOTE");
         for (String read : List.of("/records", "/records/" + his.get("id").asLong(), "/journal")) {
             JsonNode alices = ok(get(alice, inA + read));
-            assertThat(alices.toString()).as(read).doesNotContain("BOB_PRIVATE_NOTE");
+            Answers.assertNoneMention(read, alices, "BOB_PRIVATE_NOTE");
         }
         assertThat(ok(get(alice, inA + "/records/" + his.get("id").asLong())).has("yourPayment")).isFalse();
 
@@ -880,9 +886,8 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .isEqualTo("BOB_PRIVATE_WALLET");
         for (String read : List.of("/records", "/records/" + settlement, "/journal", "/balances")) {
             JsonNode alices = ok(get(alice, inA + read));
-            assertThat(alices.toString()).as(read).doesNotContain("BOB_PRIVATE", "BOB_WALLET");
-            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsWallet));
-            assertThat(alices.findValuesAsText("entryId")).as(read).doesNotContain(String.valueOf(bobsSide));
+            Answers.assertNoneMention(read, alices, "BOB_PRIVATE", "BOB_WALLET");
+            assertThat(Answers.numbers(alices)).as(read).doesNotContain(String.valueOf(bobsWallet), String.valueOf(bobsSide));
         }
         assertThat(ok(get(alice, path)).get("yourPayment").get("entryId").asLong()).isEqualTo(alicesSide);
 
@@ -967,7 +972,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         for (String read : List.of("/records", "/records/" + received.get("id").asLong(), "/journal", "/balances")) {
             assertThat(fieldNames(bobReads(inA + read))).as(read).doesNotContain("yourPayment", "privateNote", "memo",
                     "entryId", "accountId", "accountName");
-            assertThat(ok(get(alice, inA + read)).toString()).as(read).doesNotContain("ALICE_PRIVATE");
+            Answers.assertNoneMention(read, ok(get(alice, inA + read)), "ALICE_PRIVATE");
         }
         // Bob's share: income on his UNALLOCATED, marked as an income's in his own entry only.
         JsonNode bobsShare = bobReads("/api/entries?size=200").get("content").get(0);
@@ -1037,8 +1042,8 @@ class DataIsolationApiTests extends LedgerApiTest {
                 {"memberId": %d, "displayName": "Dad"}""".formatted(bobInA)));
         for (String read : List.of("/records", "/records/" + paid.get("id").asLong(), "/journal", "/balances")) {
             JsonNode alices = ok(get(alice, inA + read));
-            assertThat(alices.toString()).as(read).doesNotContain("BOB_PRIVATE", "BOB_WALLET");
-            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsWallet));
+            Answers.assertNoneMention(read, alices, "BOB_PRIVATE", "BOB_WALLET");
+            assertThat(Answers.numbers(alices)).as(read).doesNotContain(String.valueOf(bobsWallet));
             for (String other : List.of(bob, dave)) {
                 assertThat(fieldNames(ok(get(other, inA + read)))).as(read).doesNotContain("lockedBy");
             }
@@ -1111,17 +1116,17 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(his.get("yourPayment").get("currency").asText()).isEqualTo("RUB");
         for (String read : List.of("/records", "/records/" + paid.get("id").asLong(), "/journal", "/balances")) {
             JsonNode alices = ok(get(alice, inA + read));
-            assertThat(alices.toString()).as(read).doesNotContain("4321", "RUB", "BOB_");
-            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsRoubles));
+            assertThat(Answers.numbers(alices)).as(read).doesNotContain("4321", "4321.98", String.valueOf(bobsRoubles));
+            Answers.assertNoneMention(read, alices, "RUB", "BOB_");
         }
         // D-47's total by each member's own rates: Alice's dollar rate gives hers, and none of hers reaches Bob's.
         JsonNode alicesTotal = ok(get(alice, inA + "/balances")).get("total");
         assertThat(alicesTotal.get("missingCurrencies")).isEmpty();
         assertThat(alicesTotal.get("rates").findValuesAsText("perEuro")).containsExactly("1.12");
         JsonNode bobsTotal = bobReads(inA + "/balances").get("total");
-        assertThat(bobsTotal.get("missingCurrencies").toString()).isEqualTo("[\"USD\"]");
+        assertThat(bobsTotal.get("missingCurrencies")).isEqualTo(Answers.json("[\"USD\"]"));
         assertThat(bobsTotal.get("rates")).isEmpty();
-        assertThat(bobsTotal.toString()).doesNotContain("1.12");
+        assertThat(Answers.numbers(bobsTotal)).doesNotContain("1.12");
         assertThat(view(carol)).isEqualTo(carolsViewBefore);
     }
 
@@ -1201,7 +1206,7 @@ class DataIsolationApiTests extends LedgerApiTest {
             MvcTestResult asMember = bobsRequest(request.method(), uri.formatted(familyA), request.body());
             softly.assertThat(asMember.getResponse().getStatus()).as("%s %s in A", request.method(), request.path())
                     .isEqualTo(409);
-            softly.assertThat(asMember.getResponse().getContentAsString()).doesNotContain("createdBy", "Sam");
+            softly.check(() -> Answers.assertNoneMention(Answers.of(asMember), "createdBy", "Sam"));
         }
         // B's invite through A's path is missing, even for A's owner.
         softly.assertThat(delete(alice, inA + "/invites/" + inviteOfB).getResponse().getStatus()).isEqualTo(404);
@@ -1220,11 +1225,11 @@ class DataIsolationApiTests extends LedgerApiTest {
             for (String token : tokens.get(action)) {
                 MvcTestResult answer = bobsRequest(() -> inviteCall(bob, action, bodyFor.formatted(token)));
                 softly.assertThat(answer.getResponse().getStatus()).as(action).isEqualTo(404);
-                invalid.add(answer.getResponse().getContentAsString());
+                invalid.add(Answers.rawText(answer));
             }
             MvcTestResult carols = inviteCall(carol, action, bodyFor.formatted(usedOfA));
             softly.assertThat(carols.getResponse().getStatus()).as("Carol's " + action).isEqualTo(404);
-            invalid.add(carols.getResponse().getContentAsString());
+            invalid.add(Answers.rawText(carols));
         }
         softly.assertThat(invalid.stream().map(answer -> answer.replaceAll("/api/invites/\\w+", "PATH")))
                 .containsOnly(invalid.getFirst().replaceAll("/api/invites/\\w+", "PATH"));
@@ -1236,8 +1241,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         // Carol holds a valid token of B: before accepting it, she reads nothing of B but its lookup.
         JsonNode lookup = ok(inviteCall(carol, "lookup", "{\"token\": \"%s\"}".formatted(tokenOfB)));
         assertThat(lookup.get("ledgerName").asText()).isEqualTo("ALICE_SECRET_BUDGET");
-        assertThat(lookup.toString()).doesNotContain(alice, alice + "@example.com", "ALICE_BANK", "ALICE_PRIVATE",
-                "77.77").doesNotContain(String.valueOf(alicesBank));
+        Answers.assertNoneMention(lookup, alice, alice + "@example.com", "ALICE_BANK", "ALICE_PRIVATE");
+        assertThat(Answers.numbers(lookup)).doesNotContain("77.77", String.valueOf(alicesBank));
         assertThat(fieldNames(lookup)).doesNotContain("memberId", "accountId", "id", "sub", "email", "records",
                 "ledgerId");
         assertThat(lookup.findValuesAsText("categoryId")).isSubsetOf(ok(get(carol, "/api/categories"))
@@ -1270,7 +1275,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         bobsAfter.keySet().removeAll(FAMILY_ROWS);
         assertThat(alicesAfter).isEqualTo(alicesPersonal);
         assertThat(bobsAfter).isEqualTo(bobsPersonal);
-        assertThat(ok(get(erin, inA + "/records")).toString()).doesNotContain("ALICE_BANK", "Alice's bank");
+        Answers.assertNoneMention(ok(get(erin, inA + "/records")), "ALICE_BANK", "Alice's bank");
         assertThat(get(erin, inB)).hasStatus(HttpStatus.NOT_FOUND);
     }
 
@@ -1376,8 +1381,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         for (String user : List.of(bob, carol)) {
             assertThat(ok(get(user, "/api/family-ledgers"))).as("%s's family budgets", user).isEmpty();
             Map<String, JsonNode> view = user.equals(bob) ? bobsView() : view(user);
-            assertThat(view.toString()).as("%s's personal answers", user)
-                    .doesNotContain("familyLedgerId", "familyLedgerName", "ALICE_RENAMED_HOME", "ALICE_SECRET_BUDGET");
+            view.forEach((uri, answer) -> Answers.assertNoneMention(user + "'s personal answers, " + uri, answer, "familyLedgerId",
+                    "familyLedgerName", "ALICE_RENAMED_HOME", "ALICE_SECRET_BUDGET"));
             assertThat(view.get("/api/entries?size=200").get("content").findValuesAsText("family")).containsOnly("null");
             assertThat(jdbc.sql("""
                     SELECT count(*) FROM account a JOIN ledger_member p ON p.ledger_id = a.ledger_id
@@ -1426,10 +1431,11 @@ class DataIsolationApiTests extends LedgerApiTest {
         JsonNode carols = ok(get(carol, "/api/me/family-memberships"));
         assertThat(carols.get("memberships")).isEmpty();
         for (JsonNode preview : List.of(bobs, carols, ok(get(alice, "/api/me/family-memberships")))) {
-            assertThat(preview.toString()).doesNotContain(alice, bob, carol, "@example.com", "ALICE_BANK",
-                    String.valueOf(alicesBank));
+            Answers.assertNoneMention(preview, alice, bob, carol, "@example.com", "ALICE_BANK");
+            assertThat(Answers.numbers(preview)).doesNotContain(String.valueOf(alicesBank));
         }
-        assertThat(bobs.toString()).doesNotContain("ALICE_SECRET_BUDGET", String.valueOf(familyB), "Sam");
+        Answers.assertNoneMention(bobs, "ALICE_SECRET_BUDGET", "Sam");
+        assertThat(Answers.numbers(bobs)).doesNotContain(String.valueOf(familyB));
 
         String owner = "/api/family-ledgers/%d/members/" + sam + "/owner";
         SoftAssertions softly = new SoftAssertions();
@@ -1491,21 +1497,22 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(bobs.get("entriesAfterReturn").findValuesAsText("entryId"))
                 .containsExactly(String.valueOf(bobsEntry));
         assertThat(bobs.get("entriesAfterReturn").get(0).get("memo").asText()).isEqualTo("BOB_AFTER_RETURN");
-        assertThat(bobs.toString()).doesNotContain("ALICE_", alice, "@example.com");
-        // Her account's id as a number of its own: the digits inside another number (a timestamp's microseconds) aren't it.
-        assertThat(bobs.toString()).doesNotContainPattern("(?<!\\d)" + alicesBank + "(?!\\d)");
+        Answers.assertNoneMention(bobs, "ALICE_", alice, "@example.com");
+        // Her account's id as a number of its own: the digits inside another value (a timestamp's microseconds) aren't it.
+        assertThat(Answers.numbers(bobs)).doesNotContain(String.valueOf(alicesBank));
         String memberships = membershipsBut(-1);
         MvcTestResult refused = bobsRequest(() -> inviteCall(bob, "accept",
                 "{\"token\": \"%s\", \"displayName\": \"Dad\", \"categoryIds\": []}".formatted(backToA)));
-        assertThat(body(refused, HttpStatus.CONFLICT).toString()).doesNotContain("ALICE_", alice);
+        Answers.assertNoneMention(body(refused, HttpStatus.CONFLICT), "ALICE_", alice);
         assertThat(membershipsBut(-1)).isEqualTo(memberships);
 
         JsonNode carols = ok(inviteCall(carol, "lookup", "{\"token\": \"%s\"}".formatted(invite(alice, inA, """
                 {"kind": "CLAIM", "seatMemberId": %d, "joinDate": "2026-08-15"}""".formatted(sam)))));
         assertThat(carols.get("entriesAfterReturn").isNull()).isTrue();
-        assertThat(carols.toString()).doesNotContain("BOB_AFTER_RETURN", String.valueOf(bobsEntry));
+        Answers.assertNoneMention(carols, "BOB_AFTER_RETURN");
+        assertThat(Answers.numbers(carols)).doesNotContain(String.valueOf(bobsEntry));
         for (String read : List.of("", "/members", "/records", "/journal", "/balances", "/invites")) {
-            assertThat(ok(get(alice, inA + read)).toString()).as(read).doesNotContain("BOB_AFTER_RETURN");
+            Answers.assertNoneMention(read, ok(get(alice, inA + read)), "BOB_AFTER_RETURN");
         }
 
         String token = invite(alice, inA, """
@@ -1518,7 +1525,7 @@ class DataIsolationApiTests extends LedgerApiTest {
             assertThat(find(members, "displayName", "Mum").get("claimedSeat").asBoolean()).as(user).isFalse();
             assertThat(fieldNames(members)).as(user).containsExactlyInAnyOrder("id", "displayName", "role", "status",
                     "joinDate", "hasAccount", "share", "leftDate", "claimedSeat");
-            assertThat(members.toString()).as(user).doesNotContain(alice, bob, carol, "@example.com", "BOB_");
+            Answers.assertNoneMention(user, members, alice, bob, carol, "@example.com", "BOB_");
         }
     }
 
@@ -1567,7 +1574,7 @@ class DataIsolationApiTests extends LedgerApiTest {
                 replaceCategory(copy, answer.getKey().contains("/cash-flow"), category);
             }
             // Read back, so that numbers have the node types an answer's have.
-            view.put(answer.getKey(), json.readTree(copy.toString()));
+            view.put(answer.getKey(), json.readTree(json.writeValueAsBytes(copy)));
         }
         return view;
     }
@@ -1666,8 +1673,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         JsonNode bobs = bobReads(report.formatted(familyA));
         assertThat(bobs.get("byCurrency").get(0).get("rows").get(0).get("total").asText()).isEqualTo("90.00");
         assertThat(bobs.get("members").findValuesAsText("displayName")).containsExactly("Mum", "Dad");
-        assertThat(bobs.toString()).doesNotContain(alice, "@example.com", "ALICE_PRIVATE_NOTE", "ALICE_",
-                "Alice's bank");
+        Answers.assertNoneMention(bobs, alice, "@example.com", "ALICE_PRIVATE_NOTE", "ALICE_", "Alice's bank");
         assertThat(fieldNames(bobs)).doesNotContain("accountId", "entryId", "userSub", "sub", "email",
                 "paymentAccountId", "yourPayment");
         List<String> numbers = bobs.findValues("memberId").stream().map(JsonNode::asText).toList();
@@ -1875,7 +1881,7 @@ class DataIsolationApiTests extends LedgerApiTest {
     /** Bob's read of a list, a search or a report of his: it answers, and nothing of Alice's is in it. */
     private JsonNode bobReads(String uri) throws IOException {
         JsonNode answer = ok(bobsRequest(HttpMethod.GET, uri, null));
-        assertThat(answer.toString()).as("Bob's %s", uri).doesNotContain("Alice", "ALICE", alice);
+        Answers.assertNoneMention("Bob's " + uri, answer, "Alice", "ALICE", alice);
         return answer;
     }
 
@@ -1952,7 +1958,7 @@ class DataIsolationApiTests extends LedgerApiTest {
     /** The response body with every number replaced, so that answers about different ids compare equal. */
     private static String withoutDigits(MvcTestResult result) {
         try {
-            return result.getResponse().getContentAsString().replaceAll("\\d+", "N");
+            return Answers.rawText(result).replaceAll("\\d+", "N");
         } catch (IOException e) {
             throw new AssertionError(e);
         }

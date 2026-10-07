@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.util.stream.StreamSupport;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -30,9 +31,9 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(report.get("userId").asText()).isEqualTo(user);
         assertThat(report.get("files").findValuesAsText("name"))
                 .containsExactly("accounts.csv", "categories.csv", "transactions.csv");
-        assertThat(report.get("entriesByKind").toString()).isEqualTo("""
+        assertThat(report.get("entriesByKind")).isEqualTo(Answers.json("""
                 {"EXPENSE":8,"INCOME":4,"TRANSFER":5,"SHARED_EXPENSE":2,"LOAN_GIVEN":2,"LOAN_REPAID":2,\
-                "CURRENCY_EXCHANGE":1}""");
+                "CURRENCY_EXCHANGE":1}"""));
         assertThat(report.get("errors")).hasSize(1);
         assertThat(report.get("errors").get(0).get("file").asText()).isEqualTo("transactions.csv");
         assertThat(report.get("errors").get(0).get("row").asInt()).isEqualTo(10);

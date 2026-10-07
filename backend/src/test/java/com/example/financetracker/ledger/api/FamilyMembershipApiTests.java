@@ -11,6 +11,7 @@ import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.example.financetracker.TestClock;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -170,8 +171,9 @@ class FamilyMembershipApiTests extends FamilyApiTest {
         assertThat(reset.get("action").asText()).isEqualTo("SPLIT_RULE_RESET");
         assertThat(reset.get("about").get("displayName").asText()).isEqualTo("Dad");
         assertThat(reset.get("author").isNull()).isTrue();
-        assertThat(reset.get("changes").toString()).contains("\"field\":\"splitRule\"", "\"old\":\"CUSTOM\"",
-                "\"new\":\"EQUAL\"");
+        assertThat(reset.get("changes").findValuesAsText("field")).containsExactly("splitRule");
+        assertThat(reset.get("changes").findValuesAsText("old")).containsExactly("CUSTOM");
+        assertThat(reset.get("changes").findValuesAsText("new")).containsExactly("EQUAL");
         assertThat(shares(ok(get(alice, uri + "/records/" + before.get("id").asLong()))))
                 .containsExactly("Mum 50.00 5000", "Dad 30.00 3000", "Kid 20.00 2000");
         assertThat(shares(created(post(alice, uri + "/records", expense("2026-09-06", groceries, "40.00", mum, LATER)))))
@@ -391,7 +393,7 @@ class FamilyMembershipApiTests extends FamilyApiTest {
                 {"kind": "NEW_MEMBER"}""");
         JsonNode lookup = ok(inviteCall(bob, "lookup", token(token, null)));
         assertThat(lookup.get("returning").asBoolean()).isTrue();
-        assertThat(lookup.get("corrections").toString()).isEqualTo("[{\"currency\":\"EUR\",\"amount\":\"-60.00\"}]");
+        assertThat(lookup.get("corrections")).isEqualTo(Answers.json("[{\"currency\":\"EUR\",\"amount\":\"-60.00\"}]"));
         assertThat(lookup.get("joinDate").asText()).isEqualTo(today().toString());
         assertThat(lookup.get("openingBalances").isNull()).isTrue();
 
@@ -531,7 +533,7 @@ class FamilyMembershipApiTests extends FamilyApiTest {
         assertThat(inAllotment.get("baseCurrency").asText()).isEqualTo("USD");
         JsonNode inHome = alices.get("memberships").get(1);
         assertThat(inHome.get("role").asText()).isEqualTo("OWNER");
-        assertThat(inHome.get("balances").toString()).isEqualTo("[{\"currency\":\"EUR\",\"amount\":\"-50.00\"}]");
+        assertThat(inHome.get("balances")).isEqualTo(Answers.json("[{\"currency\":\"EUR\",\"amount\":\"-50.00\"}]"));
         assertThat(inHome.has("balance")).isFalse();
         assertThat(inHome.get("outcome").asText()).isEqualTo("OWNERSHIP_PASSES");
         assertThat(inHome.get("newOwner").asText()).isEqualTo("Dad");
@@ -549,8 +551,8 @@ class FamilyMembershipApiTests extends FamilyApiTest {
         assertThat(bobInHome.get("pendingInvites").asInt()).isZero();
         assertThat(bobInHome.get("splitRuleReset").asBoolean()).isTrue();
         assertThat(bobs.get("memberships").get(0).get("outcome").asText()).isEqualTo("DELETED");
-        assertThat(ok(get(newUser(), "/api/me/family-memberships")).toString())
-                .isEqualTo("{\"memberships\":[],\"left\":0}");
+        assertThat(ok(get(newUser(), "/api/me/family-memberships")))
+                .isEqualTo(Answers.json("{\"memberships\":[],\"left\":0}"));
     }
 
     /** What the debt account shows today, as the balances report says it. */

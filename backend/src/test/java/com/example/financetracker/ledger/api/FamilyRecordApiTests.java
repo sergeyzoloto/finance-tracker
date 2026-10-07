@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -392,7 +393,7 @@ class FamilyRecordApiTests extends FamilyApiTest {
         // Each change names its record as it is now, so that a sentence reads "… of Rent, 14 Sep" (F4b).
         assertThat(summaries(journal)).containsOnly("2026-09-14 Rent 20.00 live");
         // The private side of the payment is never journaled (D-16).
-        assertThat(journal.toString()).doesNotContain("UNSPECIFIED", "account", "Account");
+        Answers.assertNoneMention(journal, "UNSPECIFIED", "account", "Account");
 
         // Only Bob, who paid it, deletes it.
         assertThat(delete(alice, uri + "/records/" + id + "?version=2")).hasStatus(HttpStatus.CONFLICT);

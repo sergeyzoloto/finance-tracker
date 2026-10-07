@@ -11,12 +11,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.UUID;
 
 import com.example.financetracker.IntegrationTest;
+import com.example.financetracker.WallClock;
 import com.example.financetracker.ledger.Account;
 import com.example.financetracker.ledger.AccountNotFoundException;
 import com.example.financetracker.ledger.AccountRepository;
@@ -367,7 +367,7 @@ class ReportServiceTests extends IntegrationTest {
         Account account = accounts.find(ledger, accountId).orElseThrow();
         accounts.save(new Account(account.id(), account.userId(), account.ledgerId(), account.code(), account.name(),
                 account.type(), account.defaultCurrency(), account.requiresCounterparty(), account.isSystem(),
-                Instant.now(), account.createdAt()));
+                WallClock.now(), account.createdAt()));
     }
 
     private long category(String code, String name, CategoryType type) {

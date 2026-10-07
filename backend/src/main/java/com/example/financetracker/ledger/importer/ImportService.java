@@ -17,6 +17,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import com.example.financetracker.WallClock;
 import com.example.financetracker.ledger.Account;
 import com.example.financetracker.ledger.AccountRepository;
 import com.example.financetracker.ledger.Counterparty;
@@ -112,7 +113,7 @@ public class ImportService {
     }
 
     public ImportReport run(LedgerScope ledger, ImportRequest request) {
-        Instant startedAt = Instant.now();
+        Instant startedAt = WallClock.now();
         Sheet<AccountRow> accountRows = Workbook.accounts(request.accounts());
         Sheet<CategoryRow> categoryRows = Workbook.categories(request.categories());
         Sheet<TransactionRow> transactionRows = Workbook.transactions(request.transactions());
@@ -191,7 +192,7 @@ public class ImportService {
                     errors, warnings, skipped, zeroFxRows, fxRows, reports.balances(ledger, ALL_DATES),
                     reports.integrityCheck(ledger));
             batches.save(new ImportBatch(batchId, ledger.userId(), ledger.ledgerId(), transactionsFile.name(),
-                    transactionsFile.sha256(), !commit, null, Instant.now(), summary(report)));
+                    transactionsFile.sha256(), !commit, null, WallClock.now(), summary(report)));
             return report;
         }
 

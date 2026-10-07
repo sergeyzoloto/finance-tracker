@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.example.financetracker.ledger.FamilyPayments;
 import com.example.financetracker.ledger.demo.DemoFamily;
 import com.example.financetracker.ledger.family.FamilySwitch;
@@ -67,9 +68,9 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
             MvcTestResult answer = call(user, method, path, body);
             MvcTestResult unknownAnswer = call(user, method, unknown, body);
             softly.assertThat(answer.getResponse().getStatus()).as("%s %s", method, path).isEqualTo(404);
-            softly.assertThat(answer.getResponse().getContentAsString().replace(path.substring(1), "PATH")
+            softly.assertThat(Answers.rawText(answer).replace(path.substring(1), "PATH")
                     .replace(path, "PATH")).as("%s %s", method, path)
-                    .isEqualTo(unknownAnswer.getResponse().getContentAsString().replace(unknown.substring(1), "PATH")
+                    .isEqualTo(Answers.rawText(unknownAnswer).replace(unknown.substring(1), "PATH")
                             .replace(unknown, "PATH"));
         }
         softly.assertAll();
@@ -112,9 +113,11 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
                 "/api/reports/integrity");
         SoftAssertions softly = new SoftAssertions();
         for (String read : reads) {
-            String answer = ok(get(user, read)).toString();
-            softly.assertThat(answer).as(read).doesNotContain("familyLedgerId", "familyLedgerName", "debtBalance",
-                    "familyBalance", "FAMILY_DEBT_", "UNSPECIFIED_PAYMENTS");
+            JsonNode answer = ok(get(user, read));
+            for (String word : List.of("familyLedgerId", "familyLedgerName", "debtBalance", "familyBalance",
+                    "FAMILY_DEBT_", "UNSPECIFIED_PAYMENTS")) {
+                softly.assertThat(Answers.mentions(answer, word)).as("%s mentions %s", read, word).isFalse();
+            }
         }
         softly.assertAll();
         assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();

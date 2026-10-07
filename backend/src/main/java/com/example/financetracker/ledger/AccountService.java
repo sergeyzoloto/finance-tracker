@@ -3,6 +3,7 @@ package com.example.financetracker.ledger;
 import java.time.Instant;
 import java.util.List;
 
+import com.example.financetracker.WallClock;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.AccountType;
@@ -87,6 +88,6 @@ public class AccountService {
         if (archived == null) {
             return archivedAt;
         }
-        return archived ? (archivedAt != null ? archivedAt : Instant.now()) : null;
+        return archived ? (archivedAt != null ? archivedAt : WallClock.now()) : null;
     }
 }

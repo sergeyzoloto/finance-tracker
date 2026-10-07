@@ -3,7 +3,6 @@ package com.example.financetracker.ledger;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,6 +19,7 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.example.financetracker.WallClock;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
@@ -85,7 +85,7 @@ public class EntryService {
     @Transactional
     public EntryView create(LedgerScope ledger, EntryCommand command) {
         EntryDraft draft = validDraft(ledger, command);
-        return EntryView.of(entries.save(JournalEntry.create(ledger, draft, null, null, Instant.now())));
+        return EntryView.of(entries.save(JournalEntry.create(ledger, draft, null, null, WallClock.now())));
     }
 
     /**
@@ -101,7 +101,7 @@ public class EntryService {
             String externalRef) {
         EntryDraft draft = validDraft(ledger, command);
         return EntryView.of(entries.save(JournalEntry.create(ledger, draft, importBatchId, externalRef,
-                Instant.now())));
+                WallClock.now())));
     }
 
     /**
@@ -120,7 +120,7 @@ public class EntryService {
         requireVersion(entry, expectedVersion);
         EntryDraft draft = validDraft(ledger, command);
         try {
-            return EntryView.of(entries.save(entry.replacedBy(draft, Instant.now())));
+            return EntryView.of(entries.save(entry.replacedBy(draft, WallClock.now())));
         } catch (OptimisticLockingFailureException e) {
             // Changed by a concurrent transaction since it was read above.
             throw stale(entryId, expectedVersion, e);

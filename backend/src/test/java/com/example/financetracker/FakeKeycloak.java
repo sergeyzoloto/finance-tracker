@@ -106,7 +106,7 @@ public final class FakeKeycloak {
 
     /** A member's access token, as Keycloak issues it to this client; tests adjust claims from here. */
     public JWTClaimsSet.Builder accessTokenClaims(String subject) {
-        Instant now = Instant.now();
+        Instant now = WallClock.now();
         return new JWTClaimsSet.Builder()
                 .issuer(issuer)
                 .subject(subject)
@@ -274,7 +274,7 @@ public final class FakeKeycloak {
 
     /** New tokens for the client session; the new refresh token replaces the session's current one. */
     private Map<String, Object> tokenResponse(ClientSession clientSession, Duration accessTokenLifetime) {
-        Instant now = Instant.now();
+        Instant now = WallClock.now();
         Login login = clientSession.login;
         String subject = login.accessClaims().getSubject();
         String accessToken = sign(new JWTClaimsSet.Builder(login.accessClaims())

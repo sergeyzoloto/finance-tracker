@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -70,7 +71,7 @@ class FamilyInviteApiTests extends FamilyApiTest {
         JsonNode list = ok(get(alice, uri + "/invites"));
         assertThat(ids(list)).containsExactly(claim.get("id").asLong(), created.get("id").asLong());
         assertThat(list.findValues("link")).isEmpty();
-        assertThat(list.toString()).doesNotContain(link.substring(link.indexOf('#') + 1));
+        Answers.assertNoneMention(list, link.substring(link.indexOf('#') + 1));
 
         long id = created.get("id").asLong();
         assertThat(delete(alice, uri + "/invites/" + id)).hasStatus(HttpStatus.NO_CONTENT);
@@ -161,11 +162,11 @@ class FamilyInviteApiTests extends FamilyApiTest {
                 null)), inviteCall(carol, "accept", token(token, "\"displayName\": \"Carol\"")), get(carol, uri),
                 get(carol, uri + "/members"), get(alice, uri + "/invites"), inviteCall(dave, "lookup", token(token,
                         null)), inviteCall(dave, "decline", token(token, null)))) {
-            answers.add(answer.getResponse().getContentAsString() + answer.getResponse().getHeaderNames().stream()
+            answers.add(Answers.rawText(answer) + answer.getResponse().getHeaderNames().stream()
                     .map(name -> name + ": " + answer.getResponse().getHeaders(name)).toList());
         }
         assertThat(answers).noneMatch(answer -> answer.contains(token));
-        assertThat(creation.getResponse().getContentAsString()).contains(token);
+        assertThat(Answers.rawText(creation)).contains(token);
     }
 
     /** Unknown, revoked, expired, used and declined tokens: one answer, word for word, for lookup, accept and decline. */
@@ -198,7 +199,7 @@ class FamilyInviteApiTests extends FamilyApiTest {
             for (String action : List.of("lookup", "accept", "decline")) {
                 MvcTestResult answer = inviteCall(holder, action, token(token, "\"displayName\": \"Dave\""));
                 assertThat(answer).as("%s of %s", action, token).hasStatus(HttpStatus.NOT_FOUND);
-                answers.add(answer.getResponse().getContentAsString());
+                answers.add(Answers.rawText(answer));
             }
         }
         // The same answer for each action, apart from the path it names.

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
@@ -117,7 +118,7 @@ class FamilyClaimedSeatApiTests extends FamilyApiTest {
                 "CREATE by Mum: date null→2026-09-12, category null→Rent, amount null→12.00, payer null→Mum, "
                         + "splitMethod null→ONE_MEMBER, share of Carol null→12.00");
         JsonNode journal = ok(get(alice, uri + "/journal?size=100"));
-        assertThat(journal.toString()).doesNotContain("account", "Account", "UNSPECIFIED");
+        Answers.assertNoneMention(journal, "account", "Account", "UNSPECIFIED");
     }
 
     /**

@@ -144,7 +144,7 @@ class FamilyRecordsV11MigrationTests {
     private JsonNode get(String uri, String sub) throws Exception {
         var result = mvc.get().uri(uri).with(IntegrationTest.member(sub)).exchange();
         assertThat(result.getResponse().getStatus()).as(uri).isEqualTo(200);
-        return json.readTree(result.getResponse().getContentAsString());
+        return Answers.of(result);
     }
 
     /**

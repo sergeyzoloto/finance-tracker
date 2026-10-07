@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
@@ -146,7 +147,7 @@ class FamilyReturnApiTests extends FamilyApiTest {
         JsonNode lookup = ok(inviteCall(bob, "lookup", token(token, null)));
         assertThat(lookup.get("returning").asBoolean()).isTrue();
         // His balance −10.00, less what the account shows by today: −10.00 + 4.00.
-        assertThat(lookup.get("corrections").toString()).isEqualTo("[{\"currency\":\"EUR\",\"amount\":\"-4.00\"}]");
+        assertThat(lookup.get("corrections")).isEqualTo(Answers.json("[{\"currency\":\"EUR\",\"amount\":\"-4.00\"}]"));
         assertThat(lookup.get("entriesAfterReturn")).hasSize(1);
         JsonNode entry = lookup.get("entriesAfterReturn").get(0);
         assertThat(entry.get("entryId").asLong()).isEqualTo(future.get("id").asLong());
@@ -154,7 +155,7 @@ class FamilyReturnApiTests extends FamilyApiTest {
         assertThat(entry.get("amount").asText()).isEqualTo("25.00");
         assertThat(entry.get("currency").asText()).isEqualTo("EUR");
         assertThat(entry.get("memo").asText()).isEqualTo("Lent to the family");
-        String members = ok(get(alice, uri + "/members")).toString();
+        JsonNode members = ok(get(alice, uri + "/members"));
 
         MvcTestResult refused = inviteCall(bob, "accept", token(token, "\"displayName\": \"Dad\", \"categoryIds\": []"));
         JsonNode problem = body(refused, HttpStatus.CONFLICT);
@@ -162,7 +163,7 @@ class FamilyReturnApiTests extends FamilyApiTest {
         assertThat(problem.get("detail").asText()).isEqualTo("Your former debt to this family budget has 1 entry dated "
                 + "after today that belong to none of its records. Move it to another account or delete it, then "
                 + "accept again.");
-        assertThat(ok(get(alice, uri + "/members")).toString()).isEqualTo(members);
+        assertThat(ok(get(alice, uri + "/members"))).isEqualTo(members);
         assertThat(get(bob, uri)).hasStatus(HttpStatus.NOT_FOUND);
         // Alice's invites: still pending.
         assertThat(find(ok(get(alice, uri + "/invites")), "kind", "NEW_MEMBER").get("status").asText())

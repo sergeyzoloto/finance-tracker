@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.time.Instant;
 
+import com.example.financetracker.WallClock;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -76,7 +77,7 @@ class SessionAccessTokenFilterTests {
     }
 
     private static OAuth2AuthorizedClient client(String accessToken, String refreshToken, Duration lifetime) {
-        Instant now = Instant.now();
+        Instant now = WallClock.now();
         return new OAuth2AuthorizedClient(KEYCLOAK, "subject",
                 new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, accessToken, now, now.plus(lifetime)),
                 new OAuth2RefreshToken(refreshToken, now));

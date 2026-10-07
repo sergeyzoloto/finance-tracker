@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import com.example.financetracker.Answers;
 import com.example.financetracker.ledger.ConflictException;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
@@ -72,7 +73,7 @@ class FamilyImportSyncApiTests extends FamilyApiTest {
         JsonNode view = ok(get(alice, uri + "/records/" + record));
         assertThat(view.get("importedBy").get("displayName").asText()).isEqualTo("Dad");
         assertThat(view.has("importedAt")).isTrue();
-        assertThat(view.toString()).doesNotContain(reference).doesNotContain(hash).doesNotContain("importedVersion");
+        Answers.assertNoneMention(view, reference, hash, "importedVersion");
 
         // The Excel row is edited (its ID stays): recognised by the ID, and the app didn't touch the record.
         String edited = ImportSync.contentHash("2026-09-10", "GROCERIES", "13.00", "EUR");

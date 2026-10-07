@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -55,7 +56,7 @@ class FamilyCounterpartyPaymentApiTests extends FamilyApiTest {
         assertThat(balances(bob)).containsExactly("Mum -30.00", "Dad 30.00 you", "Kid 0.00");
         JsonNode bobsView = ok(get(bob, uri + "/records/" + record.get("id").asLong()));
         assertThat(bobsView.has("yourPayment")).isFalse();
-        assertThat(bobsView.toString()).doesNotContain("counterparty").doesNotContain("The bank");
+        Answers.assertNoneMention(bobsView, "counterparty", "The bank");
         // The liability's balance per counterparty is the bank's, in Mum's personal reports.
         JsonNode owed = find(ok(get(alice, "/api/reports/counterparty-balances?accountCode=CREDITOR_DEBT&asOf=2026-09-30")), "counterpartyId",
                 String.valueOf(bank));
@@ -159,10 +160,10 @@ class FamilyCounterpartyPaymentApiTests extends FamilyApiTest {
         }
         JsonNode dads = ok(get(bob, uri + "/records/" + id));
         assertThat(dads.has("yourPayment")).isFalse();
-        assertThat(dads.toString()).doesNotContain("payeeId").doesNotContain("corner shop");
-        assertThat(ok(get(bob, uri + "/records")).toString()).doesNotContain("payeeId").doesNotContain("corner shop");
-        assertThat(ok(get(bob, uri + "/journal")).toString()).doesNotContain("payee").doesNotContain("corner shop");
-        assertThat(ok(get(alice, uri + "/journal")).toString()).doesNotContain("corner shop");
+        Answers.assertNoneMention(dads, "payeeId", "corner shop");
+        Answers.assertNoneMention(ok(get(bob, uri + "/records")), "payeeId", "corner shop");
+        Answers.assertNoneMention(ok(get(bob, uri + "/journal")), "payee", "corner shop");
+        Answers.assertNoneMention(ok(get(alice, uri + "/journal")), "corner shop");
 
         // Change it through the record and through the entry: private changes, no version, no journal row.
         long cafe = newCounterparty(alice, "The cafe");

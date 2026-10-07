@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -263,8 +264,11 @@ class FamilyCurrencyApiTests extends FamilyApiTest {
         assertThat(report.get("byCurrency").findValuesAsText("currency")).containsExactly("EUR", "RUB", "USD");
         JsonNode dollars = report.get("byCurrency").get(2);
         assertThat(dollars.get("rows").get(0).get("total").asText()).isEqualTo("60.00");
-        assertThat(dollars.get("totals").get(0).toString()).contains("\"expenseShares\":\"30.00\"",
-                "\"expensesPaid\":\"60.00\"", "\"settlementsReceived\":\"30.00\"", "\"net\":\"0.00\"");
+        JsonNode member = dollars.get("totals").get(0);
+        assertThat(member.get("expenseShares").asText()).isEqualTo("30.00");
+        assertThat(member.get("expensesPaid").asText()).isEqualTo("60.00");
+        assertThat(member.get("settlementsReceived").asText()).isEqualTo("30.00");
+        assertThat(member.get("net").asText()).isEqualTo("0.00");
         assertThat(report.has("rows")).isFalse();
         // A period without dollars: no dollar section; the main currency's is always there.
         assertThat(ok(get(alice, uri + "/report?from=2026-09-12&to=2026-09-12")).get("byCurrency")

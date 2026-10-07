@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -125,7 +126,7 @@ class EntryApiTests extends LedgerApiTest {
         assertThat(badDate.get("errors").get(0).get("field").asText()).isEqualTo("entryDate");
         assertThat(notJson.get("detail").asText()).isEqualTo("The request body is not valid JSON.");
         for (JsonNode problem : List.of(unknownKind, noKind, badAmount, badDate, notJson)) {
-            assertThat(problem.toString()).doesNotContain("com.example", "Exception", "trace");
+            Answers.assertNoneMention(problem, "com.example", "Exception", "trace");
         }
     }
 

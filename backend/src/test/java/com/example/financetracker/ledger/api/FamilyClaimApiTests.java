@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -68,7 +69,7 @@ class FamilyClaimApiTests extends FamilyApiTest {
         assertThat(lookup.get("baseCurrency").asText()).isEqualTo("EUR");
         assertThat(lookup.get("displayName").asText()).isEqualTo("User " + carol);
         // The seat's balance before the join date, which she takes on (D-34): the family owed Kid 10.00.
-        assertThat(lookup.get("openingBalances").toString()).isEqualTo("[{\"currency\":\"EUR\",\"amount\":\"-10.00\"}]");
+        assertThat(lookup.get("openingBalances")).isEqualTo(Answers.json("[{\"currency\":\"EUR\",\"amount\":\"-10.00\"}]"));
         assertThat(lookup.has("openingBalance")).isFalse();
 
         String token = kidsPlace("2026-09-15");
@@ -99,7 +100,8 @@ class FamilyClaimApiTests extends FamilyApiTest {
         assertThat(openingEntry.get("entryDate").asText()).isEqualTo("2026-09-15");
         assertThat(openingEntry.get("family").get("link").asText()).isEqualTo("OPENING_BALANCE");
         assertThat(openingEntry.get("family").get("recordId").isNull()).isTrue();
-        assertThat(ok(get(carol, "/api/reports/balances?asOf=2026-09-30")).toString()).contains("FAMILY_DEBT_" + family);
+        assertThat(ok(get(carol, "/api/reports/balances?asOf=2026-09-30")).findValuesAsText("accountCode"))
+                .contains("FAMILY_DEBT_" + family);
         // The others' entries are as they were: nothing of theirs was posted again.
         assertThat(postedEntries(alice)).isEqualTo(alicesEntries);
         assertThat(postedEntries(bob)).isEqualTo(bobsEntries);
@@ -330,7 +332,7 @@ class FamilyClaimApiTests extends FamilyApiTest {
         assertThat(medicineNow.get("postings").findValuesAsText("categoryId")).contains(String.valueOf(familyHealth));
         // Alice sees the family's Health, and nothing of Carol's own.
         assertThat(ok(get(alice, uri + "/categories")).findValuesAsText("code")).contains("HEALTH");
-        assertThat(ok(get(alice, uri + "/categories")).toString()).doesNotContain("Food");
+        Answers.assertNoneMention(ok(get(alice, uri + "/categories")), "Food");
         assertThat(ok(get(carol, "/api/reports/integrity"))).isEmpty();
     }
 
@@ -415,7 +417,7 @@ class FamilyClaimApiTests extends FamilyApiTest {
                 "UPDATE by Mum: date 2026-09-05→2026-09-18",
                 "UPDATE by Mum: amount 90.00→120.00, share of Mum 30.00→40.00, share of Dad 30.00→40.00, "
                         + "share of Carol 30.00→40.00");
-        assertThat(journal.toString().toLowerCase()).doesNotContain("account");
+        Answers.assertNoneMention(journal, "account", "Account", "ACCOUNT");
     }
 
     /** Nobody's integrity check finds anything, and the invariants hold. */

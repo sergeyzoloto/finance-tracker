@@ -11,16 +11,16 @@ import java.time.ZoneId;
  */
 public final class TestClock extends Clock {
 
-    private volatile Clock clock = Clock.systemDefaultZone();
+    private volatile Clock clock = Clock.systemUTC();
 
     /** From now on, the time stands still at the moment, in the zone. */
     public void set(Instant instant, ZoneId zone) {
         clock = Clock.fixed(instant, zone);
     }
 
-    /** Back to the system's clock in the default zone. */
+    /** Back to the system's clock. */
     public void reset() {
-        clock = Clock.systemDefaultZone();
+        clock = Clock.systemUTC();
     }
 
     @Override

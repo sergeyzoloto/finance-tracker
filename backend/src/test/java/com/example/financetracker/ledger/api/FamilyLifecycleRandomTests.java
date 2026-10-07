@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.example.financetracker.Answers;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
@@ -150,7 +151,7 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
                 what = "settlements";
             }
             int status = answer.getResponse().getStatus();
-            assertThat(status).as("operation %d (%s): %s", i, what, answer.getResponse().getContentAsString())
+            assertThat(status).as("operation %d (%s): %s", i, what, Answers.rawText(answer))
                     .isIn(200, 201, 204, 409, 422);
             done.merge(status >= 400 ? "refused" : what, 1, Integer::sum);
             FamilyInvariants.check(jdbc, family);

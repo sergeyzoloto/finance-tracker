@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -70,7 +71,7 @@ class FamilySettlementApiTests extends FamilyApiTest {
         assertThat(asAlice.get("yourPayment")).isEqualTo(json.readTree("""
                 {"entryId": %d, "accountId": null, "accountName": null, "later": true, "amount": "36.20",
                  "currency": "EUR"}""".formatted(alicesEntry)));
-        assertThat(asAlice.toString()).doesNotContain("Cash");
+        Answers.assertNoneMention(asAlice, "Cash");
         assertThat(asAlice.findValuesAsText("accountId")).doesNotContain(String.valueOf(bobsCash));
         assertThat(List.of(asAlice.get("canEdit").asBoolean(), asAlice.get("canEditPayment").asBoolean(),
                 asAlice.get("canDelete").asBoolean())).containsOnly(false);

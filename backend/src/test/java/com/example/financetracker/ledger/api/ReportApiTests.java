@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -99,9 +100,9 @@ class ReportApiTests extends LedgerApiTest {
                 "UNALLOCATED EUR 930.00");
         assertThat(balances.get(0).get("missingRates")).isEmpty();
 
-        assertThat(ok(get(alice, "/api/reports/net-worth" + AS_OF + "&currency=BASE")).toString()).isEqualTo("""
+        assertThat(ok(get(alice, "/api/reports/net-worth" + AS_OF + "&currency=BASE"))).isEqualTo(Answers.json("""
                 {"currency":"EUR","assets":"1100.00","liabilities":"-30.00","netWorth":"1130.00",\
-                "unrealizedRevaluation":"0.00","realizedExchangeResult":"0.00","rates":[],"missingRates":[]}""");
+                "unrealizedRevaluation":"0.00","realizedExchangeResult":"0.00","rates":[],"missingRates":[]}"""));
 
         JsonNode cashFlow = ok(get(alice, "/api/reports/cash-flow" + AUGUST + "&currency=BASE"));
         assertThat(cashFlow.get("currency").asText()).isEqualTo("EUR");
@@ -120,8 +121,8 @@ class ReportApiTests extends LedgerApiTest {
 
         JsonNode cash = find(ok(get(alice, "/api/reports/balances" + AS_OF + "&currency=BASE")), "accountCode", "CASH");
         assertThat(cash.get("balance").isNull()).isTrue();
-        assertThat(cash.get("missingRates").toString()).isEqualTo("""
-                [{"currency":"USD","from":"2026-08-31","to":"2026-08-31","days":1}]""");
+        assertThat(cash.get("missingRates")).isEqualTo(Answers.json("""
+                [{"currency":"USD","from":"2026-08-31","to":"2026-08-31","days":1}]"""));
         assertThat(ok(get(alice, "/api/reports/net-worth" + AS_OF + "&currency=BASE")).get("netWorth").isNull())
                 .isTrue();
     }
@@ -139,8 +140,8 @@ class ReportApiTests extends LedgerApiTest {
                         + "require one.");
         for (String report : new String[] {"balances?", "net-worth?", "cash-flow" + AUGUST + "&"}) {
             assertThat(body(get(alice, "/api/reports/" + report + "currency=USD"), HttpStatus.BAD_REQUEST)
-                    .get("errors").toString()).as(report).isEqualTo("""
-                    [{"field":"currency","message":"must be BASE, or left out"}]""");
+                    .get("errors")).as(report).isEqualTo(Answers.json("""
+                    [{"field":"currency","message":"must be BASE, or left out"}]"""));
         }
     }
 

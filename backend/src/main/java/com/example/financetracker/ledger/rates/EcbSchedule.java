@@ -1,7 +1,7 @@
 package com.example.financetracker.ledger.rates;
 
-import java.time.Instant;
 
+import com.example.financetracker.WallClock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -39,7 +39,7 @@ class EcbSchedule {
         /** In the background, so that a slow ECB doesn't hold up anything else. */
         @EventListener(ApplicationReadyEvent.class)
         void loadAtStartup() {
-            scheduler.schedule(this::load, Instant.now());
+            scheduler.schedule(this::load, WallClock.now());
         }
 
         @Scheduled(cron = "${app.rates.ecb.cron}", zone = "Europe/Berlin")

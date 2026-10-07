@@ -33,12 +33,12 @@ class AccessTokenTests extends IntegrationTest {
         MvcTestResult result = me(token(subject));
 
         assertThat(result).hasStatusOk();
-        assertThat(json.readTree(result.getResponse().getContentAsString()).get("name").asText()).isEqualTo("User " + subject);
+        assertThat(Answers.of(result).get("name").asText()).isEqualTo("User " + subject);
     }
 
     @Test
     void allowsAMinuteOfClockSkewOnExpiryAndNotBefore() {
-        Instant now = Instant.now();
+        Instant now = WallClock.now();
 
         assertThat(me(sign(expiredAgo(now, 30)))).hasStatusOk();
         assertThat(me(sign(expiredAgo(now, 90)))).hasStatus(HttpStatus.UNAUTHORIZED);

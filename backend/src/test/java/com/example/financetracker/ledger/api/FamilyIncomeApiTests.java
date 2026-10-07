@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -131,7 +132,7 @@ class FamilyIncomeApiTests extends FamilyApiTest {
         String path = uri + "/records/" + id;
         long receipt = record.get("yourPayment").get("entryId").asLong();
         assertThat(ok(get(alice, "/api/entries/" + receipt)).get("memo").asText()).isEqualTo("Bonus");
-        assertThat(ok(get(alice, uri + "/journal?recordId=" + id)).toString()).doesNotContain("Bonus");
+        Answers.assertNoneMention(ok(get(alice, uri + "/journal?recordId=" + id)), "Bonus");
 
         // Only Mum, who received it, changes its date, amount, receiver and account; the owner's family fields.
         assertThat(detail(patch(bob, path + "?version=0", """

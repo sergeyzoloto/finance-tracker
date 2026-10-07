@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.example.financetracker.IntegrationTest;
+import com.example.financetracker.WallClock;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountType;
@@ -71,7 +72,7 @@ class LedgerRepositoryTests extends IntegrationTest {
 
     @Test
     void accountRoundTripsAndIsScopedByLedger() {
-        Instant archivedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant archivedAt = WallClock.now().truncatedTo(ChronoUnit.MICROS);
         Account saved = accounts.save(new Account(null, user, ledger, "FX_EXCHANGE", "Exchange", AccountType.EQUITY,
                 "EUR", false, true, archivedAt, null));
 

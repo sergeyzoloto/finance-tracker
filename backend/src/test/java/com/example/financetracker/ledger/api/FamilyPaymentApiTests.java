@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -92,7 +93,7 @@ class FamilyPaymentApiTests extends FamilyApiTest {
 
         JsonNode journal = ok(get(bob, uri + "/journal?recordId=" + id));
         assertThat(journal.get("totalElements").asInt()).isEqualTo(2);
-        assertThat(journal.toString()).doesNotContain("Cash", "Current account", "UNSPECIFIED", "account");
+        Answers.assertNoneMention(journal, "Cash", "Current account", "UNSPECIFIED", "account");
         // The same values again change nothing.
         List<String> versions = entryVersions(alice);
         assertThat(ok(patch(alice, path + "?version=1", """
@@ -349,7 +350,7 @@ class FamilyPaymentApiTests extends FamilyApiTest {
         assertThat(ok(get(alice, "/api/entries/" + entryId)).get("memo").asText()).isEqualTo("Paid with the old card");
         for (String user : List.of(alice, bob)) {
             for (String read : List.of(path, uri + "/records", uri + "/journal", uri + "/balances")) {
-                assertThat(ok(get(user, read)).toString()).as(read).doesNotContain("old card");
+                Answers.assertNoneMention(read, ok(get(user, read)), "old card");
             }
         }
         // Bob's share entry has no memo at all.
@@ -397,8 +398,8 @@ class FamilyPaymentApiTests extends FamilyApiTest {
         assertThat(changes(ok(get(bob, uri + "/journal?recordId=" + id))).getFirst()).isEqualTo("UPDATE by Mum: "
                 + "date 2026-09-10→2026-09-12, amount 100.00→120.00, share of Mum 50.00→60.00, share of Dad 50.00→60.00");
         for (String read : List.of(uri + "/records/" + id, uri + "/records", uri + "/journal")) {
-            assertThat(ok(get(alice, read)).toString()).as(read).doesNotContain("drawer");
-            assertThat(ok(get(bob, read)).toString()).as(read).doesNotContain("drawer", "Cash", "yourPayment");
+            Answers.assertNoneMention(read, ok(get(alice, read)), "drawer");
+            Answers.assertNoneMention(read, ok(get(bob, read)), "drawer", "Cash", "yourPayment");
         }
 
         assertThat(detail(patch(alice, entry + "/family-payment?version=0", """

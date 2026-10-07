@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
 
+import com.example.financetracker.WallClock;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -165,7 +166,7 @@ final class SessionAccessTokenFilter extends OncePerRequestFilter implements Bea
     /** Whether the access token expires within the margin, as the refresh token provider decides it. */
     private static boolean expiring(OAuth2AuthorizedClient client) {
         Instant expiresAt = client.getAccessToken().getExpiresAt();
-        return expiresAt != null && Instant.now().isAfter(expiresAt.minus(REFRESH_MARGIN));
+        return expiresAt != null && WallClock.now().isAfter(expiresAt.minus(REFRESH_MARGIN));
     }
 
     private static String refreshToken(OAuth2AuthorizedClient client) {

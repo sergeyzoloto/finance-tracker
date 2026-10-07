@@ -9,6 +9,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
+import com.example.financetracker.Answers;
 import com.example.financetracker.TestClock;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
@@ -30,8 +31,8 @@ class RateApiTests extends LedgerApiTest {
         JsonNode saved = ok(post(alice, "/api/rates/manual", """
                 {"date": "2026-09-01", "base": "EUR", "quote": "RUB", "rate": "95.50"}"""));
 
-        assertThat(saved.toString()).isEqualTo("""
-                {"date":"2026-09-01","base":"EUR","quote":"RUB","rate":"95.50"}""");
+        assertThat(saved).isEqualTo(Answers.json("""
+                {"date":"2026-09-01","base":"EUR","quote":"RUB","rate":"95.50"}"""));
         assertThat(ok(get(alice, "/api/rates/manual"))).containsExactly(saved);
         JsonNode rub = find(ok(get(alice, "/api/rates")).get("latest"), "currency", "RUB");
         assertThat(rub.get("date").asText()).isEqualTo("2026-09-01");
@@ -117,8 +118,8 @@ class RateApiTests extends LedgerApiTest {
 
         JsonNode overview = ok(get(alice, "/api/rates"));
         assertThat(overview.get("baseCurrency").asText()).isEqualTo("EUR");
-        assertThat(overview.get("missing").toString()).isEqualTo("""
-                [{"currency":"KZT","from":"2026-08-03","to":"2026-08-20","days":2}]""");
+        assertThat(overview.get("missing")).isEqualTo(Answers.json("""
+                [{"currency":"KZT","from":"2026-08-03","to":"2026-08-20","days":2}]"""));
         JsonNode kzt = find(overview.get("latest"), "currency", "KZT");
         assertThat(kzt.get("date").isNull()).isTrue();
         assertThat(kzt.get("inLedger").asBoolean()).isTrue();
@@ -126,8 +127,8 @@ class RateApiTests extends LedgerApiTest {
         // From 10 August on, KZT has a rate.
         ok(post(alice, "/api/rates/manual", """
                 {"date": "2026-08-10", "base": "EUR", "quote": "KZT", "rate": "550"}"""));
-        assertThat(ok(get(alice, "/api/rates")).get("missing").toString()).isEqualTo("""
-                [{"currency":"KZT","from":"2026-08-03","to":"2026-08-03","days":1}]""");
+        assertThat(ok(get(alice, "/api/rates")).get("missing")).isEqualTo(Answers.json("""
+                [{"currency":"KZT","from":"2026-08-03","to":"2026-08-03","days":1}]"""));
     }
 
     /**

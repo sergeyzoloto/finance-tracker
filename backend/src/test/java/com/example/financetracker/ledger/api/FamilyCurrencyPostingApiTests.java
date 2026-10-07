@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import com.example.financetracker.Answers;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -203,7 +204,8 @@ class FamilyCurrencyPostingApiTests extends FamilyApiTest {
             assertThat(his.findValues("originalAmount")).as(read).isEmpty();
             assertThat(his.findValues("originalCurrency")).as(read).isEmpty();
             assertThat(his.findValues("yourPayment")).as(read).isEmpty();
-            assertThat(his.toString()).as(read).doesNotContain("51.50", "EUR");
+            assertThat(Answers.numbers(his)).as(read).doesNotContain("51.50");
+            Answers.assertNoneMention(read, his, "EUR");
         }
         JsonNode his = ok(get(bob, uri + "/records/" + inEuros.get("id").asLong()));
         assertThat(his.get("amount").asText() + " " + his.get("currency").asText()).isEqualTo("56.00 USD");
@@ -273,8 +275,8 @@ class FamilyCurrencyPostingApiTests extends FamilyApiTest {
         assertThat(patch(alice, "/api/entries/%d/family-payment?version=%d".formatted(entry, entryVersion), """
                 {"accountCurrency": "EUR", "accountAmount": "53.40"}""")).hasStatus(HttpStatus.OK);
         assertThat(own(ok(get(alice, path)))).isEqualTo("53.40 EUR");
-        assertThat(changes(ok(get(bob, uri + "/journal?recordId=" + paid.get("id").asLong()))))
-                .noneMatch(change -> change.contains("53.40") || change.contains("51.5"));
+        JsonNode bobsJournal = ok(get(bob, uri + "/journal?recordId=" + paid.get("id").asLong()));
+        assertThat(Answers.numbers(bobsJournal)).doesNotContain("53.40", "51.50", "51.5");
     }
 
     /**
@@ -298,7 +300,7 @@ class FamilyCurrencyPostingApiTests extends FamilyApiTest {
         JsonNode inEuros = ok(patch(bob, path + "?version=0", """
                 {"paymentAccountId": %d, "accountCurrency": "EUR", "accountAmount": "18.30"}""".formatted(bobsCash)));
         assertThat(own(inEuros)).isEqualTo("18.30 EUR");
-        assertThat(ok(get(alice, path)).toString()).doesNotContain("18.30");
+        assertThat(Answers.numbers(ok(get(alice, path)))).doesNotContain("18.30");
     }
 
     /** The reader's own side, from their {@code yourPayment}, as "amount CUR". */

@@ -10,7 +10,6 @@ import static org.springframework.http.HttpMethod.PUT;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -50,8 +49,8 @@ class ApiTests extends IntegrationTest {
         invalidTokens.put("none", null);
         invalidTokens.put("malformed", "not-a-jwt");
         invalidTokens.put("expired", sign(claims(subject)
-                .issueTime(Date.from(Instant.now().minusSeconds(420)))
-                .expirationTime(Date.from(Instant.now().minusSeconds(120)))));
+                .issueTime(Date.from(WallClock.now().minusSeconds(420)))
+                .expirationTime(Date.from(WallClock.now().minusSeconds(120)))));
         invalidTokens.put("other issuer", sign(claims(subject).issuer("https://evil.test/realms/myapps")));
         // Same key ID as the realm's key, so only the signature itself gives it away.
         invalidTokens.put("bad signature", FakeKeycloak.sign(claims(subject).build(), FakeKeycloak.newRsaKey("test-key")));

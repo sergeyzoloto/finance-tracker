@@ -59,11 +59,10 @@ class BrowserLoginTests extends IntegrationTest {
         assertThat(mvc.get().uri("/login/oauth2/code/keycloak?code={code}&state={state}", code, param(authorizationUrl, "state"))
                 .session(session)).hasRedirectedUrl("/?login=done");
 
-        assertThat(json.readTree(get("/api/me", session).getResponse().getContentAsString()).get("name").asText())
-                .isEqualTo("User " + subject);
+        assertThat(Answers.of(get("/api/me", session)).get("name").asText()).isEqualTo("User " + subject);
         assertThat(write("/api/categories", session, """
                 {"code": "RENT", "name": "Rent", "type": "EXPENSE"}""", csrfToken(session))).hasStatus(HttpStatus.CREATED);
-        assertThat(get("/api/categories", session).getResponse().getContentAsString()).contains("Rent");
+        assertThat(Answers.of(get("/api/categories", session)).findValuesAsText("name")).contains("Rent");
     }
 
     @Test

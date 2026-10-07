@@ -3,11 +3,11 @@ import { basename } from 'node:path'
 import type { FullResult, Reporter, Suite, TestCase, TestResult } from '@playwright/test/reporter'
 import type { SpecResult, SpecStatus } from './summary.ts'
 
-/** A spec's name in the summary: its file's name without the order and the extension, "pages", "family F7", "family F8", "time-zone". */
+/** A spec's name in the summary: its file's name without the order and the extension, "pages", "family F7", "family F8", "family F8d", "time-zone". */
 export function specName(file: string): string {
   const name = basename(file).replace(/\.(spec|setup|teardown)\.ts$/, '').replace(/^\d+-/, '')
-  const stage = /^family-(f\d+)$/.exec(name)?.[1]
-  return stage ? `family ${stage.toUpperCase()}` : name
+  const stage = /^family-(f\d+[a-z]?)$/.exec(name)?.[1]
+  return stage ? `family ${stage.charAt(0).toUpperCase()}${stage.slice(1)}` : name
 }
 
 /**

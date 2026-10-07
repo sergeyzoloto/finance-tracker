@@ -15,11 +15,11 @@ const t = target.name
 /** The sign-in and the cleanup record no trace and take no screenshot: the login form is in them (D-52, guards 3, 4). */
 const quiet = { trace: 'off', screenshot: 'off', video: 'off' } as const
 /**
- * Smoke, family F7, family F8, then the time zone (which saves another zone for A, so it is last; every spec before
+ * Smoke, family F7, family F8, family F8d, then the time zone (which saves another zone for A, so it is last; every spec before
  * it starts with Delete all my data, which takes the zone along), in this order (workers 1, files in order); the
  * guards' tests run a probe instead.
  */
-const specs = t === 'test' ? /guards-probe\.spec\.ts$/ : /0[2-5]-[a-z0-9-]+\.spec\.ts$/
+const specs = t === 'test' ? /guards-probe\.spec\.ts$/ : /0[2-6]-[a-z0-9-]+\.spec\.ts$/
 
 const projects: Project[] = [
   // Pages without signing in: run first, on their own.

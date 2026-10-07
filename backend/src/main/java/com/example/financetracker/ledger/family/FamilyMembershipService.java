@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link FamilyInviteService}'s. Every change locks the
  * family ledger's row first, as the other changes of its members do.
  * <p>
- * A member who goes becomes LEFT on today's date, a MEMBER (only ACTIVE members are owners) without a custom share. A
+ * A member who goes becomes LEFT on today's date (D-118: never before their join date), a MEMBER (only ACTIVE members are owners) without a custom share. A
  * member with an account is detached first, through the posting service's writer: their links detached, the family
  * categories their personal ledger refers to copied into it as personal ones (D-33), their debt account an ordinary
  * liability. Nothing is posted, to them or to anyone else, so D-10 holds for the ACTIVE members as it did; the records
@@ -282,7 +282,8 @@ public class FamilyMembershipService {
                     .update();
         }
         jdbc.sql("""
-                UPDATE ledger_member SET status = 'LEFT', role = 'MEMBER', share_bp = NULL, left_date = :today
+                UPDATE ledger_member SET status = 'LEFT', role = 'MEMBER', share_bp = NULL,
+                       left_date = GREATEST(CAST(:today AS date), join_date)
                 WHERE id = :memberId AND ledger_id = :ledgerId""")
                 .param("today", today.date(family)).param("memberId", memberId).param("ledgerId", family.ledgerId())
                 .update();

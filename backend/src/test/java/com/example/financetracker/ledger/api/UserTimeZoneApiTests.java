@@ -248,7 +248,8 @@ class UserTimeZoneApiTests extends FamilyApiTest {
         assertThat(delete(bob, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
         JsonNode after = ok(get(alice, uri + "/members"));
         assertThat(find(after, "id", String.valueOf(carolId)).get("leftDate").asText()).isEqualTo("2026-10-07");
-        assertThat(find(after, "id", String.valueOf(bobsId)).get("leftDate").asText()).isEqualTo("2026-10-06");
+        // Bob leaves on his own 6th, but he joined on the 7th (clamped): D-118, never before the join date.
+        assertThat(find(after, "id", String.valueOf(bobsId)).get("leftDate").asText()).isEqualTo("2026-10-07");
     }
 
     /**
@@ -305,6 +306,58 @@ class UserTimeZoneApiTests extends FamilyApiTest {
         at("2026-10-08T20:00:00Z");
         assertThat(body(post(bob, uri + "/members", "{\"displayName\": \"Lee\"}"), HttpStatus.CREATED)
                 .get("joinDate").asText()).isEqualTo("2026-10-08");
+    }
+
+    /**
+     * D-118, D-104's other half: a leaving or removal date is never before the member's join date. Alice, 14 hours
+     * ahead, opens the budget on the 7th; Carol, Dan and Frank in Los Angeles join on the 7th (clamped from their 6th).
+     * Carol leaves on her own 6th, and Bob, an owner on his, removes Dan on his: both left on the 7th, the day they
+     * joined. Frank leaves on the 8th, a day after, and keeps it.
+     */
+    @Test
+    void aLeavingDateIsNeverBeforeTheJoinDate() throws IOException {
+        String alice = newUser();
+        String bob = newUser();
+        String carol = newUser();
+        String dan = newUser();
+        String frank = newUser();
+        for (String user : List.of(bob, carol, dan, frank)) {
+            ok(get(user, "/api/accounts"));
+            setZone(user, LOS_ANGELES);
+        }
+        setZone(alice, PLUS_14);
+        at("2026-10-07T03:00:00Z");
+        JsonNode created = newFamily(alice, familyRequest(alice, ""));
+        String uri = "/api/family-ledgers/" + created.get("id").asLong();
+        assertThat(created.get("startDate").asText()).isEqualTo("2026-10-07");
+        for (String joining : List.of(bob, carol, dan, frank)) {
+            accept(joining, inviteTo(alice, uri, "{\"kind\": \"NEW_MEMBER\"}"), "User " + joining.substring(0, 4));
+        }
+        JsonNode members = ok(get(alice, uri + "/members"));
+        assertThat(members.findValuesAsText("joinDate")).containsOnly("2026-10-07");
+        long bobsId = idOf(members, bob);
+        assertThat(post(alice, uri + "/members/%d/owner".formatted(bobsId), "{}")).hasStatus(HttpStatus.OK);
+
+        assertThat(delete(carol, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(delete(bob, uri + "/members/%d".formatted(idOf(members, dan)))).hasStatus(HttpStatus.NO_CONTENT);
+        JsonNode left = ok(get(alice, uri + "/members"));
+        assertThat(leftDates(left)).as("on the 6th of their own, in Los Angeles").containsExactlyInAnyOrder(
+                "2026-10-07", "2026-10-07");
+
+        // A day later, Frank leaves on the 8th: nothing is clamped when the day is after the join date.
+        at("2026-10-08T20:00:00Z");
+        assertThat(delete(frank, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(leftDates(ok(get(alice, uri + "/members")))).containsExactlyInAnyOrder("2026-10-07", "2026-10-07",
+                "2026-10-08");
+    }
+
+    private static long idOf(JsonNode members, String user) {
+        return find(members, "displayName", "User " + user.substring(0, 4)).get("id").asLong();
+    }
+
+    private static List<String> leftDates(JsonNode members) {
+        return StreamSupport.stream(members.spliterator(), false).map(member -> member.get("leftDate"))
+                .filter(date -> !date.isNull()).map(JsonNode::asText).toList();
     }
 
     /** At 23:30 UTC on 31 October, a reader in Amsterdam is in November, and one in Los Angeles in October. */

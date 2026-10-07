@@ -3,6 +3,7 @@ package com.example.financetracker.ledger;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.Money;
@@ -57,6 +58,15 @@ public class SettingsService {
 
     /** The user's time zone as {@code /api/me} reports it, with today's date in it (D-100, D-101). */
     public record TimeZoneView(String timeZone, LocalDate today) {
+    }
+
+    /**
+     * Every id {@link #setTimeZone} accepts (D-103): exactly {@code ZoneId.getAvailableZoneIds()}, case-sensitive, so
+     * "UTC", "Etc/UTC", "Etc/GMT+5" and legacy links such as "Asia/Calcutta" are in, and an offset, an abbreviation or
+     * other case are not. The frontend offers a zone only if it is in this list.
+     */
+    public List<String> timeZones() {
+        return ZoneId.getAvailableZoneIds().stream().sorted().toList();
     }
 
     /**

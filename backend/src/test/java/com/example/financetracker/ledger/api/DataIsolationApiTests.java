@@ -359,6 +359,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         ok(bobsRequest(HttpMethod.PUT, "/api/settings/time-zone", """
                 {"timeZone": "Asia/Kolkata", "userId": "%s"}""".formatted(alice)));
         assertThat(bobReads("/api/me").get("timeZone").asText()).isEqualTo("Asia/Kolkata");
+        // D-103: the list of accepted ids is the same for everyone, and holds nothing of anyone.
+        assertThat(bobReads("/api/settings/time-zones").get(0).asText()).isNotBlank();
         assertThat(bobReads("/api/counterparties").findValuesAsText("name")).contains("Planted");
         assertThat(bobReads("/api/entries").get("totalElements").asLong()).isEqualTo(5);
         assertThat(bobReads("/api/settings").get("baseCurrency").asText()).isEqualTo("GBP");

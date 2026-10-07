@@ -1,10 +1,12 @@
 package com.example.financetracker.ledger.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.stream.StreamSupport;
@@ -16,6 +18,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 /**
  * D-100, D-101: each user has a time zone, and D-53's today is the date there; UTC's while none is set. The clock is
@@ -302,6 +306,65 @@ class UserTimeZoneApiTests extends FamilyApiTest {
         // A valid id other than the browser's is accepted: the user's choice.
         assertThat(setZone(user, "Asia/Kolkata").get("timeZone").asText()).isEqualTo("Asia/Kolkata");
         assertThat(setZone(user, "UTC").get("timeZone").asText()).isEqualTo("UTC");
+    }
+
+    /**
+     * D-103: a zone is accepted if and only if it is in {@code ZoneId.getAvailableZoneIds()}, case-sensitive; the list
+     * the frontend offers from is that set, and every id in it is accepted.
+     */
+    @Test
+    void aZoneIsAcceptedIfAndOnlyIfJavaKnowsItsId() throws IOException {
+        String user = newUser();
+        List<String> listed = StreamSupport.stream(ok(get(user, "/api/settings/time-zones")).spliterator(), false)
+                .map(JsonNode::asText).toList();
+        assertThat(listed).containsExactlyInAnyOrderElementsOf(ZoneId.getAvailableZoneIds())
+                .contains("UTC", "Etc/UTC", "Etc/GMT+5", "Asia/Calcutta", "Asia/Kolkata", "Europe/Amsterdam")
+                .doesNotContain("UTC+2", "GMT+2", "Europe/amsterdam", "Z", "CEST");
+        for (String id : List.of("UTC", "Etc/UTC", "Etc/GMT+5", "Asia/Calcutta", "Europe/Amsterdam")) {
+            assertThat(setZone(user, id).get("timeZone").asText()).isEqualTo(id);
+            assertThat(ok(get(user, "/api/me")).get("timeZone").asText()).isEqualTo(id);
+        }
+        // Every listed id is accepted, with the date in it.
+        for (String id : listed) {
+            assertThat(put(user, "/api/settings/time-zone", "{\"timeZone\": \"%s\"}".formatted(id)).getResponse().getStatus())
+                    .as(id).isEqualTo(200);
+        }
+        // Nothing else is: the same id in another case, an offset, an abbreviation.
+        for (String id : List.of("utc", "etc/utc", "europe/amsterdam", "EUROPE/AMSTERDAM", "UTC+0", "UTC+02:00", "+02:00",
+                "GMT+5", "CET ", "EST5EDT2")) {
+            assertThat(put(user, "/api/settings/time-zone", "{\"timeZone\": \"%s\"}".formatted(id)).getResponse().getStatus())
+                    .as(id).isEqualTo(422);
+        }
+    }
+
+    /**
+     * F8c-fix, choice 6: what the app can't run without is the token's subject (the api's own check) and, in
+     * {@code /api/me}'s answer, today's date. An account registered with its email only, with no name, no
+     * preferred_username and no given or family name, is a user like any other: {@code name} is null, nothing fails,
+     * and its zone, null until saved, is set and read back.
+     */
+    @Test
+    void anAccountWithNoNameAtAllWorks() throws IOException {
+        String sub = newUser();
+        var emailOnly = jwt().jwt(token -> token.subject(sub).claim("email", sub + "@example.com"))
+                .authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        JsonNode me = body(mvc.get().uri("/api/me").with(emailOnly).exchange(), HttpStatus.OK);
+        assertThat(me.get("name").isNull()).isTrue();
+        assertThat(me.get("email").asText()).isEqualTo(sub + "@example.com");
+        assertThat(me.get("timeZone").isNull()).isTrue();
+        assertThat(me.get("today").asText()).matches("\\d{4}-\\d{2}-\\d{2}");
+        assertThat(me.get("features").get("familyLedgers").asBoolean()).isTrue();
+
+        // It is provisioned and served like anyone: reference data, the zone, the demo with its family budget.
+        body(mvc.get().uri("/api/accounts").with(emailOnly).exchange(), HttpStatus.OK);
+        JsonNode saved = body(mvc.put().uri("/api/settings/time-zone").with(emailOnly)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"timeZone\": \"UTC\"}").exchange(), HttpStatus.OK);
+        assertThat(saved.get("timeZone").asText()).isEqualTo("UTC");
+        me = body(mvc.get().uri("/api/me").with(emailOnly).exchange(), HttpStatus.OK);
+        assertThat(me.get("timeZone").asText()).isEqualTo("UTC");
+        assertThat(me.get("name").isNull()).isTrue();
+        JsonNode demo = body(mvc.post().uri("/api/demo-data").with(emailOnly).exchange(), HttpStatus.OK);
+        assertThat(demo.get("familyLedgerId").isNumber()).isTrue();
     }
 
     /** Nothing but the zone's own endpoint writes it: the settings page's PUT and the demo leave it as it is. */

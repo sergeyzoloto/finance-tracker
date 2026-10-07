@@ -1,6 +1,7 @@
 package com.example.financetracker.ledger.api;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import com.example.financetracker.api.CurrencyCode;
 import com.example.financetracker.ledger.SettingsService;
@@ -50,6 +51,12 @@ class SettingsController {
     @GetMapping
     SettingsView get(CurrentUser user) {
         return settings.get(user.id());
+    }
+
+    /** Every time zone id the PUT below accepts (D-103), so that the frontend offers only those. */
+    @GetMapping("/time-zones")
+    List<String> timeZones() {
+        return settings.timeZones();
     }
 
     /**

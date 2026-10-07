@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -112,6 +112,13 @@ afterEach(() => {
 
 const familyOption = () => screen.queryByRole('switch', { name: 'Family expense' })
 
+/** Picks Groceries of the family budget, once its categories have come: the select is there before its options. */
+async function chooseFamilyCategory(id = '30') {
+  const select = await screen.findByLabelText(/^Family category/)
+  await waitFor(() => expect(within(select).getAllByRole('option').length).toBeGreaterThan(1))
+  fireEvent.change(select, { target: { value: id } })
+}
+
 describe('a new expense marked as family (C2)', () => {
   it('is not offered with the switch off, nor without a family budget', async () => {
     const calls = ledger([home])
@@ -135,7 +142,7 @@ describe('a new expense marked as family (C2)', () => {
     renderApp('/entries/new')
     fireEvent.click(await screen.findByRole('switch', { name: 'Family expense' }))
 
-    fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
+    await chooseFamilyCategory()
     // One family budget: no selector (D-5) and no personal category; the payee (D-81) and the refund (D-79) stay, as
     // the entry's own; the memo is the private note.
     expect(screen.queryByLabelText(/^Family budget/)).toBeNull()
@@ -171,7 +178,7 @@ describe('a new expense marked as family (C2)', () => {
     })
     renderApp('/entries/new')
     fireEvent.click(await screen.findByRole('switch', { name: 'Family expense' }))
-    fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
+    await chooseFamilyCategory()
     fireEvent.click(screen.getByLabelText('Refund: the money came back'))
     expect(screen.getByLabelText(/^Received into/)).toBeDefined()
     fireEvent.change(screen.getByLabelText(/^Received into/), { target: { value: '1' } })
@@ -194,7 +201,7 @@ describe('a new expense marked as family (C2)', () => {
     })
     renderApp('/entries/new')
     fireEvent.click(await screen.findByRole('switch', { name: 'Family expense' }))
-    fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
+    await chooseFamilyCategory()
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '3' } })
     fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: 'The new shop' } })
@@ -228,7 +235,7 @@ describe('a new expense marked as family (C2)', () => {
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '9' } })
     expect(option).toHaveProperty('disabled', false)
     fireEvent.click(option)
-    fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
+    await chooseFamilyCategory()
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '56' } })
     expect(screen.queryByLabelText(/^Amount in EUR/)).toBeNull()
     await waitFor(() => expect(screen.getByTestId('share-71').textContent).toContain('$28.00'))
@@ -246,7 +253,7 @@ describe('a new expense marked as family (C2)', () => {
     })
     renderApp('/entries/new')
     fireEvent.click(await screen.findByRole('switch', { name: 'Family expense' }))
-    fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
+    await chooseFamilyCategory()
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'RUB' } })
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '9000' } })

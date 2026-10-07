@@ -104,12 +104,14 @@ describe('the members page', () => {
     const family = familyData(home, [anna, ben, kid])
     renderMembers(family)
 
-    expect(within(screen.getByText('Kid').closest('tr')!).queryByRole('button', { name: 'Make owner' })).toBeNull()
+    // The table follows the members' answer, which may be late.
+    expect(within((await screen.findByText('Kid')).closest('tr')!).queryByRole('button', { name: 'Make owner' })).toBeNull()
     expect(within(screen.getByText('You').closest('tr')!).queryByRole('button', { name: 'Make owner' })).toBeNull()
     fireEvent.click(within(screen.getByText('Ben').closest('tr')!).getByRole('button', { name: 'Make owner' }))
+    // The request is answered, then the budget is loaded again; either may be late.
+    await waitFor(() => expect(calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.url])).toEqual([
+      ['POST', '/api/family-ledgers/7/members/72/owner']]))
     await waitFor(() => expect(family.reload).toHaveBeenCalled())
-    expect(calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.url])).toEqual([
-      ['POST', '/api/family-ledgers/7/members/72/owner']])
   })
 
   it('tells the last owner to make another owner first, and shows the server’s LAST_OWNER too', async () => {

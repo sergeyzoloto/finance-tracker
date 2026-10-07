@@ -163,7 +163,8 @@ describe('the entries', () => {
     renderAt('/entries/92', <EntryEditor />, '/entries/:id')
 
     expect(await screen.findByRole('heading', { name: 'Edit entry' })).toBeDefined()
-    expect(screen.getByRole('button', { name: /Delete/ })).toBeDefined()
+    // The form comes with the accounts, categories, payees and settings, which may arrive after the heading.
+    expect(await screen.findByRole('button', { name: /Delete/ })).toBeDefined()
   })
 })
 

@@ -426,7 +426,8 @@ describe('balances', () => {
     expect(await screen.findByText('Sam owes you €40.00.')).toBeDefined()
     expect(screen.getByText('Start date').nextElementSibling!.textContent).toBe('Sep 1, 2026')
     expect(screen.getByRole('link', { name: 'Add an expense' }).getAttribute('href')).toBe('/family/7/expenses/new')
-    expect(screen.getByRole('link', { name: 'Groceries' })).toBeDefined()
+    // The latest expenses are their own request, which may be answered after the balances.
+    expect(await screen.findByRole('link', { name: 'Groceries' })).toBeDefined()
   })
 
   it('reads every member’s balance in words, marks who they are, and adds up to zero', async () => {

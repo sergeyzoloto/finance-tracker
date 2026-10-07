@@ -87,6 +87,13 @@ function renderApp(path: string) {
 
 const field = (label: string) => screen.getByText(label, { selector: '.label' }).closest('label')!
 
+/** Chooses the counterparty (or payee) of the select a label names, once its options have come. */
+async function choose(label: RegExp, value: string) {
+  const select = await screen.findByLabelText(label)
+  await waitFor(() => expect(within(select).getAllByRole('option').length).toBeGreaterThan(1))
+  fireEvent.change(select, { target: { value } })
+}
+
 async function fillIn(addLabel: string) {
   fireEvent.change(await screen.findByLabelText('Category'), { target: { value: '30' } })
   fireEvent.change(screen.getByLabelText(/^Amount \(/), { target: { value: '10.01' } })
@@ -190,10 +197,10 @@ describe('an account that requires a counterparty, and the payee (D-80, D-81)', 
     fireEvent.change(paidFrom, { target: { value: '4' } })
     const counterparty = screen.getByLabelText(/^Counterparty/)
     expect(add()).toHaveProperty('disabled', true)
-    expect(within(counterparty).getAllByRole('option').map((o) => o.textContent))
-      .toEqual(['Choose a counterparty', 'Albert Heijn', 'Employer', 'Ivan'])
+    await waitFor(() => expect(within(counterparty).getAllByRole('option').map((o) => o.textContent))
+      .toEqual(['Choose a counterparty', 'Albert Heijn', 'Employer', 'Ivan']))
     fireEvent.change(counterparty, { target: { value: '22' } })
-    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: '21' } })
+    await choose(/^Payee/, '21')
     expect(add()).toHaveProperty('disabled', false)
     fireEvent.click(add())
 
@@ -219,7 +226,7 @@ describe('an account that requires a counterparty, and the payee (D-80, D-81)', 
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '1' } })
     // A counterparty chosen for another account is gone with the account.
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '3' } })
-    fireEvent.change(screen.getByLabelText(/^Counterparty/), { target: { value: '22' } })
+    await choose(/^Counterparty/, '22')
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '1' } })
     expect(screen.queryByLabelText(/^Counterparty/)).toBeNull()
     fireEvent.click(add())
@@ -241,7 +248,7 @@ describe('an account that requires a counterparty, and the payee (D-80, D-81)', 
     const add = await fillIn('Add the expense')
     await waitFor(() => expect(within(screen.getByLabelText(/^Paid from/)).getAllByRole('option').length).toBeGreaterThan(3))
     fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '4' } })
-    fireEvent.change(screen.getByLabelText(/^Counterparty/), { target: { value: '22' } })
+    await choose(/^Counterparty/, '22')
     fireEvent.click(add())
     await waitFor(() => expect(field('Counterparty').textContent)
       .toContain('The counterparty 22 is not one of your counterparties.'))

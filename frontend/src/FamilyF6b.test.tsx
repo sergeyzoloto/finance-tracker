@@ -230,7 +230,7 @@ describe('the switcher right after accepting an invite (F6b)', () => {
   it('lists the family budget at once, with no placeholder', async () => {
     savePendingInvite(TOKEN)
     const joined: FamilyLedger = { ...home, memberId: 72 }
-    stubApi({
+    const calls = stubApi({
       'GET /api/family-ledgers': [{ status: 200, body: [] }, 'pending'],
       'POST /api/invites/lookup': { status: 200, body: { ...back, returning: false, correction: null, entriesAfterReturn: null } },
       'POST /api/invites/accept': { status: 200, body: joined },
@@ -239,6 +239,10 @@ describe('the switcher right after accepting an invite (F6b)', () => {
       'GET /api/family-ledgers/7/records?page=0&size=5': EMPTY_PAGE,
     })
     renderApp({ ...ON, name: 'Ben' }, '/invite')
+    // The page's own list has been answered (a user sees the switcher before they accept); a late answer would
+    // otherwise replace what accepting added.
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/family-ledgers')).toBe(true))
+    await screen.findByLabelText('Budget')
     fireEvent.click(await screen.findByRole('button', { name: 'Accept' }))
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7'))

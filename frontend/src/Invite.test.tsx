@@ -105,7 +105,7 @@ describe('the invite page', () => {
       .toEqual({ token: TOKEN, displayName: 'Carol', categoryIds: [13] })
     expect(pendingInvite()).toBeNull()
     // The switcher's list is loaded again, now with the budget.
-    expect(calls.filter((c) => c.url === '/api/family-ledgers')).toHaveLength(2)
+    await waitFor(() => expect(calls.filter((c) => c.url === '/api/family-ledgers')).toHaveLength(2))
     // The token went in request bodies only.
     expect(calls.filter((c) => c.url.includes(TOKEN))).toEqual([])
   })

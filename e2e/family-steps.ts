@@ -36,7 +36,7 @@ let lastJoin = 0
 /**
  * The invited account opens the link and accepts under its own name. Joins are at least 31 s apart: D-29 allows B 10
  * invite requests a minute, a join sends about 3 (4 in the dev build, whose StrictMode looks the invite up twice), and
- * a local run joins four times, F7 and F8 at both widths.
+ * a local run joins six times, F7, F8 and F8d at both widths.
  */
 export async function joinThroughTheLink({ page }: Session, link: string, budget: string, ledgerId: string, name: string,
   prefix: string) {
@@ -52,8 +52,8 @@ export async function joinThroughTheLink({ page }: Session, link: string, budget
   // family spec (the dev build's StrictMode may look the invite up twice): say so rather than fail at the next step.
   if (await tooMany.isVisible()) {
     throw new Error(`B's invite requests hit D-29's limit (429: 10 a minute, 50 an hour per user, counted in the api's `
-      + "memory). Locally, more than about four runs in an hour do; restart the dev stack's backend or wait. In "
-      + 'production one run sends about 6.')
+      + "memory). Locally, more than about two runs in an hour do (six joins a run since F8d); restart the dev stack's "
+      + 'backend or wait. In production one run sends about 9.')
   }
   await expect(join).toBeVisible()
   await expect(page.getByLabel('Your name in this budget')).toHaveValue(name)

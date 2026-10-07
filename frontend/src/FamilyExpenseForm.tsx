@@ -166,8 +166,8 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
             <label className="field wide check">
               <input type="checkbox" checked={refund} onChange={(e) => setRefund(e.target.checked)} />
               {' '}Refund <small className="hint">
-                An expense with a minus: money back from a shop, in the same category. It reduces the category and is
-                split by the same shares, each member getting their share back.
+                An expense with a minus: money back from a shop. It reduces what the family spent and is split by the
+                same shares, each member getting their share back.
               </small>
             </label>
           )}

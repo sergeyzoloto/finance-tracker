@@ -1,4 +1,4 @@
-import { deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, shot, test, today, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, shot, test, today, wholeNumber, type Session } from '../fixtures.ts'
 import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave, money, share } from '../family-steps.ts'
 
 // F8d's check with two accounts (D-79 to D-81), every record dated today, in euros, equal shares:
@@ -35,7 +35,7 @@ test('family F8d', async ({ as, family, target, watch }) => {
   await personalFamilyExpense(a, { amount: '40.00', payee: 'Corner shop', account: 'Current account' })
   await personalFamilyExpense(a, { amount: '6.00', payee: 'The bank', account: 'Cash' })
   await a.page.goto(`${budget}/expenses`)
-  await a.page.getByRole('row').filter({ hasText: '€40.00' }).getByRole('link', { name: 'Groceries' }).click()
+  await a.page.getByRole('row').filter({ hasText: wholeNumber('40.00') }).getByRole('link', { name: 'Groceries' }).click()
   await expect(a.page.getByRole('heading', { name: /^Groceries, / })).toBeVisible()
   await expect(fact(a.page, 'Payee')).toContainText('Corner shop')
   await expect(fact(a.page, 'Payee')).toContainText('Only you see it')
@@ -51,7 +51,7 @@ test('family F8d', async ({ as, family, target, watch }) => {
   await shot(b.page, 'f8d-05-record-for-b')
   // A's own payment entry has it as its payee.
   await a.page.goto('/entries')
-  await expect(a.page.getByRole('row').filter({ hasText: '€40.00' })).toContainText('Corner shop')
+  await expect(a.page.getByRole('row').filter({ hasText: wholeNumber('40.00') })).toContainText('Corner shop')
 
   // 3. A refund of €10.00: the same category, a minus, and each member getting their share back.
   await a.page.goto(`${budget}/expenses/new`)

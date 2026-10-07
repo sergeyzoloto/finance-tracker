@@ -217,6 +217,13 @@ export async function shot(page: Page, name: string) {
 }
 
 /**
+ * A number or an amount as a whole, to look for in rendered text (D-119): not the tail of 132.10 or 1,032.10, nor the
+ * head of 32.105. `toContainText('32.10')` is a substring search and finds all three; this does not.
+ */
+export const wholeNumber = (text: string): RegExp =>
+  new RegExp(`(?<![\\d.,])${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\d|[.,]\\d)`)
+
+/**
  * Today as the app and the server see it in these runs for an account with the browser in UTC (D-100: the date in the
  * account's zone, which the first load saves from the browser's): "2026-10-05".
  */

@@ -1,4 +1,4 @@
-import { deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, shot, test, today, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, shot, test, today, wholeNumber, type Session } from '../fixtures.ts'
 import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave, money, share } from '../family-steps.ts'
 
 // F8's check with two accounts (D-45 to D-47, D-49, D-87 to D-89), every record dated today:
@@ -48,11 +48,11 @@ test('family F8', async ({ as, family, target, watch }) => {
   await b.page.goto(roubles)
   await expect(fact(b.page, 'Amount')).toHaveText(money('3000', 'RUB'))
   await expect(fact(b.page, 'Paid from')).toHaveCount(0)
-  await expect(b.page.locator('main')).not.toContainText('32.10')
+  await expect(b.page.locator('main')).not.toContainText(wholeNumber('32.10'))
   await shot(b.page, 'f8-04-rouble-record-for-b')
   await b.page.goto(`${budget}/journal`)
   await expect(b.page.getByRole('heading', { name: 'Journal' })).toBeVisible()
-  await expect(b.page.locator('main')).not.toContainText('32.10')
+  await expect(b.page.locator('main')).not.toContainText(wholeNumber('32.10'))
 
   // 4. Balances per currency, and no total without a RUB rate.
   // The main currency first, then the others alphabetically.
@@ -69,7 +69,7 @@ test('family F8', async ({ as, family, target, watch }) => {
   await a.page.getByLabel('Rate', { exact: true }).fill('95,50')
   await a.page.getByLabel('Currency', { exact: true }).fill('RUB')
   await a.page.getByRole('button', { name: 'Save rate' }).click()
-  await expect(a.page.getByTestId('rate-RUB')).toContainText('95.5')
+  await expect(a.page.getByTestId('rate-RUB')).toContainText(wholeNumber('95.5'))
   await expect(a.page.getByTestId('rate-RUB')).toContainText('manual')
   await shot(a.page, 'f8-06-rates')
   await a.page.goto(`${budget}/balances`)

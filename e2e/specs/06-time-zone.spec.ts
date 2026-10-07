@@ -8,13 +8,22 @@ import { deleteAllMyData, expect, ledgerIdOf, test, todayIn, type Session } from
 //    offers: the budget starts that day, and the expense, dated that day, is accepted. In Los Angeles in the evening
 //    or at night that day is before UTC's, which is where an omitted start date used to be "tomorrow" (409, D-27).
 // It runs for Los Angeles and for a zone whose date differs from UTC's at this moment whatever the hour, so that it
-// tells the two apart at any time of day. Last of the specs: it leaves no zone behind (Delete all my data at its end).
+// tells the two apart at any time of day. The titles are fixed and the zone is picked when the test runs: a title that
+// held the zone would change with the hour, and Playwright finds a test in each of its processes (the runner's list,
+// the worker's run) by title, so a run that crossed 10:00 UTC between the two would lose its test ("Test not found in
+// the worker process"). Last of the specs: it leaves no zone behind (Delete all my data at its end).
 
 /** The zone besides Los Angeles whose date at this moment isn't UTC's: UTC+14 from 10:00 UTC, UTC-12 before. */
 const otherZone = () => (new Date().getUTCHours() >= 10 ? 'Pacific/Kiritimati' : 'Etc/GMT+12')
 
-for (const zone of ['America/Los_Angeles', otherZone()]) {
-  test(`time zone ${zone}`, async ({ as, family }) => {
+const cases: Array<[title: string, zone: () => string]> = [
+  ['Los Angeles', () => 'America/Los_Angeles'],
+  ["a zone whose date isn't UTC's", otherZone],
+]
+
+for (const [title, pick] of cases) {
+  test(`time zone: ${title}`, async ({ as, family }) => {
+    const zone = pick()
     const a = await as('A', { timezoneId: zone })
     // Delete all my data takes the zone with it; the app then loads /api/me again and, seeing none, saves the browser's.
     await deleteAllMyData(a)

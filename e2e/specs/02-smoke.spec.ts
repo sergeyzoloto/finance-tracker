@@ -1,5 +1,6 @@
 import {
-  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, shot, test, type Session, type Watch,
+  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, shot, test, wholeNumber, type Session,
+  type Watch,
 } from '../fixtures.ts'
 
 // The deploy checklists' smoke test, with account A: signed in, the switch as E2E_FAMILY says, an expense of the
@@ -40,7 +41,7 @@ async function anExpenseCreatedChangedAndDeleted({ page }: Session) {
   const row = page.getByRole('row').filter({ hasText: 'E2E smoke' })
   await expect(row).toHaveCount(1)
   await expect(row).toContainText('Groceries')
-  await expect(row).toContainText('€12.34')
+  await expect(row).toContainText(wholeNumber('12.34'))
   await shot(page, 'smoke-03-entries')
 
   await row.getByRole('link').click()
@@ -49,8 +50,8 @@ async function anExpenseCreatedChangedAndDeleted({ page }: Session) {
   await page.getByLabel('Amount', { exact: true }).fill('23.45')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page).toHaveURL(/\/entries$/)
-  await expect(row).toContainText('€23.45')
-  await expect(row).not.toContainText('€12.34')
+  await expect(row).toContainText(wholeNumber('23.45'))
+  await expect(row).not.toContainText(wholeNumber('12.34'))
 
   await row.getByRole('link').click()
   page.once('dialog', (dialog) => void dialog.accept())

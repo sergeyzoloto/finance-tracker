@@ -10,7 +10,8 @@ import { csrfToken, logIn } from './auth'
  * which every default date of the screens is. The screens never work out today from the browser's clock.
  */
 export interface Me {
-  name: string
+  /** The account's name; null for one registered with an email only (F8c-fix). Show `email` then. */
+  name?: string | null
   email?: string | null
   timeZone?: string | null
   today: string

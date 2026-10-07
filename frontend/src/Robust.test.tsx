@@ -107,6 +107,58 @@ describe('the guards', () => {
   })
 })
 
+// F8c-fix, choice 6: /api/me must have a date; a name is not needed. An account registered with its email only (no name,
+// no given or family name, no preferred_username in the token) gets "name": null from the api, which the backend's
+// UserTimeZoneApiTests.anAccountWithNoNameAtAllWorks sends and checks; this is that answer, exactly.
+describe('an account with an email and no name', () => {
+  const nameless = { name: null, email: 'new.user@example.com', timeZone: null, today: '2026-10-07', features: { familyLedgers: true } }
+
+  it('is an answer the app accepts, which needs only a date', () => {
+    expect(isMe(nameless)).toBe(true)
+    expect(isMe({ ...nameless, name: undefined, email: undefined })).toBe(true)
+    expect(isMe({ today: '2026-10-07' })).toBe(true)
+    expect(isMe({ today: '2026-10-07', features: null })).toBe(true)
+    // What a page can't be shown with is still refused: no date, a date that isn't one, fields of the wrong kind.
+    expect(isMe({ name: null, email: 'a@b.c' })).toBe(false)
+    expect(isMe({ ...nameless, today: '2026-10-7' })).toBe(false)
+    expect(isMe({ ...nameless, name: 3 })).toBe(false)
+    expect(isMe({ ...nameless, email: ['a@b.c'] })).toBe(false)
+    expect(isMe({ ...nameless, features: 'on' })).toBe(false)
+    expect(isMe(null)).toBe(false)
+    expect(isMe([])).toBe(false)
+  })
+
+  it('works in the app: its email in the header, and a family budget asks for a name instead of prefilling one', async () => {
+    stubApi({
+      'GET /api/settings': { status: 200, body: { baseCurrency: 'EUR', sharedAccountId: null, defaultShareRatio: '0.50' } },
+      'GET /api/accounts': { status: 200, body: [] },
+      'GET /api/categories': { status: 200, body: [] },
+      'GET /api/family-ledgers': { status: 200, body: [] },
+    })
+    render(<MemoryRouter initialEntries={['/family/new']}><App me={nameless as Me} /></MemoryRouter>)
+    expect(await screen.findByText('new.user@example.com', { selector: 'header span' })).toBeDefined()
+    const name = await screen.findByLabelText(/^Your name in this budget/)
+    expect(name).toHaveProperty('value', '')
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Home' } })
+    expect(screen.getByRole('button', { name: 'Create family budget' })).toHaveProperty('disabled', true)
+    fireEvent.change(name, { target: { value: 'Anna' } })
+    expect(screen.getByRole('button', { name: 'Create family budget' })).toHaveProperty('disabled', false)
+  })
+
+  it('works with no zone saved: the settings page says so, and the first load saves the browser’s', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`)
+      return url === '/api/settings/time-zone'
+        ? new Response(JSON.stringify({ timeZone: 'UTC', today: '2026-10-07' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : new Response(JSON.stringify({ status: 404 }), { status: 404, headers: { 'Content-Type': 'application/problem+json' } })
+    }))
+    render(<MemoryRouter initialEntries={['/settings']}><App me={nameless as Me} /></MemoryRouter>)
+    await waitFor(() => expect(calls).toContain('PUT /api/settings/time-zone'))
+    expect(await screen.findByText('UTC', { selector: 'strong' })).toBeDefined()
+  })
+})
+
 describe('a malformed balances answer', () => {
   const stale = { currency: 'EUR', members: [] }
 

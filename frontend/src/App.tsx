@@ -65,7 +65,7 @@ function Shell() {
           <NavLink to="/settings">Settings</NavLink>
         </nav>
         <Link className="button primary" to="/entries/new">New entry</Link>
-        <span>{me.name}</span>
+        <span>{me.name ?? me.email}</span>
         <button onClick={logOut}>Log out</button>
       </header>
       <main>

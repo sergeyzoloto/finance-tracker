@@ -13,10 +13,19 @@ const isString = (value: unknown) => typeof value === 'string'
 const isNumber = (value: unknown) => typeof value === 'number'
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
-/** `/api/me`: a name and today's date, which every default date is (D-101); the zone is optional. */
+const isOptionalString = (value: unknown) => value === undefined || value === null || isString(value)
+
+/**
+ * `/api/me`. The app can't run without one thing from it: `today`, a date as "2026-10-07", which every default date is
+ * (D-101). Everything else is optional, as the api sends it: `name` is null for an account registered with its email
+ * only (nothing in Keycloak but the email), `email` and `timeZone` are null or missing, `features` missing counts as
+ * all off. A field that is there must be what the code reading it expects, a string or null; so a proxy's page, a
+ * server of another version or a `today` that isn't a date is a notice, and a nameless account is not (F8c-fix).
+ */
 export function isMe(answer: unknown): answer is Me {
-  return isObject(answer) && isString(answer.name) && typeof answer.today === 'string' && ISO_DATE.test(answer.today)
-    && (answer.timeZone === undefined || answer.timeZone === null || isString(answer.timeZone))
+  return isObject(answer) && isString(answer.today) && ISO_DATE.test(answer.today as string)
+    && isOptionalString(answer.name) && isOptionalString(answer.email) && isOptionalString(answer.timeZone)
+    && (answer.features === undefined || answer.features === null || isObject(answer.features))
 }
 
 const isRate = (rate: unknown) => isObject(rate) && isString(rate.currency)

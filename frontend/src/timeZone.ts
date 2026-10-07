@@ -32,6 +32,26 @@ export function zoneMatches(zones: string[], typed: string, limit = 60): string[
   }).slice(0, limit)
 }
 
+/**
+ * Milliseconds from `now` to the next midnight in the zone (D-106), by the browser's clock: only a delay for a timer,
+ * never a date shown (those come from /api/me). A zone this browser doesn't know counts as UTC. On a day with a clock
+ * change the answer is an hour off, which the timer's re-arming after each answer absorbs.
+ */
+export function msUntilMidnight(zone: string, now: number): number {
+  const parts = (id: string) => new Intl.DateTimeFormat('en-GB', {
+    timeZone: id, hourCycle: 'h23', hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(now)
+  let found: Intl.DateTimeFormatPart[]
+  try {
+    found = parts(zone)
+  } catch {
+    found = parts('UTC')
+  }
+  const of = (type: string) => Number(found.find((p) => p.type === type)?.value ?? 0)
+  const sinceMidnight = ((of('hour') * 60 + of('minute')) * 60 + of('second')) * 1000 + (((now % 1000) + 1000) % 1000)
+  return 24 * 3600_000 - sinceMidnight
+}
+
 const DISMISSED = 'finance-tracker:zone-hint-dismissed'
 
 /** What the hint was dismissed for: "browser zone>saved zone", so that a changed situation shows it again. */

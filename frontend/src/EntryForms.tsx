@@ -31,7 +31,8 @@ interface Props {
    */
   families?: FamilyLedger[]
   /** Creates a family expense or income in the budget with the request; rejects with the server's answer. */
-  onSaveFamily?: (ledgerId: number, request: ReturnType<typeof familyRequest>, andNew: boolean) => Promise<void>
+  onSaveFamily?: (ledgerId: number, request: ReturnType<typeof familyRequest>, andNew: boolean,
+    newPayee?: string) => Promise<void>
   /**
    * Whether the family budget is switched on (D-25). Then the form no longer creates the old shared expense (H4, F6c):
    * "Split with family" stays only for an entry that is one already, which opens and saves as before (D-21).
@@ -114,8 +115,11 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
   /** Creates the family expense or income (C2) through the family budget's endpoint; the messages if it failed. */
   async function saveFamily(chosen: FamilyLedger, preview: SplitPreview, andNew: boolean): Promise<FieldErrors | undefined> {
     try {
+      const payee = form.payee.trim()
+      const known = payee === '' ? undefined : counterpartyNamed(ledger, payee)
       await onSaveFamily!(chosen.id, familyRequest(form, chosen, preview,
-        accountById(ledger, Number(form.accountId))?.defaultCurrency ?? null), andNew)
+        accountById(ledger, Number(form.accountId))?.defaultCurrency ?? null, known?.id ?? null), andNew,
+      payee !== '' && !known ? payee : undefined)
       return undefined
     } catch (e) {
       return familyServerErrors(e, preview, chosen.memberId)
@@ -256,8 +260,8 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
   const reason = families && families.length > 0 ? unavailable(families, form.currency, family?.ledger) : undefined
   return (
     <>
-      {!familyOn && <PayeeField {...props} />}
-      <AccountField {...props} field="accountId" label="Paid from" />
+      <PayeeField {...props} label={familyOn ? 'Payee (only you see it)' : 'Payee'} />
+      <AccountField {...props} field="accountId" label={familyOn && form.refund ? 'Received into' : 'Paid from'} />
       <AmountFields {...props} label={form.split ? 'Total paid' : 'Amount'} />
       {!familyOn && (
         <Field label="Category" errors={errors.categoryId}>
@@ -266,20 +270,16 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
         </Field>
       )}
       <div className="wide options">
-        {!familyOn && (
-          <>
-            <label className="check">
-              <input type="checkbox" checked={form.refund} onChange={(e) => set({ refund: e.target.checked })} />
-              Refund: the money came back
-            </label>
-            {oldSplit && (
-              <label className="check">
-                <input type="checkbox" role="switch" checked={form.split} disabled={!shared}
-                  onChange={(e) => set({ split: e.target.checked })} />
-                Split with family
-              </label>
-            )}
-          </>
+        <label className="check">
+          <input type="checkbox" checked={form.refund} onChange={(e) => set({ refund: e.target.checked })} />
+          Refund: the money came back
+        </label>
+        {!familyOn && oldSplit && (
+          <label className="check">
+            <input type="checkbox" role="switch" checked={form.split} disabled={!shared}
+              onChange={(e) => set({ split: e.target.checked })} />
+            Split with family
+          </label>
         )}
         {families && families.length > 0 && <FamilyOption {...props} families={families} reason={reason} />}
       </div>
@@ -305,9 +305,10 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
 }
 
 /**
- * The switch that makes a new expense a family expense, or a new income a family income (C2, F4d): the payee, a
- * refund or reversal and the old "Split with family" go while it is on. Disabled, with the reason beside it, while no
- * family budget keeps the entry's currency.
+ * The switch that makes a new expense a family expense, or a new income a family income (C2, F4d): the old "Split with
+ * family" goes while it is on, and so does an income's reversal; an expense's payee (D-81) and refund (D-79) stay,
+ * and become the family expense's. Disabled, with the reason beside it, while no family budget keeps the entry's
+ * currency.
  */
 function FamilyOption({ form, set, families, reason }: FieldsProps & { families: FamilyLedger[]; reason?: string }) {
   const familyOn = isFamilyRecord(form)
@@ -315,7 +316,10 @@ function FamilyOption({ form, set, families, reason }: FieldsProps & { families:
     <label className="check">
       <input type="checkbox" role="switch" checked={familyOn} disabled={!familyOn && reason !== undefined}
         onChange={(e) => set(e.target.checked
-          ? { familyId: String((familiesFor(families, form.currency)[0] ?? families[0]).id), refund: false, split: false, payee: '' }
+          ? {
+            familyId: String((familiesFor(families, form.currency)[0] ?? families[0]).id), split: false,
+            ...(form.tab === 'income' ? { refund: false, payee: '' } : {}),
+          }
           : { familyId: '' })} />
       {form.tab === 'income' ? 'Family income' : 'Family expense'}
     </label>

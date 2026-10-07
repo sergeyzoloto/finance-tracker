@@ -4,6 +4,7 @@ import { api, ApiError, formatDate, sentence, useApi, type Entry, type FamilyRec
 import { AccountSelect, Errors, Field } from './components'
 import { paymentAccounts } from './expenseForm'
 import { newPayingSide, sidePatch, type PayingSideForm } from './currency'
+import { CounterpartyFields } from './FamilyCounterparties'
 import { PayingSideFields } from './FamilyCurrency'
 import { RECORD_NOUNS } from './family'
 import { accountById, type Ledger } from './ledger'
@@ -16,17 +17,19 @@ const LATER = 'later'
 export interface PaymentPatch {
   date?: string; amount?: string; accountId?: number; later?: true; memo?: string | null
   currency?: string; accountCurrency?: string; accountAmount?: string
+  /** The counterparty of the account's line, when it requires one (D-80); the payee, or null to remove it (D-81). */
+  counterpartyId?: number; payeeId?: number | null
 }
 
 /** Where the server's objections to a payment go. */
-type Problems = Record<'date' | 'amount' | 'payment' | 'memo' | 'accountAmount' | 'other', string[]>
+type Problems = Record<'date' | 'amount' | 'payment' | 'memo' | 'accountAmount' | 'counterparty' | 'other', string[]>
 
 /**
  * The server's objections by field: a 400's fields, a 422's violationDetails by code, a 409's message on its own. A new
  * amount of a record split by amounts needs the new amounts, which only the record's page takes.
  */
 export function paymentProblems(failure: Error | undefined, noun = 'expense'): Problems {
-  const problems: Problems = { date: [], amount: [], payment: [], memo: [], accountAmount: [], other: [] }
+  const problems: Problems = { date: [], amount: [], payment: [], memo: [], accountAmount: [], counterparty: [], other: [] }
   if (!failure) return problems
   if (!(failure instanceof ApiError) || failure.status === 409) {
     problems.other.push(sentence(failure.message))
@@ -34,7 +37,7 @@ export function paymentProblems(failure: Error | undefined, noun = 'expense'): P
   }
   const fields: Record<string, keyof Problems> = {
     date: 'date', amount: 'amount', accountId: 'payment', later: 'payment', memo: 'memo', currency: 'amount',
-    accountAmount: 'accountAmount',
+    accountAmount: 'accountAmount', counterpartyId: 'counterparty', payeeId: 'counterparty',
   }
   for (const { field, message } of failure.errors) problems[fields[field] ?? 'other'].push(sentence(`${fields[field] ? '' : `${field} `}${message}`))
   for (const { code, message } of failure.violationDetails) {
@@ -42,7 +45,8 @@ export function paymentProblems(failure: Error | undefined, noun = 'expense'): P
       problems.amount.push(`This ${noun} is split by amounts: change its amount on the ${noun}’s page, with the new amounts.`)
     } else {
       const field: keyof Problems = code === 'AMOUNT' ? 'amount'
-        : code === 'PAYMENT' ? 'payment' : code === 'JOINED_AFTER' ? 'date' : code === 'ACCOUNT_AMOUNT' ? 'accountAmount' : 'other'
+        : code === 'PAYMENT' ? 'payment' : code === 'JOINED_AFTER' ? 'date' : code === 'ACCOUNT_AMOUNT' ? 'accountAmount'
+          : code === 'COUNTERPARTY' ? 'counterparty' : 'other'
       problems[field].push(sentence(message))
     }
   }
@@ -91,6 +95,10 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
   const [payment, setPayment] = useState(initialPayment)
   const [paying, setPaying] = useState<PayingSideForm>(newPayingSide)
   const [memo, setMemo] = useState(entry.memo ?? '')
+  const initialCounterparty = String(side.counterpartyId ?? '')
+  const initialPayee = String(entry.payeeId ?? '')
+  const [counterpartyId, setCounterpartyId] = useState(initialCounterparty)
+  const [payeeId, setPayeeId] = useState(initialPayee)
   const [failure, setFailure] = useState<Error>()
   const [busy, setBusy] = useState(false)
 
@@ -102,6 +110,7 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
   const accountChanged = payment !== initialPayment
   const chosen = payment !== LATER ? accountById(ledger, Number(payment)) : undefined
   const kept = !accountChanged ? side.currency : undefined
+  const needsCounterparty = chosen?.requiresCounterparty === true
   const paid = recordCurrency === undefined ? { patch: {} }
     : sidePatch({ account: chosen, currency: recordCurrency, side: paying, kept,
       moves: sideIsRecord && amountChanged, accountChanged })
@@ -111,16 +120,22 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
     ...(accountChanged ? (payment === LATER ? { later: true as const } : { accountId: Number(payment) }) : {}),
     ...('patch' in paid ? paid.patch : {}),
     ...(!settlement && memo.trim() !== (entry.memo ?? '') ? { memo: memo.trim() || null } : {}),
+    // The counterparty goes with an account that requires one, new or changed (D-80); the payee alone (D-81).
+    ...(needsCounterparty && counterpartyId !== '' && (accountChanged || counterpartyId !== initialCounterparty)
+      ? { counterpartyId: Number(counterpartyId) } : {}),
+    ...(!settlement && payeeId !== initialPayee ? { payeeId: payeeId === '' ? null : Number(payeeId) } : {}),
   }
   const changed = Object.keys(patch).length > 0
   const ready = changed && date !== '' && 'minor' in parsed && !busy && !('problem' in paid)
+    && (!needsCounterparty || counterpartyId !== '')
   // The accounts the backend takes, and the one it has, archived or not.
-  const choices = paymentAccounts(ledger.accounts)
+  const choices = paymentAccounts(ledger.accounts, type === 'EXPENSE')
   if (initialPayment !== LATER && account && !choices.includes(account)) choices.push(account)
   const problems = paymentProblems(failure, noun)
   const budget = <Link to={`/family/${family.ledgerId}`}>{family.ledgerName}</Link>
   const page = family.recordId === null ? null : `/family/${family.ledgerId}/expenses/${family.recordId}`
-  const accountLabel = type === 'INCOME' || (settlement && !out) ? 'Received into' : 'Paid from'
+  // Money in: an income's receipt, a settlement's receiver, and a refund (D-79), whose payment is the money coming back.
+  const accountLabel = type === 'INCOME' || (!out && (settlement || type === 'EXPENSE')) ? 'Received into' : 'Paid from'
 
   async function run(action: () => Promise<void>) {
     setBusy(true)
@@ -202,10 +217,17 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
           </Field>
           <Field label={accountLabel} errors={problems.payment}
             hint="“Specify later” keeps it under “Payments without a specified account”.">
-            <AccountSelect accounts={choices} value={payment} onChange={(value) => { setPayment(value); setPaying(newPayingSide()) }}>
+            <AccountSelect accounts={choices} value={payment}
+              onChange={(value) => { setPayment(value); setPaying(newPayingSide()); setCounterpartyId('') }}>
               <option value={LATER}>Specify later</option>
             </AccountSelect>
           </Field>
+          {!settlement && (
+            <CounterpartyFields account={chosen} counterparties={ledger.counterparties} counterpartyId={counterpartyId}
+              payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee
+              errors={problems.counterparty} />
+          )}
+          {settlement && <Errors messages={problems.counterparty} />}
           {chosen && recordCurrency && (
             <PayingSideFields account={chosen} recordCurrency={recordCurrency} side={paying} onChange={setPaying}
               way={out ? 'paid' : 'received'} kept={kept} keptAmount={kept ? sideAmount : undefined}

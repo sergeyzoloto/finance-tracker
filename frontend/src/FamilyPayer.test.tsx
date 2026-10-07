@@ -136,11 +136,12 @@ describe('a new expense marked as family (C2)', () => {
     fireEvent.click(await screen.findByRole('switch', { name: 'Family expense' }))
 
     fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
-    // One family budget: no selector (D-5); no payee, refund or personal category; the memo is the private note.
+    // One family budget: no selector (D-5) and no personal category; the payee (D-81) and the refund (D-79) stay, as
+    // the entry's own; the memo is the private note.
     expect(screen.queryByLabelText(/^Family budget/)).toBeNull()
-    expect(screen.queryByLabelText(/^Payee/)).toBeNull()
+    expect(screen.queryByLabelText(/^Payee \(only you see it\)/)).not.toBeNull()
     expect(screen.queryByLabelText(/^Category/)).toBeNull()
-    expect(screen.queryByText('Refund: the money came back')).toBeNull()
+    expect(screen.queryByText('Refund: the money came back')).not.toBeNull()
     expect(await screen.findByText('Split', { selector: 'legend' })).toBeDefined()
     // Only accounts of the user's own money or credit pay it.
     const paidFrom = screen.getByLabelText(/^Paid from/)
@@ -161,6 +162,48 @@ describe('a new expense marked as family (C2)', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/entries'))
     // Not an ordinary expense: nothing went to /api/entries.
     expect(calls.some((c) => c.method === 'POST' && c.url === '/api/entries')).toBe(false)
+  })
+
+  it('keeps the entry’s payee and refund for the family expense, creating a payee typed for the first time', async () => {
+    const calls = ledger([home], {
+      'POST /api/counterparties': { status: 201, body: { id: 99, name: 'The new shop', kind: null, archived: false, lastCategoryId: null } },
+      'POST /api/family-ledgers/7/records': { status: 201, body: { ...record, id: 6 } },
+    })
+    renderApp('/entries/new')
+    fireEvent.click(await screen.findByRole('switch', { name: 'Family expense' }))
+    fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
+    fireEvent.click(screen.getByLabelText('Refund: the money came back'))
+    expect(screen.getByLabelText(/^Received into/)).toBeDefined()
+    fireEvent.change(screen.getByLabelText(/^Received into/), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '12,50' } })
+    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: 'Albert Heijn' } })
+    expect(await screen.findByTestId('share-71')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/records'))).toBe(true))
+    // A payee the user has: its id; the refund's amount is what came back, above 0.
+    expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/records'))!.body).toMatchObject({
+      type: 'EXPENSE', amount: '12.50', refund: true, payeeId: 21, paymentAccountId: 1,
+    })
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/entries'))
+    cleanup()
+
+    // A payee typed for the first time is created first, as for any entry.
+    const again = ledger([home], {
+      'POST /api/counterparties': { status: 201, body: { id: 99, name: 'The new shop', kind: null, archived: false, lastCategoryId: null } },
+      'POST /api/family-ledgers/7/records': { status: 201, body: { ...record, id: 6 } },
+    })
+    renderApp('/entries/new')
+    fireEvent.click(await screen.findByRole('switch', { name: 'Family expense' }))
+    fireEvent.change(await screen.findByLabelText(/^Family category/), { target: { value: '30' } })
+    fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: 'The new shop' } })
+    expect(await screen.findByTestId('share-71')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(again.some((c) => c.method === 'POST' && c.url.endsWith('/records'))).toBe(true))
+    expect(again.filter((c) => c.method === 'POST').map((c) => c.url)).toEqual(['/api/counterparties', '/api/family-ledgers/7/records'])
+    expect(again.find((c) => c.url.endsWith('/records') && c.method === 'POST')!.body).toMatchObject({ payeeId: 99 })
+    expect((again.find((c) => c.url.endsWith('/records') && c.method === 'POST')!.body as Record<string, unknown>).refund).toBeUndefined()
   })
 
   it('offers a choice of family budget only with more than one', async () => {
@@ -254,6 +297,41 @@ describe('the payer’s own payment entry', () => {
     fireEvent.change(paidFrom, { target: { value: '1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ accountId: 1 }))
+  })
+
+  it('changes the payee and, for an account kept per counterparty, its counterparty (D-80, D-81)', async () => {
+    const credit = { ...payment, payeeId: 21, postings: [{ ...payment.postings[0], accountId: 4, counterpartyId: 22 }, payment.postings[1]] }
+    const calls = ledger([home], {
+      'GET /api/entries/91': { status: 200, body: credit },
+      'GET /api/family-ledgers/7/records/5': { status: 200, body: record },
+      'PATCH /api/entries/91/family-payment?version=2': { status: 200, body: { ...credit, version: 3 } },
+    })
+    renderApp('/entries/91')
+    await screen.findByText('Groceries, €10.01, shared by Anna, Sam.')
+    // The account's counterparty is required, and both are the user's own.
+    await waitFor(() => expect(screen.getByLabelText(/^Counterparty/)).toHaveProperty('value', '22'))
+    expect(screen.getByLabelText(/^Payee/)).toHaveProperty('value', '21')
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toHaveProperty('disabled', true)
+    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(/^Counterparty/), { target: { value: '23' } })
+    fireEvent.click(save)
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ counterpartyId: 23, payeeId: null }))
+    cleanup()
+
+    // To an account that takes none: no counterparty is sent, and "Specify later" is still possible.
+    const to = ledger([home], {
+      'GET /api/entries/91': { status: 200, body: credit },
+      'GET /api/family-ledgers/7/records/5': { status: 200, body: record },
+      'PATCH /api/entries/91/family-payment?version=2': { status: 200, body: { ...credit, version: 3 } },
+    })
+    renderApp('/entries/91')
+    await screen.findByText('Groceries, €10.01, shared by Anna, Sam.')
+    await waitFor(() => expect(screen.getByLabelText(/^Counterparty/)).toHaveProperty('value', '22'))
+    fireEvent.change(screen.getByLabelText(/^Paid from/), { target: { value: '1' } })
+    expect(screen.queryByLabelText(/^Counterparty/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(to.find((c) => c.method === 'PATCH')?.body).toEqual({ accountId: 1 }))
   })
 
   it('says where the amount of an expense split by amounts changes', async () => {

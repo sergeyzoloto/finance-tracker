@@ -229,11 +229,14 @@ export function formFromRecord(record: FamilyRecord, members: FamilyMember[]): S
 
 /**
  * The accounts a payer may name for paying a family expense, as the backend accepts them: their own assets and
- * liabilities, never a system account (a family budget's debt account is one), nor one kept per counterparty, nor an
- * archived one.
+ * liabilities, never a system account (a family budget's debt account is one), nor an archived one, and one kept per
+ * counterparty (a loan, a debt to a creditor) only for an expense, where its payment names the counterparty (D-80).
+ *
+ * @param withCounterparty whether accounts that require a counterparty are offered: an expense's payer's, not an
+ *        income's receiver's nor a settlement's side
  */
-export const paymentAccounts = (accounts: Account[]) => accounts.filter((a) => (a.type === 'ASSET' || a.type === 'LIABILITY')
-  && !a.system && !a.requiresCounterparty && !a.archived)
+export const paymentAccounts = (accounts: Account[], withCounterparty = false) => accounts.filter((a) =>
+  (a.type === 'ASSET' || a.type === 'LIABILITY') && !a.system && (withCounterparty || !a.requiresCounterparty) && !a.archived)
 
 /** Where the server's objections to an expense, an income or a settlement go on the form. */
 export interface ExpenseProblems {
@@ -244,6 +247,8 @@ export interface ExpenseProblems {
   /** A settlement's receiver. */
   payee: string[]
   payment: string[]
+  /** The counterparty of an account that requires one, and the payer's payee (D-80, D-81). */
+  counterparty: string[]
   comment: string[]
   split: string[]
   /** The original currency (F4e). */
@@ -261,11 +266,11 @@ export interface ExpenseProblems {
 const FIELDS: Record<string, keyof Omit<ExpenseProblems, 'byMember' | 'other'>> = {
   date: 'date', categoryId: 'category', amount: 'amount', payerMemberId: 'payer', payeeMemberId: 'payee',
   paymentAccountId: 'payment', paymentLater: 'payment', comment: 'comment', currency: 'currency',
-  baseAmount: 'baseAmount', accountAmount: 'accountAmount',
+  baseAmount: 'baseAmount', accountAmount: 'accountAmount', paymentCounterpartyId: 'counterparty', payeeId: 'counterparty',
 }
 const CODES: Record<string, keyof Omit<ExpenseProblems, 'byMember' | 'other'>> = {
-  CATEGORY: 'category', AMOUNT: 'amount', PAYER: 'payer', PAYEE: 'payee', PAYMENT: 'payment',
-  RATE_MISSING: 'baseAmount', BASE_AMOUNT: 'baseAmount', ACCOUNT_AMOUNT: 'accountAmount',
+  CATEGORY: 'category', AMOUNT: 'amount', PAYER: 'payer', PAYEE: 'payee', PAYMENT: 'payment', COUNTERPARTY: 'counterparty',
+  REFUND: 'amount', RATE_MISSING: 'baseAmount', BASE_AMOUNT: 'baseAmount', ACCOUNT_AMOUNT: 'accountAmount',
 }
 
 /**
@@ -277,8 +282,8 @@ const CODES: Record<string, keyof Omit<ExpenseProblems, 'byMember' | 'other'>> =
 export function expenseProblems(failure: Error | undefined, splitMemberIds: number[], payerId: number | null,
   conflict: 'date' | 'other' = 'other', payeeId: number | null = null): ExpenseProblems {
   const problems: ExpenseProblems = {
-    date: [], category: [], amount: [], payer: [], payee: [], payment: [], comment: [], split: [], currency: [], baseAmount: [],
-    accountAmount: [], byMember: new Map(), other: [],
+    date: [], category: [], amount: [], payer: [], payee: [], payment: [], counterparty: [], comment: [], split: [],
+    currency: [], baseAmount: [], accountAmount: [], byMember: new Map(), other: [],
   }
   if (!failure) return problems
   const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1) + (/[.!?]$/.test(text) ? '' : '.')

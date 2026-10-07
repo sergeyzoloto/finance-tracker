@@ -413,15 +413,14 @@ describe('the date turning over (D-106)', () => {
     expect(gets(calls, '/api/me')).toHaveLength(0)
   })
 
-  it('asks once at the next midnight of the saved zone, then again at the one after', async () => {
+  it('asks once at the next midnight of the saved zone while the tab is shown, then again at the one after', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     at('2026-10-07T20:00:00Z')
     const calls = stubApi({ 'GET /api/me': [meAt('2026-10-08'), meAt('2026-10-09')] })
     renderApp(me())
     expect(screen.getByText('Wednesday, October 7, 2026')).toBeDefined()
 
-    // 22:00 UTC is midnight in Amsterdam: nothing before it, the request just after, though the tab is hidden.
-    setVisibility('hidden')
+    // 22:00 UTC is midnight in Amsterdam: nothing before it, the request just after.
     await advance(2 * hour - 1000)
     expect(gets(calls, '/api/me')).toHaveLength(0)
     await advance(3000)
@@ -434,6 +433,46 @@ describe('the date turning over (D-106)', () => {
     await advance(hour + 1000)
     expect(gets(calls, '/api/me')).toHaveLength(2)
     expect(screen.getByText('Friday, October 9, 2026')).toBeDefined()
+  })
+
+  it('sends nothing at midnight while the tab is hidden, and asks once when it is shown (D-107)', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    at('2026-10-07T20:00:00Z')
+    const calls = stubApi({ 'GET /api/me': meAt('2026-10-09') })
+    renderApp(me())
+    setVisibility('hidden')
+    // Two midnights of Amsterdam pass, 22:00 UTC on the 7th and on the 8th, with nobody looking: no request, so a
+    // session that expired meanwhile can't send the tab to the login.
+    await advance(2 * hour + 3000)
+    await advance(24 * hour)
+    await advance(24 * hour)
+    expect(gets(calls, '/api/me')).toHaveLength(0)
+    expect(screen.getByText('Wednesday, October 7, 2026')).toBeDefined()
+    // Shown again: one request, though the last answer is the page's own load a moment ago in the clock of this
+    // test's first minute (the missed midnight is reason enough).
+    setVisibility('visible')
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await settle() })
+    expect(gets(calls, '/api/me')).toHaveLength(1)
+    expect(screen.getByText('Friday, October 9, 2026')).toBeDefined()
+    // And not again for a second visibility event the same minute.
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await settle() })
+    expect(gets(calls, '/api/me')).toHaveLength(1)
+  })
+
+  it('asks at once on showing a tab that missed a midnight a few seconds after its last answer (D-107)', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    // Midnight in Amsterdam is 22:00 UTC; the tab's last answer is 21:59:30, so less than a minute old at midnight.
+    at('2026-10-07T21:59:30Z')
+    const calls = stubApi({ 'GET /api/me': meAt('2026-10-08') })
+    renderApp(me())
+    setVisibility('hidden')
+    await advance(2 * 60_000)
+    expect(gets(calls, '/api/me')).toHaveLength(0)
+    setVisibility('visible')
+    at('2026-10-07T22:00:20Z')
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await settle() })
+    expect(gets(calls, '/api/me')).toHaveLength(1)
+    expect(screen.getByText('Thursday, October 8, 2026')).toBeDefined()
   })
 
   it('is armed again after an answer that failed, and for a zone saved later', async () => {

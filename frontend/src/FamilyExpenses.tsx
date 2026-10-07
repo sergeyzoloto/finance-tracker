@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
-  api, ApiError, formatDate, formatInstant, useApi, type Account, type Category, type FamilyJournalPage,
+  api, ApiError, formatDate, formatInstant, useApi, type Account, type Category, type Counterparty, type FamilyJournalPage,
   type FamilyRecord, type FamilyRecordPage, type YourPayment,
 } from './api'
 import { basisPointsToPercent } from './basisPoints'
@@ -11,9 +11,10 @@ import {
   type SplitContext, type SplitForm,
 } from './expenseForm'
 import { newPayingSide, recordAmount, sidePatch, type PayingSideForm } from './currency'
+import { CounterpartyFields } from './FamilyCounterparties'
 import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCurrency'
 import { OpeningBalanceNote } from './FamilyExpenseForm'
-import { RECORD_NOUNS, recordTitle, recordWho, settlementSentence } from './family'
+import { RECORD_NOUNS, recordTitle, recordWho, settlementSentence, shownAmount } from './family'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { isRecordPage } from './guards'
 import { JournalList } from './FamilyJournal'
@@ -54,7 +55,7 @@ export function RecordTable({ records, family }: { records: FamilyRecord[]; fami
               <td className="amount nowrap">
                 {recordAmount(r)}
                 {r.type !== 'SETTLEMENT' && (
-                  <div className="small muted">Yours {yours ? formatMoney(yours.amount, r.currency) : '—'}</div>
+                  <div className="small muted">Yours {yours ? formatMoney(shownAmount(r, yours.amount), r.currency) : '—'}</div>
                 )}
               </td>
             </tr>
@@ -125,6 +126,9 @@ export function RecordDetail({ family }: { family: FamilyData }) {
   const record = useFamilyApi<FamilyRecord>(family, valid ? `${family.path}/records/${recordId}` : null)
   const journal = useApi<FamilyJournalPage>(valid ? `${family.path}/journal?recordId=${recordId}&size=200` : null)
   const [saved, setSaved] = useState(false)
+  // The reader's own counterparty and payee, named on their record page by their own list (D-80, D-81).
+  const own = record.data?.yourPayment
+  const counterparties = useApi<Counterparty[]>(own?.counterpartyId !== undefined || own?.payeeId !== undefined ? '/counterparties' : null)
   const change = useFamilyMutation(family, () => { record.reload(); journal.reload() })
   // Deleting leaves the page; nothing is loaded again after it.
   const removal = useFamilyMutation(family)
@@ -189,6 +193,7 @@ export function RecordDetail({ family }: { family: FamilyData }) {
       <div className="page-title">
         <h3>{settlement ? 'Settlement' : r.category?.name}, {formatDate(r.date)}</h3>
         {r.type === 'INCOME' && <span className="badge">Income</span>}
+        {r.refund && <span className="badge">Refund</span>}
         {r.frozen && <span className="badge">Frozen</span>}
       </div>
       {r.frozen && (
@@ -202,12 +207,12 @@ export function RecordDetail({ family }: { family: FamilyData }) {
         <dd>
           {recordAmount(r)}
         </dd>
-        <dt>{r.type === 'INCOME' ? 'Received by' : 'Paid by'}</dt>
+        <dt>{r.type === 'INCOME' || r.refund ? 'Received by' : 'Paid by'}</dt>
         <dd>{r.payer.memberId === me ? `${r.payer.displayName} (you)` : r.payer.displayName}</dd>
         {r.payee && <><dt>Received by</dt><dd>{r.payee.memberId === me ? `${r.payee.displayName} (you)` : r.payee.displayName}</dd></>}
         {r.yourPayment && (
-          <YourSide payment={r.yourPayment} currency={r.currency}
-            label={settlement ? sideLabel(r.payer.memberId === me) : r.type === 'INCOME' ? 'Received into' : 'Paid from'} />
+          <YourSide payment={r.yourPayment} currency={r.currency} counterparties={counterparties.data}
+            label={settlement ? sideLabel(r.payer.memberId === me) : r.type === 'INCOME' || r.refund ? 'Received into' : 'Paid from'} />
         )}
         <dt>Comment</dt><dd>{r.comment ?? <span className="muted">None</span>}</dd>
         <dt>{settlement ? 'Recorded' : 'Added'}</dt><dd>by {r.author.displayName}, {formatInstant(r.createdAt)}</dd>
@@ -227,14 +232,14 @@ export function RecordDetail({ family }: { family: FamilyData }) {
                     {s.member.memberId === me && <span className="badge">You</span>}
                     <small className="muted block">changed by {s.updatedBy.displayName}, {formatInstant(s.updatedAt)}</small>
                   </th>
-                  <td className="amount nowrap">{formatMoney(s.amount, r.currency)}</td>
+                  <td className="amount nowrap">{formatMoney(shownAmount(r, s.amount), r.currency)}</td>
                   <td className="amount nowrap">
                     {basisPointsToPercent(s.basisPoints ?? basisPointsOf(toMinor(s.amount, r.currency) ?? 0n, amount))} %
                   </td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><th scope="row">Total</th><td className="amount nowrap">{formatMoney(r.amount, r.currency)}</td><td /></tr></tfoot>
+            <tfoot><tr><th scope="row">Total</th><td className="amount nowrap">{recordAmount(r)}</td><td /></tr></tfoot>
           </table>
         </>
       )}
@@ -291,18 +296,26 @@ export function RecordDetail({ family }: { family: FamilyData }) {
  * The account of the reader's own side, for their eyes only: the other members never see it (D-16). The record's
  * answer carries it for them alone (`yourPayment`), with their entry in their own ledger.
  */
-function YourSide({ payment, label, currency }: { payment: YourPayment; label: string; currency: string }) {
+function YourSide({ payment, label, currency, counterparties }: {
+  payment: YourPayment; label: string; currency: string; counterparties: Counterparty[] | undefined
+}) {
+  const named = (id: number | undefined) => id === undefined ? undefined
+    : counterparties?.find((c) => c.id === id)?.name ?? 'a counterparty of yours'
+  const counterparty = named(payment.counterpartyId)
+  const payee = named(payment.payeeId)
   return (
     <>
       <dt>{label}</dt>
       <dd>
         <Link to={`/entries/${payment.entryId}`}>{payment.later ? 'Specify later' : payment.accountName}</Link>
         {payment.currency && payment.currency !== currency && <>, {formatMoney(payment.amount, payment.currency)}</>}
+        {counterparty && <>, with {counterparty}</>}
         <small className="muted block">
           {payment.later ? 'Kept under “Payments without a specified account” until you choose the account. ' : ''}
           Only you see which account it is.
         </small>
       </dd>
+      {payee && <><dt>Payee</dt><dd>{payee}<small className="muted block">Only you see it.</small></dd></>}
     </>
   )
 }
@@ -312,6 +325,8 @@ type RecordPatch = {
   categoryId?: number; comment?: string | null; split?: unknown
   date?: string; amount?: string; payerMemberId?: number; paymentAccountId?: number; paymentLater?: true
   currency?: string; accountCurrency?: string; accountAmount?: string
+  /** The counterparty of the account's line, when it requires one (D-80); the payee, or null to remove it (D-81). */
+  paymentCounterpartyId?: number; payeeId?: number | null
 }
 
 interface EditProps {
@@ -341,9 +356,12 @@ function accountPatch(payment: string, initial: string): RecordPatch {
 function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const categories = useApi<Category[]>(record.canEdit ? `${family.path}/categories` : null)
   const accounts = useApi<Account[]>(record.canEditPayment ? '/accounts' : null)
+  const counterparties = useApi<Counterparty[]>(record.canEditPayment ? '/counterparties' : null)
   const { ledger, members } = family
   const me = ledger.memberId
   const income = record.type === 'INCOME'
+  // Money in, as an income's is: a refund's payer received it (D-79).
+  const receiving = income || record.refund === true
   const noun = RECORD_NOUNS[record.type]
   const type = income ? 'INCOME' : 'EXPENSE'
   const initial = formFromRecord(record, members)
@@ -355,6 +373,10 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const [payer, setPayer] = useState(String(record.payer.memberId))
   const [payment, setPayment] = useState(initialPayment)
   const [side, setSide] = useState<PayingSideForm>(newPayingSide)
+  const initialCounterparty = String(record.yourPayment?.counterpartyId ?? '')
+  const initialPayee = String(record.yourPayment?.payeeId ?? '')
+  const [counterpartyId, setCounterpartyId] = useState(initialCounterparty)
+  const [payeeId, setPayeeId] = useState(initialPayee)
   const [categoryId, setCategoryId] = useState(initialCategory)
   const [split, setSplit] = useState<SplitForm>(initial)
   const [comment, setComment] = useState(record.comment ?? '')
@@ -366,9 +388,12 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   // A claimed seat's own record dated before the claim's date is in their opening balance: no account (D-32, D-35).
   const reader = members.find((m) => m.id === me)
   const opening = payerIsMe && inOpeningBalance(reader, date)
-  const choices = paymentAccounts(accounts.data ?? [])
+  const choices = paymentAccounts(accounts.data ?? [], !income)
   const account = payerIsMe && !opening && payment !== LATER ? choices.find((a) => String(a.id) === payment) : undefined
   const accountChanged = payerChanged || payment !== initialPayment
+  const needsCounterparty = account?.requiresCounterparty === true
+  const counterpartyChanged = counterpartyId !== initialCounterparty
+  const ownSide = payerIsMe && !opening && !payerChanged
   // The side's paying currency while it stays on the same account (D-89).
   const kept = !accountChanged ? record.yourPayment?.currency : undefined
   const currencyValid = /^[A-Z]{3}$/.test(currency)
@@ -393,6 +418,11 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
     ...(payerChanged ? { payerMemberId: payerId } : {}),
     ...(payerIsMe && !opening ? accountPatch(payment, payerChanged ? '' : initialPayment) : {}),
     ...('patch' in paid ? paid.patch : {}),
+    // The counterparty goes with an account that requires one, new or changed (D-80); the payee alone (D-81).
+    ...(needsCounterparty && (accountChanged || counterpartyChanged || payerChanged) && counterpartyId !== ''
+      ? { paymentCounterpartyId: Number(counterpartyId) } : {}),
+    ...(payerIsMe && !opening && (payeeId !== initialPayee || payerChanged && payeeId !== '')
+      ? { payeeId: payeeId === '' ? null : Number(payeeId) } : {}),
     ...(categoryId !== initialCategory ? { categoryId: Number(categoryId) } : {}),
     ...(comment.trim() !== (record.comment ?? '') ? { comment: comment.trim() || null } : {}),
     ...(splitChanged ? { split: request } : {}),
@@ -402,7 +432,7 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${noun} can’t be earlier.` : undefined
   const splitProblems = splitChanged || needsAmounts || split.mode === 'KEEP' ? preview.problems : []
   const ready = changed && !dateProblem && amount !== undefined && currencyValid && (!payerIsMe || opening || payment !== '')
-    && !('problem' in paid) && splitProblems.length === 0 && !needsAmounts
+    && (!needsCounterparty || counterpartyId !== '') && !('problem' in paid) && splitProblems.length === 0 && !needsAmounts
   const followsSplit = !splitChanged && (amountChanged || date !== record.date || payerChanged)
 
   function submit(event: FormEvent) {
@@ -413,6 +443,7 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   function undo() {
     setDate(record.date); setAmountText(record.amount); setCurrency(record.currency); setSide(newPayingSide())
     setPayer(String(record.payer.memberId)); setPayment(initialPayment)
+    setCounterpartyId(initialCounterparty); setPayeeId(initialPayee)
     setCategoryId(initialCategory); setSplit(initial); setComment(record.comment ?? '')
   }
 
@@ -437,23 +468,29 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
             <CurrencyField value={currency} errors={problems.currency}
               suggestions={currencySuggestions(ledger.baseCurrency, choices.map((a) => a.defaultCurrency))}
               onChange={setCurrency} />
-            <Field label={income ? 'Received by' : 'Paid by'} errors={problems.payer}>
+            <Field label={receiving ? 'Received by' : 'Paid by'} errors={problems.payer}>
               <select value={payer} onChange={(e) => setPayer(e.target.value)}>
                 {payers.map((m) => <option key={m.id} value={m.id}>{m.id === me ? `${m.displayName} (you)` : m.displayName}</option>)}
               </select>
             </Field>
             {opening && reader && <OpeningBalanceNote joinDate={reader.joinDate} noun={noun} />}
             {payerIsMe && !opening && (
-              <Field label={income ? 'Received into' : 'Paid from'} errors={problems.payment}
-                hint={`Only you see it. “Specify later” keeps ${income ? 'it' : 'the payment'} under “Payments without a specified account”.`}>
-                <AccountSelect accounts={choices} value={payment} onChange={(value) => { setPayment(value); setSide(newPayingSide()) }}>
+              <Field label={receiving ? 'Received into' : 'Paid from'} errors={problems.payment}
+                hint={`Only you see it. “Specify later” keeps ${receiving ? 'it' : 'the payment'} under “Payments without a specified account”.`}>
+                <AccountSelect accounts={choices} value={payment}
+                  onChange={(value) => { setPayment(value); setSide(newPayingSide()); setCounterpartyId('') }}>
                   <option value={LATER}>Specify later</option>
                 </AccountSelect>
               </Field>
             )}
+            {payerIsMe && !opening && (record.yourPayment || ownSide || payerChanged) && (
+              <CounterpartyFields account={account} counterparties={counterparties.data} counterpartyId={counterpartyId}
+                payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee
+                errors={problems.counterparty} />
+            )}
             {account && (
               <PayingSideFields account={account} recordCurrency={currency} side={side} onChange={setSide}
-                way={income ? 'received' : 'paid'} kept={kept}
+                way={receiving ? 'received' : 'paid'} kept={kept}
                 keptAmount={kept ? record.yourPayment?.amount : undefined}
                 suggestions={choices.map((a) => a.defaultCurrency).filter((c): c is string => c !== null)}
                 errors={{ currency: [], amount: [...('problem' in paid && (side.amountText !== '' || amountChanged || accountChanged) ? [paid.problem] : []), ...problems.accountAmount] }} />

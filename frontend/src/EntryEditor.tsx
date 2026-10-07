@@ -74,8 +74,11 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
   }
 
   /** A family expense or income (C2), created through the family budget's endpoint as the family pages create one. */
-  async function saveFamily(ledgerId: number, request: object, andNew: boolean) {
-    await api(`/family-ledgers/${ledgerId}/records`, 'POST', request)
+  async function saveFamily(ledgerId: number, request: object, andNew: boolean, newPayee?: string) {
+    // A payee typed for the first time becomes a counterparty first, as for any entry (D-81).
+    const payee = newPayee === undefined ? undefined : await api<Counterparty>('/counterparties', 'POST', { name: newPayee })
+    if (payee) reloadCounterparties()
+    await api(`/family-ledgers/${ledgerId}/records`, 'POST', payee ? { ...request, payeeId: payee.id } : request)
     if (!andNew) navigate(back)
   }
 

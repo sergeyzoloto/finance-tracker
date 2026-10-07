@@ -127,11 +127,12 @@ describe('adding an expense', () => {
     // The family's expense categories that aren't archived.
     expect(within(screen.getByLabelText('Category')).getAllByRole('option').map((o) => o.textContent))
       .toEqual(['Choose a category', 'Groceries', 'Rent'])
-    // The accounts the backend takes for a payment: never a system account, one kept per counterparty, an equity or
-    // an archived one.
+    // The accounts the backend takes for a payment: never a system account, an equity or an archived one; those kept
+    // per counterparty too, for an expense (D-80), which then names the counterparty.
     const paidFrom = screen.getByLabelText(/^Paid from/)
     await waitFor(() => expect(within(paidFrom).getAllByRole('option').map((o) => o.textContent))
-      .toEqual(['Choose an account', 'Cash', 'ING', 'Wise', 'Family budget', 'Specify later']))
+      .toEqual(['Choose an account', 'Cash', 'ING', 'Loans given', 'Wise', 'Debts to creditors', 'Family budget',
+        'Specify later']))
     expect(field('Paid from').textContent).toContain('“Specify later” keeps the payment under “Payments without a specified account”')
     expect(save()).toHaveProperty('disabled', true)
 
@@ -162,7 +163,7 @@ describe('adding an expense', () => {
     renderApp('/family/7/expenses/new')
     await fillIn()
     const paidFrom = screen.getByLabelText(/^Paid from/)
-    await waitFor(() => expect(within(paidFrom).getAllByRole('option')).toHaveLength(6))
+    await waitFor(() => expect(within(paidFrom).getAllByRole('option')).toHaveLength(8))
     fireEvent.change(paidFrom, { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText(/^Comment/), { target: { value: ' Weekly shop ' } })
     fireEvent.click(save())

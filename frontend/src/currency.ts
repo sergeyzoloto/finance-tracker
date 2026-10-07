@@ -1,7 +1,7 @@
 import Big from 'big.js'
 import { formatDate, type Account, type DisplayRate } from './api'
 import { fromMinor, parseMinor } from './minorUnits'
-import { formatMoney } from './money'
+import { formatMoney, negate } from './money'
 
 // Currencies in a family budget without React (F8b; D-45, D-47, D-49, D-87, D-88, D-89). A record keeps its own
 // currency, and no rate ever touches it: the paying side names what went from or into the account when it was paid in
@@ -71,8 +71,12 @@ export function sidePatch(args: {
   return 'problem' in request ? request : { patch: request.request }
 }
 
-/** A record's amount in its own currency, as the lists show it: "$56.00". */
-export const recordAmount = (r: { amount: string; currency: string }) => formatMoney(r.amount, r.currency)
+/**
+ * A record's amount in its own currency, as the lists show it: "$56.00", and "−$12.00" for a refund (D-79), whose
+ * amount the api gives as what was refunded.
+ */
+export const recordAmount = (r: { amount: string; currency: string; refund?: boolean }) =>
+  formatMoney(r.refund ? negate(r.amount) : r.amount, r.currency)
 
 /** A rate's source in words: the ECB's, or the reader's own, "manual". */
 export const sourceWord = (rate: Pick<DisplayRate, 'source'>) => (rate.source === 'MANUAL' ? 'manual' : 'ECB')

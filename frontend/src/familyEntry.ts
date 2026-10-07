@@ -56,16 +56,21 @@ export function familyProblems(form: EntryForm, family: FamilyLedger, preview: S
  * The request of POST /api/family-ledgers/{id}/records, as the family pages send it (C1, C5): the user paid an expense
  * from the entry's account, or received an income into it, in the entry's currency, which is the record's (D-45) and
  * the paying currency (D-89), whatever the account's default (`accountDefault`); the memo is their private note,
- * which only their own entry keeps.
+ * which only their own entry keeps, and so is the payee (`payeeId`, D-81). An expense with the form's refund is a
+ * family refund (D-79).
  */
 export function familyRequest(form: EntryForm, family: FamilyLedger, preview: SplitPreview,
-  accountDefault: string | null = null) {
+  accountDefault: string | null = null, payeeId: number | null = null) {
   const currency = form.currency.trim().toUpperCase()
   const parsed = parseMinor(form.amount, currency)
   if (!('minor' in parsed)) throw new Error(`A family ${nounOf(form)} needs a valid amount`)
   const inCurrency = currency === family.baseCurrency ? {} : { currency }
   return {
     type: form.tab === 'income' ? 'INCOME' as const : 'EXPENSE' as const,
+    // An expense with the form's "Refund" is a family refund (D-79); the amount stays what was refunded.
+    ...(form.tab !== 'income' && form.refund ? { refund: true as const } : {}),
+    // The payee stays on the user's own payment entry (D-81); a payee typed for the first time is created first.
+    ...(payeeId !== null ? { payeeId } : {}),
     date: form.date,
     categoryId: Number(form.familyCategoryId),
     amount: fromMinor(parsed.minor, currency),

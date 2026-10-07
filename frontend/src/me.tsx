@@ -30,11 +30,15 @@ const MIN_WAIT_MS = 60_000
  * failure leaves the zone unset (UTC) and the app as it is, with no error shown and no retry until the next page load.
  * Today comes only from the api (D-106): it is asked again when the tab becomes visible (if the last answer is older
  * than a minute) and once at the next midnight of the saved zone, one timer re-armed after each answer. Nothing else
- * polls, so that an idle tab doesn't keep the session alive.
+ * polls, so that an idle tab doesn't keep the session alive. The midnight request is not sent while the tab is hidden
+ * (D-107): a hidden tab whose session has expired would be sent to the login by it, with nobody looking; the date it
+ * missed is asked for when the tab is shown, whatever the age of the last answer.
  */
 export function MeProvider({ initial, children }: { initial: Me; children: ReactNode }) {
   const [me, setMe] = useState(initial)
   const askedAt = useRef(0)
+  /** Whether the midnight timer fired while the tab was hidden, so that showing it asks, however recent the answer. */
+  const missed = useRef(false)
   /** Counts the midnight timer's answers, so that its effect arms the next one. */
   const [answers, setAnswers] = useState(0)
 
@@ -73,17 +77,29 @@ export function MeProvider({ initial, children }: { initial: Me; children: React
 
   useEffect(() => {
     const check = () => {
-      if (document.visibilityState === 'visible' && Date.now() - askedAt.current > STALE_MS) void reload()
+      if (document.visibilityState !== 'visible') return
+      if (missed.current || Date.now() - askedAt.current > STALE_MS) {
+        missed.current = false
+        void reload()
+      }
     }
     askedAt.current = Date.now()
     document.addEventListener('visibilitychange', check)
     return () => document.removeEventListener('visibilitychange', check)
   }, [reload])
 
-  // The one timer: at the next midnight of the saved zone (UTC while none is), however the tab is shown.
+  // The one timer: at the next midnight of the saved zone (UTC while none is). A hidden tab doesn't ask (D-107): it
+  // notes that it missed the date and arms the next midnight; showing the tab asks.
   useEffect(() => {
     const wait = Math.max(msUntilMidnight(me.timeZone ?? 'UTC', Date.now()) + MIDNIGHT_SLACK_MS, MIN_WAIT_MS)
-    const timer = setTimeout(() => { void reload().finally(() => setAnswers((n) => n + 1)) }, wait)
+    const timer = setTimeout(() => {
+      if (document.visibilityState !== 'visible') {
+        missed.current = true
+        setAnswers((n) => n + 1)
+        return
+      }
+      void reload().finally(() => setAnswers((n) => n + 1))
+    }, wait)
     return () => clearTimeout(timer)
   }, [me.timeZone, me.today, answers, reload])
 

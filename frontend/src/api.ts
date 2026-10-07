@@ -236,6 +236,14 @@ export interface FamilyRecord {
    * everyone else (D-16); for a settlement, the reader's own side.
    */
   yourPayment?: YourPayment
+  /**
+   * An expense with a minus (D-79): `amount` and the shares are what was refunded, above 0; it reduces its category and
+   * the balances, and its "payer" is who received the money back. False, or missing, for every other record.
+   */
+  refund?: boolean
+  /** Who imported it, when an import wrote it (D-48); missing for a record entered in the app. */
+  importedBy?: MemberRef
+  importedAt?: string
 }
 /** The payer's own view of their payment: their payment entry, and the account, or "Specify later" with none. */
 export interface YourPayment {
@@ -245,6 +253,10 @@ export interface YourPayment {
    * side, which nobody else sees (D-88).
    */
   amount: string; currency: string
+  /** The counterparty of the account's line, when the account requires one (D-80). */
+  counterpartyId?: number
+  /** The reader's own payee on their payment entry (D-81); nobody else sees it. */
+  payeeId?: number
 }
 export interface FamilyRecordPage { content: FamilyRecord[]; page: number; size: number; totalElements: number; totalPages: number }
 /** How a new or changed record is split (D-12). RULE is the budget's rule; percentages go in basis points. */
@@ -322,7 +334,11 @@ export interface FamilyReportTotal {
   net: string
 }
 /** One change of a field, as text; members and categories by their names now. Null where there was none, or erased. */
-export interface FamilyFieldChange { field: string; member: MemberRef | null; old: string | null; new: string | null }
+export interface FamilyFieldChange {
+  field: string; member: MemberRef | null; old: string | null; new: string | null
+  /** For an amount or a share, the currencies of `old` and `new` (D-93): the old one differs on a change of currency. */
+  oldCurrency?: string | null; newCurrency?: string | null
+}
 /** An entry of the change journal (D-16): a member's change of a record, or a system change without an author. */
 export interface FamilyChange {
   id: number
@@ -334,7 +350,9 @@ export interface FamilyChange {
   about: MemberRef | null
   changes: FamilyFieldChange[]
   /** The record as it is now, deleted or not; null for a system change. */
-  record: { date: string; category: string | null; amount: string; deleted: boolean; type?: FamilyRecordType; currency?: string } | null
+  record: { date: string; category: string | null; amount: string; deleted: boolean; type?: FamilyRecordType; currency?: string; refund?: boolean } | null
+  /** The currency this row's amounts are in, the record's right after the change (D-93); null for a system change. */
+  currency?: string | null
 }
 export interface FamilyJournalPage { content: FamilyChange[]; page: number; size: number; totalElements: number; totalPages: number }
 

@@ -5,7 +5,7 @@ import type {
 import { formatDate } from './api'
 import { basisPointsToPercent } from './basisPoints'
 import { fromMinor, toMinor } from './minorUnits'
-import { abs, formatMoney, signOf } from './money'
+import { abs, formatMoney, negate, signOf } from './money'
 
 // The family budget's screens without React. The API's messages say "family budget" and show shares as percentages,
 // as the screens do, so they are shown as they come.
@@ -40,16 +40,22 @@ export const expenseName = (category: string | null, date: string) => `${categor
 export const RECORD_NOUNS: Record<FamilyRecordType, string> = { EXPENSE: 'expense', INCOME: 'income', SETTLEMENT: 'settlement' }
 
 /**
- * A record as a sentence names it: "Groceries, Sep 12, 2026" for an expense, "the income Salary, Sep 12, 2026", "the
- * settlement of Sep 12, 2026".
+ * A record as a sentence names it: "Groceries, Sep 12, 2026" for an expense, "the refund Groceries, Sep 12, 2026" for a
+ * refund (D-79), "the income Salary, Sep 12, 2026", "the settlement of Sep 12, 2026".
  */
-export function recordName(record: { type?: FamilyRecordType; category: string | null; date: string }) {
+export function recordName(record: { type?: FamilyRecordType; category: string | null; date: string; refund?: boolean }) {
   switch (record.type) {
     case 'SETTLEMENT': return `the settlement of ${formatDate(record.date)}`
     case 'INCOME': return `the income ${expenseName(record.category, record.date)}`
-    default: return expenseName(record.category, record.date)
+    default: return `${record.refund ? 'the refund ' : ''}${expenseName(record.category, record.date)}`
   }
 }
+
+/**
+ * An amount of a record as the screens show it: a refund's, an expense with a minus (D-79), carries the minus. The
+ * api's amounts of a refund are what was refunded, above 0, and the shares likewise.
+ */
+export const shownAmount = (record: { refund?: boolean }, amount: string) => (record.refund ? negate(amount) : amount)
 
 /** A member as the reader reads them: "you", or their name. */
 export const memberName = (member: MemberRef, me: number) => (member.memberId === me ? 'you' : member.displayName)
@@ -64,12 +70,13 @@ export function settlementSentence(record: FamilyRecord, me: number) {
 
 /** A record's title in the list: its category, or "Settlement". */
 export const recordTitle = (record: FamilyRecord) =>
-  record.type === 'SETTLEMENT' ? 'Settlement' : record.category?.name ?? RECORD_NOUNS[record.type]
+  record.type === 'SETTLEMENT' ? 'Settlement'
+    : `${record.category?.name ?? RECORD_NOUNS[record.type]}${record.refund ? ' (refund)' : ''}`
 
 /** Who paid or received it, from the reader's side: "Paid by you", "Received by Sam", or a settlement's sentence. */
 export function recordWho(record: FamilyRecord, me: number) {
   if (record.type === 'SETTLEMENT') return settlementSentence(record, me)
-  return `${record.type === 'INCOME' ? 'Received' : 'Paid'} by ${memberName(record.payer, me)}`
+  return `${record.type === 'INCOME' || record.refund ? 'Received' : 'Paid'} by ${memberName(record.payer, me)}`
 }
 
 // Balances (D1). A member's balance is what they owe the family budget: positive if they owe, negative if they are
@@ -171,11 +178,13 @@ export interface JournalLine { text: string; details: string[] }
 const quoted = (text: string | null) => (text === null ? 'none' : `“${text}”`)
 
 /** A split's changes: "equal shares → one member; Anna €6.66 → no share, Kid €6.66 → €20.00". */
-function splitChange(changes: FamilyFieldChange[], currency: string) {
-  const share = (value: string | null) => (value === null ? 'no share' : formatMoney(value, currency))
+function splitChange(changes: FamilyFieldChange[], currency: string, refund: boolean) {
+  // Each value in the currency its row stored (D-93): the old shares of a change of currency in the old one.
+  const share = (value: string | null, in_: string | null | undefined) =>
+    (value === null ? 'no share' : formatMoney(refund ? negate(value) : value, in_ ?? currency))
   const method = changes.find((c) => c.field === 'splitMethod')
   const shares = changes.filter((c) => c.field === 'share')
-    .map((c) => `${c.member?.displayName ?? 'Former member'} ${share(c.old)} → ${share(c.new)}`)
+    .map((c) => `${c.member?.displayName ?? 'Former member'} ${share(c.old, c.oldCurrency)} → ${share(c.new, c.newCurrency)}`)
   const methods = method ? `${label(method.old)} → ${label(method.new)}` : ''
   return [methods, shares.join(', ')].filter((part) => part !== '').join('; ')
 }
@@ -183,10 +192,10 @@ function splitChange(changes: FamilyFieldChange[], currency: string) {
 const label = (method: string | null) => (method === null ? 'none' : SPLIT_LABELS[method as SplitMethod] ?? method)
 
 /** A created record's split: "equal shares: Anna €10.00, Sam €10.00". */
-function createdSplit(changes: FamilyFieldChange[], currency: string) {
+function createdSplit(changes: FamilyFieldChange[], currency: string, refund: boolean) {
   const method = changes.find((c) => c.field === 'splitMethod')?.new ?? null
   const shares = changes.filter((c) => c.field === 'share' && c.new !== null)
-    .map((c) => `${c.member?.displayName ?? 'Former member'} ${formatMoney(c.new!, currency)}`)
+    .map((c) => `${c.member?.displayName ?? 'Former member'} ${formatMoney(refund ? negate(c.new!) : c.new!, c.newCurrency ?? currency)}`)
   return `${label(method)}: ${shares.join(', ')}`
 }
 
@@ -214,9 +223,13 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
   const type = record?.type ?? 'EXPENSE'
   const name = record ? recordName(record) : 'an expense'
   const field = (f: string) => change.changes.find((c) => c.field === f)
-  // The record's currency then: a change of it names both; a creation names one other than the main currency.
+  // A refund (D-79): its amounts are shown with the minus.
+  const refund = record?.refund === true || field('refund') !== undefined
+  const money = (value: string, in_: string) => formatMoney(refund ? negate(value) : value, in_)
+  // The record's currency then (D-93): the row's own. Rows without one (an api before F8d) name a change of it, or a
+  // creation in one other than the main currency.
   const currencyChange = field('currency')
-  const then = currencyChange?.new ?? (change.action === 'CREATE' ? currency : record?.currency ?? currency)
+  const then = change.currency ?? currencyChange?.new ?? (change.action === 'CREATE' ? currency : record?.currency ?? currency)
   switch (change.action) {
     case 'CREATE': {
       const amount = field('amount')?.new ?? record?.amount
@@ -233,14 +246,14 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
       }
       const how = type === 'INCOME' ? 'received by' : 'paid by'
       const original = field('originalAmount')?.new
-      const money = `${original ? `${originalMoney(original)} → ` : ''}${amount ? formatMoney(amount, then) : ''}`
+      const shown = `${original ? `${originalMoney(original)} → ` : ''}${amount ? money(amount, then) : ''}`
       return {
-        text: `${who} added ${name}: ${money}${payer ? `, ${how} ${payer}` : ''}.`,
-        details: [`Split: ${createdSplit(change.changes, then)}`, ...commented],
+        text: `${who} added ${name}: ${shown}${payer ? `, ${refund ? 'received by' : how} ${payer}` : ''}.`,
+        details: [`Split: ${createdSplit(change.changes, then, refund)}`, ...commented],
       }
     }
     case 'DELETE':
-      return { text: `${who} deleted ${name}${record ? `, ${formatMoney(record.amount, record.currency ?? currency)}` : ''}.`, details: [] }
+      return { text: `${who} deleted ${name}${record ? `, ${money(record.amount, record.currency ?? currency)}` : ''}.`, details: [] }
     default: {
       const parts: [string, string][] = []
       // The payment's fields (F4c), then the family's.
@@ -252,9 +265,9 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
         parts.push(['the amount paid', `${originalMoney(original.old)} → ${originalMoney(original.new)}`])
       }
       if (amount) {
-        const before = currencyChange?.old ?? then
+        const before = amount.oldCurrency ?? currencyChange?.old ?? then
         parts.push([original ? `the amount in ${then}` : 'the amount',
-          `${amount.old ? formatMoney(amount.old, before) : 'none'} → ${amount.new ? formatMoney(amount.new, then) : 'none'}`])
+          `${amount.old ? money(amount.old, before) : 'none'} → ${amount.new ? money(amount.new, amount.newCurrency ?? then) : 'none'}`])
       } else if (currencyChange) {
         parts.push(['the currency', `${currencyChange.old ?? 'none'} → ${currencyChange.new ?? 'none'}`])
       }
@@ -263,7 +276,7 @@ export function journalLine(change: FamilyChange, currency: string): JournalLine
       const category = field('category')
       if (category) parts.push(['the category', `${category.old ?? 'none'} → ${category.new ?? 'none'}`])
       if (change.changes.some((c) => c.field === 'splitMethod' || c.field === 'share')) {
-        parts.push(['the split', splitChange(change.changes, currency)])
+        parts.push(['the split', splitChange(change.changes, then, refund)])
       }
       const comment = field('comment')
       if (comment) parts.push(['the comment', `${quoted(comment.old)} → ${quoted(comment.new)}`])

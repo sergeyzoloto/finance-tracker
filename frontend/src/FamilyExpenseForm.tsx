@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api, formatDate, useApi, type Account, type Category, type FamilyRecord } from './api'
+import { api, formatDate, useApi, type Account, type Category, type Counterparty, type FamilyRecord } from './api'
 import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
 import {
   expenseProblems, inOpeningBalance, newSplit, paymentAccounts, previewSplit, splitRequest, type SplitContext, type SplitForm,
 } from './expenseForm'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { newPayingSide, payingCurrency, payingSideRequest, serverDefault, type PayingSideForm } from './currency'
+import { CounterpartyFields } from './FamilyCounterparties'
 import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCurrency'
 import { SplitEditor } from './FamilySplit'
 import { useToday } from './me'
@@ -22,6 +23,12 @@ const LATER = 'later'
 
 /** The records with a category and a split: an expense, or an income (F4d), which mirrors it. */
 export type RecordType = 'EXPENSE' | 'INCOME'
+
+/** The words of a refund's form (D-79): an expense with a minus, the money coming back. */
+const REFUND_WORDS = {
+  title: 'Add a refund', noun: 'expense', by: 'Received by', from: 'Received into', add: 'Add the refund',
+  none: 'No expense categories yet', later: '“Specify later” keeps the refund under “Payments without a specified account” in your ledger.',
+}
 
 /** The words of the form of each type. */
 const WORDS: Record<RecordType, { title: string; noun: string; by: string; from: string; add: string; none: string; later: string }> = {
@@ -57,16 +64,20 @@ function rememberPayment(ledgerId: number, type: RecordType, payment: string) {
  * currency by default) and amount (D-45), who paid or received it, the user's account if it was them (D-14) with the
  * currency it paid or received in and, when that isn't the record's, what went from or into it (D-89, only the user
  * sees it, D-88), the split of the amount in its currency with every member's amount before saving (D-12, the tie to
- * the payer or receiver), and a comment. No rate is used (D-87). The server's objections appear next to the field or
- * member they name.
+ * the payer or receiver), and a comment. No rate is used (D-87). An expense may be a refund (D-79: an expense with a
+ * minus, in the same category, whose shares are what each member gets back); one paid from an account kept per
+ * counterparty names it (D-80), and the payer may name their payee (D-81), which only they see. The server's objections
+ * appear next to the field or member they name.
  */
 export default function NewRecord({ family, type = 'EXPENSE' }: { family: FamilyData; type?: RecordType }) {
   const navigate = useNavigate()
   const { ledger, members } = family
   const base = ledger.baseCurrency
-  const words = WORDS[type]
+  const [refund, setRefund] = useState(false)
+  const words = refund ? REFUND_WORDS : WORDS[type]
   const categories = useFamilyApi<Category[]>(family, `${family.path}/categories`)
   const accounts = useApi<Account[]>('/accounts')
+  const counterparties = useApi<Counterparty[]>('/counterparties')
 
   const today = useToday()
   const [date, setDate] = useState(() => today < ledger.startDate ? ledger.startDate : today)
@@ -78,6 +89,8 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   const [comment, setComment] = useState('')
   const [currency, setCurrency] = useState(base)
   const [side, setSide] = useState<PayingSideForm>(newPayingSide)
+  const [counterpartyId, setCounterpartyId] = useState('')
+  const [payeeId, setPayeeId] = useState('')
   const save = useFamilyMutation(family)
 
   const payers = members.filter((m) => m.status === 'ACTIVE' && (m.id === ledger.memberId || !m.hasAccount))
@@ -85,7 +98,7 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   // A claimed seat's own record before the claim's date is in their opening balance: no account (D-32, D-35).
   const reader = members.find((m) => m.id === ledger.memberId)
   const opening = payerIsMe && inOpeningBalance(reader, date)
-  const eligible = paymentAccounts(accounts.data ?? [])
+  const eligible = paymentAccounts(accounts.data ?? [], type === 'EXPENSE')
   // The last way of paying, while it is still one the backend takes.
   const remembered = lastPayment(ledger.id, type)
   const payment = chosenPayment
@@ -102,7 +115,9 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   const preview = previewSplit(split, context, currencyValid ? currency : base)
   const dateProblem = date === '' ? 'Enter a date.'
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${words.noun} can’t be earlier.` : undefined
+  const needsCounterparty = account?.requiresCounterparty === true
   const ready = !dateProblem && categoryId !== '' && amount !== undefined && currencyValid && payer !== ''
+    && (!needsCounterparty || counterpartyId !== '')
     && (sideRequest === undefined || 'request' in sideRequest)
     && (!payerIsMe || opening || payment !== '') && preview.problems.length === 0
 
@@ -115,9 +130,15 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
     // The currency only when it isn't the main currency; the paying side with the account (D-89).
     const inCurrency = currency === base ? {} : { currency }
     const paid = sideRequest && 'request' in sideRequest ? sideRequest.request : {}
+    // Only the payer's own: the account's counterparty when it requires one (D-80), and the payee (D-81).
+    const own = payerIsMe && !opening ? {
+      ...(needsCounterparty ? { paymentCounterpartyId: Number(counterpartyId) } : {}),
+      ...(payeeId !== '' ? { payeeId: Number(payeeId) } : {}),
+    } : {}
     void save.run(async () => {
       const created = await api<FamilyRecord>(`${family.path}/records`, 'POST', {
-        type, date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), ...inCurrency, ...paid,
+        type, date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), ...inCurrency, ...paid, ...own,
+        ...(refund ? { refund: true } : {}),
         comment: comment.trim() || null, payerMemberId: Number(payer), ...how, split: splitRequest(split, preview, currency),
       })
       if (payerIsMe && !opening) rememberPayment(ledger.id, type, payment)
@@ -141,6 +162,15 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
               ? <>{words.none}: <Link to={`${family.page}/categories`}>add one</Link>.</> : undefined}>
             <CategorySelect categories={ofType} type={type} value={categoryId} onChange={setCategoryId} />
           </Field>
+          {type === 'EXPENSE' && (
+            <label className="field wide check">
+              <input type="checkbox" checked={refund} onChange={(e) => setRefund(e.target.checked)} />
+              {' '}Refund <small className="hint">
+                An expense with a minus: money back from a shop, in the same category. It reduces the category and is
+                split by the same shares, each member getting their share back.
+              </small>
+            </label>
+          )}
           <Field label={`Amount (${currency})`} errors={[...(amountText.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}>
             <input className="amount" inputMode="decimal" value={amountText} autoComplete="off" placeholder="0.00"
               onChange={(e) => setAmountText(e.target.value)} />
@@ -159,20 +189,24 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
           {opening && reader && <OpeningBalanceNote joinDate={reader.joinDate} noun={words.noun} />}
           {payerIsMe && !opening && (
             <Field label={words.from} errors={problems.payment} hint={words.later}>
-              <AccountSelect accounts={eligible} value={payment} onChange={(value) => { setPayment(value); setSide(newPayingSide()) }}>
+              <AccountSelect accounts={eligible} value={payment} onChange={(value) => { setPayment(value); setSide(newPayingSide()); setCounterpartyId('') }}>
                 <option value={LATER}>Specify later</option>
               </AccountSelect>
             </Field>
           )}
           {account && (
             <PayingSideFields account={account} recordCurrency={currency} side={side} onChange={setSide}
-              way={type === 'INCOME' ? 'received' : 'paid'}
+              way={type === 'INCOME' || refund ? 'received' : 'paid'}
               suggestions={eligible.map((a) => a.defaultCurrency).filter((c): c is string => c !== null)}
               errors={{
                 currency: [],
                 amount: [...(sideRequest && 'problem' in sideRequest && (side.amountText !== '' || save.failure) ? [sideRequest.problem] : []),
                   ...problems.accountAmount],
               }} />
+          )}
+          {payerIsMe && !opening && (
+            <CounterpartyFields account={account} counterparties={counterparties.data} counterpartyId={counterpartyId}
+              payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee errors={problems.counterparty} />
           )}
           <Field label="Comment (optional)" errors={problems.comment} className="wide"
             hint="Every member of the family budget sees it.">

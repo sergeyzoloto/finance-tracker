@@ -747,7 +747,7 @@ What runs and why:
 - `run` is the clone's script, `b6258f6`'s, which F8d doesn't change (`deploy.sh` and `common.sh` are the same; of
   `deploy/` this runbook, the two check files, `rollback.sh` and its tests differ; bash reads the script before the
   merge). Its step 1.3 requires M to be `origin/main` after `git fetch` and a fast-forward of `HEAD` (`b6258f6`). 1.3
-  lists the @N@ commits of F8d, "Migrations added: V13__refunds_counterparty_payments_journal_currency_import_sync.sql",
+  lists the 13 commits of F8d, "Migrations added: V13__refunds_counterparty_payments_journal_currency_import_sync.sql",
   and under `deploy/`: seven files, `RUNBOOK.md`, `checks/F8d.expected`, `checks/F8d.sql`, `rollback.sh`,
   `tests/mutate.sh`, `tests/run.sh` and `tests/stubs/docker`. `finance.caddy`, the postgres service and
   `pg-backup/finance.conf` don't change.
@@ -874,7 +874,7 @@ It prints ("Deploying with deploy.sh" lists the steps):
 
 - 1.2: `HEAD: b6258f6 docs: F8c-fix's change log entry …`, the running images, `Last good deploy: b6258f6 … (deploy)`,
   its status `good`, both images "the recorded image", the read-only role's line.
-- 1.3: the fetch; the @N@ commits from `b6258f6` to M; `Migrations added: V13__refunds_counterparty_payments_journal_currency_import_sync.sql`;
+- 1.3: the fetch; the 13 commits from `b6258f6` to M; `Migrations added: V13__refunds_counterparty_payments_journal_currency_import_sync.sql`;
   under `deploy/` the seven files listed above.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (…)` (D-95; `5 check runs` if only one run happened). 1.6: the F8d files. 1.7: the 21 numbers of step 3.

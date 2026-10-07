@@ -3,6 +3,177 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-07 · F8d: refunds, counterparty payments and the payer's payee (D-79 to D-81), the journal's currencies (D-93), the import's sync fields (D-48), D-104 and D-107
+
+Thirteen commits on `feature/family-budget` on top of F8c-fix's `b6258f6` (production runs it since 2026-10-07): `07f197a`
+"feat(backend): refunds, counterparty payments, the payer's payee, journal currencies, import sync fields, join dates", `b8f0f73`
+"fix(backend): the writer's counterparty check takes the scope, a journal change omits null currencies, V13 in the backfill
+test", `7468778` "feat(frontend): refunds, the counterparty of an account kept per counterparty, the payer's payee, the
+journal's currencies, no midnight request while hidden", `f7e9e2e` "test(frontend): the late-load tests of F8c's "Open" list
+wait for what they need", `f6a94b0` "chore(deploy): rollback.sh refuses below V13 while a refund or a counterparty payment
+exists, F8d's checks", `8119bbb` "test(e2e): the family F8d spec, local and production", `79d861c` "docs: D-107 and F8d's
+choices D-108 to D-116, ADR 0004's "F8d", CLAUDE.md", `9aafc5a` "fix(frontend): the Refund toggle's hint no longer names the
+category, so that getByLabel('Category') stays unique; the RUNBOOK's F8d checklist and rows", `3745d8a`, `ab4bc60` and
+`3d39e86` (three fixes of the new e2e spec's locators), `9e7a4da` "test(backend): a start date is checked against the api's
+today, not the test JVM's", and the commit of this entry, "docs: F8d's change log entry (F8d)", whose full hash the report
+names: M, the commit to deploy. Not pushed, nothing merged into `main`; production not accessed, no earlier checklist
+changed, and of the deploy scripts only `rollback.sh` (a condition for V13, below).
+
+**Changes**
+- D-79, refunds (choice D-108). V13 relaxes V7's checks that an amount is above 0 and a share isn't below 0:
+  `family_record_amount_sign_check` says an amount is never 0, the paying side has its sign and only an expense is
+  negative, and `family_record_check_shares` (at commit) also refuses a share of the other sign. A refund is stored
+  negative (the record's amount, its paying side, every share), so balances, the report, the personal cash flow and a
+  member's debt account reduce by themselves and the posting service, which reads the stored amounts, writes every line
+  of a refund reversed. The api keeps what the user typed: `POST /records` takes `refund: true` for an EXPENSE with the
+  amount above 0 (422 `REFUND` for an income), and the answers carry `refund`, with `amount`, the shares and the journal's
+  `record.amount` above 0. `FamilyRecordService` works on magnitudes and signs only where it writes. A PATCH keeps a
+  record a refund. The member named as payer is who received the money back. Found by the seeded random test, which now
+  has a refund in five of its expenses (from a sequence of its own, so the seed's other operations are as they were):
+  another member's change of a refund paid from the payer's own account made `FamilyPostingService.side` compare the
+  payment line's magnitude with the record's negative amount and throw (500); fixed in the same commit.
+- D-80 and D-81, counterparty accounts and the payee (choices D-109 to D-111). V13 replaces `posting_family_guard` once
+  more: the payer's own account for a payment may be one that requires a counterparty, and only that line may carry one.
+  `PostedEntry` has a payee and its `Line` a counterparty; `CrossLedgerWriter` accepts a counterparty only on the acting
+  payer's own account line of an EXPENSE payment and a payee only on the acting payer's own payment, both of the payer's
+  own counterparties, and compares both in `holds`; `Payment`, `OwnPayment` and `PaymentSide` carry them, so a payment
+  kept through a change of date, amount or payer keeps them. Requests: `paymentCounterpartyId` (required exactly when the
+  account requires one, refused for any other account and for "Specify later", 422 `COUNTERPARTY`) and `payeeId`, on
+  `POST /records`, `PATCH /records/{id}` and `PATCH /api/entries/{id}/family-payment` (`counterpartyId`, `payeeId`, `null`
+  removes the payee); only the payer's own, in `yourPayment` of their answers, never in another member's answer, the
+  journal or a report, and a change of either changes neither the record's version nor its journal. An income's receipt
+  and a settlement's side still refuse a counterparty account. The new tests: `FamilyCounterpartyPaymentApiTests`.
+- D-93 and D-112, the journal's currency. `family_record_change.currency` stores the record's currency right after the
+  change (null only for a system change); V13 fills existing rows by the row's own change of currency, else the next
+  change's old currency, else the record's (proved on a V12 database with a record created in dollars, one changed from
+  euros to dollars between two rows and a deleted one: `FamilyV13MigrationTests`), and a trigger fills a row that V12's
+  code writes. `FamilyRecordService.journal` writes it; the one reader gives each entry `currency` and each amount or
+  share change `oldCurrency` and `newCurrency` (left out where there is none). `journalLine` reads each row in its own
+  currency instead of working it out.
+- D-48 and D-113, the import's sync fields. `family_record.external_ref`, `content_hash`, `imported_version`,
+  `imported_by_member_id` and `imported_at` (all together or none; the reference unique per family ledger, deleted
+  records included). `ImportSync` (plain Java) is the rule by which a re-import recognises a row: by the source's
+  permanent ID (D-86), never by content; `NEW`, `UNCHANGED`, `EDITED` (the hash changed and the record's version is still
+  the one the import left: it may write over it), `CONFLICT` (both changed), `DELETED` (stays deleted). `FamilyImportSync`
+  (`known`, `stamp`) is what D3b calls; no endpoint, and D3b's import itself is not built. A record's answer has
+  `importedBy` and `importedAt`.
+- D-104 and D-114. A join date is `GREATEST(the acting user's today, the start date)` in `FamilyLedgerService.addMember`,
+  `LedgerInvites.join`, `rejoin` and the lookup's date. `UserTimeZoneApiTests.aJoinDateIsNeverBeforeTheStartDate` (an owner
+  in Los Angeles adding a member, a new member and a member returning, all on the 7th while Los Angeles is still on the
+  6th) and the changed assertion of `membersInDifferentZonesEachActOnTheirOwnToday` (Bob's join date was the 6th, a day
+  before the start date: F8c's "Open").
+- D-107 and D-115. The midnight request is not sent while the tab is hidden: the timer, firing hidden, sets a flag and arms
+  the next midnight; the visibility handler asks when the flag is set or the last answer is older than a minute. Two
+  tests (`TimeZone.test.tsx`: two midnights with nobody looking and one request on return; a tab that missed midnight
+  seconds after its last answer); both fail on `b6258f6`'s `me.tsx` and pass on the new one.
+- The frontend (D-79 to D-81): a "Refund" toggle on the new expense ("Add a refund", "Received by", "Received into";
+  `refund: true`), `FamilyCounterparties.tsx` (the account's counterparty, required, and the payee, optional) on the new
+  record, the record's page, the payer's payment entry and the personal editor's family option, which now keeps the
+  entry's payee and refund and creates a payee typed for the first time; an account that requires a counterparty is
+  offered for an expense (`paymentAccounts(accounts, true)`); a refund shows with its minus in the list, on its page,
+  and in the journal ("the refund Groceries"). Tests: `FamilyRefunds.test.tsx` (12) and additions to
+  `FamilyPayer.test.tsx` and `FamilyExpenses.test.tsx` (the option list).
+- The late-load tests of F8c's "Open" list (eight tests; a scratch Vitest config answers every stubbed `fetch` whose URL
+  matches an expression 300 ms late, and was deleted with its setup file): `FamilyRows` "opens an entry of the user's
+  own in the form" (late accounts, categories, settings, counterparties, entries), `FamilyLifecycle` "lets an owner make a
+  member with an account an owner" (late members), `FamilyPayer`'s three C2 tests (late family categories: the select is
+  there before its options), `FamilyExpenses` "says on the overview who owes the reader, with two members" (late
+  records), `FamilyF6b` "lists the family budget at once, with no placeholder" and `Invite` "accepts with the name and the
+  categories brought" (late family budgets); each waits for what it needs now.
+- Rollback (D-116, ADR 0004 "F8d"): V12's code would turn a refund into an expense when its amount changes, fail on
+  another member's change of it, miss its shares for a member who joins, and refuse to re-post a payment on an account
+  that requires a counterparty; the journal's currency, the sync fields, the payee and the clamp are invisible to it (a
+  trigger fills a journal row it leaves without a currency). `deploy/rollback.sh` refuses below V13 from a database at V13
+  or later while a live refund or a payment line on an account that requires a counterparty exists, each with a count of
+  its own as `finance_checks` (naming the count, the reason and the preserved dump); `deploy/tests/run.sh` case
+  `rollback_below_v13` (both refusals, the confirmation they let through, silence below V13) and four mutations in
+  `deploy/tests/mutate.sh`. No other script changed.
+- `deploy/checks/F8d.sql` and `F8d.expected` (22 lines): Flyway V13, the six new columns, V13's four constraints and the
+  three gone, the index, the guard's and the shares' check's new text, the trigger, and counts that hold whatever users
+  write (no record or share of the wrong sign, no journal row without its currency, 0 unbalanced entries, 0 ECB rouble
+  rates after 2022-03-01). Tried on a throwaway `postgres:17.11` migrated to V13 by the backend's importer profile
+  (container `f8d-check-db`, removed by name afterwards): the output equals `F8d.expected`, `diff` silent.
+- Documentation: `requirements.md` (D-107 and D-108 to D-116, the agent's choices, marked), ADR 0004's "F8d",
+  `CLAUDE.md`, `deploy/RUNBOOK.md` (F8c's three rows in "Deployed revisions" and its "Production now" from the facts of
+  the F8c deploy, "F8d's deploy checklist with the suite", and the one wrong expectation of F8c's pre-flight fixed: a
+  refused rollback writes no line in `history`, so `history` ends with `good` lines only), `e2e/README.md`.
+- The end-to-end suite has a spec more, `05-family-f8d.spec.ts` ("family F8d", local and production), and the time zone
+  spec is `06-time-zone.spec.ts`. A local run joins six times now, so D-29's limit allows about two runs an hour
+  (`family-steps.ts` says so).
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>` on `9e7a4da` (only
+  the runbook's draft was uncommitted), three seeds, each exit 0: seeds 101, 202 and 303, each `Tests run: 480, Failures: 0, Errors: 0, Skipped: 0`, BUILD
+  SUCCESS (455 before; 25 new tests). Failures on the way, all fixed: the first seed-101 run after V13 failed three
+  (`ArchitectureTests` found `CrossLedgerWriter.counterpartyOf` running SQL without a `LedgerScope`;
+  `LedgerBackfillMigrationTests` ended at "the latest" expecting 12; `UserDataApiTests` got `oldCurrency` and `newCurrency` as null
+  in a change that has none, now left out); and at 10:28 UTC all three seeds failed the one test
+  `FamilyRecordApiTests.theStartDateIsTheCreatorsJoinDateAndNeverInTheFuture:356`, which compared the api's start date
+  with `LocalDate.now()`, the JVM's date in Pacific/Kiritimati: a day ahead of UTC's from 10:00 UTC on, so since F8c
+  (D-101) it failed every day from 10:00 to midnight UTC and passed before; CI and the earlier runs happened before 10:00.
+  Fixed (`utcToday()`); no other test reads the JVM's date. The seeded random test found one real fault in the new code: see
+  Changes (refunds).
+- Frontend, `cd frontend && npm test`, exit 0: `Test Files  28 passed (28)`, `Tests  365 passed (365)` (349 before);
+  `npm run build` exit 0 (`tsc -b`, then Vite). The eight late-load tests and the sweep: with every stubbed `fetch` whose URL
+  matched an expression answered 300 ms late, over the whole suite (365 tests), before this task's test changes and after:
+  `/api/accounts`, `/api/settings`, `/api/counterparties`, `/api/entries` (before: `FamilyRows` "opens an entry of the user's
+  own in the form"; `/api/counterparties` also two of the new `FamilyRefunds` tests; after: 365 passed each); `/members`
+  (before: `FamilyLifecycle` "lets an owner make a member with an account an owner"; after: 365 passed); `/categories`
+  (before: the three `FamilyPayer` C2 tests, the new one with a payee, and `FamilyRows`; after: 365 passed); `/records`
+  (before: `FamilyExpenses` "says on the overview who owes the reader, with two members"; after: 365 passed);
+  `/family-ledgers` (before: `FamilyF6b` "lists the family budget at once, with no placeholder", `Invite` "accepts with the
+  name and the categories brought" and the `FamilyPayer` ones; after: 365 passed); `/balances`, `/journal`, `/report`,
+  `/api/rates` and none late: 365 passed before and after; `/invites` and `/time-zone`, swept after only: 365 passed. `/api/me` late cannot be applied to
+  `TimeZone.test.tsx`'s four "date turning over" tests, which fake `setTimeout` themselves (the wrapper's delay never ends
+  under fake timers): not a fault of the tests.
+- D-107's tests against `b6258f6`'s `me.tsx` (the file put back from the commit, then mine again): 2 failed, 23 passed;
+  with mine: 25 passed.
+- Deploy scripts, `deploy/tests/run.sh`, exit 0: `93 passed, 0 failed, of 93 cases` (92 before; `rollback_below_v13`);
+  `deploy/tests/mutate.sh`, exit 0: `Every mutation was caught.` (58 mutations, 54 before; the four new ones are caught by
+  `rollback_below_v13`); ShellCheck, `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 -x deploy/deploy.sh
+  deploy/rollback.sh deploy/common.sh deploy/tests/run.sh deploy/tests/mutate.sh deploy/tests/stubs/*
+  .github/scripts/check-web-image.sh .github/scripts/tests/check-web-image-test.sh .github/scripts/tests/stubs/*`, exit 0, no
+  output.
+- End to end, `cd e2e && npm run typecheck`, exit 0; `npm run test:guards`, exit 0: `tests 32, suites 10, pass 32, fail 0,
+  cancelled 0, skipped 0`. `cd e2e && npm run e2e:local`, exit 0, on `3d39e86` (clean tree, stack rebuilt by `./dev.sh`, the api
+  restarted before the run to reset D-29's in-memory limit): `pages` 2 passed, then `14 passed (3.1m)`; `Result: PASSED`,
+  `Password search over the artifacts: 0 hits`; pages, sign-in, smoke, family F7, family F8, **family F8d (27.5 s)**, time-zone
+  (2 tests) at 1280 px and the same at 375 px, cleanup; both accounts' data deleted and signed out. Four runs before it, each
+  fixed: the first failed F7, F8 and the time-zone spec on `getByLabel('Category')` resolving to two elements (the Refund
+  toggle's hint said "category"; the hint was reworded, not the older specs) and its narrow half then ran into D-29's limit;
+  the second failed the new spec on `getByLabel(/^Refund/)` (a pattern fails on a label that starts with a space); the third
+  and the fourth on its report locator (the report of one currency has no currency in its heading), and the third also
+  straddled 10:00 UTC, so that the time-zone spec failed with "Test not found in the worker process" (its test title
+  depends on the UTC hour, unchanged since F8c). The run on M
+  differs from `3d39e86` by one backend test and documentation.
+- `deploy/checks/F8d.sql` on a throwaway `postgres:17.11` migrated to V13 by the backend's importer profile: 22 lines equal to
+  `F8d.expected`, `diff` silent. This entry compiled with `@mdx-js/mdx` (installed in the scratch folder only).
+- Free disk space: 6.9 GB before, 6.4 GB after (the dev stack rebuilt, three seeds, the sweeps; the floor is 5 GB).
+
+**Open**
+- The PM confirms the agent's choices D-108 to D-116 (`requirements.md`): refunds stored negative with the api in the user's
+  terms and a refund fixed at creation; counterparty accounts for an expense's payment only; a second field for the payee, not
+  the account's counterparty; what is private and not journaled; the journal's currency shape and its backfill rule; the sync
+  fields and their five outcomes; the clamp of D-104 (a leaving date is not clamped, so a member who joins on the start date
+  from a zone behind the owner's and leaves the same day has a left date before their join date, which nothing reads); D-107's
+  flag; the rollback condition.
+- D3b is not built: the import creates a record with `FamilyRecordService.create` and calls `FamilyImportSync.stamp` in the
+  same transaction (it requires one); a reference already on another record answers 409. How D3b builds a reference and a
+  content hash from Excel's row is D3b's.
+- No refund of an income and no income reversal in a family budget (the personal editor's income tab clears its refund when
+  the family option goes on); no counterparty account for an income's receipt or a settlement's side; the demo family has no
+  refund; archived counterparties are accepted, as for personal entries.
+- After F8d's deploy, `rollback.sh b6258f6` works only while no live refund and no payment on an account that requires a
+  counterparty exists: from a real family's first one, the way back below V13 is a restore from the run's before-dump (the
+  runbook's checklist and ADR 0004 say so). The PM knows this before accepting.
+- A local run of the suite joins six times, so D-29's hourly limit allows about two runs an hour; the api's restart resets it
+  (`family-steps.ts` and the memory note say so). The time-zone spec flakes across 10:00 UTC; start the suite a few minutes
+  either side.
+- `npm run e2e:prod` is the owner's, after the deploy; not run. F8d's checklist is for M, not for an earlier commit; CI on M is to
+  show 10 check runs, all `completed success` (D-95), the two Backend runs in random order (D-99).
+- Nothing left unautomated that the checklist doesn't already name: the suite makes its own refund, payee and counterparty
+  payment with two test accounts and deletes them.
+
 ## 2026-10-07 · F8c-fix: the PM's review of F8c (D-103 to D-106), a nameless account, no polling
 
 Five commits on `feature/family-budget` on top of F8c's `d9d52e4`: `f939b8c` "feat(backend): GET /api/settings/time-zones

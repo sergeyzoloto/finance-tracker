@@ -91,6 +91,12 @@ public class FamilyRecordService {
      * receiver's, or a side's of a settlement (F4e).
      */
     public static final String ACCOUNT_AMOUNT = "ACCOUNT_AMOUNT";
+    /**
+     * The counterparty of a payment's account or the payer's payee (D-80, D-81), or a refund's refusal: an expense is the
+     * only record that can be refunded (D-79).
+     */
+    public static final String COUNTERPARTY = "COUNTERPARTY";
+    public static final String REFUND = "REFUND";
 
     private static final String EXPENSE = "EXPENSE";
     private static final String INCOME = "INCOME";
@@ -100,7 +106,7 @@ public class FamilyRecordService {
             SELECT r.id, r.type, r.record_date, r.category_id, r.base_amount, r.currency, r.comment, r.payer_member_id,
                    r.payee_member_id, r.split_method, r.author_member_id, r.created_at, r.updated_by_member_id,
                    r.updated_at, r.version, r.original_amount, r.original_currency, r.base_rate, r.base_rate_source,
-                   r.base_rate_date
+                   r.base_rate_date, r.imported_by_member_id, r.imported_at
             FROM family_record r
             WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL""";
 
@@ -137,6 +143,11 @@ public class FamilyRecordService {
         int scale = ShareSplit.minorUnit(currency);
         Map<Long, Member> members = members(family);
         List<Violation> violations = new ArrayList<>();
+        boolean refund = request.refund();
+        if (refund && !type.equals(EXPENSE)) {
+            violations.add(new Violation(REFUND, null, "only an expense is refunded: %s has no refund"
+                    .formatted(article(type))));
+        }
         checkCategory(family, request.categoryId(), type, violations);
         checkAmount(request.amount(), currency, scale, violations);
         Member payer = members.get(request.payerMemberId());
@@ -167,19 +178,22 @@ public class FamilyRecordService {
                 RETURNING id""")
                 .param("ledgerId", family.ledgerId()).param("type", type).param("date", request.date())
                 .param("categoryId", request.categoryId()).param("payerId", request.payerMemberId())
-                .param("original", side.amount()).param("originalCurrency", side.currency())
-                .param("amount", amount).param("currency", currency).param("rate", side.rate())
+                .param("original", signed(side.amount(), refund)).param("originalCurrency", side.currency())
+                .param("amount", signed(amount, refund)).param("currency", currency).param("rate", side.rate())
                 .param("source", side.source()).param("rateDate", side.rateDate()).param("method", method)
                 .param("comment", request.comment()).param("memberId", family.memberId())
                 .query(Long.class).single();
         for (Share share : shares) {
-            insertShare(family, recordId, share);
+            insertShare(family, recordId, share, refund);
         }
 
         List<Map<String, Object>> changes = new ArrayList<>();
         changes.add(change("date", null, null, request.date().toString()));
         changes.add(change("category", null, null, request.categoryId()));
         changes.add(change("amount", null, null, text(amount, scale)));
+        if (refund) {
+            changes.add(change("refund", null, null, "true"));
+        }
         if (!currency.equals(ledger.baseCurrency())) {
             changes.add(change("currency", null, null, currency));
         }
@@ -191,7 +205,7 @@ public class FamilyRecordService {
         if (request.comment() != null) {
             changes.add(change("comment", null, null, request.comment()));
         }
-        journal(family, recordId, "CREATE", changes);
+        journal(family, recordId, "CREATE", currency, changes);
         posting.post(family, recordId, payment);
         return get(family, recordId);
     }
@@ -356,7 +370,7 @@ public class FamilyRecordService {
                             .param("ledgerId", family.ledgerId())
                             .update();
                     if (share != null) {
-                        insertShare(family, recordId, share);
+                        insertShare(family, recordId, share, record.refund());
                     }
                     rewritten = true;
                 }
@@ -377,17 +391,18 @@ public class FamilyRecordService {
                         updated_at = now(), version = version + 1
                     WHERE id = :recordId AND ledger_id = :ledgerId""")
                     .param("date", date).param("categoryId", categoryId).param("payerId", payerId)
-                    .param("original", side.amount()).param("originalCurrency", side.currency())
-                    .param("amount", amount).param("currency", currency).param("rate", side.rate())
+                    .param("original", signed(side.amount(), record.refund())).param("originalCurrency", side.currency())
+                    .param("amount", signed(amount, record.refund())).param("currency", currency)
+                    .param("rate", side.rate())
                     .param("source", side.source()).param("rateDate", side.rateDate()).param("comment", comment)
                     .param("method", method).param("memberId", family.memberId()).param("recordId", recordId)
                     .param("ledgerId", family.ledgerId())
                     .update();
             if (!journal.isEmpty()) {
-                journal(family, recordId, "UPDATE", journal);
+                journal(family, recordId, "UPDATE", currency, journal);
             }
         } else if (sideChanged) {
-            updateSide(family, recordId, side);
+            updateSide(family, recordId, side, record.refund());
         }
         if (recordChanged || sideChanged || !(payment instanceof FamilyPostingService.Unchanged)) {
             posting.post(family, recordId, payment);
@@ -437,7 +452,7 @@ public class FamilyRecordService {
                 WHERE id = :recordId AND ledger_id = :ledgerId""")
                 .param("memberId", family.memberId()).param("recordId", recordId).param("ledgerId", family.ledgerId())
                 .update();
-        journal(family, recordId, "DELETE", List.of());
+        journal(family, recordId, "DELETE", record.currency(), List.of());
         posting.post(family, recordId, new FamilyPostingService.Unchanged());
     }
 
@@ -504,8 +519,8 @@ public class FamilyRecordService {
                 .param("ledgerId", family.ledgerId());
         var rows = jdbc.sql("""
                 SELECT c.id, c.changed_at, c.action, c.record_id, c.changed_by_member_id, c.about_member_id,
-                       c.changes::text AS changes, r.type, r.record_date, r.category_id, r.base_amount, r.currency,
-                       r.deleted_at IS NOT NULL AS deleted
+                       c.changes::text AS changes, c.currency AS row_currency, r.type, r.record_date, r.category_id,
+                       r.base_amount, r.currency, r.deleted_at IS NOT NULL AS deleted
                 FROM family_record_change c
                 LEFT JOIN family_record r ON r.id = c.record_id AND r.ledger_id = c.ledger_id
                 WHERE %s
@@ -524,13 +539,17 @@ public class FamilyRecordService {
                         ref(members, row.getObject("changed_by_member_id", Long.class)),
                         ref(members, row.getObject("about_member_id", Long.class)),
                         changes(row.getString("changes"), members, categories,
-                                Objects.equals(row.getObject("changed_by_member_id", Long.class), family.memberId())),
+                                Objects.equals(row.getObject("changed_by_member_id", Long.class), family.memberId()),
+                                row.getString("row_currency")),
                         row.getObject("record_id") == null ? null : new FamilyChangeView.RecordSummary(
                                 row.getObject("record_date", LocalDate.class),
                                 categoryName(categories, row.getObject("category_id", Long.class)),
-                                row.getBigDecimal("base_amount").setScale(ShareSplit.minorUnit(row.getString("currency")),
-                                        RoundingMode.UNNECESSARY),
-                                row.getBoolean("deleted"), row.getString("type"), row.getString("currency"))))
+                                row.getBigDecimal("base_amount").abs()
+                                        .setScale(ShareSplit.minorUnit(row.getString("currency")),
+                                                RoundingMode.UNNECESSARY),
+                                row.getBoolean("deleted"), row.getString("type"), row.getString("currency"),
+                                row.getBigDecimal("base_amount").signum() < 0),
+                        row.getString("row_currency")))
                 .list();
         return new FamilyJournalPage(content, page, size, total, Math.toIntExact((total + size - 1) / size));
     }
@@ -637,7 +656,7 @@ public class FamilyRecordService {
         if (request.comment() != null) {
             changes.add(change("comment", null, null, request.comment()));
         }
-        journal(family, recordId, "CREATE", changes);
+        journal(family, recordId, "CREATE", currency, changes);
         posting.post(family, recordId, payment);
         return get(family, recordId);
     }
@@ -683,6 +702,9 @@ public class FamilyRecordService {
         }
         if (changes.changesNote()) {
             violations.add(new Violation(PAYMENT, family.memberId(), "a settlement takes no private note"));
+        }
+        if (changes.paymentCounterpartyId() != null || changes.changesPayee()) {
+            violations.add(new Violation(COUNTERPARTY, family.memberId(), "a settlement takes no counterparty or payee"));
         }
         Set<Long> guests = guests(record, Map.of(), members);
         for (long sideId : List.of(record.payerId(), record.payeeId())) {
@@ -766,9 +788,9 @@ public class FamilyRecordService {
                     .param("memberId", family.memberId()).param("recordId", record.id())
                     .param("ledgerId", family.ledgerId())
                     .update();
-            journal(family, record.id(), "UPDATE", journal);
+            journal(family, record.id(), "UPDATE", currency, journal);
         } else if (sideChanged) {
-            updateSide(family, record.id(), side);
+            updateSide(family, record.id(), side, false);
         }
         if (!journal.isEmpty() || sideChanged || !(payment instanceof FamilyPostingService.Unchanged)) {
             posting.post(family, record.id(), payment);
@@ -928,11 +950,13 @@ public class FamilyRecordService {
             return new FamilyPostingService.Unchanged();
         }
         boolean named = request.paymentAccountId() != null || request.paymentLater();
+        boolean private_ = request.privateNote() != null || request.paymentCounterpartyId() != null
+                || request.payeeId() != null;
         if (!payer.hasAccount()) {
             if (named) {
                 violations.add(noAccount(payer));
             }
-            if (request.privateNote() != null) {
+            if (private_) {
                 violations.add(notYourPayment(payerId, type));
             }
             return new FamilyPostingService.Unchanged();
@@ -946,13 +970,13 @@ public class FamilyRecordService {
         } else if (payer.joinDate().isAfter(request.date())) {
             // A claimed seat's record before the claim's date (D-35): in their opening balance, with no payment entry
             // and no account of theirs (D-32).
-            if (named || request.privateNote() != null) {
+            if (named || private_) {
                 violations.add(beforeJoining(payer, type));
             }
             return new FamilyPostingService.Unchanged();
         }
         return paidWith(personal, payerId, request.paymentAccountId(), request.paymentLater(), request.privateNote(),
-                violations, type);
+                request.paymentCounterpartyId(), request.payeeId(), violations, type);
     }
 
     /**
@@ -976,7 +1000,7 @@ public class FamilyRecordService {
                 if (changes.namesAccount()) {
                     violations.add(noAccount(payer));
                 }
-                if (changes.changesNote()) {
+                if (changes.changesNote() || changes.paymentCounterpartyId() != null || changes.changesPayee()) {
                     violations.add(notYourPayment(payerId, type));
                 }
                 return new FamilyPostingService.Unchanged();
@@ -989,19 +1013,20 @@ public class FamilyRecordService {
                 violations.add(joinedAfter(payer, date, type));
             } else if (payer.joinDate().isAfter(date)) {
                 // A claimed seat paid before the claim's date (D-35): in their opening balance (D-32).
-                if (changes.namesAccount() || changes.changesNote()) {
+                if (changes.namesAccount() || changes.changesNote() || changes.paymentCounterpartyId() != null
+                        || changes.changesPayee()) {
                     violations.add(beforeJoining(payer, type));
                 }
                 return new FamilyPostingService.Unchanged();
             }
             return paidWith(personal, payerId, changes.paymentAccountId(), changes.paymentLater(), changes.note(),
-                    violations, type);
+                    changes.paymentCounterpartyId(), changes.payeeId(), violations, type);
         }
         if (!payer.hasAccount()) {
             if (changes.namesAccount()) {
                 violations.add(noAccount(payer));
             }
-            if (changes.changesNote()) {
+            if (changes.changesNote() || changes.paymentCounterpartyId() != null || changes.changesPayee()) {
                 violations.add(notYourPayment(payerId, type));
             }
             return new FamilyPostingService.Unchanged();
@@ -1011,24 +1036,37 @@ public class FamilyRecordService {
             // Paid before they took their seat (F5, D-18; D-35): in their opening balance, with no payment entry.
             if (!sharesOn(payer, date, guests)) {
                 violations.add(joinedAfter(payer, date, type));
-            } else if (changes.namesAccount() || changes.changesNote()) {
+            } else if (changes.namesAccount() || changes.changesNote() || changes.paymentCounterpartyId() != null
+                    || changes.changesPayee()) {
                 violations.add(beforeJoining(payer, type));
             }
             return new FamilyPostingService.Unchanged();
         }
-        if (!changes.namesAccount() && !changes.changesNote()) {
+        boolean privateChange = changes.changesNote() || changes.paymentCounterpartyId() != null
+                || changes.changesPayee();
+        if (!changes.namesAccount() && !privateChange) {
             // Moved from before their join date to it or after: posted now, to "Specify later" (D-18).
             return guests.contains(payerId) && record.date().isBefore(payer.joinDate())
                     ? new FamilyPostingService.Later(null) : new FamilyPostingService.Unchanged();
         }
         OwnPayment current = posting.ownPayments(family, List.of(record.id())).get(record.id());
         String note = changes.changesNote() ? changes.note() : current == null ? null : current.note();
+        Long payee = changes.changesPayee() ? changes.payeeId() : current == null ? null : current.payeeId();
         if (changes.namesAccount()) {
-            return paidWith(personal, payerId, changes.paymentAccountId(), changes.paymentLater(), note, violations,
-                    type);
+            return paidWith(personal, payerId, changes.paymentAccountId(), changes.paymentLater(), note,
+                    changes.paymentCounterpartyId(), payee, violations, type);
         }
-        return current == null || current.later() ? new FamilyPostingService.Later(note)
-                : new FamilyPostingService.OwnAccount(current.accountId(), note);
+        // The account stays: the counterparty named alone is that account's own (D-80), else it is kept.
+        if (current == null || current.later()) {
+            if (changes.paymentCounterpartyId() != null) {
+                violations.add(new Violation(COUNTERPARTY, payerId,
+                        "\"Specify later\" takes no counterparty: name the account it is on first"));
+            }
+            return paidWith(personal, payerId, null, true, note, null, payee, violations, type);
+        }
+        return paidWith(personal, payerId, current.accountId(), false, note,
+                changes.paymentCounterpartyId() != null ? changes.paymentCounterpartyId() : current.counterpartyId(),
+                payee, violations, type);
     }
 
     /**
@@ -1037,6 +1075,17 @@ public class FamilyRecordService {
      */
     private Payment paidWith(LedgerScope personal, long payerId, Long accountId, boolean later, String note,
             List<Violation> violations, String type) {
+        return paidWith(personal, payerId, accountId, later, note, null, null, violations, type);
+    }
+
+    /**
+     * As above, with the payer's counterparties (D-80, D-81): {@code counterpartyId} on the account's line, required
+     * exactly when the account requires one, which only an expense's payment may use; {@code payeeId} on their payment
+     * entry, for an expense's or an income's payment, never for a settlement's side. Both are counterparties of their
+     * own personal ledger and private to them.
+     */
+    private Payment paidWith(LedgerScope personal, long payerId, Long accountId, boolean later, String note,
+            Long counterpartyId, Long payeeId, List<Violation> violations, String type) {
         String which = switch (type) {
             case SETTLEMENT -> "name the account your side of it went from or into";
             case INCOME -> "name the account you received it into";
@@ -1046,8 +1095,20 @@ public class FamilyRecordService {
             violations.add(new Violation(PAYMENT, payerId, which + ", or specify it later, not both"));
             return new FamilyPostingService.Unchanged();
         }
+        if (payeeId != null) {
+            if (type.equals(SETTLEMENT)) {
+                violations.add(new Violation(COUNTERPARTY, payerId, "a settlement takes no payee"));
+            } else if (!ownCounterparty(personal, payeeId)) {
+                violations.add(new Violation(COUNTERPARTY, payerId,
+                        "the payee %d is not one of your counterparties".formatted(payeeId)));
+            }
+        }
         if (later) {
-            return new FamilyPostingService.Later(note);
+            if (counterpartyId != null) {
+                violations.add(new Violation(COUNTERPARTY, payerId,
+                        "\"Specify later\" takes no counterparty: name it with the account"));
+            }
+            return new FamilyPostingService.Later(note, payeeId);
         }
         if (accountId == null) {
             violations.add(new Violation(PAYMENT, payerId, which + ", or specify it later"));
@@ -1066,7 +1127,7 @@ public class FamilyRecordService {
             // The answer for another user's account is the one for a missing account (rule 11).
             violations.add(new Violation(PAYMENT, payerId, "account %d does not exist".formatted(accountId)));
         } else if (!List.of("ASSET", "LIABILITY").contains(account.get().type()) || account.get().debt()
-                || account.get().requiresCounterparty() || account.get().system()) {
+                || account.get().requiresCounterparty() && !type.equals(EXPENSE) || account.get().system()) {
             violations.add(new Violation(PAYMENT, payerId, (switch (type) {
                 case SETTLEMENT -> "the account %s can't take a settlement: use an account of your own money or "
                         + "credit, or specify it later";
@@ -1075,8 +1136,24 @@ public class FamilyRecordService {
                 default -> "the account %s can't pay a family expense: pay with an account of your own money or "
                         + "credit, or specify it later";
             }).formatted(account.get().code())));
+        } else if (account.get().requiresCounterparty() && counterpartyId == null) {
+            violations.add(new Violation(COUNTERPARTY, payerId, ("the account %s requires a counterparty: name who "
+                    + "you owe or who owes you").formatted(account.get().code())));
+        } else if (!account.get().requiresCounterparty() && counterpartyId != null) {
+            violations.add(new Violation(COUNTERPARTY, payerId,
+                    "the account %s takes no counterparty".formatted(account.get().code())));
+        } else if (counterpartyId != null && !ownCounterparty(personal, counterpartyId)) {
+            violations.add(new Violation(COUNTERPARTY, payerId,
+                    "the counterparty %d is not one of your counterparties".formatted(counterpartyId)));
         }
-        return new FamilyPostingService.OwnAccount(accountId, note);
+        return new FamilyPostingService.OwnAccount(accountId, note, null, null, counterpartyId, payeeId);
+    }
+
+    /** Whether the counterparty is one of the personal ledger's; another user's is the answer for a missing one. */
+    private boolean ownCounterparty(LedgerScope personal, long counterpartyId) {
+        return jdbc.sql("SELECT EXISTS (SELECT FROM counterparty WHERE id = :id AND ledger_id = :ledgerId)")
+                .param("id", counterpartyId).param("ledgerId", personal.ledgerId())
+                .query(Boolean.class).single();
     }
 
     // --- Currencies (D-45, D-87; ADR 0004) ---
@@ -1111,13 +1188,13 @@ public class FamilyRecordService {
     }
 
     /** The paying side alone: it changes neither the record's version nor its journal (D-16). */
-    private void updateSide(LedgerScope family, long recordId, Side side) {
+    private void updateSide(LedgerScope family, long recordId, Side side, boolean refund) {
         jdbc.sql("""
                 UPDATE family_record
                 SET original_amount = :original, original_currency = :originalCurrency, base_rate = :rate,
                     base_rate_source = :source, base_rate_date = :rateDate
                 WHERE id = :recordId AND ledger_id = :ledgerId""")
-                .param("original", side.amount()).param("originalCurrency", side.currency())
+                .param("original", signed(side.amount(), refund)).param("originalCurrency", side.currency())
                 .param("rate", side.rate()).param("source", side.source()).param("rateDate", side.rateDate())
                 .param("recordId", recordId).param("ledgerId", family.ledgerId())
                 .update();
@@ -1306,6 +1383,11 @@ public class FamilyRecordService {
         if (!currency.equals(record.currency())) {
             journal.add(change("currency", null, record.currency(), currency));
         }
+    }
+
+    /** The amount as the database stores it: a refund's, an expense with a minus, is negative (D-79). */
+    private static BigDecimal signed(BigDecimal magnitude, boolean refund) {
+        return refund ? magnitude.negate() : magnitude;
     }
 
     private static BigDecimal inMinorUnits(BigDecimal amount, String currency) {
@@ -1633,8 +1715,9 @@ public class FamilyRecordService {
 
     /**
      * @param categoryId null for a settlement
-     * @param amount the record's amount, in {@code currency} (D-45)
-     * @param originalAmount the paying side, in {@code originalCurrency} (D-87)
+     * @param amount the record's amount, in {@code currency} (D-45), above 0: the stored amount of a refund is negative
+     *        and read as its magnitude, with {@code refund} (D-79)
+     * @param originalAmount the paying side, in {@code originalCurrency} (D-87), above 0 likewise
      * @param payeeId who received a settlement; null otherwise
      * @param splitMethod null for a settlement
      */
@@ -1642,7 +1725,7 @@ public class FamilyRecordService {
             String currency, String comment,
             long payerId, Long payeeId, String splitMethod, long authorId, Instant createdAt, long updatedById,
             Instant updatedAt, int version, BigDecimal originalAmount, String originalCurrency, BigDecimal rate,
-            String rateSource, LocalDate rateDate) {
+            String rateSource, LocalDate rateDate, boolean refund, Long importedById, Instant importedAt) {
     }
 
     private record ShareRow(long memberId, BigDecimal amount, Integer basisPoints, long updatedById,
@@ -1714,18 +1797,18 @@ public class FamilyRecordService {
                 .query(row -> {
                     shares.computeIfAbsent(row.getLong("record_id"), id -> new LinkedHashMap<>())
                             .put(row.getLong("member_id"), new ShareRow(row.getLong("member_id"),
-                                    row.getBigDecimal("amount"), row.getObject("share_bp", Integer.class),
+                                    row.getBigDecimal("amount").abs(), row.getObject("share_bp", Integer.class),
                                     row.getLong("updated_by_member_id"), row.getTimestamp("updated_at").toInstant()));
                 });
         return shares;
     }
 
-    private void insertShare(LedgerScope family, long recordId, Share share) {
+    private void insertShare(LedgerScope family, long recordId, Share share, boolean refund) {
         jdbc.sql("""
                 INSERT INTO family_share (ledger_id, record_id, member_id, amount, share_bp, updated_by_member_id)
                 VALUES (:ledgerId, :recordId, :memberId, :amount, :basisPoints, :by)""")
                 .param("ledgerId", family.ledgerId()).param("recordId", recordId).param("memberId", share.memberId())
-                .param("amount", share.amount()).param("basisPoints", share.basisPoints())
+                .param("amount", signed(share.amount(), refund)).param("basisPoints", share.basisPoints())
                 .param("by", family.memberId())
                 .update();
     }
@@ -1773,18 +1856,25 @@ public class FamilyRecordService {
                     row.version(), frozen, mayEdit && !frozen, mayEditPayment && !frozen, mayEditPayment && !frozen,
                     payment == null ? null : new FamilyRecordView.YourPayment(payment.entryId(), payment.accountId(),
                             payment.accountName(), payment.later(), inMinorUnits(payment.amount(), payment.currency()),
-                            payment.currency()),
-                    ref(members, row.payeeId()), lockedBy == null ? null : ref(members, lockedBy));
+                            payment.currency(), payment.counterpartyId(), payment.payeeId()),
+                    ref(members, row.payeeId()), lockedBy == null ? null : ref(members, lockedBy), row.refund(),
+                    ref(members, row.importedById()), row.importedAt());
         }).toList();
     }
 
-    private void journal(LedgerScope family, long recordId, String action, List<Map<String, Object>> changes) {
+    /**
+     * Writes a row of the record's journal, with the currency its amounts are in (D-93): the record's currency right
+     * after the change.
+     */
+    private void journal(LedgerScope family, long recordId, String action, String currency,
+            List<Map<String, Object>> changes) {
         try {
             jdbc.sql("""
-                    INSERT INTO family_record_change (ledger_id, record_id, changed_by_member_id, action, changes)
-                    VALUES (:ledgerId, :recordId, :memberId, :action, CAST(:changes AS jsonb))""")
+                    INSERT INTO family_record_change (ledger_id, record_id, changed_by_member_id, action, currency,
+                                                      changes)
+                    VALUES (:ledgerId, :recordId, :memberId, :action, :currency, CAST(:changes AS jsonb))""")
                     .param("ledgerId", family.ledgerId()).param("recordId", recordId)
-                    .param("memberId", family.memberId()).param("action", action)
+                    .param("memberId", family.memberId()).param("action", action).param("currency", currency)
                     .param("changes", json.writeValueAsString(changes))
                     .update();
         } catch (JsonProcessingException e) {
@@ -1807,21 +1897,34 @@ public class FamilyRecordService {
     /**
      * The stored changes, with members and categories named as they are now. A paying side's amount, which F4e's
      * journal stored as {@code originalAmount} (no change writes it since F8a), is its member's alone (D-88): only the
-     * member who made the change reads it.
+     * member who made the change reads it. The currencies of an amount's or a share's old and new value (D-93): the
+     * row's own currency, which is its record's right after the change, for the new value; for the old one the same,
+     * unless the row changes the currency, whose old value is the old amounts' currency.
+     *
+     * @param rowCurrency the currency the row stores; null for a system change
      */
     private List<Change> changes(String stored, Map<Long, Member> members, Map<Long, CategoryRef> categories,
-            boolean ownChange) {
+            boolean ownChange, String rowCurrency) {
         try {
             List<Change> changes = new ArrayList<>();
-            for (JsonNode change : json.readTree(stored)) {
+            JsonNode all = json.readTree(stored);
+            String before = rowCurrency;
+            for (JsonNode change : all) {
+                if (change.path("field").asText().equals("currency") && !change.path("old").isNull()) {
+                    before = change.path("old").asText();
+                }
+            }
+            for (JsonNode change : all) {
                 String field = change.path("field").asText();
                 if (field.equals("originalAmount") && !ownChange) {
                     continue;
                 }
                 JsonNode member = change.get("member");
+                boolean amounts = field.equals("amount") || field.equals("share");
+                String old = value(field, change.get("old"), members, categories);
+                String now = value(field, change.get("new"), members, categories);
                 changes.add(new Change(field, member == null || member.isNull() ? null : ref(members, member.asLong()),
-                        value(field, change.get("old"), members, categories),
-                        value(field, change.get("new"), members, categories)));
+                        old, now, amounts && old != null ? before : null, amounts && now != null ? rowCurrency : null));
             }
             return changes;
         } catch (JsonProcessingException e) {
@@ -1876,14 +1979,18 @@ public class FamilyRecordService {
     }
 
     private static RecordRow recordRow(ResultSet row, int n) throws SQLException {
+        BigDecimal stored = row.getBigDecimal("base_amount");
         return new RecordRow(row.getLong("id"), row.getString("type"), row.getObject("record_date", LocalDate.class),
-                row.getObject("category_id", Long.class), row.getBigDecimal("base_amount"), row.getString("currency"),
+                row.getObject("category_id", Long.class), stored.abs(), row.getString("currency"),
                 row.getString("comment"),
                 row.getLong("payer_member_id"), row.getObject("payee_member_id", Long.class),
                 row.getString("split_method"), row.getLong("author_member_id"),
                 row.getTimestamp("created_at").toInstant(), row.getLong("updated_by_member_id"),
-                row.getTimestamp("updated_at").toInstant(), row.getInt("version"), row.getBigDecimal("original_amount"),
+                row.getTimestamp("updated_at").toInstant(), row.getInt("version"),
+                row.getBigDecimal("original_amount").abs(),
                 row.getString("original_currency"), row.getBigDecimal("base_rate"), row.getString("base_rate_source"),
-                row.getObject("base_rate_date", LocalDate.class));
+                row.getObject("base_rate_date", LocalDate.class), stored.signum() < 0,
+                row.getObject("imported_by_member_id", Long.class),
+                row.getTimestamp("imported_at") == null ? null : row.getTimestamp("imported_at").toInstant());
     }
 }

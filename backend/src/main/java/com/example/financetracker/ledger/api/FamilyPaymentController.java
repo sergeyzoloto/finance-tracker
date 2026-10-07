@@ -51,6 +51,9 @@ class FamilyPaymentController {
         private BigDecimal accountAmount;
         @CurrencyCode
         private String accountCurrency;
+        private Long counterpartyId;
+        private Long payeeId;
+        private boolean changesPayee;
 
         public LocalDate getDate() {
             return date;
@@ -130,9 +133,29 @@ class FamilyPaymentController {
             this.accountCurrency = accountCurrency;
         }
 
+        /** The counterparty of the account's line, when the account requires one (D-80); with the account, or alone. */
+        public Long getCounterpartyId() {
+            return counterpartyId;
+        }
+
+        public void setCounterpartyId(Long counterpartyId) {
+            this.counterpartyId = counterpartyId;
+        }
+
+        /** Your payee, one of your own counterparties (D-81); null removes it. */
+        public Long getPayeeId() {
+            return payeeId;
+        }
+
+        public void setPayeeId(Long payeeId) {
+            this.payeeId = payeeId;
+            this.changesPayee = true;
+        }
+
         PaymentEdit edit() {
             return new PaymentEdit(date, amount, accountId, Boolean.TRUE.equals(later), changesMemo,
-                    memo == null || memo.isBlank() ? null : memo.strip(), currency, accountAmount, accountCurrency);
+                    memo == null || memo.isBlank() ? null : memo.strip(), currency, accountAmount, accountCurrency,
+                    counterpartyId, changesPayee, payeeId);
         }
     }
 

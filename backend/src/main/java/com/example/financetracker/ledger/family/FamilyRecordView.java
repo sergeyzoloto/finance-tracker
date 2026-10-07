@@ -15,7 +15,9 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  *
  * @param type EXPENSE (F4a), INCOME or SETTLEMENT (F4d)
  * @param category the family category; null for a settlement
- * @param amount in the record's own {@code currency}, with its minor unit's decimals (D-45)
+ * @param amount in the record's own {@code currency}, with its minor unit's decimals (D-45); always above 0: of a refund
+ *        it is what was refunded, and {@code refund} says so (D-79), as its shares are, whose amounts are of the same
+ *        kind
  * @param payer who paid an expense, received an income, or paid in a settlement
  * @param splitMethod EQUAL, PERCENT, AMOUNT or ONE_MEMBER; null for a settlement
  * @param shares by the members' join order; none for a settlement
@@ -34,6 +36,10 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  *        everyone else (F4c, additive); for an income, how its receiver received it; for a settlement, their own side, when they are its payer or receiver with an
  *        account (F4d)
  * @param payee who was paid in a settlement; left out for every other record (F4d, additive)
+ * @param refund whether the record is a refund, an expense with a minus (D-79, additive): it reduces its category in
+ *        reports and balances, and its shares are what each member gets back
+ * @param importedBy who imported it, when an import wrote it (D-48, additive); left out for a record entered in the app
+ * @param importedAt when the import wrote it last; left out with {@code importedBy}
  * @param lockedBy for a settlement, the other side, who has put their part on an account of theirs, so that its date
  *        and amount don't change and it isn't deleted until they move it back to "Specify later" (D-28, additive);
  *        only in the answers of who would otherwise change it, and left out for everyone else and every other record
@@ -43,7 +49,8 @@ public record FamilyRecordView(long id, String type, LocalDate date, CategoryRef
         MemberRef author, Instant createdAt, MemberRef updatedBy, Instant updatedAt, int version, boolean frozen,
         boolean canEdit, boolean canDelete, boolean canEditPayment,
         @JsonInclude(Include.NON_NULL) YourPayment yourPayment, @JsonInclude(Include.NON_NULL) MemberRef payee,
-        @JsonInclude(Include.NON_NULL) MemberRef lockedBy) {
+        @JsonInclude(Include.NON_NULL) MemberRef lockedBy, boolean refund,
+        @JsonInclude(Include.NON_NULL) MemberRef importedBy, @JsonInclude(Include.NON_NULL) Instant importedAt) {
 
     /**
      * The payer's own view of their payment (D-16): their payment entry in their personal ledger, and the account they
@@ -53,10 +60,14 @@ public record FamilyRecordView(long id, String type, LocalDate date, CategoryRef
      *
      * @param amount what went from or into the account or "Specify later", in {@code currency} (F4e): the original
      *        amount for the payer, the receiver and a settlement's recorder; for a settlement's other side the base
-     *        amount, or on an account in another currency the amount they named, which nobody else sees
+     *        amount, or on an account in another currency the amount they named, which nobody else sees; above 0
+     * @param counterpartyId the counterparty of the account's line, when the account requires one (D-80); left out
+     *        otherwise
+     * @param payeeId their payee on the entry (D-81); left out when there is none
      */
     public record YourPayment(long entryId, Long accountId, String accountName, boolean later, BigDecimal amount,
-            String currency) {
+            String currency, @JsonInclude(Include.NON_NULL) Long counterpartyId,
+            @JsonInclude(Include.NON_NULL) Long payeeId) {
     }
 
     /** A member as the others see them: "Former member" once they deleted their data (D-20). */

@@ -85,7 +85,8 @@ public class LedgerInvites {
      * invites, the seat's name and opening balance for a claim, and the family's categories. No member id, sub,
      * account or record.
      *
-     * @param today the holder's today ({@link Today}, D-100), a new member's join date
+     * @param today the holder's today ({@link Today}, D-100) but never before the family ledger's start date (D-104): a
+     *        new member's join date
      * @param seatBalances a claim's seat's family balance in each currency from the records before its join date,
      *        which the user takes on as an opening balance (D-18, D-34, D-45): positive when the seat owes the family;
      *        the main currency first, then each other currency of a record before it; null for a new member
@@ -161,12 +162,16 @@ public class LedgerInvites {
         return find(hash, " FOR UPDATE").orElseThrow(LedgerInvites::invalid);
     }
 
+    private static LocalDate max(LocalDate one, LocalDate other) {
+        return one.isBefore(other) ? other : one;
+    }
+
     /** What the invite shows before it is accepted. */
     public Preview preview(String userId, Invite invite) {
-        record Ledger(String name, String baseCurrency, String invitedBy, String seatName) {
+        record Ledger(String name, String baseCurrency, String invitedBy, String seatName, LocalDate startDate) {
         }
         Ledger ledger = jdbc.sql("""
-                SELECT l.name, l.base_currency, c.display_name AS invited_by, s.display_name AS seat_name
+                SELECT l.name, l.base_currency, c.display_name AS invited_by, s.display_name AS seat_name, l.start_date
                 FROM ledger l
                 JOIN ledger_member c ON c.ledger_id = l.id AND c.id = :creatorId
                 LEFT JOIN ledger_member s ON s.ledger_id = l.id AND s.id = :seatId
@@ -174,7 +179,8 @@ public class LedgerInvites {
                 .param("ledgerId", invite.ledgerId()).param("creatorId", invite.createdByMemberId())
                 .param("seatId", invite.seatMemberId())
                 .query((row, n) -> new Ledger(row.getString("name"), row.getString("base_currency"),
-                        row.getString("invited_by"), row.getString("seat_name")))
+                        row.getString("invited_by"), row.getString("seat_name"),
+                        row.getObject("start_date", LocalDate.class)))
                 .single();
         List<FamilyCategory> categories = jdbc.sql("""
                 SELECT code, name, type, archived_at IS NOT NULL AS archived FROM category
@@ -185,7 +191,10 @@ public class LedgerInvites {
                 .list();
         Map<String, BigDecimal> seatBalances = invite.claim()
                 ? balancesBefore(invite.ledgerId(), invite.seatMemberId(), invite.joinDate()) : null;
-        return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), today.date(userId),
+        // D-104: a member's join date is never before the start date, which a holder in a zone behind the owner's would
+        // otherwise get at the first hours of the budget's first day.
+        LocalDate joinDate = max(today.date(userId), ledger.startDate());
+        return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), joinDate,
                 categories, seatBalances);
     }
 
@@ -275,7 +284,7 @@ public class LedgerInvites {
             memberId = jdbc.sql("""
                     INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date,
                                                share_bp)
-                    SELECT id, 'SHARED', :userId, :name, 'MEMBER', 'ACTIVE', :today,
+                    SELECT id, 'SHARED', :userId, :name, 'MEMBER', 'ACTIVE', GREATEST(CAST(:today AS date), start_date),
                            CASE split_rule WHEN 'CUSTOM' THEN 0 END
                     FROM ledger WHERE id = :ledgerId
                     RETURNING id""")
@@ -305,7 +314,8 @@ public class LedgerInvites {
         }
         Long memberId = jdbc.sql("""
                 UPDATE ledger_member m
-                SET status = 'ACTIVE', left_date = NULL, join_date = :today, display_name = :name, role = 'MEMBER',
+                SET status = 'ACTIVE', left_date = NULL, display_name = :name, role = 'MEMBER',
+                    join_date = GREATEST(CAST(:today AS date), (SELECT start_date FROM ledger WHERE id = m.ledger_id)),
                     share_bp = (SELECT CASE split_rule WHEN 'CUSTOM' THEN 0 END FROM ledger WHERE id = m.ledger_id)
                 WHERE ledger_id = :ledgerId AND user_sub = :userId AND status = 'LEFT'
                 RETURNING id""")

@@ -75,11 +75,20 @@ class FamilyRecordController {
      * @param split how the amount is split; the family budget's rule if left out
      * @param privateNote if you paid: a note that only your payment entry in your personal ledger holds; no family
      *        answer and no journal names it (F4c, C2)
+     * @param refund true for a refund (F8d, D-79, additive): an expense with a minus, in the same category. {@code amount}
+     *        stays what was refunded, above 0; the record reduces its category and balances, is split by the same
+     *        rules, and the member named as its payer is who received the money back. Only an EXPENSE is refunded
+     * @param paymentCounterpartyId if you paid from an account that requires a counterparty (F8d, D-80, additive): the
+     *        counterparty of your personal ledger that its line names; required then, refused for any other account.
+     *        Private like the account
+     * @param payeeId if you paid or received: one of your own counterparties as the payee of your payment entry (F8d,
+     *        D-81, additive). It stays on your entry: no family answer and no journal names it
      */
     record NewRecord(RecordType type, @NotNull LocalDate date, @NotNull Long categoryId, @NotNull BigDecimal amount,
             @Size(max = 500) String comment, @NotNull Long payerMemberId, Long paymentAccountId, Boolean paymentLater,
             @Valid Split split, @Size(max = 500) String privateNote, @CurrencyCode String currency,
-            BigDecimal accountAmount, @CurrencyCode String accountCurrency) {
+            BigDecimal accountAmount, @CurrencyCode String accountCurrency, Boolean refund,
+            Long paymentCounterpartyId, Long payeeId) {
     }
 
     /** The types of record with a category and shares; a settlement is recorded through {@code /settlements}. */
@@ -165,6 +174,9 @@ class FamilyRecordController {
         private BigDecimal accountAmount;
         @CurrencyCode
         private String accountCurrency;
+        private Long paymentCounterpartyId;
+        private Long payeeId;
+        private boolean changesPayee;
 
         public Long getCategoryId() {
             return categoryId;
@@ -265,11 +277,34 @@ class FamilyRecordController {
             this.accountCurrency = accountCurrency;
         }
 
+        /**
+         * The counterparty of your own account's line, when it requires one (D-80): with the account, or alone for the
+         * account the payment is on.
+         */
+        public Long getPaymentCounterpartyId() {
+            return paymentCounterpartyId;
+        }
+
+        public void setPaymentCounterpartyId(Long paymentCounterpartyId) {
+            this.paymentCounterpartyId = paymentCounterpartyId;
+        }
+
+        /** Your payee, one of your own counterparties (D-81); null removes it. */
+        public Long getPayeeId() {
+            return payeeId;
+        }
+
+        public void setPayeeId(Long payeeId) {
+            this.payeeId = payeeId;
+            this.changesPayee = true;
+        }
+
         FamilyRecordChanges changes() {
             return new FamilyRecordChanges(categoryId, changesComment,
                     comment == null || comment.isBlank() ? null : comment.strip(),
                     split == null ? null : split.toSplit(), date, amount, payerMemberId, paymentAccountId,
-                    Boolean.TRUE.equals(paymentLater), false, null, currency, accountAmount, accountCurrency);
+                    Boolean.TRUE.equals(paymentLater), false, null, currency, accountAmount, accountCurrency,
+                    paymentCounterpartyId, changesPayee, payeeId);
         }
     }
 
@@ -306,7 +341,8 @@ class FamilyRecordController {
                 record.payerMemberId(), record.paymentAccountId(), Boolean.TRUE.equals(record.paymentLater()),
                 record.split() == null ? null : record.split().toSplit(),
                 record.privateNote() == null || record.privateNote().isBlank() ? null : record.privateNote().strip(),
-                record.currency(), record.accountAmount(), record.accountCurrency()));
+                record.currency(), record.accountAmount(), record.accountCurrency(),
+                Boolean.TRUE.equals(record.refund()), record.paymentCounterpartyId(), record.payeeId()));
     }
 
     /**

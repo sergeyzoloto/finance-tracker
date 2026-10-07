@@ -177,8 +177,9 @@ public class FamilyLedgerService {
     }
 
     /**
-     * Adds a member without an account (B1), who joins today. Under a CUSTOM split rule their share is 0 until an
-     * owner changes the rule; equal shares follow the members by themselves.
+     * Adds a member without an account (B1), who joins today, the owner's, but never before the family ledger's start
+     * date (D-104: a record dated on the start date names them either way). Under a CUSTOM split rule their share is 0
+     * until an owner changes the rule; equal shares follow the members by themselves.
      *
      * @param owner the ledger, as one of its owners
      * @throws ConflictException if a member who isn't FORMER has that name already, whatever its case
@@ -189,7 +190,9 @@ public class FamilyLedgerService {
         requireFreeName(owner, displayName, null);
         long memberId = jdbc.sql("""
                 INSERT INTO ledger_member (ledger_id, ledger_type, display_name, role, status, join_date, share_bp)
-                VALUES (:ledgerId, 'SHARED', :displayName, 'MEMBER', 'ACTIVE', :today, :share) RETURNING id""")
+                SELECT :ledgerId, 'SHARED', :displayName, 'MEMBER', 'ACTIVE', GREATEST(CAST(:today AS date), start_date),
+                       CAST(:share AS integer)
+                FROM ledger WHERE id = :ledgerId RETURNING id""")
                 .param("ledgerId", owner.ledgerId()).param("displayName", displayName).param("today", today.date(owner))
                 .param("share", rule == SplitRule.CUSTOM ? 0 : null)
                 .query(Long.class).single();

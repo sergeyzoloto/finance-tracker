@@ -1217,6 +1217,191 @@ class LedgerSchemaTests {
         return hash;
     }
 
+    /**
+     * V13 (F8d): a refund, an expense with a minus (D-79), is stored negative in its amount, its paying side and its
+     * shares, and nothing else is: an income and a settlement stay above 0, an amount is never 0, the paying side has
+     * the amount's sign, and no share has the other sign (checked at commit, with the sum).
+     */
+    @Test
+    void aRefundIsNegativeInItsAmountItsPayingSideAndItsShares() throws SQLException {
+        long family = sharedLedger();
+        long anna = member(family, "SHARED", user, "OWNER", "Anna", null);
+        long expenses = familyCategory(family, "GROCERIES", "EXPENSE");
+        long incomes = familyCategory(family, "SALARY", "INCOME");
+        db.commit();
+        String sql = """
+                INSERT INTO family_record (ledger_id, type, record_date, category_id, payer_member_id, original_amount,
+                    original_currency, base_amount, currency, split_method, author_member_id, updated_by_member_id)
+                VALUES (?, ?, current_date, ?, ?, ?, 'EUR', ?, 'EUR', 'EQUAL', ?, ?)""";
+        BigDecimal minus = new BigDecimal("-10.00");
+        BigDecimal ten = new BigDecimal("10.00");
+
+        long refund = insert(sql, family, "EXPENSE", expenses, anna, minus, minus, anna, anna);
+        share(family, refund, anna, "-10.00", anna);
+        db.commit();
+        // An income with a minus, an amount of 0, a paying side of the other sign: none.
+        assertFails(() -> insert(sql, family, "INCOME", incomes, anna, minus, minus, anna, anna), CHECK_VIOLATION,
+                "family_record_amount_sign_check");
+        db.rollback();
+        assertFails(() -> insert(sql, family, "EXPENSE", expenses, anna, BigDecimal.ZERO, BigDecimal.ZERO, anna, anna),
+                CHECK_VIOLATION, "family_record_amount_sign_check");
+        db.rollback();
+        // (Its own currency's trigger reads the paying side as the amount first.)
+        assertFails(() -> insert(sql, family, "EXPENSE", expenses, anna, ten, minus, anna, anna), CHECK_VIOLATION,
+                "the paying side is the amount");
+        db.rollback();
+        // A share of the other sign, though the shares add up to the amount: 15 and −5 are −10 less than the refund's.
+        long bea = member(family, "SHARED", null, "MEMBER", "Bea", null);
+        db.commit();
+        long odd = insert(sql, family, "EXPENSE", expenses, anna, minus, minus, anna, anna);
+        share(family, odd, anna, "-15.00", anna);
+        share(family, odd, bea, "5.00", anna);
+        assertFails(db::commit, CHECK_VIOLATION, "a share has the other sign than the amount");
+        db.rollback();
+        // An expense's share can't be negative either: the shares 12 and −2 add up to 10.
+        long positive = insert(sql, family, "EXPENSE", expenses, anna, ten, ten, anna, anna);
+        share(family, positive, anna, "12.00", anna);
+        share(family, positive, bea, "-2.00", anna);
+        assertFails(db::commit, CHECK_VIOLATION, "a share has the other sign than the amount");
+        db.rollback();
+        // A record's own sum is still checked.
+        long short_ = insert(sql, family, "EXPENSE", expenses, anna, minus, minus, anna, anna);
+        share(family, short_, anna, "-9.00", anna);
+        assertFails(db::commit, CHECK_VIOLATION, "the shares sum to -9.00");
+        db.rollback();
+        // A settlement is above 0 and has no refund.
+        assertFails(() -> insert("""
+                INSERT INTO family_record (ledger_id, type, record_date, payer_member_id, payee_member_id,
+                    original_amount, original_currency, base_amount, currency, author_member_id, updated_by_member_id)
+                VALUES (?, 'SETTLEMENT', current_date, ?, ?, ?, 'EUR', ?, 'EUR', ?, ?)""", family, anna, bea, minus,
+                minus, anna, anna), CHECK_VIOLATION, "family_record_amount_sign_check");
+        db.rollback();
+    }
+
+    /**
+     * V13 (F8d, D-80): the payer's own account of a payment may require a counterparty, which only that line carries.
+     * V8's guard refused such an account and any counterparty on a posted line.
+     */
+    @Test
+    void thePayersOwnLineMayCarryACounterpartyAndNoOtherLineMay() throws SQLException {
+        long family = sharedLedger();
+        long anna = member(family, "SHARED", user, "OWNER", "Anna", null);
+        long groceriesOfFamily = familyCategory(family, "GROCERIES", "EXPENSE");
+        long record = record(family, "current_date", groceriesOfFamily, anna, "10.00");
+        share(family, record, anna, "10.00", anna);
+        long ledger = personalLedger(user);
+        db.commit();
+        String debtAccount = "INSERT INTO account (user_id, ledger_id, code, name, type, is_system, family_ledger_id) "
+                + "VALUES (?, ?, ?, 'Debt to family budget: Family', 'LIABILITY', TRUE, ?)";
+
+        writer("family-posting");
+        number("SELECT length(set_config('app.own_ledger', ?, true))", String.valueOf(ledger));
+        long debt = insert(debtAccount, user, ledger, "FAMILY_DEBT_" + family, family);
+        long payment = familyEntry("FAMILY_PAYMENT");
+        post(payment, loans, "EUR", "-10.00", null, borrower);
+        post(payment, debt, "EUR", "10.00");
+        insert("INSERT INTO family_entry_link (entry_id, family_ledger_id, member_id, record_id, link_type, "
+                + "system_owned) VALUES (?, ?, ?, ?, 'PAYMENT', FALSE)", payment, family, anna, record);
+        writer("");
+        db.commit();
+        assertThat(strings("SELECT count(*) FROM posting WHERE entry_id = ? AND counterparty_id IS NOT NULL", payment))
+                .containsExactly("1");
+
+        // The account that requires one still needs it, and the debt account takes none.
+        writer("family-posting");
+        number("SELECT length(set_config('app.own_ledger', ?, true))", String.valueOf(ledger));
+        long withoutOne = familyEntry("FAMILY_PAYMENT");
+        assertFails(() -> post(withoutOne, loans, "EUR", "-10.00"), CHECK_VIOLATION, "account LOANS_ASSET requires a counterparty");
+        db.rollback();
+        writer("family-posting");
+        number("SELECT length(set_config('app.own_ledger', ?, true))", String.valueOf(ledger));
+        long onDebt = familyEntry("FAMILY_PAYMENT");
+        assertFails(() -> post(onDebt, familyDebtOf(family, ledger), "EUR", "10.00", null, borrower), CHECK_VIOLATION,
+                "the family posting may not post FAMILY_PAYMENT to account");
+        db.rollback();
+        writer("family-posting");
+        number("SELECT length(set_config('app.own_ledger', ?, true))", String.valueOf(ledger));
+        long onUnallocated = familyEntry("FAMILY_SHARE");
+        assertFails(() -> post(onUnallocated, unallocated, "EUR", "10.00", groceriesOfFamily, borrower),
+                CHECK_VIOLATION, "the family posting may not post FAMILY_SHARE to account UNALLOCATED");
+        db.rollback();
+        // The ledger of the caller is still the condition for the payer's own account, a counterparty or not.
+        writer("family-posting");
+        long notOwn = familyEntry("FAMILY_PAYMENT");
+        assertFails(() -> post(notOwn, loans, "EUR", "-10.00", null, borrower), CHECK_VIOLATION,
+                "the family posting may not post FAMILY_PAYMENT to account LOANS_ASSET");
+        db.rollback();
+    }
+
+    private long familyDebtOf(long family, long ledger) throws SQLException {
+        return number("SELECT id FROM account WHERE ledger_id = ? AND family_ledger_id = ?", ledger, family);
+    }
+
+    /**
+     * V13 (F8d, D-93, D-48): a row of a record's journal has a currency, and a system change none; and a record imported
+     * has its reference, hash, version and importer all together, a reference once per family ledger.
+     */
+    @Test
+    void theJournalHasACurrencyAndTheImportsSyncFieldsGoTogether() throws SQLException {
+        long family = sharedLedger();
+        long anna = member(family, "SHARED", user, "OWNER", "Anna", null);
+        long groceriesOfFamily = familyCategory(family, "GROCERIES", "EXPENSE");
+        long record = record(family, "current_date", groceriesOfFamily, anna, "10.00");
+        share(family, record, anna, "10.00", anna);
+        db.commit();
+
+        // A row of V12's code, with no currency, gets the record's.
+        journal(family, record, anna, "CREATE", "[]");
+        db.commit();
+        assertThat(strings("SELECT currency FROM family_record_change WHERE record_id = ?", record))
+                .containsExactly("EUR");
+        // One of the new code names it; a record's row can't have none, and a system change can't have one.
+        update("INSERT INTO family_record_change (ledger_id, record_id, changed_by_member_id, action, currency, changes) "
+                + "VALUES (?, ?, ?, 'UPDATE', 'USD', '[]'::jsonb)", family, record, anna);
+        assertFails(() -> update("INSERT INTO family_record_change (ledger_id, about_member_id, action, currency, "
+                + "changes) VALUES (?, ?, 'SPLIT_RULE_RESET', 'EUR', '[]'::jsonb)", family, anna), CHECK_VIOLATION,
+                "family_record_change_has_currency_check");
+        db.rollback();
+        assertFails(() -> update("INSERT INTO family_record_change (ledger_id, record_id, changed_by_member_id, "
+                + "action, currency, changes) VALUES (?, ?, ?, 'UPDATE', 'eur', '[]'::jsonb)", family, record, anna),
+                CHECK_VIOLATION, "family_record_change_currency_check");
+        db.rollback();
+
+        String hash = "a".repeat(64);
+        String stamp = "UPDATE family_record SET external_ref = ?, content_hash = ?, imported_version = version, "
+                + "imported_by_member_id = ?, imported_at = now() WHERE id = ?";
+        update(stamp, "xls:export:17", hash, anna, record);
+        db.commit();
+        assertFails(() -> update("UPDATE family_record SET imported_at = NULL WHERE id = ?", record),
+                CHECK_VIOLATION, "family_record_import_fields_check");
+        db.rollback();
+        assertFails(() -> update("UPDATE family_record SET content_hash = 'ABC' WHERE id = ?", record),
+                CHECK_VIOLATION, "family_record_content_hash_check");
+        db.rollback();
+        // One reference once per family ledger, deleted records included; another family ledger may reuse it.
+        long second = record(family, "current_date", groceriesOfFamily, anna, "5.00");
+        share(family, second, anna, "5.00", anna);
+        db.commit();
+        assertFails(() -> update(stamp, "xls:export:17", hash, anna, second), "23505", "family_record_external_ref_key");
+        db.rollback();
+        update("UPDATE family_record SET deleted_at = now(), deleted_by_member_id = ? WHERE id = ?", anna, record);
+        db.commit();
+        assertFails(() -> update(stamp, "xls:export:17", hash, anna, second), "23505", "family_record_external_ref_key");
+        db.rollback();
+        long other = sharedLedger();
+        long bea = member(other, "SHARED", null, "MEMBER", "Bea", null);
+        long otherCategory = familyCategory(other, "GROCERIES", "EXPENSE");
+        long third = record(other, "current_date", otherCategory, bea, "5.00");
+        share(other, third, bea, "5.00", bea);
+        update(stamp, "xls:export:17", hash, bea, third);
+        db.commit();
+        assertThat(strings("SELECT count(*) FROM family_record WHERE external_ref = 'xls:export:17'"))
+                .containsExactly("2");
+        // Other tests of this class read the journal as a whole.
+        update("DELETE FROM family_record_change WHERE ledger_id IN (?, ?)", family, other);
+        db.commit();
+    }
+
     private static void assertFails(ThrowingCallable call, String sqlState, String message) {
         assertThatThrownBy(call)
                 .isInstanceOfSatisfying(SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo(sqlState))

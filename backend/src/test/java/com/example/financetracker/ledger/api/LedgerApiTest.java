@@ -345,6 +345,8 @@ abstract class LedgerApiTest extends IntegrationTest {
                             (a, b) -> new BigDecimal(a).add(new BigDecimal(b)).stripTrailingZeros().toPlainString());
                 }
             }
+            // A category refunded in full (D-79) has a line of 0 in the cash flow and none in the shares.
+            cashFlow.values().removeIf(total -> new BigDecimal(total).signum() == 0);
             assertThat(cashFlow).as("E3 (D-40): the family's lines of the personal cash flow of member " + me)
                     .isEqualTo(expected);
         }

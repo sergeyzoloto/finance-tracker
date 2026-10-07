@@ -217,7 +217,9 @@ class UserTimeZoneApiTests extends FamilyApiTest {
         assertThat(joined.get("id").asLong()).isEqualTo(family);
         JsonNode members = ok(get(alice, uri + "/members"));
         assertThat(find(members, "displayName", "Mum").get("joinDate").asText()).isEqualTo("2026-10-07");
-        assertThat(find(members, "displayName", "Bob").get("joinDate").asText()).isEqualTo("2026-10-06");
+        // D-104: Bob's own today, in Los Angeles, is the 6th, a day before the budget's start date, and a join date is
+        // never before it.
+        assertThat(find(members, "displayName", "Bob").get("joinDate").asText()).isEqualTo("2026-10-07");
 
         long groceries = find(ok(get(alice, uri + "/categories")), "code", "GROCERIES").get("id").asLong();
         long bobsId = find(members, "displayName", "Bob").get("id").asLong();
@@ -247,6 +249,62 @@ class UserTimeZoneApiTests extends FamilyApiTest {
         JsonNode after = ok(get(alice, uri + "/members"));
         assertThat(find(after, "id", String.valueOf(carolId)).get("leftDate").asText()).isEqualTo("2026-10-07");
         assertThat(find(after, "id", String.valueOf(bobsId)).get("leftDate").asText()).isEqualTo("2026-10-06");
+    }
+
+    /**
+     * D-104: a member's join date is never before the family budget's start date, whoever adds them and whichever way
+     * they come in. The budget starts on the 7th, the day of its owner at UTC+14; at 03:00 UTC an owner in Los Angeles is
+     * still on the 6th: a member they add, a new member's invite's lookup and acceptance, and a member's return all
+     * say the 7th, never the 6th.
+     */
+    @Test
+    void aJoinDateIsNeverBeforeTheStartDate() throws IOException {
+        String alice = newUser();
+        String bob = newUser();
+        String carol = newUser();
+        ok(get(bob, "/api/accounts"));
+        ok(get(carol, "/api/accounts"));
+        setZone(alice, PLUS_14);
+        setZone(bob, LOS_ANGELES);
+        setZone(carol, LOS_ANGELES);
+        at("2026-10-07T03:00:00Z");
+        JsonNode created = newFamily(alice, familyRequest(alice, ""));
+        long family = created.get("id").asLong();
+        String uri = "/api/family-ledgers/" + family;
+        assertThat(created.get("startDate").asText()).isEqualTo("2026-10-07");
+
+        // Bob comes in on the 6th of his own, and is clamped; he is made an owner and adds a member of his own 6th.
+        JsonNode bobsLookup = ok(inviteCall(bob, "lookup", token(inviteTo(alice, uri, "{\"kind\": \"NEW_MEMBER\"}"),
+                null)));
+        assertThat(bobsLookup.get("joinDate").asText()).isEqualTo("2026-10-07");
+        String bobsToken = inviteTo(alice, uri, "{\"kind\": \"NEW_MEMBER\"}");
+        accept(bob, bobsToken, "Bob");
+        long bobsId = find(ok(get(alice, uri + "/members")), "displayName", "Bob").get("id").asLong();
+        assertThat(find(ok(get(alice, uri + "/members")), "displayName", "Bob").get("joinDate").asText())
+                .isEqualTo("2026-10-07");
+        assertThat(post(alice, uri + "/members/%d/owner".formatted(bobsId), "{}")).hasStatus(HttpStatus.OK);
+        JsonNode sam = body(post(bob, uri + "/members", "{\"displayName\": \"Sam\"}"), HttpStatus.CREATED);
+        assertThat(sam.get("joinDate").asText()).as("a member added on Bob's 6th").isEqualTo("2026-10-07");
+
+        // Carol joins and leaves, and her return, on her own 6th, is the 7th too.
+        accept(carol, inviteTo(alice, uri, "{\"kind\": \"NEW_MEMBER\"}"), "Carol");
+        assertThat(delete(carol, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+        String back = inviteTo(alice, uri, "{\"kind\": \"NEW_MEMBER\"}");
+        JsonNode lookup = ok(inviteCall(carol, "lookup", token(back, null)));
+        assertThat(lookup.get("returning").asBoolean()).isTrue();
+        assertThat(lookup.get("joinDate").asText()).isEqualTo("2026-10-07");
+        accept(carol, back, "Carol");
+        assertThat(find(ok(get(alice, uri + "/members")), "displayName", "Carol").get("joinDate").asText())
+                .isEqualTo("2026-10-07");
+
+        // From the 7th of Bob's own clock nothing is clamped: an hour later, on the 7th in Los Angeles too, a member
+        // joins on that day, as before.
+        at("2026-10-07T20:00:00Z");
+        assertThat(body(post(bob, uri + "/members", "{\"displayName\": \"Pat\"}"), HttpStatus.CREATED)
+                .get("joinDate").asText()).isEqualTo("2026-10-07");
+        at("2026-10-08T20:00:00Z");
+        assertThat(body(post(bob, uri + "/members", "{\"displayName\": \"Lee\"}"), HttpStatus.CREATED)
+                .get("joinDate").asText()).isEqualTo("2026-10-08");
     }
 
     /** At 23:30 UTC on 31 October, a reader in Amsterdam is in November, and one in Los Angeles in October. */

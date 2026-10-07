@@ -22,14 +22,31 @@ import java.time.LocalDate;
  *        record's (D-87, D-89); null otherwise
  * @param accountCurrency the paying currency, what the payer's account paid or received in (D-89, F8b); null for the
  *        account's default currency, else the record's
+ * @param refund an expense with a minus (D-79): {@code amount} is what is refunded, above 0, and the record is stored
+ *        and posted negative, so that it reduces its category and is split by the same shares; only for an EXPENSE. Its
+ *        "payer" is who received the money back
+ * @param paymentCounterpartyId for a payer who paid from an account that requires a counterparty (D-80), such as one
+ *        for credit: the counterparty of their personal ledger the account's line names; required then, and null
+ *        otherwise. Private, as the account is
+ * @param payeeId for a payer with an account, their own counterparty as the payee of their payment (D-81): it stays on
+ *        their payment entry, and no family answer names it; or null
  */
 public record NewFamilyRecord(String type, LocalDate date, long categoryId, BigDecimal amount, String comment,
         long payerMemberId, Long paymentAccountId, boolean paymentLater, RecordSplit split, String privateNote,
-        String currency, BigDecimal accountAmount, String accountCurrency) {
+        String currency, BigDecimal accountAmount, String accountCurrency, boolean refund,
+        Long paymentCounterpartyId, Long payeeId) {
 
     public NewFamilyRecord {
         if (!type.equals("EXPENSE") && !type.equals("INCOME")) {
             throw new IllegalArgumentException("A family record with shares is an EXPENSE or an INCOME, not " + type);
         }
+    }
+
+    /** An expense or income that is no refund, with no counterparty and no payee. */
+    public NewFamilyRecord(String type, LocalDate date, long categoryId, BigDecimal amount, String comment,
+            long payerMemberId, Long paymentAccountId, boolean paymentLater, RecordSplit split, String privateNote,
+            String currency, BigDecimal accountAmount, String accountCurrency) {
+        this(type, date, categoryId, amount, comment, payerMemberId, paymentAccountId, paymentLater, split,
+                privateNote, currency, accountAmount, accountCurrency, false, null, null);
     }
 }

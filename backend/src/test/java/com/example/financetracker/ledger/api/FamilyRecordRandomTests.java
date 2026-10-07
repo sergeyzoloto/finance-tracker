@@ -37,6 +37,8 @@ class FamilyRecordRandomTests extends LedgerApiTest {
     private static final int OPERATIONS = 240;
 
     private final Random random = new Random(SEED);
+    /** A sequence of its own for the refunds, so that adding them left the seed's other operations as they were. */
+    private final Random refunds = new Random(SEED + 1);
     private final String alice = newUser();
     private final String bob = newUser();
 
@@ -115,17 +117,22 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 String payment = payer == kid ? "" : payment(accounts.get(actor), currency) + ",";
                 BigDecimal amount = BigDecimal.valueOf(1 + random.nextInt(50_000), 2);
                 String type = random.nextInt(4) == 0 ? "INCOME" : "EXPENSE";
+                // One expense in five is a refund (F8d, D-79): an expense with a minus, the same invariants.
+                boolean refund = type.equals("EXPENSE") && refunds.nextInt(5) == 0;
                 String split = split(members, amount);
                 JsonNode record = body(post(actor, uri + "/records", """
                         {"type": "%s", "date": "%s", "categoryId": %d, "amount": "%s", "currency": "%s", %s
-                         "payerMemberId": %d, "split": %s}""".formatted(type,
+                         "payerMemberId": %d, "split": %s, "refund": %b}""".formatted(type,
                                 LocalDate.of(2026, 9, 1).plusDays(random.nextInt(30)), pick(categories.get(type)),
-                                amount, currency, payment, payer, split)),
+                                amount, currency, payment, payer, split, refund)),
                         HttpStatus.CREATED);
                 live.put(record.get("id").asLong(), new Live(record.get("id").asLong(), type, actor, payer, 0,
                         currency));
                 counted(done, currency, payment);
                 done.merge(type.equals("INCOME") ? "income" : "create", 1, Integer::sum);
+                if (refund) {
+                    done.merge("refund", 1, Integer::sum);
+                }
             } else if (choice < 55 || choice < 85 && choice >= 78 && settlements.isEmpty()) {
                 // The actor pays or receives, with one of the other two members.
                 long own = self.get(actor);
@@ -270,7 +277,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 Map.entry("income", 28), Map.entry("change", 36), Map.entry("payment", 20), Map.entry("delete", 31),
                 Map.entry("split rule", 6), Map.entry("settle", 25), Map.entry("settlement change", 13),
                 Map.entry("settlement delete", 5), Map.entry("locked", 6), Map.entry("in USD", 30),
-                Map.entry("in RUB", 17), Map.entry("from another currency", 36)));
+                Map.entry("in RUB", 17), Map.entry("from another currency", 36), Map.entry("refund", 17)));
         assertThat(live).hasSize(67);
         assertThat(live.values()).extracting(Live::currency).contains("EUR", "USD", "RUB");
         assertThat(live.values()).filteredOn(record -> record.type().equals("INCOME")).isNotEmpty();

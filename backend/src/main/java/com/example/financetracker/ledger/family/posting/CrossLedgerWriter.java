@@ -299,9 +299,11 @@ class CrossLedgerWriter {
         }
         List<LocalDate> dates = new ArrayList<>();
         List<String> memos = new ArrayList<>();
+        List<Long> payees = new ArrayList<>();
         List<Line> lines = new ArrayList<>();
         jdbc.sql("""
-                SELECT e.entry_date, e.memo, p.account_id, p.currency, p.amount, p.category_id
+                SELECT e.entry_date, e.memo, e.payee_id, p.account_id, p.currency, p.amount, p.category_id,
+                       p.counterparty_id
                 FROM family_entry_link l
                 JOIN journal_entry e ON e.id = l.entry_id
                 JOIN posting p ON p.entry_id = e.id
@@ -311,17 +313,22 @@ class CrossLedgerWriter {
                 .query(row -> {
                     dates.add(row.getObject("entry_date", LocalDate.class));
                     memos.add(row.getString("memo"));
+                    payees.add(row.getObject("payee_id", Long.class));
                     lines.add(new Line(row.getLong("account_id"), row.getString("currency"),
-                            row.getBigDecimal("amount"), row.getObject("category_id", Long.class)));
+                            row.getBigDecimal("amount"), row.getObject("category_id", Long.class),
+                            row.getObject("counterparty_id", Long.class)));
                 });
-        return !dates.isEmpty() && wanted.sameAs(dates.getFirst(), memos.getFirst(), link.systemOwned(), lines);
+        return !dates.isEmpty()
+                && wanted.sameAs(dates.getFirst(), memos.getFirst(), payees.getFirst(), link.systemOwned(), lines);
     }
 
     /**
      * A payment's side of the payer: the account it is paid from, or "Payments without a specified account", the
-     * payer's note on it, and the amount on that account in its currency (above 0; F4e).
+     * payer's note on it, the amount on that account in its currency (above 0; F4e), and, as the payer's own,
+     * the counterparty of the account's line (D-80, when the account requires one) and the payee (D-81).
      */
-    record PaymentSide(Long accountId, boolean later, String memo, BigDecimal amount, String currency) {
+    record PaymentSide(Long accountId, boolean later, String memo, BigDecimal amount, String currency,
+            Long counterpartyId, Long payeeId) {
     }
 
     /**
@@ -333,7 +340,8 @@ class CrossLedgerWriter {
             throw new IllegalStateException("Link %d is not a payment's".formatted(link.id()));
         }
         return jdbc.sql("""
-                SELECT a.id, a.code = :placeholder AND a.is_system AS later, e.memo, abs(p.amount) AS amount, p.currency
+                SELECT a.id, a.code = :placeholder AND a.is_system AS later, e.memo, abs(p.amount) AS amount, p.currency,
+                       p.counterparty_id, e.payee_id
                 FROM family_entry_link l
                 JOIN journal_entry e ON e.id = l.entry_id
                 JOIN posting p ON p.entry_id = e.id
@@ -343,7 +351,8 @@ class CrossLedgerWriter {
                 .param("placeholder", PLACEHOLDER_CODE).param("fx", FX_CODE).param("linkId", link.id())
                 .param("familyId", family.ledgerId())
                 .query((row, n) -> new PaymentSide(row.getLong("id"), row.getBoolean("later"), row.getString("memo"),
-                        row.getBigDecimal("amount"), row.getString("currency")))
+                        row.getBigDecimal("amount"), row.getString("currency"),
+                        row.getObject("counterparty_id", Long.class), row.getObject("payee_id", Long.class)))
                 .single();
     }
 
@@ -353,10 +362,10 @@ class CrossLedgerWriter {
         check(family, entry, member);
         asWriter(family, ownLedger(family, entry, member), () -> {
             long entryId = jdbc.sql("""
-                    INSERT INTO journal_entry (user_id, ledger_id, entry_date, kind, memo)
-                    VALUES (:sub, :ledgerId, :date, :kind, :memo) RETURNING id""")
+                    INSERT INTO journal_entry (user_id, ledger_id, entry_date, kind, memo, payee_id)
+                    VALUES (:sub, :ledgerId, :date, :kind, :memo, :payeeId) RETURNING id""")
                     .param("sub", member.sub()).param("ledgerId", member.ledgerId()).param("date", entry.date())
-                    .param("kind", entry.kind().name()).param("memo", entry.memo())
+                    .param("kind", entry.kind().name()).param("memo", entry.memo()).param("payeeId", entry.payeeId())
                     .query(Long.class).single();
             insertLines(family, entryId, entry);
             return jdbc.sql("""
@@ -383,9 +392,11 @@ class CrossLedgerWriter {
         check(family, entry, member);
         asWriter(family, ownLedger(family, entry, member), () -> {
             jdbc.sql("""
-                    UPDATE journal_entry SET entry_date = :date, memo = :memo, version = version + 1, updated_at = now()
+                    UPDATE journal_entry SET entry_date = :date, memo = :memo, payee_id = :payeeId,
+                        version = version + 1, updated_at = now()
                     WHERE id = :entryId AND ledger_id = :ledgerId""")
-                    .param("date", entry.date()).param("memo", entry.memo()).param("entryId", link.entryId())
+                    .param("date", entry.date()).param("memo", entry.memo()).param("payeeId", entry.payeeId())
+                    .param("entryId", link.entryId())
                     .param("ledgerId", member.ledgerId())
                     .update();
             if (link.systemOwned() != entry.systemOwned()) {
@@ -516,19 +527,20 @@ class CrossLedgerWriter {
         for (int i = 0; i < entry.lines().size(); i++) {
             Line line = entry.lines().get(i);
             jdbc.sql("""
-                    INSERT INTO posting (entry_id, line_no, account_id, currency, amount, category_id)
-                    VALUES (:entryId, :lineNo, :accountId, :currency, :amount, :categoryId)""")
+                    INSERT INTO posting (entry_id, line_no, account_id, currency, amount, category_id, counterparty_id)
+                    VALUES (:entryId, :lineNo, :accountId, :currency, :amount, :categoryId, :counterpartyId)""")
                     .param("entryId", entryId).param("lineNo", i).param("accountId", line.accountId())
                     .param("currency", line.currency()).param("amount", line.amount())
-                    .param("categoryId", line.categoryId())
+                    .param("categoryId", line.categoryId()).param("counterpartyId", line.counterpartyId())
                     .update();
         }
     }
 
     /**
      * Refuses an entry that D-8 doesn't allow: every line on one of the member's allowed accounts for the entry's link,
-     * the kind that belongs to the link, a record of this family ledger, a posting to the debt account, and a memo only
-     * on the payment of the member who acts: their own private note (F4c).
+     * the kind that belongs to the link, a record of this family ledger, a posting to the debt account, and a memo or a
+     * payee (D-81) only on the payment of the member who acts: their own private note and their own counterparty
+     * (F4c). A counterparty goes only on the line of the payer's own account, which requires one (D-80).
      *
      * @throws IllegalStateException naming the first line it refuses: a bug, never a user's mistake
      */
@@ -546,6 +558,10 @@ class CrossLedgerWriter {
         if (entry.memo() != null && (entry.link() != LinkType.PAYMENT || entry.memberId() != family.memberId())) {
             throw refused(entry, "only the payer's own payment takes a note, their own");
         }
+        if (entry.payeeId() != null && (entry.link() != LinkType.PAYMENT || entry.memberId() != family.memberId()
+                || !counterpartyOf(member.ledgerId(), entry.payeeId()))) {
+            throw refused(entry, "only the payer's own payment takes a payee, one of their own counterparties");
+        }
         if (entry.recordId() != null && !jdbc.sql("""
                 SELECT EXISTS (SELECT FROM family_record WHERE id = :recordId AND ledger_id = :familyId)""")
                 .param("recordId", entry.recordId()).param("familyId", family.ledgerId())
@@ -559,9 +575,15 @@ class CrossLedgerWriter {
                     : "only a payment with the payer's own account is not the family budget's");
         }
         boolean debt = false;
+        Optional<Long> ownLine = ownAccountLine(family, entry, member);
         for (Line line : entry.lines()) {
             long account = line.accountId();
             boolean allowed;
+            if (line.counterpartyId() != null && !(ownLine.filter(id -> id == account).isPresent()
+                    && counterpartyOf(member.ledgerId(), line.counterpartyId()))) {
+                throw refused(entry, "a counterparty goes only on the line of the payer's own account, and is one of "
+                        + "theirs");
+            }
             if (Long.valueOf(account).equals(member.debt())) {
                 allowed = line.categoryId() == null;
                 debt = true;
@@ -592,8 +614,8 @@ class CrossLedgerWriter {
 
     /**
      * The payer's own account in a payment, if the payer is the member who acts (D-14) and the account is one they
-     * pay with: an ASSET or LIABILITY of their personal ledger that isn't a debt account or the placeholder and doesn't
-     * need a counterparty.
+     * pay with: an ASSET or LIABILITY of their personal ledger that isn't a debt account or the placeholder. One that
+     * requires a counterparty (D-80) pays only an expense, as its own payment; the line then names one.
      */
     private Optional<Long> ownAccountLine(LedgerScope family, PostedEntry entry, MemberLedger member) {
         if (!PAYMENTS.contains(entry.link()) || entry.memberId() != family.memberId()) {
@@ -608,14 +630,32 @@ class CrossLedgerWriter {
             boolean payable = jdbc.sql("""
                     SELECT EXISTS (SELECT FROM account
                                    WHERE id = :accountId AND ledger_id = :ledgerId AND type IN ('ASSET', 'LIABILITY')
-                                     AND family_ledger_id IS NULL AND NOT requires_counterparty
-                                     AND code <> :placeholder)""")
+                                     AND family_ledger_id IS NULL AND code <> :placeholder
+                                     AND (NOT requires_counterparty OR :counterpartyAllowed AND :counterparty))""")
                     .param("accountId", line.accountId()).param("ledgerId", member.ledgerId())
                     .param("placeholder", PLACEHOLDER_CODE)
+                    .param("counterpartyAllowed", counterpartyAllowed(family, entry))
+                    .param("counterparty", line.counterpartyId() != null)
                     .query(Boolean.class).single();
             return payable ? Optional.of(line.accountId()) : Optional.empty();
         }
         return Optional.empty();
+    }
+
+    /** Whether the entry may have a counterparty on its own account's line: the payment of an expense (D-80). */
+    private boolean counterpartyAllowed(LedgerScope family, PostedEntry entry) {
+        return entry.link() == LinkType.PAYMENT && entry.recordId() != null && jdbc.sql("""
+                SELECT EXISTS (SELECT FROM family_record
+                               WHERE id = :recordId AND ledger_id = :familyId AND type = 'EXPENSE')""")
+                .param("recordId", entry.recordId()).param("familyId", family.ledgerId())
+                .query(Boolean.class).single();
+    }
+
+    /** Whether the counterparty is one of the personal ledger's. */
+    private boolean counterpartyOf(long personalLedgerId, long counterpartyId) {
+        return jdbc.sql("SELECT EXISTS (SELECT FROM counterparty WHERE id = :id AND ledger_id = :ledgerId)")
+                .param("id", counterpartyId).param("ledgerId", personalLedgerId)
+                .query(Boolean.class).single();
     }
 
     /**

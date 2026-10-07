@@ -77,16 +77,31 @@ public class FamilyPostingService {
      * @param amount for the other side of a settlement (F4e): what went from or into the account, in its currency;
      *        null for the record's original amount, which the payer's, the receiver's and the recorder's sides use
      * @param currency the currency of {@code amount}; null with it
+     * @param counterpartyId the counterparty of the account's line, when the account requires one (D-80); null
+     *        otherwise
+     * @param payeeId the payer's own payee on their payment entry (D-81); null for none
      */
-    public record OwnAccount(long accountId, String note, BigDecimal amount, String currency) implements Payment {
+    public record OwnAccount(long accountId, String note, BigDecimal amount, String currency, Long counterpartyId,
+            Long payeeId) implements Payment {
 
         public OwnAccount(long accountId, String note) {
-            this(accountId, note, null, null);
+            this(accountId, note, null, null, null, null);
+        }
+
+        public OwnAccount(long accountId, String note, BigDecimal amount, String currency) {
+            this(accountId, note, amount, currency, null, null);
         }
     }
 
-    /** "Specify later": to "Payments without a specified account" (D-14), with the payer's private note or none. */
-    public record Later(String note) implements Payment {
+    /**
+     * "Specify later": to "Payments without a specified account" (D-14), with the payer's private note or none, and
+     * their payee (D-81) or none.
+     */
+    public record Later(String note, Long payeeId) implements Payment {
+
+        public Later(String note) {
+            this(note, null);
+        }
     }
 
     /**
@@ -105,9 +120,11 @@ public class FamilyPostingService {
      * @param note their private note, on the entry only
      * @param amount what went from or into the account or the placeholder, in {@code currency}, above 0 (F4e)
      * @param currency the currency of the side's account line
+     * @param counterpartyId the counterparty of the account's line, when it requires one (D-80)
+     * @param payeeId their payee on the entry (D-81)
      */
     public record OwnPayment(long entryId, int entryVersion, Long accountId, String accountName, boolean later,
-            String note, BigDecimal amount, String currency) {
+            String note, BigDecimal amount, String currency, Long counterpartyId, Long payeeId) {
     }
 
     private final JdbcClient jdbc;
@@ -154,7 +171,7 @@ public class FamilyPostingService {
                 WHERE r.ledger_id = :familyId AND r.deleted_at IS NULL AND r.record_date >= m.join_date
                   AND (r.payer_member_id = :memberId OR r.payee_member_id = :memberId
                        OR EXISTS (SELECT FROM family_share s
-                                  WHERE s.record_id = r.id AND s.member_id = :memberId AND s.amount > 0))
+                                  WHERE s.record_id = r.id AND s.member_id = :memberId AND s.amount <> 0))
                 ORDER BY r.record_date, r.id""")
                 .param("memberId", memberId).param("familyId", family.ledgerId())
                 .query((row, n) -> new Involved(row.getLong("id"), row.getBoolean("pays")))
@@ -503,35 +520,40 @@ public class FamilyPostingService {
         String placedIn = side.original() ? amounts.originalCurrency() : amounts.currency();
         if (acting && payment instanceof OwnAccount own) {
             return own.amount() == null || side.original()
-                    ? ownSide(family, side, recordId, date, own.accountId(), placed, placedIn, amounts, own.note())
+                    ? ownSide(family, side, recordId, date, own.accountId(), placed, placedIn, amounts, own.note(),
+                            own.counterpartyId(), own.payeeId())
                     : ownSide(family, side, recordId, date, own.accountId(), own.amount(), own.currency(), amounts,
-                            own.note());
+                            own.note(), own.counterpartyId(), own.payeeId());
         }
         if (acting && payment instanceof Later later) {
-            return placeholderSide(family, side, recordId, date, placed, placedIn, amounts, later.note());
+            return placeholderSide(family, side, recordId, date, placed, placedIn, amounts, later.note(),
+                    later.payeeId());
         }
         if (existing == null) {
             if (side.link() == LinkType.PAYMENT) {
                 // A member with an account who pays names how (D-14); the record service asks for it.
                 throw new ConflictException("The payer's payment of record %d is missing".formatted(recordId));
             }
-            return placeholderSide(family, side, recordId, date, placed, placedIn, amounts, null);
+            return placeholderSide(family, side, recordId, date, placed, placedIn, amounts, null, null);
         }
         CrossLedgerWriter.PaymentSide current = writer.paymentSide(family, existing);
         if (current.later()) {
-            return placeholderSide(family, side, recordId, date, placed, placedIn, amounts, current.memo());
+            return placeholderSide(family, side, recordId, date, placed, placedIn, amounts, current.memo(),
+                    current.payeeId());
         }
         // On the member's own account: re-posted with the record's amounts by the payer or the recorder who acts; else
         // as it is, with the amount its member named, which post() keeps only if nothing else changed (D-8, D-28).
         if (acting && side.original()) {
             return ownSide(family, side, recordId, date, current.accountId(), placed, placedIn, amounts,
-                    current.memo());
+                    current.memo(), current.counterpartyId(), current.payeeId());
         }
-        if (current.currency().equals(amounts.currency()) && current.amount().compareTo(amounts.amount()) != 0) {
+        // What the line holds comes back above 0; the side's amount has the record's sign, negative for a refund (D-79).
+        BigDecimal kept = amounts.amount().signum() < 0 ? current.amount().negate() : current.amount();
+        if (current.currency().equals(amounts.currency()) && kept.compareTo(amounts.amount()) != 0) {
             throw wouldChange(family, recordId, side.memberId());
         }
-        return ownSide(family, side, recordId, date, current.accountId(), current.amount(), current.currency(), amounts,
-                current.memo());
+        return ownSide(family, side, recordId, date, current.accountId(), kept, current.currency(), amounts,
+                current.memo(), current.counterpartyId(), current.payeeId());
     }
 
     /** A side on its member's own account that someone else's change would rewrite or delete: a bug (D-8, D-28). */
@@ -553,7 +575,8 @@ public class FamilyPostingService {
         }
         jdbc.sql("""
                 SELECT l.record_id, e.id AS entry_id, e.version, e.memo, a.id AS account_id, a.name AS account_name,
-                       a.code = :placeholder AND a.is_system AS later, abs(p.amount) AS amount, p.currency
+                       a.code = :placeholder AND a.is_system AS later, abs(p.amount) AS amount, p.currency,
+                       p.counterparty_id, e.payee_id
                 FROM family_entry_link l
                 JOIN journal_entry e ON e.id = l.entry_id
                 JOIN ledger_member own ON own.ledger_id = e.ledger_id AND own.ledger_type = 'PERSONAL'
@@ -569,7 +592,8 @@ public class FamilyPostingService {
                     boolean later = row.getBoolean("later");
                     payments.put(row.getLong("record_id"), new OwnPayment(row.getLong("entry_id"), row.getInt("version"),
                             later ? null : row.getLong("account_id"), later ? null : row.getString("account_name"),
-                            later, row.getString("memo"), row.getBigDecimal("amount"), row.getString("currency")));
+                            later, row.getString("memo"), row.getBigDecimal("amount"), row.getString("currency"),
+                            row.getObject("counterparty_id", Long.class), row.getObject("payee_id", Long.class)));
                 });
         return payments;
     }
@@ -596,17 +620,17 @@ public class FamilyPostingService {
      * the record's currency (D-87).
      */
     private PostedEntry ownSide(LedgerScope family, Side side, long recordId, LocalDate date, long accountId,
-            BigDecimal amount, String currency, Amounts amounts, String note) {
+            BigDecimal amount, String currency, Amounts amounts, String note, Long counterpartyId, Long payeeId) {
         return new PostedEntry(side.memberId(), recordId, side.link(), kind(side.link()), false, date,
-                lines(family, side, accountId, amount, currency, amounts), note);
+                lines(family, side, accountId, counterpartyId, amount, currency, amounts), note, payeeId);
     }
 
     /** "Specify later", or the other side of a settlement: "Payments without a specified account" in its place. */
     private PostedEntry placeholderSide(LedgerScope family, Side side, long recordId, LocalDate date,
-            BigDecimal amount, String currency, Amounts amounts, String note) {
+            BigDecimal amount, String currency, Amounts amounts, String note, Long payeeId) {
         long placeholder = writer.placeholder(family, side.memberId());
         return new PostedEntry(side.memberId(), recordId, side.link(), kind(side.link()), true, date,
-                lines(family, side, placeholder, amount, currency, amounts), note);
+                lines(family, side, placeholder, null, amount, currency, amounts), note, payeeId);
     }
 
     /**
@@ -614,8 +638,8 @@ public class FamilyPostingService {
      * currency the account and FX_EXCHANGE in it, then FX_EXCHANGE and the debt account in the record's currency (rule
      * 9, D-87). FX_EXCHANGE keeps the difference between the two amounts, which no rate decides.
      */
-    private List<Line> lines(LedgerScope family, Side side, long accountId, BigDecimal amount, String currency,
-            Amounts amounts) {
+    private List<Line> lines(LedgerScope family, Side side, long accountId, Long counterpartyId, BigDecimal amount,
+            String currency, Amounts amounts) {
         long debt = writer.debtAccount(family, side.memberId());
         BigDecimal paid = side.out() ? amount.negate() : amount;
         BigDecimal owed = side.out() ? amounts.amount().negate() : amounts.amount();
@@ -624,10 +648,12 @@ public class FamilyPostingService {
                 throw new IllegalStateException("A side in the record's currency %s is its amount %s, not %s"
                         .formatted(currency, amounts.amount(), amount));
             }
-            return List.of(new Line(accountId, currency, paid, null), new Line(debt, currency, paid.negate(), null));
+            return List.of(new Line(accountId, currency, paid, null, counterpartyId),
+                    new Line(debt, currency, paid.negate(), null));
         }
         long fx = writer.fxExchange(family, side.memberId());
-        return List.of(new Line(accountId, currency, paid, null), new Line(fx, currency, paid.negate(), null),
+        return List.of(new Line(accountId, currency, paid, null, counterpartyId),
+                new Line(fx, currency, paid.negate(), null),
                 new Line(fx, amounts.currency(), owed, null),
                 new Line(debt, amounts.currency(), owed.negate(), null));
     }

@@ -19,10 +19,23 @@ import java.time.LocalDate;
  *        own entry alone holds it (F4e)
  * @param accountCurrency the caller's paying currency (D-89, F8b): what their account paid or received in; null keeps
  *        the side's, or for a newly named account takes its default currency, else the record's
+ * @param paymentCounterpartyId the counterparty of the caller's own account's line, when the account requires one
+ *        (D-80); with an account, else for the account their payment is on; null keeps it
+ * @param changesPayee whether the payee changes, also to none (D-81)
+ * @param payeeId the caller's new payee, their own counterparty; null with {@code changesPayee} removes it
  */
 public record FamilyRecordChanges(Long categoryId, boolean changesComment, String comment, RecordSplit split,
         LocalDate date, BigDecimal amount, Long payerMemberId, Long paymentAccountId, boolean paymentLater,
-        boolean changesNote, String note, String currency, BigDecimal accountAmount, String accountCurrency) {
+        boolean changesNote, String note, String currency, BigDecimal accountAmount, String accountCurrency,
+        Long paymentCounterpartyId, boolean changesPayee, Long payeeId) {
+
+    /** A change with no counterparty and no payee. */
+    public FamilyRecordChanges(Long categoryId, boolean changesComment, String comment, RecordSplit split,
+            LocalDate date, BigDecimal amount, Long payerMemberId, Long paymentAccountId, boolean paymentLater,
+            boolean changesNote, String note, String currency, BigDecimal accountAmount, String accountCurrency) {
+        this(categoryId, changesComment, comment, split, date, amount, payerMemberId, paymentAccountId, paymentLater,
+                changesNote, note, currency, accountAmount, accountCurrency, null, false, null);
+    }
 
     /** A change of the family fields only. */
     public static FamilyRecordChanges family(Long categoryId, boolean changesComment, String comment,
@@ -33,11 +46,12 @@ public record FamilyRecordChanges(Long categoryId, boolean changesComment, Strin
 
     /**
      * Whether it names a payment field: the date, the amount, its currency, the payer, the account (with its amount and
-     * its paying currency), or the note.
+     * its paying currency), the note, the account's counterparty or the payee.
      */
     boolean changesPayment() {
         return date != null || amount != null || currency != null || payerMemberId != null || namesAccount()
-                || changesNote || accountAmount != null || accountCurrency != null;
+                || changesNote || accountAmount != null || accountCurrency != null || paymentCounterpartyId != null
+                || changesPayee;
     }
 
     /** Whether it names the amount or its currency. */

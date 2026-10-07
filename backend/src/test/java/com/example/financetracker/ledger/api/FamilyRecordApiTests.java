@@ -236,14 +236,19 @@ class FamilyRecordApiTests extends FamilyApiTest {
                         .formatted(kid));
         assertThat(details(post(alice, uri + "/records", expense("2026-09-10", groceries, "1", 9_000_000_000L, ""))))
                 .containsExactly("PAYER 9000000000 Member 9000000000 is not an active member of the family budget");
-        // Another user's account reads as a missing one; a loan account pays nothing.
+        // Another user's account reads as a missing one; an equity account pays nothing; a loan account pays only with
+        // its counterparty (D-80).
         MvcTestResult bobsAccount = post(alice, uri + "/records", expense("2026-09-10", groceries, "1", mum,
                 "\"paymentAccountId\": %d,".formatted(bobsCash)));
         assertThat(details(bobsAccount)).containsExactly("PAYMENT %d account %d does not exist".formatted(mum, bobsCash));
         assertThat(details(post(alice, uri + "/records", expense("2026-09-10", groceries, "1", mum,
+                "\"paymentAccountId\": %d,".formatted(accountId(alice, "UNALLOCATED")))))).containsExactly(
+                "PAYMENT %d the account UNALLOCATED can't pay a family expense: pay with an account of your own money "
+                        .formatted(mum) + "or credit, or specify it later");
+        assertThat(details(post(alice, uri + "/records", expense("2026-09-10", groceries, "1", mum,
                 "\"paymentAccountId\": %d,".formatted(accountId(alice, "LOANS_ASSET")))))).containsExactly(
-                "PAYMENT %d the account LOANS_ASSET can't pay a family expense: pay with an account of your own money or "
-                        .formatted(mum) + "credit, or specify it later");
+                "COUNTERPARTY %d the account LOANS_ASSET requires a counterparty: name who you owe or who owes you"
+                        .formatted(mum));
 
         // Shares: to ACTIVE members, once each, adding up.
         assertThat(details(post(alice, uri + "/records", expense("2026-09-10", groceries, "10", kid, "", """

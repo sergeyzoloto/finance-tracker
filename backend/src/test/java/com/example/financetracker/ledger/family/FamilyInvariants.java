@@ -115,6 +115,18 @@ public final class FamilyInvariants {
                 SELECT r.id FROM family_record r JOIN family_share s ON s.record_id = r.id
                 WHERE r.ledger_id = ? AND r.type = 'SETTLEMENT'""")
                 .param(family).query(Long.class).list()).as("settlements with shares").isEmpty();
+        // D-79: a refund, an expense with a minus, is negative in its amount, its paying side and every share; nothing
+        // else is.
+        assertThat(jdbc.sql("""
+                SELECT r.id FROM family_record r LEFT JOIN family_share s ON s.record_id = r.id
+                WHERE r.ledger_id = ? AND (r.base_amount = 0 OR sign(r.original_amount) <> sign(r.base_amount)
+                      OR r.base_amount < 0 AND r.type <> 'EXPENSE'
+                      OR sign(s.amount) = -sign(r.base_amount))""")
+                .param(family).query(Long.class).list()).as("records or shares of the wrong sign (D-79)").isEmpty();
+        // D-93: every row of a record's journal says its currency, and a system change has none.
+        assertThat(jdbc.sql("""
+                SELECT id FROM family_record_change WHERE ledger_id = ? AND (record_id IS NULL) <> (currency IS NULL)""")
+                .param(family).query(Long.class).list()).as("journal rows without a currency (D-93)").isEmpty();
         assertThat(jdbc.sql("""
                 SELECT l.entry_id FROM family_entry_link l JOIN posting p ON p.entry_id = l.entry_id
                 WHERE l.family_ledger_id = ? GROUP BY l.entry_id, p.currency HAVING sum(p.amount) <> 0""")

@@ -45,13 +45,18 @@ public class FamilyPaymentEntries implements FamilyPayments {
      *        (D-87, D-89)
      * @param accountCurrency the paying currency (D-89, F8b); null keeps the side's, or for a newly named account takes
      *        its default currency, else the record's
+     * @param counterpartyId the counterparty of the account's line, when the account requires one (D-80); with the
+     *        account, or alone for the account the payment is on
+     * @param changesPayee whether the payee changes, also to none (D-81)
+     * @param payeeId the new payee, one of the caller's own counterparties; null with {@code changesPayee} removes it
      */
     public record PaymentEdit(LocalDate date, BigDecimal amount, Long accountId, boolean later, boolean changesNote,
-            String note, String currency, BigDecimal accountAmount, String accountCurrency) {
+            String note, String currency, BigDecimal accountAmount, String accountCurrency, Long counterpartyId,
+            boolean changesPayee, Long payeeId) {
 
         public PaymentEdit(LocalDate date, BigDecimal amount, Long accountId, boolean later, boolean changesNote,
                 String note) {
-            this(date, amount, accountId, later, changesNote, note, null, null, null);
+            this(date, amount, accountId, later, changesNote, note, null, null, null, null, false, null);
         }
     }
 
@@ -89,7 +94,8 @@ public class FamilyPaymentEntries implements FamilyPayments {
         return records.update(familyOf(personal, payment), personal, payment.recordId(), null,
                 new FamilyRecordChanges(null, false, null, null, edit.date(), edit.amount(), null, edit.accountId(),
                         edit.later(), edit.changesNote(), edit.note(), edit.currency(),
-                        edit.accountAmount(), edit.accountCurrency()));
+                        edit.accountAmount(), edit.accountCurrency(), edit.counterpartyId(), edit.changesPayee(),
+                        edit.payeeId()));
     }
 
     /** {@inheritDoc} The caller has checked the entry's version. */

@@ -134,6 +134,10 @@ psql_call() {
       *flyway_schema_history*) f=$(next_fixture flyway) ;;
       # rollback.sh's count of the records an image before V11 would misread (ADR 0004).
       *"r.currency <> l.base_currency"*) f=$(next_fixture family_records_misread) ;;
+      # rollback.sh's counts of the refunds and of the payment lines on accounts that require a counterparty, which an
+      # image before V13 would misread (F8d, ADR 0004).
+      *"base_amount < 0"*) f=$(next_fixture family_refunds) ;;
+      *"p.counterparty_id IS NOT NULL"*) f=$(next_fixture family_credit_payments) ;;
       *app.family_record*) f=$(next_fixture family_records) ;;
       *) echo "docker stub: unknown query: $args" >&2; exit 99 ;;
     esac

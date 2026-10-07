@@ -330,6 +330,24 @@ mutation_in rollback.sh "drop the refusal below V11" \
   'if false; then' \
   rollback_below_v11
 
+# F8d (ADR 0004, "F8d"): rollback.sh's refusals below V13 removed, each on its own.
+mutation_in rollback.sh "drop the refusal below V13" \
+  'if [[ $db_version =~ ^[0-9]+$ ]] && [ "$db_version" -ge 13 ] && [ "$target_max" -lt 13 ]; then' \
+  'if false; then' \
+  rollback_below_v13
+mutation_in rollback.sh "let a refund through" \
+  '[ "$refunds" = 0 ]' \
+  'true' \
+  rollback_below_v13
+mutation_in rollback.sh "let a payment on an account that requires a counterparty through" \
+  '[ "$credit" = 0 ]' \
+  'true' \
+  rollback_below_v13
+mutation_in rollback.sh "count a refund only from V14 on" \
+  '[ "$db_version" -ge 13 ] && [ "$target_max" -lt 13 ]' \
+  '[ "$db_version" -ge 14 ] && [ "$target_max" -lt 13 ]' \
+  rollback_below_v13
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

@@ -63,6 +63,7 @@ make_template() {
 
 make_template "$WORK/template9" 9
 make_template "$WORK/template6" 6
+make_template "$WORK/template12" 12
 
 # 4510003's scripts, which run OPS-2's deploy (bash reads deploy.sh before the merge), taken from the repository's
 # history: CI's "Deploy scripts" checks out the whole history for this. Without the commit the cases that use them fail.
@@ -138,6 +139,8 @@ EOF
   echo "9 family invites true" >"$s/fixtures/flyway"
   echo 0 >"$s/fixtures/family_records"
   echo 0 >"$s/fixtures/family_records_misread"
+  echo 0 >"$s/fixtures/family_refunds"
+  echo 0 >"$s/fixtures/family_credit_payments"
   cp "$ROOT/deploy/checks/OPS-1.expected" "$s/fixtures/stage"
   numbers 0 >"$s/fixtures/numbers"
   cp "$HERE/fixtures/check-runs-success.json" "$s/fixtures/ci"
@@ -187,6 +190,11 @@ new_target() {
             for f in "$ROOT"/backend/src/main/resources/db/migration/V"${v}"__*.sql; do
               echo "-- placeholder" >"backend/src/main/resources/db/migration/$(basename "$f")"
             done
+          done
+          ;;
+        migrations13)
+          for f in "$ROOT"/backend/src/main/resources/db/migration/V13__*.sql; do
+            echo "-- placeholder" >"backend/src/main/resources/db/migration/$(basename "$f")"
           done
           ;;
         migrations)
@@ -1172,6 +1180,51 @@ case_rollback_below_v11() {
   run_rollback "${SHA_D:0:7}"
   check "no count below V11" calls_lack "psql .*r.currency <> l.base_currency"
   check "no word of it" out_lacks "in another currency than"
+  rollback_refused "not confirmed"
+}
+
+# F8d (ADR 0004, "F8d"): from a database at V13, going back to a commit below V13 is refused while a family refund (an
+# expense stored with a minus, D-79) or a payment line on an account that requires a counterparty (D-80) exists, which
+# that code would misread; without either it goes on to the confirmation; from a database below V13 nothing is asked.
+case_rollback_below_v13() {
+  setup_case 12
+  new_target migrations13
+  echo "13 refunds counterparty payments journal currency import sync true" >"$STUB_STATE/fixtures/flyway"
+  deploy_e
+  [ "$RC" -eq 0 ] || { echo "    setup: the deploy of E failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  : >"$STUB_STATE/calls"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+  fixture family_refunds 3
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  rollback_refused "production holds 3 family refunds, expenses stored with a minus, and ${SHA_D:0:7} is below V13"
+  check "says what the target would do with them" out_has "a change of its amount would turn it into an expense"
+  check "names the way back: a restore" out_has "going back needs a restore from a dump taken before the first of them"
+  check "names the dump preserved before the deploy (D-43)" out_has "the dump taken before HEAD's deploy is preserved as $C/state/runs/"
+  check "counted as the read-only role" calls_have "psql .*base_amount < 0"
+  fixture family_refunds 0
+  fixture family_credit_payments 2
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  rollback_refused "production holds 2 family payment lines on accounts that require a counterparty, and ${SHA_D:0:7} is below V13"
+  check "says what the target would do with them" out_has "it refuses to re-post such a payment"
+  check "counted as the read-only role too" calls_have "psql .*p.counterparty_id IS NOT NULL"
+  fixture family_credit_payments 0
+  type_at_terminal "no"
+  run_rollback "${SHA_D:0:7}"
+  check "without either it gets to the confirmation" out_has "No family refund and no payment on an account that requires a counterparty"
+  rollback_refused "not confirmed"
+  # A database below V13: nothing to misread, and no such count.
+  echo "12 user time zone true" >"$STUB_STATE/fixtures/flyway"
+  fixture family_refunds 5
+  fixture family_credit_payments 5
+  : >"$STUB_STATE/calls"
+  type_at_terminal "no"
+  run_rollback "${SHA_D:0:7}"
+  check "no count below V13" calls_lack "psql .*base_amount < 0"
+  check "no count of the payments either" calls_lack "psql .*p.counterparty_id IS NOT NULL"
+  check "no word of it" out_lacks "family refunds"
   rollback_refused "not confirmed"
 }
 
@@ -2587,7 +2640,7 @@ CASES=(
   switch_on_and_off switch_wrong_confirmation switch_secret_never_printed switch_failure_prints_the_way_back
   run_names_the_running_revision
   finish_on_an_ops1_run
-  rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7 rollback_below_v11
+  rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7 rollback_below_v11 rollback_below_v13
   old_tags_removed
   pasted_ahead_is_discarded yes_no_asks_again finish_skips_refused_runs newest_line_decides_status
   step_1_3_says_push_first

@@ -14,7 +14,10 @@
 # /etc/pg-backup/finance.conf stay as they are. Going back below V7 while production holds family records is refused
 # (D-22): that needs a restore from a dump. So is going back below V11 from a database at V11 or later while a family
 # record is in another currency than its family budget's main currency (F8a; ADR 0004, "The rollback condition"): the
-# code before V11 would read its amounts as amounts in the main currency.
+# code before V11 would read its amounts as amounts in the main currency. And going back below V13 from a database at
+# V13 or later while a family refund (an expense stored with a minus, D-79) or a payment entry on an account that
+# requires a counterparty (D-80) exists (F8d; ADR 0004, "F8d"): the code before V13 would turn a refund into an expense
+# when its amount changes, fail on another member's change of it, and refuses to re-post such a payment.
 #
 # Like deploy.sh, it is functions only and its last line calls main: the checkout replaces this file while it runs.
 # The test variables are deploy.sh's (deploy/common.sh).
@@ -143,6 +146,20 @@ cmd_rollback() {
     [ "$misread" = 0 ] \
       || fail "production holds $misread family records in another currency than their family budget's main currency, and ${sha:0:7} is below V11: it would read their amounts and shares as amounts in the budget's main currency, in its balances, report, posting and integrity check (ADR 0004, \"The rollback condition\"); going back needs a restore from a dump taken before the first of them (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"
     say "No family record in another currency than its family budget's main currency: the code before V11 reads every record as it is."
+  fi
+  if [[ $db_version =~ ^[0-9]+$ ]] && [ "$db_version" -ge 13 ] && [ "$target_max" -lt 13 ]; then
+    # ADR 0004, "F8d": the code before V13 knows no refund (a live expense stored with a minus) and no payment on an
+    # account that requires a counterparty (its line names one, V13's guard): it would turn a refund into an expense
+    # when its amount changes, fail on another member's change of it, and fail to re-post such a payment.
+    refunds=$(sql_query "SELECT count(*) FROM app.family_record WHERE base_amount < 0 AND deleted_at IS NULL") \
+      || fail "could not count the family refunds"
+    [ "$refunds" = 0 ] \
+      || fail "production holds $refunds family refunds, expenses stored with a minus, and ${sha:0:7} is below V13: it knows no refund: a change of its amount would turn it into an expense, another member's change of its category, split or comment would fail, and a member who joins would miss its shares (ADR 0004, \"F8d\"); going back needs a restore from a dump taken before the first of them (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"
+    credit=$(sql_query "SELECT count(*) FROM app.family_entry_link l JOIN app.posting p ON p.entry_id = l.entry_id WHERE l.detached_at IS NULL AND p.counterparty_id IS NOT NULL") \
+      || fail "could not count the family payments on accounts that require a counterparty"
+    [ "$credit" = 0 ] \
+      || fail "production holds $credit family payment lines on accounts that require a counterparty, and ${sha:0:7} is below V13: it refuses to re-post such a payment (ADR 0004, \"F8d\"); going back needs a restore from a dump taken before the first of them (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"
+    say "No family refund and no payment on an account that requires a counterparty: the code before V13 reads every record and payment as it is."
   fi
 
   heading "5. Confirmation"

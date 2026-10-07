@@ -1,4 +1,4 @@
-import { deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, shot, test, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, shot, test, today, type Session } from '../fixtures.ts'
 import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave, money, share } from '../family-steps.ts'
 
 // F8d's check with two accounts (D-79 to D-81), every record dated today, in euros, equal shares:
@@ -115,8 +115,10 @@ test('family F8d', async ({ as, family, target, watch }) => {
     await expect(session.page.getByTestId('balances-sum-EUR')).toHaveText(money('0', 'EUR'))
   }
   await shot(b.page, 'f8d-10-balances')
-  await a.page.goto(`${budget}/report`)
-  await expect(a.page.locator('.report-month').filter({ hasText: '· EUR' }).first()).toContainText(`Expenses ${money('66', 'EUR')}`)
+  const month = today().slice(0, 7)
+  const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10)
+  await a.page.goto(`${budget}/report?from=${month}-01&to=${last}`)
+  await expect(a.page.locator('.report-month').filter({ hasText: '· EUR' })).toContainText(`Expenses ${money('66', 'EUR')}`)
   await shot(a.page, 'f8d-11-report')
   await expectIntegrity(a)
   await expectIntegrity(b)

@@ -56,7 +56,7 @@ test('family F8d', async ({ as, family, target, watch }) => {
   // 3. A refund of €10.00: the same category, a minus, and each member getting their share back.
   await a.page.goto(`${budget}/expenses/new`)
   await expect(a.page.getByRole('heading', { name: 'Add an expense' })).toBeVisible()
-  await a.page.getByLabel(/^Refund/).check()
+  await a.page.getByRole('checkbox', { name: /^Refund/ }).check()
   await expect(a.page.getByRole('heading', { name: 'Add a refund' })).toBeVisible()
   await a.page.getByLabel('Category').selectOption({ label: 'Groceries' })
   await a.page.getByLabel('Amount (EUR)').fill('10.00')

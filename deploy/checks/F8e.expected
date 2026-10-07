@@ -1,0 +1,23 @@
+flyway latest 13 refunds counterparty payments journal currency import sync true
+column family_record.content_hash character nullable YES
+column family_record.external_ref text nullable YES
+column family_record.imported_at timestamp with time zone nullable YES
+column family_record.imported_by_member_id bigint nullable YES
+column family_record.imported_version integer nullable YES
+column family_record_change.currency character nullable YES
+constraint family_record_amount_sign_check 1
+constraint family_record_change_has_currency_check 1
+constraint family_record_import_fields_check 1
+constraint family_record_imported_by_fkey 1
+constraint family_record_base_amount_check 0
+constraint family_record_original_amount_check 0
+constraint family_share_amount_check 0
+index family_record_external_ref_key 1
+function posting_family_guard own line true
+function family_record_check_shares sign true
+trigger family_record_change_fill_currency 1
+records or shares of the wrong sign 0
+journal rows without their currency 0
+left members whose left date is before their join date 0
+unbalanced entries 0
+ECB rouble rates after 2022-03-01 0

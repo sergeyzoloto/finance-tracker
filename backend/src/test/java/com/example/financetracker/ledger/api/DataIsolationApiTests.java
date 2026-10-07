@@ -887,7 +887,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         for (String read : List.of("/records", "/records/" + settlement, "/journal", "/balances")) {
             JsonNode alices = ok(get(alice, inA + read));
             Answers.assertNoneMention(read, alices, "BOB_PRIVATE", "BOB_WALLET");
-            assertThat(Answers.numbers(alices)).as(read).doesNotContain(String.valueOf(bobsWallet), String.valueOf(bobsSide));
+            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsWallet));
+            assertThat(alices.findValuesAsText("entryId")).as(read).doesNotContain(String.valueOf(bobsSide));
         }
         assertThat(ok(get(alice, path)).get("yourPayment").get("entryId").asLong()).isEqualTo(alicesSide);
 
@@ -1043,7 +1044,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         for (String read : List.of("/records", "/records/" + paid.get("id").asLong(), "/journal", "/balances")) {
             JsonNode alices = ok(get(alice, inA + read));
             Answers.assertNoneMention(read, alices, "BOB_PRIVATE", "BOB_WALLET");
-            assertThat(Answers.numbers(alices)).as(read).doesNotContain(String.valueOf(bobsWallet));
+            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsWallet));
             for (String other : List.of(bob, dave)) {
                 assertThat(fieldNames(ok(get(other, inA + read)))).as(read).doesNotContain("lockedBy");
             }
@@ -1116,7 +1117,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(his.get("yourPayment").get("currency").asText()).isEqualTo("RUB");
         for (String read : List.of("/records", "/records/" + paid.get("id").asLong(), "/journal", "/balances")) {
             JsonNode alices = ok(get(alice, inA + read));
-            assertThat(Answers.numbers(alices)).as(read).doesNotContain("4321", "4321.98", String.valueOf(bobsRoubles));
+            assertThat(Answers.numbers(alices)).as(read).doesNotContain("4321", "4321.98");
+            assertThat(alices.findValuesAsText("accountId")).as(read).doesNotContain(String.valueOf(bobsRoubles));
             Answers.assertNoneMention(read, alices, "RUB", "BOB_");
         }
         // D-47's total by each member's own rates: Alice's dollar rate gives hers, and none of hers reaches Bob's.

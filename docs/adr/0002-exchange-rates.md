@@ -112,3 +112,30 @@ the same path, with its own response shape. Any other value of `currency` is a 4
   transaction. The other reports read one statement each.
 - Tests that need rates use their own users' manual rates. The ECB's rates are shared, and
   `EcbRateLoaderTests` deletes them.
+
+## Amendment, F8c: "today" is the user's (D-100, D-101)
+
+Which rate "applies today" (D-49, D-91), the day a balance's "≈" total is converted at (D-47), and every other default
+date of the api is **the date in the acting user's own time zone** (`ledger.Today`), not the api's. The zone is an IANA
+id in `user_settings.time_zone` (V12, nullable). A user who has set none is on the UTC date, which is what D-53 made
+the one today of the api when the image's zone was UTC.
+
+- **Contexts that stay on UTC**, because no user is acting: the ECB loader and its schedule (`EcbRateLoader`,
+  `EcbSchedule`; the rates' dates are the ECB's own, and the schedule's cron names Europe/Berlin), the migrations, and
+  the `current_date` and `now()` of SQL: V5's join date of a personal ledger's member (never read), V10's
+  `release_family_memberships` (the version in force), which stamps a FORMER member's `left_date` when "Delete all my
+  data" runs (the date is shown nowhere), and V7's start date for code that leaves it out (the application never
+  does). `Instant`s
+  (`created_at`, the invites' lifetimes, the rate limits) have no zone.
+- **The one SQL check that follows the user's date** is V9's claim join date, "not after today". The api checks it
+  against the owner's today; the database's check, which had the session's `current_date` (UTC), now accepts every
+  date that is already today somewhere (the date at UTC+14), so that an owner ahead of UTC isn't refused by the
+  database. V12 replaces that one function; nothing else of V12 is read by any code but the new one.
+- **Members in different zones.** An action takes its actor's date, so a budget started on the 7th by a member at
+  UTC+14 and joined by a member in Los Angeles on the 6th gives that member a join date before the start date; they
+  take part in every record from the start date, which is later, so nothing else changes, and a record of the 6th is
+  before the budget's start date for everyone (D-27).
+- **Rollback.** `bfb8cc6`'s code, which doesn't know the column, runs on the V12 schema: it never selects, inserts
+  or updates `time_zone` (its upsert of the settings names its own four columns), the new check on the column holds
+  for null, and V12's one other change loosens a check. So `rollback.sh` needs no new condition for V12, and a
+  rollback to `bfb8cc6` keeps users' zones in the database, unused: the old image's today is UTC's.

@@ -1,0 +1,7 @@
+flyway latest 12 user time zone true
+column user_settings.time_zone text nullable YES
+constraint user_settings_time_zone_length 1
+function ledger_invite_check at UTC+14 true current_date false
+records in another currency than their budget's 0
+unbalanced entries 0
+ECB rouble rates after 2022-03-01 0

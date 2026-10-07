@@ -50,6 +50,8 @@ Amended in F8b-fix on 2026-10-06: new D-92 to D-96 (decided by the PM), about th
 
 Amended in F8c-0 on 2026-10-06: new D-97 and D-98 (decided by the PM), about what every report states of each test suite it ran, and about family records in production while the failure of "CI on Ubuntu 26.04" on F8's commit was open.
 
+Amended in F8c on 2026-10-07: D-98 lifted (decided by the PM); new D-99 and D-102 (decided by the PM) and D-100 (decided by the owner), D-101 (decided by the PM), about the test classes' order in CI, each user's time zone and how it works, and F8's stages; D-53 amended by D-100.
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -236,7 +238,7 @@ Added in QA-1 (2026-10-05)
   9. The run ends with a summary to paste into the chat: the UTC start and end, the target, the commit and `E2E_FAMILY`, each spec passed or failed with its duration, the cleanup per account, and the artifacts' folder (`~/.cache/finance-tracker-e2e/prod-<UTC time>/`, mode 700). The exit status is non-zero on any failure.
 
 Added in QA-1b (2026-10-05)
-- D-53 (decided by the PM). `DemoController` (the demo's last day) and `ReportController` (the default `asOf`) take the family budget's today, `Today`, in place of `LocalDate.now()`, so that every "today" of the api is the same one (the api's zone, UTC in production). Done in F8, not in QA-1b.
+- D-53 (decided by the PM). `DemoController` (the demo's last day) and `ReportController` (the default `asOf`) take the family budget's today, `Today`, in place of `LocalDate.now()`, so that every "today" of the api is the same one (the api's zone, UTC in production). Done in F8, not in QA-1b. Amended by D-100 (F8c): the one today is the acting user's, the date in their time zone, UTC's until they have one.
 - D-54 (decided by the PM). The suite's identity check stays by the account's full name (D-52, guard 2) until F8, which adds the account's email to `/api/me`; the suite then compares the email.
 - D-55 (decided by the PM, after OPS-2b's report, its open question 5: a heredoc ran lines as shell with empty variables). The agent's shell on the laptop: a heredoc only with a quoted delimiter (`<<'EOF'`); every scratch script starts with `set -euo pipefail`; in any command that writes, moves or deletes, a path built from a variable is written `${VAR:?}`. In CLAUDE.md, "The agent's shell".
 - D-56 (decided by the owner). OPS-2b's deploy runs the end-to-end suite in place of its manual browser checks and smoke test. That run is also QA-1's first production run, F7's check. It runs from `feature/qa-1`'s last commit (QA-1b's), since the deployed commit predates the suite. If the suite stops before the specs that need a sign-in ran, OPS-2b's browser checks and smoke test are done by hand and `finish` answers from them; if a spec fails, `finish` is answered `no` and nothing more happens until the PM has read the summary. The runbook's "OPS-2b's deploy checklist with the suite".
@@ -306,6 +308,23 @@ Added in F8c-0 (2026-10-06, decided by the PM)
 - D-97 (decided by the PM). Every report states, for each test suite it ran, the command, its exit status and its whole summary (the Tests and Errors lines, or Maven's Results). "Passed" only with exit status 0. (F8b reported "312 passed" while `npm test` exited 1 with `Errors 1 error`.)
 - D-98 (decided by the PM). Until F8c-0's report says what the failure of "CI on Ubuntu 26.04" on `bfb8cc6` means for production, no real family records are created in production; the switch stays on (0 family records, so nothing is at risk). If the application is affected, the PM decides on `deploy/deploy.sh switch off` (as D-41). F8c-0's finding: the failure is in the tests only, the application isn't affected, and F8c-0 doesn't recommend `switch off` (the PM decides).
 
+Added in F8c (2026-10-07)
+- D-98 lifted (decided by the PM). F8c-0 showed that the failure of "CI on Ubuntu 26.04" on `bfb8cc6` was test isolation only, so real family records may be created in production.
+- D-99 (decided by the PM). Surefire's `runOrder` isn't pinned. The regular CI's Backend job runs the test classes in random order and prints the seed (`-Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<the run's number>`), so that isolation faults show before a deploy. A failure there is a real fault: the isolation is fixed, never the order.
+- D-100 (decided by the owner). Every user has their own time zone, and D-53's today is the date in that zone. D-53's "the api's zone" becomes "the acting user's zone".
+- D-101 (decided by the PM), how D-100 works:
+  - Storage: an IANA zone id in the user's settings (V12, additive: a nullable column). Null means not set yet, and today is then the UTC date. The api checks an id against the zones it knows and answers 422 to another.
+  - First load: when `/api/me` says the zone isn't set, the frontend saves the browser's zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) once.
+  - Settings: shows the zone and lets the user choose another from a searchable list.
+  - Hint: when the browser's zone differs from the saved one, a one-line hint offers "Use <browser zone>". It is dismissible, and the dismissal is remembered per browser (localStorage).
+  - `/api/me` returns `timeZone` (null when unset) and `today`, computed in that zone. The frontend never derives today from the browser's clock; it uses `/api/me`'s today.
+  - Server side: every date the server decides or validates against "today" uses the acting user's zone: start, join and left dates, defaults, the rates page's "applies today", the "≈" totals, a report's default day and the demo's. In a family budget, the actor's zone counts.
+  - Contexts with no user (the ECB loader and its schedule, migrations, scheduled jobs) keep UTC.
+  - "Delete all my data" removes the setting with the rest; the next load sets it again from the browser.
+  - The privacy policy (`/privacy`) names the time zone among what is stored.
+  - Rollback: `bfb8cc6`'s code on the V12 schema ignores the column (and V12's one other change is a looser check), so `rollback.sh` needs no new condition (ADR 0002, "F8c").
+- D-102 (decided by the PM). F8 continues in two stages. F8c is this one (D-100, D-101, robustness, test hygiene, D-99). F8d covers D-79 to D-81, D-48 and D-93, and comes before D3b.
+
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
 - F2a: migration V5, stronger isolation tests, these documents; deployed on its own.
@@ -330,6 +349,7 @@ Added in F8c-0 (2026-10-06, decided by the PM)
 - After the F7 deploy (2026-10-02, decided by the PM): F7's deploy passed every check of `deploy.sh run`, but the privacy policy answered 403 (the deploy scripts' `umask 077` wrote the changed `privacy.html` with mode 600, which the web image kept and nginx couldn't read); `finish` recorded the browser checks as passed by mistake, the switch went on, and by D-41 it was switched off again. F7b, a stage of its own: the web image readable whatever the checkout's modes, with CI building it from a copy with the server's modes; page checks in the deploy scripts (`run`, `verify`, `finish`, `rollback.sh`), and `finish` recording the browser checks as failed, without asking, when a page fails; git commands that write the working tree under `umask 022`, everything else under 077; `switch`'s text. Its checks are `deploy/checks/F7b.sql`. F7's production check moves to F7b's checklist, after its `finish` and `switch on`. F7's report claimed that the `edge` network's subnet check proves D-29's per-address limit counts real clients; it doesn't (with Docker's IPv6 off, IPv6 clients arrive as the bridge's gateway, D-38's case), and the check is dropped from the checklists.
 - After F7: the Excel import, with Family rows going into a family ledger.
 - F8 (D-45, D-77): the multi-currency family ledger. F8a: the model and posting (schema V11, shares and records per currency, posting, balances and settlements, membership flows, the integrity check, the rollback guard), backend only. F8b: the interface, the report's screen, rates (D-47, D-49), D-53, D-54, the end-to-end suite and the deploy checklist. One deploy after F8a and F8b. F8c, before D3b: refunds (D-79), payments from counterparty accounts (D-80), the payer's payee (D-81) and the import's sync fields. Then D3b (the owner's import, D-82) and a deploy; D3c (the partner's claim and import, D-48) after it.
+- After F8's deploy and F8c-0 (2026-10-07, decided by the PM, D-102): what D-77 called F8c is F8d. F8c is D-100 and D-101 (each user's time zone, V12), the error boundaries and guards of F8b-fix's finding (D-96), the five frontend tests that failed when a load was answered late, D-99 (random test order in CI) and the npm audit finding. F8d is refunds (D-79), payments from counterparty accounts (D-80), the payer's payee (D-81), the import's sync fields (D-48) and D-93, and comes before D3b.
 
 ## Later
 Found along the way; not part of a stage yet.

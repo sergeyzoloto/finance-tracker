@@ -52,6 +52,8 @@ Amended in F8c-0 on 2026-10-06: new D-97 and D-98 (decided by the PM), about wha
 
 Amended in F8c on 2026-10-07: D-98 lifted (decided by the PM); new D-99 and D-102 (decided by the PM) and D-100 (decided by the owner), D-101 (decided by the PM), about the test classes' order in CI, each user's time zone and how it works, and F8's stages; D-53 amended by D-100.
 
+Amended in F8c-fix on 2026-10-07: new D-103 to D-106 (decided by the PM), about which time zones are accepted and offered, a join date before the start date (for F8d), F8c's check file and how a tab learns that the date has turned.
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -324,6 +326,13 @@ Added in F8c (2026-10-07)
   - The privacy policy (`/privacy`) names the time zone among what is stored.
   - Rollback: `bfb8cc6`'s code on the V12 schema ignores the column (and V12's one other change is a looser check), so `rollback.sh` needs no new condition (ADR 0002, "F8c").
 - D-102 (decided by the PM). F8 continues in two stages. F8c is this one (D-100, D-101, robustness, test hygiene, D-99). F8d covers D-79 to D-81, D-48 and D-93, and comes before D3b.
+- D-103 (decided by the PM, F8c-fix). A zone is accepted if and only if it is in `ZoneId.getAvailableZoneIds()`, case-sensitive, so `UTC`, `Etc/UTC`, `Etc/GMT+5` and legacy links such as `Asia/Calcutta` pass, and anything else (an offset, an abbreviation, another case, spaces) gets 422. `GET /api/settings/time-zones` lists exactly that set.
+  - First load: if saving the browser's zone fails (422, network, 5xx), the app keeps working with the zone unset (UTC). It doesn't retry until the next full page load and shows no error.
+  - Hint: it offers a zone only if that zone would be accepted, by that list; if the api can't say, it offers nothing. Settings' search list keeps to the accepted names too, once the list has been asked for (when the picker is first used).
+  - A browser that reports `UTC` (Firefox with resistFingerprinting, Tor) saves `UTC`.
+- D-104 (decided by the PM, for F8d; not built in F8c-fix). A member's join date is never before the family budget's start date; the server clamps it.
+- D-105 (decided by the PM). `deploy/checks/F8c.sql` and `F8c.expected` have no line for "records in another currency than their budget's". F8c's rollback target is `bfb8cc6` (V11's code), which reads such records correctly, and real records may exist before the deploy (D-98 is lifted). ADR 0004's rollback condition is `rollback.sh`'s for a target below V11, and no check file's.
+- D-106 (decided by the PM). The frontend doesn't poll `/api/me`. It asks again when the tab becomes visible (if its last answer is older than a minute), and once at the next midnight of the saved zone (UTC while none is saved): one timer, armed again after each answer, whether the answer came or failed, and when the zone or the date changes. Reason: a background poll keeps the BFF session and Keycloak's SSO session alive for ever, so an idle tab would never time out. D-101's ten-minute check and the window's focus event are gone.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

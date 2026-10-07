@@ -716,23 +716,24 @@ As of 2026-10-06T18:57:27Z (F8's rollback acceptance, answered `no`, nothing cha
 - `main` and `feature/family-budget` were at `bfb8cc6` and pushed when F8 was deployed (F8c-0's commits are on
   `feature/family-budget` only, not pushed). CI for `bfb8cc6`: #62 and #63, 10 check runs, all success (D-95).
 - F8 is deployed; "F8's deploy checklist with the suite" below stays as its record and is used for no other deploy.
-- F8c (D-99 to D-102: V12, each user's time zone, the error boundaries and guards, random test order in CI) is built on
+- F8c (D-99 to D-102: V12, each user's time zone, the error boundaries and guards, random test order in CI), with F8c-fix
+  (the PM's review: D-103 to D-106) is built on
   `feature/family-budget` and not deployed; "F8c's deploy checklist with the suite" below is for its deploy, and for no
   other. After it, the rollback target is `bfb8cc6`.
 
 ## F8c's deploy checklist with the suite
 
-**Commit to deploy (M):** `feature/family-budget`'s head after F8c, the last commit F8c's report names in full; `main`
+**Commit to deploy (M):** `feature/family-budget`'s head after F8c-fix (the PM's review of F8c, D-103 to D-106), the last commit F8c-fix's report names in full; `main`
 fast-forwards to it in step 1 (D-57), so M is `origin/main` and a fast-forward of the running `bfb8cc6`. M holds this
 checklist, so the checklist can't name M's hash itself: the report does, and every block below that takes it says
 `<M>`; type M's full hash (40 characters) there before pasting the block. Pasted as it is, bash reads `<M>` as a
 redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `F8c` (`deploy/checks/F8c.sql` and
-`F8c.expected`): D-100 and D-101, each user's time zone (V12), with F8c-0's test fixes, the error boundaries and the
-guards, and CI's random test order (D-99). **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since
+`F8c.expected`, 6 lines): D-100, D-101 and D-103 to D-106, each user's time zone (V12), with F8c-0's test fixes, the error
+boundaries and the guards, and CI's random test order (D-99). **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since
 2026-10-03T09:25:40Z) before, during and after this deploy. **The suite:** run from a clean checkout of M itself, with
 `E2E_FAMILY=on`; it replaces the browser checks and the smoke test (D-51, D-56) and has a spec more than F8's, the time
 zone (`05-time-zone.spec.ts`). This checklist is for this deploy only; don't run it again for another (D-98 is lifted:
-real family records may exist now, and the numbers and the rollback condition below allow for them).
+real family records may exist now, in another currency than their budget's too, and the numbers below allow for them: D-105).
 
 Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
 prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
@@ -744,12 +745,12 @@ What runs and why:
 
 - `run` is the clone's script, `bfb8cc6`'s, which F8c doesn't change (no file of `deploy/` but this runbook and the two
   check files differs; bash reads the script before the merge). Its step 1.3 requires M to be `origin/main` after `git
-  fetch` and a fast-forward of `HEAD` (`bfb8cc6`): M descends from it through F8c-0 (`e058c9b`, `46bf9eb`) and F8c's
-  eight commits. 1.3 lists those 10 commits, "Migrations added: V12__user_time_zone.sql", and under `deploy/`: three
+  fetch` and a fast-forward of `HEAD` (`bfb8cc6`): M descends from it through F8c-0 (`e058c9b`, `46bf9eb`), F8c's
+  eight commits and F8c-fix's five commits. 1.3 lists those 15 commits, "Migrations added: V12__user_time_zone.sql", and under `deploy/`: three
   files, `RUNBOOK.md`, `checks/F8c.expected` and `checks/F8c.sql`. `finance.caddy`, the postgres service and
   `pg-backup/finance.conf` don't change.
-- Both images are rebuilt with new content: the backend (V12, `Today`, the endpoint `PUT /api/settings/time-zone`,
-  `/api/me`) and the frontend (the zone, today from `/api/me`, the boundaries) change. Compose recreates `api` and `web`;
+- Both images are rebuilt with new content: the backend (V12, `Today`, the endpoints `PUT /api/settings/time-zone` and
+  `GET /api/settings/time-zones`, `/api/me`) and the frontend (the zone, today from `/api/me`, the boundaries) change. Compose recreates `api` and `web`;
   signed-in browser sessions end, and the first page each user loads afterwards saves the browser's zone. The api
   migrates the database to V12 at its start (Flyway: "Successfully applied 1 migration to schema "app", now at version
   v12"), additive: a nullable column `user_settings.time_zone` and V9's invite check replaced (ADR 0002, "Amendment,
@@ -757,14 +758,13 @@ What runs and why:
 - 3.2 keeps the running images (`bfb8cc6`'s api `sha256:62511293a8f3…`, web `sha256:6315d9c555f8…`) as
   `:bfb8cc68f8ae405f1b344eefd72c9f14a1e410ed` and `:previous`, and `/root/finance-tracker.previous` then names
   `bfb8cc6`; it removes the tags of the oldest of the revisions it keeps, as "Deploying with deploy.sh" says.
-- 4.4 compares `F8c.sql`'s output with `F8c.expected`: Flyway's latest row V12, `user_settings.time_zone` a nullable
-  text column, its length check, V9's invite check now at the date at UTC+14 and without `current_date`, 0 records in
-  another currency than their budget's, 0 unbalanced entries, 0 ECB rouble rates after 2022-03-01. The numbers
-  (`numbers.sql`) are unchanged by V12, which adds no table. **One line may differ legitimately:** with D-98 lifted, a
-  member may have recorded in another currency than their budget's before this deploy; then "records in another
-  currency than their budget's" is that count, 4.4 stops with FAILED on that one line of the diff, and nothing else is
-  wrong (the line is ADR 0004's rollback condition, which V12 doesn't change). Send the diff to the PM; `verify F8c`
-  shows the same difference, and the PM decides on going on with `finish` or `adopt`.
+- 4.4 compares `F8c.sql`'s output with `F8c.expected`, 6 lines: Flyway's latest row V12, `user_settings.time_zone` a
+  nullable text column, its length check, V9's invite check now at the date at UTC+14 and without `current_date`, 0
+  unbalanced entries, 0 ECB rouble rates after 2022-03-01. The numbers (`numbers.sql`) are unchanged by V12, which adds
+  no table. No line of it can differ legitimately: since D-105 the file has no line for records in another currency than
+  their budget's (F8's file had it as ADR 0004's rollback condition), because this deploy's rollback target, `bfb8cc6`,
+  is V11's code and reads such records correctly; a real member may have recorded in another currency before this
+  deploy, or may after it. A difference in any of the 6 lines is a fault: stop and send the diff to the PM.
 - The rollback target after this deploy is `bfb8cc6` (the V11 code on the V12 schema): its code ignores the new
   column, so `rollback.sh bfb8cc6` has no V12 condition: its target's highest migration is V11, so neither of its
   refusals (below V7, below V11) applies, and the users' zones stay in the database, unused.
@@ -864,7 +864,7 @@ It prints ("Deploying with deploy.sh" lists the steps):
 
 - 1.2: `HEAD: bfb8cc6 docs: F8b-fix …`, the running images, `Last good deploy: bfb8cc6 … (deploy)`, its status `good`,
   both images "the recorded image", the read-only role's line.
-- 1.3: the fetch; the 10 commits from `bfb8cc6` to M; `Migrations added: V12__user_time_zone.sql`; under `deploy/`
+- 1.3: the fetch; the 15 commits from `bfb8cc6` to M; `Migrations added: V12__user_time_zone.sql`; under `deploy/`
   the three files listed above.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (…)` (D-95; `5 check runs` if only one run happened). 1.6: the F8c files. 1.7: the 21 numbers of step 3.
@@ -876,8 +876,7 @@ It prints ("Deploying with deploy.sh" lists the steps):
   api takes up to two minutes: it migrates first). 3.6: `Pages: 5 of 5 as expected`.
 - 4.1: `Latest row: 12 user time zone true; the highest migration in <M>: V12`, the line `Successfully applied 1
   migration to schema "app", now at version v12` and `Started: …`, of this deploy's time. 4.2: the D-25 line "on" of
-  this deploy's time. 4.3: `The same numbers`. 4.4: the 7 lines of `F8c.expected` (see above for the one that may
-  differ). 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump and `PASS`.
+  this deploy's time. 4.3: `The same numbers`. 4.4: the 6 lines of `F8c.expected`. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump and `PASS`.
 - 5: the summary, with `Numbers: the same before and after (…)` (keep it for step 7), then `Left for you: the browser
   checks and the smoke test of the stage's checklist, then: deploy/deploy.sh finish`: here, the suite of step 5.
 
@@ -948,10 +947,9 @@ cd /opt/finance-tracker && deploy/deploy.sh verify F8c
 ```
 
 You should see `verify F8c at <M's 7 characters> …: OK`: both images "the recorded image", the pages 5 of 5, Flyway V12,
-the D-25 line "on", `F8c.expected`'s 7 lines, and the numbers exactly those of step 4's `Numbers:` line: the suite leaves
+the D-25 line "on", `F8c.expected`'s 6 lines, and the numbers exactly those of step 4's `Numbers:` line: the suite leaves
 no row of `e2e-a` or `e2e-b`, manual rates and the zone included. A real user signing up or writing meanwhile explains
-a difference in their own lines only, and a real member recording in another currency than their budget's a count above
-0 in that one line (then the rollback in the last block needs a restore); judge it before going on.
+a difference in their own lines only; judge it before going on.
 
 **8. Acceptance: `rollback.sh bfb8cc6` goes to its question**, changing nothing. Each block alone, in this order.
 
@@ -990,9 +988,9 @@ run it under D-60: a temporary branch at exactly M, deleted afterwards. Send its
 
 **10. Last, only for a failed deploy where the site is down: the rollback**, alone in its block; type `ROLLBACK bfb8cc6`
 at its question. It goes to `bfb8cc6`, the V11 code on the V12 schema, which runs unchanged (it ignores `time_zone`); the
-database stays at V12, additive. `rollback.sh` has no refusal for it; it would refuse a target below V11 while a record
-in another currency than its budget's exists (step 7's count), and then only a restore from the dump preserved before
-this deploy goes back.
+database stays at V12, additive. `rollback.sh` has no refusal for it: its target's highest migration is V11, so its V11
+condition (a record in another currency than its budget's) doesn't apply, and such records, which `bfb8cc6`'s code reads
+correctly, may exist (D-105).
 
 ```bash
 # On the server: only for a failed deploy where the site is down

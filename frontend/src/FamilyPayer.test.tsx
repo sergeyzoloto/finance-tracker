@@ -30,8 +30,8 @@ function Where() {
   return <p data-testid="where">{useLocation().pathname}</p>
 }
 
-const ON: Me = { name: 'Anna', features: { familyLedgers: true } }
-const OFF: Me = { name: 'Anna', features: { familyLedgers: false } }
+const ON: Me = { name: 'Anna', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: true } }
+const OFF: Me = { name: 'Anna', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: false } }
 const home: FamilyLedger = {
   id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'OWNER', memberId: 70,
   createdAt: '2026-09-01T10:00:00Z', startDate: '2026-09-01',

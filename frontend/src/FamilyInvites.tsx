@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import {
-  api, ApiError, formatDate, formatInstant, isoDate, sentence, type CreatedInvite, type FamilyInvite,
+  api, ApiError, formatDate, formatInstant, sentence, type CreatedInvite, type FamilyInvite,
   type FamilyMember,
 } from './api'
 import { Errors, Field, Loading } from './components'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
+import { useToday } from './me'
 
 /**
  * A family budget's invites, for its owners (F5; B2, B4; D-15, D-17): "Invite someone new", and for a member without
@@ -21,7 +22,8 @@ export function FamilyInvites({ family, seat, onSeatDone }: {
 }) {
   const invites = useFamilyApi<FamilyInvite[]>(family, `${family.path}/invites`)
   const [created, setCreated] = useState<CreatedInvite>()
-  const [joinDate, setJoinDate] = useState(() => isoDate(new Date()))
+  const today = useToday()
+  const [joinDate, setJoinDate] = useState(today)
   const create = useFamilyMutation(family, invites.reload)
   const revoke = useFamilyMutation(family, invites.reload)
 
@@ -35,12 +37,11 @@ export function FamilyInvites({ family, seat, onSeatDone }: {
 
   function claim(event: FormEvent) {
     event.preventDefault()
-    // Left out for today, so that the server's today counts, as for a start date: a browser a time zone ahead, already
-    // on the next day, isn't in the server's future (F6a).
-    if (seat) invite({ kind: 'CLAIM', seatMemberId: seat.id, ...(joinDate !== isoDate(new Date()) ? { joinDate } : {}) })
+    // Left out for today, so that the server's today counts, as for a start date (F6a); it is the owner's today, which
+    // /api/me says (D-101).
+    if (seat) invite({ kind: 'CLAIM', seatMemberId: seat.id, ...(joinDate !== today ? { joinDate } : {}) })
   }
 
-  const today = isoDate(new Date())
   const joinDateErrors = create.failure instanceof ApiError
     ? create.failure.violationDetails.filter((v) => v.code === 'JOIN_DATE').map((v) => sentence(v.message)) : []
   return (

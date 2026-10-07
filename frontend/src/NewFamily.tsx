@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  api, ApiError, errorMessage, fieldMessages, isoDate, sentence, useApi, useMutation, type Account, type Category,
+  api, ApiError, errorMessage, fieldMessages, sentence, useApi, useMutation, type Account, type Category,
   type CategoryType, type FamilyLedger, type FamilyMember, type Me, type Settings, type SplitRule,
 } from './api'
 import { percentToBasisPoints, WHOLE } from './basisPoints'
 import { CurrencyInput, Errors, Field, Loading } from './components'
 import type { CreationState } from './familyData'
 import { equalValues, ShareTable, shareTotal, type ShareRow } from './FamilyMembers'
+import { useToday } from './me'
 
 const GROUPS: { type: CategoryType; title: string }[] = [
   { type: 'EXPENSE', title: 'Expenses' },
@@ -31,7 +32,7 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
   const accounts = useApi<Account[]>('/accounts')
   const categories = useApi<Category[]>('/categories')
 
-  const [today] = useState(() => isoDate(new Date()))
+  const today = useToday()
   const [startDate, setStartDate] = useState(today)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState<string>()

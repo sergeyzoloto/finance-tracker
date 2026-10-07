@@ -8,6 +8,7 @@ import type { FamilyData } from './familyData'
 import { FamilyMembers } from './FamilyMembers'
 import { savePendingInvite } from './invite'
 import Settings from './Settings'
+import { TEST_ME, WithMe } from './testMe'
 
 // A membership's lifecycle in the interface (F6a; D-19, D-20, D-26, D-34): leaving and removal with their
 // confirmations, new owners, members who left, a claim's opening balance and a return's correction on the invite page,
@@ -55,10 +56,10 @@ function familyData(ledger: FamilyLedger, members: FamilyMember[]): FamilyData {
   }
 }
 
-function renderMembers(family: FamilyData) {
-  render(<MemoryRouter initialEntries={['/family/7/members']}><Routes>
+function renderMembers(family: FamilyData, me?: Me) {
+  render(<WithMe me={me}><MemoryRouter initialEntries={['/family/7/members']}><Routes>
     <Route path="/family/7/members" element={<FamilyMembers family={family} />} />
-  </Routes></MemoryRouter>)
+  </Routes></MemoryRouter></WithMe>)
 }
 
 beforeEach(() => vi.stubGlobal('confirm', () => true))
@@ -163,7 +164,7 @@ describe('the members page', () => {
 })
 
 describe('the invite page (D-34, D-26)', () => {
-  const ON: Me = { name: 'Carol', features: { familyLedgers: true } }
+  const ON: Me = { name: 'Carol', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: true } }
   const claim: InviteLookup = {
     ledgerName: 'Home', baseCurrency: 'EUR', invitedBy: 'Mum', kind: 'CLAIM', seatName: 'Sam', joinDate: '2026-09-15',
     expiresAt: '2026-10-04T10:00:00Z', categories: [], merges: [], keptPrivate: [], mayBring: [],
@@ -193,17 +194,19 @@ describe('the invite page (D-34, D-26)', () => {
   })
 })
 
-describe('a claim’s join date at 23:30 UTC (F6a)', () => {
-  it('leaves Amsterdam’s today out, so that the server’s counts, and sends an earlier one', async () => {
+describe('a claim’s join date at 23:30 UTC (F6a, D-101)', () => {
+  it('leaves the owner’s today out, as /api/me says it, whatever the browser’s clock says, and sends an earlier one', async () => {
+    // The browser is in Los Angeles, on the 15th; the owner's zone is Amsterdam, where it is the 16th: /api/me's today.
     const zone = process.env.TZ
-    process.env.TZ = 'Europe/Amsterdam'
+    process.env.TZ = 'America/Los_Angeles'
     try {
       vi.useFakeTimers({ toFake: ['Date'] })
       vi.setSystemTime(new Date('2026-07-15T23:30:00Z'))
       const created = { status: 201, body: { id: 1, kind: 'CLAIM', link: 'https://app.finance-nl.com/invite#x' } }
       const calls = stubApi({ ...BALANCES, 'GET /api/family-ledgers/7/invites': { status: 200, body: [] },
         'POST /api/family-ledgers/7/invites': [created, created] })
-      renderMembers(familyData({ ...home, startDate: '2026-07-01' }, [anna, ben, kid]))
+      renderMembers(familyData({ ...home, startDate: '2026-07-01' }, [anna, ben, kid]),
+        { ...TEST_ME, timeZone: 'Europe/Amsterdam', today: '2026-07-16' })
 
       fireEvent.click(within(screen.getByText('Kid').closest('tr')!).getByRole('button', { name: 'Invite to take this place' }))
       const date = screen.getByLabelText(/Invite someone to take Kid’s place, from/) as HTMLInputElement
@@ -232,7 +235,7 @@ describe('Delete all my data', () => {
   ] }
 
   function renderSettings(familyOn: boolean) {
-    render(<MemoryRouter><Settings familyOn={familyOn} /></MemoryRouter>)
+    render(<WithMe><MemoryRouter><Settings familyOn={familyOn} /></MemoryRouter></WithMe>)
   }
 
   it('lists every family budget the user is in, and what happens to it, before they confirm', async () => {

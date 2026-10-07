@@ -2,6 +2,7 @@ import { Link, useSearchParams } from 'react-router'
 import { formatDate, type FamilyReport as Report } from './api'
 import { Errors, Field, Loading } from './components'
 import { useFamilyApi, type FamilyData } from './familyData'
+import { isReport } from './guards'
 import { contributionWords, netWords, reportMonths, reportQuery, tookPart, totalLines } from './familyReport'
 import { RateNotes, TotalAmount } from './FamilyCurrency'
 import { abs, formatMoney, signOf } from './money'
@@ -18,7 +19,7 @@ export default function FamilyReport({ family }: { family: FamilyData }) {
   const [params, setParams] = useSearchParams()
   const from = params.get('from') ?? ''
   const to = params.get('to') ?? ''
-  const report = useFamilyApi<Report>(family, `${family.path}/report${reportQuery(from, to)}`)
+  const report = useFamilyApi<Report>(family, `${family.path}/report${reportQuery(from, to)}`, isReport)
   const setPeriod = (next: { from?: string; to?: string }) => {
     const query = reportQuery(next.from ?? from, next.to ?? to)
     setParams(new URLSearchParams(query.slice(1)), { replace: true })

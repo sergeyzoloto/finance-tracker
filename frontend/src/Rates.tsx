@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import {
-  api, ApiError, fieldMessages, formatDate, isoDate, useApi, useMutation, type LatestRate, type ManualRate,
+  api, ApiError, fieldMessages, formatDate, useApi, useMutation, type LatestRate, type ManualRate,
   type RatesOverview,
 } from './api'
 import { CurrencyInput, Errors, Field, Loading } from './components'
 import { parseRateInput } from './currency'
 import { missingDays } from './dashboard'
+import { useToday } from './me'
 import { formatRate } from './money'
 
 /**
@@ -19,7 +20,7 @@ export default function Rates() {
   const overview = useApi<RatesOverview>('/rates')
   const manual = useApi<ManualRate[]>('/rates/manual')
   const reload = () => { overview.reload(); manual.reload() }
-  const today = isoDate(new Date())
+  const today = useToday()
 
   const mine = overview.data?.latest.filter((r) => r.inLedger) ?? []
   const others = overview.data?.latest.filter((r) => !r.inLedger) ?? []

@@ -3,6 +3,7 @@ import { api, ApiError, fieldMessages, formatDate, sentence, type CurrencyAmount
 import { basisPointsToPercent, equalShares, percentToBasisPoints, WHOLE } from './basisPoints'
 import { Errors } from './components'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
+import { isBalances } from './guards'
 import {
   closesBudget, departureNotes, lastOwner, ROLE_LABELS, shareText, splitMembers, STATUS_LABELS, violationsByMember,
 } from './family'
@@ -21,7 +22,7 @@ export function FamilyMembers({ family }: { family: FamilyData }) {
   const [seat, setSeat] = useState<FamilyMember | null>(null)
   // The member about to leave or be removed, whose confirmation shows below the table (F6a).
   const [departing, setDeparting] = useState<FamilyMember | null>(null)
-  const balances = useFamilyApi<FamilyBalances>(family, `${family.path}/balances`)
+  const balances = useFamilyApi<FamilyBalances>(family, `${family.path}/balances`, isBalances)
   const add = useFamilyMutation(family, () => setName(''))
 
   function submit(event: FormEvent) {

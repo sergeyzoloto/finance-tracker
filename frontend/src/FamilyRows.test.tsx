@@ -10,6 +10,7 @@ import Entries from './Entries'
 import EntryEditor from './EntryEditor'
 import { categoryLabel, kindLabel } from './ledger'
 import { testLedger } from './testLedger'
+import { WithMe } from './testMe'
 
 // The personal pages with a family budget's rows (F4a parts 5 and 6): its entry kinds labelled, its entries read-only,
 // its categories marked in the lists, the pickers and the cash flow.
@@ -64,7 +65,7 @@ const reference = {
 }
 
 function renderAt(path: string, element: React.ReactNode, route = path) {
-  render(<MemoryRouter initialEntries={[path]}><Routes><Route path={route} element={element} /></Routes></MemoryRouter>)
+  render(<WithMe><MemoryRouter initialEntries={[path]}><Routes><Route path={route} element={element} /></Routes></MemoryRouter></WithMe>)
 }
 
 afterEach(() => {

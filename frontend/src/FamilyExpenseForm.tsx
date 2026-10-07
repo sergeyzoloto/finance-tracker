@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api, formatDate, isoDate, useApi, type Account, type Category, type FamilyRecord } from './api'
+import { api, formatDate, useApi, type Account, type Category, type FamilyRecord } from './api'
 import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
 import {
   expenseProblems, inOpeningBalance, newSplit, paymentAccounts, previewSplit, splitRequest, type SplitContext, type SplitForm,
@@ -9,6 +9,7 @@ import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { newPayingSide, payingCurrency, payingSideRequest, serverDefault, type PayingSideForm } from './currency'
 import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCurrency'
 import { SplitEditor } from './FamilySplit'
+import { useToday } from './me'
 import { fromMinor, parseMinor } from './minorUnits'
 
 /**
@@ -67,10 +68,8 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   const categories = useFamilyApi<Category[]>(family, `${family.path}/categories`)
   const accounts = useApi<Account[]>('/accounts')
 
-  const [date, setDate] = useState(() => {
-    const today = isoDate(new Date())
-    return today < ledger.startDate ? ledger.startDate : today
-  })
+  const today = useToday()
+  const [date, setDate] = useState(() => today < ledger.startDate ? ledger.startDate : today)
   const [categoryId, setCategoryId] = useState('')
   const [amountText, setAmountText] = useState('')
   const [payer, setPayer] = useState(String(ledger.memberId))

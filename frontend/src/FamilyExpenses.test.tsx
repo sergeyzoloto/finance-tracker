@@ -7,6 +7,7 @@ import type {
 } from './api'
 import NewFamily from './NewFamily'
 import { euroBalances, testLedger } from './testLedger'
+import { WithMe } from './testMe'
 
 // A family budget's expenses, balances and journal (F4b): the add form with its payment and split, the server's 409s
 // and 422s where they belong, an expense's page with what its reader may do, and the balances and journal in words.
@@ -35,7 +36,7 @@ function Where() {
   return <p data-testid="where">{useLocation().pathname}</p>
 }
 
-const ON: Me = { name: 'Anna', features: { familyLedgers: true } }
+const ON: Me = { name: 'Anna', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: true } }
 const home: FamilyLedger = {
   id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'OWNER', memberId: 70,
   createdAt: '2026-09-01T10:00:00Z', startDate: '2026-09-01',
@@ -489,12 +490,12 @@ describe('creating a family budget', () => {
 
   function renderNewFamily() {
     render(
-      <MemoryRouter initialEntries={['/family/new']}>
+      <WithMe><MemoryRouter initialEntries={['/family/new']}>
         <Routes>
           <Route path="/family/new" element={<NewFamily me={ON} onCreated={() => {}} />} />
           <Route path="*" element={<Where />} />
         </Routes>
-      </MemoryRouter>,
+      </MemoryRouter></WithMe>,
     )
   }
 

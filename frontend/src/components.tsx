@@ -28,17 +28,38 @@ export function Errors({ messages }: { messages?: (string | undefined)[] }) {
   return <div className="error-box" role="alert">{shown.map((m) => <p key={m}>{m}</p>)}</div>
 }
 
-/** Shows `fallback` in place of children that failed to render, such as a lazily loaded chunk that failed to load. */
-export class ErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false }
+/**
+ * Shows `fallback` in place of children that failed to render, such as a lazily loaded chunk that failed to load. A
+ * change of `resetKey`, such as the page's address, tries the children again.
+ */
+export class ErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode; resetKey?: unknown },
+  { failed: boolean; key: unknown }> {
+  state = { failed: false, key: this.props.resetKey }
 
   static getDerivedStateFromError() {
     return { failed: true }
   }
 
+  static getDerivedStateFromProps(props: { resetKey?: unknown }, state: { key: unknown }) {
+    return props.resetKey === state.key ? null : { failed: false, key: props.resetKey }
+  }
+
   render() {
     return this.state.failed ? this.props.fallback : this.props.children
   }
+}
+
+/**
+ * A page or a widget that may fail on an answer it can't read (F8c): in its place a short error with a link that reloads
+ * the page, and never a blank screen. `what` completes "Couldn't show …".
+ */
+export function Safe({ what, resetKey, children }: { what: string; resetKey?: unknown; children: ReactNode }) {
+  return (
+    <ErrorBoundary resetKey={resetKey} fallback={
+      <p className="error" role="alert">Couldn’t show {what}. <a href={window.location.href}>Reload the page</a>.</p>}>
+      {children}
+    </ErrorBoundary>
+  )
 }
 
 export const Loading = ({ what = '' }: { what?: string }) => <p className="muted" aria-busy="true">Loading{what && ` ${what}`}…</p>

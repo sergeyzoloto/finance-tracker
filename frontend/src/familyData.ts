@@ -41,10 +41,11 @@ export function useFamilyMutation(family: FamilyData, onDone: () => void = () =>
 
 /**
  * Loads a family budget's resource, as useApi. A 404 loads the budget again: if the budget is gone, its page shows
- * the not-found page; if only the resource is (a deleted expense), the budget stays and the caller says so.
+ * the not-found page; if only the resource is (a deleted expense), the budget stays and the caller says so. A `guard`
+ * keeps an answer of another shape from being read (F8c, `guards.ts`).
  */
-export function useFamilyApi<T>(family: FamilyData, path: string | null) {
-  const result = useApi<T>(path)
+export function useFamilyApi<T>(family: FamilyData, path: string | null, guard?: (answer: unknown) => answer is T) {
+  const result = useApi<T>(path, guard)
   const { reload } = family
   useEffect(() => {
     if (result.status === 404) reload()

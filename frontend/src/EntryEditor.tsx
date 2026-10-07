@@ -1,12 +1,13 @@
 import { useRef } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, formatDate, isoDate, useApi, type Counterparty, type Entry, type FamilyLedger } from './api'
+import { api, formatDate, useApi, type Counterparty, type Entry, type FamilyLedger } from './api'
 import { Errors, Loading } from './components'
 import {
   formFromEntry, newCounterpartyNames, newForm, serverErrors, TABS, tabOf, toCommand, type EntryForm, type Tab,
 } from './entryForm'
 import { EntryFormView } from './EntryForms'
 import { describeEntry, entryKindLabel, useLedger, type Ledger } from './ledger'
+import { useToday } from './me'
 import { formatMoney } from './money'
 import PaymentEntry from './PaymentEntry'
 
@@ -22,6 +23,7 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const location = useLocation()
+  const today = useToday()
   const { ledger, error, reloadCounterparties } = useLedger()
   const entry = useApi<Entry>(id ? `/entries/${id}` : null)
   // Counterparties this page created, until the reloaded list has them: "Save and add another" may reuse one at once.
@@ -41,7 +43,7 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
   }
 
   const tab = TABS.some((t) => t.tab === params.get('tab')) ? params.get('tab') as Tab : 'expense'
-  const { form, simple } = entry.data ? formFromEntry(entry.data, ledger) : { form: newForm(ledger, isoDate(new Date()), tab), simple: true }
+  const { form, simple } = entry.data ? formFromEntry(entry.data, ledger) : { form: newForm(ledger, today, tab), simple: true }
 
   async function save(form: EntryForm, andNew: boolean) {
     const withCreated = (): Ledger => ({

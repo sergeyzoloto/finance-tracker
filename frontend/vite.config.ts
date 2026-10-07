@@ -33,5 +33,8 @@ export default defineConfig({
   test: {
     // Component tests render into a simulated DOM; the rest are plain functions.
     environment: 'jsdom',
+    // The browser's zone in the tests, so that the saved zone of a test's user (UTC) is the browser's and no hint shows;
+    // a test that wants another zone sets process.env.TZ itself (D-101).
+    env: { TZ: 'UTC' },
   },
 })

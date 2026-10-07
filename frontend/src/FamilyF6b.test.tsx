@@ -48,7 +48,7 @@ function renderApp(me: Me, path: string) {
   )
 }
 
-const ON: Me = { name: 'Carol', features: { familyLedgers: true } }
+const ON: Me = { name: 'Carol', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: true } }
 const home: FamilyLedger = { id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'MEMBER', memberId: 71, createdAt: '2026-09-01T10:00:00Z', startDate: '2026-09-01' }
 const anna: FamilyMember = { id: 70, displayName: 'Anna', role: 'OWNER', status: 'ACTIVE', joinDate: '2026-09-01', hasAccount: true, share: null, leftDate: null, claimedSeat: false }
 // Carol took Kid's place from 09-20; Ben joined as a new member on 09-25.

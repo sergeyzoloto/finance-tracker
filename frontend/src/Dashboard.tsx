@@ -1,7 +1,7 @@
 import { Suspense, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
-  formatDate, sentence, useApi, type AccountBalance, type CashFlowRow, type ConvertedBalance, type ConvertedCashFlow,
+  dateOfIso, formatDate, sentence, useApi, type AccountBalance, type CashFlowRow, type ConvertedBalance, type ConvertedCashFlow,
   type ConvertedNetWorth, type CounterpartyBalance, type EntryPage, type NetWorth, type Rate, type SharedSettlement,
 } from './api'
 import CashFlowTable from './CashFlowTable'
@@ -14,6 +14,7 @@ import {
 } from './dashboard'
 import EmptyLedger from './EmptyLedger'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
+import { useToday } from './me'
 import { formatMoney, formatRate, signOf, sum } from './money'
 
 // Recharts is most of the app's code; loading it with the chart keeps it off every other page.
@@ -51,7 +52,7 @@ export default function Dashboard({ familyOn = false, onFamilyCreated }: { famil
  */
 function LedgerDashboard() {
   const [params, setParams] = useSearchParams()
-  const period = periodFromQuery(params, new Date())
+  const period = periodFromQuery(params, dateOfIso(useToday()))
   const inBase = inBaseFromQuery(params)
   const backwards = period.from > period.to
 

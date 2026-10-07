@@ -5,6 +5,7 @@ import type { DemoLedger } from './api'
 import EmptyLedger from './EmptyLedger'
 import Landing from './Landing'
 import Settings from './Settings'
+import { WithMe } from './testMe'
 
 // The landing page, the dashboard of an empty ledger, and deleting all data: what visitors and new users meet first.
 
@@ -79,12 +80,12 @@ describe('Settings', () => {
 
   function renderSettings() {
     render(
-      <MemoryRouter initialEntries={['/settings']}>
+      <WithMe><MemoryRouter initialEntries={['/settings']}>
         <Routes>
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Where />} />
         </Routes>
-      </MemoryRouter>,
+      </MemoryRouter></WithMe>,
     )
   }
 

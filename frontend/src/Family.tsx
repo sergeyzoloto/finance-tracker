@@ -4,7 +4,7 @@ import {
   api, fieldMessages, formatDate, sentence, useApi, type FamilyBalances as Balances, type FamilyLedger, type FamilyMember,
   type FamilyRecordPage,
 } from './api'
-import { Errors, Field, Loading } from './components'
+import { Errors, Field, Loading, Safe } from './components'
 import { ROLE_LABELS } from './family'
 import FamilyBalances, { YourBalance } from './FamilyBalances'
 import FamilyCategories from './FamilyCategories'
@@ -15,6 +15,7 @@ import FamilyReport from './FamilyReport'
 import { FamilyMembers, FamilySplitRule } from './FamilyMembers'
 import NewSettlement from './FamilySettlement'
 import { useFamilyApi, useFamilyMutation, type CreationState, type FamilyData } from './familyData'
+import { isBalances, isRecordPage } from './guards'
 
 /**
  * The pages of one family budget, under `/family/{ledgerId}` (ADR 0003, topic I): overview, activity (expenses, incomes
@@ -82,6 +83,8 @@ export default function Family({ onChanged, onLeft }: { onChanged: () => void; o
         </div>
       )}
       <Errors messages={[error]} />
+      {/* A tab that fails on its answer says so, and the budget's title and tabs stay (F8c). */}
+      <Safe what="this page of the family budget" resetKey={location.pathname}>
       <Routes>
         <Route index element={<Overview family={family} />} />
         <Route path="expenses" element={<FamilyRecords family={family} />} />
@@ -98,6 +101,7 @@ export default function Family({ onChanged, onLeft }: { onChanged: () => void; o
         <Route path="settings" element={<FamilySettings family={family} />} />
         <Route path="*" element={<Navigate to={family.page} replace />} />
       </Routes>
+      </Safe>
     </>
   )
 }
@@ -117,27 +121,31 @@ function Overview({ family }: { family: FamilyData }) {
   const { ledger, members } = family
   const me = members.find((m) => m.id === ledger.memberId)
   const active = members.filter((m) => m.status === 'ACTIVE')
-  const balances = useFamilyApi<Balances>(family, `${family.path}/balances`)
-  const records = useFamilyApi<FamilyRecordPage>(family, `${family.path}/records?size=5`)
+  const balances = useFamilyApi<Balances>(family, `${family.path}/balances`, isBalances)
+  const records = useFamilyApi<FamilyRecordPage>(family, `${family.path}/records?size=5`, isRecordPage)
   return (
     <section>
       <div className="settlement">
-        {balances.data ? <YourBalance balances={balances.data} /> : !balances.error && <Loading what="your balance" />}
+        <Safe what="your balance">
+          {balances.data ? <YourBalance balances={balances.data} /> : !balances.error && <Loading what="your balance" />}
+        </Safe>
         <p className="muted small"><Link to={`${family.page}/balances`}>Everyone’s balance</Link></p>
       </div>
       <Errors messages={[balances.error, records.error]} />
 
       <h3>Latest activity</h3>
       <AddButtons family={family} />
-      {records.data && records.data.totalElements === 0 && <p className="empty">Nothing recorded yet.</p>}
-      {records.data && records.data.content.length > 0 && (
-        <>
-          <RecordTable records={records.data.content} family={family} />
-          {records.data.totalElements > records.data.content.length && (
-            <p><Link to={`${family.page}/expenses`}>All {records.data.totalElements} records</Link></p>
-          )}
-        </>
-      )}
+      <Safe what="the latest activity">
+        {records.data && records.data.totalElements === 0 && <p className="empty">Nothing recorded yet.</p>}
+        {records.data && records.data.content.length > 0 && (
+          <>
+            <RecordTable records={records.data.content} family={family} />
+            {records.data.totalElements > records.data.content.length && (
+              <p><Link to={`${family.page}/expenses`}>All {records.data.totalElements} records</Link></p>
+            )}
+          </>
+        )}
+      </Safe>
 
       <dl className="facts">
         <dt>Start date</dt><dd>{formatDate(ledger.startDate)}</dd>

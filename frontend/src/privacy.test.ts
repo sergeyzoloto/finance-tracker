@@ -54,9 +54,12 @@ describe('the privacy policy', () => {
     expect(section).toContain('"Demo household"')
   })
 
-  it('has the new date, and no longer says nobody else sees anything of yours', () => {
-    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 2 October 2026')
+  it('has the new date, names the time zone among what is stored, and no longer says nobody else sees anything of yours', () => {
+    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 7 October 2026')
     const data = words(page.getElementById('data')!.parentElement!.textContent!)
+    // D-101 (F8c): the time zone is stored with the settings, from the browser, changeable, and decides today's date.
+    expect(data).toContain('Your settings include your time zone, such as Europe/Amsterdam, which the app takes from your browser the first time you use it and which you can change in Settings')
+    expect(data).toContain('it decides which date is "today" for you')
     expect(data).toContain('No other user of the app can see it, apart from what you record in a family budget, which its members see')
     expect(words(page.getElementById('retention')!.nextElementSibling!.textContent!))
       .toContain('The records of a family budget are kept as long as the family budget exists')

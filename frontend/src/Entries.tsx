@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
-import { formatDate, isoDate, useApi, type EntryPage } from './api'
+import { dateOfIso, formatDate, isoDate, useApi, type EntryPage } from './api'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
 import { describeEntry, entryKindLabel, kindLabel, useLedger } from './ledger'
+import { useToday } from './me'
 import { formatMoney, negate } from './money'
 
 const PAGE_SIZE = 50
@@ -10,8 +11,8 @@ const FILTERS = ['from', 'to', 'accountId', 'categoryId', 'counterpartyId', 'q']
 type Filter = (typeof FILTERS)[number]
 
 /** Named periods, as from–to dates. */
-function periods() {
-  const now = new Date()
+function periods(today: string) {
+  const now = dateOfIso(today)
   const y = now.getFullYear()
   const m = now.getMonth()
   return {
@@ -27,6 +28,7 @@ export default function Entries() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const location = useLocation()
+  const today = useToday()
   const { ledger, error: ledgerError } = useLedger()
   const filter = Object.fromEntries(FILTERS.map((f) => [f, params.get(f) ?? ''])) as Record<Filter, string>
   const page = Math.max(0, Number(params.get('page') ?? 0) || 0)
@@ -59,7 +61,7 @@ export default function Entries() {
     return () => clearTimeout(timer)
   })
 
-  const named = periods()
+  const named = periods(today)
   const period = !filter.from && !filter.to ? 'all'
     : Object.entries(named).find(([, [from, to]]) => from === filter.from && to === filter.to)?.[0] ?? 'custom'
   const filtered = FILTERS.some((f) => filter[f] !== '')

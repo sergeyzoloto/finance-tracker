@@ -2,8 +2,9 @@ import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import App from './App'
-import { familyLedgersOn, type Me } from './api'
+import { familyLedgersOn } from './api'
 import { finishLogin, logIn, loginResult, logOut } from './auth'
+import { isMe } from './guards'
 import { captureInvite, inviteRedirect, watchInviteLinks } from './invite'
 import Landing from './Landing'
 import './index.css'
@@ -27,7 +28,11 @@ async function start(): Promise<ReactNode> {
   const onStartPage = location.pathname === '/'
   const response = await fetch('/api/me', { signal: AbortSignal.timeout?.(BACKEND_WAIT_MS) }).catch(() => null)
   if (response?.ok) {
-    const me: Me = await response.json()
+    const me: unknown = await response.json().catch(() => null)
+    // An answer without a name and today's date (a proxy's page, a server of another version) isn't a signed-in app (F8c).
+    if (!isMe(me)) {
+      return <Notice message="The server’s answer was not what the app expects. Please try again in a moment." action="Reload" onAction={() => location.reload()} />
+    }
     // A token that waits for an outcome opens the invite page, also in the tab a sign-in or a registration ends in.
     const toInvite = inviteRedirect(location.pathname, familyLedgersOn(me))
     if (toInvite) history.replaceState(null, '', toInvite)

@@ -6,6 +6,7 @@ import type { CreatedInvite, FamilyInvite, FamilyLedger, FamilyMember, InviteLoo
 import type { FamilyData } from './familyData'
 import { FamilyMembers } from './FamilyMembers'
 import { pendingInvite, savePendingInvite } from './invite'
+import { WithMe } from './testMe'
 
 // Invites in the interface (F5; D-17, D-18, D-11): the invite page and its outcomes, and the owners' side.
 
@@ -33,7 +34,7 @@ function Where() {
   return <p data-testid="where">{useLocation().pathname}</p>
 }
 
-const ON: Me = { name: 'Carol', features: { familyLedgers: true } }
+const ON: Me = { name: 'Carol', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: true } }
 const TOKEN = 'hdzuQFKxP6EGQ-9rAQCHxEOs0iXpnIkxdLhB9WhL0h0'
 const INVALID = { status: 404, body: { status: 404, detail: 'This invite is not valid. Ask for a new one.' } }
 const home: FamilyLedger = { id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'MEMBER', memberId: 71, createdAt: '2026-09-29T10:00:00Z', startDate: '2026-09-01' }
@@ -182,7 +183,7 @@ describe('the invite page', () => {
 
   it('doesn’t exist with the switch off: /invite ends on the dashboard and asks nothing', async () => {
     const calls = stubApi({})
-    renderApp({ name: 'Carol', features: { familyLedgers: false } }, '/invite')
+    renderApp({ name: 'Carol', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: false } }, '/invite')
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'))
     expect(calls.filter((c) => c.url.includes('invite'))).toEqual([])
   })
@@ -204,7 +205,7 @@ describe('the owners’ invites', () => {
   }
 
   function renderMembers(family: FamilyData) {
-    render(<MemoryRouter><FamilyMembers family={family} /></MemoryRouter>)
+    render(<WithMe><MemoryRouter><FamilyMembers family={family} /></MemoryRouter></WithMe>)
   }
 
   it('lists the invites with their status, and revokes a pending one', async () => {

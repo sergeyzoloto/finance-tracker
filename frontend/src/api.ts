@@ -5,7 +5,17 @@ import { csrfToken, logIn } from './auth'
 
 /** The signed-in user. `features` says what the backend has switched on; a missing field counts as off. */
 /** The signed-in user: their name, their account's email (D-54, F8b) and which features are on. */
-export interface Me { name: string; email?: string | null; features?: { familyLedgers?: boolean } }
+/**
+ * The signed-in user. `timeZone` is their IANA time zone, null until it is set (D-100, D-101); `today` is the date in it,
+ * which every default date of the screens is. The screens never work out today from the browser's clock.
+ */
+export interface Me {
+  name: string
+  email?: string | null
+  timeZone?: string | null
+  today: string
+  features?: { familyLedgers?: boolean }
+}
 
 /** Whether the family budget is switched on (D-25): off in production until F7. */
 export const familyLedgersOn = (me: Me) => me.features?.familyLedgers === true
@@ -576,8 +586,10 @@ class ServerUnavailable extends Error {
  * A null path loads nothing. `loading` is true while a request is out, even if older data is shown meanwhile.
  * `status` is the HTTP status of a failed load that the API answered, such as 404. `update` changes the data shown
  * until the next load, for what a write the page made has changed already (F6b: the switcher after joining or leaving).
+ * With a `guard`, an answer that isn't the shape the page reads is an error, never data: the page shows "the answer was
+ * not what it expects", and what reads nested fields of it never runs (F8c).
  */
-export function useApi<T>(path: string | null) {
+export function useApi<T>(path: string | null, guard?: (answer: unknown) => answer is T) {
   const [data, setData] = useState<T>()
   const [error, setError] = useState<string>()
   const [status, setStatus] = useState<number>()
@@ -588,7 +600,17 @@ export function useApi<T>(path: string | null) {
     const request = ++latest.current
     setLoading(true)
     api<T>(path).then(
-      (result) => { if (request === latest.current) { setData(result); setError(undefined); setStatus(undefined); setLoading(false) } },
+      (result) => {
+        if (request !== latest.current) return
+        if (guard && !guard(result)) {
+          setData(undefined)
+          setError(UNEXPECTED_ANSWER)
+          setStatus(undefined)
+        } else {
+          setData(result); setError(undefined); setStatus(undefined)
+        }
+        setLoading(false)
+      },
       (e) => {
         if (request !== latest.current) return
         setError(errorMessage(e))
@@ -597,7 +619,7 @@ export function useApi<T>(path: string | null) {
         if (e instanceof ServerUnavailable) setTimeout(() => request === latest.current && reload(), 3000)
       },
     )
-  }, [path])
+  }, [path, guard])
   useEffect(() => {
     reload()
     return () => { latest.current++ } // unmounted or path changed: drop pending responses and retries
@@ -630,6 +652,9 @@ export function useMutation(onDone: () => void = () => {}) {
   return { run, error: failure?.message, failure, pending, clear: () => setFailure(undefined) }
 }
 
+/** What a page says of an answer whose shape it doesn't read (a guard of `useApi` refused it). */
+export const UNEXPECTED_ANSWER = 'The server’s answer was not in the form this page expects. Reload the page; if it stays, tell the owner.'
+
 export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Unexpected error')
 
 /** The messages of a failed write for one field of a form (400 `errors`), or none. */
@@ -642,6 +667,15 @@ export const sentence = (text: string) => text.charAt(0).toUpperCase() + text.sl
 // Local calendar dates; toISOString() would convert to UTC and shift the day near midnight.
 export const isoDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+/**
+ * A calendar date "2026-10-07" as a Date at local midnight of that day, for date arithmetic by `getFullYear`,
+ * `getMonth` and `getDate` (month presets, `isoDate`): whatever the browser's zone, it names that day. Not an instant.
+ */
+export function dateOfIso(iso: string): Date {
+  const [year, month, day] = iso.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
 
 /** "2026-09-25" in the user's locale, without shifting the day by the time zone. */
 export function formatDate(iso: string, options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' }) {

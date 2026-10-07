@@ -4,6 +4,7 @@ import { Errors, Loading } from './components'
 import { balancePhrase, debtSentence, maySettle, settleUpOrder, whoOwesWhom, yourBalance, type Debt } from './family'
 import { RateNotes, TotalAmount } from './FamilyCurrency'
 import { useFamilyApi, type FamilyData } from './familyData'
+import { isBalances } from './guards'
 import { formatMoney, sum } from './money'
 
 /** The reader's balance in words, member by member and currency by currency: "Sam owes you €40.00", or "You are settled". */
@@ -19,7 +20,7 @@ export function YourBalance({ balances }: { balances: Balances }) {
  * in one currency, the debt's (D-46), and opens the form with its members, amount and currency (D2, D-24).
  */
 export default function FamilyBalances({ family }: { family: FamilyData }) {
-  const balances = useFamilyApi<Balances>(family, `${family.path}/balances`)
+  const balances = useFamilyApi<Balances>(family, `${family.path}/balances`, isBalances)
   const data = balances.data
   if (!data) return balances.error ? <Errors messages={[balances.error]} /> : <Loading what="the balances" />
   const me = family.ledger.memberId

@@ -8,6 +8,7 @@ import type { FamilyData } from './familyData'
 import { FamilyMembers, FamilySplitRule } from './FamilyMembers'
 import NewFamily from './NewFamily'
 import { euroBalances } from './testLedger'
+import { WithMe } from './testMe'
 
 // The family budget's screens (F3b): hidden while the switch is off, the switcher, creation, and the family pages.
 
@@ -38,7 +39,7 @@ function Where() {
   return <p data-testid="where">{location.pathname}{location.state ? ` ${JSON.stringify(location.state)}` : ''}</p>
 }
 
-const ON: Me = { name: 'Anna', features: { familyLedgers: true } }
+const ON: Me = { name: 'Anna', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: true } }
 const home: FamilyLedger = { id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'OWNER', memberId: 70, createdAt: '2026-09-29T10:00:00Z', startDate: '2026-09-01' }
 const allotment: FamilyLedger = { ...home, id: 8, name: 'Allotment', role: 'MEMBER', memberId: 80 }
 const anna: FamilyMember = { id: 70, displayName: 'Anna', role: 'OWNER', status: 'ACTIVE', joinDate: '2026-09-29', hasAccount: true, share: null }
@@ -62,9 +63,9 @@ afterEach(() => {
 
 describe('with the switch off', () => {
   it.each<[string, Me]>([
-    ['false', { name: 'Anna', features: { familyLedgers: false } }],
-    ['missing', { name: 'Anna' }],
-    ['without features', { name: 'Anna', features: {} }],
+    ['false', { name: 'Anna', timeZone: 'UTC', today: '2026-09-30', features: { familyLedgers: false } }],
+    ['missing', { name: 'Anna', timeZone: 'UTC', today: '2026-09-30' }],
+    ['without features', { name: 'Anna', timeZone: 'UTC', today: '2026-09-30', features: {} }],
   ])('shows no switcher and asks for no family budgets when the field is %s', (_, me) => {
     const calls = stubApi({})
     renderApp(me, '/settings')
@@ -77,7 +78,7 @@ describe('with the switch off', () => {
 
   it.each(['/family/new', '/family/7', '/family/7/members'])('treats %s as any unknown path', async (path) => {
     const calls = stubApi({})
-    renderApp({ name: 'Anna' }, path)
+    renderApp({ name: 'Anna', timeZone: 'UTC', today: '2026-09-30' }, path)
 
     // The app's answer to an unknown path: the dashboard.
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'))
@@ -156,12 +157,12 @@ describe('creating a family budget', () => {
   function renderNewFamily() {
     const onCreated = vi.fn()
     render(
-      <MemoryRouter initialEntries={['/family/new']}>
+      <WithMe><MemoryRouter initialEntries={['/family/new']}>
         <Routes>
           <Route path="/family/new" element={<NewFamily me={ON} onCreated={onCreated} />} />
           <Route path="*" element={<Where />} />
         </Routes>
-      </MemoryRouter>,
+      </MemoryRouter></WithMe>,
     )
     return onCreated
   }
@@ -303,7 +304,7 @@ function familyData(ledger: FamilyLedger, members: FamilyMember[]): FamilyData {
 }
 
 function renderPage(element: React.ReactNode) {
-  render(<MemoryRouter initialEntries={['/family/7/page']}><Routes><Route path="/family/7/page" element={element} /></Routes></MemoryRouter>)
+  render(<WithMe><MemoryRouter initialEntries={['/family/7/page']}><Routes><Route path="/family/7/page" element={element} /></Routes></MemoryRouter></WithMe>)
 }
 
 describe('the split rule', () => {

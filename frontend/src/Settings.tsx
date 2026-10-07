@@ -4,6 +4,7 @@ import { api, useApi, useMutation, type FamilyMemberships } from './api'
 import { Errors, Field } from './components'
 import { deletionNotes, ROLE_LABELS } from './family'
 import { CONTACT_EMAIL, PRIVACY_URL } from './links'
+import { TimeZoneSettings } from './TimeZone'
 
 /** What the user types to confirm that all their data goes. */
 export const CONFIRMATION = 'DELETE'
@@ -34,6 +35,7 @@ export default function Settings({ onDeleted = () => {}, familyOn = false }: {
   return (
     <>
       <h2>Settings</h2>
+      <TimeZoneSettings />
       <section className="card danger-zone">
         <h3>Delete all my data</h3>
         <p>

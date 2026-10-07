@@ -15,6 +15,7 @@ import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCu
 import { OpeningBalanceNote } from './FamilyExpenseForm'
 import { RECORD_NOUNS, recordTitle, recordWho, settlementSentence } from './family'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
+import { isRecordPage } from './guards'
 import { JournalList } from './FamilyJournal'
 import { LATER, sideLabel } from './FamilySettlement'
 import { SplitEditor } from './FamilySplit'
@@ -79,7 +80,7 @@ export function AddButtons({ family }: { family: FamilyData }) {
 export function FamilyRecords({ family }: { family: FamilyData }) {
   const [params, setParams] = useSearchParams()
   const page = Math.max(0, Number(params.get('page') ?? 0) || 0)
-  const records = useFamilyApi<FamilyRecordPage>(family, `${family.path}/records?page=${page}&size=${PAGE_SIZE}`)
+  const records = useFamilyApi<FamilyRecordPage>(family, `${family.path}/records?page=${page}&size=${PAGE_SIZE}`, isRecordPage)
   const data = records.data
   const setPage = (p: number) => setParams(p === 0 ? {} : { page: String(p) })
   return (

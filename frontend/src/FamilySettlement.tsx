@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { api, formatDate, isoDate, useApi, type Account, type FamilyRecord } from './api'
+import { api, formatDate, useApi, type Account, type FamilyRecord } from './api'
 import { AccountSelect, Errors, Field } from './components'
 import { expenseProblems, inOpeningBalance, paymentAccounts } from './expenseForm'
 import { OpeningBalanceNote } from './FamilyExpenseForm'
@@ -8,6 +8,7 @@ import { newPayingSide, payingCurrency, payingSideRequest, serverDefault, type P
 import { maySettle } from './family'
 import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCurrency'
 import { useFamilyMutation, type FamilyData } from './familyData'
+import { useToday } from './me'
 import { fromMinor, parseMinor } from './minorUnits'
 
 /** The side of a settlement the user last recorded in this budget, to preselect it: an account's id, or "later". */
@@ -67,10 +68,8 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
     return 'minor' in parseMinor(amount, currency) ? amount : ''
   })
   const [paying, setPaying] = useState<PayingSideForm>(newPayingSide)
-  const [date, setDate] = useState(() => {
-    const today = isoDate(new Date())
-    return today < ledger.startDate ? ledger.startDate : today
-  })
+  const today = useToday()
+  const [date, setDate] = useState(() => today < ledger.startDate ? ledger.startDate : today)
   const [chosenSide, setSide] = useState<string>()
   const [comment, setComment] = useState('')
   const save = useFamilyMutation(family)

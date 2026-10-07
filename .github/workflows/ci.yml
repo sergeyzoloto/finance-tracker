@@ -36,9 +36,17 @@ jobs:
           java-version: '21'
           cache: maven
 
+      # D-99 (decided by the PM): the test classes run in random order, with the run's number as the seed, printed here and
+      # by Surefire ("To reproduce ordering use flag -Dsurefire.runOrder.random.seed=<n>"). A failure here is a real
+      # fault, an isolation one most likely: fix the isolation, never pin the order. To repeat a run:
+      # ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<n>
       - name: Build and test
         working-directory: backend
-        run: ./mvnw -B verify
+        env:
+          SEED: ${{ github.run_number }}
+        run: |
+          echo "Test classes in random order, seed $SEED"
+          ./mvnw -B verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed="$SEED"
 
   frontend:
     name: Frontend

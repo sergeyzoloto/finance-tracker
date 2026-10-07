@@ -175,10 +175,95 @@ the invite lookup's `openingBalance` and `correction`; the deletion preview's `b
   the report's screen per currency, the "≈" totals in the main currency (D-47) with D-49's rates, D-53, D-54, the
   end-to-end specs, `deploy/checks/F8.sql` and `F8.expected`, and the deploy checklist; the deprecated fields' last
   users go.
-- **F8c, before D3b:** refunds (D-79: an expense with a minus; V7's `original_amount > 0`, `base_amount > 0` and
+- **F8c, before D3b** (what became F8d, below): refunds (D-79: an expense with a minus; V7's `original_amount > 0`, `base_amount > 0` and
   `family_share.amount >= 0` would need a migration), payments from accounts that require a counterparty (D-80: V7's
   and V8's guard and `CrossLedgerWriter` refuse them today), the payer's payee on their own entry (D-81), and the
   import's sync fields on records (D-48). V11 adds no constraint against any of them.
+
+## F8d (2026-10-07): refunds, counterparty payments, the payer's payee, the journal's currencies, the import's sync fields
+
+Implements D-79 to D-81, D-93 and D-48 as V13, an additive migration, with the agent's choices D-108 to D-116 (for the
+PM to confirm) where the decisions left one open. What F8c's "What F8b and F8c add" listed as needing a migration is
+here: V7's checks that an amount is above 0 and a share isn't below 0 are replaced, and V8's guard of postings is
+replaced once more.
+
+### Refunds (D-79, D-108)
+
+A refund is an expense with a minus. The record's amount (`base_amount`), its paying side (`original_amount`) and every
+share are stored negative, so that nothing downstream needs a rule of its own: a member's balance, the report's
+category totals, the personal cash flow and a debt account are sums of those rows and reduce by themselves, and the
+posting service, which reads the stored amounts, writes every line of a refund reversed (the share's UNALLOCATED line
+negative with the expense category, which rule 5 already allows; the payment line positive, money in). A check
+(`family_record_amount_sign_check`) says an amount is never 0, the paying side has its sign, and only an expense is
+negative; the deferred check that the shares add up (`family_record_check_shares`) also refuses a share of the other
+sign. The api keeps the user's terms: requests and answers carry the amount typed, above 0, with `refund`; the service
+works on magnitudes and signs only where it writes. Whether a record is a refund is fixed at creation.
+
+### A payment from an account that requires a counterparty (D-80, D-109)
+
+`LOANS_ASSET` and `CREDITOR_DEBT` require a counterparty on every posting. V8's guard refused both, as the payer's own
+account, and any counterparty on a posted line. V13's guard lets the payer's own account for a payment (an expense's,
+and a settlement's or an income's too at the database's level, which the service doesn't use) be one that requires
+one, and lets only that line carry a counterparty; `CrossLedgerWriter` checks the same, and that the entry is an
+expense's payment and the counterparty one of the payer's own. The request's `paymentCounterpartyId` is required
+exactly when the account requires one.
+
+### The payer's payee (D-81, D-110, D-111)
+
+The payee is `journal_entry.payee_id` of the payer's own payment entry, set by the writer for the acting payer only
+and never copied to the family: no family answer, journal row or report names it, and changing it changes neither the
+record's version nor its journal, as for the account and the note.
+
+### The journal's currency (D-93, D-112)
+
+`family_record_change.currency` stores the record's currency right after the change (null only for a system change). A
+change of the record's currency has both its old and its new value in the row's own "currency" change, so each old
+amount of that row is read in the old currency. V13 fills the existing rows by that rule (the row's own change; else the
+old currency of the record's next change of currency; else the record's current one), and a trigger fills a row an
+image before V13 writes, which is the record's currency at that moment, since that image writes the row after the
+record's change. The reader gives each entry `currency` and each amount or share change `oldCurrency` and
+`newCurrency`.
+
+### The import's sync fields (D-48, D-113)
+
+Five columns on `family_record`, all together or none: `external_ref` (the source row's permanent ID, D-86), `content_hash`,
+`imported_version` (the record's version right after the import's write), `imported_by_member_id` and `imported_at`. A
+re-import recognises a row by its reference, never by its content: an edited row keeps its ID and changes its hash. A
+row is `NEW`, `UNCHANGED` (the same hash), `EDITED` (another hash, and the record's version is still the one the import
+left, so nobody changed it in the app: the import may write over it and stamp it again), `CONFLICT` (another hash, and
+the record changed in the app too) or `DELETED` (deleted in the app: it stays deleted, as the number of a deleted row is
+never reused). The reference is unique per family ledger, deleted records included. `ImportSync` is the rule and
+`FamilyImportSync` the reading and stamping, both for the import D3b builds; no endpoint exists.
+
+### Join dates (D-104, D-114)
+
+A member's join date is `GREATEST(the acting user's today, the start date)` wherever the server writes "today" as one.
+It is not a database constraint: the image before V13 may write the earlier date in the narrow window in which a member's
+zone is behind the owner's, and a constraint would refuse a write that image makes.
+
+### The rollback condition (D-116)
+
+The image before V13 (V12's code) reads a refund's negative amounts as it reads any amount: its balances, report and
+posting sums are right. What it gets wrong is the writes on one: a PATCH of its amount writes the typed amount, above 0,
+as the record's, so the refund becomes an expense; a change by another member of its category, split or comment
+re-posts the payer's own payment line, whose magnitude that code compares with the record's negative amount, and fails
+with a 500 (`wouldChange`; the seeded random test found it in the new code first); and the shares of a member who joins
+are found by `amount > 0`, which a refund's negative shares fail, so D-10 breaks for them. And it refuses to re-post a
+payment on an account that requires a counterparty: its writer's check excludes such an account, so any change to a
+record paid from one fails with a 500. The journal's currency, the sync fields, the payee and the join-date clamp are invisible to it (the trigger
+fills a journal row it leaves without a currency; it never selects or writes the other columns). So `deploy/rollback.sh`
+refuses to go back below V13 from a database at V13 or later while either count isn't 0:
+
+```sql
+SELECT count(*) FROM app.family_record WHERE base_amount < 0 AND deleted_at IS NULL
+SELECT count(*) FROM app.family_entry_link l JOIN app.posting p ON p.entry_id = l.entry_id
+WHERE l.detached_at IS NULL AND p.counterparty_id IS NOT NULL
+```
+
+A deleted refund is not counted (nothing reads or re-posts a deleted record); a payment whose link is detached (a member
+who left) is an ordinary entry, which the image handles. `deploy/tests/run.sh`, case `rollback_below_v13`, proves both
+refusals, the confirmation they let through and the silence below V13; four mutations of `deploy/tests/mutate.sh` break
+them.
 
 ## Consequences
 

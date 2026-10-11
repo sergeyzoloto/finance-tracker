@@ -151,6 +151,8 @@ EOF
   export STUB_STATE=$s PATH=$C/bin:$BASE_PATH
   export DEPLOY_REPO_DIR=$C/server DEPLOY_STATE_DIR=$C/state DEPLOY_LOCK=$C/lock DEPLOY_TTY=$C/tty
   export DEPLOY_BACKUP_DIR=$C/backups DEPLOY_PREVIOUS_FILE=$C/previous
+  # D-126: no scheduled shutdown unless a case writes this file (never the laptop's own /run/systemd).
+  export DEPLOY_SHUTDOWN_FILE=$C/shutdown-scheduled
   export DEPLOY_CI_WAIT=2 DEPLOY_CI_INTERVAL=1 DEPLOY_HEALTH_TRIES=3 DEPLOY_HEALTH_INTERVAL=0
   # The terminal (F6c): a FIFO that terminal_feeder writes into, as the operator would type and paste.
   mkfifo "$C/tty"
@@ -2620,6 +2622,66 @@ ops2b_scripts_after_it() {
   check "switch on again: exit code 0" rc_is 0
 }
 
+# D-126: systemd-logind's file for unattended-upgrades' reboot of 2026-10-08 04:00:00 UTC.
+scheduled_reboot() {
+  printf 'USEC=1791432000000000\nWARN_WALL=1\nMODE=reboot\nUID=0\n' >"$DEPLOY_SHUTDOWN_FILE"
+}
+
+case_shutdown_none_is_named() {
+  setup_case
+  new_target
+  deploy_e
+  check "exit code 0" rc_is 0
+  check "run names no scheduled shutdown" out_has "Scheduled shutdown: none ($DEPLOY_SHUTDOWN_FILE doesn't exist)"
+  type_at_terminal yes yes
+  run_deploy finish
+  check "finish: exit code 0" rc_is 0
+  check "finish names none" out_has "Scheduled shutdown: none"
+  run_deploy verify OPS-1
+  check "verify names none" out_has "Scheduled shutdown: none"
+}
+
+case_run_refused_by_a_scheduled_reboot() {
+  setup_case
+  new_target
+  scheduled_reboot
+  deploy_e
+  refused "a shutdown is scheduled (D-126)"
+  check "prints the time from the file" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z"
+  check "before CI and any backup" calls_lack '/check-runs|^systemctl|^pg-restore-test'
+  check "nothing asked" [ "$(questions)" -eq 0 ]
+}
+
+case_run_refused_by_an_unparseable_shutdown_file() {
+  setup_case
+  new_target
+  printf 'MODE=reboot\nUSEC=soon\n' >"$DEPLOY_SHUTDOWN_FILE"
+  deploy_e
+  refused "can't be parsed, so a scheduled shutdown can't be ruled out (D-126)"
+  check "says so" out_has "exists but can't be parsed"
+  check "before CI and any backup" calls_lack '/check-runs|^systemctl|^pg-restore-test'
+}
+
+case_shutdown_lines_of_verify_finish_and_rollback() {
+  setup_case
+  new_target
+  deploy_e
+  scheduled_reboot
+  type_at_terminal yes yes
+  run_deploy finish
+  check "finish: exit code 0, not refused" rc_is 0
+  check "finish names the reboot" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z"
+  run_deploy verify OPS-1
+  check "verify: exit code 0" rc_is 0
+  check "verify names the reboot" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z"
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  check "rollback: exit code 0, never refused for it" rc_is 0
+  check "rollback warns" out_has "WARNING: Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z"
+  check "rollback goes on" out_has "the rollback goes on (D-126)"
+  check "rollback: D runs again" head_is "$SHA_D"
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -2658,6 +2720,8 @@ CASES=(
   b6870f2_scripts_on_production_now b6870f2_run_deploys_ops2b b6870f2_run_deploys_ops2b_same_api
   switch_off_without_the_numbers
   b6870f2_run_deploys_a_merge_commit
+  shutdown_none_is_named run_refused_by_a_scheduled_reboot run_refused_by_an_unparseable_shutdown_file
+  shutdown_lines_of_verify_finish_and_rollback
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

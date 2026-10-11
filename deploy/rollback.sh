@@ -92,6 +92,12 @@ cmd_rollback() {
 
   heading "1. The tools, the read-only role and the clone"
   check_tools git docker flock curl
+  # D-126: only a warning; a rollback is for a site that is down, and never waits for a reboot.
+  if shutdown_scheduled; then
+    say "WARNING: $SHUTDOWN_LINE; the rollback goes on (D-126), but the reboot may interrupt it"
+  else
+    say "$SHUTDOWN_LINE"
+  fi
   # Without the read-only role this script can't check the database (D-22): the way back is then the runbook's manual
   # one (F6c).
   problem=$(role_problem)

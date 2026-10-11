@@ -38,7 +38,7 @@
 #
 # For the tests only (deploy/tests/run.sh), these variables move the paths and shorten the waits: DEPLOY_REPO_DIR,
 # DEPLOY_STATE_DIR, DEPLOY_LOCK, DEPLOY_TTY, DEPLOY_BACKUP_DIR, DEPLOY_PREVIOUS_FILE, DEPLOY_CI_WAIT,
-# DEPLOY_CI_INTERVAL, DEPLOY_HEALTH_TRIES and DEPLOY_HEALTH_INTERVAL. Every run prints the paths it uses.
+# DEPLOY_CI_INTERVAL, DEPLOY_HEALTH_TRIES, DEPLOY_HEALTH_INTERVAL and DEPLOY_SHUTDOWN_FILE. Every run prints the paths it uses.
 
 # shellcheck source=deploy/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -398,6 +398,14 @@ cmd_run() {
   check_tools "${TOOLS[@]}"
   # The confirmation is read from the terminal; without one (ssh without a terminal, a pipe), stop before the backup.
   exec {TTY_FD}<"$TTY" || fail "can't read $TTY: run deploy.sh in a terminal on the server"
+  # D-126: a deploy stops for a scheduled shutdown, such as unattended-upgrades' reboot at 04:00 UTC (D-125).
+  local shutdown_rc=0
+  shutdown_scheduled || shutdown_rc=$?
+  say "$SHUTDOWN_LINE"
+  case $shutdown_rc in
+    0) fail "a shutdown is scheduled (D-126): deploy after it, or cancel it (shutdown -c) if the PM agrees" ;;
+    2) fail "$SHUTDOWN_FILE can't be parsed, so a scheduled shutdown can't be ruled out (D-126): cat it" ;;
+  esac
 
   heading "1.2 Preflight: the clone"
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
@@ -697,6 +705,8 @@ cmd_finish() {
   SHA=$(meta_value commit)
   valid_commit "$SHA" || fail "$RUN_DIR/meta names no commit"
   [ "$(git rev-parse HEAD)" = "$SHA" ] || fail "HEAD is no longer the run's commit ${SHA:0:7}"
+  shutdown_scheduled || true
+  say "$SHUTDOWN_LINE"
 
   heading "The pages"
   # Before the questions (F7b): F7's finish recorded yes while /privacy answered 403. A page that fails leaves no way
@@ -779,6 +789,8 @@ cmd_verify() {
   cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
   say "verify $stage at $(git log -1 --format='%h %s' HEAD), $(now); read only"
   check_tools git docker flock diff curl
+  shutdown_scheduled || true
+  say "$SHUTDOWN_LINE"
 
   heading "The read-only role"
   problem=$(role_problem)

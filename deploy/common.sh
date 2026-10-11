@@ -25,6 +25,7 @@ common_settings() {
   CI_INTERVAL=${DEPLOY_CI_INTERVAL:-60}
   HEALTH_TRIES=${DEPLOY_HEALTH_TRIES:-60}
   HEALTH_INTERVAL=${DEPLOY_HEALTH_INTERVAL:-5}
+  SHUTDOWN_FILE=${DEPLOY_SHUTDOWN_FILE:-/run/systemd/shutdown/scheduled}
   APP_DIR=$REPO_DIR/deploy/app
   CONF_TARGET=/etc/pg-backup/finance.conf
   GITHUB_API=https://api.github.com/repos/sergeyzoloto/finance-tracker
@@ -43,6 +44,7 @@ common_settings() {
   STORE_ANSWER=
   PLATFORM_ANSWER=
   STORE_LINE=
+  SHUTDOWN_LINE=
 }
 
 say() { printf '%s\n' "$*"; }
@@ -235,6 +237,33 @@ docker_error() {
   local err
   err=$(docker "$@" 2>&1 >/dev/null) || true
   one_line "${err:-no message}"
+}
+
+# shutdown_scheduled (D-126): SHUTDOWN_LINE says whether systemd has a shutdown or reboot scheduled, from the file
+# systemd-logind writes for one (shutdown -r <time>, unattended-upgrades' Automatic-Reboot), key=value lines with USEC
+# (microseconds since the epoch) and MODE (reboot, poweroff, ...). Returns 0 when one is scheduled, 1 when the file
+# doesn't exist, 2 when it exists but can't be read or holds no USEC (a MODE is optional). The file is parsed, never
+# sourced.
+shutdown_scheduled() {
+  local line usec='' mode=''
+  if [ ! -e "$SHUTDOWN_FILE" ]; then
+    SHUTDOWN_LINE="Scheduled shutdown: none ($SHUTDOWN_FILE doesn't exist)"
+    return 1
+  fi
+  if [ -r "$SHUTDOWN_FILE" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case $line in
+        USEC=*) usec=${line#USEC=} ;;
+        MODE=*) mode=${line#MODE=} ;;
+      esac
+    done <"$SHUTDOWN_FILE"
+  fi
+  if [[ $usec =~ ^[1-9][0-9]{0,18}$ ]] && [[ $mode =~ ^[a-z-]{0,20}$ ]]; then
+    SHUTDOWN_LINE="Scheduled shutdown: a ${mode:-shutdown} at $(date -u -d "@$((usec / 1000000))" +%Y-%m-%dT%H:%M:%SZ) ($SHUTDOWN_FILE)"
+    return 0
+  fi
+  SHUTDOWN_LINE="Scheduled shutdown: $SHUTDOWN_FILE exists but can't be parsed (no USEC=<microseconds>): cat it"
+  return 2
 }
 
 # one_line TEXT: TEXT on one line, at most 300 characters, for a message.

@@ -348,6 +348,40 @@ mutation_in rollback.sh "count a refund only from V14 on" \
   '[ "$db_version" -ge 14 ] && [ "$target_max" -lt 13 ]' \
   rollback_below_v13
 
+# D-126 (F8f): a scheduled shutdown stops run, is named by verify and finish, and only warns in rollback.sh.
+mutation "let run go on despite a scheduled shutdown" \
+  '    0) fail "a shutdown is scheduled (D-126)' \
+  '    0) : "a shutdown is scheduled (D-126)' \
+  run_refused_by_a_scheduled_reboot
+mutation "let run go on when the shutdown file can't be parsed" \
+  '    2) fail "$SHUTDOWN_FILE' \
+  '    2) : "$SHUTDOWN_FILE' \
+  run_refused_by_an_unparseable_shutdown_file
+mutation_in common.sh "take a file without USEC as no shutdown" \
+  '  return 2
+}' \
+  '  return 1
+}' \
+  run_refused_by_an_unparseable_shutdown_file
+mutation_in common.sh "never read the shutdown file" \
+  'SHUTDOWN_FILE=${DEPLOY_SHUTDOWN_FILE:-/run/systemd/shutdown/scheduled}' \
+  'SHUTDOWN_FILE=/nonexistent/scheduled' \
+  run_refused_by_a_scheduled_reboot shutdown_none_is_named
+mutation_in rollback.sh "let rollback.sh refuse for a scheduled shutdown" \
+  '    say "WARNING: $SHUTDOWN_LINE; the rollback goes on (D-126), but the reboot may interrupt it"' \
+  '    fail "$SHUTDOWN_LINE"' \
+  shutdown_lines_of_verify_finish_and_rollback
+mutation "drop verify's shutdown line" \
+  '  check_tools git docker flock diff curl
+  shutdown_scheduled || true
+  say "$SHUTDOWN_LINE"
+
+  heading "The read-only role"' \
+  '  check_tools git docker flock diff curl
+
+  heading "The read-only role"' \
+  shutdown_lines_of_verify_finish_and_rollback
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

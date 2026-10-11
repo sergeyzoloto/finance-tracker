@@ -3,15 +3,19 @@ package com.example.financetracker;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.example.financetracker.hygiene.fixtures.ImplicitClocks;
 import com.example.financetracker.hygiene.fixtures.RawAnswerSearch;
+import com.example.financetracker.hygiene.fixtures.RawTextCaller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tngtech.archunit.core.domain.AccessTarget;
 import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaConstructorCall;
+import com.tngtech.archunit.core.domain.JavaConstructorReference;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaMethodReference;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -37,7 +41,10 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
  *   <li>D-117: a date or a moment from a clock nobody named. {@code LocalDate.now()} is the JVM's zone, which CI runs
  *       in Pacific/Kiritimati; {@code Instant.now()} and {@code Clock.systemDefaultZone()} leave the clock implicit.
  *       Dates come from {@code ledger.Today} or a clock or zone given to {@code now}; a moment from
- *       {@link WallClock}.</li>
+ *       {@link WallClock}. Since F8f the rule also refuses {@code System.currentTimeMillis()}, {@code new Date()}
+ *       without an argument and {@code ZoneId.systemDefault()}.</li>
+ *   <li>D-121 (F8f): {@link Answers#rawText} only in the classes of {@link #RAW_TEXT_CALLERS}, each with its reason:
+ *       whole answers compared with each other, or an answer in a message.</li>
  * </ul>
  * The fixtures in {@code hygiene.fixtures} break both on purpose: the rules are tried on them, and left out of the
  * rules' own scan.
@@ -56,11 +63,30 @@ class TestHygieneTests {
             .withImportOption(ImportOption.Predefined.ONLY_INCLUDE_TESTS).importPackages("com.example.financetracker");
 
     private static final JavaClasses FIXTURE_CLASSES = new ClassFileImporter()
-            .importClasses(RawAnswerSearch.class, ImplicitClocks.class);
+            .importClasses(RawAnswerSearch.class, ImplicitClocks.class, RawTextCaller.class,
+                    RawTextCaller.Nested.class);
 
     /** The classes that may turn an answer into text: the helper, and the base class that parses it. */
     private static final Set<String> MAY_READ_TEXT = Set.of(Answers.class.getName(), IntegrationTest.class.getName(),
             TestHygieneTests.class.getName());
+
+    private static final String API = "com.example.financetracker.ledger.api.";
+
+    /**
+     * D-121: the classes that may call {@link Answers#rawText}, each with its reason; never to search for a number, an
+     * id, an amount or a date (D-119). A nested class or a lambda counts as its top-level class.
+     */
+    static final Map<String, String> RAW_TEXT_CALLERS = Map.of(
+            API + "DataIsolationApiTests",
+            "compares Bob's whole answer for Alice's object with the answer for a missing one, digits masked, and "
+                    + "collects whole answers for invalid tokens to compare them with each other",
+            API + "FamilyInviteApiTests",
+            "compares the whole answers for every kind of invalid token with each other, and finds the token, a "
+                    + "random base64url string, only in the creation's answer",
+            API + "FamilySwitchOffApiTests",
+            "compares a family endpoint's whole answer with an unknown path's, the path replaced",
+            API + "FamilyClaimRandomTests", "names the answer in an assertion's message",
+            API + "FamilyLifecycleRandomTests", "names the answer in an assertion's message");
 
     private static final Set<String> TIME_TYPES = Set.of("java.time.Instant", "java.time.LocalDate",
             "java.time.LocalDateTime", "java.time.LocalTime", "java.time.OffsetDateTime", "java.time.OffsetTime",
@@ -139,7 +165,9 @@ class TestHygieneTests {
             public void check(JavaClass javaClass, ConditionEvents events) {
                 for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
                     if (access.getTarget() instanceof AccessTarget.CodeUnitAccessTarget target
-                            && (access instanceof JavaMethodCall || access instanceof JavaMethodReference)
+                            && (access instanceof JavaMethodCall || access instanceof JavaMethodReference
+                                    || access instanceof JavaConstructorCall
+                                    || access instanceof JavaConstructorReference)
                             && isImplicit(target)) {
                         events.add(SimpleConditionEvent.violated(access, access.getDescription()));
                     }
@@ -150,8 +178,19 @@ class TestHygieneTests {
 
     private static boolean isImplicit(AccessTarget.CodeUnitAccessTarget target) {
         String owner = target.getOwner().getName();
-        if (owner.equals("java.time.Clock")) {
-            return target.getName().equals("systemDefaultZone");
+        String name = target.getName();
+        boolean noArguments = target.getRawParameterTypes().isEmpty();
+        switch (owner) {
+            case "java.time.Clock":
+                return name.equals("systemDefaultZone");
+            case "java.time.ZoneId":
+                return name.equals("systemDefault");
+            case "java.lang.System":
+                return name.equals("currentTimeMillis");
+            case "java.util.Date":
+                return name.equals("<init>") && noArguments;
+            default:
+                break;
         }
         return TIME_TYPES.contains(owner) && target.getName().equals("now") && target.getRawParameterTypes().isEmpty();
     }
@@ -167,10 +206,46 @@ class TestHygieneTests {
         List<String> details = result.getFailureReport().getDetails().stream()
                 .filter(detail -> detail.contains("ImplicitClocks")).toList();
         for (String method : List.of("localDate", "localDateTime", "localTime", "zonedDateTime", "offsetDateTime",
-                "instant", "year", "yearMonth", "systemDefaultZone", "methodReference", "lambda")) {
+                "instant", "year", "yearMonth", "systemDefaultZone", "methodReference", "lambda", "currentTimeMillis",
+                "newDate", "dateConstructorReference", "systemDefaultZoneId")) {
             assertThat(details).as(method).anyMatch(detail -> detail.contains("ImplicitClocks." + method + "("));
         }
         // A call that names its clock or zone is allowed.
         assertThat(details).noneMatch(detail -> detail.contains("withAClockOrAZone"));
+    }
+
+    // ---- D-121
+
+    static ArchRule rawTextOnlyInTheListedClasses() {
+        return classes().should(new ArchCondition<JavaClass>("call Answers.rawText only if listed in RAW_TEXT_CALLERS") {
+            @Override
+            public void check(JavaClass javaClass, ConditionEvents events) {
+                String topLevel = javaClass.getName().split("\\$", 2)[0];
+                boolean listed = topLevel.equals(Answers.class.getName())
+                        || RAW_TEXT_CALLERS.containsKey(topLevel);
+                for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
+                    if (!listed && access.getTarget().getOwner().isEquivalentTo(Answers.class)
+                            && access.getTarget().getName().equals("rawText")) {
+                        events.add(SimpleConditionEvent.violated(access, access.getDescription()));
+                    }
+                }
+            }
+        }).because("Answers.rawText is for whole answers and messages, never for a search for a number, an id, an "
+                + "amount or a date (D-119, D-121): a new caller is added to RAW_TEXT_CALLERS with its reason");
+    }
+
+    @Test
+    void onlyTheListedClassesCallRawText() {
+        rawTextOnlyInTheListedClasses().check(TESTS);
+    }
+
+    @Test
+    void theRuleForRawTextFindsAnUnlistedCaller() {
+        EvaluationResult result = rawTextOnlyInTheListedClasses().evaluate(FIXTURE_CLASSES);
+        List<String> details = result.getFailureReport().getDetails();
+        assertThat(details).anyMatch(detail -> detail.contains("RawTextCaller.direct("));
+        assertThat(details).anyMatch(detail -> detail.contains("RawTextCaller.reference("));
+        assertThat(details).anyMatch(detail -> detail.contains("RawTextCaller$Nested"));
+        assertThat(details).allMatch(detail -> detail.contains("RawTextCaller"));
     }
 }

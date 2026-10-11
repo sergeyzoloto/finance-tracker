@@ -8,13 +8,15 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.Year;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.Date;
 import java.util.function.Supplier;
 
 /**
  * What {@code TestHygieneTests} must refuse: a date or a moment from a clock nobody named. It is excluded from the
- * real rules and imported alone by the tests of the rules. The last three methods are what the rule allows.
+ * real rules and imported alone by the tests of the rules. The last method is what the rule allows.
  */
 public final class ImplicitClocks {
 
@@ -65,8 +67,25 @@ public final class ImplicitClocks {
         return () -> LocalDate.now();
     }
 
+    public static long currentTimeMillis() {
+        return System.currentTimeMillis();
+    }
+
+    public static Object newDate() {
+        return new Date();
+    }
+
+    public static Supplier<Date> dateConstructorReference() {
+        return Date::new;
+    }
+
+    public static Object systemDefaultZoneId() {
+        return ZoneId.systemDefault();
+    }
+
     public static Object withAClockOrAZone(Clock clock) {
         return LocalDate.now(clock).toString() + LocalDate.now(ZoneOffset.UTC) + Instant.now(clock)
-                + ZonedDateTime.now(ZoneOffset.UTC) + Clock.systemUTC();
+                + ZonedDateTime.now(ZoneOffset.UTC) + Clock.systemUTC() + new Date(clock.millis())
+                + ZoneId.of("UTC");
     }
 }

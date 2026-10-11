@@ -121,7 +121,9 @@ cd ~/dev/finance-tracker && docker compose -f docker-compose.yml -f docker-compo
 ```
 
 `npm run typecheck` and `npm run test:guards` (the guards' tests, with temporary files, a fake app and, for the
-confirmation, a pseudo-terminal of util-linux's `script` only) need no stack.
+confirmation, a pseudo-terminal of util-linux's `script` only) need no stack. Since F8f CI runs `npm ci && npm run
+test:guards` as the step "End-to-end guards" of its Frontend job (and "CI on Ubuntu 26.04" likewise), a step and not a
+job, so that each push keeps its five check runs (D-95).
 
 Writing a spec (D-119): look for a number, an amount or a date in rendered text with `wholeNumber('32.10')` from
 `fixtures.ts`, never `toContainText('32.10')` or `hasText: '€40.00'`: a substring search finds 132.10, 1,032.10 and

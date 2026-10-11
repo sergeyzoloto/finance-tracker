@@ -644,6 +644,10 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-08 | `39e6e61`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `39e6e61`, run #8 (id `37748791216`), `workflow_dispatch` on `main` at `39e6e61`, attempt 1, dispatched once: Backend, Frontend, Web image and Deploy scripts completed with success. Run #6's failing test (D-119) passes on Ubuntu 26.04. Its check runs belong to `39e6e61`, deployed and finished, so they hold up no deploy. |
+| 2026-10-08 | `39e6e61`; nothing changed | F8e's rollback acceptance: `deploy/rollback.sh 05397a7`, run folder `/var/lib/finance-deploy/runs/2026-10-08T081455Z-rollback-05397a7`. Steps 1 to 4 passed: the images accepted; Flyway 13 against the target's V13 and no further line (F8e has no migration). Answered `no`: REFUSED at its question, nothing changed. The rollback state (the previous file, `:previous` and `:05397a7…`, `last-good`) was the same before and after. |
+| 2026-10-08 | `39e6e616ba60731caca7683f8e309bf34aa0f3ec` (docs: CI run #6 and #7 facts, D-120 to D-124 (F8e)), M; the api rebuilt and recreated, the web image unchanged and left running | F8e (D-117 to D-119, D-118's clamp, the time-zone spec's fixed titles; D-120 to D-124), Flyway V13, the switch on. Push: `main` and `feature/family-budget` fast-forwarded `05397a7..39e6e61`; CI #69 (`main`) and #70 (`feature/family-budget`), 10 check runs, all success. Pre-flight at about 07:53Z as "Production now" expected, except that both containers had started at 2026-10-08T04:00:19Z (the host's automatic reboot, the row below). `verify F8d`: OK at 08:04:02Z, the numbers unchanged. `deploy/deploy.sh run 39e6e616ba60731caca7683f8e309bf34aa0f3ec F8e`, run folder `/var/lib/finance-deploy/runs/2026-10-08T080730Z-39e6e61`, run by `05397a7`'s script. 1.3: 7 commits; `Migrations added: none`. 1.8: dump `finance-2026-10-08T0807Z.dump`, 1453545 bytes, SHA-256 `cdce44bc8de2191ae0f9fd2243c4fc05e853ca406d9e4a6f048f734a768d9511`; restore test PASS; preserved in the run folder. 3.2: `05397a7`'s images kept as `:05397a77f1df1b5e4989fbbb29a54126479b07a3` and `:previous`; the `8d75f83…` tags removed. 3.3: api rebuilt, image `sha256:e2d0f8534444c94a17729a455b0e4f1053eca4b04bf47b8c01fbce5f23f83fed`, content `sha256:c37de31fd63bbb9c3aadf781455491683bfbef6adf9c7ad9a72b42000833a179`; web fully cached and unchanged, its container left running: image `sha256:0c666829ecd4a23ac6a5e83e919c81a2da2ec4bd052fa098baab8bb305c55146`, content `sha256:ac2729a6dd402190ec34040bf024185e218b0ccd4a3431ee4de42110fcd695da`. 4.1: Flyway V13, "up to date", the api started at 08:09:14Z. 4.3: the same numbers (users=3, every `family_*` 0). 4.4: `F8e.expected`'s 23 lines. 4.6: dump `finance-2026-10-08T0809Z.dump`, 1453544 bytes, SHA-256 `e25074b81a841a038c6a605af9a67be5229a1bcbc365f17171013dffc87583fd`; restore test PASS. The end-to-end suite from a clean checkout of M, `E2E_FAMILY=on`, 08:10:53Z to 08:12:45Z: every spec passed (time zone: 2 tests); `Result: PASSED`, password search 0 hits. `finish`: passed, answers at 08:14:09Z and 08:14:13Z; `last-good` `finish=passed 2026-10-08T08:14:14Z`. `verify F8e`: OK at 08:14:29Z, the numbers unchanged. |
+| 2026-10-08 | `05397a7`; nothing of this app changed, the host rebooted | The host's automatic reboot (D-125; "Automatic reboots" below). On 2026-10-07 at 06:10:34 UTC unattended-upgrades found `/var/run/reboot-required` and scheduled a reboot for 2026-10-08 04:00:00 UTC (`Unattended-Upgrade::Automatic-Reboot "true"`, `Automatic-Reboot-Time "04:00"`). It was scheduled during F8c's and F8d's deploys of 2026-10-07; nothing overlapped. Kernel 7.0.0-34 to 7.0.0-38-generic. The previous boot ended cleanly at 04:00:02; the new one started at 04:00:08. All six containers (finance api, web and postgres; the auth server's keycloak, caddy and postgres) came back by their restart policy, healthy where they have a health check; this app's at 04:00:19Z. The nightly dumps ran before it (finance 02:35:26, auth 02:39:26, OK). Afterwards: `verify F8d` OK, the auth server's smoke test 11 ok 0 fail, and F8e's before-dump restore test PASS. |
 | 2026-10-07 | `05397a7`; nothing on the server | "CI on Ubuntu 26.04" (D-44) for `05397a7`, `workflow_dispatch` on `main` at `05397a7`, run #6 (id `37622039071`), attempt 1, created 12:35:02Z and last updated 12:44:11Z, overall conclusion `cancelled`: Backend (job `112794445254`, 12:35:09Z to 12:39:24Z) failed, Maven finished at 12:39:22Z, 480 tests and 1 failure, `FamilyCurrencyPostingApiTests.aDollarRecordPaidInDollarsFromAEuroAccount:206`, `[/records]` "not to contain ["51.50", "EUR"] but found ["51.50"]"; Frontend (job `112794445562`, 12:35:10Z to 12:35:47Z) and Web image (job `112794446195`, 12:35:10Z to 12:35:42Z) completed with success; Deploy scripts (job `112794445839`, started 12:35:09Z) was cancelled in its step "Mutations" at 12:44:08Z (the job completed at 12:44:10Z). The cause is **confirmed** by the job's annotations (GitHub's check-run annotations API, unauthenticated, read on 2026-10-07): "Canceling since a higher priority waiting request for CI on Ubuntu 26.04-refs/heads/main exists", then "The operation was canceled." That is the workflow's concurrency group (`${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress: true`; there is no `timeout-minutes`): run #7 (id `37622990093`), dispatched by the same user on the same ref at 12:42:51Z, cancelled it, and its jobs started at 12:44:13Z. Run #7 on `05397a7` passed all four jobs (Frontend, Backend, Deploy scripts and Web image; last updated 12:52:48Z) and is the all-green run; run #6 is not. Run #7's Backend passing doesn't contradict the defect below: the test fails only at a moment whose timestamp fraction holds the amount (the jobs, read from GitHub's public API on 2026-10-07). The body holds no euro amount: "51.50" was found inside a timestamp, `"updatedAt":"2026-10-07T12:38:51.500757Z"`, by a test that looked for an amount as a substring of an answer's serialized text. The second fault of this class after F8c's (`DataIsolationApiTests`: the id 555 inside `…006555Z`); a defect of the tests, not of the application. The JVM's date (UTC+14) was already 2026-10-08 in that run and no date test failed, so `9e7a4da`'s fix holds on that runner. F8e's D-119 reproduces it deterministically with a fixed timestamp, fixes the test and guards the pattern. Its check runs belong to `05397a7`, deployed and finished, so they hold up no deploy. |
 | 2026-10-07 | `05397a7`; nothing changed | F8d's rollback acceptance: `deploy/rollback.sh b6258f6` at 12:34:16Z, run folder `/var/lib/finance-deploy/runs/2026-10-07T123416Z-rollback-b6258f6`. Steps 1 to 4 passed: the images accepted; Flyway 13 against the target's V12; the new line "No family refund and no payment on an account that requires a counterparty: …". Answered `no`: REFUSED at "5. Confirmation", nothing changed. The read-only looks before and after were identical. |
 | 2026-10-07 | `05397a77f1df1b5e4989fbbb29a54126479b07a3` (docs: F8d's change log entry, the commit count in F8d's checklist (F8d)), M; both images rebuilt and recreated | F8d (D-79 to D-81, D-48, D-93, D-104, D-107 and D-108 to D-116: refunds, payments from accounts that require a counterparty, the payer's payee, the journal's currencies, the import's sync fields), Flyway V13, the switch on. CI on M: #67 (`feature/family-budget`) and #68 (`main`), attempt 1, 10 check runs, all success; Backend in random order, seeded by the run numbers (D-99). Pre-flight at about 12:10Z as expected (the block was pasted twice; it is read only, so it ran once); the server's login banner still said "System restart required" (an OS update, unrelated). `verify F8c`: OK at 12:24:15Z; the 21 numbers: accounts 44, categories 72, counterparties 107, entries 296, import_batches 1, every `family_*` 0, outside_their_ledger 0, personal_ledgers 3, personal_members 3, settings 3, users 3. `deploy/deploy.sh run 05397a77f1df1b5e4989fbbb29a54126479b07a3 F8d` at 12:25:43Z, run folder `/var/lib/finance-deploy/runs/2026-10-07T122543Z-05397a7`, run by `b6258f6`'s script. 1.3: 13 commits, `07f197a` to `05397a7`; V13; seven files under `deploy/`. 1.5: 10 check runs, all success. 1.8: dump `finance-2026-10-07T1225Z.dump`, 1448124 bytes, written 12:25:47Z, SHA-256 `be1e6ae7aebc04e29de4a73ef0a583584b8fc22cbad138b61aeb97fcba81d17d`; restore test PASS (migration 12); preserved in the run folder (mode 600): the dump to restore from if a rollback below V13 is ever needed after a real refund or counterparty payment exists (D-116). Confirmed `05397a7`. 3.2: `b6258f6`'s images kept as `:b6258f6fd25e996f06afa71789614a16d7046e35` and `:previous`; the `b6870f2…` tags removed. 3.3: api built (Maven 11.7 s), web built. 3.4: both recreated. 3.5: healthy. 3.6: pages 5 of 5. 4.1: V13 applied at 12:26:44Z in 0.035 s; the api started in 7.694 s at 12:26:47Z. 4.2: the D-25 line "on" at 12:26:47Z. 4.3: the same numbers. 4.4: `F8d.expected`'s 22 lines. 4.5: `finance.conf` not installed. 4.6: dump `finance-2026-10-07T1226Z.dump`, 1453359 bytes, written 12:26:56Z, SHA-256 `a94e86158aa82974f1694a478e624e0ac49096ea2c923bd17b5302c0348b4856`; restore test PASS (migration 13). Images: api `sha256:5ecd17d1a6cc…` (content `sha256:7c4485cbfbd1…`), web `sha256:0c666829ecd4…` (content `sha256:ac2729a6dd40…`). The end-to-end suite from `05397a7` (clean tree), `E2E_FAMILY=on`, 12:30:07Z to 12:31:46Z: pages, sign-in, smoke, family F7, family F8, family F8d (28.3 s), time-zone (America/Los_Angeles and Pacific/Kiritimati) and cleanup passed; both accounts' data deleted and signed out; `Result: PASSED`, password search 0 hits. `finish`: browser checks yes at 12:32:15Z, smoke test yes at 12:32:17Z; `last-good` names `05397a7` at 12:32:17Z. `verify F8d`: OK at 12:32:31Z, the numbers as in 4.3. |
@@ -693,42 +697,385 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-07T12:34:16Z (F8d's rollback acceptance, answered `no`, nothing changed), after `verify F8d`, OK at
-12:32:31Z:
+As of 2026-10-08T08:14:55Z (F8e's rollback acceptance, answered `no`, nothing changed), after `verify F8e`, OK at
+08:14:29Z:
 
-- `05397a77f1df1b5e4989fbbb29a54126479b07a3` (M: F8d, on F8c-fix, F8c, F8c-0, F8, QA-1 and QA-1b) on Flyway V13, with its
-  `finish` answered (browser checks yes at 12:32:15Z, smoke test yes at 12:32:17Z) and `last-good` naming `05397a7`
-  (12:32:17Z). Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api `sha256:5ecd17d1a6cc…`
-  (content `sha256:7c4485cbfbd1…`) and web `sha256:0c666829ecd4…` (content `sha256:ac2729a6dd40…`), both "the recorded
-  image" for `verify`, started 2026-10-07T12:26Z.
-- The numbers, 21, as before the deploy: accounts 44, categories 72, counterparties 107, entries 296, import_batches 1,
-  every `family_*` 0, outside_their_ledger 0, personal_ledgers 3, personal_members 3, settings 3, users 3. No family
-  record exists in production. The F8d deploy's before-dump (`finance-2026-10-07T1225Z.dump`, SHA-256 `be1e6ae7…`) is kept
-  in its run folder (`2026-10-07T122543Z-05397a7`, mode 600); the restore tests of both dumps passed.
-- The rollback state: `:previous` and the previous-commit file name `b6258f6` (V12's code on the V13 schema).
-  `rollback.sh`'s target is `b6258f6`, and V13's condition (D-116) applies to it: it refuses while a live family refund or
-  a payment line on an account that requires a counterparty exists, naming the count and the preserved dump; going back
-  then needs a restore from that dump (everything written since is lost). Production has neither yet, so the way back is
-  `rollback.sh`. `rollback.sh b6258f6` was answered `no` in the acceptance checks (steps 1 to 4 passed, with V13's
-  line), between two read-only looks that matched. The way back from the family budget is `deploy/deploy.sh switch off`.
-- The end-to-end suite from `05397a7` passed on production (2026-10-07, `E2E_FAMILY=on`): F7's, F8's, F8d's and the
-  time-zone specs, with both test accounts' data deleted and both signed out.
-- "CI on Ubuntu 26.04" for `05397a7` (run #6, id `37622039071`, `workflow_dispatch` on `main`): Backend failed on one
-  test, `FamilyCurrencyPostingApiTests.aDollarRecordPaidInDollarsFromAEuroAccount:206`, which looked for "51.50" in the
-  serialized text of an answer and found it inside a timestamp (a defect of the tests, D-119); Frontend and Web image
-  passed; Deploy scripts was cancelled in its step "Mutations" at 12:44:08Z and the run's conclusion is `cancelled`,
-  confirmed by the job's annotation ("Canceling since a higher priority waiting request for CI on Ubuntu
-  26.04-refs/heads/main exists"): the workflow's concurrency group with `cancel-in-progress: true`, because run #7
-  (id `37622990093`) was dispatched on the same ref at 12:42:51Z and its jobs started at 12:44:13Z. Run #7 on
-  `05397a7` passed all four jobs and is the all-green run. F8e fixes the test.
-- `main` and `feature/family-budget` were at `05397a7` and pushed when F8d was deployed. CI for `05397a7`: #67 and #68, 10
-  check runs, all success (D-95). The server's login banner says "System restart required" (an OS update, unrelated to
-  this app; a reboot is planned separately).
-- F8d is deployed; "F8d's deploy checklist with the suite" below stays as its record and is used for no other deploy.
-- F8e (D-117 no implicit clock, D-118 a leaving date never before the join date, D-119 tests read answers as parsed
-  values, the time-zone spec's fixed titles; no migration) is built on `feature/family-budget` and not deployed; "F8e's
-  deploy checklist with the suite" below is for its deploy, and for no other. After it, the rollback target is `05397a7`
-  (F8d's code on the same V13 schema), which has no condition of its own; V13's still applies to any target below V13.
+- `39e6e616ba60731caca7683f8e309bf34aa0f3ec` (M: F8e, on F8d, F8c-fix, F8c, F8c-0, F8, QA-1 and QA-1b) on Flyway V13, with
+  its `finish` answered (08:14:09Z and 08:14:13Z) and `last-good` naming `39e6e61` (`finish=passed
+  2026-10-08T08:14:14Z`). Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api
+  `sha256:e2d0f8534444…` (content `sha256:c37de31fd63b…`), started 2026-10-08T08:09Z by F8e's run, and web
+  `sha256:0c666829ecd4…` (content `sha256:ac2729a6dd40…`), started 2026-10-08T04:00:19Z by the host's reboot (F8e's run
+  left it running), both "the recorded image" for `verify`.
+- The numbers as before F8e's deploy (users 3, every `family_*` 0). No family record exists in production. F8e's
+  before-dump (`finance-2026-10-08T0807Z.dump`, SHA-256 `cdce44bc…`) is kept in its run folder
+  (`2026-10-08T080730Z-39e6e61`, mode 600); the restore tests of both dumps passed.
+- The rollback state: `:previous`, `:05397a77f1df1b5e4989fbbb29a54126479b07a3` and the previous-commit file name
+  `05397a7` (F8d's code on the same V13 schema). `rollback.sh`'s target is `05397a7`, with no condition of its own; V13's
+  (D-116) applies only to a target below V13. `rollback.sh 05397a7` was answered `no` in the acceptance checks (steps 1
+  to 4 passed, V13 against V13 and no further line), between two read-only looks that matched. The way back from the
+  family budget is `deploy/deploy.sh switch off`.
+- The end-to-end suite from `39e6e61` passed on production (2026-10-08, `E2E_FAMILY=on`, 08:10:53Z to 08:12:45Z): every
+  spec, the time-zone spec's two tests under their fixed titles, with both test accounts' data deleted and both signed
+  out.
+- "CI on Ubuntu 26.04" for `39e6e61`: run #8 (id `37748791216`), dispatched once on `main`, all four jobs success.
+- `main` and `feature/family-budget` were at `39e6e61` and pushed when F8e was deployed. CI for `39e6e61`: #69 and #70,
+  10 check runs, all success (D-95).
+- The host rebooted by itself on 2026-10-08 at 04:00 UTC (unattended-upgrades, kernel 7.0.0-38-generic), and everything
+  came back by its restart policy: "Automatic reboots" below. The login banner's "System restart required" of
+  2026-10-07 was that reboot's reason.
+- F8e is deployed; "F8e's deploy checklist with the suite" below stays as its record and is used for no other deploy.
+- F8f (D-125 to D-127: the deploy scripts' guard against a scheduled shutdown, the deploy checklist's template; F8e's
+  backlog: the end-to-end guards in CI, D-117's rule extended, D-121's list; no migration, no application change) is
+  built on `feature/family-budget` and not deployed; "F8f's deploy checklist with the suite" below is for its deploy, and
+  for no other. After it, the rollback target is `39e6e61` (F8e's code on the same V13 schema), which has no condition
+  of its own.
+
+### Automatic reboots
+
+The host runs unattended-upgrades with `Unattended-Upgrade::Automatic-Reboot "true"` and `Automatic-Reboot-Time
+"04:00"`: when an update leaves `/var/run/reboot-required`, its next run schedules a reboot for 04:00 UTC, which
+systemd records in `/run/systemd/shutdown/scheduled` (key=value lines: `USEC`, microseconds since the epoch, and `MODE`,
+`reboot`) until it happens or `shutdown -c` cancels it. The containers come back by their restart policy. The first
+was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploys of that day, which it didn't overlap;
+"Deployed revisions" has the row).
+
+- D-125 (the PM): the automatic reboots stay on. No deploy, rollback acceptance or `e2e:prod` between 03:30 and 04:30
+  UTC. A rollback for a site that is down is the exception: it never waits.
+- D-126 (the PM, built in F8f): a scheduled shutdown stops a deploy. `deploy.sh run` refuses in its step 1.1, before
+  anything else, while `/run/systemd/shutdown/scheduled` exists, naming the time and the mode it holds, and also when
+  the file exists but holds no `USEC` it can read; `verify` and `finish` print a line about it (`Scheduled shutdown: a
+  reboot at …`, or `none`); `rollback.sh` prints a warning in its step 1 and goes on. Each checklist's server pre-flight
+  prints the file (`cat /run/systemd/shutdown/scheduled 2>&1`), and a scheduled reboot stops the deploy there too (D-127).
+  What to do then: deploy after the reboot, or, if the PM agrees, cancel it with `shutdown -c` and let the next run of
+  unattended-upgrades schedule it again.
+
+## F8f's deploy checklist with the suite
+
+**Commit to deploy (M):** `feature/family-budget`'s head after F8f, the last commit F8f's report names in full; `main`
+fast-forwards to it in step 1 (D-57), so M is `origin/main` and a fast-forward of the running `39e6e61`. M holds this
+checklist, so the checklist can't name M's hash itself: the report does, and every block below that takes it says
+`<M>`; type M's full hash (40 characters) there before pasting the block. Pasted as it is, bash reads `<M>` as a
+redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `F8f` (`deploy/checks/F8f.sql` and
+`F8f.expected`, 23 lines, F8e's: F8f changes no schema). F8f changes the deploy scripts (D-126: a scheduled shutdown
+stops `run`, is named by `verify` and `finish`, and is a warning in `rollback.sh`), CI's workflows (the end-to-end
+guards in the Frontend job), the tests (D-117's rule extended, D-121's list) and documents; **no application code and
+no migration**: Flyway stays at V13. **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z)
+before, during and after this deploy. **The suite:** run from a clean checkout of M itself, with `E2E_FAMILY=on`; it
+replaces the browser checks and the smoke test (D-51, D-56); its specs are F8e's, unchanged. **The time (D-125):** no
+step of this checklist between 03:30 and 04:30 UTC, when the host may reboot by itself; the last block (a rollback for
+a site that is down) is the exception. This checklist is for this deploy only.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
+`cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it
+does nothing. A command that asks a question (`deploy.sh run`, `finish`, `rollback.sh`, and on the laptop
+`npm run e2e:prod`) is alone in its block; type its answer on the keyboard, after the question, never paste it. Every
+laptop git command that can page runs as `git --no-pager`, and a dirty tree stops a chain (`test -z "$(git status
+--porcelain)"`), D-127.
+
+What runs and why:
+
+- `run` is the clone's script, `39e6e61`'s (bash reads it, with `common.sh`, before the merge). **It doesn't have
+  D-126's guard yet:** it refuses nothing for a scheduled shutdown and prints no line about one. That check stays
+  manual for this deploy: step 2 prints the file, and a scheduled reboot stops the deploy there; and step 4 is not
+  started between 03:30 and 04:30 UTC. Everything else it does as for F8e: step 1.3 requires M to be `origin/main` after
+  `git fetch` and a fast-forward of `HEAD` (`39e6e61`), lists F8f's commits (the report says how many), `Migrations
+  added: none`, and under `deploy/`: `RUNBOOK.md`, `checks/F8f.expected`, `checks/F8f.sql`, `common.sh`, `deploy.sh`,
+  `rollback.sh`, `tests/mutate.sh` and `tests/run.sh`. `finance.caddy`, the postgres service and `pg-backup/finance.conf`
+  don't change.
+- After the merge, the clone's scripts are F8f's: `finish` (step 6), `verify F8f` (step 7) and `rollback.sh` (steps 8 and
+  10) print `Scheduled shutdown: none (/run/systemd/shutdown/scheduled doesn't exist)`, or the scheduled time; `finish`
+  and `verify` never refuse for it, and `rollback.sh` only warns. The deploy after F8f is the first whose `run` refuses by
+  itself.
+- The api image's build context (`backend/`) holds the tests, which F8f changes (`TestHygieneTests` and a fixture), so
+  the api is rebuilt with new content and recreated by Compose, and signed-in browser sessions end; its main code is
+  F8e's. The web image's build context is `frontend/`, which F8f doesn't touch: its build is fully cached, its content
+  the running one's, `sha256:ac2729a6dd40…`, and Compose leaves `web` running. The api starts on Flyway V13 and finds
+  nothing to do, so the numbers don't change and the deploy writes no row.
+- 3.2 keeps the running images (`39e6e61`'s api `sha256:e2d0f8534444…`, web `sha256:0c666829ecd4…`) as
+  `:39e6e616ba60731caca7683f8e309bf34aa0f3ec` and `:previous`, `/root/finance-tracker.previous` then names `39e6e61`, and
+  it removes the tags of the oldest revision it keeps, as "Deploying with deploy.sh" says.
+- 4.4 compares `F8f.sql`'s output with `F8f.expected`: F8e's 23 lines, unchanged (`F8f.sql` is `F8e.sql` with a new
+  header). A difference in any line is a fault: stop and send the diff to the PM.
+- **The rollback target after this deploy is `39e6e61`** (F8e's code on the same V13 schema, with F8e's deploy
+  scripts). F8f has no migration, so its rollback has no new condition: `rollback.sh 39e6e61` prints Flyway's V13
+  against the target's V13 and no further line. A rollback to `39e6e61` also brings back the scripts without D-126's
+  guard; the manual check of step 2 then applies again.
+- `finish` has no time limit after `run`'s summary; run nothing else of `deploy.sh` or `rollback.sh` between `run` and
+  `finish` but what this checklist names.
+
+**0. On the laptop, read only: where things stand.** Before anything else; type M.
+
+```bash
+# On the laptop
+M=<M>; cd ~/dev/finance-tracker && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
+```
+
+You should see `HEAD` M with F8f's last subject (on `feature/family-budget`); `origin/main` and
+`origin/feature/family-budget` both `39e6e616ba60731caca7683f8e309bf34aa0f3ec`; F8f's commits, the last of them M; `FF-OK`;
+and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any line of `git status`: stop and tell the PM.
+
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted
+F8f and named M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see a fast-forward of `main` from `39e6e61`, the push of both branches, and M in full with its parent and
+F8f's last subject: exactly the commit F8f's report names. A dirty tree stops the chain before the merge, with no
+message: run `git status` and tell the PM. If the merge says `Not possible to fast-forward`, or the hash is another,
+stop. CI starts with the push, on M; don't start "CI on Ubuntu 26.04" now (step 9 says when, D-44).
+
+CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about ten minutes). First the runs
+with their jobs; type M:
+
+```bash
+# On the laptop
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+```
+
+You should see `2 runs`: `CI`, `push`, once on `main` and once on `feature/family-budget` (D-95), attempt 1, each
+`completed success`, each with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` and `Dependency
+updates`, `completed success`. The Frontend job now also runs the step "End-to-end guards" (F8f). No "CI on Ubuntu
+26.04" run (step 9 is later). Then the check runs, which `run`'s gate (1.5) counts:
+
+```bash
+# On the laptop
+M=<M>; curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see `10`, then the five names twice each, each `completed success`. The two Backend runs ran the test
+classes in random order with their run numbers as seeds (D-99); a failure of either is a real fault: stop. A failure
+only of the Frontend job may be re-run once (D-94); if the re-run passes the deploy goes on, if it fails again stop.
+Anything else: stop; `run`'s gate would refuse anyway.
+
+**2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-api:05397a77f1df1b5e4989fbbb29a54126479b07a3 finance-tracker-api:b6258f6fd25e996f06afa71789614a16d7046e35 finance-tracker-api:bfb8cc68f8ae405f1b344eefd72c9f14a1e410ed finance-tracker-web:previous finance-tracker-web:latest finance-tracker-web:05397a77f1df1b5e4989fbbb29a54126479b07a3 finance-tracker-web:b6258f6fd25e996f06afa71789614a16d7046e35 finance-tracker-web:bfb8cc68f8ae405f1b344eefd72c9f14a1e410ed; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Successfully applied|Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+}
+```
+
+You should see, as "Production now" left it after F8e (2026-10-08):
+
+- `Now:` outside 03:30 to 04:30 UTC (D-125).
+- `Scheduled shutdown: cat: /run/systemd/shutdown/scheduled: No such file or directory`. **Any other answer (a `USEC=`
+  and `MODE=reboot`, or a permission error) stops the deploy** (D-126; the clone's `run`, `39e6e61`'s, wouldn't refuse
+  by itself): send it to the PM, who decides to wait for the reboot or to cancel it (`shutdown -c`).
+- `Reboot required:` either `No such file or directory` or `*** System restart required ***`. The second is not a
+  stop by itself: unattended-upgrades schedules the reboot at its next run (about 06:00 UTC) for 04:00 UTC the next day;
+  the line above says whether one is scheduled already.
+- Docker server 29.8.2, linux/amd64 (or a later patch the PM knows of); Compose; `Image store:
+  [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: 39e6e616ba60731caca7683f8e309bf34aa0f3ec docs: CI run #6 and #7 facts, D-120 to D-124 (F8e)`, or a later
+  commit of `main` if only documentation was pulled since; `git status --short` printing **nothing**, so only `previous
+  file: 05397a77f1df1b5e4989fbbb29a54126479b07a3` follows.
+- `last-good`: `commit=39e6e616ba60731caca7683f8e309bf34aa0f3ec`, `api_image=sha256:e2d0f8534444…`,
+  `web_image=sha256:0c666829ecd4…`, `api_content=sha256:c37de31fd63b…`, `web_content=sha256:ac2729a6dd40…`,
+  `source=deploy`, `finish=passed 2026-10-08T08:14:14Z`. `contents` holds the contents of the revisions it keeps,
+  `39e6e61`'s among them.
+- The history ending with F8e's `good 39e6e61…` lines (a refused rollback writes none). The newest run folders
+  `2026-10-08T080730Z-39e6e61` (F8e's run) and, last, `2026-10-08T081455Z-rollback-05397a7` (the acceptance, refused).
+- The containers on api `sha256:e2d0f8534444…` (content `sha256:c37de31fd63b…`), started 2026-10-08T08:09Z, and web
+  `sha256:0c666829ecd4…` (content `sha256:ac2729a6dd40…`), started 2026-10-08T04:00:19Z (the reboot; F8e left it
+  running). If the host rebooted again since, both show that reboot's time: not a stop by itself, but say so to the PM.
+- `:previous` and `:05397a7…` of the api `sha256:5ecd17d1a6cc…`, of the web `sha256:0c666829ecd4…` (F8e's 3.2);
+  `:b6258f6…` and `:bfb8cc6…` as F8e's run left them; `:latest` the running images. No tag of `8d75f83…` and none of
+  `39e6e61…` yet: this deploy's 3.2 creates them.
+- The log lines of the api's start of 2026-10-08T08:09Z: `Schema "app" is up to date. No migration necessary.`, the
+  D-25 line "on" and `Started FinanceTrackerApplication`; `1`; `600 root` for `.env` and its copies.
+
+If anything differs, stop and send it to the PM: a difference in the images or `last-good` changes what 3.2 does.
+
+**3. On the server: verify, read only**, with the running script.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify F8e
+```
+
+You should see `verify F8e at 39e6e61 …: OK`: both images "the recorded image", `Image store: containerd, platform
+linux/amd64`, the pages 5 of 5, Flyway V13, the D-25 line "on", `F8e.expected`'s 23 lines, and the 21 numbers (no
+shutdown line: that is F8f's). Keep the numbers: step 4 prints them again, and step 7 compares with them. Real users may
+have made rows since: that is not a difference.
+
+**4. On the server: the deploy**, alone in its block, not between 03:30 and 04:30 UTC, and only after step 2 showed no
+scheduled shutdown; type M's 7 characters at the confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> F8f
+```
+
+It prints ("Deploying with deploy.sh" lists the steps):
+
+- 1.1: `Tools present: …`, and no shutdown line (`39e6e61`'s script).
+- 1.2: `HEAD: 39e6e61 docs: CI run #6 and #7 facts, …`, the running images, `Last good deploy: 39e6e61 … (deploy)`, its
+  status `good`, both images "the recorded image", the read-only role's line.
+- 1.3: the fetch; the commits from `39e6e61` to M; `Migrations added: none`; under `deploy/` the eight files listed
+  above.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (…)`. 1.6: the F8f files. 1.7: the 21 numbers of step 3.
+- 1.8: a fresh dump, its restore test `PASS`, and the before-dump preserved in the run folder (D-43), with its SHA-256.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage F8f, over 39e6e61.` and the commits line; type the 7 characters.
+- 3.1: `git merge --ff-only <M>`: `Fast-forward` and the files. 3.2: the running images kept as
+  `:39e6e616ba60731caca7683f8e309bf34aa0f3ec` and `:previous`, and the oldest kept revision's tags removed. 3.3: api
+  built (Maven: a few minutes), web built from cache. 3.4: the api recreated; the web left running. 3.5: `api: healthy,
+  web: healthy`. 3.6: `Pages: 5 of 5 as expected`.
+- 4.1: `Latest row: 13 refunds counterparty payments journal currency import sync true; the highest migration in <M>:
+  V13`, `Schema "app" is up to date. No migration necessary.` and `Started: …` of this deploy's time. 4.2: the D-25 line
+  "on". 4.3: `The same numbers`. 4.4: the 23 lines of `F8f.expected`. 4.5: `finance.conf: not installed (unchanged)`.
+  4.6: an after-dump and `PASS` (migration 13).
+- 5: the summary, with `Numbers: the same before and after (…)` (keep it for step 7), then `Left for you: …
+  deploy/deploy.sh finish`: here, the suite of step 5.
+
+A FAILED line: stop, read it, and send it to the PM; it prints the rollback command, which isn't run. The way back is
+the last block, and only for a failed deploy.
+
+**5. On the laptop: the end-to-end suite against production** (D-51, D-56), not between 03:30 and 04:30 UTC, from a
+clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. If nothing prints after the checkout, the tree is dirty: stop. If the commit is another,
+stop.
+
+Then the suite, alone in its block. Read its banner (the target https://app.finance-nl.com, `e2e-a
+(e2e-a@finance-nl.com)`, `e2e-b (e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, M and "clean tree"), then type `E2E PROD`
+after the question and press Enter.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary into the chat, from `===== E2E summary =====` to the password search's line. You should see `Commit:`
+M `(clean tree)`, `E2E_FAMILY: on`, `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`,
+`family F8 passed`, `family F8d passed`, `time-zone passed` (2 tests), `cleanup passed`, both accounts `sign-in checked
+(/api/me: …)` with their data deleted and signed out, `Result: PASSED` and `Password search over the artifacts: 0
+hits`. The specs are F8e's, unchanged.
+
+- A second run is allowed once, after fixing the cause, only if the first stopped before sending anything (D-58). After
+  a failed sign-in or `ABORTED` there is no retry: do the checks of [OPS-2b's
+  appendix](#appendix-ops-2bs-browser-checks-and-smoke-test-by-hand) by hand, and answer `finish` from them.
+- If a spec or the cleanup failed (`Result: FAILED`): don't run `finish` until the PM has read the summary (D-59).
+- Left to check by hand, each with its reason: **D-126's refusal by `run`**, which this deploy's `run` (`39e6e61`'s)
+  doesn't have; step 2 checks the file instead, and `deploy/tests/run.sh` proves the new script's refusal against a
+  stub of the file (no file, a scheduled reboot, a file that can't be parsed). Nothing of F8f changes what users see, so
+  no spec is new.
+
+**6. On the server: finish**, only after step 5, alone in its block; type `yes` or `no` to each question: `yes` to both
+only if step 5's summary says `Result: PASSED` with 0 password hits (or, after a run that stopped before the specs, only
+if the appendix's checks passed in full); otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-<M's 7 characters>`, then (F8f's script, D-126)
+`Scheduled shutdown: none (/run/systemd/shutdown/scheduled doesn't exist)`, the pages 5 of 5, the two answers, "Family
+numbers after the smoke test: the family lines as before the deploy", the images and "Done". After `no`: `NOT PASSED:
+…`, exit status 3, and the rollback command, which isn't run.
+
+**7. On the server: verify F8f, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify F8f
+```
+
+You should see `verify F8f at <M's 7 characters> …: OK`, its second line `Scheduled shutdown: none (…)` (D-126), both
+images "the recorded image", the pages 5 of 5, Flyway V13, the D-25 line "on", `F8f.expected`'s 23 lines, and the
+numbers exactly those of step 4's `Numbers:` line. A real user writing meanwhile explains a difference in their own
+lines only; judge it before going on.
+
+**8. Acceptance: `rollback.sh 39e6e61` goes to its question**, changing nothing. Each block alone, in this order.
+
+The rollback state, before:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous finance-tracker-api:39e6e616ba60731caca7683f8e309bf34aa0f3ec finance-tracker-web:39e6e616ba60731caca7683f8e309bf34aa0f3ec; cat /var/lib/finance-deploy/last-good; }
+```
+
+You should see `39e6e616ba60731caca7683f8e309bf34aa0f3ec`; the api's and the web's previous images twice each
+(`sha256:e2d0f8534444…` and `sha256:0c666829ecd4…`, or other IDs of the same content); and `last-good` with `commit=` M
+and `finish=passed …`.
+
+`rollback.sh 39e6e61`, alone in its block; type `no` at its question.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh 39e6e61
+```
+
+You should see in step 1 `Scheduled shutdown: none (…)` (F8f's script; a scheduled one would be a `WARNING` and the
+script would go on, D-126) and the image store and platform; step 2 `Target: 39e6e61 docs: CI run #6 and #7 facts, D-120
+to D-124 (F8e), the commit HEAD's deploy replaced (…-<M's 7 characters>); its status, its newest line in the history:
+good`; step 3 the images accepted; step 4 `Flyway's latest row: 13 …; the target's highest migration: V13` and **no
+further line**; then the question, and after `no`: `REFUSED at "5. Confirmation": not confirmed` and "Nothing changed."
+Then the block "The rollback state, before" again: the same lines.
+
+**9. CI on Ubuntu 26.04 (D-44, D-124)**, last, only now, on M deployed and finished. On GitHub, Actions → "CI on Ubuntu
+26.04" → "Run workflow" on `main`, **exactly once**, and wait for it to the end (about fifteen minutes). Its Frontend
+job now runs the end-to-end guards too. If `main` has moved past M by then, run it under D-60: a temporary branch at
+exactly M, deleted afterwards. Then, read only, type M:
+
+```bash
+# On the laptop
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], "id", r["id"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+```
+
+You should see `1 runs`: `CI on Ubuntu 26.04`, its number and id, `workflow_dispatch main attempt 1 completed success`,
+and Backend, Frontend, Web image and Deploy scripts each `completed success`. Two runs mean a second dispatch, which
+cancels the first (D-124): send both to the PM. Send the output to the PM.
+
+**10. Last, only for a failed deploy where the site is down: the rollback**, alone in its block, at any hour; type
+`ROLLBACK 39e6e61` at its question. It goes to `39e6e61`, F8e's code and deploy scripts on the same V13 schema; there is
+no migration to go back over and no condition of its own. A scheduled shutdown is only a warning here (D-126).
+
+```bash
+# On the server: only for a failed deploy where the site is down
+cd /opt/finance-tracker && deploy/rollback.sh 39e6e61
+```
 
 ## F8e's deploy checklist with the suite
 
@@ -1018,6 +1365,34 @@ in this deploy writes a row, so a restore is not expected.
 # On the server: only for a failed deploy where the site is down
 cd /opt/finance-tracker && deploy/rollback.sh 05397a7
 ```
+
+**Results of this deploy (2026-10-08).** Each step went as written above.
+
+- Step 1: `main` and `feature/family-budget` fast-forwarded `05397a7..39e6e61`; CI #69 (`main`) and #70
+  (`feature/family-budget`), 10 check runs, all `completed success`.
+- Step 2: the pre-flight at about 07:53Z matched "Production now" of F8d, except that both containers had started at
+  2026-10-08T04:00:19Z: the host's automatic reboot at 04:00 UTC ("Automatic reboots").
+- Step 3: `verify F8d` OK at 08:04:02Z, the numbers unchanged.
+- Step 4: run folder `/var/lib/finance-deploy/runs/2026-10-08T080730Z-39e6e61`; 7 commits; `Migrations added: none`;
+  before-dump `finance-2026-10-08T0807Z.dump`, 1453545 bytes, SHA-256
+  `cdce44bc8de2191ae0f9fd2243c4fc05e853ca406d9e4a6f048f734a768d9511`, restore test PASS; 3.2 kept `05397a7`'s images as
+  `:05397a77f1df1b5e4989fbbb29a54126479b07a3` and `:previous` and removed `8d75f83`'s tags; the api rebuilt (image
+  `sha256:e2d0f8534444c94a17729a455b0e4f1053eca4b04bf47b8c01fbce5f23f83fed`, content
+  `sha256:c37de31fd63bbb9c3aadf781455491683bfbef6adf9c7ad9a72b42000833a179`); the web fully cached, unchanged, its
+  container left running (image `sha256:0c666829ecd4a23ac6a5e83e919c81a2da2ec4bd052fa098baab8bb305c55146`, content
+  `sha256:ac2729a6dd402190ec34040bf024185e218b0ccd4a3431ee4de42110fcd695da`); Flyway V13 "up to date", the api started
+  at 08:09:14Z; the same numbers (users=3, every `family_*` 0); `F8e.expected`'s 23 lines; after-dump
+  `finance-2026-10-08T0809Z.dump`, 1453544 bytes, SHA-256
+  `e25074b81a841a038c6a605af9a67be5229a1bcbc365f17171013dffc87583fd`, PASS.
+- Step 5: `e2e:prod` from a clean checkout of M, 08:10:53Z to 08:12:45Z: every spec passed (time zone: 2 tests),
+  `Result: PASSED`, 0 password hits.
+- Step 6: `finish` passed, answers at 08:14:09Z and 08:14:13Z; `last-good` `finish=passed 2026-10-08T08:14:14Z`.
+- Step 7: `verify F8e` OK at 08:14:29Z, the numbers unchanged.
+- Step 8: `rollback.sh 05397a7` refused at its question (folder `2026-10-08T081455Z-rollback-05397a7`), V13 against V13
+  and no further line; the rollback state the same before and after.
+- Step 9: "CI on Ubuntu 26.04" run #8, id `37748791216`, `workflow_dispatch` on `main` at `39e6e61`, attempt 1: Backend,
+  Frontend, Web image and Deploy scripts all success.
+- Step 10: not used.
 
 ## F8d's deploy checklist with the suite
 
@@ -2231,7 +2606,7 @@ It prints each step under a `==` heading:
 
 | Step | What it does | You should see |
 | --- | --- | --- |
-| 1.1 | The tools it needs, and the terminal | `Tools present: …` |
+| 1.1 | The tools it needs, and the terminal; since F8f (D-126) a scheduled shutdown (`/run/systemd/shutdown/scheduled`) REFUSES the run here, as does that file when it can't be parsed | `Tools present: …`, then `Scheduled shutdown: none (/run/systemd/shutdown/scheduled doesn't exist)` |
 | 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy (from F6c with its status, its newest line in `history`), and (from F6b) the read-only role of the checks. Since OPS-2 (defect 4) the image store, the platform and each image's content identity, compared with the last good deploy's by content: the same ID, or `INFO` for another ID with the same content (a rebuild); a content that can't be read is REFUSED, with nothing changed | `HEAD: …`, `Running images: …`, `Image store: containerd, platform linux/amd64; content: …`, `Last good deploy: …`, `Its status, its newest line in the history: …`, `api: the recorded image, …` (or `INFO api: another image ID with the recorded content: …`), `The running images are the last good deploy's content`, `The checks run as finance_checks: superuser=false read_all_data=true writes=0 read_only=true` |
 | 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD`; a commit the clone doesn't have says to push it from the laptop first. Since OPS-2 (D-42) the commit that already runs, after its clean finish, is REFUSED here, before CI, any backup and any image, naming `verify` and `switch`; after a stop or a finish that didn't pass it may run again, and step 3.2 then leaves `:previous` and `/root/finance-tracker.previous` as they are | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
 | 1.4 | `deploy/finance.caddy`, the postgres service and `postgres-init.sh` unchanged | `deploy/finance.caddy and the postgres service unchanged` |

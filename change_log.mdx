@@ -3,6 +3,73 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-11 · F8f: F8e's deploy facts, the night's reboot, a guard against a scheduled shutdown (D-125 to D-127), F8e's backlog
+
+Five commits on `feature/family-budget` on top of F8e's `39e6e61` (production runs it since 2026-10-08): `e4bce7f` "ops(deploy):
+a scheduled shutdown stops deploy.sh run (D-126)", `6aa5b68` "test(backend): D-117's rule over currentTimeMillis, new Date() and
+ZoneId.systemDefault(); rawText's callers listed (D-121)", `5499e7c` "ci: the end-to-end guards as a step of the Frontend job
+(F8f)", `bdbba24` "docs: F8e's deploy facts, the night's reboot, D-125 to D-127, F8f's checks and deploy checklist (F8f)", and
+the commit of this entry, "docs: F8f's change log entry (F8f)", whose full hash the report names: M, the commit to deploy.
+Not pushed, nothing merged into `main`; production not accessed. No migration, no application code changed.
+
+**Changes**
+- D-126, the guard (`deploy/common.sh` `shutdown_scheduled`, `SHUTDOWN_FILE`, `DEPLOY_SHUTDOWN_FILE` for the tests). systemd's
+  `/run/systemd/shutdown/scheduled` is parsed (never sourced): `USEC` (required) and `MODE`. `deploy.sh run` refuses in step 1.1,
+  before CI, any backup and any image, when a shutdown is scheduled (`Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z
+  (…)`) and when the file exists but holds no readable `USEC`; `verify` and `finish` print the `Scheduled shutdown:` line and
+  never refuse for it; `rollback.sh` prints a `WARNING` in its step 1 and goes on. Four new cases in `deploy/tests/run.sh`
+  (`shutdown_none_is_named`, `run_refused_by_a_scheduled_reboot`, `run_refused_by_an_unparseable_shutdown_file`,
+  `shutdown_lines_of_verify_finish_and_rollback`; `setup_case` points the file into the case's folder, so the laptop's own
+  `/run/systemd` never leaks in) and six mutations in `mutate.sh`, each caught.
+- D-117 extended (`TestHygieneTests`): the rule also refuses `System.currentTimeMillis()`, `new Date()` without an argument
+  (a call and `Date::new`) and `ZoneId.systemDefault()`, in main and test code; `hygiene/fixtures/ImplicitClocks` breaks
+  each on purpose, and allows `new Date(millis)` and `ZoneId.of(…)`. Calls found on `39e6e61`: 0 (the rule passes on
+  unchanged main and test code).
+- D-121 (`TestHygieneTests.RAW_TEXT_CALLERS`, `onlyTheListedClassesCallRawText`): `Answers.rawText` only in
+  `DataIsolationApiTests`, `FamilyInviteApiTests`, `FamilySwitchOffApiTests`, `FamilyClaimRandomTests` and
+  `FamilyLifecycleRandomTests`, each with its reason (whole answers compared, or an answer in a message); a nested class or
+  lambda counts as its top-level class. `hygiene/fixtures/RawTextCaller` calls it directly, from a lambda and from a nested
+  class, and the rule finds all three.
+- CI: the step "End-to-end guards" (`npm ci`, `npm run test:guards` in `e2e/`) at the end of the Frontend job of `ci.yml`, and
+  the same in `ci-ubuntu-26.yml`; the npm cache covers both lock files. A step, not a job: each push keeps its 5 check runs
+  (D-95), which `deploy.sh` 1.5 counts. The Frontend job already sets up Node 24, and the guards need no browser.
+- Documentation: `requirements.md` D-125 to D-127 and a line in "Planned stages"; `deploy/RUNBOOK.md`: four rows in "Deployed
+  revisions" (the reboot, F8e's deploy, its rollback acceptance, run #8 of "CI on Ubuntu 26.04"), "Production now" after F8e,
+  the new section "Automatic reboots" (the reboot of 2026-10-08, D-125, D-126), step 1.1 in "Deploying with deploy.sh", the
+  results under F8e's checklist, and "F8f's deploy checklist with the suite", the first following D-127's template, rollback
+  target `39e6e61` with no condition, naming what the clone's `39e6e61` `run` lacks (the guard: step 2 checks the file by
+  hand); `deploy/checks/F8f.sql` and `F8f.expected` (F8e's 23 lines, a new header); `CLAUDE.md` (the template in "Deploy
+  checklists", the project map); `e2e/README.md` (the guards in CI). There was no standing rule against a production
+  `e2e:prod` crossing 10:00 UTC in `CLAUDE.md`, `e2e/README.md` or the runbook (only notes that a run may now cross it, and
+  older change log entries, unchanged); the memory note now says there is none.
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>`, seeds
+  20261007, 20261008 and 20261009: each exit 0, `Tests run: 491, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS` (4:48,
+  5:06 and 5:12 min); 491 is F8e's 489 plus the two D-121 tests.
+- Frontend, `cd frontend && npm test`: exit 0, `Test Files  28 passed (28)`, `Tests  365 passed (365)`, no Errors line; `npm run
+  build`: exit 0.
+- Deploy tests, `deploy/tests/run.sh`: exit 0, `97 passed, 0 failed, of 97 cases`. `deploy/tests/mutate.sh`: exit 0, 64
+  mutations caught, `Every mutation was caught.` ShellCheck (`koalaman/shellcheck:v0.11.0`, CI's file list): exit 0.
+- End to end, `cd e2e` (Node 24.21.0): `npm run typecheck` exit 0; `npm run test:guards` exit 0, `tests 35`, `pass 35`, `fail 0`.
+  `e2e:local` not run: nothing under `e2e/specs`, `e2e/scripts` or `e2e/fixtures.ts` changed.
+- Workflows: `rhysd/actionlint:1.7.7` (pulled for this and removed afterwards): `ci.yml` exit 0; both files exit 1 only for the
+  `ubuntu-26.04` label, which that release doesn't know (run #8 ran on it); with that message ignored, exit 0.
+- `deploy/checks/F8f.sql` on a throwaway `postgres:17.11` (container `f8f-checks-db` and network `f8f-checks-net`, removed)
+  migrated to V13 by `flyway/flyway:11`, as a role like `finance_checks`, with `deploy.sh`'s psql flags: 23 lines, `diff` with
+  `F8f.expected` silent. No backslash in the file.
+- The checklist's two CI blocks run against `39e6e61` (GitHub's public API, read only): CI #69 and #70 with five jobs each, and
+  "CI on Ubuntu 26.04" #8 (id `37748791216`) with four, all success.
+- This entry compiled with `@mdx-js/mdx` (in a scratch folder).
+
+**Open**
+- The PM confirms: the guards in the Frontend job (and in "CI on Ubuntu 26.04"); a shutdown file without `USEC` refusing `run`
+  while one without `MODE` counts as a "shutdown"; `rollback.sh`'s warning wording; the reasons of `RAW_TEXT_CALLERS`.
+- F8f's checklist step 2 checks D-126 by hand, since its `run` is `39e6e61`'s; the deploy after F8f is the first where
+  `run` refuses by itself. A rollback to `39e6e61` brings the scripts without the guard back.
+- `JvmDefaultsGuard` calls `TimeZone.getDefault()` (to restore the JVM's zone), which D-117's rule doesn't cover; left as it is.
+- The pre-flight's expected tags assume F8e's 3.2 left `:b6258f6…` and `:bfb8cc6…`; the output will say.
+
 ## 2026-10-07 · F8e: test hygiene (D-117 to D-119), the leaving date's clamp, the time-zone spec's fixed titles, F8d's deploy facts
 
 Seven commits on `feature/family-budget` on top of F8d's `05397a7` (production runs it since 2026-10-07): `bbf6d20` "fix(backend):

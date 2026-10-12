@@ -3,6 +3,97 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-12 · F8f-fix: a browser for the end-to-end guards in CI, D-126's window of 2 hours (D-128 to D-133)
+
+Five commits on `feature/family-budget` on top of F8f's M, `1eac505`, which was pushed to `main` and `feature/family-budget`
+on 2026-10-12 and failed CI: `5a13168` "ci: the Chromium headless shell for the end-to-end guards, in both workflows (D-129,
+D-132)", `76bda7d` "test(backend): D-117's rule over TimeZone.getDefault(), JvmDefaultsGuard listed with its reason
+(D-130)", `c7c8239` "ops(deploy): a scheduled shutdown stops deploy.sh run only within 2 hours or once passed (D-128,
+D-131)", `2aec30d` "docs: CI on 1eac505 failed, D-128 to D-133, F8f's deploy checklist for M' (F8f-fix)", and the commit of
+this entry, "docs: F8f-fix's change log entry (F8f-fix)", whose full hash the report names: M′, the commit to deploy. Not
+pushed; production not accessed (it runs `39e6e61`). No migration, no application code changed. F8f's entry below stays as
+it is; its claim that the guards need no browser was wrong.
+
+**Changes**
+- CI on `1eac505` (GitHub's public API, read only): CI #71 (id `38208085985`, `main`) and #72 (id `38208086014`,
+  `feature/family-budget`), `push`, attempt 1, both `completed failure`; in each only the Frontend job failed, in its step 7
+  "End-to-end guards" (jobs `114675947062` and `114675947594`); Backend, Web image, Deploy scripts and Dependency updates
+  succeeded; 10 check runs, the two Frontend ones `failure`. Recorded in the runbook's "Deployed revisions".
+- D-132 and D-129, the fix: the step "End-to-end guards" of `ci.yml` and `ci-ubuntu-26.yml` runs `npm ci`, then
+  `npx playwright install --with-deps --only-shell chromium` (Playwright 1.63.0 from `e2e/package-lock.json`, the shell
+  `chromium_headless_shell-1243`, 114.3 MiB, and FFmpeg's 2.3 MiB), then `npm run test:guards`. Still a step of the Frontend
+  job (D-95). `--with-deps` on both runners; no cache (the reasons are in D-132).
+- D-131 and D-128 in the deploy scripts: `shutdown_scheduled` gives the distance (`SHUTDOWN_IN`, whole seconds rounded
+  down) and the line `Scheduled shutdown: a reboot at …, in 21h 49m (…)` or `…, its time passed 97h 28m ago (…)`;
+  `deploy.sh run` refuses less than 2 hours away (`SHUTDOWN_MARGIN=7200`), once the time has passed, and for a file it can't
+  parse, and otherwise says `The scheduled shutdown is at least 2 hours away: the deploy goes on (D-131)`; `verify`, `finish`
+  and `rollback.sh` unchanged in behaviour (the line now has the distance). `DEPLOY_SHUTDOWN_NOW` fixes "now" for the tests,
+  and a run prints it when set. `deploy/tests/run.sh`: every case has a fixed "now"; new cases
+  `run_goes_on_with_a_reboot_hours_away`, `run_refused_by_a_reboot_less_than_2_hours_away`, `run_at_the_2_hour_boundary`,
+  `run_refused_by_a_passed_shutdown_time`, `a_usec_without_a_mode_is_a_shutdown` (in place of
+  `run_refused_by_a_scheduled_reboot`), and `shutdown_lines_of_verify_finish_and_rollback` with a near and a passed time:
+  101 cases. `mutate.sh`: nine new mutations, one of them in place of F8f's, 72 in all (64 before): the 2 hours themselves refused, a margin of 1 hour, the distance rounded
+  up, a passed time as that far ahead, the passed time's own refusal dropped, the real clock, the distance dropped, a
+  `MODE` required, and run going on within 2 hours in place of F8f's "despite a scheduled shutdown".
+- D-130: `TestHygieneTests` refuses `TimeZone.getDefault()` (a call and `TimeZone::getDefault`) in main and test code but in
+  `DEFAULT_ZONE_READERS`, which lists `JvmDefaultsGuard` with its reason; `everyListedReaderOfTheDefaultZoneReadsIt` fails if
+  a listed class stops reading it; `hygiene/fixtures/ImplicitClocks` has `timeZoneDefault` and `timeZoneDefaultReference`.
+  `Clock.systemDefaultZone()` was already refused, with a fixture. Calls found on `1eac505`: `TimeZone.getDefault()` once,
+  `JvmDefaultsGuard.Defaults.now()` at `JvmDefaultsGuard.java:26`; `Clock.systemDefaultZone()` none outside the fixture.
+- Documentation: `requirements.md` D-128 to D-133 and a line in "Planned stages"; `deploy/RUNBOOK.md`: the row for
+  `1eac505`, "Production now", D-131 under "Automatic reboots" and in step 1.1 of "Deploying with deploy.sh", and "F8f's deploy
+  checklist with the suite" for M′ (step 0 expects both branches at `1eac505` and lists `1eac505..M′`; step 1 fast-forwards
+  `main` from `1eac505`; step 4's 1.3 lists 10 commits from `39e6e61` and the same eight files under `deploy/`; step 2
+  applies D-131 by hand, since `run` is still `39e6e61`'s; `finish`, `verify F8f` and `rollback.sh` print D-131's line;
+  rollback target `39e6e61`, no condition); `CLAUDE.md` (D-133 where CI is described, the decisions' range, the counts,
+  D-130, D-131, D-132); `e2e/README.md` (four guards need a browser, which CI installs).
+
+**Verified**
+- The failure reproduced on the laptop (Node 24.21.0), with `PLAYWRIGHT_BROWSERS_PATH` a new empty folder,
+  `cd e2e && npm run test:guards`: exit 1, `tests 35`, `pass 31`, `fail 4`, the same four tests, each
+  `browserType.launch: Executable doesn't exist at …/chromium_headless_shell-1243/…` under that folder. Then in that folder `npx playwright install --only-shell chromium`
+  (exit 0, 16 s) and `npm run test:guards`: exit 0, `tests 35`, `pass 35`, `fail 0`.
+- The Frontend job as the fixed workflow states it (D-133), from a clean clone of `2aec30d` (a git bundle; its tree differs
+  from M′ only in documentation: `change_log.mdx`, and D-131's count of mutations in `requirements.md`) in fresh containers of `ubuntu:24.04` (24.04.5, index
+  `sha256:534baea6a22c…`) and `ubuntu:26.04` (26.04.1, index `sha256:f144425ff09b…`), pulled by digest, with Node 24.21.0's
+  official build (checksum checked), a user `runner` with passwordless sudo, and no `~/.cache/ms-playwright` (0 entries).
+  Each step exit 0 on both: `npm ci`; `npm test`, `Test Files  28 passed (28)`, `Tests  365 passed (365)`; `npm run build`;
+  `npm ci` in `e2e/` (7 packages, 0 vulnerabilities); the install, 39 s on 24.04 and 37 s on 26.04 (102 apt packages
+  each); `npm run test:guards`, `tests 35`, `pass 35`, `fail 0`. Those two runs had `zip` and `unzip` added as tools of
+  GitHub's runner image: the same runs without them (bare, at `76bda7d`) passed every step and the four browser guards but
+  failed one test, "finds a secret in a file and inside a zip …" (`lib/guards.test.ts:275`, `null !== 0`: no `zip`), 34 of
+  35 (Open). A probe in a bare 24.04 with the shell installed without `--with-deps`: `ldd` finds 20 libraries missing. The
+  containers were removed and both images, pulled for this, deleted; the `ubuntu:26.04` tag already on the laptop is
+  untouched.
+- Backend, `cd backend && ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>`, seeds
+  20261012, 20261013 and 20261014: each exit 0, `Tests run: 492, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`
+  (5:06, 5:12 and 5:20 min); 492 is F8f's 491 plus `everyListedReaderOfTheDefaultZoneReadsIt`. With the exemption
+  taken out (a copy of the file, put back), `noClassAsksTheImplicitClock` failed on exactly one call, `JvmDefaultsGuard.java:26`.
+- Frontend, `cd frontend && npm test`: exit 0, `Test Files  28 passed (28)`, `Tests  365 passed (365)`, no Errors line;
+  `npm run build`: exit 0.
+- Deploy tests: `deploy/tests/run.sh` exit 0, `101 passed, 0 failed, of 101 cases`; `deploy/tests/mutate.sh` exit 0, 72
+  caught, `Every mutation was caught.`; ShellCheck (`koalaman/shellcheck:v0.11.0`, CI's file list) exit 0.
+- End to end on the laptop (Node 24.21.0): `npm run typecheck` exit 0; `npm run test:guards` exit 0, `tests 35`, `pass 35`,
+  `fail 0`. `e2e:local` not run: nothing under `e2e/specs`, `e2e/scripts` or `e2e/fixtures.ts` changed.
+- Workflows: `rhysd/actionlint:1.7.7` (pulled for this, removed afterwards): `ci.yml` exit 0; both files exit 1, only for
+  the label `ubuntu-26.04` (four times), which that release doesn't know; with that message ignored, exit 0.
+- This entry compiled with `@mdx-js/mdx` (in a scratch folder).
+
+**Open**
+- The guards' password search depends on the runner image's `zip` and `unzip` (`lib/guards.test.ts` makes a zip with
+  `zip`; `searchSecrets` in `scripts/common.ts` reads one with `unzip -p`). GitHub's 24.04 image has both (CI #71 passed that
+  test); its 26.04 image is untried, and "CI on Ubuntu 26.04" runs this step first after this deploy. For the PM: install
+  them in the step (`sudo apt-get install -y zip unzip`), or rely on the image.
+- `searchSecrets` fails open: without `unzip` (or if it fails), `spawnSync` returns no output and the zip counts as clean, so
+  a password inside a trace would go unreported. It should stop the run instead; that changes `e2e/scripts/common.ts`,
+  which this task didn't touch. For the PM.
+- `--with-deps` on GitHub's 24.04 runner is likely not needed (the image ships Chrome and its libraries) and costs an apt
+  update there; kept on both so the step doesn't rest on that. The runner's own install time is unmeasured.
+- F8f-fix's own deploy applies D-131 by hand (step 2), since its `run` is `39e6e61`'s; the deploy after it is the first
+  whose `run` decides by itself. A rollback to `39e6e61` brings the old scripts back.
+- `setup-node`'s `node-version: '24'` takes the newest 24.x when the job runs (24.21.0 today, 2026-09-07); the containers
+  used 24.21.0. The CI job logs need a token, so the version CI #71 used isn't read here.
+
 ## 2026-10-11 · F8f: F8e's deploy facts, the night's reboot, a guard against a scheduled shutdown (D-125 to D-127), F8e's backlog
 
 Five commits on `feature/family-budget` on top of F8e's `39e6e61` (production runs it since 2026-10-08): `e4bce7f` "ops(deploy):

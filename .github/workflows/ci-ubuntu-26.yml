@@ -63,12 +63,18 @@ jobs:
 
       # F8f (F8e's backlog): the end-to-end suite's guards (e2e/lib/*.test.ts: the credentials file's checks, the
       # allowlist, the identity check, the typed confirmation at a real terminal, the specs' hygiene, D-119), against
-      # fake values and a fake app on loopback ports; no browser, no account. A step of this job, not a job of its own:
-      # each push keeps its 5 check runs (D-95), which deploy.sh's step 1.5 counts.
+      # fake values and a fake app and Keycloak on loopback ports; no account. Four of them drive a real browser
+      # (lib/guards-run.test.ts and the confirmation's run in lib/terminal.test.ts), so the step first installs the
+      # Chromium headless shell that e2e/package-lock.json's Playwright pins (D-132; CI #71 and #72 on 1eac505 failed
+      # without it, "Executable doesn't exist"), with its system libraries (--with-deps: apt, through sudo here). npm ci
+      # comes first, so that npx runs that Playwright and fetches none. A step of this job, not a job of its own: each
+      # push keeps its 5 check runs (D-95), which deploy.sh's step 1.5 counts. The same step in ci.yml and
+      # ci-ubuntu-26.yml (D-129).
       - name: End-to-end guards
         working-directory: e2e
         run: |
           npm ci
+          npx playwright install --with-deps --only-shell chromium
           npm run test:guards
 
   web-image:

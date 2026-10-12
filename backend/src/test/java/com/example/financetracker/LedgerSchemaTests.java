@@ -100,7 +100,8 @@ class LedgerSchemaTests {
                         "import_batch", "user_settings", // V2 to V4
                         "ledger", "ledger_member", // V5
                         "family_record", "family_share", "family_entry_link", "family_record_change", // V7
-                        "ledger_invite"); // V9
+                        "ledger_invite", // V9
+                        "imported_entry_deleted"); // V14
     }
 
     /** A shared expense (rule 7): 10.01 paid in cash, 5.00 of it the user's groceries and 5.01 the family's. */
@@ -1399,6 +1400,56 @@ class LedgerSchemaTests {
                 .containsExactly("2");
         // Other tests of this class read the journal as a whole.
         update("DELETE FROM family_record_change WHERE ledger_id IN (?, ?)", family, other);
+        db.commit();
+    }
+
+    /**
+     * V14 (D3b; D-139, D-150): an imported entry's hash and version go together, and only with its reference; deleting
+     * an imported entry remembers its reference in its ledger, but not "Delete all my data" (app.writer delete-all), not
+     * a ledger's deletion, and not an entry that wasn't imported by D3b's import.
+     */
+    @Test
+    void anImportedEntrysSyncFieldsAndItsDeletionAreRemembered() throws SQLException {
+        String hash = "b".repeat(64);
+        long ledger = personalLedger(user);
+        long imported = expense("4.00");
+        update("UPDATE journal_entry SET external_ref = 'xls:41', import_hash = ?, import_version = version WHERE id = ?",
+                hash, imported);
+        long legacy = expense("5.00");
+        update("UPDATE journal_entry SET external_ref = 'xls:abc:1' WHERE id = ?", legacy);
+        db.commit();
+        assertFails(() -> update("UPDATE journal_entry SET import_version = NULL WHERE id = ?", imported),
+                CHECK_VIOLATION, "journal_entry_import_sync_check");
+        db.rollback();
+        assertFails(() -> update("UPDATE journal_entry SET external_ref = NULL WHERE id = ?", imported),
+                CHECK_VIOLATION, "journal_entry_import_sync_check");
+        db.rollback();
+        assertFails(() -> update("UPDATE journal_entry SET import_hash = 'ABC' WHERE id = ?", imported),
+                CHECK_VIOLATION, "journal_entry_import_hash_check");
+        db.rollback();
+
+        update("DELETE FROM journal_entry WHERE id IN (?, ?)", imported, legacy);
+        db.commit();
+        assertThat(strings("SELECT external_ref FROM imported_entry_deleted WHERE ledger_id = ?", ledger))
+                .containsExactly("xls:41");
+        // Deleted again after a re-import: still one row.
+        long again = expense("4.00");
+        update("UPDATE journal_entry SET external_ref = 'xls:41', import_hash = ?, import_version = version WHERE id = ?",
+                hash, again);
+        update("DELETE FROM journal_entry WHERE id = ?", again);
+        db.commit();
+        assertThat(number("SELECT count(*) FROM imported_entry_deleted WHERE ledger_id = ?", ledger)).isEqualTo(1);
+        // "Delete all my data" remembers nothing, and the ledger's deletion takes the rows with it.
+        long third = expense("6.00");
+        update("UPDATE journal_entry SET external_ref = 'xls:42', import_hash = ?, import_version = version WHERE id = ?",
+                hash, third);
+        db.commit();
+        writer("delete-all");
+        update("DELETE FROM journal_entry WHERE id = ?", third);
+        db.commit();
+        assertThat(strings("SELECT external_ref FROM imported_entry_deleted WHERE ledger_id = ?", ledger))
+                .containsExactly("xls:41");
+        update("DELETE FROM imported_entry_deleted WHERE ledger_id = ?", ledger);
         db.commit();
     }
 

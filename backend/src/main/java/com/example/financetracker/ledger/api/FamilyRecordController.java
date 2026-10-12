@@ -128,11 +128,14 @@ class FamilyRecordController {
      *        private: no answer but yours names it (D-16)
      * @param paymentLater if you pay or receive: true to specify the account later; your side goes to "Payments without
      *        a specified account". The other side's always does, for them to put on an account (D-24)
+     * @param paymentCounterpartyId if your side's account requires a counterparty, such as a loan given or a creditor
+     *        debt (D3b, D-148, additive): one of your counterparties, whom the account's line names. Private, as the
+     *        account is
      */
     record NewSettlementRequest(@NotNull LocalDate date, @NotNull BigDecimal amount, @NotNull Long payerMemberId,
             @NotNull Long payeeMemberId, @Size(max = 500) String comment, Long paymentAccountId,
             Boolean paymentLater, @CurrencyCode String currency, BigDecimal accountAmount,
-            @CurrencyCode String accountCurrency) {
+            @CurrencyCode String accountCurrency, Long paymentCounterpartyId) {
     }
 
     /** @param basisPoints for PERCENT; @param amount for AMOUNT */
@@ -357,7 +360,7 @@ class FamilyRecordController {
                 settlement.amount(), settlement.payerMemberId(), settlement.payeeMemberId(),
                 settlement.comment() == null || settlement.comment().isBlank() ? null : settlement.comment().strip(),
                 settlement.paymentAccountId(), Boolean.TRUE.equals(settlement.paymentLater()), settlement.currency(),
-                settlement.accountAmount(), settlement.accountCurrency()));
+                settlement.accountAmount(), settlement.accountCurrency(), settlement.paymentCounterpartyId(), false));
     }
 
     @GetMapping("/records/{recordId}")

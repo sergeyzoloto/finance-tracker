@@ -17,7 +17,10 @@
 # code before V11 would read its amounts as amounts in the main currency. And going back below V13 from a database at
 # V13 or later while a family refund (an expense stored with a minus, D-79) or a payment entry on an account that
 # requires a counterparty (D-80) exists (F8d; ADR 0004, "F8d"): the code before V13 would turn a refund into an expense
-# when its amount changes, fail on another member's change of it, and refuses to re-post such a payment.
+# when its amount changes, fail on another member's change of it, and refuses to re-post such a payment. And going
+# back below V14 from a database at V14 or later while a settlement's side is on an account that requires a
+# counterparty (D-148) or on FX_EXCHANGE alone (D-71), which D3b's import writes: the code before V14 refuses to post
+# such a side again.
 #
 # Like deploy.sh, it is functions only and its last line calls main: the checkout replaces this file while it runs.
 # The test variables are deploy.sh's (deploy/common.sh).
@@ -167,6 +170,16 @@ cmd_rollback() {
     [ "$credit" = 0 ] \
       || fail "production holds $credit family payment lines on accounts that require a counterparty, and ${sha:0:7} is below V13: it refuses to re-post such a payment (ADR 0004, \"F8d\"); going back needs a restore from a dump taken before the first of them (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"
     say "No family refund and no payment on an account that requires a counterparty: the code before V13 reads every record and payment as it is."
+  fi
+  if [[ $db_version =~ ^[0-9]+$ ]] && [ "$db_version" -ge 14 ] && [ "$target_max" -lt 14 ]; then
+    # D3b (D-148, D-71): a settlement's own side on an account that requires a counterparty, or on FX_EXCHANGE with no
+    # other account (a conversion of the family debt), which the import writes. The writer before V14 takes neither
+    # and fails whenever it posts such a side again, at any change of its settlement.
+    sides=$(sql_query "SELECT count(*) FROM app.family_entry_link l WHERE l.detached_at IS NULL AND l.link_type = 'SETTLEMENT' AND NOT l.system_owned AND (EXISTS (SELECT FROM app.posting p JOIN app.account a ON a.id = p.account_id WHERE p.entry_id = l.entry_id AND a.requires_counterparty) OR NOT EXISTS (SELECT FROM app.posting p JOIN app.account a ON a.id = p.account_id WHERE p.entry_id = l.entry_id AND a.family_ledger_id IS NULL AND NOT (a.code = 'FX_EXCHANGE' AND a.is_system)))") \
+      || fail "could not count the settlement sides on accounts that require a counterparty or on FX_EXCHANGE alone"
+    [ "$sides" = 0 ] \
+      || fail "production holds $sides settlement sides on an account that requires a counterparty or on FX_EXCHANGE alone, and ${sha:0:7} is below V14: its writer refuses such a side, so any change of its settlement would fail (D-148, D-71); going back needs a restore from a dump taken before the first of them (deploy/RUNBOOK.md, \"Restore from a backup\"); $(preserved_dump_of "$DR_DIR")"
+    say "No settlement side on an account that requires a counterparty or on FX_EXCHANGE alone: the code before V14 posts every side as it is."
   fi
 
   heading "5. Confirmation"

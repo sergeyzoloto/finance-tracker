@@ -21,7 +21,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * V5's backfill, on rows as the code before it writes them: a database migrated to V4 gets the rows of several users,
  * each known to other tables, and then V5. Every sub gets one personal ledger with itself as its one owner, and every
  * row its user's ledger, whether or not the sub has a users or user_settings row. Then each later migration on those
- * rows, to V12's time zone (F8c) and V13's refunds and sync fields (F8d).
+ * rows, to V12's time zone (F8c), V13's refunds and sync fields (F8d) and V14's sync of personal entries (D3b).
  */
 class LedgerBackfillMigrationTests {
 
@@ -262,12 +262,30 @@ class LedgerBackfillMigrationTests {
                         || coalesce((SELECT string_agg(l::text, '|' ORDER BY l.id) FROM ledger l), '')""";
             String beforeV13 = strings(withoutSync).getFirst();
             Map<String, Long> rowsBeforeV13 = rows();
-            MigrateResult v13 = flyway(null).migrate();
+            MigrateResult v13 = flyway("13").migrate();
             assertThat(v13.success).isTrue();
             assertThat(v13.targetSchemaVersion).isEqualTo("13");
             assertThat(rows()).isEqualTo(rowsBeforeV13);
             assertThat(strings(withoutSync).getFirst()).isEqualTo(beforeV13);
             assertThat(strings("SELECT count(*) FROM family_record WHERE external_ref IS NOT NULL")).containsExactly("0");
+
+            // V14 (D3b: the personal side of the import's sync, D-139, D-150) adds two columns to the entries and a
+            // table, and changes no row.
+            String withoutPersonalSync = """
+                    SELECT coalesce((SELECT string_agg((to_jsonb(e) - 'import_hash' - 'import_version')::text, '|'
+                                     ORDER BY e.id) FROM journal_entry e), '')
+                        || coalesce((SELECT string_agg(p::text, '|' ORDER BY p.id) FROM posting p), '')
+                        || coalesce((SELECT string_agg(a::text, '|' ORDER BY a.id) FROM account a), '')
+                        || coalesce((SELECT string_agg(r::text, '|' ORDER BY r.id) FROM family_record r), '')""";
+            String beforeV14 = strings(withoutPersonalSync).getFirst();
+            Map<String, Long> rowsBeforeV14 = rows();
+            MigrateResult v14 = flyway(null).migrate();
+            assertThat(v14.success).isTrue();
+            assertThat(v14.targetSchemaVersion).isEqualTo("14");
+            assertThat(rows()).isEqualTo(rowsBeforeV14);
+            assertThat(strings(withoutPersonalSync).getFirst()).isEqualTo(beforeV14);
+            assertThat(strings("SELECT count(*) FROM journal_entry WHERE import_hash IS NOT NULL")).containsExactly("0");
+            assertThat(strings("SELECT count(*) FROM imported_entry_deleted")).containsExactly("0");
         } finally {
             db.close();
         }

@@ -584,7 +584,8 @@ public class FamilyPostingService {
                 JOIN account a ON a.id = p.account_id AND a.ledger_id = e.ledger_id
                 WHERE l.family_ledger_id = :familyId AND l.member_id = :memberId AND l.link_type IN ('PAYMENT', 'SETTLEMENT')
                   AND l.detached_at IS NULL AND l.record_id IN (:recordIds) AND own.user_sub = :sub
-                  AND a.family_ledger_id IS NULL AND NOT (a.code = :fx AND a.is_system)""")
+                  AND a.family_ledger_id IS NULL
+                  AND NOT (a.code = :fx AND a.is_system AND\s""" + CrossLedgerWriter.OTHER_THAN_FX + ")")
                 .param("placeholder", CrossLedgerWriter.PLACEHOLDER_CODE).param("fx", CrossLedgerWriter.FX_CODE)
                 .param("familyId", family.ledgerId())
                 .param("memberId", family.memberId()).param("recordIds", recordIds).param("sub", family.userId())

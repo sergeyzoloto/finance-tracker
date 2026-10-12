@@ -20,8 +20,22 @@ import java.time.LocalDate;
  *        settlement's (D-87, D-89); null otherwise
  * @param accountCurrency the recorder's paying currency (D-89, F8b); null for the account's default currency, else the
  *        settlement's
+ * @param paymentCounterpartyId for a recorder whose side is on an account that requires a counterparty (D-148), such
+ *        as a loan given or a creditor debt: the counterparty of their personal ledger the account's line names;
+ *        required then, and null otherwise
+ * @param throughExchange the recorder's side goes through their FX_EXCHANGE, which {@code paymentAccountId} then
+ *        names: one of the two settlements that convert a family debt from one currency into another (D-71). Only the
+ *        import sets it; no endpoint does
  */
 public record NewSettlement(LocalDate date, BigDecimal amount, long payerMemberId, long payeeMemberId, String comment,
         Long paymentAccountId, boolean paymentLater, String currency, BigDecimal accountAmount,
-        String accountCurrency) {
+        String accountCurrency, Long paymentCounterpartyId, boolean throughExchange) {
+
+    /** A settlement whose recorder's side, if any, is on an account that requires no counterparty. */
+    public NewSettlement(LocalDate date, BigDecimal amount, long payerMemberId, long payeeMemberId, String comment,
+            Long paymentAccountId, boolean paymentLater, String currency, BigDecimal accountAmount,
+            String accountCurrency) {
+        this(date, amount, payerMemberId, payeeMemberId, comment, paymentAccountId, paymentLater, currency,
+                accountAmount, accountCurrency, null, false);
+    }
 }

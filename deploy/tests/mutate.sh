@@ -348,6 +348,20 @@ mutation_in rollback.sh "count a refund only from V14 on" \
   '[ "$db_version" -ge 14 ] && [ "$target_max" -lt 13 ]' \
   rollback_below_v13
 
+# D3b (D-148, D-71): rollback.sh's refusal below V14 removed, let through, or counted only from V15.
+mutation_in rollback.sh "drop the refusal below V14" \
+  'if [[ $db_version =~ ^[0-9]+$ ]] && [ "$db_version" -ge 14 ] && [ "$target_max" -lt 14 ]; then' \
+  'if false; then' \
+  rollback_below_v14
+mutation_in rollback.sh "let a settlement side on a counterparty account or FX_EXCHANGE through" \
+  '[ "$sides" = 0 ]' \
+  'true' \
+  rollback_below_v14
+mutation_in rollback.sh "count the settlement sides only from V15 on" \
+  '[ "$db_version" -ge 14 ] && [ "$target_max" -lt 14 ]' \
+  '[ "$db_version" -ge 15 ] && [ "$target_max" -lt 14 ]' \
+  rollback_below_v14
+
 # D-126 (F8f): a scheduled shutdown stops run, is named by verify and finish, and only warns in rollback.sh. D-131
 # (F8f-fix): only when it is less than 2 hours away or its time has passed; D-128: USEC without MODE is a shutdown.
 mutation "let run go on despite a shutdown less than 2 hours away" \

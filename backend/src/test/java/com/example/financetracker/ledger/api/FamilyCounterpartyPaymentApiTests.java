@@ -122,7 +122,7 @@ class FamilyCounterpartyPaymentApiTests extends FamilyApiTest {
         assertThat(details(post(alice, uri + "/records", base.formatted(groceries, kid,
                 "\"paymentCounterpartyId\": " + bank)))).containsExactly(
                 "PAYMENT %d a private note goes only on your own payment, and you didn't pay this".formatted(kid));
-        // An income can't be received into such an account, and a settlement's side takes neither.
+        // An income can't be received into such an account; a settlement's side can, with a counterparty (D-148).
         assertThat(details(post(alice, uri + "/records", """
                 {"type": "INCOME", "date": "2026-09-10", "categoryId": %d, "amount": "10", "payerMemberId": %d,
                  "paymentAccountId": %d, "paymentCounterpartyId": %d}""".formatted(salary, mum, creditors, bank))))
@@ -131,8 +131,8 @@ class FamilyCounterpartyPaymentApiTests extends FamilyApiTest {
         assertThat(details(post(alice, uri + "/settlements", """
                 {"date": "2026-09-10", "amount": "5", "payerMemberId": %d, "payeeMemberId": %d,
                  "paymentAccountId": %d}""".formatted(mum, dad, creditors)))).containsExactly(
-                "PAYMENT %d the account CREDITOR_DEBT can't take a settlement: use an account of your own money or "
-                        .formatted(mum) + "credit, or specify it later");
+                "COUNTERPARTY %d the account CREDITOR_DEBT requires a counterparty: name who you owe or who owes you"
+                        .formatted(mum));
         assertThat(postedEntries(alice)).isEmpty();
     }
 
@@ -223,13 +223,14 @@ class FamilyCounterpartyPaymentApiTests extends FamilyApiTest {
                 "\"paymentLater\": true, \"payeeId\": " + shop)));
         assertThat(patch(bob, uri + "/records/%d?version=0".formatted(record.get("id").asLong()), """
                 {"payeeId": %d}""".formatted(bobsShop))).hasStatus(HttpStatus.CONFLICT);
-        // A settlement's side takes neither, through the record or through its entry.
+        // A settlement's side takes no payee, through the record or through its entry (a counterparty only with its
+        // account, D-148).
         JsonNode settlement = created(post(alice, uri + "/settlements", """
                 {"date": "2026-09-10", "amount": "5", "payerMemberId": %d, "payeeMemberId": %d,
                  "paymentAccountId": %d}""".formatted(mum, dad, current)));
         long entryId = settlement.get("yourPayment").get("entryId").asLong();
         assertThat(details(patch(alice, "/api/entries/%d/family-payment?version=0".formatted(entryId), """
                 {"payeeId": %d}""".formatted(shop)))).containsExactly(
-                "COUNTERPARTY %d a settlement takes no counterparty or payee".formatted(mum));
+                "COUNTERPARTY %d a settlement takes no payee".formatted(mum));
     }
 }

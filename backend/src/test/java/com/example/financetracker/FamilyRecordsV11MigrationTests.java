@@ -208,10 +208,11 @@ class FamilyRecordsV11MigrationTests {
         return debts;
     }
 
-    /** Every entry, posting and link of the database, as text. */
+    /** Every entry (without V14's sync columns, null on each), posting and link of the database, as text. */
     private static String posted(Connection db) throws SQLException {
         return strings(db, """
-                SELECT (SELECT string_agg(e::text, '|' ORDER BY e.id) FROM journal_entry e)
+                SELECT (SELECT string_agg((to_jsonb(e) - 'import_hash' - 'import_version')::text, '|' ORDER BY e.id)
+                        FROM journal_entry e)
                     || (SELECT string_agg(p::text, '|' ORDER BY p.id) FROM posting p)
                     || (SELECT string_agg(l::text, '|' ORDER BY l.id) FROM family_entry_link l)
                     || (SELECT string_agg(s::text, '|' ORDER BY s.record_id, s.member_id) FROM family_share s)

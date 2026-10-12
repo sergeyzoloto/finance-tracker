@@ -14,6 +14,7 @@ FROM (VALUES
     ('counterparties', (SELECT count(*) FROM app.counterparty)),
     ('entries', (SELECT count(*) FROM app.journal_entry)),
     ('import_batches', (SELECT count(*) FROM app.import_batch)),
+    ('imported_entries_deleted', (SELECT count(*) FROM app.imported_entry_deleted)),
     ('family_ledgers', (SELECT count(*) FROM app.ledger WHERE type = 'SHARED')),
     ('family_members', (SELECT count(*) FROM app.ledger_member WHERE ledger_type = 'SHARED')),
     ('family_members_active', (SELECT count(*) FROM app.ledger_member WHERE ledger_type = 'SHARED' AND status = 'ACTIVE')),

@@ -137,6 +137,8 @@ psql_call() {
       # rollback.sh's counts of the refunds and of the payment lines on accounts that require a counterparty, which an
       # image before V13 would misread (F8d, ADR 0004).
       *"base_amount < 0"*) f=$(next_fixture family_refunds) ;;
+      # rollback.sh's count of the settlement sides an image before V14 can't post again (D3b: D-148, D-71).
+      *"l.link_type = 'SETTLEMENT'"*) f=$(next_fixture family_settlement_sides) ;;
       *"p.counterparty_id IS NOT NULL"*) f=$(next_fixture family_credit_payments) ;;
       *app.family_record*) f=$(next_fixture family_records) ;;
       *) echo "docker stub: unknown query: $args" >&2; exit 99 ;;

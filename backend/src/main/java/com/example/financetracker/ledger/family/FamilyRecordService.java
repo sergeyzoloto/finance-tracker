@@ -98,6 +98,7 @@ public class FamilyRecordService {
     public static final String COUNTERPARTY = "COUNTERPARTY";
     public static final String REFUND = "REFUND";
 
+    private static final String FX_EXCHANGE = "FX_EXCHANGE";
     private static final String EXPENSE = "EXPENSE";
     private static final String INCOME = "INCOME";
     private static final String SETTLEMENT = "SETTLEMENT";
@@ -601,7 +602,8 @@ public class FamilyRecordService {
                     }
                 } else if (joinedBy(recorder, request.date())) {
                     payment = paidWith(personal, recorder.id(), request.paymentAccountId(), request.paymentLater(),
-                            null, violations, SETTLEMENT);
+                            null, request.paymentCounterpartyId(), null, violations, SETTLEMENT,
+                            request.throughExchange());
                 }
             } else if (payer.hasAccount() || payee.hasAccount()) {
                 Member side = payer.hasAccount() ? payer : payee;
@@ -617,6 +619,11 @@ public class FamilyRecordService {
                             + "settlement, so no account of yours is in it"));
                 }
             }
+        }
+        if ((request.paymentCounterpartyId() != null || request.throughExchange())
+                && !(payment instanceof FamilyPostingService.OwnAccount) && violations.isEmpty()) {
+            violations.add(new Violation(COUNTERPARTY, family.memberId(), "a counterparty or FX_EXCHANGE goes only with "
+                    + "an account of your own side of the settlement"));
         }
         BigDecimal amount = null;
         Side side = null;
@@ -703,8 +710,12 @@ public class FamilyRecordService {
         if (changes.changesNote()) {
             violations.add(new Violation(PAYMENT, family.memberId(), "a settlement takes no private note"));
         }
-        if (changes.paymentCounterpartyId() != null || changes.changesPayee()) {
-            violations.add(new Violation(COUNTERPARTY, family.memberId(), "a settlement takes no counterparty or payee"));
+        if (changes.changesPayee()) {
+            violations.add(new Violation(COUNTERPARTY, family.memberId(), "a settlement takes no payee"));
+        } else if (changes.paymentCounterpartyId() != null && !(ownSide && changes.namesAccount())) {
+            // D-148: the counterparty of a side's account comes with the account it is on.
+            violations.add(new Violation(COUNTERPARTY, family.memberId(), "name the counterparty with the account of "
+                    + "your own side that requires it"));
         }
         Set<Long> guests = guests(record, Map.of(), members);
         for (long sideId : List.of(record.payerId(), record.payeeId())) {
@@ -718,7 +729,7 @@ public class FamilyRecordService {
             violations.add(beforeJoining(members.get(family.memberId()), SETTLEMENT));
         } else if (changes.namesAccount() && ownSide) {
             payment = paidWith(personal, family.memberId(), changes.paymentAccountId(), changes.paymentLater(), null,
-                    violations, SETTLEMENT);
+                    changes.paymentCounterpartyId(), null, violations, SETTLEMENT, false);
         } else if (changes.namesAccount()) {
             violations.add(new Violation(PAYMENT, family.memberId(), "you neither pay nor receive this settlement, so "
                     + "no account of yours is in it"));
@@ -1086,6 +1097,17 @@ public class FamilyRecordService {
      */
     private Payment paidWith(LedgerScope personal, long payerId, Long accountId, boolean later, String note,
             Long counterpartyId, Long payeeId, List<Violation> violations, String type) {
+        return paidWith(personal, payerId, accountId, later, note, counterpartyId, payeeId, violations, type, false);
+    }
+
+    /**
+     * As above; with {@code exchange}, a settlement's side on the member's own FX_EXCHANGE, which the account names:
+     * one of the two settlements that convert a family debt into another currency (D-71), which only the import makes.
+     * An account that requires a counterparty takes an expense's payment (D-80) or a settlement's side (D-148), never an
+     * income's receipt.
+     */
+    private Payment paidWith(LedgerScope personal, long payerId, Long accountId, boolean later, String note,
+            Long counterpartyId, Long payeeId, List<Violation> violations, String type, boolean exchange) {
         String which = switch (type) {
             case SETTLEMENT -> "name the account your side of it went from or into";
             case INCOME -> "name the account you received it into";
@@ -1126,8 +1148,13 @@ public class FamilyRecordService {
         if (account.isEmpty()) {
             // The answer for another user's account is the one for a missing account (rule 11).
             violations.add(new Violation(PAYMENT, payerId, "account %d does not exist".formatted(accountId)));
-        } else if (!List.of("ASSET", "LIABILITY").contains(account.get().type()) || account.get().debt()
-                || account.get().requiresCounterparty() && !type.equals(EXPENSE) || account.get().system()) {
+        } else if (exchange && !(type.equals(SETTLEMENT) && account.get().system()
+                && account.get().code().equals(FX_EXCHANGE))) {
+            violations.add(new Violation(PAYMENT, payerId, "a conversion's settlement goes through FX_EXCHANGE, not %s"
+                    .formatted(account.get().code())));
+        } else if (!exchange && (!List.of("ASSET", "LIABILITY").contains(account.get().type()) || account.get().debt()
+                || account.get().requiresCounterparty() && !List.of(EXPENSE, SETTLEMENT).contains(type)
+                || account.get().system())) {
             violations.add(new Violation(PAYMENT, payerId, (switch (type) {
                 case SETTLEMENT -> "the account %s can't take a settlement: use an account of your own money or "
                         + "credit, or specify it later";
@@ -1342,7 +1369,8 @@ public class FamilyRecordService {
     /**
      * The account the other side of a settlement puts their part on (F4e): in the settlement's currency their part is
      * its amount; in another paying currency (D-89: as they name it, else the account's default), the amount they name
-     * for it, which only their own entry holds (D-87).
+     * for it, which only their own entry holds (D-87). An account that requires a counterparty keeps the one they name
+     * (D-148).
      */
     private Payment otherSidesAccount(LedgerScope personal, FamilyPostingService.OwnAccount own,
             BigDecimal accountAmount, String requested, String currency, BigDecimal amount, RecordRow record,
@@ -1354,7 +1382,8 @@ public class FamilyRecordService {
                 violations.add(new Violation(ACCOUNT_AMOUNT, memberId, ("your side is in %s, the settlement's "
                         + "currency, so it is the settlement's amount").formatted(currency)));
             }
-            return new FamilyPostingService.OwnAccount(own.accountId(), null, amount, currency);
+            return new FamilyPostingService.OwnAccount(own.accountId(), null, amount, currency, own.counterpartyId(),
+                    null);
         }
         String way = record.payerId() == memberId ? "from" : "into";
         if (accountAmount == null) {
@@ -1367,7 +1396,8 @@ public class FamilyRecordService {
         violations.replaceAll(v -> violations.indexOf(v) >= before && v.code().equals(AMOUNT)
                 ? new Violation(ACCOUNT_AMOUNT, memberId, v.message()) : v);
         return violations.size() > before ? own
-                : new FamilyPostingService.OwnAccount(own.accountId(), null, inMinorUnits(accountAmount, in), in);
+                : new FamilyPostingService.OwnAccount(own.accountId(), null, inMinorUnits(accountAmount, in), in,
+                        own.counterpartyId(), null);
     }
 
     /**

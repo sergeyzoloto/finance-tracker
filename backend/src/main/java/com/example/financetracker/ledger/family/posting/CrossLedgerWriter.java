@@ -40,6 +40,13 @@ class CrossLedgerWriter {
     static final String PLACEHOLDER_CODE = "UNSPECIFIED_PAYMENTS";
     static final String PLACEHOLDER_NAME = "Payments without a specified account";
     static final String FX_CODE = "FX_EXCHANGE";
+    /**
+     * SQL: the entry {@code e} has a line on another account than FX_EXCHANGE and the debt accounts, so that its lines on
+     * FX_EXCHANGE are an exchange's legs, not its side; a settlement's side on FX_EXCHANGE alone has none (D-71).
+     */
+    static final String OTHER_THAN_FX = """
+            EXISTS (SELECT FROM posting o JOIN account oa ON oa.id = o.account_id
+                    WHERE o.entry_id = e.id AND oa.family_ledger_id IS NULL AND NOT (oa.code = :fx AND oa.is_system))""";
 
     private static final Set<LinkType> PAYMENTS = Set.of(LinkType.PAYMENT, LinkType.SETTLEMENT);
     /** The longest category code (V2). */
@@ -333,7 +340,7 @@ class CrossLedgerWriter {
 
     /**
      * The side of the payment or settlement that the link names: the line that is neither on the debt account nor on
-     * FX_EXCHANGE.
+     * FX_EXCHANGE, or for a settlement's side on FX_EXCHANGE alone (D-71), that line.
      */
     PaymentSide paymentSide(LedgerScope family, Link link) {
         if (!PAYMENTS.contains(link.type()) || link.entryId() == null) {
@@ -347,7 +354,7 @@ class CrossLedgerWriter {
                 JOIN posting p ON p.entry_id = e.id
                 JOIN account a ON a.id = p.account_id
                 WHERE l.id = :linkId AND l.family_ledger_id = :familyId AND a.family_ledger_id IS NULL
-                  AND NOT (a.code = :fx AND a.is_system)""")
+                  AND NOT (a.code = :fx AND a.is_system AND\s""" + OTHER_THAN_FX + ")")
                 .param("placeholder", PLACEHOLDER_CODE).param("fx", FX_CODE).param("linkId", link.id())
                 .param("familyId", family.ledgerId())
                 .query((row, n) -> new PaymentSide(row.getLong("id"), row.getBoolean("later"), row.getString("memo"),
@@ -615,11 +622,19 @@ class CrossLedgerWriter {
     /**
      * The payer's own account in a payment, if the payer is the member who acts (D-14) and the account is one they
      * pay with: an ASSET or LIABILITY of their personal ledger that isn't a debt account or the placeholder. One that
-     * requires a counterparty (D-80) pays only an expense, as its own payment; the line then names one.
+     * requires a counterparty pays only an expense, as its own payment (D-80), or a settlement's side (D-148); the line
+     * then names one. A settlement's side on FX_EXCHANGE alone, with no other account than the debt account, is on
+     * the member's own FX_EXCHANGE (D-71: a conversion of the family debt, which the import records).
      */
     private Optional<Long> ownAccountLine(LedgerScope family, PostedEntry entry, MemberLedger member) {
         if (!PAYMENTS.contains(entry.link()) || entry.memberId() != family.memberId()) {
             return Optional.empty();
+        }
+        if (entry.link() == LinkType.SETTLEMENT && member.fxExchange() != null && entry.lines().stream()
+                .allMatch(line -> line.accountId() == member.fxExchange() || Long.valueOf(line.accountId())
+                        .equals(member.debt()))
+                && entry.lines().stream().filter(line -> line.accountId() == member.fxExchange()).count() == 1) {
+            return Optional.of(member.fxExchange());
         }
         for (Line line : entry.lines()) {
             if (Long.valueOf(line.accountId()).equals(member.debt())
@@ -642,12 +657,20 @@ class CrossLedgerWriter {
         return Optional.empty();
     }
 
-    /** Whether the entry may have a counterparty on its own account's line: the payment of an expense (D-80). */
+    /**
+     * Whether the entry may have a counterparty on its own account's line: the payment of an expense (D-80), or a side
+     * of a settlement (D-148).
+     */
     private boolean counterpartyAllowed(LedgerScope family, PostedEntry entry) {
-        return entry.link() == LinkType.PAYMENT && entry.recordId() != null && jdbc.sql("""
+        String type = switch (entry.link()) {
+            case PAYMENT -> "EXPENSE";
+            case SETTLEMENT -> "SETTLEMENT";
+            default -> null;
+        };
+        return type != null && entry.recordId() != null && jdbc.sql("""
                 SELECT EXISTS (SELECT FROM family_record
-                               WHERE id = :recordId AND ledger_id = :familyId AND type = 'EXPENSE')""")
-                .param("recordId", entry.recordId()).param("familyId", family.ledgerId())
+                               WHERE id = :recordId AND ledger_id = :familyId AND type = :type)""")
+                .param("recordId", entry.recordId()).param("familyId", family.ledgerId()).param("type", type)
                 .query(Boolean.class).single();
     }
 

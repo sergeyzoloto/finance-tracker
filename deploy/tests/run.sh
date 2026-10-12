@@ -64,6 +64,7 @@ make_template() {
 make_template "$WORK/template9" 9
 make_template "$WORK/template6" 6
 make_template "$WORK/template12" 12
+make_template "$WORK/template13" 13
 
 # 4510003's scripts, which run OPS-2's deploy (bash reads deploy.sh before the merge), taken from the repository's
 # history: CI's "Deploy scripts" checks out the whole history for this. Without the commit the cases that use them fail.
@@ -141,6 +142,7 @@ EOF
   echo 0 >"$s/fixtures/family_records_misread"
   echo 0 >"$s/fixtures/family_refunds"
   echo 0 >"$s/fixtures/family_credit_payments"
+  echo 0 >"$s/fixtures/family_settlement_sides"
   cp "$ROOT/deploy/checks/OPS-1.expected" "$s/fixtures/stage"
   numbers 0 >"$s/fixtures/numbers"
   cp "$HERE/fixtures/check-runs-success.json" "$s/fixtures/ci"
@@ -205,6 +207,11 @@ new_target() {
           ;;
         migrations13)
           for f in "$ROOT"/backend/src/main/resources/db/migration/V13__*.sql; do
+            echo "-- placeholder" >"backend/src/main/resources/db/migration/$(basename "$f")"
+          done
+          ;;
+        migrations14)
+          for f in "$ROOT"/backend/src/main/resources/db/migration/V14__*.sql; do
             echo "-- placeholder" >"backend/src/main/resources/db/migration/$(basename "$f")"
           done
           ;;
@@ -1236,6 +1243,41 @@ case_rollback_below_v13() {
   check "no count below V13" calls_lack "psql .*base_amount < 0"
   check "no count of the payments either" calls_lack "psql .*p.counterparty_id IS NOT NULL"
   check "no word of it" out_lacks "family refunds"
+  rollback_refused "not confirmed"
+}
+
+# D3b (D-148, D-71): below V14 while a settlement's side is on an account that requires a counterparty, or on
+# FX_EXCHANGE alone, which the code before V14 can't post again.
+case_rollback_below_v14() {
+  setup_case 13
+  new_target migrations14
+  echo "14 import sync of personal entries true" >"$STUB_STATE/fixtures/flyway"
+  deploy_e
+  [ "$RC" -eq 0 ] || { echo "    setup: the deploy of E failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  : >"$STUB_STATE/calls"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+  fixture family_settlement_sides 2
+  type_at_terminal "ROLLBACK ${SHA_D:0:7}"
+  run_rollback "${SHA_D:0:7}"
+  rollback_refused "production holds 2 settlement sides on an account that requires a counterparty or on FX_EXCHANGE alone, and ${SHA_D:0:7} is below V14"
+  check "says what the target would do with them" out_has "its writer refuses such a side, so any change of its settlement would fail"
+  check "names the way back: a restore" out_has "going back needs a restore from a dump taken before the first of them"
+  check "names the dump preserved before the deploy (D-43)" out_has "the dump taken before HEAD's deploy is preserved as $C/state/runs/"
+  check "counted as the read-only role" calls_have "psql .*l.link_type = 'SETTLEMENT'"
+  fixture family_settlement_sides 0
+  type_at_terminal "no"
+  run_rollback "${SHA_D:0:7}"
+  check "without one it gets to the confirmation" out_has "No settlement side on an account that requires a counterparty or on FX_EXCHANGE alone"
+  rollback_refused "not confirmed"
+  # A database below V14: nothing the target can't post, and no such count.
+  echo "13 refunds counterparty payments journal currency import sync true" >"$STUB_STATE/fixtures/flyway"
+  fixture family_settlement_sides 5
+  : >"$STUB_STATE/calls"
+  type_at_terminal "no"
+  run_rollback "${SHA_D:0:7}"
+  check "no count below V14" calls_lack "psql .*l.link_type = 'SETTLEMENT'"
+  check "no word of it" out_lacks "settlement sides on an account"
   rollback_refused "not confirmed"
 }
 
@@ -2783,7 +2825,7 @@ CASES=(
   switch_on_and_off switch_wrong_confirmation switch_secret_never_printed switch_failure_prints_the_way_back
   run_names_the_running_revision
   finish_on_an_ops1_run
-  rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7 rollback_below_v11 rollback_below_v13
+  rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7 rollback_below_v11 rollback_below_v13 rollback_below_v14
   old_tags_removed
   pasted_ahead_is_discarded yes_no_asks_again finish_skips_refused_runs newest_line_decides_status
   step_1_3_says_push_first

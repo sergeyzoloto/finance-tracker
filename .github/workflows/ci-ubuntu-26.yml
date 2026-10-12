@@ -70,9 +70,12 @@ jobs:
       # comes first, so that npx runs that Playwright and fetches none. A step of this job, not a job of its own: each
       # push keeps its 5 check runs (D-95), which deploy.sh's step 1.5 counts. The same step in ci.yml and
       # ci-ubuntu-26.yml (D-129).
+      # zip and unzip (D-134): the password search reads the traces with unzip and fails closed without it (D-135),
+      # and its tests make a zip. GitHub's runner image happens to carry both; a clean Ubuntu doesn't (D-133).
       - name: End-to-end guards
         working-directory: e2e
         run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends zip unzip
           npm ci
           npx playwright install --with-deps --only-shell chromium
           npm run test:guards

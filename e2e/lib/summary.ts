@@ -18,11 +18,34 @@ export interface Summary {
   artifacts: string
   /** Why the run stopped early, if it did. */
   aborted?: string
+  /** The password search over the artifacts (D-52, guard 4); left out where none ran. */
+  secretSearch?: SecretSearch
 }
 
-/** The run passed: every spec passed, nothing aborted, and every account's cleanup worked. */
+/**
+ * What the password search found: the files that hold a secret, and those it couldn't search (a zip that `unzip`
+ * couldn't read, D-135), each relative to the artifacts' folder.
+ */
+export interface SecretSearch { hits: string[]; unreadable: string[] }
+
+/** The search found nothing and searched everything. */
+const searched = (s?: SecretSearch) => !s || (s.hits.length === 0 && s.unreadable.length === 0)
+
+/**
+ * The run passed: every spec passed, nothing aborted, every account's cleanup worked, and the password search found
+ * nothing and could read every file.
+ */
 export const passed = (s: Summary) => !s.aborted && s.specs.length > 0 && s.specs.every((x) => x.status === 'passed' || x.status === 'skipped')
-  && s.accounts.every((a) => a.cleanup.startsWith('deleted') || a.cleanup === 'not signed in')
+  && s.accounts.every((a) => a.cleanup.startsWith('deleted') || a.cleanup === 'not signed in') && searched(s.secretSearch)
+
+function searchLine(s: SecretSearch): string {
+  if (s.unreadable.length > 0) {
+    return `Password search over the artifacts: FAILED, ${s.unreadable.length} file(s) couldn’t be searched (is unzip installed?): ${s.unreadable.join(', ')}`
+      + (s.hits.length > 0 ? `; ${s.hits.length} HIT(S), in ${s.hits.join(', ')}: delete the folder now.` : '')
+  }
+  return s.hits.length === 0 ? 'Password search over the artifacts: 0 hits'
+    : `Password search over the artifacts: ${s.hits.length} HIT(S), in ${s.hits.join(', ')}: delete the folder now.`
+}
 
 const utc = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z')
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`
@@ -42,6 +65,7 @@ export function formatSummary(s: Summary): string {
     ...s.accounts.map((a) => `  ${a.label}: sign-in ${a.signIn}; cleanup ${a.cleanup}`),
     ...(s.aborted ? [`ABORTED:   ${s.aborted}`] : []),
     `Artifacts: ${s.artifacts}`,
+    ...(s.secretSearch ? [searchLine(s.secretSearch)] : []),
     `Result:    ${passed(s) ? 'PASSED' : 'FAILED'}`,
     '=======================',
   ].join('\n')

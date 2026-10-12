@@ -5,7 +5,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Account } from '../lib/accounts.ts'
 import { aborted, cleanupOf, createSessionDir, isVerified, removeSessionDir } from '../lib/session.ts'
-import { formatSummary, passed, type SpecResult, type Summary } from '../lib/summary.ts'
+import { formatSummary, passed, type SecretSearch, type SpecResult, type Summary } from '../lib/summary.ts'
 import type { Target } from '../lib/targets.ts'
 
 /** The suite's folder, e2e/. */
@@ -57,12 +57,10 @@ export async function runSuite(run: Run, commit: { commit: string; clean: boolea
     const summary: Summary = {
       start, end: new Date(), target: run.target.app, ...commit, family: run.family,
       specs: readResults(results), accounts, artifacts: run.artifacts, aborted: aborted(dir),
+      secretSearch: searchSecrets(run.artifacts, run.secrets),
     }
-    const hits = searchSecrets(run.artifacts, run.secrets)
     console.log(`\n${formatSummary(summary)}`)
-    console.log(hits.length === 0 ? 'Password search over the artifacts: 0 hits'
-      : `Password search over the artifacts: ${hits.length} HIT(S), in ${hits.join(', ')}: delete the folder now.`)
-    return passed(summary) && hits.length === 0 ? 0 : 1
+    return passed(summary) ? 0 : 1
   } finally {
     removeSessionDir(dir)
     process.off('SIGINT', ignore)
@@ -85,20 +83,32 @@ function readResults(path: string): SpecResult[] {
 
 /**
  * Every file under the folder that holds one of the secrets, as typed, URL-encoded, JSON-escaped or in base64; a trace
- * (a zip) is searched inside, entry by entry. Screenshots can only be looked at: the forms never show a password.
+ * (a zip) is searched inside, entry by entry, with `unzip`. Screenshots can only be looked at: the forms never show a
+ * password. It fails closed (D-135): a zip that `unzip` can't read, because it is missing or exits non-zero, is
+ * `unreadable`, never searched as if it were empty, and the run's Result is then FAILED.
+ *
+ * @param path the PATH that `unzip` is looked up in; the process's own by default (a test passes one without it)
  */
-export function searchSecrets(folder: string, secrets: string[]): string[] {
-  if (!existsSync(folder)) return []
+export function searchSecrets(folder: string, secrets: string[], path = process.env.PATH): SecretSearch {
+  if (!existsSync(folder)) return { hits: [], unreadable: [] }
   const needles = secrets.flatMap((s) => [s, encodeURIComponent(s), JSON.stringify(s).slice(1, -1), Buffer.from(s).toString('base64')])
     .filter((n, i, all) => n.length > 0 && all.indexOf(n) === i).map((n) => Buffer.from(n))
-  const hits: string[] = []
+  const search: SecretSearch = { hits: [], unreadable: [] }
   for (const file of files(folder)) {
-    const contents = file.endsWith('.zip')
-      ? spawnSync('unzip', ['-p', file], { maxBuffer: 1 << 30 }).stdout ?? Buffer.alloc(0)
-      : readFileSync(file)
-    if (needles.some((n) => contents.includes(n))) hits.push(relative(folder, file))
+    let contents: Buffer
+    if (file.endsWith('.zip')) {
+      const unzip = spawnSync('unzip', ['-p', file], { maxBuffer: 1 << 30, env: { ...process.env, PATH: path } })
+      if (unzip.error || unzip.status !== 0) {
+        search.unreadable.push(relative(folder, file))
+        continue
+      }
+      contents = unzip.stdout
+    } else {
+      contents = readFileSync(file)
+    }
+    if (needles.some((n) => contents.includes(n))) search.hits.push(relative(folder, file))
   }
-  return hits
+  return search
 }
 
 function files(folder: string): string[] {

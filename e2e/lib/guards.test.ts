@@ -252,6 +252,9 @@ describe('the summary (guard 9)', () => {
     assert.equal(passed({ ...summary, accounts: [{ label: 'e2e-a', signIn: 'checked', cleanup: 'FAILED: 500' }] }), false)
     assert.equal(passed({ ...summary, aborted: 'identity' }), false)
     assert.equal(passed({ ...summary, specs: [] }), false)
+    assert.equal(passed({ ...summary, secretSearch: { hits: [], unreadable: [] } }), true)
+    assert.equal(passed({ ...summary, secretSearch: { hits: ['trace.zip'], unreadable: [] } }), false)
+    assert.equal(passed({ ...summary, secretSearch: { hits: [], unreadable: ['trace.zip'] } }), false)
   })
 
   test('says everything the chat needs', () => {
@@ -268,11 +271,41 @@ describe('the password search (guard 4)', () => {
     const dir = join(root, 'artifacts')
     mkdirSync(join(dir, 'deep'), { recursive: true })
     writeFileSync(join(dir, 'clean.txt'), 'nothing here')
-    assert.deepEqual(searchSecrets(dir, [secret]), [])
+    assert.deepEqual(searchSecrets(dir, [secret]), { hits: [], unreadable: [] })
     writeFileSync(join(dir, 'deep', 'log.txt'), `value=${encodeURIComponent(secret)}`)
     writeFileSync(join(dir, 'b64.txt'), Buffer.from(secret).toString('base64'))
     writeFileSync(join(root, 'inner.json'), JSON.stringify({ value: secret }))
     assert.equal(spawnSync('zip', ['-q', '-j', join(dir, 'trace.zip'), join(root, 'inner.json')]).status, 0)
-    assert.deepEqual(searchSecrets(dir, [secret]).sort(), ['b64.txt', 'deep/log.txt', 'trace.zip'])
+    const found = searchSecrets(dir, [secret])
+    assert.deepEqual({ ...found, hits: [...found.hits].sort() }, { hits: ['b64.txt', 'deep/log.txt', 'trace.zip'], unreadable: [] })
+  })
+
+  // D-135: a trace that unzip can't read is never taken as empty.
+  test('fails closed without unzip: the zip is unreadable, never searched as empty, and the Result is FAILED', () => {
+    const secret = 'pa ss/wörd+1'
+    const dir = join(root, 'artifacts')
+    const bin = join(root, 'no-unzip')
+    mkdirSync(dir)
+    mkdirSync(bin)
+    writeFileSync(join(root, 'inner.json'), JSON.stringify({ value: 'clean' }))
+    assert.equal(spawnSync('zip', ['-q', '-j', join(dir, 'trace.zip'), join(root, 'inner.json')]).status, 0)
+    assert.deepEqual(searchSecrets(dir, [secret]), { hits: [], unreadable: [] })
+    const search = searchSecrets(dir, [secret], bin)
+    assert.deepEqual(search, { hits: [], unreadable: ['trace.zip'] })
+    const text = formatSummary({
+      start: new Date('2026-10-12T10:00:00Z'), end: new Date('2026-10-12T10:01:00Z'), target: 'http://localhost:5173',
+      commit: 'c'.repeat(40), clean: true, family: 'on', specs: [{ spec: 'pages', status: 'passed', durationMs: 1, tests: 1 }],
+      accounts: [{ label: 'A', signIn: 'checked', cleanup: 'deleted, signed out' }], artifacts: dir, secretSearch: search,
+    })
+    assert.ok(text.includes('Password search over the artifacts: FAILED, 1 file(s) couldn’t be searched (is unzip installed?): trace.zip'), text)
+    assert.ok(text.includes('Result:    FAILED'), text)
+  })
+
+  test('fails closed when unzip exits non-zero for an archive it can\'t read', () => {
+    const dir = join(root, 'artifacts')
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'broken.zip'), 'not a zip at all')
+    writeFileSync(join(dir, 'log.txt'), 'nothing here')
+    assert.deepEqual(searchSecrets(dir, ['secret']), { hits: [], unreadable: ['broken.zip'] })
   })
 })

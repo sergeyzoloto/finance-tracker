@@ -157,14 +157,19 @@ how many (QA-1b). It takes about two
 minutes.
 
 The summary at the end, between `===== E2E summary =====` and `=======================`, is what you paste into the
-chat, with the line after it (the password search):
+chat:
 
 - the start and end in UTC, the target, the commit and `E2E_FAMILY`;
 - each spec, `passed` or `failed` (or `not run` after a failed sign-in, `skipped` for the family spec with
   `E2E_FAMILY=off`), with its duration;
 - each account's sign-in and cleanup: `deleted …, signed out`, or why not, and then what to do by hand;
 - `ABORTED: …` if the run stopped early (a sign-in that failed, or `/api/me` naming someone else);
-- the artifacts' folder, and `Result: PASSED` or `FAILED`. The exit status is 0 only for PASSED.
+- the artifacts' folder;
+- the password search over the artifacts: `0 hits`, the files with a hit, or (D-135) `FAILED` with the files it
+  couldn't search, a trace that `unzip` couldn't read because it is missing or failed, since such a file is never taken
+  as empty;
+- `Result: PASSED` or `FAILED`: PASSED only when every spec passed, every cleanup worked and the search found nothing
+  and read everything. The exit status is 0 only for PASSED.
 
 The artifacts are in `~/.cache/finance-tracker-e2e/prod-<UTC time>/` (mode 700): for a failed test its trace
 (`npx playwright show-trace <folder>/…/trace.zip`), a screenshot and `error-context.md`; and the screenshots of the

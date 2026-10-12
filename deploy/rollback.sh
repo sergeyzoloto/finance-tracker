@@ -92,7 +92,8 @@ cmd_rollback() {
 
   heading "1. The tools, the read-only role and the clone"
   check_tools git docker flock curl
-  # D-126: only a warning; a rollback is for a site that is down, and never waits for a reboot.
+  # D-126, D-131: only a warning, however near the shutdown; a rollback is for a site that is down, and never waits
+  # for a reboot.
   if shutdown_scheduled; then
     say "WARNING: $SHUTDOWN_LINE; the rollback goes on (D-126), but the reboot may interrupt it"
   else

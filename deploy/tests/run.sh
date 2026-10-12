@@ -151,8 +151,10 @@ EOF
   export STUB_STATE=$s PATH=$C/bin:$BASE_PATH
   export DEPLOY_REPO_DIR=$C/server DEPLOY_STATE_DIR=$C/state DEPLOY_LOCK=$C/lock DEPLOY_TTY=$C/tty
   export DEPLOY_BACKUP_DIR=$C/backups DEPLOY_PREVIOUS_FILE=$C/previous
-  # D-126: no scheduled shutdown unless a case writes this file (never the laptop's own /run/systemd).
-  export DEPLOY_SHUTDOWN_FILE=$C/shutdown-scheduled
+  # D-126: no scheduled shutdown unless a case writes this file (never the laptop's own /run/systemd). D-131: "now" for
+  # the shutdown check is fixed, 2026-10-07T06:10:34Z (when unattended-upgrades scheduled 2026-10-08's reboot), unless
+  # a case sets another; no case reads the real clock for it.
+  export DEPLOY_SHUTDOWN_FILE=$C/shutdown-scheduled DEPLOY_SHUTDOWN_NOW=$NOW_SCHEDULED
   export DEPLOY_CI_WAIT=2 DEPLOY_CI_INTERVAL=1 DEPLOY_HEALTH_TRIES=3 DEPLOY_HEALTH_INTERVAL=0
   # The terminal (F6c): a FIFO that terminal_feeder writes into, as the operator would type and paste.
   mkfifo "$C/tty"
@@ -162,6 +164,13 @@ EOF
   cp "$C/state/history" "$C/history.orig"
 }
 BASE_PATH=$PATH
+# D-131's moments, in seconds since the epoch: when 2026-10-08's reboot was scheduled, 2 hours before it to the second,
+# one second later, an hour before it, and 2026-10-12T05:28:00Z, 97 hours and 28 minutes after it.
+NOW_SCHEDULED=1791353434
+NOW_2H_BEFORE=1791424800
+NOW_2H_BEFORE_PLUS_1S=1791424801
+NOW_1H_BEFORE=1791428400
+NOW_4_DAYS_AFTER=1791782880
 # The read-only role as the runbook makes it, as it reads itself (deploy/common.sh, ROLE_SQL).
 ROLE_OK="superuser=false read_all_data=true writes=0 read_only=true"
 
@@ -2627,6 +2636,13 @@ scheduled_reboot() {
   printf 'USEC=1791432000000000\nWARN_WALL=1\nMODE=reboot\nUID=0\n' >"$DEPLOY_SHUTDOWN_FILE"
 }
 
+# went_on: the run deployed E, with no refusal.
+went_on() {
+  check "exit code 0" rc_is 0
+  check "not refused" out_lacks "REFUSED at"
+  check "E deployed" head_is "$SHA_E"
+}
+
 case_shutdown_none_is_named() {
   setup_case
   new_target
@@ -2641,15 +2657,57 @@ case_shutdown_none_is_named() {
   check "verify names none" out_has "Scheduled shutdown: none"
 }
 
-case_run_refused_by_a_scheduled_reboot() {
+# D-131: unattended-upgrades' reboot, scheduled at 06:10:34Z for 04:00 the next day, doesn't hold up a deploy that day.
+case_run_goes_on_with_a_reboot_hours_away() {
   setup_case
   new_target
   scheduled_reboot
   deploy_e
-  refused "a shutdown is scheduled (D-126)"
-  check "prints the time from the file" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z"
+  went_on
+  check "prints the time and the distance" \
+    out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z, in 21h 49m ($DEPLOY_SHUTDOWN_FILE)"
+  check "says why it goes on" out_has "The scheduled shutdown is at least 2 hours away: the deploy goes on (D-131)"
+  check "the fixed now named" out_has "Now for the shutdown check, from DEPLOY_SHUTDOWN_NOW (tests only): 2026-10-07T06:10:34Z"
+}
+
+case_run_refused_by_a_reboot_less_than_2_hours_away() {
+  setup_case
+  new_target
+  scheduled_reboot
+  export DEPLOY_SHUTDOWN_NOW=$NOW_2H_BEFORE_PLUS_1S
+  deploy_e
+  refused "a shutdown is scheduled less than 2 hours from now (D-131)"
+  check "prints the time and the distance" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z, in 1h 59m"
   check "before CI and any backup" calls_lack '/check-runs|^systemctl|^pg-restore-test'
   check "nothing asked" [ "$(questions)" -eq 0 ]
+}
+
+# D-131's boundary: exactly 2 hours away goes on; one microsecond less is less than 2 hours.
+case_run_at_the_2_hour_boundary() {
+  setup_case
+  new_target
+  export DEPLOY_SHUTDOWN_NOW=$NOW_2H_BEFORE
+  printf 'USEC=1791431999999999\nMODE=reboot\n' >"$DEPLOY_SHUTDOWN_FILE"
+  deploy_e
+  refused "a shutdown is scheduled less than 2 hours from now (D-131)"
+  check "one microsecond short: 1h 59m" out_has "Scheduled shutdown: a reboot at 2026-10-08T03:59:59Z, in 1h 59m"
+  sleep 1
+  scheduled_reboot
+  deploy_e
+  went_on
+  check "exactly 2 hours: 2h 0m" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z, in 2h 0m"
+}
+
+# D-131: a file whose time has passed (a reboot that didn't happen) can't be trusted, however long ago.
+case_run_refused_by_a_passed_shutdown_time() {
+  setup_case
+  new_target
+  scheduled_reboot
+  export DEPLOY_SHUTDOWN_NOW=$NOW_4_DAYS_AFTER
+  deploy_e
+  refused "the scheduled shutdown's time has passed, yet it is still scheduled (D-131)"
+  check "says how long ago" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z, its time passed 97h 28m ago"
+  check "before CI and any backup" calls_lack '/check-runs|^systemctl|^pg-restore-test'
 }
 
 case_run_refused_by_an_unparseable_shutdown_file() {
@@ -2662,22 +2720,45 @@ case_run_refused_by_an_unparseable_shutdown_file() {
   check "before CI and any backup" calls_lack '/check-runs|^systemctl|^pg-restore-test'
 }
 
+# D-128: USEC without MODE is a shutdown, under D-131's window like any other.
+case_a_usec_without_a_mode_is_a_shutdown() {
+  setup_case
+  new_target
+  printf 'USEC=1791432000000000\n' >"$DEPLOY_SHUTDOWN_FILE"
+  export DEPLOY_SHUTDOWN_NOW=$NOW_1H_BEFORE
+  deploy_e
+  refused "a shutdown is scheduled less than 2 hours from now (D-131)"
+  check "a shutdown, in 1h 0m" out_has "Scheduled shutdown: a shutdown at 2026-10-08T04:00:00Z, in 1h 0m"
+  sleep 1
+  export DEPLOY_SHUTDOWN_NOW=$NOW_SCHEDULED
+  deploy_e
+  went_on
+  check "a shutdown, in 21h 49m" out_has "Scheduled shutdown: a shutdown at 2026-10-08T04:00:00Z, in 21h 49m"
+}
+
+# verify and finish name a shutdown, however near or passed, and never refuse; rollback.sh only warns (D-126, D-131).
 case_shutdown_lines_of_verify_finish_and_rollback() {
   setup_case
   new_target
   deploy_e
   scheduled_reboot
+  export DEPLOY_SHUTDOWN_NOW=$NOW_1H_BEFORE
   type_at_terminal yes yes
   run_deploy finish
   check "finish: exit code 0, not refused" rc_is 0
-  check "finish names the reboot" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z"
+  check "finish names the reboot, in 1h 0m" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z, in 1h 0m"
   run_deploy verify OPS-1
   check "verify: exit code 0" rc_is 0
-  check "verify names the reboot" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z"
+  check "verify names the reboot" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z, in 1h 0m"
+  export DEPLOY_SHUTDOWN_NOW=$NOW_4_DAYS_AFTER
+  run_deploy verify OPS-1
+  check "verify with a passed time: exit code 0" rc_is 0
+  check "verify names the passed time" out_has "Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z, its time passed 97h 28m ago"
+  export DEPLOY_SHUTDOWN_NOW=$NOW_1H_BEFORE
   type_at_terminal "ROLLBACK ${SHA_D:0:7}"
   run_rollback "${SHA_D:0:7}"
   check "rollback: exit code 0, never refused for it" rc_is 0
-  check "rollback warns" out_has "WARNING: Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z"
+  check "rollback warns" out_has "WARNING: Scheduled shutdown: a reboot at 2026-10-08T04:00:00Z, in 1h 0m"
   check "rollback goes on" out_has "the rollback goes on (D-126)"
   check "rollback: D runs again" head_is "$SHA_D"
 }
@@ -2720,8 +2801,9 @@ CASES=(
   b6870f2_scripts_on_production_now b6870f2_run_deploys_ops2b b6870f2_run_deploys_ops2b_same_api
   switch_off_without_the_numbers
   b6870f2_run_deploys_a_merge_commit
-  shutdown_none_is_named run_refused_by_a_scheduled_reboot run_refused_by_an_unparseable_shutdown_file
-  shutdown_lines_of_verify_finish_and_rollback
+  shutdown_none_is_named run_refused_by_an_unparseable_shutdown_file shutdown_lines_of_verify_finish_and_rollback
+  run_goes_on_with_a_reboot_hours_away run_refused_by_a_reboot_less_than_2_hours_away run_at_the_2_hour_boundary
+  run_refused_by_a_passed_shutdown_time a_usec_without_a_mode_is_a_shutdown
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

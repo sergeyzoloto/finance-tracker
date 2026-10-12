@@ -26,6 +26,10 @@ common_settings() {
   HEALTH_TRIES=${DEPLOY_HEALTH_TRIES:-60}
   HEALTH_INTERVAL=${DEPLOY_HEALTH_INTERVAL:-5}
   SHUTDOWN_FILE=${DEPLOY_SHUTDOWN_FILE:-/run/systemd/shutdown/scheduled}
+  # D-131: run refuses a shutdown less than this many seconds away; "now" for it is the clock's, or for the tests
+  # DEPLOY_SHUTDOWN_NOW (seconds since the epoch), so that no case reads the real clock.
+  SHUTDOWN_MARGIN=7200
+  SHUTDOWN_NOW=${DEPLOY_SHUTDOWN_NOW:-}
   APP_DIR=$REPO_DIR/deploy/app
   CONF_TARGET=/etc/pg-backup/finance.conf
   GITHUB_API=https://api.github.com/repos/sergeyzoloto/finance-tracker
@@ -34,6 +38,8 @@ common_settings() {
   for v in CI_WAIT CI_INTERVAL HEALTH_TRIES HEALTH_INTERVAL; do
     [[ ${!v} =~ ^[0-9]+$ ]] || { echo "ERROR: DEPLOY_$v must be a whole number" >&2; exit 2; }
   done
+  [ -z "$SHUTDOWN_NOW" ] || [[ $SHUTDOWN_NOW =~ ^[1-9][0-9]{0,11}$ ]] \
+    || { echo "ERROR: DEPLOY_SHUTDOWN_NOW must be seconds since the epoch" >&2; exit 2; }
   RUN_DIR=
   TEE_PID=
   STEP=
@@ -45,6 +51,7 @@ common_settings() {
   PLATFORM_ANSWER=
   STORE_LINE=
   SHUTDOWN_LINE=
+  SHUTDOWN_IN=
 }
 
 say() { printf '%s\n' "$*"; }
@@ -66,6 +73,8 @@ fail() {
 print_settings() {
   say "Repository $REPO_DIR, state $STATE_DIR, lock $LOCK_FILE, terminal $TTY"
   say "Backups $BACKUP_DIR, previous commit file $PREVIOUS_FILE"
+  [ -z "$SHUTDOWN_NOW" ] \
+    || say "Now for the shutdown check, from DEPLOY_SHUTDOWN_NOW (tests only): $(date -u -d "@$SHUTDOWN_NOW" +%Y-%m-%dT%H:%M:%SZ)"
 }
 
 # take_lock exclusive|shared: one deploy.sh or rollback.sh at a time; verify takes it shared.
@@ -239,13 +248,15 @@ docker_error() {
   one_line "${err:-no message}"
 }
 
-# shutdown_scheduled (D-126): SHUTDOWN_LINE says whether systemd has a shutdown or reboot scheduled, from the file
-# systemd-logind writes for one (shutdown -r <time>, unattended-upgrades' Automatic-Reboot), key=value lines with USEC
-# (microseconds since the epoch) and MODE (reboot, poweroff, ...). Returns 0 when one is scheduled, 1 when the file
-# doesn't exist, 2 when it exists but can't be read or holds no USEC (a MODE is optional). The file is parsed, never
-# sourced.
+# shutdown_scheduled (D-126, D-128, D-131): SHUTDOWN_LINE says whether systemd has a shutdown or reboot scheduled,
+# from the file systemd-logind writes for one (shutdown -r <time>, unattended-upgrades' Automatic-Reboot), key=value
+# lines with USEC (microseconds since the epoch) and MODE (reboot, poweroff, ...), and how far away it is. Returns 0
+# when one is scheduled, with SHUTDOWN_IN its distance in whole seconds from now, rounded down (negative once its time
+# has passed); 1 when the file doesn't exist; 2 when it exists but can't be read or holds no USEC it can read. A file
+# with USEC and without MODE is a shutdown (D-128). The file is parsed, never sourced.
 shutdown_scheduled() {
-  local line usec='' mode=''
+  local line usec='' mode='' now distance
+  SHUTDOWN_IN=
   if [ ! -e "$SHUTDOWN_FILE" ]; then
     SHUTDOWN_LINE="Scheduled shutdown: none ($SHUTDOWN_FILE doesn't exist)"
     return 1
@@ -259,11 +270,24 @@ shutdown_scheduled() {
     done <"$SHUTDOWN_FILE"
   fi
   if [[ $usec =~ ^[1-9][0-9]{0,18}$ ]] && [[ $mode =~ ^[a-z-]{0,20}$ ]]; then
-    SHUTDOWN_LINE="Scheduled shutdown: a ${mode:-shutdown} at $(date -u -d "@$((usec / 1000000))" +%Y-%m-%dT%H:%M:%SZ) ($SHUTDOWN_FILE)"
+    now=${SHUTDOWN_NOW:-$(date -u +%s)}
+    # Whole seconds rounded down, so that a shutdown one microsecond short of the margin is inside it.
+    SHUTDOWN_IN=$((usec / 1000000 - now))
+    if [ "$SHUTDOWN_IN" -ge 0 ]; then
+      distance="in $(hours_minutes "$SHUTDOWN_IN")"
+    else
+      distance="its time passed $(hours_minutes $((-SHUTDOWN_IN))) ago"
+    fi
+    SHUTDOWN_LINE="Scheduled shutdown: a ${mode:-shutdown} at $(date -u -d "@$((usec / 1000000))" +%Y-%m-%dT%H:%M:%SZ), $distance ($SHUTDOWN_FILE)"
     return 0
   fi
   SHUTDOWN_LINE="Scheduled shutdown: $SHUTDOWN_FILE exists but can't be parsed (no USEC=<microseconds>): cat it"
   return 2
+}
+
+# hours_minutes SECONDS: "22h 31m", the whole hours and minutes of SECONDS (0 or more), rounded down.
+hours_minutes() {
+  printf '%dh %dm' $(($1 / 3600)) $(($1 % 3600 / 60))
 }
 
 # one_line TEXT: TEXT on one line, at most 300 characters, for a message.

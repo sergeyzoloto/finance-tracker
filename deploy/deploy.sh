@@ -38,7 +38,8 @@
 #
 # For the tests only (deploy/tests/run.sh), these variables move the paths and shorten the waits: DEPLOY_REPO_DIR,
 # DEPLOY_STATE_DIR, DEPLOY_LOCK, DEPLOY_TTY, DEPLOY_BACKUP_DIR, DEPLOY_PREVIOUS_FILE, DEPLOY_CI_WAIT,
-# DEPLOY_CI_INTERVAL, DEPLOY_HEALTH_TRIES, DEPLOY_HEALTH_INTERVAL and DEPLOY_SHUTDOWN_FILE. Every run prints the paths it uses.
+# DEPLOY_CI_INTERVAL, DEPLOY_HEALTH_TRIES, DEPLOY_HEALTH_INTERVAL, DEPLOY_SHUTDOWN_FILE and DEPLOY_SHUTDOWN_NOW (the
+# shutdown check's "now", D-131). Every run prints the paths it uses, and that "now" when it is set.
 
 # shellcheck source=deploy/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -398,12 +399,21 @@ cmd_run() {
   check_tools "${TOOLS[@]}"
   # The confirmation is read from the terminal; without one (ssh without a terminal, a pipe), stop before the backup.
   exec {TTY_FD}<"$TTY" || fail "can't read $TTY: run deploy.sh in a terminal on the server"
-  # D-126: a deploy stops for a scheduled shutdown, such as unattended-upgrades' reboot at 04:00 UTC (D-125).
+  # D-126, D-131: a deploy stops for a scheduled shutdown less than 2 hours away, such as unattended-upgrades' reboot
+  # at 04:00 UTC (D-125), for one whose time has passed, and for a file it can't parse; one further away is named and
+  # the deploy goes on, since unattended-upgrades schedules the reboot about 22 hours ahead.
   local shutdown_rc=0
   shutdown_scheduled || shutdown_rc=$?
   say "$SHUTDOWN_LINE"
   case $shutdown_rc in
-    0) fail "a shutdown is scheduled (D-126): deploy after it, or cancel it (shutdown -c) if the PM agrees" ;;
+    0)
+      if [ "$SHUTDOWN_IN" -lt 0 ]; then
+        fail "the scheduled shutdown's time has passed, yet it is still scheduled (D-131): cat $SHUTDOWN_FILE and tell the PM"
+      elif [ "$SHUTDOWN_IN" -lt "$SHUTDOWN_MARGIN" ]; then
+        fail "a shutdown is scheduled less than 2 hours from now (D-131): deploy after it, or cancel it (shutdown -c) if the PM agrees"
+      fi
+      say "The scheduled shutdown is at least 2 hours away: the deploy goes on (D-131)"
+      ;;
     2) fail "$SHUTDOWN_FILE can't be parsed, so a scheduled shutdown can't be ruled out (D-126): cat it" ;;
   esac
 

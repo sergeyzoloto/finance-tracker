@@ -348,11 +348,44 @@ mutation_in rollback.sh "count a refund only from V14 on" \
   '[ "$db_version" -ge 14 ] && [ "$target_max" -lt 13 ]' \
   rollback_below_v13
 
-# D-126 (F8f): a scheduled shutdown stops run, is named by verify and finish, and only warns in rollback.sh.
-mutation "let run go on despite a scheduled shutdown" \
-  '    0) fail "a shutdown is scheduled (D-126)' \
-  '    0) : "a shutdown is scheduled (D-126)' \
-  run_refused_by_a_scheduled_reboot
+# D-126 (F8f): a scheduled shutdown stops run, is named by verify and finish, and only warns in rollback.sh. D-131
+# (F8f-fix): only when it is less than 2 hours away or its time has passed; D-128: USEC without MODE is a shutdown.
+mutation "let run go on despite a shutdown less than 2 hours away" \
+  '      elif [ "$SHUTDOWN_IN" -lt "$SHUTDOWN_MARGIN" ]; then' \
+  '      elif false; then' \
+  run_refused_by_a_reboot_less_than_2_hours_away
+mutation "refuse at the 2 hours themselves" \
+  '      elif [ "$SHUTDOWN_IN" -lt "$SHUTDOWN_MARGIN" ]; then' \
+  '      elif [ "$SHUTDOWN_IN" -le "$SHUTDOWN_MARGIN" ]; then' \
+  run_at_the_2_hour_boundary
+mutation_in common.sh "a margin of 1 hour" \
+  '  SHUTDOWN_MARGIN=7200' \
+  '  SHUTDOWN_MARGIN=3600' \
+  run_refused_by_a_reboot_less_than_2_hours_away
+mutation_in common.sh "round the distance up" \
+  '    SHUTDOWN_IN=$((usec / 1000000 - now))' \
+  '    SHUTDOWN_IN=$(((usec + 999999) / 1000000 - now))' \
+  run_at_the_2_hour_boundary
+mutation_in common.sh "take a passed time as that far ahead" \
+  '    SHUTDOWN_IN=$((usec / 1000000 - now))' \
+  '    SHUTDOWN_IN=$((usec / 1000000 - now)); SHUTDOWN_IN=${SHUTDOWN_IN#-}' \
+  run_refused_by_a_passed_shutdown_time
+mutation "drop the passed time's own refusal" \
+  '      if [ "$SHUTDOWN_IN" -lt 0 ]; then' \
+  '      if false; then' \
+  run_refused_by_a_passed_shutdown_time
+mutation_in common.sh "the real clock in place of DEPLOY_SHUTDOWN_NOW" \
+  '  SHUTDOWN_NOW=${DEPLOY_SHUTDOWN_NOW:-}' \
+  '  SHUTDOWN_NOW=' \
+  run_goes_on_with_a_reboot_hours_away
+mutation_in common.sh "drop the distance from the line" \
+  ', $distance ($SHUTDOWN_FILE)"' \
+  ' ($SHUTDOWN_FILE)"' \
+  run_goes_on_with_a_reboot_hours_away
+mutation_in common.sh "require a MODE (D-128)" \
+  '[[ $mode =~ ^[a-z-]{0,20}$ ]]' \
+  '[[ $mode =~ ^[a-z-]{1,20}$ ]]' \
+  a_usec_without_a_mode_is_a_shutdown
 mutation "let run go on when the shutdown file can't be parsed" \
   '    2) fail "$SHUTDOWN_FILE' \
   '    2) : "$SHUTDOWN_FILE' \
@@ -366,7 +399,7 @@ mutation_in common.sh "take a file without USEC as no shutdown" \
 mutation_in common.sh "never read the shutdown file" \
   'SHUTDOWN_FILE=${DEPLOY_SHUTDOWN_FILE:-/run/systemd/shutdown/scheduled}' \
   'SHUTDOWN_FILE=/nonexistent/scheduled' \
-  run_refused_by_a_scheduled_reboot shutdown_none_is_named
+  run_refused_by_a_reboot_less_than_2_hours_away shutdown_none_is_named
 mutation_in rollback.sh "let rollback.sh refuse for a scheduled shutdown" \
   '    say "WARNING: $SHUTDOWN_LINE; the rollback goes on (D-126), but the reboot may interrupt it"' \
   '    fail "$SHUTDOWN_LINE"' \

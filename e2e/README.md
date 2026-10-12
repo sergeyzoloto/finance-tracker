@@ -120,10 +120,14 @@ forgets the counts:
 cd ~/dev/finance-tracker && docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.dev.yml restart backend
 ```
 
-`npm run typecheck` and `npm run test:guards` (the guards' tests, with temporary files, a fake app and, for the
-confirmation, a pseudo-terminal of util-linux's `script` only) need no stack. Since F8f CI runs `npm ci && npm run
-test:guards` as the step "End-to-end guards" of its Frontend job (and "CI on Ubuntu 26.04" likewise), a step and not a
-job, so that each push keeps its five check runs (D-95).
+`npm run typecheck` and `npm run test:guards` (the guards' tests, with temporary files, a fake app and Keycloak and, for
+the confirmation, a pseudo-terminal of util-linux's `script`) need no stack, but four of the guards drive a real browser
+(`lib/guards-run.test.ts` and the confirmation's run in `lib/terminal.test.ts`): the Chromium headless shell of the pinned
+Playwright, which `npx playwright install chromium` above installs. Since F8f CI runs the guards as the step
+"End-to-end guards" of its Frontend job (and "CI on Ubuntu 26.04" likewise, D-129), a step and not a job, so that each
+push keeps its five check runs (D-95): `npm ci`, then (since F8f-fix, D-132; CI #71 and #72 on `1eac505` failed without
+it) `npx playwright install --with-deps --only-shell chromium`, then `npm run test:guards`. What CI needs is proven in a
+clean container, never on the laptop, whose browsers are cached (D-133).
 
 Writing a spec (D-119): look for a number, an amount or a date in rendered text with `wholeNumber('32.10')` from
 `fixtures.ts`, never `toContainText('32.10')` or `hasText: '€40.00'`: a substring search finds 132.10, 1,032.10 and

@@ -499,24 +499,82 @@ export interface RatesOverview { baseCurrency: string; latest: LatestRate[]; mis
 /** A manual rate as stored: `rate` units of `quote` for one `base`, which is EUR. */
 export interface ManualRate { date: string; base: string; quote: string; rate: string }
 
-export interface ImportProblem { file: string; row: number | null; message: string }
+/** A row the import names: by its file and row, and its Excel ID where it has one; never by a value of it. */
+export interface ImportProblem { file: string | null; row: number | null; excelId: string | null; message: string }
+/** A distinct message of the import, how many rows have it, and the first of their Excel IDs. */
+export interface ImportMessageCount { message: string; count: number; rows: string[] }
+/** What happened to the rows of one source and kind (D-139). */
+export interface ImportCount {
+  source: string
+  kind: string
+  created: number
+  updated: number
+  unchanged: number
+  conflicts: number
+  failed: number
+  skipped: number
+  notImported: number
+}
+export interface ImportRowRef { source: string; excelId: string; reason: string }
+export interface ImportReconciliationLine {
+  account: string
+  currency: string
+  compared: number
+  failed: number
+  firstFailure: string | null
+  worstUnexplained: string
+  lastExcel: string | null
+  lastApp: string | null
+  lastExplained: string | null
+}
+export interface ImportReconciliationPoint {
+  date: string; account: string; currency: string; excel: string; app: string; explained: string; unexplained: string
+}
+/** The owner's balances against his daily balance file (D-63, D-67, D-68, D-69, D-146, D-147). */
+export interface ImportReconciliation {
+  passed: boolean
+  cutoff: string
+  tailFrom: string
+  pointsCompared: number
+  lastCompared: string | null
+  lines: ImportReconciliationLine[]
+  failures: ImportReconciliationPoint[]
+  tail: ImportReconciliationPoint[]
+  withoutFamilyRows: { currency: string; appFamilyDebt: string; excelFamilyDebt: string; ok: boolean }[]
+  explained: { account: string; currency: string; reason: string; amount: string }[]
+  appOnly: string[]
+}
 export interface ImportReport {
   commit: boolean
   outcome: 'DRY_RUN' | 'COMMITTED' | 'ABORTED'
   files: { role: string; name: string; sha256: string; rows: number }[]
-  entriesByKind: Partial<Record<EntryKind, number>>
+  family: { ledgerId: number; ledgerName: string; ownerMemberId: number; seatMemberId: number; seatName: string } | null
+  period: { from: string; to: string } | null
+  currencies: string[]
+  counts: ImportCount[]
+  totals: {
+    created: number; updated: number; unchanged: number; missing: number; conflicts: number; failed: number
+    skipped: number; notImported: number
+  }
+  missing: ImportRowRef[]
+  conflicts: ImportRowRef[]
+  errors: ImportProblem[]
+  warnings: ImportProblem[]
+  errorSummary: ImportMessageCount[]
+  warningSummary: ImportMessageCount[]
+  skippedSummary: ImportMessageCount[]
   referenceData: {
     accountsCreated: number
     accountsUpdated: number
     categoriesCreated: number
     categoriesUpdated: number
+    familyCategoriesCreated: number
+    categoriesMerged: number
     counterpartiesCreated: number
   }
-  errors: ImportProblem[]
-  warnings: ImportProblem[]
-  skipped: ImportProblem[]
-  fxRowsToReview: { row: number; date: string; sum: string; currency: string; debit: string; credit: string; comment: string }[]
-  balances: AccountBalance[]
+  zeroFxRowsSkipped: number
+  fxRowsToReview: { row: number; excelId: string; date: string; sum: string; currency: string }[]
+  reconciliation: ImportReconciliation | null
   integrityViolations: IntegrityViolation[]
 }
 

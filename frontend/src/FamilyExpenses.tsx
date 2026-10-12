@@ -545,6 +545,11 @@ function EditSettlement({ record, family, problems, pending, onSave }: EditProps
 
   const recorder = record.author.memberId === me
   const choices = paymentAccounts(accounts.data ?? [])
+  // The account the side is on stays a choice, also one these forms don't offer: an account that requires a
+  // counterparty (D-148) or FX_EXCHANGE (a conversion, D-71), which the import writes; its entry changes it (D3b).
+  const current = record.yourPayment && !record.yourPayment.later
+    ? (accounts.data ?? []).find((a) => a.id === record.yourPayment?.accountId) : undefined
+  if (current && !choices.includes(current)) choices.push(current)
   const sideAccount = record.yourPayment && side !== LATER ? choices.find((a) => String(a.id) === side) : undefined
   const accountChanged = side !== initialSide
   const kept = !accountChanged ? record.yourPayment?.currency : undefined

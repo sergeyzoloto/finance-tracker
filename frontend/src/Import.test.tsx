@@ -1,0 +1,129 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FamilyLedger, FamilyMember, ImportReport } from './api'
+import Import from './Import'
+import { parseCsv, PARTNER_COLUMNS, PARTNER_FILE_NAME } from './importFilter'
+
+// The import page (D3b): the owner's five files, the family budget and the partner's seat (D-141), the partner's file
+// filtered in the browser before the upload (D-140), and Commit only after a dry run without errors.
+
+const home: FamilyLedger = { id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'OWNER', memberId: 71,
+  createdAt: '2026-10-01T10:00:00Z', startDate: '2017-11-01' }
+const members: FamilyMember[] = [
+  { id: 71, displayName: 'Owner', role: 'OWNER', status: 'ACTIVE', joinDate: '2017-11-01', hasAccount: true, share: null },
+  { id: 72, displayName: 'Sam', role: 'MEMBER', status: 'ACTIVE', joinDate: '2017-11-01', hasAccount: false, share: null },
+]
+const ACCOUNTS = 'Статьи баланса;Актив/пассив;Line\r\nСвободный остаток;LIABILITIES;UNALLOCATED\r\n'
+const PARTNER = 'ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;SUM_CREDIT;LOAN_CA\r\n'
+  + '101;01.02.2024;Продукты;40.02;EUR;Лавка;his note;Свободный остаток;Карта;да;;;;;\r\n'
+  + '106;06.02.2024;Продукты;12;EUR;Кафе;private;Свободный остаток;Карта;;;;;;\r\n'
+
+function report(errors: number, outcome: ImportReport['outcome'] = 'DRY_RUN'): ImportReport {
+  return {
+    commit: outcome !== 'DRY_RUN', outcome, files: [], family: null, period: null, currencies: ['EUR'], counts: [],
+    totals: { created: 3, updated: 0, unchanged: 0, missing: 0, conflicts: 0, failed: errors, skipped: 0, notImported: 0 },
+    missing: [], conflicts: [],
+    errors: Array.from({ length: errors }, (_, i) => ({ file: 't.csv', row: i + 2, excelId: String(i + 1), message: 'x' })),
+    warnings: [], errorSummary: errors ? [{ message: 'x', count: errors, rows: ['1'] }] : [], warningSummary: [],
+    skippedSummary: [],
+    referenceData: { accountsCreated: 0, accountsUpdated: 0, categoriesCreated: 0, categoriesUpdated: 0,
+      familyCategoriesCreated: 0, categoriesMerged: 0, counterpartiesCreated: 0 },
+    zeroFxRowsSkipped: 0, fxRowsToReview: [], reconciliation: null, integrityViolations: [],
+  }
+}
+
+interface Sent { url: string; body: FormData }
+
+function stubApi(answers: ImportReport[]): Sent[] {
+  const sent: Sent[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === '/api/family-ledgers/7/members') return new Response(JSON.stringify(members), { status: 200 })
+    sent.push({ url, body: init?.body as FormData })
+    return new Response(JSON.stringify(answers.shift()), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }))
+  return sent
+}
+
+function choose(name: string, content: string, fileName = `${name}.csv`) {
+  const input = document.querySelector(`input[name="${name}"]`) as HTMLInputElement
+  fireEvent.change(input, { target: { files: [new File([content], fileName, { type: 'text/csv' })] } })
+}
+
+/** The check: the form's submit (jsdom's validation doesn't see files that a change event sets). */
+function check() {
+  expect((screen.getByRole('button', { name: 'Check (dry run)' }) as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.submit(document.querySelector('form.import')!)
+}
+
+function chooseOwnerFiles() {
+  choose('accounts', ACCOUNTS)
+  for (const part of ['categories', 'transactions', 'dailyBalance', 'dailyChange']) choose(part, `${part};x\r\n`)
+}
+
+beforeEach(() => vi.stubGlobal('confirm', () => true))
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+
+describe('the import page', () => {
+  it('uploads the owner’s files and only the partner’s family rows, under a name of their own, with the budget and the seat', async () => {
+    const sent = stubApi([report(0), report(0, 'COMMITTED')])
+    render(<MemoryRouter><Import families={[home]} /></MemoryRouter>)
+    chooseOwnerFiles()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Family budget' }), { target: { value: '7' } })
+    await screen.findByRole('option', { name: 'Sam' })
+    // The owner's own place has an account: only Sam is offered.
+    expect(screen.queryByRole('option', { name: 'Owner' })).toBeNull()
+    fireEvent.change(screen.getByRole('combobox', { name: 'The partner’s place' }), { target: { value: '72' } })
+    choose('partnerTransactions', PARTNER, 'Transactions-of-the-partner.csv')
+    expect(await screen.findByText(/1 of his 2 rows are family rows and will be uploaded/)).toBeTruthy()
+
+    check()
+    await screen.findByText(/Dry run: nothing was saved/)
+    expect(sent).toHaveLength(1)
+    expect(sent[0].url).toBe('/api/import?dryRun=true&familyLedgerId=7&seatMemberId=72')
+    const body = sent[0].body
+    expect([...body.keys()]).toEqual(['accounts', 'categories', 'transactions', 'dailyBalance', 'dailyChange',
+      'partnerTransactions'])
+    const partner = body.get('partnerTransactions') as File
+    expect(partner.name).toBe(PARTNER_FILE_NAME)
+    const rows = parseCsv(await partner.text())
+    expect(rows).toEqual([[...PARTNER_COLUMNS], ['101', '01.02.2024', 'Продукты', 'да', 'Debit', 'EUR', '40.02']])
+    const text = await partner.text()
+    for (const secret of ['Лавка', 'his note', 'Кафе', 'private', 'Карта', '106']) expect(text).not.toContain(secret)
+
+    const commit = screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement
+    expect(commit.disabled).toBe(false)
+    fireEvent.click(commit)
+    await screen.findByText(/Imported: 3 created/)
+    expect(sent[1].url).toBe('/api/import?dryRun=false&familyLedgerId=7&seatMemberId=72')
+  })
+
+  it('commits only after a dry run without errors, and a new file asks for a check again', async () => {
+    stubApi([report(2)])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    const commit = () => screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement
+    expect(commit().disabled).toBe(true)
+    chooseOwnerFiles()
+    check()
+    await screen.findByText(/2 rows with errors; a commit would save nothing/)
+    expect(commit().disabled).toBe(true)
+    // A check is only good for the files it read.
+    choose('transactions', 'fixed;x\r\n')
+    expect(screen.queryByText(/2 rows with errors/)).toBeNull()
+    expect(commit().disabled).toBe(true)
+  })
+
+  it('without family budgets asks for no budget and uploads no partner part', async () => {
+    const sent = stubApi([report(0)])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    expect(screen.queryByRole('combobox', { name: 'Family budget' })).toBeNull()
+    chooseOwnerFiles()
+    check()
+    await waitFor(() => expect(sent).toHaveLength(1))
+    expect(sent[0].url).toBe('/api/import?dryRun=true')
+    expect(sent[0].body.has('partnerTransactions')).toBe(false)
+  })
+})

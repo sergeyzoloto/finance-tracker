@@ -80,7 +80,7 @@ function Shell() {
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/categories" element={<Categories />} />
           <Route path="/rates" element={<Rates />} />
-          <Route path="/import" element={<Import />} />
+          <Route path="/import" element={<Import families={familyOn ? families.data ?? [] : undefined} />} />
           <Route path="/settings" element={<Settings onDeleted={() => { families.reload(); void reloadMe() }} familyOn={familyOn} />} />
           {familyOn && <Route path="/family/new" element={<NewFamily me={me} onCreated={families.reload} />} />}
           {familyOn && <Route path="/family/:ledgerId/*" element={<Family onChanged={families.reload} onLeft={left} />} />}

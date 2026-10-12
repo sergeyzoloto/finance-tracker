@@ -644,6 +644,9 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-12 | `fe35e26`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `fe35e26`, run #9 (id `38226125338`), `workflow_dispatch` on `main` at `fe35e26`, attempt 1, dispatched once: Backend, Frontend, Web image and Deploy scripts completed with success. Its check runs belong to `fe35e26`, deployed and finished, so they hold up no deploy; with them the commit has 14 check runs, 10 from the two pushes (D-95) and these 4. |
+| 2026-10-12 | `fe35e26`; nothing changed | F8f's rollback acceptance: `deploy/rollback.sh 39e6e61`, answered `no`: REFUSED at its question, "Nothing changed." The rollback state, read again afterwards, was unchanged; the rollback target stays `39e6e61` (F8e's code on the same V13 schema, with no condition of its own). |
+| 2026-10-12 | `fe35e26ad194243af798ce5c313b5d45f53ac6bb` (docs: F8f-fix's change log entry (F8f-fix)), M′ | F8f with F8f-fix (D-125 to D-133: the deploy scripts' guard against a scheduled shutdown with D-131's window of 2 hours, the checklist's template, the end-to-end guards in CI with their browser, D-117's rule extended, D-121's list; no migration, no application change), Flyway V13, the switch on. Push: `main` and `feature/family-budget` at `fe35e26`; CI #73 (id `38222348768`, `push`, `feature/family-budget`) and #74 (id `38222348866`, `push`, `main`), attempt 1, 10 check runs, all success. `deploy/deploy.sh run fe35e26ad194243af798ce5c313b5d45f53ac6bb F8f`. The end-to-end suite (`E2E_FAMILY=on`): `Result: PASSED`. `finish`: passed, `finish=passed 2026-10-12T08:49:54Z`, with `Scheduled shutdown: none` printed. `verify F8f`: OK, `F8f.expected`'s 23 lines, the same 21 numbers. The containers: api `sha256:08213ef9…` (content `sha256:4cbbce4e…`), web `sha256:0c666829ecd4a23ac6a5e83e919c81a2da2ec4bd052fa098baab8bb305c55146` (content `sha256:ac2729a6dd402190ec34040bf024185e218b0ccd4a3431ee4de42110fcd695da`, the image F8e's row records). `1eac505` (F8f's M, the row below) was never deployed. |
 | 2026-10-12 | `39e6e61`; nothing on the server (`1eac505` never deployed) | F8f's M, `1eac50506b6a2e44e4224e16cc295a3f8c8e7478` (docs: F8f's change log entry (F8f)), pushed at about 05:28Z: `main` and `feature/family-budget` fast-forwarded `39e6e61..1eac505` (step 1 of F8f's checklist). CI on it failed (GitHub's public API, read at 05:37Z): 2 runs, CI #71 (id `38208085985`, `push`, `main`) and CI #72 (id `38208086014`, `push`, `feature/family-budget`), attempt 1, each `completed failure`, created 05:28:34Z, last updated 05:36:39Z. In each, the Frontend job (#71: job `114675947062`, #72: job `114675947594`) failed in its step 7, "End-to-end guards": 35 tests, 31 passed and 4 failed, each with `browserType.launch: Executable doesn't exist at /home/runner/.cache/ms-playwright/chromium_headless_shell-1243/…` (the three tests of "the guards with a real browser", `lib/guards-run.test.ts`, and the confirmation's run in `lib/terminal.test.ts`); its `npm test` (365) and build passed. Backend, Web image, Deploy scripts and Dependency updates completed with success in both; 10 check runs, the two Frontend ones `failure`. F8f's report had said the guards need no browser, which held only on the laptop, where the browsers were cached (D-132, D-133). The deploy stopped before step 2; production stayed on `39e6e61`. `main` stood at a commit with failed CI until F8f-fix's M′ was pushed on top of it ("F8f's deploy checklist with the suite", step 1). |
 | 2026-10-08 | `39e6e61`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `39e6e61`, run #8 (id `37748791216`), `workflow_dispatch` on `main` at `39e6e61`, attempt 1, dispatched once: Backend, Frontend, Web image and Deploy scripts completed with success. Run #6's failing test (D-119) passes on Ubuntu 26.04. Its check runs belong to `39e6e61`, deployed and finished, so they hold up no deploy. |
 | 2026-10-08 | `39e6e61`; nothing changed | F8e's rollback acceptance: `deploy/rollback.sh 05397a7`, run folder `/var/lib/finance-deploy/runs/2026-10-08T081455Z-rollback-05397a7`. Steps 1 to 4 passed: the images accepted; Flyway 13 against the target's V13 and no further line (F8e has no migration). Answered `no`: REFUSED at its question, nothing changed. The rollback state (the previous file, `:previous` and `:05397a7…`, `last-good`) was the same before and after. |
@@ -698,41 +701,29 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-08T08:14:55Z (F8e's rollback acceptance, answered `no`, nothing changed), after `verify F8e`, OK at
-08:14:29Z:
+As of 2026-10-12, after F8f's `finish` (passed, 2026-10-12T08:49:54Z), `verify F8f` (OK) and its rollback acceptance
+(answered `no`, nothing changed):
 
-- `39e6e616ba60731caca7683f8e309bf34aa0f3ec` (M: F8e, on F8d, F8c-fix, F8c, F8c-0, F8, QA-1 and QA-1b) on Flyway V13, with
-  its `finish` answered (08:14:09Z and 08:14:13Z) and `last-good` naming `39e6e61` (`finish=passed
-  2026-10-08T08:14:14Z`). Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api
-  `sha256:e2d0f8534444…` (content `sha256:c37de31fd63b…`), started 2026-10-08T08:09Z by F8e's run, and web
-  `sha256:0c666829ecd4…` (content `sha256:ac2729a6dd40…`), started 2026-10-08T04:00:19Z by the host's reboot (F8e's run
-  left it running), both "the recorded image" for `verify`.
-- The numbers as before F8e's deploy (users 3, every `family_*` 0). No family record exists in production. F8e's
-  before-dump (`finance-2026-10-08T0807Z.dump`, SHA-256 `cdce44bc…`) is kept in its run folder
-  (`2026-10-08T080730Z-39e6e61`, mode 600); the restore tests of both dumps passed.
-- The rollback state: `:previous`, `:05397a77f1df1b5e4989fbbb29a54126479b07a3` and the previous-commit file name
-  `05397a7` (F8d's code on the same V13 schema). `rollback.sh`'s target is `05397a7`, with no condition of its own; V13's
-  (D-116) applies only to a target below V13. `rollback.sh 05397a7` was answered `no` in the acceptance checks (steps 1
-  to 4 passed, V13 against V13 and no further line), between two read-only looks that matched. The way back from the
-  family budget is `deploy/deploy.sh switch off`.
-- The end-to-end suite from `39e6e61` passed on production (2026-10-08, `E2E_FAMILY=on`, 08:10:53Z to 08:12:45Z): every
-  spec, the time-zone spec's two tests under their fixed titles, with both test accounts' data deleted and both signed
-  out.
-- "CI on Ubuntu 26.04" for `39e6e61`: run #8 (id `37748791216`), dispatched once on `main`, all four jobs success.
-- `main` and `feature/family-budget` were at `39e6e61` and pushed when F8e was deployed. CI for `39e6e61`: #69 and #70,
-  10 check runs, all success (D-95).
-- The host rebooted by itself on 2026-10-08 at 04:00 UTC (unattended-upgrades, kernel 7.0.0-38-generic), and everything
-  came back by its restart policy: "Automatic reboots" below. The login banner's "System restart required" of
-  2026-10-07 was that reboot's reason.
-- F8e is deployed; "F8e's deploy checklist with the suite" below stays as its record and is used for no other deploy.
-- F8f (D-125 to D-127: the deploy scripts' guard against a scheduled shutdown, the deploy checklist's template; F8e's
-  backlog: the end-to-end guards in CI, D-117's rule extended, D-121's list; no migration, no application change): its
-  M, `1eac505`, was pushed to `main` and `feature/family-budget` on 2026-10-12, CI on it failed (the guards found no
-  browser, CI #71 and #72; "Deployed revisions" has the row), and it was never deployed, so `main` is at a commit with
-  failed CI. F8f-fix (D-128 to D-133: the browser for the guards, D-126's window of 2 hours, D-117's rule over
-  `TimeZone.getDefault()`) is built on `feature/family-budget` on top of it and not pushed; "F8f's deploy checklist with
-  the suite" below deploys M′, F8f-fix's last commit, and is for that deploy only. After it, the rollback target is
-  `39e6e61` (F8e's code on the same V13 schema), which has no condition of its own.
+- `fe35e26ad194243af798ce5c313b5d45f53ac6bb` (M′: F8f with F8f-fix, on F8e, F8d, F8c-fix, F8c, F8c-0, F8, QA-1 and
+  QA-1b) on Flyway V13, `last-good` naming `fe35e26` (`finish=passed 2026-10-12T08:49:54Z`). Family budgets are switched
+  on since 2026-10-03T09:25:40Z. The containers run api `sha256:08213ef9…` (content `sha256:4cbbce4e…`) and web
+  `sha256:0c666829ecd4…` (content `sha256:ac2729a6dd40…`), "the recorded image" for `verify`.
+- The numbers: users 3, every `family_*` 0. No family record exists in production. `verify F8f`'s 23 lines held the same
+  21 numbers as before the deploy.
+- The rollback state: the previous-commit file names `39e6e61` (F8e's code on the same V13 schema). `rollback.sh`'s
+  target is `39e6e61`, with no condition of its own; V13's (D-116) applies only to a target below V13.
+  `rollback.sh 39e6e61` was answered `no` in the acceptance checks (REFUSED, "Nothing changed."), and the state read
+  again afterwards was unchanged. The way back from the family budget is `deploy/deploy.sh switch off`.
+- The end-to-end suite from `fe35e26` passed on production (2026-10-12, `E2E_FAMILY=on`, `Result: PASSED`).
+- "CI on Ubuntu 26.04" for `fe35e26`: run #9 (id `38226125338`), dispatched once on `main`, all four jobs success.
+- `main` and `feature/family-budget` were at `fe35e26` and pushed when F8f was deployed. CI for `fe35e26`: #73 and #74,
+  10 check runs, all success (D-95), and with run #9's 4 the commit has 14.
+- `run` is `fe35e26`'s script from now on, so D-131's window (a scheduled shutdown less than 2 hours away, a passed one,
+  or a file that can't be parsed stops it) holds by itself from the next deploy (D3b's).
+- F8f's and F8e's checklists below stay as their records and are used for no other deploy. D3b (the Excel import's
+  code, V14) is built on `feature/family-budget` and not deployed; "D3b's deploy checklist with the suite" below deploys
+  it, after which the rollback target is `fe35e26`, with V14's condition (D-147). The production import itself is
+  D3b-run, a task of its own after that deploy (D-137; step 10).
 
 ### Automatic reboots
 

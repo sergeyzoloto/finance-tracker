@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 
 import com.example.financetracker.hygiene.fixtures.ImplicitClocks;
 import com.example.financetracker.hygiene.fixtures.RawAnswerSearch;
@@ -42,7 +43,8 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
  *       in Pacific/Kiritimati; {@code Instant.now()} and {@code Clock.systemDefaultZone()} leave the clock implicit.
  *       Dates come from {@code ledger.Today} or a clock or zone given to {@code now}; a moment from
  *       {@link WallClock}. Since F8f the rule also refuses {@code System.currentTimeMillis()}, {@code new Date()}
- *       without an argument and {@code ZoneId.systemDefault()}.</li>
+ *       without an argument and {@code ZoneId.systemDefault()}, and since F8f-fix (D-130) {@code TimeZone.getDefault()}
+ *       outside the classes of {@link #DEFAULT_ZONE_READERS}.</li>
  *   <li>D-121 (F8f): {@link Answers#rawText} only in the classes of {@link #RAW_TEXT_CALLERS}, each with its reason:
  *       whole answers compared with each other, or an answer in a message.</li>
  * </ul>
@@ -87,6 +89,15 @@ class TestHygieneTests {
             "compares a family endpoint's whole answer with an unknown path's, the path replaced",
             API + "FamilyClaimRandomTests", "names the answer in an assertion's message",
             API + "FamilyLifecycleRandomTests", "names the answer in an assertion's message");
+
+    /**
+     * D-130: the classes that may call {@link TimeZone#getDefault()}, each with its reason. A nested class or a lambda
+     * counts as its top-level class. Every other implicit clock of D-117 has no exemption.
+     */
+    static final Map<String, String> DEFAULT_ZONE_READERS = Map.of(
+            JvmDefaultsGuard.class.getName(),
+            "reads the JVM's default zone before and after each test class to fail a class that leaves it changed "
+                    + "(OPS-2b); it compares the zone itself and makes no date or moment from it");
 
     private static final Set<String> TIME_TYPES = Set.of("java.time.Instant", "java.time.LocalDate",
             "java.time.LocalDateTime", "java.time.LocalTime", "java.time.OffsetDateTime", "java.time.OffsetTime",
@@ -163,12 +174,14 @@ class TestHygieneTests {
         return new ArchCondition<>("not ask the implicit clock") {
             @Override
             public void check(JavaClass javaClass, ConditionEvents events) {
+                boolean mayReadTheDefaultZone = DEFAULT_ZONE_READERS.containsKey(topLevel(javaClass));
                 for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
                     if (access.getTarget() instanceof AccessTarget.CodeUnitAccessTarget target
                             && (access instanceof JavaMethodCall || access instanceof JavaMethodReference
                                     || access instanceof JavaConstructorCall
                                     || access instanceof JavaConstructorReference)
-                            && isImplicit(target)) {
+                            && isImplicit(target)
+                            && !(mayReadTheDefaultZone && readsTheDefaultZone(target))) {
                         events.add(SimpleConditionEvent.violated(access, access.getDescription()));
                     }
                 }
@@ -189,10 +202,21 @@ class TestHygieneTests {
                 return name.equals("currentTimeMillis");
             case "java.util.Date":
                 return name.equals("<init>") && noArguments;
+            case "java.util.TimeZone":
+                return readsTheDefaultZone(target);
             default:
                 break;
         }
         return TIME_TYPES.contains(owner) && target.getName().equals("now") && target.getRawParameterTypes().isEmpty();
+    }
+
+    /** A nested class's or a lambda's top-level class. */
+    private static String topLevel(JavaClass javaClass) {
+        return javaClass.getName().split("\\$", 2)[0];
+    }
+
+    private static boolean readsTheDefaultZone(AccessTarget.CodeUnitAccessTarget target) {
+        return target.getOwner().getName().equals("java.util.TimeZone") && target.getName().equals("getDefault");
     }
 
     @Test
@@ -207,11 +231,25 @@ class TestHygieneTests {
                 .filter(detail -> detail.contains("ImplicitClocks")).toList();
         for (String method : List.of("localDate", "localDateTime", "localTime", "zonedDateTime", "offsetDateTime",
                 "instant", "year", "yearMonth", "systemDefaultZone", "methodReference", "lambda", "currentTimeMillis",
-                "newDate", "dateConstructorReference", "systemDefaultZoneId")) {
+                "newDate", "dateConstructorReference", "systemDefaultZoneId", "timeZoneDefault",
+                "timeZoneDefaultReference")) {
             assertThat(details).as(method).anyMatch(detail -> detail.contains("ImplicitClocks." + method + "("));
         }
         // A call that names its clock or zone is allowed.
         assertThat(details).noneMatch(detail -> detail.contains("withAClockOrAZone"));
+    }
+
+    @Test
+    void everyListedReaderOfTheDefaultZoneReadsIt() {
+        // D-130: each listed class exists and does read it, so that the list can't outlive its reason.
+        for (String name : DEFAULT_ZONE_READERS.keySet()) {
+            assertThat(ALL.stream()
+                    .filter(javaClass -> topLevel(javaClass).equals(name))
+                    .flatMap(javaClass -> javaClass.getAccessesFromSelf().stream())
+                    .anyMatch(access -> access.getTarget() instanceof AccessTarget.CodeUnitAccessTarget target
+                            && readsTheDefaultZone(target)))
+                    .as(name + " reads TimeZone.getDefault()").isTrue();
+        }
     }
 
     // ---- D-121
@@ -220,7 +258,7 @@ class TestHygieneTests {
         return classes().should(new ArchCondition<JavaClass>("call Answers.rawText only if listed in RAW_TEXT_CALLERS") {
             @Override
             public void check(JavaClass javaClass, ConditionEvents events) {
-                String topLevel = javaClass.getName().split("\\$", 2)[0];
+                String topLevel = topLevel(javaClass);
                 boolean listed = topLevel.equals(Answers.class.getName())
                         || RAW_TEXT_CALLERS.containsKey(topLevel);
                 for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {

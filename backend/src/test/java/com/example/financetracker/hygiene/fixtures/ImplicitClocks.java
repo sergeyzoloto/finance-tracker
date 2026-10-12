@@ -12,6 +12,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Date;
+import java.util.TimeZone;
 import java.util.function.Supplier;
 
 /**
@@ -83,9 +84,17 @@ public final class ImplicitClocks {
         return ZoneId.systemDefault();
     }
 
+    public static Object timeZoneDefault() {
+        return TimeZone.getDefault();
+    }
+
+    public static Supplier<TimeZone> timeZoneDefaultReference() {
+        return TimeZone::getDefault;
+    }
+
     public static Object withAClockOrAZone(Clock clock) {
         return LocalDate.now(clock).toString() + LocalDate.now(ZoneOffset.UTC) + Instant.now(clock)
                 + ZonedDateTime.now(ZoneOffset.UTC) + Clock.systemUTC() + new Date(clock.millis())
-                + ZoneId.of("UTC");
+                + ZoneId.of("UTC") + TimeZone.getTimeZone("UTC");
     }
 }

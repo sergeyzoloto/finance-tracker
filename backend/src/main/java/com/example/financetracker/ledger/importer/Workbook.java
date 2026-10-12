@@ -1,11 +1,9 @@
 package com.example.financetracker.ledger.importer;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -16,12 +14,13 @@ import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.importer.ImportReport.Problem;
 
 /**
- * The Excel ledger's CSV exports, read into typed rows: the accounts, the categories, the journal and the optional
- * opening balances. A row that can't be read is a row error, and the rows after it are still read.
+ * The Excel ledger's CSV exports, read into typed rows: the accounts, the categories, the owner's journal and the
+ * partner's family rows (D-140). The daily files are {@link DailyFile}'s. A row that can't be read is a row error, and
+ * the rows after it are still read; no error holds a value of the row.
  */
 final class Workbook {
 
-    static final String ACCOUNT_NAME = "Balance sheet items";
+    static final String ACCOUNT_NAME = "Статьи баланса";
     static final String ACCOUNT_TYPE = "Актив/пассив";
     static final String CATEGORY_NAME = "Статьи движения средств";
     static final String CATEGORY_TYPE = "Доходы/расходы";
@@ -76,13 +75,15 @@ final class Workbook {
         for (CsvTable.Row row : sheet.dataRows()) {
             List<String> errors = new ArrayList<>();
             String name = name(row, ACCOUNT_NAME, errors);
+            // The journal names accounts in any case ("Moneycard V-Pay" for "Moneycard V-PAY"), so names are unique
+            // whatever their case.
             String code = code(row, errors);
             String excelType = row.get(ACCOUNT_TYPE);
             AccountType type = code == null ? null : accountType(excelType, code);
             if (code != null && type == null) {
-                errors.add("Актив/пассив is '%s', not ASSET or LIABILITIES".formatted(excelType));
+                errors.add("Актив/пассив is neither ASSET nor LIABILITIES");
             }
-            unique(name, names, "name", errors);
+            unique(name == null ? null : name.toLowerCase(Locale.ROOT), names, "name", errors);
             unique(code, codes, "code", errors);
             if (errors.isEmpty()) {
                 sheet.add(new AccountRow(row.number(), name, code, type, REQUIRE_COUNTERPARTY.contains(code)));
@@ -117,7 +118,7 @@ final class Workbook {
                 default -> null;
             };
             if (type == null) {
-                errors.add("Доходы/расходы is '%s', not INCOME or EXPENSE".formatted(typeText));
+                errors.add("Доходы/расходы is neither INCOME nor EXPENSE");
             }
             unique(name, names, "name", errors);
             unique(code, codes, "code", errors);
@@ -130,21 +131,17 @@ final class Workbook {
         return sheet;
     }
 
-    /**
-     * The journal, one entry per row; see {@link TransactionRow}. Each row gets its external ref here, since it
-     * depends on the identical rows before it.
-     */
+    /** The owner's journal; see {@link TransactionRow}. An ID in an earlier row too is an error of the later row. */
     static Sheet<TransactionRow> transactions(ImportFile file) {
         CsvTable table = CsvTable.read(file, TransactionRow.COLUMNS);
         Sheet<TransactionRow> sheet = new Sheet<>(file, table);
-        Map<String, Integer> occurrences = new HashMap<>();
-        Function<String, String> externalRefs = identity -> {
-            String hash = ExcelValues.sha256(identity);
-            return "xls:" + hash + ":" + occurrences.merge(hash, 1, Integer::sum);
-        };
+        Set<Long> ids = new HashSet<>();
         for (CsvTable.Row row : sheet.dataRows()) {
             List<String> errors = new ArrayList<>();
-            TransactionRow transaction = TransactionRow.parse(row, externalRefs, errors);
+            TransactionRow transaction = TransactionRow.parse(row, errors);
+            if (transaction != null && !ids.add(transaction.id())) {
+                errors.add("the ID is in an earlier row too (D-86)");
+            }
             if (errors.isEmpty()) {
                 sheet.add(transaction);
             } else {
@@ -155,27 +152,59 @@ final class Workbook {
     }
 
     /**
-     * The opening balances file: columns line (the account's code), currency, amount (as the balance is displayed,
-     * rule 4) and date (dd/MM/yyyy). A row with amount 0 is skipped.
+     * The partner's family rows as the import page uploads them (D-78, D-140). The whole file is refused if it has any
+     * column but {@link PartnerRow#COLUMNS}, or any row that isn't a family row with an item: then something other than
+     * the page's filter made it, and nothing of it is read.
+     *
+     * @throws PartnerFileRefused naming the columns and the rows (by number only) that break the filter
      */
-    static Sheet<OpeningBalanceRow> openingBalances(ImportFile file) {
-        CsvTable table = CsvTable.read(file, List.of("line", "currency", "amount", "date"));
-        Sheet<OpeningBalanceRow> sheet = new Sheet<>(file, table);
+    static Sheet<PartnerRow> partner(ImportFile file) {
+        // Read with no column required, so that a file with other columns, such as his raw transactions file, is
+        // refused for them rather than read as one with columns missing.
+        CsvTable table = CsvTable.read(file, List.of());
+        List<String> refusals = new ArrayList<>();
+        table.rows().stream().findFirst().ifPresent(row -> {
+            if (!Set.copyOf(PartnerRow.COLUMNS).containsAll(row.columns().keySet())) {
+                refusals.add("the partner's file has a column the import doesn't take: only "
+                        + String.join(", ", PartnerRow.COLUMNS) + " leave the laptop");
+            }
+        });
+        for (CsvTable.Row row : refusals.isEmpty() && row0HasFamily(table) ? table.rows() : List.<CsvTable.Row>of()) {
+            if (row.isBlank()) {
+                continue;
+            }
+            if (!TransactionRow.FAMILY_YES.equals(row.get(PartnerRow.FAMILY))) {
+                refusals.add("row %d of the partner's file isn't a family row (Family = \"%s\")"
+                        .formatted(row.number(), TransactionRow.FAMILY_YES));
+            } else if (EntryMapper.NO_CATEGORY.equals(row.get(PartnerRow.ITEM))) {
+                refusals.add("row %d of the partner's file has no item (\"%s\")".formatted(row.number(),
+                        EntryMapper.NO_CATEGORY));
+            }
+        }
+        if (!refusals.isEmpty()) {
+            throw new PartnerFileRefused(refusals);
+        }
+        Sheet<PartnerRow> sheet = new Sheet<>(file, CsvTable.read(file, PartnerRow.COLUMNS));
+        Set<Long> ids = new HashSet<>();
         for (CsvTable.Row row : sheet.dataRows()) {
             List<String> errors = new ArrayList<>();
-            String code = required(row, "line", Workbook::code, errors);
-            String currency = required(row, "currency", Function.identity(), errors);
-            BigDecimal amount = required(row, "amount", ExcelValues::amount, errors);
-            LocalDate date = required(row, "date", ExcelValues::date, errors);
-            if (!errors.isEmpty()) {
-                sheet.error(row, errors);
-            } else if (amount.signum() == 0) {
-                sheet.skip(row, "the amount is 0");
+            PartnerRow partner = PartnerRow.parse(row, errors);
+            if (partner != null && !ids.add(partner.id())) {
+                errors.add("the ID is in an earlier row too (D-86)");
+            }
+            if (errors.isEmpty()) {
+                sheet.add(partner);
             } else {
-                sheet.add(new OpeningBalanceRow(row.number(), code, currency, amount, date));
+                sheet.error(row, errors);
             }
         }
         return sheet;
+    }
+
+    /** Whether the table's rows have the columns Family and Exp. Item that the filter's refusal reads. */
+    private static boolean row0HasFamily(CsvTable table) {
+        return table.rows().isEmpty() || table.rows().getFirst().columns().keySet()
+                .containsAll(List.of(PartnerRow.FAMILY, PartnerRow.ITEM));
     }
 
     /**
@@ -225,7 +254,7 @@ final class Workbook {
 
     private static void unique(String value, Set<String> seen, String what, List<String> errors) {
         if (value != null && !seen.add(value)) {
-            errors.add("the %s '%s' is in an earlier row too".formatted(what, value));
+            errors.add("the %s is in an earlier row too".formatted(what));
         }
     }
 
@@ -235,10 +264,6 @@ final class Workbook {
 
     /** A category as the categories file defines it. */
     record CategoryRow(int row, String name, String code, CategoryType type) {
-    }
-
-    /** @param amount as the balance is displayed (rule 4), not as it is posted */
-    record OpeningBalanceRow(int row, String code, String currency, BigDecimal amount, LocalDate date) {
     }
 
     /** The rows of one file that could be read, and what happened to the others. */

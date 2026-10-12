@@ -60,6 +60,9 @@ abstract class LedgerApiTest extends IntegrationTest {
         }
         OWNED_ROWS.put("family family_entry_link", "FROM family_entry_link t WHERE t.family_ledger_id IN "
                 + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
+        // The references of imported entries deleted in the app (V14, D-150), by the personal ledger.
+        OWNED_ROWS.put("imported_entry_deleted", "FROM imported_entry_deleted t WHERE t.ledger_id IN "
+                + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL')");
         // Their invites (V9).
         OWNED_ROWS.put("family ledger_invite", "FROM ledger_invite t WHERE t.ledger_id IN "
                 + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
@@ -157,16 +160,43 @@ abstract class LedgerApiTest extends IntegrationTest {
      *
      * @param dryRun the parameter's value, or null to leave it out
      */
+    /** The synthetic export's personal rows alone (no family budget), with {@code transactions} in their place. */
     protected MvcTestResult importWorkbook(String user, byte[] transactions, String dryRun) throws IOException {
+        return importExport(user, transactions, null, null, null, dryRun);
+    }
+
+    /**
+     * The synthetic export through POST /api/import: the owner's five files, with {@code transactions} in place of his
+     * transactions file, and, with a family budget and a seat, the partner's rows as the import page uploads them.
+     */
+    protected MvcTestResult importExport(String user, byte[] transactions, byte[] partner, Long ledger, Long seat,
+            String dryRun) throws IOException {
         var request = mvc.post().uri("/api/import").multipart()
                 .file(new MockMultipartFile("accounts", "accounts.csv", "text/csv", fixture("accounts.csv")))
                 .file(new MockMultipartFile("categories", "categories.csv", "text/csv", fixture("categories.csv")))
                 .file(new MockMultipartFile("transactions", "transactions.csv", "text/csv", transactions))
+                .file(new MockMultipartFile("dailyBalance", "daily-balance.csv", "text/csv",
+                        fixture("daily-balance.csv")))
+                .file(new MockMultipartFile("dailyChange", "daily-change.csv", "text/csv", fixture("daily-change.csv")))
                 .with(member(user));
+        if (partner != null) {
+            request.file(new MockMultipartFile("partnerTransactions", "Transactions-of-someone.csv", "text/csv",
+                    partner));
+        }
+        if (ledger != null) {
+            request.param("familyLedgerId", ledger.toString()).param("seatMemberId", seat.toString());
+        }
         if (dryRun != null) {
             request.param("dryRun", dryRun);
         }
         return request.exchange();
+    }
+
+    /** The synthetic transactions file with its personal rows only: no family budget is needed for them. */
+    protected static byte[] personalRows() {
+        return com.example.financetracker.ledger.importer.ImportFixtures.onlyRows(
+                com.example.financetracker.ledger.importer.ImportFixtures.bytes("transactions.csv"),
+                com.example.financetracker.ledger.importer.ImportFixtures.PERSONAL_IDS);
     }
 
     /** A file of the synthetic workbook. */

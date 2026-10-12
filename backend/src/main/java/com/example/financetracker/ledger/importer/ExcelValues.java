@@ -14,9 +14,10 @@ import java.util.regex.Pattern;
 /** Values as the Excel ledger's CSV exports write them. */
 final class ExcelValues {
 
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/uuuu")
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd.MM.uuuu")
             .withResolverStyle(ResolverStyle.STRICT);
-    private static final Pattern NUMBER = Pattern.compile("-?\\d+(\\.\\d+)?");
+    /** A decimal number, with an exponent where Excel writes a floating-point residue (-1.42109E-14). */
+    private static final Pattern NUMBER = Pattern.compile("-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?");
 
     private ExcelValues() {
     }
@@ -38,30 +39,36 @@ final class ExcelValues {
     }
 
     /**
-     * A number such as {@code 385}, {@code 57.5} or {@code "-1 500.00 "}: a point before the decimals, and spaces,
-     * no-break spaces or narrow no-break spaces anywhere, as thousand separators or trailing.
+     * A number such as {@code 385}, {@code 57.5}, {@code "-1 500.00 "} or {@code -1.42109E-14}: a point before the
+     * decimals, spaces, no-break spaces or narrow no-break spaces anywhere, as thousand separators or trailing, and an
+     * exponent where Excel writes one. Read as a decimal, never a float: an exponent's value is kept exactly, without
+     * an exponent in its scale. A dash alone is 0, as Excel's accounting format shows it (an agent's choice, D3b).
      *
-     * @throws IllegalArgumentException if it isn't such a number
+     * @throws IllegalArgumentException if it isn't such a number; the message never holds the value
      */
     static BigDecimal amount(String value) {
         StringBuilder digits = new StringBuilder(value.length());
         value.chars().filter(c -> !isSpace((char) c)).forEach(c -> digits.append((char) c));
-        if (!NUMBER.matcher(digits).matches()) {
-            throw new IllegalArgumentException("'%s' is not a number".formatted(value));
+        if (digits.toString().equals("-") || digits.toString().equals("\u2013")) {
+            return BigDecimal.ZERO;
         }
-        return new BigDecimal(digits.toString());
+        if (!NUMBER.matcher(digits).matches()) {
+            throw new IllegalArgumentException("not a number");
+        }
+        BigDecimal number = new BigDecimal(digits.toString());
+        return number.scale() < 0 ? number.setScale(0) : number;
     }
 
     /**
-     * A date as dd/MM/yyyy.
+     * A date as dd.MM.yyyy.
      *
-     * @throws IllegalArgumentException if it isn't one
+     * @throws IllegalArgumentException if it isn't one; the message never holds the value
      */
     static LocalDate date(String value) {
         try {
             return LocalDate.parse(value, DATE);
         } catch (DateTimeParseException e) {
-            throw new IllegalArgumentException("'%s' is not a date in the format dd/MM/yyyy".formatted(value), e);
+            throw new IllegalArgumentException("not a date in the format dd.MM.yyyy", e);
         }
     }
 

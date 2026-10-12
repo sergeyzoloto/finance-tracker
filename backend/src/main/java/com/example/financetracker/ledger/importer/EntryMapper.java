@@ -6,30 +6,31 @@ import static com.example.financetracker.ledger.domain.AccountRole.OPENING_BALAN
 import static com.example.financetracker.ledger.domain.AccountRole.UNALLOCATED;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import com.example.financetracker.ledger.Counterparty;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.domain.EntryKind;
-import com.example.financetracker.ledger.domain.Money;
+import com.example.financetracker.ledger.family.ImportSync;
 import com.example.financetracker.ledger.importer.Chart.AccountRef;
 import com.example.financetracker.ledger.importer.Chart.CategoryRef;
 import com.example.financetracker.ledger.importer.EntryPlan.Line;
 import com.example.financetracker.ledger.importer.EntryPlan.Party;
-import com.example.financetracker.ledger.importer.Workbook.OpeningBalanceRow;
 
 /**
- * Turns rows of the Excel ledger into entries by the domain rules, without a database. One row of the journal is one
- * entry. Its postings come in the order credit side, the exchange through FX_EXCHANGE if the two sides' currencies
- * differ, debit side, and the family's part last.
+ * Turns a row of the owner's personal journal into an entry by the domain rules, without a database: a row without the
+ * family flag, or one with it and no item (D-72). Its postings come in the order credit side, the exchange through
+ * FX_EXCHANGE if the two sides' currencies differ, debit side. Family rows are {@link ImportPlanner}'s.
  * <p>
  * Whether the rows it refers to exist and fit together is left to {@code LedgerValidator}, when the entry is written;
- * this class reports what only the row can tell.
+ * this class reports what only the row can tell. Its messages never hold a value of the row.
  */
 final class EntryMapper {
 
@@ -42,11 +43,18 @@ final class EntryMapper {
     static final String FX_GAIN_CATEGORY = "Прибыль от курсовой разницы";
     /** The counterparty for a posting that needs one (rule 8) when the row names none. */
     static final String UNASSIGNED = "Unassigned";
+    /** The most decimals a posting holds (NUMERIC(19,4), LedgerValidator). */
+    static final int POSTING_SCALE = 4;
 
     private final Chart chart;
 
     EntryMapper(Chart chart) {
         this.chart = chart;
+    }
+
+    /** The personal entry's reference in its ledger (D-142): the row's permanent ID. */
+    static String reference(long id) {
+        return "xls:" + id;
     }
 
     RowResult map(TransactionRow row) {
@@ -56,6 +64,9 @@ final class EntryMapper {
         if (fxGain && row.sum().signum() == 0) {
             return new RowResult.Skipped("an FX gain with Sum 0", true, warnings);
         }
+        if (row.sum().signum() == 0 && row.debitAmount().signum() == 0 && row.creditAmount().signum() == 0) {
+            return new RowResult.Skipped("Sum is 0 (D-72)", false, warnings);
+        }
 
         AccountRef debit = account(row.debit(), TransactionRow.DEBIT, errors);
         AccountRef credit = account(row.credit(), TransactionRow.CREDIT, errors);
@@ -63,38 +74,43 @@ final class EntryMapper {
         if (!NO_CATEGORY.equals(row.item())) {
             category = chart.categoriesByName().get(row.item());
             if (category == null) {
-                errors.add("Exp. Item '%s' is not in the categories file".formatted(row.item()));
+                errors.add("Exp. Item is not in the categories file");
             }
         }
         if (category != null || NO_CATEGORY.equals(row.item())) {
             checkItemCode(row, category, warnings);
         }
-        if (debit != null && debit.equals(credit)) {
-            errors.add("Debit and Credit are the same account");
-        }
-        if (row.familyIncome() != null && row.familyIncome().signum() != 0) {
-            errors.add("FAMILY_INC is %s: shared income is for manual review".formatted(amount(row.familyIncome())));
+        // The same account on both sides is an exchange within it, from one of its currencies into another (rule 9; an
+        // agent's choice, D3b); in one currency it moves nothing.
+        if (debit != null && debit.equals(credit) && row.debitCurrencyOrRow().equals(row.creditCurrencyOrRow())) {
+            errors.add("Debit and Credit are the same account, in one currency");
         }
         checkLength(row.counteragent(), TransactionRow.COUNTERAGENT, errors);
         checkLength(row.loanCounterparty(), TransactionRow.LOAN_CA, errors);
         if (!errors.isEmpty()) {
             return new RowResult.Failed(errors, warnings);
         }
+        if (debit.familyDebt() || credit.familyDebt()) {
+            // The planner sends these rows to the family budget; a personal entry never posts to a debt account.
+            return new RowResult.Failed(List.of("the row posts to FAMILY_DEBT, which only the family budget does"),
+                    warnings);
+        }
 
         // Rule 2: each side in its own currency when the row gives one, and through FX_EXCHANGE if they differ (rule 9).
-        BigDecimal debitAmount = row.debitSum() != null ? row.debitSum() : row.sum();
-        String debitCurrency = row.debitCurrency() != null ? row.debitCurrency() : row.currency();
-        BigDecimal creditAmount = row.creditSum() != null ? row.creditSum() : row.sum();
-        String creditCurrency = row.creditCurrency() != null ? row.creditCurrency() : row.currency();
+        // An amount with more decimals than a posting holds is rounded half up to 4 (an agent's choice, D3b).
+        List<Drift> drift = new ArrayList<>();
+        String debitCurrency = row.debitCurrencyOrRow();
+        String creditCurrency = row.creditCurrencyOrRow();
+        BigDecimal debitAmount = rounded(row.debitAmount(), debit, debitCurrency, 1, row.date(), drift, warnings);
+        BigDecimal creditAmount = rounded(row.creditAmount(), credit, creditCurrency, -1, row.date(), drift, warnings);
         boolean exchange = !debitCurrency.equals(creditCurrency);
         if (!exchange && debitAmount.compareTo(creditAmount) != 0) {
-            errors.add("the debit side's %s and the credit side's %s differ, in one currency %s"
-                    .formatted(amount(debitAmount), amount(creditAmount), debitCurrency));
+            errors.add("the debit side's and the credit side's amounts differ, in one currency");
         }
 
         AccountRef unallocated = debit.is(UNALLOCATED) ? debit : credit.is(UNALLOCATED) ? credit : null;
         if (category != null && unallocated == null) {
-            errors.add("Exp. Item '%s' is a category, and neither Debit nor Credit is UNALLOCATED".formatted(row.item()));
+            errors.add("Exp. Item is a category, and neither Debit nor Credit is UNALLOCATED");
         }
 
         Party borrower = null;
@@ -103,13 +119,14 @@ final class EntryMapper {
                 borrower = new Party(row.loanCounterparty(), Counterparty.Kind.PERSON);
             } else {
                 borrower = new Party(UNASSIGNED, null);
-                warnings.add("LOAN_CA is empty on a row with %s, which requires a counterparty: '%s' is used (Sum %s %s on %s)"
-                        .formatted(debit.requiresCounterparty() ? debit.code() : credit.code(), UNASSIGNED,
-                                amount(row.sum()), row.currency(), ExcelValues.format(row.date())));
+                warnings.add("LOAN_CA is empty on a row with an account that requires a counterparty: '%s' is used"
+                        .formatted(UNASSIGNED));
             }
         } else if (row.loanCounterparty() != null) {
-            warnings.add("LOAN_CA '%s' is ignored: neither account requires a counterparty"
-                    .formatted(row.loanCounterparty()));
+            warnings.add("LOAN_CA is ignored: neither account requires a counterparty");
+        }
+        if (!errors.isEmpty()) {
+            return new RowResult.Failed(errors, warnings);
         }
 
         List<Line> lines = new ArrayList<>();
@@ -120,91 +137,92 @@ final class EntryMapper {
             lines.add(new Line(fxExchange, debitCurrency, debitAmount.negate(), null, null));
         }
         lines.add(line(debit, debitCurrency, debitAmount, category, borrower));
-        if (row.family()) {
-            splitWithFamily(row, debit, unallocated, category, debitAmount, debitCurrency, lines, errors, warnings);
-        }
+
+        EntryKind kind = kind(debit, credit, category, exchange, debitAmount, creditAmount);
+        Party payee = row.counteragent() == null ? null : new Party(row.counteragent(), Counterparty.Kind.MERCHANT);
+        String memo = row.comment() != null && !row.comment().equals(row.counteragent()) ? row.comment() : null;
+        return new RowResult.Entry(new EntryPlan(reference(row.id()), row.contentHash(), row.date(), kind, payee, memo,
+                lines, fxGain, drift), warnings);
+    }
+
+    /**
+     * The opening balances (D-62): the first row of the daily balance file, one entry on its date, each account's
+     * displayed balance turned into a posting by rule 4, and OPENING_BALANCE taking the rest in each currency (rule 10).
+     * FAMILY_DEBT's opening is the family budget's, which starts at 0 (D-70): a non-zero one is an error.
+     *
+     * @param balances by column's account code and currency, as Excel shows them; zeros are left out
+     */
+    RowResult openingEntry(LocalDate date, Map<DailyFile.Column, BigDecimal> balances) {
+        List<String> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        List<Line> lines = new ArrayList<>();
+        List<String> hashed = new ArrayList<>();
+        hashed.add(date.toString());
+        balances.forEach((column, cell) -> {
+            // Excel's floating-point residues (-1.42109E-14) are 0 at the 4 decimals a posting holds.
+            BigDecimal balance = cell.setScale(POSTING_SCALE, RoundingMode.HALF_UP);
+            if (balance.signum() == 0) {
+                return;
+            }
+            AccountRef account = chart.accountsByCode().get(column.code());
+            if (account == null) {
+                errors.add("the daily balance file's first row has a balance on an account that isn't in the accounts "
+                        + "file");
+                return;
+            }
+            if (account.familyDebt()) {
+                errors.add("the daily balance file's first row has a FAMILY_DEBT balance, which the family budget "
+                        + "starts without (D-70)");
+                return;
+            }
+            Party counterparty = null;
+            if (account.requiresCounterparty()) {
+                counterparty = new Party(UNASSIGNED, null);
+                warnings.add("an opening balance on an account that requires a counterparty: '%s' is used"
+                        .formatted(UNASSIGNED));
+            }
+            BigDecimal amount = account.type() == AccountType.ASSET ? balance : balance.negate();
+            lines.add(new Line(account.id(), column.currency(), amount, null, counterparty));
+            hashed.add(column.code() + " " + column.currency() + " " + TransactionRow.plain(balance));
+        });
         if (!errors.isEmpty()) {
             return new RowResult.Failed(errors, warnings);
         }
-
-        EntryKind kind = kind(row, debit, credit, category, exchange, debitAmount, creditAmount);
-        Party payee = row.counteragent() == null ? null : new Party(row.counteragent(), Counterparty.Kind.MERCHANT);
-        String memo = row.comment() != null && !row.comment().equals(row.counteragent()) ? row.comment() : null;
-        return new RowResult.Entry(new EntryPlan(row.externalRef(), row.date(), kind, payee, memo, lines, fxGain),
+        if (lines.isEmpty()) {
+            return new RowResult.Skipped("the first row of the daily balance file has no balance", false, warnings);
+        }
+        Map<String, BigDecimal> totals = new LinkedHashMap<>();
+        lines.forEach(line -> totals.merge(line.currency(), line.amount(), BigDecimal::add));
+        long openingBalance = chart.account(OPENING_BALANCE).id();
+        List<Line> all = new ArrayList<>(lines);
+        totals.forEach((currency, total) -> {
+            // Balances that cancel out, such as the assets against RESERVE, leave nothing to post.
+            if (total.signum() != 0) {
+                all.add(new Line(openingBalance, currency, total.negate(), null, null));
+            }
+        });
+        return new RowResult.Entry(new EntryPlan("xls-opening:" + date, ImportSync.contentHash(
+                hashed.toArray(String[]::new)), date, EntryKind.OPENING_BALANCE, null, null, all, false, List.of()),
                 warnings);
     }
 
     /**
-     * The posting of one opening balance: the account's displayed balance turned into a posting by rule 4.
+     * The amount as a posting holds it: rounded half up to 4 decimals where the workbook has more, the difference
+     * being explained drift of the account's displayed balance (D-68; an agent's choice, D3b).
      *
-     * @return null if the row names no account of the user, with the reason added to {@code errors}
+     * @param posting +1 for the debit side, -1 for the credit side: the sign of the side's posting
      */
-    Line openingBalance(OpeningBalanceRow row, List<String> errors, List<String> warnings) {
-        AccountRef account = chart.accountsByCode().get(row.code());
-        if (account == null) {
-            errors.add("there is no account with the code " + row.code());
-            return null;
+    private static BigDecimal rounded(BigDecimal amount, AccountRef account, String currency, int posting,
+            LocalDate date, List<Drift> drift, List<String> warnings) {
+        if (amount.stripTrailingZeros().scale() <= POSTING_SCALE) {
+            return amount;
         }
-        Party counterparty = null;
-        if (account.requiresCounterparty()) {
-            counterparty = new Party(UNASSIGNED, null);
-            warnings.add("%s requires a counterparty, and the file names none: '%s' is used"
-                    .formatted(account.code(), UNASSIGNED));
-        }
-        BigDecimal amount = account.type() == AccountType.ASSET ? row.amount() : row.amount().negate();
-        return new Line(account.id(), row.currency(), amount, null, counterparty);
-    }
-
-    /** One entry for the opening balances of one date, posted against OPENING_BALANCE in each currency (rule 10). */
-    EntryPlan openingEntry(LocalDate date, List<Line> balances) {
-        Map<String, BigDecimal> totals = new LinkedHashMap<>();
-        balances.forEach(line -> totals.merge(line.currency(), line.amount(), BigDecimal::add));
-        List<Line> lines = new ArrayList<>(balances);
-        long openingBalance = chart.account(OPENING_BALANCE).id();
-        totals.forEach((currency, total) -> {
-            // Balances that cancel out, such as an asset bought on credit, leave nothing to post.
-            if (total.signum() != 0) {
-                lines.add(new Line(openingBalance, currency, total.negate(), null, null));
-            }
-        });
-        return new EntryPlan("xls-opening:" + date, date, EntryKind.OPENING_BALANCE, null, null, lines, false);
-    }
-
-    /**
-     * Rule 7 with the workbook's own split: the family's part is minus FAMILY_EXP, and the user's own part is the
-     * rest of the UNALLOCATED posting, so the entry balances exactly. Where the workbook rounded both halves up, its
-     * DEBIT_CHANGE shows a cent more than that own part, which is worth a warning.
-     */
-    private void splitWithFamily(TransactionRow row, AccountRef debit, AccountRef unallocated, CategoryRef category,
-            BigDecimal debitAmount, String debitCurrency, List<Line> lines, List<String> errors, List<String> warnings) {
-        if (unallocated == null || !unallocated.equals(debit)) {
-            errors.add("Family is '%s', and Debit is not UNALLOCATED".formatted(TransactionRow.FAMILY_YES));
-            return;
-        }
-        if (category == null) {
-            errors.add("Family is '%s', and Exp. Item names no category".formatted(TransactionRow.FAMILY_YES));
-            return;
-        }
-        if (!row.familyCurrency().equals(debitCurrency)) {
-            errors.add("CUR_FAMILY is %s, and the UNALLOCATED posting is in %s"
-                    .formatted(row.familyCurrency(), debitCurrency));
-            return;
-        }
-        if (chart.sharedAccount() == null) {
-            errors.add("Family is '%s', and the account FAMILY_DEBT does not exist".formatted(TransactionRow.FAMILY_YES));
-            return;
-        }
-        BigDecimal other = row.familyExpense().negate();
-        BigDecimal own = debitAmount.subtract(other);
-        lines.set(lines.size() - 1, new Line(debit.id(), debitCurrency, own, category.id(), null));
-        lines.add(new Line(chart.sharedAccount().id(), row.familyCurrency(), other, null, null));
-        if (row.debitChange() == null) {
-            warnings.add("DEBIT_CHANGE is empty or not a number, so the family split of Sum %s can't be checked"
-                    .formatted(amount(row.sum())));
-        } else if (own.compareTo(row.debitChange().negate()) != 0) {
-            warnings.add("family split of Sum %s: the own part is %s, and the workbook's (minus DEBIT_CHANGE) is %s; the family's part is %s"
-                    .formatted(amount(row.sum()), amount(own), amount(row.debitChange().negate()), amount(other)));
-        }
+        BigDecimal rounded = amount.setScale(POSTING_SCALE, RoundingMode.HALF_UP);
+        int displayed = account.type() == AccountType.ASSET ? posting : -posting;
+        drift.add(new Drift(account.code(), currency, date,
+                rounded.subtract(amount).multiply(BigDecimal.valueOf(displayed)), Drift.Reason.FOUR_DECIMALS));
+        warnings.add("an amount with more than 4 decimals is rounded half up to 4");
+        return rounded;
     }
 
     /** The category on UNALLOCATED, the counterparty on an account that requires one. */
@@ -216,12 +234,9 @@ final class EntryMapper {
     }
 
     /** A hint for the UI (rule 6): what the entry would be if it had been entered through a form. */
-    private static EntryKind kind(TransactionRow row, AccountRef debit, AccountRef credit, CategoryRef category,
-            boolean exchange, BigDecimal debitAmount, BigDecimal creditAmount) {
+    private static EntryKind kind(AccountRef debit, AccountRef credit, CategoryRef category, boolean exchange,
+            BigDecimal debitAmount, BigDecimal creditAmount) {
         if (category != null) {
-            if (row.family()) {
-                return EntryKind.SHARED_EXPENSE;
-            }
             return category.type() == CategoryType.INCOME ? EntryKind.INCOME : EntryKind.EXPENSE;
         }
         if (exchange) {
@@ -239,16 +254,14 @@ final class EntryMapper {
     private static void checkItemCode(TransactionRow row, CategoryRef category, List<String> warnings) {
         String expected = category == null ? null : category.code();
         if (expected == null ? row.itemCode() != null : !expected.equals(row.itemCode())) {
-            warnings.add("CODE_ITEM is %s, and Exp. Item '%s' has %s".formatted(
-                    row.itemCode() == null ? "empty" : row.itemCode(), row.item(),
-                    expected == null ? "no code" : "the code " + expected));
+            warnings.add("CODE_ITEM isn't the code of Exp. Item");
         }
     }
 
     private AccountRef account(String name, String column, List<String> errors) {
-        AccountRef account = chart.accountsByName().get(name);
+        AccountRef account = chart.accountsByName().get(name.toLowerCase(Locale.ROOT));
         if (account == null) {
-            errors.add("%s '%s' is not in the accounts file".formatted(column, name));
+            errors.add("%s is not in the accounts file".formatted(column));
         }
         return account;
     }
@@ -257,9 +270,5 @@ final class EntryMapper {
         if (name != null && name.codePointCount(0, name.length()) > Workbook.NAME_MAX_LENGTH) {
             errors.add("%s is longer than %d characters".formatted(column, Workbook.NAME_MAX_LENGTH));
         }
-    }
-
-    private static String amount(BigDecimal amount) {
-        return Money.normalize(amount).toPlainString();
     }
 }

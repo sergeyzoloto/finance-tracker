@@ -1,10 +1,10 @@
-﻿Статьи движения средств,Доходы/расходы,Line
-Оклад,INCOME,PAYCHECK
-Проценты по вкладу,INCOME,DEPOSIT_INTEREST
-Прибыль от курсовой разницы,INCOME,FX_GAIN
-Продукты,EXPENSE,FOOD
-Кафе и рестораны,EXPENSE,CAFE
-Комиссия банка,EXPENSE,COMMISION
-Транспорт,EXPENSE,TRANSPORT
--,CASHFLOW,NULL
-Подарки,EXPENSE,PRESENTS
+﻿Статьи движения средств;Доходы/расходы;Line
+Оклад;INCOME;PAYCHECK
+Пособие;INCOME;BENEFIT
+Прочие поступления;INCOME;OTHERINC
+Прибыль от курсовой разницы;INCOME;FX_GAIN
+Продукты;EXPENSE;FOOD
+Транспорт;EXPENSE;TRANSPORT
+Подарки;EXPENSE;GIFTS
+Комиссия;EXPENSE;COMMISION
+-;CASHFLOW;NULL

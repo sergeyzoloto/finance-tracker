@@ -8,14 +8,14 @@ import com.example.financetracker.ledger.domain.CategoryType;
 
 /**
  * The user's accounts and categories as the importer finds them: by the names of the accounts and categories files,
- * which is how the journal names them, and accounts also by code.
+ * which is how the journal names them, and accounts also by code. A category of a family budget's family rows is the
+ * family category, which personal rows use too (D-11).
  *
+ * @param accountsByName by the accounts file's names in lower case: the journal spells them in any case
  * @param accountsByCode all the user's accounts, the system accounts included
- * @param sharedAccount the account that receives the family's part of a shared expense (rule 7), or null if the
- *        user has none
  */
 record Chart(Map<String, AccountRef> accountsByName, Map<String, AccountRef> accountsByCode,
-        Map<String, CategoryRef> categoriesByName, AccountRef sharedAccount) {
+        Map<String, CategoryRef> categoriesByName) {
 
     Chart {
         accountsByName = Map.copyOf(accountsByName);
@@ -32,6 +32,11 @@ record Chart(Map<String, AccountRef> accountsByName, Map<String, AccountRef> acc
 
         boolean is(AccountRole role) {
             return code.equals(role.defaultCode());
+        }
+
+        /** The workbook's FAMILY_DEBT, which the family budget's records and settlements stand for (D-82). */
+        boolean familyDebt() {
+            return is(AccountRole.SHARED);
         }
     }
 

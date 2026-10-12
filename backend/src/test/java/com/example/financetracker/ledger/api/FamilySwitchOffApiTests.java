@@ -130,6 +130,24 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
      * same entries and balances as {@code DemoDataApiTests} counted before the demo family, and the categories that the
      * demo family would bring stay personal.
      */
+    /** D3b: with the switch off, an import into a family budget answers like a missing one; the personal rows import. */
+    @Test
+    void anImportIntoAFamilyBudgetAnswers404() throws IOException {
+        long family = jdbc.sql("""
+                INSERT INTO ledger (type, name, base_currency, split_rule, start_date)
+                VALUES ('SHARED', 'Home', 'EUR', 'EQUAL', DATE '2024-01-01') RETURNING id""").query(Long.class).single();
+        long member = join(family, user, "Owner", "OWNER", java.time.LocalDate.of(2024, 1, 1));
+        long seat = jdbc.sql("""
+                INSERT INTO ledger_member (ledger_id, ledger_type, display_name, role, status, join_date)
+                VALUES (?, 'SHARED', 'Sam', 'MEMBER', 'ACTIVE', DATE '2024-01-01') RETURNING id""")
+                .param(family).query(Long.class).single();
+        assertThat(member).isNotEqualTo(seat);
+        assertThat(importExport(user, com.example.financetracker.ledger.importer.ImportFixtures.bytes(
+                "transactions.csv"), com.example.financetracker.ledger.importer.ImportFixtures.partnerRows(), family,
+                seat, null)).hasStatus(HttpStatus.NOT_FOUND);
+        assertThat(ok(importWorkbook(user, personalRows(), null)).get("outcome").asText()).isEqualTo("DRY_RUN");
+    }
+
     @Test
     void theDemoCreatesNoFamilyBudget() throws IOException {
         JsonNode demo = ok(post(user, "/api/demo-data", null));

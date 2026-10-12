@@ -18,14 +18,15 @@ import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 
 /**
- * A sheet exported from Excel as CSV: UTF-8, possibly with a byte order mark, comma separated, fields quoted where
- * needed, lines ending in CRLF or LF. The first row names the columns. Values come back trimmed.
+ * A sheet exported from Excel as CSV: UTF-8, possibly with a byte order mark, separated by semicolons, fields quoted
+ * where needed, lines ending in CRLF or LF. The first row names the columns. Values come back trimmed.
  *
  * @param problems what makes the file as a whole unreadable; there are no rows then
  */
 record CsvTable(List<Row> rows, List<Problem> problems) {
 
-    private static final CSVFormat FORMAT = CSVFormat.RFC4180.builder().setIgnoreEmptyLines(true).get();
+    private static final CSVFormat FORMAT = CSVFormat.RFC4180.builder().setDelimiter(';').setIgnoreEmptyLines(true)
+            .get();
 
     /** Reads the file, which must have at least the required columns, in any order and among others. */
     static CsvTable read(ImportFile file, List<String> requiredColumns) {

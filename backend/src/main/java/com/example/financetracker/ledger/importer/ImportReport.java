@@ -4,28 +4,32 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 
-import com.example.financetracker.ledger.domain.EntryKind;
-import com.example.financetracker.ledger.report.AccountBalance;
 import com.example.financetracker.ledger.report.IntegrityViolation;
 
 /**
- * What one run of the importer did, or in a dry run would have done. {@link ImportReportMarkdown} renders it.
+ * What one run of the importer did, or in a dry run would have done (D3b). {@link ImportReportMarkdown} renders it, and
+ * the import page shows it. It names rows by their number and Excel ID; no message holds a value of a row.
  *
- * @param entriesByKind the entries written, per kind, in the order of {@link EntryKind}
+ * @param family the family budget and the partner's seat the family rows went into; null without one
+ * @param period the first and the last date of the rows read
+ * @param currencies every currency of the rows read
+ * @param counts per source and kind, what happened to its rows (D-139)
+ * @param totals the sums of {@code counts}, with the missing rows (D-138)
+ * @param missing rows the ledger has from an earlier import that the files no longer have (D-138): reported, never
+ *        deleted
+ * @param conflicts rows changed in the app since their last import, or deleted there (D-139, D-150, D-113): left alone
  * @param errors rows that can't be imported as they are. One or more of them abort a commit.
- * @param skipped rows left out on purpose, such as rows imported before
- * @param zeroFxRowsSkipped the rows of the FX-gain category with Sum 0, which are among {@code skipped}
- * @param fxRowsToReview the rows of the FX-gain category with a Sum, imported as income
- * @param balances the displayed balance of every account after the import, as the ledger would have it after a dry
- *        run too
+ * @param errorSummary, warningSummary, skippedSummary each distinct message with its count and the first Excel IDs
+ * @param reconciliation the owner's balances against his daily balance file (D-63, D-67, D-68, D-69, D-146, D-147)
  * @param integrityViolations {@code ReportService.integrityCheck} after the import; empty for a sound ledger
  */
 public record ImportReport(String userId, boolean commit, Outcome outcome, Instant startedAt, List<FileSummary> files,
-        Map<EntryKind, Integer> entriesByKind, ReferenceCounts referenceData, List<Problem> errors,
-        List<Problem> warnings, List<Problem> skipped, int zeroFxRowsSkipped, List<FxRow> fxRowsToReview,
-        List<AccountBalance> balances, List<IntegrityViolation> integrityViolations) {
+        FamilyTarget family, Period period, List<String> currencies, List<Count> counts, Totals totals,
+        List<RowRef> missing, List<RowRef> conflicts, List<Problem> errors, List<Problem> warnings,
+        List<MessageCount> errorSummary, List<MessageCount> warningSummary, List<MessageCount> skippedSummary,
+        ReferenceCounts referenceData, int zeroFxRowsSkipped, List<FxRow> fxRowsToReview,
+        Reconciliation reconciliation, List<IntegrityViolation> integrityViolations) {
 
     public enum Outcome {
         /** Everything was rolled back, as a dry run always is. */
@@ -35,8 +39,9 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
         ABORTED
     }
 
-    public int entriesWritten() {
-        return entriesByKind.values().stream().mapToInt(Integer::intValue).sum();
+    /** What a commit would write or wrote: created and updated entries and records. */
+    public int written() {
+        return totals.created() + totals.updated();
     }
 
     /**
@@ -46,19 +51,98 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
     public record FileSummary(String role, String name, String sha256, int rows) {
     }
 
-    public record ReferenceCounts(int accountsCreated, int accountsUpdated, int categoriesCreated,
-            int categoriesUpdated, int counterpartiesCreated) {
+    /** The family budget and the partner's seat, by their names in the app (data, never in tracked files, D-141). */
+    public record FamilyTarget(long ledgerId, String ledgerName, long ownerMemberId, long seatMemberId,
+            String seatName) {
+    }
+
+    public record Period(LocalDate from, LocalDate to) {
+    }
+
+    /**
+     * @param source OWNER_PERSONAL, OWNER_FAMILY, OWNER_SETTLEMENT, OWNER_SEAT, OWNER_LUMP or PARTNER
+     * @param kind an entry kind for a personal entry; EXPENSE, REFUND, INCOME, SETTLEMENT or CONVERSION for the family
+     *        budget's
+     * @param notImported rows the decisions leave out (D-84)
+     */
+    public record Count(String source, String kind, int created, int updated, int unchanged, int conflicts,
+            int failed, int skipped, int notImported) {
+    }
+
+    public record Totals(int created, int updated, int unchanged, int missing, int conflicts, int failed, int skipped,
+            int notImported) {
+    }
+
+    /** A row by its source and Excel ID, and why it is listed. */
+    public record RowRef(String source, String excelId, String reason) {
     }
 
     /**
      * An error, warning or skipped row.
      *
-     * @param row the row in the spreadsheet, where the header is row 1; null for the file as a whole
+     * @param row the row in its file, where the header is row 1; null for the file as a whole
+     * @param excelId the row's Excel ID, where it has one
      */
-    public record Problem(String file, Integer row, String message) {
+    public record Problem(String file, Integer row, String excelId, String message) {
+
+        public Problem(String file, Integer row, String message) {
+            this(file, row, null, message);
+        }
     }
 
-    public record FxRow(int row, LocalDate date, BigDecimal sum, String currency, String debit, String credit,
-            String comment) {
+    /** A distinct message, how many rows have it, and the first of their Excel IDs (or row numbers). */
+    public record MessageCount(String message, int count, List<String> rows) {
+    }
+
+    public record ReferenceCounts(int accountsCreated, int accountsUpdated, int categoriesCreated,
+            int categoriesUpdated, int familyCategoriesCreated, int categoriesMerged, int counterpartiesCreated) {
+    }
+
+    public record FxRow(int row, String excelId, LocalDate date, BigDecimal sum, String currency) {
+    }
+
+    /**
+     * The owner's balances, as the import leaves his ledger, against his daily balance file at every month-end up to
+     * the cutoff (D-63): per account code and currency, Excel's rounded half up to the minor unit, UNALLOCATED and
+     * RESERVE as one equity (D-67), the family budget's debt account as FAMILY_DEBT. A difference that the import's own
+     * rules explain (D-68: the shares' rounding, amounts rounded to the minor unit or to 4 decimals) is explained; any
+     * other above 0.01 fails it, but from the month of the older export on (D-69), where it is only shown. In a
+     * currency with no family row on either side, FAMILY_DEBT and the equity are one sum, and the app's FAMILY_DEBT
+     * there is 0 at the last month-end compared (D-147).
+     *
+     * @param cutoff the latest transaction of both files: the daily files are read up to it (D-146)
+     * @param tailFrom the first day of the older export's month: from it on nothing fails (D-69)
+     * @param lines per account and currency
+     * @param failures every point whose unexplained difference is above 0.01 before the tail, first 500
+     * @param tail every point of the tail with a difference
+     * @param withoutFamilyRows D-147's currencies, with the app's and Excel's FAMILY_DEBT at the last compared point
+     * @param explained per account, currency and rule, the explained difference at the last compared point
+     * @param appOnly the app's accounts with a balance and no column in Excel (FX_EXCHANGE and the like aren't listed)
+     */
+    public record Reconciliation(boolean passed, LocalDate cutoff, LocalDate tailFrom, int pointsCompared,
+            LocalDate lastCompared, List<ReconciliationLine> lines, List<ReconciliationPoint> failures,
+            List<ReconciliationPoint> tail, List<CurrencyWithoutFamilyRows> withoutFamilyRows,
+            List<ExplainedAmount> explained, List<String> appOnly) {
+    }
+
+    /**
+     * @param account the account's code; EQUITY for UNALLOCATED and RESERVE, FAMILY_DEBT for the family budget's debt
+     *        account, EQUITY+FAMILY_DEBT for D-147's sum
+     * @param worstUnexplained the largest unexplained difference before the tail, in absolute value
+     */
+    public record ReconciliationLine(String account, String currency, int compared, int failed,
+            LocalDate firstFailure, BigDecimal worstUnexplained, BigDecimal lastExcel, BigDecimal lastApp,
+            BigDecimal lastExplained) {
+    }
+
+    public record ReconciliationPoint(LocalDate date, String account, String currency, BigDecimal excel,
+            BigDecimal app, BigDecimal explained, BigDecimal unexplained) {
+    }
+
+    public record CurrencyWithoutFamilyRows(String currency, BigDecimal appFamilyDebt, BigDecimal excelFamilyDebt,
+            boolean ok) {
+    }
+
+    public record ExplainedAmount(String account, String currency, String reason, BigDecimal amount) {
     }
 }

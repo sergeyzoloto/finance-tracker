@@ -23,6 +23,7 @@ import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.access.MemberRole;
+import com.example.financetracker.ledger.domain.CategoryType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -138,6 +139,55 @@ public class FamilyLedgerService {
         jdbc.sql("DELETE FROM category WHERE id = :mine AND ledger_id = :ledgerId")
                 .param("mine", mine.id()).param("ledgerId", personal.ledgerId())
                 .update();
+    }
+
+    /**
+     * What {@link #importCategory} did: the family category, and whether it is new and whether the member's personal
+     * category with its code merged into it.
+     */
+    public record ImportedCategory(long id, boolean created, boolean merged) {
+    }
+
+    /**
+     * The family category with this code, for the Excel import (D3b, D-11): the family ledger's own if it has one, else a
+     * new one with the name and type given. A personal category of the member with the same code and type merges into
+     * it, as at the budget's creation: their postings move to it, and the personal row goes. Any member adds a family
+     * category (D-11).
+     *
+     * @param family the family ledger, as the member who imports
+     * @param personal that member's personal ledger
+     * @throws ConflictException if the family category, or the member's personal category with the code, is of the
+     *         other type
+     */
+    @Transactional
+    public ImportedCategory importCategory(LedgerScope family, LedgerScope personal, String code, String name,
+            CategoryType type) {
+        requireOwnPersonal(family, personal);
+        LedgerCategory existing = categories.findAll(family).stream().filter(c -> c.code().equals(code)).findFirst()
+                .orElse(null);
+        if (existing != null && existing.type() != type) {
+            throw new ConflictException("The family budget's category %s is %s, not %s".formatted(code,
+                    existing.type(), type));
+        }
+        LedgerCategory mine = categories.findAll(personal).stream().filter(c -> c.code().equals(code)).findFirst()
+                .orElse(null);
+        if (mine != null && mine.type() != type) {
+            throw new ConflictException("Your category %s is %s, not %s: it can't merge into the family budget's"
+                    .formatted(code, mine.type(), type));
+        }
+        LedgerCategory familyCategory = existing != null ? existing : categories.save(new LedgerCategory(null,
+                family.rowUserId(), family.ledgerId(), code, name, type, null));
+        if (mine != null) {
+            merge(personal, mine, familyCategory);
+        }
+        return new ImportedCategory(familyCategory.id(), existing == null, mine != null);
+    }
+
+    private static void requireOwnPersonal(LedgerScope family, LedgerScope personal) {
+        if (family.type() != LedgerType.SHARED || personal.type() != LedgerType.PERSONAL
+                || !personal.userId().equals(family.userId())) {
+            throw new IllegalArgumentException("The family ledger's member and their own personal ledger");
+        }
     }
 
     @Transactional(readOnly = true)

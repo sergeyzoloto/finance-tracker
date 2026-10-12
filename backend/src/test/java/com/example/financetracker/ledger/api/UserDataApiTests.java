@@ -34,10 +34,10 @@ class UserDataApiTests extends LedgerApiTest {
                 {"date": "2026-08-01", "base": "EUR", "quote": "USD", "rate": "1.10"}"""));
         ok(put(user, "/api/settings", """
                 {"baseCurrency": "USD", "defaultShareRatio": "0.4"}"""));
-        // Rows in every table but import_batch, and, with the demo's family budget (H1, F6c), in those of family
-        // ledgers but the invites.
+        // Rows in every table but import_batch and V14's deleted imports, and, with the demo's family budget (H1,
+        // F6c), in those of family ledgers but the invites.
         assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows > 0).as(table)
-                .isEqualTo(!table.equals("import_batch") && !table.equals("family ledger_invite")));
+                .isEqualTo(!List.of("import_batch", "imported_entry_deleted", "family ledger_invite").contains(table)));
 
         assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
 
@@ -53,20 +53,25 @@ class UserDataApiTests extends LedgerApiTest {
     @Test
     void deletesAnImportedLedgerAndTheSameFilesImportAgain() throws IOException {
         String user = newUser();
-        byte[] transactions = withoutRow(fixture("transactions.csv"), 10);
+        byte[] transactions = personalRows();
         JsonNode imported = ok(importWorkbook(user, transactions, "false"));
         assertThat(imported.get("outcome").asText()).isEqualTo("COMMITTED");
-        assertThat(rowsOf(user)).containsEntry("import_batch", 1L).containsEntry("journal_entry", 24L);
+        assertThat(rowsOf(user)).containsEntry("import_batch", 1L).containsEntry("journal_entry", 10L);
+        // An imported entry deleted in the app is remembered (D-150), and goes with the rest.
+        JsonNode first = ok(get(user, "/api/entries?size=1")).get("content").get(0);
+        assertThat(delete(user, "/api/entries/%d?version=%d".formatted(first.get("id").asLong(),
+                first.get("version").asInt()))).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(rowsOf(user)).containsEntry("imported_entry_deleted", 1L);
 
         assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
 
         assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows).as(table).isZero());
         startsAgainAsANewUser(user);
-        // No row counts as imported before any more.
+        // No row counts as imported before any more, the deleted one included.
         JsonNode again = ok(importWorkbook(user, transactions, "false"));
         assertThat(again.get("outcome").asText()).isEqualTo("COMMITTED");
-        assertThat(again.get("entriesByKind")).isEqualTo(imported.get("entriesByKind"));
-        assertThat(again.get("skipped")).isEqualTo(imported.get("skipped"));
+        assertThat(again.get("counts")).isEqualTo(imported.get("counts"));
+        assertThat(again.get("conflicts")).isEmpty();
     }
 
     @Test

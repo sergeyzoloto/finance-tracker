@@ -319,22 +319,23 @@ class DataIsolationApiTests extends LedgerApiTest {
     @Test
     void anImportSeesOnlyTheUsersOwnLedger() throws IOException {
         Map<String, JsonNode> alicesView = view(alice);
-        byte[] transactions = withoutRow(fixture("transactions.csv"), 10);
+        byte[] transactions = personalRows();
 
         JsonNode dryRun = ok(bobsRequest(() -> importWorkbook(bob, transactions, null)));
         JsonNode committed = ok(bobsRequest(() -> importWorkbook(bob, transactions, "false")));
 
-        // Alice imported the same files, but for Bob every row is new: none is skipped as imported before.
-        assertThat(dryRun.get("entriesByKind")).isEqualTo(alicesImport.get("entriesByKind"));
+        // Alice imported the same files, but for Bob every row is new: none is unchanged, updated or missing.
+        assertThat(dryRun.get("counts")).isEqualTo(alicesImport.get("counts"));
         assertThat(committed.get("outcome").asText()).isEqualTo("COMMITTED");
         assertThat(committed.get("userId").asText()).isEqualTo(bob);
-        assertThat(committed.get("entriesByKind")).isEqualTo(alicesImport.get("entriesByKind"));
-        assertThat(committed.get("skipped")).isEqualTo(alicesImport.get("skipped"));
-        // The balances after the import are his accounts' alone.
-        List<String> bobsAccounts = bobReads("/api/accounts").findValuesAsText("id");
-        assertThat(committed.get("balances").findValuesAsText("accountId")).isNotEmpty()
-                .allMatch(bobsAccounts::contains);
-        assertThat(bobReads("/api/entries").get("totalElements").asLong()).isEqualTo(4 + 24);
+        assertThat(committed.get("counts")).isEqualTo(alicesImport.get("counts"));
+        assertThat(committed.get("totals")).isEqualTo(alicesImport.get("totals"));
+        assertThat(committed.get("missing")).isEmpty();
+        assertThat(committed.get("conflicts")).isEmpty();
+        // The reconciliation is of his ledger alone: the same as hers, for the same files.
+        assertThat(committed.get("reconciliation").get("lines"))
+                .isEqualTo(alicesImport.get("reconciliation").get("lines"));
+        assertThat(bobReads("/api/entries").get("totalElements").asLong()).isEqualTo(4 + 10);
         assertThat(view(alice)).isEqualTo(alicesView);
     }
 
@@ -1833,7 +1834,7 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .formatted(alicesLoans, alicesFriend, cash))) {
             newEntry(alice, command);
         }
-        alicesImport = ok(importWorkbook(alice, withoutRow(fixture("transactions.csv"), 10), "false"));
+        alicesImport = ok(importWorkbook(alice, personalRows(), "false"));
         assertThat(alicesImport.get("outcome").asText()).isEqualTo("COMMITTED");
 
         transactions.executeWithoutResult(status -> {

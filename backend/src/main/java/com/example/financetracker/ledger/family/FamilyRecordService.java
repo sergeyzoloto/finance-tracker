@@ -135,6 +135,19 @@ public class FamilyRecordService {
      */
     @Transactional
     public FamilyRecordView create(LedgerScope family, LedgerScope personal, NewFamilyRecord request) {
+        return get(family, createRecord(family, personal, request));
+    }
+
+    /**
+     * As {@link #create}, for the Excel import (D3b), which writes thousands of records in one transaction and needs only
+     * the record's id: no view is built.
+     */
+    @Transactional
+    public long createForImport(LedgerScope family, LedgerScope personal, NewFamilyRecord request) {
+        return createRecord(family, personal, request);
+    }
+
+    private long createRecord(LedgerScope family, LedgerScope personal, NewFamilyRecord request) {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
         String type = request.type();
@@ -208,7 +221,7 @@ public class FamilyRecordService {
         }
         journal(family, recordId, "CREATE", currency, changes);
         posting.post(family, recordId, payment);
-        return get(family, recordId);
+        return recordId;
     }
 
     /** The family ledger's records that aren't deleted, newest first: by date, then by id. */
@@ -252,6 +265,18 @@ public class FamilyRecordService {
      */
     @Transactional
     public FamilyRecordView update(LedgerScope family, LedgerScope personal, long recordId, Integer expectedVersion,
+            FamilyRecordChanges changes) {
+        return get(family, updateRecord(family, personal, recordId, expectedVersion, changes));
+    }
+
+    /** As {@link #update}, for the Excel import (D3b): no view is built. */
+    @Transactional
+    public long updateForImport(LedgerScope family, LedgerScope personal, long recordId, Integer expectedVersion,
+            FamilyRecordChanges changes) {
+        return updateRecord(family, personal, recordId, expectedVersion, changes);
+    }
+
+    private long updateRecord(LedgerScope family, LedgerScope personal, long recordId, Integer expectedVersion,
             FamilyRecordChanges changes) {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
@@ -408,7 +433,7 @@ public class FamilyRecordService {
         if (recordChanged || sideChanged || !(payment instanceof FamilyPostingService.Unchanged)) {
             posting.post(family, recordId, payment);
         }
-        return get(family, recordId);
+        return recordId;
     }
 
     /**
@@ -571,6 +596,16 @@ public class FamilyRecordService {
      */
     @Transactional
     public FamilyRecordView settle(LedgerScope family, LedgerScope personal, NewSettlement request) {
+        return get(family, settleRecord(family, personal, request));
+    }
+
+    /** As {@link #settle}, for the Excel import (D3b): no view is built. */
+    @Transactional
+    public long settleForImport(LedgerScope family, LedgerScope personal, NewSettlement request) {
+        return settleRecord(family, personal, request);
+    }
+
+    private long settleRecord(LedgerScope family, LedgerScope personal, NewSettlement request) {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
         requireStarted(ledger, request.date(), SETTLEMENT);
@@ -665,7 +700,7 @@ public class FamilyRecordService {
         }
         journal(family, recordId, "CREATE", currency, changes);
         posting.post(family, recordId, payment);
-        return get(family, recordId);
+        return recordId;
     }
 
     /**
@@ -673,7 +708,7 @@ public class FamilyRecordService {
      * account by that side. Its members and its type don't change; a settlement has no category, split or note. The
      * account isn't journaled, and alone it changes neither the version nor the editor (D-16).
      */
-    private FamilyRecordView updateSettlement(LedgerScope family, LedgerScope personal, Ledger ledger,
+    private long updateSettlement(LedgerScope family, LedgerScope personal, Ledger ledger,
             RecordRow record, FamilyRecordChanges changes) {
         Map<Long, Member> members = members(family);
         boolean changesRecord = changes.date() != null || changes.changesAmount() || changes.changesComment();
@@ -806,7 +841,7 @@ public class FamilyRecordService {
         if (!journal.isEmpty() || sideChanged || !(payment instanceof FamilyPostingService.Unchanged)) {
             posting.post(family, record.id(), payment);
         }
-        return get(family, record.id());
+        return record.id();
     }
 
     /**

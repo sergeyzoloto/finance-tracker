@@ -722,7 +722,7 @@ As of 2026-10-12, after F8f's `finish` (passed, 2026-10-12T08:49:54Z), `verify F
   or a file that can't be parsed stops it) holds by itself from the next deploy (D3b's).
 - F8f's and F8e's checklists below stay as their records and are used for no other deploy. D3b (the Excel import's
   code, V14) is built on `feature/family-budget` and not deployed; "D3b's deploy checklist with the suite" below deploys
-  it, after which the rollback target is `fe35e26`, with V14's condition (D-147). The production import itself is
+  it, after which the rollback target is `fe35e26`, with V14's condition (D-148). The production import itself is
   D3b-run, a task of its own after that deploy (D-137; step 10).
 
 ### Automatic reboots

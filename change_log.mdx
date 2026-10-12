@@ -3,6 +3,123 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-12 · D3b: the Excel import with the partner's family rows, V14, the import page (D-134 to D-160)
+
+Ten commits on `feature/family-budget` on top of F8f-fix's `fe35e26` (deployed; `main` and `feature/family-budget` both
+there, pushed): `cefdc39` "chore: scripts/check-forbidden-names.sh, the local check for the partner's name (D-143)",
+`abf2177` "docs: D-134 to D-150, F8f's deploy facts in the runbook", `69dfd3e` "ci: zip and unzip in the guards' step; the
+password search fails closed (D-134, D-135)", `cf0076e` "docs: D-147, the PM's rule for a currency without family rows;
+D3b's answers renumbered D-148 to D-150", `42f10e5` "backend: settlement sides on counterparty accounts and FX_EXCHANGE,
+V14, rollback below V14 (D-148, D-71, D-139, D-150)", `d08f5d5` "backend: the Excel import of D3b, with the partner's
+family rows from his seat and the reconciliation", `db8384d` "frontend: the import page with the family budget, the
+partner's place and the browser's filter (D-140, D-141)", `1adc48f` "docs: runbook step 10 for D3b-run, D3b's deploy
+checklist, deploy/checks/D3b.*, CLAUDE.md, D-151 to D-160", `fa5652d` "e2e: the import spec, local and production", and
+the commit of this entry, "docs: D3b's change log entry", whose full hash the report names: M, the commit to deploy (each
+subject ends with "(D3b)"). Not pushed; production and the server not accessed. Migration V14, additive.
+
+**Changes**
+- D-143: `scripts/check-forbidden-names.sh` checks the tracked files and the index (default), a revision (`--rev`) or every
+  commit of a range (`--log`) against `data/private/forbidden-names.txt`: Unicode-aware (NFC, case folded), as substrings,
+  printing `path:line` only, never the matched text; exit 0 no hit, 1 hits, 2 no names file.
+- Documentation: `requirements.md` D-134 to D-150 (D-147, D-148 to D-150 as the PM decided them) and the agent's choices
+  D-151 to D-160, for the PM to confirm; `deploy/RUNBOOK.md`: F8f-fix's deploy in "Deployed revisions" (CI #73 `38222348768`,
+  CI #74 `38222348866`, 14 check runs with "CI on Ubuntu 26.04" #9) and "Production now"; step 10 rewritten for D3b-run
+  (10.1 to 10.10: a fresh backup and its restore test, the page's dry run, the commit, the same files again, read-only
+  checks as `finance_checks`); "D3b's deploy checklist with the suite" (stage `D3b`, V14, rollback target `fe35e26` with
+  V14's condition); `CLAUDE.md` (the importer, V14, the counts, the import spec).
+- D-134 and D-135: the step "End-to-end guards" of `ci.yml` and `ci-ubuntu-26.yml` installs `zip` and `unzip` before
+  `npm ci`; `searchSecrets` (`e2e/scripts/common.ts`) returns the hits and the files it couldn't read (no `unzip`, a zip
+  `unzip` refuses), and the summary prints `Password search over the artifacts: FAILED, …` and a failed result for any of
+  them; `lib/guards.test.ts` tries it without `unzip` on `PATH` and with a broken zip.
+- D-148 and D-71: a settlement's side may be paid from an account that requires a counterparty (`paymentCounterpartyId` on
+  POST `/settlements`; a PATCH changes it only with the side's own account; a settlement takes no payee) and, for the
+  import's conversions of the family debt, on `FX_EXCHANGE` alone (`NewSettlement.throughExchange`, no endpoint);
+  `CrossLedgerWriter` and `FamilyPostingService.ownPayments` treat such a side as the member's own.
+- V14 (`V14__import_sync_of_personal_entries.sql`, additive): `journal_entry.import_hash` and `import_version` (together
+  or neither), and the table `imported_entry_deleted` (ledger, `external_ref`, `deleted_at`), filled by an `AFTER DELETE`
+  trigger for an imported entry that is deleted, but not by delete-all (D-139, D-150: a deleted imported row stays
+  deleted and is reported as a conflict). `deploy/checks/numbers.sql` counts it (`imported_entries_deleted`).
+- `deploy/rollback.sh` refuses below V14 from a database at V14 or later while a settlement's side is on an account that
+  requires a counterparty or on `FX_EXCHANGE` alone (the writer before V14 refuses such a side); `deploy/tests/run.sh`
+  `rollback_below_v14` (102 cases), `mutate.sh` three mutations (75).
+- The importer (`ledger/importer/`, D-61 to D-63, D-67 to D-74, D-76, D-78 to D-89, D-93, D-113, D-138 to D-142, D-145,
+  D-146, D-147): the owner's five files (`Balance sheet items`, `CashFlowItems`, `Transactions`, `dailyBalance`,
+  `dailyChangeBalance`; `;`-separated, `dd.MM.yyyy`, decimals with an exponent, a dash as 0) and the partner's family rows
+  (`ID;Date;Exp. Item;Family;Side;Currency;Sum`, any other column or a non-family row refused, D-140, D-151). The owner's
+  personal rows go into the personal ledger (`xls:<ID>`, the opening balances `xls-opening:<date>` from the daily balance
+  file), his family rows and the partner's into the chosen family budget as records paid by the owner or by the seat,
+  settlements, conversions and the monthly lumps of the `PL_family_*` columns (D-83, D-154), each with its reference
+  (D-142, D-153); a re-import compares content hashes: a row changed in Excel is updated as the app changes it, one changed or
+  deleted in the app after its import is a conflict, left alone (D-139, D-150, D-158). The dry-run report: counts by source and kind, totals, errors and warnings with their
+  distinct messages, the rows not imported and why, and the reconciliation of the daily balance file's month-ends up to
+  the cutoff against the app's balances (D-63 to D-69, D-146, D-147 by currency, D-155, D-157), with the integrity check.
+  POST `/api/import` takes the parts `accounts`, `categories`, `transactions`, `dailyBalance`, `dailyChange` and
+  `partnerTransactions` with `familyLedgerId` and `seatMemberId` (another user's budget or seat: 404; a seat with an account:
+  409); a commit saves everything or nothing. The command line (`ImportRunner`) takes the same files, filters the
+  partner's raw file as the page does, and refuses `--opening-balances`. `FamilyLedgerService.importCategory` finds or
+  creates a family category and merges the owner's (D-159); `ANALYZE` every 500 writes (D-160).
+- The import page (`Import.tsx`, `importFilter.ts`): the owner's five files, the family budget and the partner's place
+  (members without an account only, D-141), the partner's transactions file filtered in the browser before anything is
+  sent (D-140: "N of his M rows are family rows and will be uploaded"), Commit only after a dry run of the same files
+  without errors, the report and the reconciliation. The settlement page keeps a side's current account among its choices.
+- Tests: backend `ExcelValuesTests`, `WorkbookTests`, `PartnerFilterTests`, `EntryMapperTests`, `ImportPlannerTests`,
+  `ReconcilerTests`, `ImportRunnerTests`, `ImportApiTests` (the 422 for a partner file with other columns or rows, D-138's
+  missing rows, both branches of D-139, D-142's references, an idempotent re-import, an amount with an exponent, a transfer
+  with a negative Sum, another user's budget and seat 404), `FamilySettlementSidesApiTests` (D-148, D-71),
+  `LedgerSchemaTests` and the migration tests (V14), `DataIsolationApiTests` and `UserDataApiTests` (`imported_entry_deleted`
+  among a user's rows); `ImportServiceTests` removed (its cases are in the classes above). The synthetic export in
+  `backend/src/test/resources/import/` (invented names and amounts, the real export's format, `make-fixtures.py` writes it).
+  Frontend `importFilter.test.ts` and `Import.test.tsx`. End to end `05-import` (A only: a budget of its own with a member
+  without an account, the browser's filter, a dry run that reconciles, the commit, the same files again; Delete all my data
+  takes the budget, so it runs in the production suite too).
+
+**Verified**
+- Item 0, read only: both branches at `fe35e26`, the tree clean; CI on `fe35e26`: 14 check runs, every one `completed
+  success`; the export of 2026-10-12 passed D-85's and D-86's checks; `data/private/forbidden-names.txt` exists.
+- `scripts/check-forbidden-names.sh`: no hit in the tree, in `--rev HEAD` and in `--log fe35e26..HEAD`, before the first
+  commit and on M.
+- D-133, the guards' step as the workflows state it, from a clean clone of `69dfd3e` in fresh `ubuntu:24.04` (index
+  `sha256:534baea6a22c…`) and `ubuntu:26.04` (index `sha256:f144425ff09b…`) containers with Node 24.21.0, a user `runner`
+  with sudo and no Playwright cache: `zip` and `unzip` absent before the step and installed by it; `npm ci`, `npm test`
+  (`Test Files  28 passed (28)`, `Tests  365 passed (365)`), `npm run build`, the install and `npm run test:guards`
+  (`tests 37`, `pass 37`, `fail 0`), each exit 0 on both. Containers and the images pulled for it removed.
+- Backend, `cd backend && ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>`:
+  seeds 20261015, 20261016 and 20261017 on `fa5652d`: each exit 0, `Tests run: 522, Failures: 0, Errors: 0, Skipped:
+  0`, `BUILD SUCCESS` (5:07, 5:15 and 5:29 min).
+- Frontend, `cd frontend && npm test`: exit 0, `Test Files  30 passed (30)`, `Tests  375 passed (375)`, no Errors line;
+  `npm run build`: exit 0.
+- Deploy tests: `deploy/tests/run.sh` exit 0, `102 passed, 0 failed, of 102 cases`; `deploy/tests/mutate.sh` exit 0, 75
+  caught, `Every mutation was caught.`; ShellCheck (`koalaman/shellcheck:v0.11.0`, CI's file list, and the names script)
+  exit 0. `deploy/checks/D3b.sql` on a throwaway `postgres:17-alpine` at V14 printed `D3b.expected` exactly (29 lines);
+  `numbers.sql` 22 keys.
+- End to end (Node 24.21.0): `npm run typecheck` exit 0; `npm run test:guards` exit 0, `tests 37`, `pass 37`, `fail 0`;
+  `E2E_FAMILY=on npm run e2e:local` on `fa5652d` (the tree differing only in `CLAUDE.md` and this entry) exit 0,
+  `16 passed (3.4m)`, every spec passed (`import` and `import at 375 px` included), the cleanup deleted both accounts'
+  data, `Password search over the artifacts: 0 hits`, `Result:    PASSED`.
+- Workflows: `rhysd/actionlint:1.7.7` (pulled for this, removed afterwards): `ci.yml` exit 0; both files exit 1, only for
+  the label `ubuntu-26.04` (four times), which that release doesn't know.
+- D-144, the local real-data run, through the import page at Vite against the api of this branch on a throwaway database
+  (never production), with a family budget from 2017-11-01 and the partner's place: the dry run, the commit and the same
+  files again each answered 200 with 0 row errors and the integrity check clean; the commit created 14913 (expenses
+  12101, incomes 725, refunds 516, transfers 804, settlements 609, loans given 86, loans repaid 56, currency exchanges 11,
+  conversions 4, the opening balance 1), skipped 17 and left 59 not imported (D-84: incomes on FAMILY_DEBT that the partner's rows carry), and the same import again created
+  and updated nothing (14913 unchanged). The reconciliation fails on EUR only, as D-149 expects until the export is fixed
+  at source, so **D-144 is not passed yet**; USD passed by D-147. The throwaway database was removed.
+- This entry compiled with `@mdx-js/mdx` (in a scratch folder).
+
+**Open**
+- D-149: the owner fixes the rows at source and exports again; D-144 runs again on that export before D3b-run.
+- D-151 to D-160 are the agent's choices, for the PM to confirm.
+- The settlement forms offer no account that requires a counterparty for a new settlement and never `FX_EXCHANGE`: only
+  the import writes such sides (D-148, D-71); the page keeps a side's current account when it is changed.
+- Seen once while preparing D-144's run: a member typed on `/family/new` right after a first sign-in was not created with
+  the budget (no request reached the api); not reproduced or investigated. The local suite's specs, which reach the page
+  later, passed.
+- The real export's dry run and commit take about 3.5 minutes each (208 s and 205 s locally); through production's Caddy
+  that is untried (D3b-run).
+- Not done here: the push, CI on M, the deploy (D3b's checklist), the production suite's first `import` run, "CI on Ubuntu
+  26.04" on M after its deploy, and D3b-run (step 10).
+
 ## 2026-10-12 · F8f-fix: a browser for the end-to-end guards in CI, D-126's window of 2 hours (D-128 to D-133)
 
 Five commits on `feature/family-budget` on top of F8f's M, `1eac505`, which was pushed to `main` and `feature/family-budget`

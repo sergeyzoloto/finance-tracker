@@ -8,13 +8,14 @@ import { deleteAllMyData, expect, ledgerIdOf, test } from '../fixtures.ts'
 // 2. A fresh browser, no session: /family/new sends it to the login, where A signs in at Keycloak; back at the app, the
 //    switcher's "New family budget…" at once, while the first load's requests (the zone, the family budgets) are still
 //    on their way.
-// 3. A name, a member without an account typed and added, Create: the budget's members are A and that member, in the
-//    page and in the api.
+// 3. A name, a member without an account typed and added, a second one typed and not added, Create: the budget's members
+//    are A and both, in the page and in the api (D-170: Create adds a typed name as Add member would).
 // Local only: production's accounts sign in once per run, in the setup (D-52, guard 3), and their password never
 // reaches a spec.
 
 const BUDGET = 'First sign-in'
 const MEMBER = 'Sam'
+const TYPED = 'Kim'
 
 test('a new family budget right after a first sign-in', async ({ as, family, target, watch, browser }, testInfo) => {
   test.skip(family === 'off', 'The family budget is switched off (E2E_FAMILY=off).')
@@ -49,6 +50,7 @@ test('a new family budget right after a first sign-in', async ({ as, family, tar
     await page.getByLabel('Name of a member').fill(MEMBER)
     await page.getByRole('button', { name: 'Add member' }).click()
     await expect(page.getByRole('button', { name: `Remove ${MEMBER}` })).toBeVisible()
+    await page.getByLabel('Name of a member').fill(` ${TYPED} `)
     await page.getByRole('button', { name: 'Create family budget' }).click()
     await expect(page.getByRole('heading', { level: 2, name: BUDGET })).toBeVisible()
     const ledgerId = ledgerIdOf(page)
@@ -60,9 +62,11 @@ test('a new family budget right after a first sign-in', async ({ as, family, tar
     const names = ((await members.json()) as { displayName: string; hasAccount: boolean }[])
       .map((m) => `${m.displayName} ${m.hasAccount ? 'with' : 'without'} an account`)
     expect(names).toContain(`${MEMBER} without an account`)
-    expect(names).toHaveLength(2)
+    expect(names).toContain(`${TYPED} without an account`)
+    expect(names).toHaveLength(3)
     await page.goto(`/family/${ledgerId}/members`)
     await expect(page.getByRole('row').filter({ hasText: MEMBER })).toHaveCount(1)
+    await expect(page.getByRole('row').filter({ hasText: TYPED })).toHaveCount(1)
 
     // This browser's session ends here, at the app and at Keycloak.
     const xsrf = (await context.cookies()).find((c) => c.name === 'XSRF-TOKEN')

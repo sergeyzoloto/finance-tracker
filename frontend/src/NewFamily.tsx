@@ -80,7 +80,18 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
     setChosen(next)
   }
 
-  async function create() {
+  /**
+   * D-170: a name typed in "Name of a member" and not added yet counts as added, exactly as "Add member" would add it:
+   * trimmed, checked the same way, and with the shares back to equal.
+   */
+  function withTyped(): { members: ShareRow[]; shareValues: Record<string, string> } {
+    if (memberName.trim() === '') return { members, shareValues }
+    const all = [...members, { key: `m${nextKey}`, name: memberName.trim() }]
+    return { members: all, shareValues: equalValues([{ key: ME, name: displayName.trim() || 'You' }, ...all]) }
+  }
+
+  async function create(members: ShareRow[], shareValues: Record<string, string>) {
+    const rows: ShareRow[] = [{ key: ME, name: displayName.trim() || 'You' }, ...members]
     const created = await api<FamilyLedger>('/family-ledgers', 'POST', {
       name: name.trim(), baseCurrency, displayName: displayName.trim(), categoryIds: [...chosen],
       // Left out for today, so that the server's today counts: a browser a time zone ahead isn't in its future.
@@ -117,7 +128,10 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    if (ready) void creation.run(create)
+    // A typed name that "Add member" would refuse stops the creation at its message (an agent's choice, D-170).
+    if (!ready || memberProblem) return
+    const typed = withTyped()
+    void creation.run(() => create(typed.members, typed.shareValues))
   }
 
   const loadError = settings.error ?? accounts.error ?? categories.error

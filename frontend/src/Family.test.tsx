@@ -233,6 +233,53 @@ describe('creating a family budget', () => {
     expect(screen.queryByTestId('where')).toBeNull()
   })
 
+  it('adds a name typed but not added, as Add member would (D-170)', async () => {
+    const calls = stubApi({
+      ...reference,
+      'POST /api/family-ledgers/7/members': { status: 201, body: kid },
+    })
+    renderNewFamily()
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Home' } })
+    fireEvent.change(screen.getByLabelText(/^Name of a member/), { target: { value: '  Kid ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create family budget' }))
+
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7'))
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([
+      { method: 'POST', url: '/api/family-ledgers', body: { name: 'Home', baseCurrency: 'EUR', displayName: 'Anna', categoryIds: [] } },
+      { method: 'POST', url: '/api/family-ledgers/7/members', body: { displayName: 'Kid' } },
+    ])
+  })
+
+  it('with custom shares, a typed name sets them back to equal, as Add member does (D-170)', async () => {
+    const calls = stubApi({
+      ...reference,
+      'POST /api/family-ledgers/7/members': { status: 201, body: kid },
+      'PUT /api/family-ledgers/7/split-rule': { status: 200, body: [] },
+    })
+    renderNewFamily()
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Home' } })
+    fireEvent.click(screen.getByLabelText('Custom percentages'))
+    fireEvent.change(screen.getByLabelText(/^Name of a member/), { target: { value: 'Kid' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create family budget' }))
+
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7'))
+    expect(calls.filter((c) => c.method === 'PUT')).toEqual([
+      { method: 'PUT', url: '/api/family-ledgers/7/split-rule', body: { rule: 'CUSTOM', shares: [{ memberId: 70, share: 5000 }, { memberId: 71, share: 5000 }] } },
+    ])
+  })
+
+  it('creates nothing while a typed name is one Add member would refuse (D-170)', async () => {
+    const calls = stubApi(reference)
+    renderNewFamily()
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Home' } })
+    fireEvent.change(screen.getByLabelText(/^Name of a member/), { target: { value: ' anna' } })
+    expect(screen.getByText('Everyone in a family budget needs a name of their own.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Create family budget' }))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    expect(screen.queryByTestId('where')).toBeNull()
+  })
+
   it('keeps Create disabled until custom shares add up to 100.00 %', async () => {
     stubApi(reference)
     renderNewFamily()

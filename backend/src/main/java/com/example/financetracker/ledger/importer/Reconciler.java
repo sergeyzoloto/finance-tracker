@@ -36,6 +36,61 @@ final class Reconciler {
     private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
     private static final int MAX_FAILURES = 500;
 
+    /** A row's date, currency and amount (above 0), as D-169 adds them up per month. */
+    record Carried(LocalDate date, String currency, BigDecimal amount) {
+    }
+
+    /** D-169's months, and the drift of those it explains. */
+    record OwnerHalves(List<ImportReport.OwnerHalf> months, List<Drift> drift) {
+    }
+
+    /** D-169's limit per income of the month: half a cent. */
+    private static final BigDecimal HALF_CENT = new BigDecimal("0.005");
+
+    /**
+     * D-169: per month and currency, OWNER_HALF = the owner's D-84 rows less half of the partner's family incomes they
+     * carry, exactly. Within half a cent per income it is explained: FAMILY_DEBT by +OWNER_HALF and UNALLOCATED by
+     * -OWNER_HALF (Excel's debt moved by the owner's rows where the partner's records assume the exact half), on the
+     * month's latest date of either. Otherwise, or in a month without such an income, the whole of it stays
+     * unexplained.
+     */
+    static OwnerHalves ownerHalf(List<Carried> ownerRows, List<Carried> partnerIncomes) {
+        record Month(LocalDate first, String currency) {
+        }
+        Map<Month, BigDecimal> owner = new TreeMap<>(Comparator.comparing(Month::first).thenComparing(Month::currency));
+        Map<Month, BigDecimal> partner = new HashMap<>();
+        Map<Month, Integer> incomes = new HashMap<>();
+        Map<Month, LocalDate> latest = new HashMap<>();
+        for (Carried row : ownerRows) {
+            Month month = new Month(row.date().withDayOfMonth(1), row.currency());
+            owner.merge(month, row.amount(), BigDecimal::add);
+            latest.merge(month, row.date(), (a, b) -> a.isAfter(b) ? a : b);
+        }
+        for (Carried row : partnerIncomes) {
+            Month month = new Month(row.date().withDayOfMonth(1), row.currency());
+            owner.putIfAbsent(month, BigDecimal.ZERO);
+            partner.merge(month, row.amount(), BigDecimal::add);
+            incomes.merge(month, 1, Integer::sum);
+            latest.merge(month, row.date(), (a, b) -> a.isAfter(b) ? a : b);
+        }
+        List<ImportReport.OwnerHalf> months = new ArrayList<>();
+        List<Drift> drift = new ArrayList<>();
+        owner.forEach((month, own) -> {
+            BigDecimal partners = partner.getOrDefault(month, BigDecimal.ZERO);
+            int count = incomes.getOrDefault(month, 0);
+            BigDecimal half = own.subtract(partners.divide(BigDecimal.TWO));
+            boolean explained = count > 0 && half.abs().compareTo(HALF_CENT.multiply(BigDecimal.valueOf(count))) <= 0;
+            months.add(new ImportReport.OwnerHalf(month.first(), month.currency(), strip(own), strip(partners), count,
+                    strip(half), explained));
+            if (explained && half.signum() != 0) {
+                LocalDate date = latest.get(month);
+                drift.add(new Drift(FAMILY_DEBT, month.currency(), date, half, Drift.Reason.OWNER_HALF));
+                drift.add(new Drift("UNALLOCATED", month.currency(), date, half.negate(), Drift.Reason.OWNER_HALF));
+            }
+        });
+        return new OwnerHalves(List.copyOf(months), List.copyOf(drift));
+    }
+
     /** An account and a currency, as the reconciliation compares them. */
     record Key(String account, String currency) implements Comparable<Key> {
 
@@ -69,10 +124,11 @@ final class Reconciler {
      * @param comparedCodes the account codes the app compares: those of the accounts file, the system ones left out
      * @param cutoff the latest transaction of both files (D-146)
      * @param tailFrom the first day of the older export's month (D-69)
+     * @param ownerHalf D-169's months, whose drift is in {@code drift} already, for the report
      */
     static Reconciliation reconcile(Map<Key, NavigableMap<LocalDate, BigDecimal>> app, DailyFile balance,
             List<Drift> drift, Set<String> familyCurrencies, Set<String> comparedCodes, LocalDate cutoff,
-            LocalDate tailFrom) {
+            LocalDate tailFrom, List<ImportReport.OwnerHalf> ownerHalf) {
         // Excel's balances by key, its columns summed per key.
         Map<String, Key> columnKeys = new HashMap<>();
         balance.accountColumns().forEach((column, account) -> columnKeys.put(column,
@@ -202,7 +258,7 @@ final class Reconciler {
         boolean passed = lastCompared != null && failures.isEmpty()
                 && withoutFamilyRows.stream().allMatch(CurrencyWithoutFamilyRows::ok);
         return new Reconciliation(passed, cutoff, tailFrom, compared, lastCompared, lines, failures, tail,
-                withoutFamilyRows, explained, List.copyOf(appOnly));
+                withoutFamilyRows, explained, List.copyOf(appOnly), List.copyOf(ownerHalf));
     }
 
     private static BigDecimal upTo(NavigableMap<LocalDate, BigDecimal> changes, LocalDate date) {

@@ -67,7 +67,7 @@ class ReconcilerTests {
     private static Reconciliation reconcile(DailyFile balance, Map<Key, NavigableMap<LocalDate, BigDecimal>> app,
             List<Drift> drift) {
         return Reconciler.reconcile(app, balance, drift, FAMILY, Set.of("CASH", "FAMILY_DEBT", "UNALLOCATED", "RESERVE"),
-                MAR_8, LocalDate.of(2024, 3, 1));
+                MAR_8, LocalDate.of(2024, 3, 1), List.of());
     }
 
     @Test
@@ -132,5 +132,68 @@ class ReconcilerTests {
         var app = app(with("CASH EUR 2024-01-03 -10.01", "FAMILY_DEBT EUR 2024-01-03 -5.00",
                 "UNALLOCATED EUR 2024-01-03 -5.01", "CASH RUB 2024-01-05 7"));
         assertThat(reconcile(balance("89.99", "89.99"), app, SHARES).appOnly()).containsExactly("CASH RUB");
+    }
+
+    private static Reconciler.Carried eur(int month, int day, String amount) {
+        return new Reconciler.Carried(LocalDate.of(2026, month, day), "EUR", new BigDecimal(amount));
+    }
+
+    /**
+     * D-169: the owner's D-84 rows of a month less half of the partner's family incomes they carry, explained within
+     * half a cent per income, else left whole.
+     */
+    @Test
+    void theOwnersHandRoundedHalvesAreExplainedWithinHalfACentPerIncome() {
+        Reconciler.OwnerHalves halves = Reconciler.ownerHalf(
+                List.of(eur(1, 31, "5.01"), eur(1, 31, "7.50"),   // January: 5.005 typed up, 7.505 typed down
+                        eur(2, 28, "6.01"),                       // February: 1.00 more than 5.005
+                        eur(3, 31, "127.48"),                     // March: 77.48 more than 50.00
+                        eur(4, 30, "0.01")),                      // April: no income of the partner's
+                List.of(eur(1, 10, "10.01"), eur(1, 20, "15.01"), eur(2, 10, "10.01"), eur(3, 10, "100.00"),
+                        eur(5, 10, "10.01")));                    // May: an income, no row of the owner's
+
+        assertThat(halves.months()).extracting(h -> h.month().getMonthValue() + " " + h.ownerHalf() + " "
+                + h.incomes() + " " + h.explained())
+                .containsExactly("1 0.00 2 true", "2 1.005 1 false", "3 77.48 1 false", "4 0.01 0 false",
+                        "5 -5.005 1 false");
+        // January's two half cents cancel out: nothing to explain.
+        assertThat(halves.drift()).isEmpty();
+
+        Reconciler.OwnerHalves one = Reconciler.ownerHalf(List.of(eur(6, 30, "5.01")), List.of(eur(6, 5, "10.01")));
+        assertThat(one.months().getFirst().explained()).isTrue();
+        assertThat(one.drift()).containsExactly(
+                new Drift("FAMILY_DEBT", "EUR", LocalDate.of(2026, 6, 30), new BigDecimal("0.005"),
+                        Drift.Reason.OWNER_HALF),
+                new Drift("UNALLOCATED", "EUR", LocalDate.of(2026, 6, 30), new BigDecimal("-0.005"),
+                        Drift.Reason.OWNER_HALF));
+        // A cent typed for one income is above half a cent: unexplained, whole.
+        assertThat(Reconciler.ownerHalf(List.of(eur(7, 31, "5.02")), List.of(eur(7, 5, "10.01"))).drift()).isEmpty();
+    }
+
+    /** D-169's drift explains what the owner's rounding leaves in his balances, at every month-end after it. */
+    @Test
+    void anExplainedOwnerHalfPassesTheReconciliation() {
+        // Two incomes of 10.01 whose halves (10.01) the owner typed as 10.00: Excel's debt is 0.01 above the app's.
+        var app = app(with("CASH EUR 2024-01-03 -10.01", "FAMILY_DEBT EUR 2024-01-03 -5.02",
+                "UNALLOCATED EUR 2024-01-03 -4.99"));
+        Reconciler.OwnerHalves halves = Reconciler.ownerHalf(
+                List.of(new Reconciler.Carried(LocalDate.of(2024, 1, 20), "EUR", new BigDecimal("10.00"))),
+                List.of(new Reconciler.Carried(LocalDate.of(2024, 1, 5), "EUR", new BigDecimal("10.01")),
+                        new Reconciler.Carried(LocalDate.of(2024, 1, 6), "EUR", new BigDecimal("10.01"))));
+        assertThat(halves.months()).singleElement().satisfies(h -> {
+            assertThat(h.ownerHalf()).isEqualByComparingTo("-0.01");
+            assertThat(h.explained()).isTrue();
+        });
+        Reconciliation without = reconcile(balance("89.99", "89.99"), app, SHARES);
+        assertThat(without.passed()).isFalse();
+        assertThat(without.failures()).extracting(p -> p.date() + " " + p.account() + " " + p.unexplained())
+                .containsExactly("2024-01-31 EQUITY 0.015", "2024-02-29 EQUITY 0.015", "2024-01-31 FAMILY_DEBT -0.015",
+                        "2024-02-29 FAMILY_DEBT -0.015");
+        List<Drift> drift = new ArrayList<>(SHARES);
+        drift.addAll(halves.drift());
+        Reconciliation with = reconcile(balance("89.99", "89.99"), app, drift);
+        assertThat(with.passed()).isTrue();
+        assertThat(with.explained()).extracting(e -> e.account() + " " + e.reason() + " " + e.amount().toPlainString())
+                .contains("EQUITY OWNER_HALF 0.01", "FAMILY_DEBT OWNER_HALF -0.01");
     }
 }

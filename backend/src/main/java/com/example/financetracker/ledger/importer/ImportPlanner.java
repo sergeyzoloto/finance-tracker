@@ -143,8 +143,12 @@ final class ImportPlanner {
     record Family(List<FamilyItem> items, List<String> warnings) implements Planned {
     }
 
-    /** A row the decisions leave out (D-84). */
-    record NotImported(String reason, List<String> warnings) implements Planned {
+    /**
+     * A row the decisions leave out (D-84).
+     *
+     * @param carried the row's date, currency and amount, for D-169's reconciliation
+     */
+    record NotImported(String reason, Reconciler.Carried carried, List<String> warnings) implements Planned {
     }
 
     record Skipped(String reason, List<String> warnings) implements Planned {
@@ -333,7 +337,8 @@ final class ImportPlanner {
         boolean lowersTheDebt = debt.signum() < 0;
         if (currency.equals(CARRIED_CURRENCY) && lowersTheDebt && category.type() == CategoryType.INCOME
                 && CARRIED_BY_THE_PARTNER.contains(category.code())) {
-            return new NotImported("an income on FAMILY_DEBT that the partner's family rows carry (D-84)", warnings);
+            return new NotImported("an income on FAMILY_DEBT that the partner's family rows carry (D-84)",
+                    new Reconciler.Carried(row.date(), currency, debt.negate()), warnings);
         }
         String type;
         boolean refund = false;
@@ -447,6 +452,19 @@ final class ImportPlanner {
     }
 
     // --- The partner's family rows -----------------------------------------------------------------------------------
+
+    /**
+     * D-169: a partner's family income that the owner's D-84 rows carry the other half of (BENEFIT, OTHERINC, CASHBACK
+     * in EUR), as its date, currency and amount; null for any other row.
+     */
+    Reconciler.Carried carried(PartnerRow row) {
+        CategoryRow category = categoriesByName.get(row.item());
+        if (row.expense() || row.amount().signum() <= 0 || category == null
+                || !CARRIED_BY_THE_PARTNER.contains(category.code()) || !row.currency().equals(CARRIED_CURRENCY)) {
+            return null;
+        }
+        return new Reconciler.Carried(row.date(), row.currency(), row.amount());
+    }
 
     Planned partner(PartnerRow row) {
         if (row.amount().signum() == 0) {

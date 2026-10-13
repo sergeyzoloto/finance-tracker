@@ -124,6 +124,10 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(reconciliation.get("withoutFamilyRows").get(0).get("ok").asBoolean()).isTrue();
         assertThat(reconciliation.get("explained").findValuesAsText("reason")).contains("SHARES", "MINOR_UNIT",
                 "FOUR_DECIMALS");
+        // D-169: the owner's D-84 row of February is exactly half of the partner's benefit.
+        assertThat(reconciliation.get("ownerHalf")).isEqualTo(Answers.json("""
+                [{"month": "2024-02-01", "currency": "EUR", "ownerRows": "30.00", "partnerIncomes": "60.00", "incomes": 1,
+                  "ownerHalf": "0.00", "explained": true}]"""));
         assertThat(report.get("integrityViolations")).isEmpty();
 
         assertThat(entries()).isZero();

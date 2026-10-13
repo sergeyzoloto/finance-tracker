@@ -19,6 +19,11 @@ record Drift(String code, String currency, LocalDate date, BigDecimal amount, Re
         /** D-74, D-83: an amount rounded half up to the currency's minor unit, where Excel keeps more decimals. */
         MINOR_UNIT,
         /** An amount rounded half up to the 4 decimals a posting holds (an agent's choice, D3b). */
-        FOUR_DECIMALS
+        FOUR_DECIMALS,
+        /**
+         * D-169: the owner's D-84 rows of a month, typed by hand as half of the partner's family incomes rounded to a
+         * cent, less that exact half; within half a cent per income.
+         */
+        OWNER_HALF
     }
 }

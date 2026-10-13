@@ -129,11 +129,23 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
      * @param withoutFamilyRows D-147's currencies, with the app's and Excel's FAMILY_DEBT at the last compared point
      * @param explained per account, currency and rule, the explained difference at the last compared point
      * @param appOnly the app's accounts with a balance and no column in Excel (FX_EXCHANGE and the like aren't listed)
+     * @param ownerHalf D-169's months, explained or not
      */
     public record Reconciliation(boolean passed, LocalDate cutoff, LocalDate tailFrom, int pointsCompared,
             LocalDate lastCompared, List<ReconciliationLine> lines, List<ReconciliationPoint> failures,
             List<ReconciliationPoint> tail, List<CurrencyWithoutFamilyRows> withoutFamilyRows,
-            List<ExplainedAmount> explained, List<String> appOnly) {
+            List<ExplainedAmount> explained, List<String> appOnly, List<OwnerHalf> ownerHalf) {
+    }
+
+    /**
+     * D-169, per month and currency: the owner's D-84 rows less half of the partner's family incomes they carry,
+     * exactly; explained when within half a cent per income, otherwise left unexplained, whole.
+     *
+     * @param month the month's first day
+     * @param incomes how many of the partner's family incomes the month has
+     */
+    public record OwnerHalf(LocalDate month, String currency, BigDecimal ownerRows, BigDecimal partnerIncomes,
+            int incomes, BigDecimal ownerHalf, boolean explained) {
     }
 
     /**

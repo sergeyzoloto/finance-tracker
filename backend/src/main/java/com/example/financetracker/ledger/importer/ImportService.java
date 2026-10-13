@@ -275,6 +275,9 @@ public class ImportService {
         private final List<RowRef> missing = new ArrayList<>();
         private final List<FxRow> fxRows = new ArrayList<>();
         private final List<Drift> drift = new ArrayList<>();
+        /** D-169: the owner's D-84 rows and the partner's family incomes they carry. */
+        private final List<Reconciler.Carried> carriedByTheOwner = new ArrayList<>();
+        private final List<Reconciler.Carried> carriedByThePartner = new ArrayList<>();
         private final Set<String> currencies = new TreeSet<>();
         private final Set<String> familyCurrencies = new TreeSet<>();
         private LocalDate from;
@@ -412,6 +415,7 @@ public class ImportService {
                     case ImportPlanner.Family f -> f.items().forEach(item -> importFamily(file, item));
                     case ImportPlanner.NotImported n -> {
                         tally(Source.OWNER_SEAT, "INCOME").notImported++;
+                        carriedByTheOwner.add(n.carried());
                         skipped.add(new Problem(file, row.row(), id(row.id()), n.reason()));
                     }
                     case ImportPlanner.Skipped s -> {
@@ -429,7 +433,13 @@ public class ImportService {
                 PartnerRow row = e.getKey();
                 String file = partnerRows.file().name();
                 switch (e.getValue()) {
-                    case ImportPlanner.Family f -> f.items().forEach(item -> importFamily(file, item));
+                    case ImportPlanner.Family f -> {
+                        f.items().forEach(item -> importFamily(file, item));
+                        Reconciler.Carried carried = planner.carried(row);
+                        if (carried != null) {
+                            carriedByThePartner.add(carried);
+                        }
+                    }
                     case ImportPlanner.Skipped s -> {
                         tally(Source.PARTNER, "ZERO").skipped++;
                         skipped.add(new Problem(file, row.row(), id(row.id()), s.reason()));
@@ -449,9 +459,12 @@ public class ImportService {
             Set<String> comparedCodes = accountRows.rows().stream().map(AccountRow::code).collect(Collectors.toSet());
             LocalDate older = Stream.of(ownerLatest, partnerLatest).filter(d -> d != null).min(LocalDate::compareTo)
                     .orElse(null);
+            // D-169: the owner's hand-rounded halves of the partner's incomes that D-84 leaves out.
+            Reconciler.OwnerHalves ownerHalves = Reconciler.ownerHalf(carriedByTheOwner, carriedByThePartner);
+            drift.addAll(ownerHalves.drift());
             ImportReport.Reconciliation reconciliation = balance.isEmpty() || cutoff == null ? null
                     : Reconciler.reconcile(appBalances(personal), balance, drift, familyCurrencies, comparedCodes,
-                            cutoff, older.withDayOfMonth(1));
+                            cutoff, older.withDayOfMonth(1), ownerHalves.months());
             if (reconciliation != null) {
                 reconciliation.appOnly().forEach(a -> warnings.add(new Problem(null, null,
                         "an account of the app has a balance and no column in the daily balance file")));

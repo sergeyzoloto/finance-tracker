@@ -164,6 +164,97 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(externalRefs()).hasSize(23);
     }
 
+    private JsonNode runUpTo(byte[] transactions, String upTo) throws IOException {
+        return ok(importExport(owner, transactions, partnerRows(), family, seat, upTo, "false"));
+    }
+
+    /** The owner's imported entries and the family budget's live records dated after the day. */
+    private long importedAfter(String day) {
+        return jdbc.sql("""
+                SELECT (SELECT count(*) FROM journal_entry e JOIN ledger_member m ON m.ledger_id = e.ledger_id
+                        WHERE m.user_sub = :owner AND e.external_ref LIKE 'xls:%' AND e.entry_date > :day::date)
+                     + (SELECT count(*) FROM family_record WHERE ledger_id = :family AND external_ref IS NOT NULL
+                        AND deleted_at IS NULL AND record_date > :day::date)""")
+                .param("owner", owner).param("family", family).param("day", day).query(Long.class).single();
+    }
+
+    private static String afterCutoff(JsonNode report) {
+        return StreamSupport.stream(report.get("afterCutoff").spliterator(), false)
+                .map(c -> c.get("source").asText() + " " + c.get("afterCutoff").asInt() + "/" + c.get("rows").asInt())
+                .collect(java.util.stream.Collectors.joining(", "));
+    }
+
+    /**
+     * D-165: rows of either file dated after "Import up to" are neither imported nor missing, the reconciliation stops
+     * at it, and an import up to a later date adds exactly the newer rows.
+     */
+    @Test
+    void importUpToADateAndLaterUpToALaterOne() throws IOException {
+        JsonNode january = runUpTo(bytes("transactions.csv"), "2024-01-31");
+        assertThat(january.get("outcome").asText()).isEqualTo("COMMITTED");
+        assertThat(january.get("errors")).isEmpty();
+        assertThat(january.get("upTo").asText()).isEqualTo("2024-01-31");
+        // The owner's 3 rows of February and March, and all 7 of the partner's rows that D-140's filter uploads.
+        assertThat(afterCutoff(january)).isEqualTo("OWNER 3/25, PARTNER 7/7");
+        assertThat(january.get("totals").get("missing").asInt()).isZero();
+        // The rows imported end before the date: the last of them is of 2024-01-24.
+        assertThat(january.get("period").get("to").asText()).isEqualTo("2024-01-24");
+        JsonNode reconciliation = january.get("reconciliation");
+        // Every month-end up to the date agrees; but the dollar family debt is still open on 2024-01-31 (row 16 settles
+        // it on 2024-02-05), so D-147's check at the last compared point (D-157) says so, as it would in Excel's month.
+        assertThat(reconciliation.get("failures")).isEmpty();
+        assertThat(reconciliation.get("withoutFamilyRows")).isEqualTo(Answers.json("""
+                [{"currency": "USD", "appFamilyDebt": "10.00", "excelFamilyDebt": "22.35", "ok": false}]"""));
+        assertThat(reconciliation.get("passed").asBoolean()).isFalse();
+        assertThat(reconciliation.get("cutoff").asText()).isEqualTo("2024-01-31");
+        assertThat(reconciliation.get("lastCompared").asText()).isEqualTo("2024-01-31");
+        assertThat(reconciliation.get("pointsCompared").asInt()).isEqualTo(2 * reconciliation.get("lines").size());
+        assertThat(importedAfter("2024-01-31")).isZero();
+        int createdInJanuary = january.get("totals").get("created").asInt();
+
+        // The same date again: nothing new, and the rows after it aren't missing.
+        JsonNode again = runUpTo(bytes("transactions.csv"), "2024-01-31");
+        assertThat(again.get("totals")).isEqualTo(Answers.json("""
+                {"created": 0, "updated": 0, "unchanged": %d, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 2,
+                 "notImported": 0}""".formatted(createdInJanuary)));
+
+        // A later date adds exactly the rows up to it.
+        JsonNode february = runUpTo(bytes("transactions.csv"), "2024-02-29");
+        assertThat(afterCutoff(february)).isEqualTo("OWNER 1/25, PARTNER 1/7");
+        assertThat(february.get("totals").get("updated").asInt()).isZero();
+        assertThat(february.get("totals").get("unchanged").asInt()).isEqualTo(createdInJanuary);
+        assertThat(february.get("totals").get("missing").asInt()).isZero();
+        assertThat(february.get("reconciliation").get("lastCompared").asText()).isEqualTo("2024-02-29");
+        assertThat(february.get("reconciliation").get("passed").asBoolean()).isTrue();
+        assertThat(importedAfter("2024-02-29")).isZero();
+        assertThat(importedAfter("2024-01-31")).isEqualTo(february.get("totals").get("created").asLong());
+
+        // Empty: everything, as before D-165; the whole export is then imported once.
+        JsonNode all = run("false");
+        assertThat(all.get("upTo").isNull()).isTrue();
+        assertThat(all.get("afterCutoff")).isEmpty();
+        assertThat(all.get("totals").get("updated").asInt()).isZero();
+        assertThat(all.get("totals").get("missing").asInt()).isZero();
+        assertThat(createdInJanuary + february.get("totals").get("created").asInt()
+                + all.get("totals").get("created").asInt()).isEqualTo(CREATED);
+        assertThat(all.get("totals").get("unchanged").asInt()).isEqualTo(CREATED - all.get("totals").get("created")
+                .asInt());
+        assertThat(externalRefs()).hasSize(23);
+        assertThat(all.get("reconciliation").get("passed").asBoolean()).isTrue();
+
+        // An earlier date after that leaves the newer rows alone: neither missing nor changed, even one gone from the
+        // file whose stored date is after it.
+        JsonNode earlier = runUpTo(withoutRows(bytes("transactions.csv"), Set.of("25")), "2024-01-31");
+        assertThat(earlier.get("totals")).isEqualTo(Answers.json("""
+                {"created": 0, "updated": 0, "unchanged": %d, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 2,
+                 "notImported": 0}""".formatted(createdInJanuary)));
+        assertThat(externalRefs()).hasSize(23);
+        assertThat(entryOf("xls:25")).isNotNull();
+        // Without the date, the row gone from the file is missing again (D-138).
+        assertThat(refs(run(withoutRows(bytes("transactions.csv"), Set.of("25")), partnerRows(), "true")
+                .get("missing"))).containsExactly("OWNER_PERSONAL 25");
+    }
+
     /**
      * D-139: an edited row is written over the way the app changes it, unless it changed in the app since its last
      * import; that is a conflict, left alone, and the commit still runs.

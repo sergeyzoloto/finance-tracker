@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.AccountType;
@@ -308,6 +309,13 @@ final class Workbook {
 
         ImportFile file() {
             return file;
+        }
+
+        /** Takes the rows that match out of {@link #rows()} (D-165's rows after the cutoff), and says how many. */
+        int removeRows(Predicate<T> which) {
+            int before = rows.size();
+            rows.removeIf(which);
+            return before - rows.size();
         }
 
         List<T> rows() {

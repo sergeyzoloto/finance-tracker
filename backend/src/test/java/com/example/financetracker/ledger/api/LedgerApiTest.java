@@ -171,6 +171,12 @@ abstract class LedgerApiTest extends IntegrationTest {
      */
     protected MvcTestResult importExport(String user, byte[] transactions, byte[] partner, Long ledger, Long seat,
             String dryRun) throws IOException {
+        return importExport(user, transactions, partner, ledger, seat, null, dryRun);
+    }
+
+    /** The synthetic export through POST /api/import, "up to" a date (D-165) where one is given. */
+    protected MvcTestResult importExport(String user, byte[] transactions, byte[] partner, Long ledger, Long seat,
+            String upTo, String dryRun) throws IOException {
         var request = mvc.post().uri("/api/import").multipart()
                 .file(new MockMultipartFile("accounts", "accounts.csv", "text/csv", fixture("accounts.csv")))
                 .file(new MockMultipartFile("categories", "categories.csv", "text/csv", fixture("categories.csv")))
@@ -185,6 +191,9 @@ abstract class LedgerApiTest extends IntegrationTest {
         }
         if (ledger != null) {
             request.param("familyLedgerId", ledger.toString()).param("seatMemberId", seat.toString());
+        }
+        if (upTo != null) {
+            request.param("upTo", upTo);
         }
         if (dryRun != null) {
             request.param("dryRun", dryRun);

@@ -1,6 +1,7 @@
 package com.example.financetracker.ledger.api;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.Objects;
 
 import com.example.financetracker.ledger.access.LedgerScope;
@@ -8,6 +9,7 @@ import com.example.financetracker.ledger.importer.ImportFile;
 import com.example.financetracker.ledger.importer.ImportReport;
 import com.example.financetracker.ledger.importer.ImportRequest;
 import com.example.financetracker.ledger.importer.ImportService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -53,6 +55,8 @@ class ImportController {
      *        and an item; any other column or row refuses the whole request (422). Needs {@code familyLedgerId}
      * @param familyLedgerId the family budget the family rows go into; another user's answers 404
      * @param seatMemberId the partner's seat in it, a member without an account; with {@code familyLedgerId}
+     * @param upTo "Import up to" (D-165), yyyy-MM-dd: rows of either transactions file dated after it are neither
+     *        imported nor missing, and the reconciliation stops at it; empty for none
      * @param dryRun false to commit
      */
     @PostMapping(path = "/api/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -61,11 +65,12 @@ class ImportController {
             @RequestPart MultipartFile dailyBalance, @RequestPart MultipartFile dailyChange,
             @RequestPart(required = false) MultipartFile partnerTransactions,
             @RequestParam(required = false) Long familyLedgerId, @RequestParam(required = false) Long seatMemberId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate upTo,
             @RequestParam(defaultValue = "true") boolean dryRun) throws IOException {
         return imports.run(ledger, new ImportRequest(file(accounts), file(categories), file(transactions),
                 file(dailyBalance), file(dailyChange),
                 partnerTransactions == null ? null : new ImportFile(PARTNER_FILE, partnerTransactions.getBytes()),
-                familyLedgerId, seatMemberId, !dryRun));
+                familyLedgerId, seatMemberId, upTo, !dryRun));
     }
 
     /** The file with its name as the browser sent it, without a path, for the report and the import batch. */

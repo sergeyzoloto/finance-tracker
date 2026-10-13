@@ -145,4 +145,31 @@ class WorkbookTests {
         assertThat(Set.of(DailyFile.read(csv("b.csv", "Month;Year;Date;CASH_EUR\r\n12;2023;31.12.2023;5\r\n"), null,
                 errors).accountColumns().keySet())).containsExactly(Set.of("CASH_EUR"));
     }
+
+    @Test
+    void aDailyFileWithAnExponentOfZeroOrMoreIsRefusedNamingColumnsAndCountsOnly() {
+        // D-168: Excel writes 6.90E+02 only for a cell formatted as scientific, whose digits are lost.
+        List<Problem> errors = new java.util.ArrayList<>();
+        DailyFile file = DailyFile.read(csv("b.csv", "Date;CASH_EUR;CASH_RUB;PL_family_Sam_EUR\r\n"
+                + "30.12.2023;6.90E+02;1;0.00E+00\r\n"
+                + "31.12.2023;1.5e3;0.00E+00;2\r\n"
+                + "01.01.2027;7E1;1;2\r\n"), LocalDate.of(2023, 12, 31), errors);
+        assertThat(file.isEmpty()).isTrue();
+        assertThat(errors).extracting(Problem::message).containsExactly("5 cell(s) in scientific notation with an "
+                + "exponent of zero or more, whose digits Excel's scientific format has lost (D-168), in the columns "
+                + "CASH_EUR, CASH_RUB, PL_family_…_EUR: format them as numbers and export again");
+        assertThat(errors.getFirst().row()).isNull();
+        // The partner's name in a lump's column, and no value, is ever in the message (D-143).
+        assertThat(errors.getFirst().message()).doesNotContain("Sam").doesNotContain("6.90").doesNotContain("1.5");
+    }
+
+    @Test
+    void aNegativeExponentIsAResidueAndIsRead() {
+        List<Problem> errors = new java.util.ArrayList<>();
+        DailyFile file = DailyFile.read(csv("b.csv", "Date;CASH_EUR;CASH_RUB\r\n"
+                + "31.12.2023;1.13687E-12;-1.42109E-14\r\n"), null, errors);
+        assertThat(errors).isEmpty();
+        assertThat(file.value(LocalDate.of(2023, 12, 31), "CASH_EUR"))
+                .isEqualByComparingTo(new BigDecimal("0.00000000000113687"));
+    }
 }

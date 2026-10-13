@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.importer;
 
+import java.time.LocalDate;
 import java.util.Objects;
 
 /**
@@ -11,11 +12,13 @@ import java.util.Objects;
  * @param partnerTransactions the partner's family rows, as the import page filters them (D-140); null without them
  * @param familyLedgerId the family budget the family rows go into (D-141); null for a ledger without family rows
  * @param seatMemberId the partner's seat in it, a member without an account (D-141); with {@code familyLedgerId}
+ * @param upTo "Import up to" (D-165): rows of either transactions file dated after it are not imported, and the
+ *        daily files are read up to it; null for no such date
  * @param commit false for a dry run, which rolls everything back
  */
 public record ImportRequest(ImportFile accounts, ImportFile categories, ImportFile transactions,
         ImportFile dailyBalance, ImportFile dailyChange, ImportFile partnerTransactions, Long familyLedgerId,
-        Long seatMemberId, boolean commit) {
+        Long seatMemberId, LocalDate upTo, boolean commit) {
 
     public ImportRequest {
         Objects.requireNonNull(accounts, "accounts");

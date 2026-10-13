@@ -23,7 +23,9 @@ import com.example.financetracker.ledger.importer.ImportReport.Problem;
  * which are found by their prefix and never by the name between (D-64, D-143), and the partner's Month and Year, which
  * are ignored. Cells are decimals, with Excel's floating-point residues in scientific notation (-1.42109E-14) read
  * exactly; an empty cell is 0. Rows dated after the cutoff, the latest transaction of both ledgers, are neither read
- * nor shown (D-146): the files run on with padding to the end of the next year.
+ * nor shown (D-146): the files run on with padding to the end of the next year. A value in scientific notation with
+ * an exponent of zero or more (6.90E+02, 0.00E+00) refuses the whole file (D-168): Excel writes one only for a cell
+ * formatted as scientific, which has lost its digits; a negative exponent is a residue and is read.
  *
  * @param values by date, then by column; a column that appears twice adds up
  */
@@ -34,14 +36,17 @@ record DailyFile(ImportFile file, List<String> columns, NavigableMap<LocalDate, 
     static final String LUMP_PREFIX = "PL_family_";
     private static final Set<String> IGNORED = Set.of("Month", "Year");
     private static final Pattern ACCOUNT = Pattern.compile("(.+)_([A-Z]{3})");
+    /** D-168: an exponent of zero or more, which only a cell formatted as scientific has. */
+    private static final Pattern SCIENTIFIC = Pattern.compile("[eE]\\+?\\d");
 
     /** A column's account code (with typos fixed, {@link Workbook#code}) and currency. */
     record Column(String code, String currency) {
     }
 
     /**
-     * Reads the file up to the cutoff. A file that can't be read, a column of another shape and a cell that isn't a
-     * number are errors, and leave the file empty; no error holds a value of the file.
+     * Reads the file up to the cutoff. A file that can't be read, a column of another shape, a cell that isn't a
+     * number and any cell, before or after the cutoff, in scientific notation with an exponent of zero or more (D-168)
+     * are errors, and leave the file empty; no error holds a value of the file.
      */
     static DailyFile read(ImportFile file, LocalDate cutoff, List<Problem> errors) {
         CsvTable table = CsvTable.read(file, List.of(DATE));
@@ -61,6 +66,24 @@ record DailyFile(ImportFile file, List<String> columns, NavigableMap<LocalDate, 
                             + "currency (CODE_CUR)"));
                 }
                 columns.add(column);
+            }
+        }
+        if (problems.isEmpty()) {
+            // D-168: the column codes and how many cells, never a value.
+            Map<String, Integer> scientific = new TreeMap<>();
+            for (CsvTable.Row row : table.rows()) {
+                for (String column : columns) {
+                    if (SCIENTIFIC.matcher(row.get(column)).find()) {
+                        scientific.merge(shown(column), 1, Integer::sum);
+                    }
+                }
+            }
+            if (!scientific.isEmpty()) {
+                int cells = scientific.values().stream().mapToInt(Integer::intValue).sum();
+                problems.add(new Problem(file.name(), null, ("%d cell(s) in scientific notation with an exponent of "
+                        + "zero or more, whose digits Excel's scientific format has lost (D-168), in the columns %s: "
+                        + "format them as numbers and export again").formatted(cells,
+                                String.join(", ", scientific.keySet()))));
             }
         }
         if (problems.isEmpty()) {
@@ -96,6 +119,15 @@ record DailyFile(ImportFile file, List<String> columns, NavigableMap<LocalDate, 
         errors.addAll(problems);
         return problems.isEmpty() ? new DailyFile(file, List.copyOf(columns), Collections.unmodifiableNavigableMap(values))
                 : new DailyFile(file, List.of(), Collections.emptyNavigableMap());
+    }
+
+    /** A column as a message may name it: a lump's by its prefix and currency only, never the name between (D-143). */
+    static String shown(String column) {
+        if (!column.startsWith(LUMP_PREFIX)) {
+            return column;
+        }
+        Matcher matcher = ACCOUNT.matcher(column);
+        return LUMP_PREFIX + "…_" + (matcher.matches() ? matcher.group(2) : "…");
     }
 
     /** The account columns, by column, with the lumps left out. */

@@ -163,25 +163,85 @@ public class ImportService {
         Sheet<AccountRow> accountRows = Workbook.accounts(request.accounts());
         Sheet<CategoryRow> categoryRows = Workbook.categories(request.categories());
         Sheet<TransactionRow> transactionRows = Workbook.transactions(request.transactions());
-        // D-146: the daily files are read up to the latest transaction of both files.
+        // D-146: the daily files are read up to the latest transaction of both files, and D-69's tail starts in the
+        // older one's month; both from every row of the files, the rows after "Import up to" included.
         LocalDate ownerLatest = transactionRows.rows().stream().map(TransactionRow::date).max(LocalDate::compareTo)
                 .orElse(null);
         LocalDate partnerLatest = partnerRows == null ? null : partnerRows.rows().stream().map(PartnerRow::date)
                 .max(LocalDate::compareTo).orElse(null);
-        LocalDate cutoff = Stream.of(ownerLatest, partnerLatest).filter(d -> d != null).max(LocalDate::compareTo)
+        LocalDate partnerFirst = partnerRows == null ? null : partnerRows.rows().stream().map(PartnerRow::date)
+                .min(LocalDate::compareTo).orElse(null);
+        LocalDate latest = Stream.of(ownerLatest, partnerLatest).filter(d -> d != null).max(LocalDate::compareTo)
                 .orElse(null);
+        // D-165: the rows after "Import up to" are left out, and the daily files and the reconciliation stop at it.
+        LocalDate upTo = request.upTo();
+        AfterCutoff after = upTo == null ? AfterCutoff.NONE : AfterCutoff.cut(upTo, transactionRows, partnerRows);
+        LocalDate cutoff = upTo != null && latest != null && upTo.isBefore(latest) ? upTo : latest;
         List<Problem> dailyErrors = new ArrayList<>();
         DailyFile balance = DailyFile.read(request.dailyBalance(), cutoff, dailyErrors);
         DailyFile change = DailyFile.read(request.dailyChange(), cutoff, dailyErrors);
         return transaction.execute(status -> {
             Run run = new Run(personal, request, startedAt);
             ImportReport report = run.execute(accountRows, categoryRows, transactionRows, partnerRows, balance, change,
-                    dailyErrors, ownerLatest, partnerLatest, cutoff);
+                    dailyErrors, ownerLatest, partnerLatest, partnerFirst, cutoff, after);
             if (report.outcome() != Outcome.COMMITTED) {
                 status.setRollbackOnly();
             }
             return report;
         });
+    }
+
+    /** The Excel IDs of the rows dated after {@code upTo}. */
+    private static <T> Set<Long> ids(List<T> rows, Function<T, LocalDate> date, Function<T, Long> id, LocalDate upTo) {
+        return rows.stream().filter(row -> date.apply(row).isAfter(upTo)).map(id).collect(Collectors.toSet());
+    }
+
+    /**
+     * D-165: "Import up to" and the rows of each transactions file after it, by Excel ID, which are neither imported
+     * nor missing (D-138).
+     */
+    private record AfterCutoff(LocalDate upTo, Set<Long> owner, Set<Long> partner, int ownerRead, int partnerRead) {
+
+        static final AfterCutoff NONE = new AfterCutoff(null, Set.of(), Set.of(), 0, 0);
+
+        /** Takes the rows after {@code upTo} out of both files, and keeps their IDs. */
+        static AfterCutoff cut(LocalDate upTo, Sheet<TransactionRow> owner, Sheet<PartnerRow> partner) {
+            Set<Long> ownerIds = ids(owner.rows(), TransactionRow::date, TransactionRow::id, upTo);
+            Set<Long> partnerIds = partner == null ? Set.of()
+                    : ids(partner.rows(), PartnerRow::date, PartnerRow::id, upTo);
+            int ownerRead = owner.rows().size();
+            int partnerRead = partner == null ? 0 : partner.rows().size();
+            owner.removeRows(row -> row.date().isAfter(upTo));
+            if (partner != null) {
+                partner.removeRows(row -> row.date().isAfter(upTo));
+            }
+            return new AfterCutoff(upTo, ownerIds, partnerIds, ownerRead, partnerRead);
+        }
+
+        /** Whether a row known from an earlier import is left alone: dated after the date, or a row of the files that is. */
+        boolean leftAlone(Set<Long> ids, String excelId, LocalDate stored) {
+            if (upTo == null) {
+                return false;
+            }
+            if (stored != null && stored.isAfter(upTo)) {
+                return true;
+            }
+            int end = excelId.indexOf(':');
+            String id = end < 0 ? excelId : excelId.substring(0, end);
+            return id.matches("[0-9]{1,18}") && ids.contains(Long.parseLong(id));
+        }
+
+        List<ImportReport.AfterCutoff> counts(boolean partnerRead) {
+            if (upTo == null) {
+                return List.of();
+            }
+            List<ImportReport.AfterCutoff> counts = new ArrayList<>(List.of(
+                    new ImportReport.AfterCutoff("OWNER", ownerRead, owner.size())));
+            if (partnerRead) {
+                counts.add(new ImportReport.AfterCutoff(Source.PARTNER.name(), this.partnerRead, partner.size()));
+            }
+            return counts;
+        }
     }
 
     /** What happened to the rows of one source and kind. */
@@ -248,7 +308,7 @@ public class ImportService {
         ImportReport execute(Sheet<AccountRow> accountRows, Sheet<CategoryRow> categoryRows,
                 Sheet<TransactionRow> transactionRows, Sheet<PartnerRow> partnerRows, DailyFile balance,
                 DailyFile change, List<Problem> dailyErrors, LocalDate ownerLatest, LocalDate partnerLatest,
-                LocalDate cutoff) {
+                LocalDate partnerFirst, LocalDate cutoff, AfterCutoff after) {
             read("accounts", accountRows);
             read("categories", categoryRows);
             read("transactions", transactionRows);
@@ -286,9 +346,8 @@ public class ImportService {
                     period(row.date());
                 }
             }
-            List<RecordSpec> lumps = family != null && partnerLatest != null
-                    ? planner.lumps(change, partnerRows.rows().stream().map(PartnerRow::date)
-                            .min(LocalDate::compareTo).orElseThrow())
+            // D-83's months before the partner's first family row, whatever "Import up to" leaves out (D-165).
+            List<RecordSpec> lumps = family != null && partnerFirst != null ? planner.lumps(change, partnerFirst)
                     : List.of();
             List<FamilyItem> familyItems = new ArrayList<>();
             owner.forEach(e -> {
@@ -323,7 +382,7 @@ public class ImportService {
             if (family != null) {
                 familyKnown = familySync.known(family.scope(), familyItems.stream().map(FamilyItem::ref).toList());
             }
-            findMissing(transactionRows, familyItems, partnerRows != null);
+            findMissing(transactionRows, familyItems, partnerRows != null, after);
             ImportFile transactionsFile = transactionRows.file();
             batchId = batches.save(new ImportBatch(null, personal.userId(), personal.ledgerId(),
                     transactionsFile.name(), transactionsFile.sha256(), !commit, null, null, null)).id();
@@ -401,6 +460,7 @@ public class ImportService {
             Outcome outcome = !commit ? Outcome.DRY_RUN : errors.isEmpty() ? Outcome.COMMITTED : Outcome.ABORTED;
             ImportReport report = new ImportReport(personal.userId(), commit, outcome, startedAt, files,
                     family == null ? null : family.target(), from == null ? null : new Period(from, to),
+                    after.upTo(), after.counts(partnerRows != null),
                     List.copyOf(currencies), counts(), totals(), missing, conflicts, errors, warnings,
                     distinct(errors), distinct(warnings), distinct(skipped),
                     new ReferenceCounts(accountsCreated, accountsUpdated, categoriesCreated, categoriesUpdated,
@@ -585,11 +645,12 @@ public class ImportService {
         // --- What the ledgers hold from earlier imports (D-138, D-139, D-150) --------------------------------------
 
         private void findMissing(Sheet<TransactionRow> transactionRows, List<FamilyItem> familyItems,
-                boolean partnerRead) {
+                boolean partnerRead, AfterCutoff after) {
             Set<String> personalRefs = transactionRows.rows().stream().map(r -> EntryMapper.reference(r.id()))
                     .collect(Collectors.toSet());
             personalKnown.forEach((ref, known) -> {
-                if (known.hash() != null && ref.matches("xls:[0-9]+") && !personalRefs.contains(ref)) {
+                if (known.hash() != null && ref.matches("xls:[0-9]+") && !personalRefs.contains(ref)
+                        && !after.leftAlone(after.owner(), ref.substring(4), known.date())) {
                     missing.add(new RowRef(Source.OWNER_PERSONAL.name(), ref.substring(4),
                             "no longer in the owner's transactions file (D-138)"));
                 }
@@ -604,12 +665,15 @@ public class ImportService {
             }
             for (long seat : seats) {
                 String prefix = "xls:" + seat + ":";
-                for (String ref : liveFamilyRefs(family.scope(), prefix)) {
-                    if (!familyRefs.contains(ref)) {
-                        missing.add(new RowRef(seat == family.target().ownerMemberId() ? "OWNER" : Source.PARTNER.name(),
-                                ref.substring(prefix.length()), "no longer in the files (D-138)"));
+                boolean owners = seat == family.target().ownerMemberId();
+                liveFamilyRefs(family.scope(), prefix).forEach((ref, date) -> {
+                    String excelId = ref.substring(prefix.length());
+                    if (!familyRefs.contains(ref)
+                            && !after.leftAlone(owners ? after.owner() : after.partner(), excelId, date)) {
+                        missing.add(new RowRef(owners ? "OWNER" : Source.PARTNER.name(), excelId,
+                                "no longer in the files (D-138)"));
                     }
-                }
+                });
             }
         }
 
@@ -945,18 +1009,20 @@ public class ImportService {
     }
 
     /** An entry an earlier import wrote: its id, the hash and version it left, and its version now. */
-    private record PersonalKnown(long id, String hash, int importVersion, int version) {
+    private record PersonalKnown(long id, String hash, int importVersion, int version, LocalDate date) {
     }
 
     private Map<String, PersonalKnown> personalKnown(LedgerScope personal) {
         Map<String, PersonalKnown> known = new HashMap<>();
         jdbc.sql("""
-                SELECT id, external_ref, import_hash, coalesce(import_version, -1) AS import_version, version
+                SELECT id, external_ref, import_hash, coalesce(import_version, -1) AS import_version, version,
+                       entry_date
                 FROM journal_entry WHERE ledger_id = :ledgerId AND external_ref IS NOT NULL""")
                 .param("ledgerId", personal.ledgerId())
                 .query(row -> {
                     known.put(row.getString("external_ref"), new PersonalKnown(row.getLong("id"),
-                            row.getString("import_hash"), row.getInt("import_version"), row.getInt("version")));
+                            row.getString("import_hash"), row.getInt("import_version"), row.getInt("version"),
+                            row.getObject("entry_date", LocalDate.class)));
                 });
         return known;
     }
@@ -966,12 +1032,17 @@ public class ImportService {
                 .param("ledgerId", personal.ledgerId()).query(String.class).list());
     }
 
-    /** The references of the live records of the family ledger with this prefix (a seat's, D-142). */
-    private List<String> liveFamilyRefs(LedgerScope family, String prefix) {
-        return jdbc.sql("""
-                SELECT external_ref FROM family_record
+    /** The references of the live records of the family ledger with this prefix (a seat's, D-142), with their dates. */
+    private Map<String, LocalDate> liveFamilyRefs(LedgerScope family, String prefix) {
+        Map<String, LocalDate> refs = new TreeMap<>();
+        jdbc.sql("""
+                SELECT external_ref, record_date FROM family_record
                 WHERE ledger_id = :ledgerId AND deleted_at IS NULL AND starts_with(external_ref, :prefix)""")
-                .param("ledgerId", family.ledgerId()).param("prefix", prefix).query(String.class).list();
+                .param("ledgerId", family.ledgerId()).param("prefix", prefix)
+                .query(row -> {
+                    refs.put(row.getString("external_ref"), row.getObject("record_date", LocalDate.class));
+                });
+        return refs;
     }
 
     /** D-139: what the entry's row held, and its version right after this write. */

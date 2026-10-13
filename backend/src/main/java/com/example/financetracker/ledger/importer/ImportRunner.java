@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Set;
 
@@ -32,7 +34,8 @@ import org.springframework.stereotype.Component;
  * sub has none yet, as it does on a user's first request; the family rows into the family budget and the partner's seat
  * that --family-ledger-id and --seat-member-id name (D-141), of which the sub is a member. The partner's transactions
  * file is filtered here as the import page filters it in the browser (D-140, {@link PartnerFilter}): only his family
- * rows, and of them only the columns the mapping needs.
+ * rows, and of them only the columns the mapping needs. --up-to=yyyy-MM-dd is "Import up to" (D-165): rows of either
+ * transactions file dated after it are not imported, and the reconciliation stops at it.
  */
 @Component
 @Profile("import")
@@ -42,12 +45,12 @@ class ImportRunner implements ApplicationRunner {
             Usage: --user-sub=<Keycloak sub> --accounts=<file> --categories=<file> --transactions=<file>
                    --daily-balance=<file> --daily-change=<file>
                    [--partner-transactions=<file> --family-ledger-id=<id> --seat-member-id=<id>]
-                   [--commit] [--report=<file>]
+                   [--up-to=yyyy-MM-dd] [--commit] [--report=<file>]
             Without --commit it is a dry run, which saves nothing.""";
 
     private static final Set<String> OPTIONS = Set.of("user-sub", "accounts", "categories", "transactions",
             "daily-balance", "daily-change", "partner-transactions", "family-ledger-id", "seat-member-id", "commit",
-            "report");
+            "report", "up-to");
 
     private final ImportService imports;
     private final LedgerAccess ledgers;
@@ -101,7 +104,7 @@ class ImportRunner implements ApplicationRunner {
             ImportRequest request = new ImportRequest(accounts, file(Path.of(value(args, "categories", true))),
                     file(transactions), file(Path.of(value(args, "daily-balance", true))),
                     file(Path.of(value(args, "daily-change", true))), partnerRows, number(familyLedgerId),
-                    number(seatMemberId), args.containsOption("commit"));
+                    number(seatMemberId), date(value(args, "up-to", false)), args.containsOption("commit"));
             ImportReport report = imports.run(ledgers.provisionPersonal(userSub), request);
             Files.writeString(reportFile, ImportReportMarkdown.render(report));
 
@@ -152,6 +155,15 @@ class ImportRunner implements ApplicationRunner {
             return value == null ? null : Long.valueOf(value);
         } catch (NumberFormatException e) {
             throw new UsageException("Not a number: " + value);
+        }
+    }
+
+    /** "Import up to" as yyyy-MM-dd (D-165). */
+    private static LocalDate date(String value) {
+        try {
+            return value == null ? null : LocalDate.parse(value);
+        } catch (DateTimeParseException e) {
+            throw new UsageException("--up-to is a date as yyyy-MM-dd: " + value);
         }
     }
 

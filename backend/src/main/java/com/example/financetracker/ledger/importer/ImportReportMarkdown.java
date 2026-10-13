@@ -34,6 +34,13 @@ public final class ImportReportMarkdown {
                     .append('\n');
         }
         md.append("- Currencies: ").append(String.join(", ", report.currencies())).append('\n');
+        if (report.upTo() != null) {
+            md.append("- Import up to: ").append(report.upTo()).append(" (D-165); rows after it, neither imported nor "
+                    + "missing:");
+            report.afterCutoff().forEach(c -> md.append(" %s %d of %d".formatted(c.source(), c.afterCutoff(),
+                    c.rows())));
+            md.append('\n');
+        }
         if (report.family() != null) {
             md.append("- Family budget %d, seat %d (the partner's)\n".formatted(report.family().ledgerId(),
                     report.family().seatMemberId()));

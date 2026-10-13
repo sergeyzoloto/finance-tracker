@@ -3,6 +3,7 @@ package com.example.financetracker.ledger.importer;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -42,9 +43,16 @@ public final class ImportFixtures {
 
     /** The whole synthetic export, for one run. */
     public static ImportRequest request(byte[] transactions, byte[] partner, Long ledger, Long seat, boolean commit) {
+        return request(transactions, partner, ledger, seat, null, commit);
+    }
+
+    /** The whole synthetic export, for one run "up to" a date (D-165). */
+    public static ImportRequest request(byte[] transactions, byte[] partner, Long ledger, Long seat, LocalDate upTo,
+            boolean commit) {
         return new ImportRequest(file("accounts.csv"), file("categories.csv"),
                 new ImportFile("transactions.csv", transactions), file("daily-balance.csv"), file("daily-change.csv"),
-                partner == null ? null : new ImportFile("partner-family-rows.csv", partner), ledger, seat, commit);
+                partner == null ? null : new ImportFile("partner-family-rows.csv", partner), ledger, seat, upTo,
+                commit);
     }
 
     /** The file with only the header and the rows whose first field, the ID, is one of these. */

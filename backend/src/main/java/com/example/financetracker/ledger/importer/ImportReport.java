@@ -12,7 +12,10 @@ import com.example.financetracker.ledger.report.IntegrityViolation;
  * the import page shows it. It names rows by their number and Excel ID; no message holds a value of a row.
  *
  * @param family the family budget and the partner's seat the family rows went into; null without one
- * @param period the first and the last date of the rows read
+ * @param period the first and the last date of the rows read (up to {@code upTo})
+ * @param upTo "Import up to" (D-165); null for none
+ * @param afterCutoff per transactions file (OWNER, PARTNER), the rows read and those dated after {@code upTo}, which
+ *        are neither imported nor missing (D-165); empty without {@code upTo}
  * @param currencies every currency of the rows read
  * @param counts per source and kind, what happened to its rows (D-139)
  * @param totals the sums of {@code counts}, with the missing rows (D-138)
@@ -25,7 +28,7 @@ import com.example.financetracker.ledger.report.IntegrityViolation;
  * @param integrityViolations {@code ReportService.integrityCheck} after the import; empty for a sound ledger
  */
 public record ImportReport(String userId, boolean commit, Outcome outcome, Instant startedAt, List<FileSummary> files,
-        FamilyTarget family, Period period, List<String> currencies, List<Count> counts, Totals totals,
+        FamilyTarget family, Period period, LocalDate upTo, List<AfterCutoff> afterCutoff, List<String> currencies, List<Count> counts, Totals totals,
         List<RowRef> missing, List<RowRef> conflicts, List<Problem> errors, List<Problem> warnings,
         List<MessageCount> errorSummary, List<MessageCount> warningSummary, List<MessageCount> skippedSummary,
         ReferenceCounts referenceData, int zeroFxRowsSkipped, List<FxRow> fxRowsToReview,
@@ -57,6 +60,14 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
     }
 
     public record Period(LocalDate from, LocalDate to) {
+    }
+
+    /**
+     * @param source OWNER for the owner's transactions file, PARTNER for the partner's family rows
+     * @param rows the file's rows that could be read
+     * @param afterCutoff those of them dated after "Import up to" (D-165)
+     */
+    public record AfterCutoff(String source, int rows, int afterCutoff) {
     }
 
     /**

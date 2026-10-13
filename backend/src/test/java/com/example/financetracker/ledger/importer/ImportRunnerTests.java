@@ -90,6 +90,19 @@ class ImportRunnerTests extends IntegrationTest {
     }
 
     @Test
+    void upToLeavesOutTheRowsAfterItAndSaysSo() throws IOException {
+        // D-165: the owner's 3 rows and the partner's 7 after 2024-01-31.
+        int exitCode = execute(args("--partner-transactions=" + dir.resolve("partner-transactions.csv"),
+                "--family-ledger-id=" + family, "--seat-member-id=" + seat, "--up-to=2024-01-31"));
+
+        assertThat(exitCode).isZero();
+        assertThat(Files.readString(dir.resolve("import-report.md")))
+                .contains("- Import up to: 2024-01-31 (D-165); rows after it, neither imported nor missing: OWNER 3 of "
+                        + "25 PARTNER 7 of 7\n")
+                .contains("| Missing from the files (D-138) | 0 |");
+    }
+
+    @Test
     void aCommitOfThePersonalRowsAloneExitsWithZero() throws IOException {
         Files.write(dir.resolve("transactions.csv"), ImportFixtures.onlyRows(bytes("transactions.csv"),
                 ImportFixtures.PERSONAL_IDS));
@@ -120,6 +133,10 @@ class ImportRunnerTests extends IntegrationTest {
         err.reset();
         assertThat(execute("--user-sub=" + user, "--opening-balances=a")).isEqualTo(1);
         assertThat(err.toString(StandardCharsets.UTF_8)).startsWith("Unknown option --opening-balances\n");
+
+        err.reset();
+        assertThat(execute(args("--up-to=31.08.2026"))).isEqualTo(1);
+        assertThat(err.toString(StandardCharsets.UTF_8)).startsWith("--up-to is a date as yyyy-MM-dd: 31.08.2026\n");
 
         err.reset();
         assertThat(execute(args("--family-ledger-id=" + family))).isEqualTo(1);

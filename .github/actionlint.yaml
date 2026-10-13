@@ -1,0 +1,5 @@
+# D-164: actionlint 1.7.7 doesn't know GitHub's ubuntu-26.04 runner, which ci-ubuntu-26.yml runs on (D-44); named here
+# so that it checks both workflow files and exits 0. Not a self-hosted runner: GitHub hosts it.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

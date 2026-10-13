@@ -26,7 +26,7 @@ const SOURCES: Record<string, string> = {
   PARTNER: 'The partner’s family rows', OWNER: 'Your rows',
 }
 
-interface Choice { files: Partial<Record<Part, File>>; ledgerId: string; seatId: string; partner?: File }
+interface Choice { files: Partial<Record<Part, File>>; ledgerId: string; seatId: string; partner?: File; upTo: string }
 
 /**
  * Imports the Excel export (D3b): your personal rows into your ledger, and, with a family budget and the partner’s
@@ -34,9 +34,13 @@ interface Choice { files: Partial<Record<Part, File>>; ledgerId: string; seatId:
  * only his family rows, and only what the import needs, are uploaded (D-140). A dry run first, which writes
  * everything, reconciles your balances with your daily balance file, reports and rolls back; then, if no row has an
  * error, the same files for real. Running it again recognises the rows by their IDs: nothing is written twice.
+ * “Import up to” leaves out the rows of either file dated after it, and the check stops there (D-165); Commit is only
+ * for the files, the budget and the date its dry run read.
  */
 export default function Import({ families }: { families?: FamilyLedger[] }) {
-  const [choice, setChoice] = useState<Choice>({ files: {}, ledgerId: '', seatId: '' })
+  const [choice, setChoice] = useState<Choice>({ files: {}, ledgerId: '', seatId: '', upTo: '' })
+  // The choice the report is about: Commit only for exactly what the dry run read.
+  const [reported, setReported] = useState<Choice>()
   const [upload, setUpload] = useState<PartnerUpload>()
   const [filterError, setFilterError] = useState<string>()
   const [report, setReport] = useState<ImportReport>()
@@ -48,7 +52,7 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   const ownerReady = OWNER_FILES.every((f) => choice.files[f.part])
   const familyReady = !family || (choice.seatId !== '' && upload !== undefined)
   const ready = ownerReady && familyReady && !filterError
-  const checked = report?.outcome === 'DRY_RUN'
+  const checked = report?.outcome === 'DRY_RUN' && reported === choice
   const canCommit = checked && report.errors.length === 0 && !pending
 
   function change(next: Choice) {
@@ -82,6 +86,7 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   }
 
   const send = (dryRun: boolean) => run(async () => {
+    const sent = choice
     const files = choice.files as Record<Part, File>
     const names = Object.fromEntries(OWNER_FILES.map(({ part }) => [part, files[part].name])) as Record<Part, string>
     const body = importForm(files as OwnerFiles, names, family ? upload : undefined)
@@ -90,7 +95,10 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
       query.set('familyLedgerId', choice.ledgerId)
       query.set('seatMemberId', choice.seatId)
     }
-    setReport(await api<ImportReport>(`/import?${query}`, 'POST', body))
+    if (choice.upTo) query.set('upTo', choice.upTo)
+    const answer = await api<ImportReport>(`/import?${query}`, 'POST', body)
+    setReported(sent)
+    setReport(answer)
   })
 
   return (
@@ -112,6 +120,17 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
               <small className="hint">{hint}</small>
             </label>
           ))}
+        </div>
+        <div className="fields">
+          <label className="field">
+            <span className="label">Import up to</span>
+            <input type="date" name="upTo" value={choice.upTo}
+              onChange={(e) => change({ ...choice, upTo: e.target.value })} />
+            <small className="hint">
+              Rows of either transactions file dated after it are left out, and the check stops there. Empty: every row.
+              A later import with a later date adds the newer rows.
+            </small>
+          </label>
         </div>
         {families && (
           <>
@@ -215,6 +234,12 @@ function Report({ report }: { report: ImportReport }) {
           <tr><td>Errors</td><td className="amount">{report.errors.length}</td></tr>
         </tbody>
       </table>
+      {report.upTo && (
+        <p className="muted" data-testid="after-cutoff">
+          Imported up to {report.upTo}. After it, neither imported nor missing: {report.afterCutoff.map((c) =>
+            `${rows(c.afterCutoff)} of ${c.rows} ${c.source === 'PARTNER' ? 'of the partner’s' : 'of yours'}`).join(', ')}.
+        </p>
+      )}
       {report.period && (
         <p className="muted">
           Rows from {report.period.from} to {report.period.to}, in {report.currencies.join(', ')}.

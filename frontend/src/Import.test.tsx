@@ -21,7 +21,8 @@ const PARTNER = 'ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credi
 
 function report(errors: number, outcome: ImportReport['outcome'] = 'DRY_RUN'): ImportReport {
   return {
-    commit: outcome !== 'DRY_RUN', outcome, files: [], family: null, period: null, currencies: ['EUR'], counts: [],
+    commit: outcome !== 'DRY_RUN', outcome, files: [], family: null, period: null, upTo: null, afterCutoff: [],
+    currencies: ['EUR'], counts: [],
     totals: { created: 3, updated: 0, unchanged: 0, missing: 0, conflicts: 0, failed: errors, skipped: 0, notImported: 0 },
     missing: [], conflicts: [],
     errors: Array.from({ length: errors }, (_, i) => ({ file: 't.csv', row: i + 2, excelId: String(i + 1), message: 'x' })),
@@ -125,5 +126,38 @@ describe('the import page', () => {
     await waitFor(() => expect(sent).toHaveLength(1))
     expect(sent[0].url).toBe('/api/import?dryRun=true')
     expect(sent[0].body.has('partnerTransactions')).toBe(false)
+  })
+
+  it('sends “Import up to” with the dry run and the commit, and a new date asks for a check again (D-165)', async () => {
+    const upTo = { ...report(0), upTo: '2026-08-31',
+      afterCutoff: [{ source: 'OWNER', rows: 25, afterCutoff: 3 }, { source: 'PARTNER', rows: 7, afterCutoff: 1 }] }
+    const sent = stubApi([upTo, report(0), upTo, { ...upTo, outcome: 'COMMITTED', commit: true }])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    const commit = () => screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement
+    const date = screen.getByLabelText(/^Import up to/) as HTMLInputElement
+    expect(date.value).toBe('')
+    chooseOwnerFiles()
+    fireEvent.change(date, { target: { value: '2026-08-31' } })
+    check()
+    expect((await screen.findByTestId('after-cutoff')).textContent).toBe('Imported up to 2026-08-31. After it, '
+      + 'neither imported nor missing: 3 rows of 25 of yours, 1 row of 7 of the partner’s.')
+    expect(sent[0].url).toBe('/api/import?dryRun=true&upTo=2026-08-31')
+    expect(commit().disabled).toBe(false)
+
+    // A check is only good for the date it read.
+    fireEvent.change(date, { target: { value: '2026-09-30' } })
+    expect(commit().disabled).toBe(true)
+    fireEvent.change(date, { target: { value: '' } })
+    check()
+    await waitFor(() => expect(sent).toHaveLength(2))
+    expect(sent[1].url).toBe('/api/import?dryRun=true')
+    await waitFor(() => expect(commit().disabled).toBe(false))
+    fireEvent.change(date, { target: { value: '2026-08-31' } })
+    expect(commit().disabled).toBe(true)
+    check()
+    await waitFor(() => expect(commit().disabled).toBe(false))
+    fireEvent.click(commit())
+    await screen.findByText(/Imported: 3 created/)
+    expect(sent[3].url).toBe('/api/import?dryRun=false&upTo=2026-08-31')
   })
 })

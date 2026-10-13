@@ -550,6 +550,10 @@ export interface ImportReport {
   files: { role: string; name: string; sha256: string; rows: number }[]
   family: { ledgerId: number; ledgerName: string; ownerMemberId: number; seatMemberId: number; seatName: string } | null
   period: { from: string; to: string } | null
+  /** "Import up to" (D-165), or null for none. */
+  upTo: string | null
+  /** Per transactions file (OWNER, PARTNER), its rows and those after `upTo`: neither imported nor missing. */
+  afterCutoff: { source: string; rows: number; afterCutoff: number }[]
   currencies: string[]
   counts: ImportCount[]
   totals: {

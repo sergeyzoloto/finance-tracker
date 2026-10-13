@@ -662,6 +662,9 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-12 | `694fa3f`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `694fa3f`, run #10 (id `38298487723`), `workflow_dispatch` on `main` at `694fa3f`, attempt 1, dispatched once: Backend, Frontend, Web image and Deploy scripts completed with success. Its check runs belong to `694fa3f`, deployed and finished, so they hold up no deploy; with them the commit has 14 check runs, 10 from the two pushes (D-95) and these 4. |
+| 2026-10-12 | `694fa3f`; nothing changed | D3b's rollback acceptance: `deploy/rollback.sh fe35e26` reached its question; its step 4 printed V14's count line ("No settlement side on an account that requires a counterparty or on FX_EXCHANGE alone: …"). Answered `no`: REFUSED at its question, nothing changed. The rollback state, read again afterwards, was unchanged; the rollback target stays `fe35e26`, with V14's condition (D-148). |
+| 2026-10-12 | `694fa3fbc9e265b38e3d74d2b89a46fd0487916f` (docs: D3b's change log entry (D3b)), M | D3b (D-134 to D-160: the Excel import's code, its page and the browser's filter of the partner's file, settlement sides on accounts that require a counterparty and on FX_EXCHANGE, V14), Flyway V14, the switch on. It imported nothing (D-137); it was deployed before D-144 passed (D-161). Push: `main` and `feature/family-budget` at `694fa3f`; CI #75 (id `38294843939`, `push`, `main`) and #76 (id `38294844005`, `push`, `feature/family-budget`), attempt 1, 10 check runs, all success. `deploy/deploy.sh run 694fa3fbc9e265b38e3d74d2b89a46fd0487916f D3b`, run folder `/var/lib/finance-deploy/runs/2026-10-12T192425Z-694fa3f`, run by `fe35e26`'s script. 1.8: dump `finance-2026-10-12T1924Z.dump`, 1454066 bytes, SHA-256 `3fbcec2b…`; restore test PASS (migration 13). 3.2: `fe35e26`'s images kept as `:fe35e26ad194243af798ce5c313b5d45f53ac6bb` and `:previous`; `b6258f6`'s tags removed. 3.3: api image `sha256:fefdcb0b…` (content `sha256:fce027a1…`), web image `sha256:1d8f482f…` (content `sha256:a8d87b75…`), both recreated. 4.1: V14 applied in 0.042 s, the api started at 19:25:24Z. 4.3: the same 21 numbers. 4.4: `D3b.expected`'s 29 lines. 4.6: dump `finance-2026-10-12T1925Z.dump`, 1458430 bytes; restore test PASS (migration 14, 20 tables). The end-to-end suite (`E2E_FAMILY=on`): `Result: PASSED`, `import passed` (5.0 s, its first production run), password search 0 hits. `finish`: passed, `finish=passed 2026-10-12T19:30:05Z`. `verify D3b`: OK, 22 numbers (`imported_entries_deleted=0`). |
 | 2026-10-12 | `fe35e26`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `fe35e26`, run #9 (id `38226125338`), `workflow_dispatch` on `main` at `fe35e26`, attempt 1, dispatched once: Backend, Frontend, Web image and Deploy scripts completed with success. Its check runs belong to `fe35e26`, deployed and finished, so they hold up no deploy; with them the commit has 14 check runs, 10 from the two pushes (D-95) and these 4. |
 | 2026-10-12 | `fe35e26`; nothing changed | F8f's rollback acceptance: `deploy/rollback.sh 39e6e61`, answered `no`: REFUSED at its question, "Nothing changed." The rollback state, read again afterwards, was unchanged; the rollback target stays `39e6e61` (F8e's code on the same V13 schema, with no condition of its own). |
 | 2026-10-12 | `fe35e26ad194243af798ce5c313b5d45f53ac6bb` (docs: F8f-fix's change log entry (F8f-fix)), M′ | F8f with F8f-fix (D-125 to D-133: the deploy scripts' guard against a scheduled shutdown with D-131's window of 2 hours, the checklist's template, the end-to-end guards in CI with their browser, D-117's rule extended, D-121's list; no migration, no application change), Flyway V13, the switch on. Push: `main` and `feature/family-budget` at `fe35e26`; CI #73 (id `38222348768`, `push`, `feature/family-budget`) and #74 (id `38222348866`, `push`, `main`), attempt 1, 10 check runs, all success. `deploy/deploy.sh run fe35e26ad194243af798ce5c313b5d45f53ac6bb F8f`. The end-to-end suite (`E2E_FAMILY=on`): `Result: PASSED`. `finish`: passed, `finish=passed 2026-10-12T08:49:54Z`, with `Scheduled shutdown: none` printed. `verify F8f`: OK, `F8f.expected`'s 23 lines, the same 21 numbers. The containers: api `sha256:08213ef9…` (content `sha256:4cbbce4e…`), web `sha256:0c666829ecd4a23ac6a5e83e919c81a2da2ec4bd052fa098baab8bb305c55146` (content `sha256:ac2729a6dd402190ec34040bf024185e218b0ccd4a3431ee4de42110fcd695da`, the image F8e's row records). `1eac505` (F8f's M, the row below) was never deployed. |
@@ -719,29 +722,30 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-12, after F8f's `finish` (passed, 2026-10-12T08:49:54Z), `verify F8f` (OK) and its rollback acceptance
+As of 2026-10-12, after D3b's `finish` (passed, 2026-10-12T19:30:05Z), `verify D3b` (OK) and its rollback acceptance
 (answered `no`, nothing changed):
 
-- `fe35e26ad194243af798ce5c313b5d45f53ac6bb` (M′: F8f with F8f-fix, on F8e, F8d, F8c-fix, F8c, F8c-0, F8, QA-1 and
-  QA-1b) on Flyway V13, `last-good` naming `fe35e26` (`finish=passed 2026-10-12T08:49:54Z`). Family budgets are switched
-  on since 2026-10-03T09:25:40Z. The containers run api `sha256:08213ef9…` (content `sha256:4cbbce4e…`) and web
-  `sha256:0c666829ecd4…` (content `sha256:ac2729a6dd40…`), "the recorded image" for `verify`.
-- The numbers: users 3, every `family_*` 0. No family record exists in production. `verify F8f`'s 23 lines held the same
-  21 numbers as before the deploy.
-- The rollback state: the previous-commit file names `39e6e61` (F8e's code on the same V13 schema). `rollback.sh`'s
-  target is `39e6e61`, with no condition of its own; V13's (D-116) applies only to a target below V13.
-  `rollback.sh 39e6e61` was answered `no` in the acceptance checks (REFUSED, "Nothing changed."), and the state read
-  again afterwards was unchanged. The way back from the family budget is `deploy/deploy.sh switch off`.
-- The end-to-end suite from `fe35e26` passed on production (2026-10-12, `E2E_FAMILY=on`, `Result: PASSED`).
-- "CI on Ubuntu 26.04" for `fe35e26`: run #9 (id `38226125338`), dispatched once on `main`, all four jobs success.
-- `main` and `feature/family-budget` were at `fe35e26` and pushed when F8f was deployed. CI for `fe35e26`: #73 and #74,
-  10 check runs, all success (D-95), and with run #9's 4 the commit has 14.
-- `run` is `fe35e26`'s script from now on, so D-131's window (a scheduled shutdown less than 2 hours away, a passed one,
-  or a file that can't be parsed stops it) holds by itself from the next deploy (D3b's).
-- F8f's and F8e's checklists below stay as their records and are used for no other deploy. D3b (the Excel import's
-  code, V14) is built on `feature/family-budget` and not deployed; "D3b's deploy checklist with the suite" below deploys
-  it, after which the rollback target is `fe35e26`, with V14's condition (D-148). The production import itself is
-  D3b-run, a task of its own after that deploy (D-137; step 10).
+- `694fa3fbc9e265b38e3d74d2b89a46fd0487916f` (D3b, on F8f with F8f-fix, F8e, F8d, F8c-fix, F8c, F8c-0, F8, QA-1 and
+  QA-1b) on Flyway V14, `last-good` naming `694fa3f` (`finish=passed 2026-10-12T19:30:05Z`). Family budgets are switched
+  on since 2026-10-03T09:25:40Z. The containers run api `sha256:fefdcb0b…` (content `sha256:fce027a1…`) and web
+  `sha256:1d8f482f…` (content `sha256:a8d87b75…`), "the recorded image" for `verify`.
+- The numbers: users 3, every `family_*` 0, `imported_entries_deleted` 0 (22 numbers since D3b's `numbers.sql`). No
+  family record exists in production, and nothing real is imported: the production import is D3b-run (D-137, step 10),
+  after D3b-accept, once D-144 has passed (D-161).
+- The rollback state: the previous-commit file names `fe35e26` (F8f's code on the V14 schema, which it reads).
+  `rollback.sh`'s target is `fe35e26`, with V14's condition (D-148): it refuses while a settlement side is on an account
+  that requires a counterparty or on FX_EXCHANGE alone, which only the import writes. Until D3b-run there is none.
+  `rollback.sh fe35e26` was answered `no` in the acceptance checks (REFUSED), and the state read again afterwards was
+  unchanged. The way back from the family budget is `deploy/deploy.sh switch off`.
+- The end-to-end suite from `694fa3f` passed on production (2026-10-12, `E2E_FAMILY=on`, `Result: PASSED`, `import
+  passed`).
+- "CI on Ubuntu 26.04" for `694fa3f`: run #10 (id `38298487723`), dispatched once on `main`, all four jobs success.
+- `main` and `feature/family-budget` were at `694fa3f` and pushed when D3b was deployed. CI for `694fa3f`: #75 and #76,
+  10 check runs, all success (D-95), and with run #10's 4 the commit has 14.
+- D3b's, F8f's and F8e's checklists below stay as their records and are used for no other deploy. D3b-accept (the
+  import's cutoff date D-165, the daily files' guard D-168, D-163, D-164) is built on `feature/family-budget` and not
+  deployed; "D3b-accept's deploy checklist with the suite" below deploys it, after which the rollback target is
+  `694fa3f`.
 
 ### Automatic reboots
 

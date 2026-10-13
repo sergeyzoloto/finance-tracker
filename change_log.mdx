@@ -5,13 +5,14 @@ multi-service version of the project (2024–2025) was removed in `011537c` ("fr
 
 ## 2026-10-13 · D3b-accept: "Import up to" (D-165), the daily files' precision guard (D-168), D-163's spec, D-164; D-144 not passed
 
-Six commits on `feature/family-budget` on top of D3b's `694fa3f` (deployed; `main` and `feature/family-budget` both
+Seven commits on `feature/family-budget` on top of D3b's `694fa3f` (deployed; `main` and `feature/family-budget` both
 there, pushed): `376478b` "docs: D-151 to D-160 confirmed, D-161 to D-168, D3b's deploy facts in the runbook and
 CLAUDE.md", `8b46bdf` "backend: “Import up to” (D-165) and the daily files' precision guard (D-168)", `2f2c42d`
 "frontend: “Import up to” on the import page, Commit only for what its dry run read (D-165)", `507936b` "e2e: the import up
 to a date (D-165), and D-163's spec of a new family budget right after a first sign-in", `dc67a38` "ci: actionlint.yaml
-names the ubuntu-26.04 runner (D-164)", and the commit of this entry, "docs: D3b-accept's runbook, CLAUDE.md, e2e README
-and change log entry", whose full hash the report names: M (each subject ends with "(D3b-accept)"). Not pushed;
+names the ubuntu-26.04 runner (D-164)", `35c0b35` "docs: D3b-accept's runbook, CLAUDE.md, e2e README and change log entry", and the commit of
+this entry's last change, "docs: D3b-accept's choices in requirements.md", whose full hash the report names: M (each
+subject ends with "(D3b-accept)"). Not pushed;
 production and the server not accessed. No migration.
 
 **Changes**
@@ -23,7 +24,8 @@ production and the server not accessed. No migration.
   "Import up to" 2026-08-31, the seat check of D-163 (the partner added on the Members page), and the note that after
   D3b-run the way back below V14 is only a dump restore; "D3b-accept's deploy checklist with the suite" (stage `D3b`'s
   checks, no migration, rollback target `694fa3f` with no condition of its own), marked not ready; `CLAUDE.md` (the
-  rollback state, D3b deployed, D-168, `--up-to`, the specs); `e2e/README.md`.
+  rollback state, D3b deployed, D-168, `--up-to`, the specs); `e2e/README.md`; D3b-accept's choices in
+  `requirements.md`, for the PM to confirm.
 - D-165: `ImportRequest.upTo`, POST `/api/import`'s `upTo` (yyyy-MM-dd) and `ImportRunner`'s `--up-to`. Rows of either
   transactions file dated after it are taken out before planning (`Workbook.Sheet.removeRows`); the daily files are read
   and the reconciliation compared up to the earlier of it and D-146's cutoff; D-69's tail and D-83's lumps still come from

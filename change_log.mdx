@@ -3,6 +3,56 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-13 · D3b-accept-fix: the owner's halves explained (D-169), a typed member added (D-170), D-144 passed
+
+Five commits on `feature/family-budget` on top of D3b-accept's `2698588` (not pushed; `main` and `origin` at
+`694fa3f`): `212573e` "backend: OWNER_HALF in the reconciliation, the owner's hand-rounded halves of D-84 (D-169)",
+`bd02ec7` "frontend, e2e: “Create family budget” adds a typed member's name (D-170)", `1b9fac9` "docs: D-169 to D-171",
+`908421e` "docs: step 10 and D3b-accept's checklist ready after D-144 passed with D-169, CLAUDE.md", and the commit of
+this entry, "docs: D3b-accept-fix's change log entry", whose full hash the report names: M, the commit to deploy (each
+subject ends with "(D3b-accept-fix)"). Production and the server not accessed. No migration.
+
+**Changes**
+- D-169: `Reconciler.ownerHalf` adds up, per month and currency, the owner's rows that D-84 leaves out
+  (`ImportPlanner.NotImported` now carries their date, currency and amount) less half of the partner's family incomes
+  they carry (`ImportPlanner.carried`: BENEFIT, OTHERINC, CASHBACK in EUR, imported as records), exactly. Within 0.005 ×
+  the month's number of such incomes it is explained (`Drift.Reason.OWNER_HALF`: FAMILY_DEBT +OWNER_HALF, UNALLOCATED
+  −OWNER_HALF, on the month's latest date); otherwise, or without an income that month, it stays unexplained, whole. The
+  reconciliation lists every month in `ownerHalf` (`ImportReport.OwnerHalf`).
+- D-170: `NewFamily.tsx`'s Create adds a name typed in "Name of a member" and not added, trimmed, as Add member would
+  (the shares back to equal); a typed name Add member would refuse stops the creation at its message (an agent's choice).
+- Documentation: `requirements.md` D-169 to D-171, D3b-accept's choices confirmed, D3b-accept-fix's choices for the PM;
+  `deploy/RUNBOOK.md`: step 10 names the passing export and the local run's numbers, D-169 in 10.5, and "D3b-accept's
+  deploy checklist with the suite" ready (M is D3b-accept-fix's last commit); `CLAUDE.md`.
+- Tests: `ReconcilerTests` (a half cent per income explained, two that cancel out, 1.00 and 77.48 in a month and a month
+  without an income unexplained, an income without a row, the reconciliation failing without D-169's drift and passing
+  with it); `ImportApiTests` (the synthetic export's `ownerHalf`); `Family.test.tsx` (a typed name added, custom shares
+  back to equal, a refused name creating nothing); `05-new-family` also types a second member without pressing Add.
+
+**Verified**
+- D-144 on the export of 2026-10-13 up to 2026-08-31, locally through the import page against a fresh throwaway database:
+  **passed**. 0 row errors; 14754 created (owner personal 2587, owner family 3701, owner settlements 616, owner lumps 25,
+  owner's rows on the family debt 6, partner 7819), 17 skipped, 50 not imported (D-84); after the cutoff 41 of the
+  owner's 7013 rows and 136 of the partner's 7957; the reconciliation passed in every currency at every month-end up to
+  2026-08-31 (EUR 1177, RUB 1605, USD 428 points, 0 failures); `OWNER_HALF` 35 months, all explained, the largest −0.005;
+  the same import again 0 created, 0 updated, 0 conflicts, 0 missing; the integrity check clean.
+- Backend `./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>`, seeds 20261018,
+  20261019 and 20261020: exit 0 each, Tests run: 528, Failures: 0, Errors: 0, Skipped: 0, BUILD SUCCESS.
+- Frontend `npm test`: exit 0, 30 files, 379 tests passed; `npm run build`: exit 0.
+- `deploy/tests/run.sh`: exit 0, 102 of 102; `deploy/tests/mutate.sh`: exit 0, every mutation caught; ShellCheck
+  (`koalaman/shellcheck:v0.11.0`, CI's file list): exit 0.
+- e2e `npm run typecheck`: exit 0; `npm run test:guards`: exit 0, 37 tests, 37 passed; `E2E_FAMILY=on npm run e2e:local`
+  on `908421e` (M adds only this entry): exit 0, every spec passed at 1280 and 375 px, `new-family` included, 0 password
+  hits, `Result: PASSED`.
+- actionlint 1.7.7 on both workflow files: exit 0. This entry compiled with `@mdx-js/mdx`.
+  `scripts/check-forbidden-names.sh` on the tree, `--rev HEAD` and `--log 694fa3f..HEAD`: no hit.
+
+**Open**
+- D3b-accept-fix's choices in `requirements.md` for the PM (D-169's scope and dates, D-170's refused name).
+- The deploy (the runbook's "D3b-accept's deploy checklist with the suite"), then D3b-run (step 10).
+- USD per account without D-147 (information): FAMILY_DEBT matches at all 107 month-ends; UNALLOCATED and RESERVE each
+  differ at 53 from 2022-04-30, by at most 100.00, and agree as one sum (D-67, D-171).
+
 ## 2026-10-13 · D3b-accept: "Import up to" (D-165), the daily files' precision guard (D-168), D-163's spec, D-164; D-144 not passed
 
 Seven commits on `feature/family-budget` on top of D3b's `694fa3f` (deployed; `main` and `feature/family-budget` both

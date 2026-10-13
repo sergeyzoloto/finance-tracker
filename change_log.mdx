@@ -3,6 +3,74 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-13 · D3b-accept: "Import up to" (D-165), the daily files' precision guard (D-168), D-163's spec, D-164; D-144 not passed
+
+Six commits on `feature/family-budget` on top of D3b's `694fa3f` (deployed; `main` and `feature/family-budget` both
+there, pushed): `376478b` "docs: D-151 to D-160 confirmed, D-161 to D-168, D3b's deploy facts in the runbook and
+CLAUDE.md", `8b46bdf` "backend: “Import up to” (D-165) and the daily files' precision guard (D-168)", `2f2c42d`
+"frontend: “Import up to” on the import page, Commit only for what its dry run read (D-165)", `507936b` "e2e: the import up
+to a date (D-165), and D-163's spec of a new family budget right after a first sign-in", `dc67a38` "ci: actionlint.yaml
+names the ubuntu-26.04 runner (D-164)", and the commit of this entry, "docs: D3b-accept's runbook, CLAUDE.md, e2e README
+and change log entry", whose full hash the report names: M (each subject ends with "(D3b-accept)"). Not pushed;
+production and the server not accessed. No migration.
+
+**Changes**
+- Documentation: `requirements.md` D-151 to D-160 confirmed, D-161 to D-168 (D-167 in the owner's corrected wording: the
+  USD month-end PL postings removed, `FAMILY_DEBT_USD` holding only the real USD movements of 2022-03-19 to 2022-06-04),
+  the planned stage, D-162 in "Later"; `deploy/RUNBOOK.md`: D3b's deploy in "Deployed revisions" (CI #75 `38294843939`,
+  #76 `38294844005`, run `2026-10-12T192425Z-694fa3f`, V14 in 0.042 s, the dumps, the images, `finish`, `verify D3b` with 22
+  numbers, the rollback acceptance, "CI on Ubuntu 26.04" #10 `38298487723`) and "Production now"; step 10 for D3b-run with
+  "Import up to" 2026-08-31, the seat check of D-163 (the partner added on the Members page), and the note that after
+  D3b-run the way back below V14 is only a dump restore; "D3b-accept's deploy checklist with the suite" (stage `D3b`'s
+  checks, no migration, rollback target `694fa3f` with no condition of its own), marked not ready; `CLAUDE.md` (the
+  rollback state, D3b deployed, D-168, `--up-to`, the specs); `e2e/README.md`.
+- D-165: `ImportRequest.upTo`, POST `/api/import`'s `upTo` (yyyy-MM-dd) and `ImportRunner`'s `--up-to`. Rows of either
+  transactions file dated after it are taken out before planning (`Workbook.Sheet.removeRows`); the daily files are read
+  and the reconciliation compared up to the earlier of it and D-146's cutoff; D-69's tail and D-83's lumps still come from
+  every row. A row known from an earlier import is never missing when its Excel ID is among the rows after the date or its
+  stored date is after it. The report has `upTo` and `afterCutoff` (per file, `OWNER` and `PARTNER`: rows read and rows
+  after the date), also in the Markdown. The import page's "Import up to" (empty by default) goes with the dry run and the
+  commit; Commit is enabled only for exactly the choice its dry run read, the date included.
+- D-168: `DailyFile` refuses a daily file holding any cell in scientific notation with an exponent of zero or more
+  (`6.90E+02`, `0.00E+00`), before or after the cutoff: one file error naming the number of cells and the column codes, a
+  lump's column as `PL_family_…_CUR` (D-143), never a value. Negative exponents are read as before.
+- D-163: `e2e/specs/05-new-family.spec.ts` (local only; skipped in production with its reason, D-52): after Delete all my
+  data, a browser without a session opens `/family/new`, signs in at Keycloak, picks "New family budget…" at once, and
+  creates a budget with a member without an account, checked on the page and in the api. The page is unchanged.
+- D-164: `.github/actionlint.yaml` names `ubuntu-26.04` under `self-hosted-runner.labels`.
+- Tests: `ImportApiTests.importUpToADateAndLaterUpToALaterOne` (up to 2024-01-31, again, up to 2024-02-29, then no date:
+  each later date adds exactly its rows, none missing, the reconciliation's last point the date; an earlier date after a
+  full import leaves the newer rows alone, also one gone from the file); `ImportRunnerTests` (`--up-to` in the Markdown, a
+  date not as yyyy-MM-dd exits 1); `WorkbookTests` (D-168's refusal, its message, a negative exponent read);
+  `Import.test.tsx` (the date sent with the dry run and the commit, a new date disabling Commit); `05-import` in two steps.
+
+**Verified**
+- Before the work (item 0): `main`, `feature/family-budget` and both at origin on `694fa3f`, clean; CI #75 and #76 (five
+  jobs each), "CI on Ubuntu 26.04" #10 (four jobs), 14 check runs, all success; the export of 2026-10-13 against
+  2026-10-12 as the PM listed it (counts only), but for `FAMILY_DEBT_USD`, non-zero on 78 days of 2022-03-19 to 2022-06-04,
+  which the owner explained as real movements (D-167 as recorded).
+- D-144 on the export of 2026-10-13 up to 2026-08-31, locally through the import page against a throwaway database:
+  **not passed**. 0 row errors; 14754 created (owner personal 2587, owner family 3701, owner settlements 616, owner lumps
+  25, owner's rows on the family debt 6, partner 7819), 17 skipped, 50 not imported (D-84); after the cutoff 41 of the
+  owner's 7013 rows and 136 of the partner's 7957; the same import again 0 created, 0 updated, 0 conflicts, 0 missing;
+  the integrity check clean. Reconciliation: 3210 points up to 2026-08-31, RUB and USD pass (D-147's USD check ok), EUR
+  fails at 3 points by 0.015 each (`FAMILY_DEBT` EUR first at 2026-04-30, `EQUITY` EUR at 2026-07-31 and 2026-08-31).
+- D-163: the spec passed 20 of 20 runs; not reproduced, so the page is unchanged.
+- `cd frontend && npm test`: exit 0, 30 files, 376 tests passed; `npm run build`: exit 0. `deploy/tests/run.sh`: exit 0,
+  102 of 102; `deploy/tests/mutate.sh`: exit 0, every mutation caught. actionlint 1.7.7 on both workflow files: exit 1
+  before D-164 (four unknown `ubuntu-26.04` labels), exit 0 after. The importer's backend classes (`ImportApiTests`,
+  `ImportRunnerTests`, `WorkbookTests`, `ReconcilerTests`, `ImportPlannerTests`): 41 tests, 0 failures.
+  `scripts/check-forbidden-names.sh`: no hit before each commit.
+
+**Open**
+- D-144 didn't pass (EUR 0.015 at 3 month-ends, above D-63's 0.01): the PM decides; D3b-run waits, and the D3b-accept
+  checklist is not to be used until then.
+- Not run, since the task stops after item 5 on a failure: the backend's three seeded `clean verify` runs, ShellCheck,
+  the end-to-end suite on M (`e2e:local`, `typecheck`, `test:guards`).
+- D-163 not reproduced; a name typed in "Name of a member" and not added with "Add member" is ignored by "Create family
+  budget" without a word (seen in the code, not changed).
+- D-162 in "Later".
+
 ## 2026-10-12 · D3b: the Excel import with the partner's family rows, V14, the import page (D-134 to D-160)
 
 Ten commits on `feature/family-budget` on top of F8f-fix's `fe35e26` (deployed; `main` and `feature/family-budget` both

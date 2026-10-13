@@ -589,13 +589,18 @@ Excel ledger into his personal ledger, and his family rows, his rows on the fami
 into the family budget, the partner's rows into his seat, a member without an account (D-82, D-136, D-141). The import
 runs in the browser, as the signed-in owner; the partner's transactions file is filtered there, and only his family rows
 leave the laptop (D-140). Nothing is copied onto the server's disk. A dry run reconciles the owner's balances with his
-daily balance file before anything is saved (D-63 to D-69, D-146, D-147).
+daily balance file before anything is saved (D-63 to D-69, D-146, D-147). Since D3b-accept it imports **up to 31 August
+2026** (D-165): rows of either file dated after it are left out, neither imported nor missing, and the reconciliation
+stops there; a later import with a later date adds the newer rows through the usual sync (D-139).
 
 **10.1 The export.** Export the workbooks' sheets as CSV (semicolons, `dd.MM.yyyy`) into a new dated folder
 `~/dev/finance-tracker/data/private/export-YYYY-MM-DD/` on the laptop (D-61): the owner's accounts, categories,
 transactions, daily balance and daily change files, and the partner's transactions file. The partner's daily files stay
 there and are never chosen. `data/private/` is git-ignored; never commit it. The export must be the one whose local run
-passed D-144 (data/private/reports/), or a later one that passes it the same way.
+passes D-144 locally (data/private/reports/). D3b-accept's run of `export-2026-10-13` up to 2026-08-31 (D-166, D-167;
+`D3b-accept.md`) did **not** pass: EUR is 0.015 off at 3 month-ends, above D-63's 0.01, and the PM decides before D3b-run
+goes on. Its daily files hold no value in scientific notation with an exponent of zero or more; the
+import refuses such a file (D-168), naming the columns: format them as numbers in Excel and export again.
 
 **10.2 A backup with its restore test**, before anything else.
 
@@ -609,8 +614,14 @@ You should see the dump written and the restore test's `PASS`. Note the dump's n
 **10.3 The family budget and the partner's place** (D-141), in the browser as the owner, once: **New family
 budget…**, its name, base currency EUR, the start date **1 November 2017** (D-70; the first family row is later),
 no category brought (the import makes the family categories it needs and merges the owner's personal ones of the same
-code, D-11), equal shares; then on its Members page **Add member** with the partner's name, a member without an
-account. The names are data and are never written into the repository.
+code, D-11), equal shares; then on its **Members** page his name in **Add a member without an account**, and **Add**: a
+member without an account. The names are data and are never written into the repository.
+
+**The seat check (D-163).** On the budget's **Members** page, the partner's place is listed, **without an account**,
+next to the owner. If it is missing (a member typed on `/family/new` right after a first sign-in was reported as not
+created with the budget, D-163, which is why he is added on the Members page here), add him there as above and look
+again. Go on only once it is listed; the
+import page's "The partner's place" offers only such members.
 
 **10.4 The owner's ledger holds no demo or test data**, read only; type the owner's email for `<owner email>`:
 
@@ -625,32 +636,44 @@ data" deletes everything of his, 10.3's budget too, which is then created again)
 
 **10.5 The dry run.** Open <https://app.finance-nl.com/import> and choose the owner's five files, the family budget of
 10.3, the partner's place, and the partner's transactions file. The page says how many of his rows are family rows and
-will be uploaded. Click **Check (dry run)**: it takes several minutes; leave the page open. Read the report:
+will be uploaded. Type **2026-08-31** into **Import up to** (D-165). Click **Check (dry run)**: it takes several minutes; leave the page
+open. Read the report:
 
+- **Imported up to 2026-08-31**, and per file the rows after it, "neither imported nor missing": the numbers of
+  D3b-accept's local run (its report names them).
 - **No errors.** With errors, nothing can be committed: fix the rows in Excel (the report names them by Excel ID),
   export again, check again.
 - The counts by source and kind; **Not imported** are the owner's EUR incomes on the family debt that the partner's
   rows carry (D-84); **Skipped** the rows with Sum 0 (D-72).
 - **The reconciliation: Passed.** Every month-end up to the last compared one, per account and currency, with only
-  explained differences (D-68: shares, rounding). The last month is shown, not counted (D-69); in a currency without
-  family rows the family debt and the equity are one sum, and the app's family debt there is 0 (D-147). Failed: don't
-  commit; send the report's failing lines to the PM.
+  explained differences (D-68: shares, rounding), up to 2026-08-31, the date: every month-end up to it counts, since
+  D-69's last month (September 2026) is after it. In a currency without family rows the family debt and the equity are
+  one sum, and the app's family debt there is 0 (D-147). Failed: don't commit; send the report's failing lines to the
+  PM.
 
 **10.6 The owner's go.** Send the dry run's totals and the reconciliation's verdict to the PM; the owner says "go".
 
-**10.7 Commit.** With the same files and choices still on the page, click **Commit import** and confirm. You should
+**10.7 Commit.** With the same files, choices and date still on the page, click **Commit import** and confirm (the
+button works only for exactly what the dry run read: change anything, the date included, and it asks for a check
+again). You should
 see **Imported: N created**, with the dry run's N, and the reconciliation again **Passed**.
 
 **10.8 The integrity check**, in the browser as the owner: <https://app.finance-nl.com/api/reports/integrity> shows
 `[]`. The family budget's balances and the owner's accounts show the ledger.
 
-**10.9 The same import again** (D-139, D-144): click **Check (dry run)** once more with the same files. You should see
-**0 created, 0 updated**, no conflicts and no missing rows: everything is recognised by its Excel ID.
+**10.9 The same import again** (D-139, D-144): click **Check (dry run)** once more with the same files and the same
+date. You should see **0 created, 0 updated**, no conflicts and no missing rows: everything is recognised by its Excel
+ID.
 
 **10.10 A fresh backup with its restore test**, the block of 10.2. If something turns out wrong later, restore the dump
 of 10.2 ([Restore from a backup](#restore-from-a-backup)). A later export imports again safely: unchanged rows stay,
 edited ones are written over unless changed in the app (D-139), rows gone from Excel are reported, never deleted (D-138),
-and rows deleted in the app stay deleted (D-113, D-150).
+and rows deleted in the app stay deleted (D-113, D-150); with a later "Import up to" it adds the rows up to that date.
+
+**After D3b-run, the way back below V14 is only a dump restore.** The import writes settlement sides on accounts that
+require a counterparty and on FX_EXCHANGE alone (D-148, D-71), and `rollback.sh` refuses to go below V14 while one exists
+(`fe35e26`'s code can't post them again). A rollback to `694fa3f` or later (V14) isn't affected; going further back
+means restoring 10.2's dump, which also loses the import and everything written after it.
 
 ---
 
@@ -772,6 +795,334 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   2026-10-08 04:00Z), and the strict rule would block deploys for most of that day. `verify` and `finish` print the line
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
+
+## D3b-accept's deploy checklist with the suite
+
+**Not ready:** D-144 didn't pass in D3b-accept (EUR 0.015 off at 3 month-ends); this checklist waits for the PM's
+decision and is used only once the PM names M.
+
+**Commit to deploy (M):** `feature/family-budget`'s head after D3b-accept, the last commit D3b-accept's report names
+in full. M holds this checklist, so the checklist can't name M's hash itself: the report does, and every block below that
+takes it says `<M>`; type M's full hash (40 characters) there before pasting the block. Pasted as it is, bash reads `<M>`
+as a redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `D3b`, the checks of
+`deploy/checks/D3b.sql` and `D3b.expected` (29 lines), unchanged: D3b-accept adds **no migration** and no table, so it
+has no check files of its own and `run` and `verify` name D3b's. D3b-accept is "Import up to" (D-165: the import page's
+date and `--up-to`, rows after it neither imported nor missing, the reconciliation up to it), the daily files' precision
+guard (D-168), D-163's end-to-end spec and `.github/actionlint.yaml` (D-164). **It imports nothing**: the production import
+is D3b-run, step 10, a task of its own after this deploy is accepted. **The switch:** on (`FAMILY_LEDGERS_ENABLED=true`
+since 2026-10-03T09:25:40Z) before, during and after this deploy. **The suite:** run from a clean checkout of M itself,
+with `E2E_FAMILY=on`; it replaces the browser checks and the smoke test (D-51, D-56); its specs are D3b's, `import` now in
+two steps (up to 2024-02-29, then the rest, D-165), and the new `new-family` (D-163), which runs locally only and is
+`skipped` in production with its reason (a second sign-in needs the password, which only the local accounts have in the
+code, D-52). **The rollback target:** `694fa3f` (D3b's code on the same V14 schema), with no condition of its own: no
+migration, so `rollback.sh` needs no new condition, and V14's (D-148) applies only to a target below V14. **The time
+(D-125):** no step of this checklist between 03:30 and 04:30 UTC, when the host may reboot by itself; the last block (a
+rollback for a site that is down) is the exception. This checklist is for this deploy only.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
+`cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it
+does nothing. A command that asks a question (`deploy.sh run`, `finish`, `rollback.sh`, and on the laptop
+`npm run e2e:prod`) is alone in its block; type its answer on the keyboard, after the question, never paste it. Every
+laptop git command that can page runs as `git --no-pager`, and a dirty tree stops a chain (`test -z "$(git status
+--porcelain)"`), D-127.
+
+What runs and why:
+
+- `run` is the clone's script, `694fa3f`'s (bash reads it, with `common.sh`, before the merge), which applies D-126 and
+  D-131 by itself: its step 1.1 prints `Scheduled shutdown: none (…)`, or a reboot with how far away it is and goes on,
+  and refuses a scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-128), before CI,
+  any backup and any image. Step 2 still prints the file (D-127). Step 1.3 requires M to be `origin/main` after `git
+  fetch` and a fast-forward of `HEAD` (`694fa3f`), lists the commits from `694fa3f` to M (D3b-accept's, the last of
+  them M), `Migrations added: none`, and under `deploy/` one file: `RUNBOOK.md`. `finance.caddy`, the postgres service
+  and `pg-backup/finance.conf` don't change.
+- Both images' build contexts change (`backend/`, `frontend/`): both are rebuilt with new content and recreated, and
+  signed-in browser sessions end. The api starts on V14, `Schema "app" is up to date`, and starts.
+- 1.7 and 4.3 count the numbers with `numbers.sql` as `694fa3f` has it (22 numbers, `imported_entries_deleted` the last
+  added), the same before and after; M doesn't change `numbers.sql`.
+- 3.2 keeps the running images (`694fa3f`'s api `sha256:fefdcb0b…`, web `sha256:1d8f482f…`) as
+  `:694fa3fbc9e265b38e3d74d2b89a46fd0487916f` and `:previous`, `/root/finance-tracker.previous` then names `694fa3f`,
+  and it removes the tags of the oldest revision it keeps, as "Deploying with deploy.sh" says.
+- 4.4 compares `D3b.sql`'s output with `D3b.expected`, as D3b's deploy and `verify D3b` did: nothing of the schema
+  changed. A difference in any line is a fault: stop and send the diff to the PM.
+- **The rollback target after this deploy is `694fa3f`** (D3b's code and deploy scripts on the same V14 schema), with no
+  condition of its own. Until D3b-run no settlement side on an account that requires a counterparty or on FX_EXCHANGE
+  exists; after it, `rollback.sh` refuses to go below V14 (step 10's note), which a rollback to `694fa3f` isn't.
+- `finish` has no time limit after `run`'s summary; run nothing else of `deploy.sh` or `rollback.sh` between `run` and
+  `finish` but what this checklist names.
+
+**0. On the laptop, read only: where things stand.** Before anything else; type M.
+
+```bash
+# On the laptop
+M=<M>; cd ~/dev/finance-tracker && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
+```
+
+You should see `HEAD` M with D3b-accept's last subject (on `feature/family-budget`); `origin/main` and
+`origin/feature/family-budget` both `694fa3fbc9e265b38e3d74d2b89a46fd0487916f` (D3b, deployed); D3b-accept's commits,
+`694fa3f..M`, the last of them M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any
+line of `git status`: stop and tell the PM.
+
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted
+D3b-accept and named M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see a fast-forward of `main` from `694fa3f` (`Updating 694fa3f..` and M's 7 characters), the push of both
+branches (`694fa3f..` M's 7 characters on each), and M in full with its parent and D3b-accept's last subject: exactly
+the commit D3b-accept's report names. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the
+PM. If the merge says `Not possible to fast-forward`, or the hash is another, stop. CI starts with the push, on M; don't
+start "CI on Ubuntu 26.04" now (step 9 says when, D-44).
+
+CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about fifteen minutes). First the
+runs with their jobs; type M:
+
+```bash
+# On the laptop
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+```
+
+You should see `2 runs`: `CI`, `push`, once on `main` and once on `feature/family-budget` (D-95), attempt 1, each
+`completed success`, each with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` and `Dependency
+updates`, `completed success`. No "CI on Ubuntu 26.04" run (step 9 is later). Then the check runs, which `run`'s gate (1.5) counts:
+
+```bash
+# On the laptop
+M=<M>; curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see `10`, then the five names twice each, each `completed success`. The two Backend runs ran the test
+classes in random order with their run numbers as seeds (D-99); a failure of either is a real fault: stop. A failure
+only of the Frontend job may be re-run once (D-94); if the re-run passes the deploy goes on, if it fails again stop.
+Anything else: stop; `run`'s gate would refuse anyway.
+
+**2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-api:fe35e26ad194243af798ce5c313b5d45f53ac6bb finance-tracker-web:previous finance-tracker-web:latest finance-tracker-web:fe35e26ad194243af798ce5c313b5d45f53ac6bb; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Successfully applied|Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+}
+```
+
+You should see, as "Production now" left it after D3b (2026-10-12):
+
+- `Now:` outside 03:30 to 04:30 UTC (D-125), with the seconds since the epoch.
+- `Scheduled shutdown: cat: /run/systemd/shutdown/scheduled: No such file or directory`: nothing is scheduled. A
+  scheduled reboot isn't a stop by hand: `run` (`694fa3f`'s) decides by D-131 itself in its step 1.1. Start step 4 only
+  if the reboot is at least 2 hours after the moment you start it; otherwise `run` refuses, which changes nothing. Send
+  the line to the PM either way.
+- `Reboot required:` either `No such file or directory` or `*** System restart required ***`; the second is not a stop
+  by itself (the line above says whether a reboot is scheduled).
+- Docker server 29.8.2, linux/amd64 (or a later patch the PM knows of); Compose; `Image store:
+  [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: 694fa3fbc9e265b38e3d74d2b89a46fd0487916f docs: D3b's change log entry (D3b)`, or a later commit of `main` if
+  only documentation was pulled since; `git status --short` printing **nothing**, so only `previous file:
+  fe35e26ad194243af798ce5c313b5d45f53ac6bb` follows.
+- `last-good`: `commit=694fa3fbc9e265b38e3d74d2b89a46fd0487916f`, `api_image=sha256:fefdcb0b…`,
+  `web_image=sha256:1d8f482f…`, `web_content=sha256:a8d87b75…`, the api's content `sha256:fce027a1…`, `source=deploy`,
+  `finish=passed 2026-10-12T19:30:05Z`. `contents` holds the contents of the revisions it keeps, `694fa3f`'s among them.
+- The history ending with D3b's `good 694fa3f…` lines (a refused rollback writes none). The newest run folders D3b's run
+  `2026-10-12T192425Z-694fa3f` and, last, its rollback acceptance (`…-rollback-fe35e26`, refused).
+- The containers on api `sha256:fefdcb0b…` (content `sha256:fce027a1…`) and web `sha256:1d8f482f…` (content
+  `sha256:a8d87b75…`). If the host rebooted since, both show that reboot's time: not a stop by itself, but say so.
+- `:previous` and `:fe35e26…` as D3b's 3.2 left them (`fe35e26`'s api `sha256:08213ef9…`, web `sha256:0c666829ecd4…`);
+  `:latest` the running images; the listing's other `finance-tracker-` tags those of the revisions D3b's 3.2 kept. No tag
+  of `694fa3f…` yet: this deploy's 3.2 creates it.
+- The log lines of the api's start by D3b's run: `Successfully applied 1 migration to schema "app", now at version
+  v14`, the D-25 line "on" and `Started FinanceTrackerApplication`; `1`; `600 root` for `.env` and its copies.
+
+If anything differs, stop and send it to the PM: a difference in the images or `last-good` changes what 3.2 does.
+
+**3. On the server: verify, read only**, with the running script.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify D3b
+```
+
+You should see `verify D3b at 694fa3f …: OK`, its `Scheduled shutdown:` line, both images "the recorded image",
+`Image store: containerd, platform linux/amd64`, the pages 5 of 5, Flyway V14, the D-25 line "on", `D3b.expected`'s 29
+lines, and the 22 numbers (`imported_entries_deleted=0` among them). Keep the numbers: step 4 prints them again, and step 7 compares with them. Real users may have
+made rows since: that is not a difference.
+
+**4. On the server: the deploy**, alone in its block, not between 03:30 and 04:30 UTC; type M's 7 characters at the
+confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> D3b
+```
+
+It prints ("Deploying with deploy.sh" lists the steps):
+
+- 1.1: `Tools present: …` and `Scheduled shutdown: none (…)` (or a reboot with its distance, at least 2 hours away; less,
+  and it refuses here, D-131).
+- 1.2: `HEAD: 694fa3f docs: D3b's change log entry (D3b)`, the running images, `Last good deploy: 694fa3f … (deploy)`,
+  its status `good`, both images "the recorded image", the read-only role's line.
+- 1.3: the fetch; D3b-accept's commits from `694fa3f` to M, the last of them M; `Migrations added: none`; under
+  `deploy/` the one file listed above.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (…)`. 1.6: the D3b files. 1.7: the 22 numbers of step 3.
+- 1.8: a fresh dump, its restore test `PASS`, and the before-dump preserved in the run folder (D-43), with its SHA-256.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage D3b, over 694fa3f.` and the commits line; type the 7 characters.
+- 3.1: `git merge --ff-only <M>`: `Fast-forward` and the files. 3.2: the running images kept as
+  `:694fa3fbc9e265b38e3d74d2b89a46fd0487916f` and `:previous`, and the oldest kept revision's tags removed. 3.3: api
+  built (Maven: a few minutes), web built. 3.4: both recreated. 3.5: `api: healthy, web: healthy`. 3.6: `Pages: 5 of 5
+  as expected`.
+- 4.1: Flyway's `Schema "app" is up to date. No migration necessary.`, `Latest row: 14 import sync of personal entries
+  true; the highest migration in <M>: V14` and `Started: …` of this deploy's time. 4.2: the D-25 line "on". 4.3: `The
+  same numbers`. 4.4: the 29 lines of `D3b.expected`. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an
+  after-dump and `PASS` (migration 14).
+- 5: the summary, with `Numbers: the same before and after (…)` (keep it for step 7), then `Left for you: …
+  deploy/deploy.sh finish`: here, the suite of step 5.
+
+A FAILED line: stop, read it, and send it to the PM; it prints the rollback command, which isn't run. The way back is
+the last block, and only for a failed deploy.
+
+**5. On the laptop: the end-to-end suite against production** (D-51, D-56), not between 03:30 and 04:30 UTC, from a
+clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. If nothing prints after the checkout, the tree is dirty: stop. If the commit is another, stop.
+
+Then the suite, alone in its block. Read its banner (the target https://app.finance-nl.com, `e2e-a
+(e2e-a@finance-nl.com)`, `e2e-b (e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, M and "clean tree"), then type `E2E PROD`
+after the question and press Enter.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary into the chat, from `===== E2E summary =====` to `=======================`. You should see `Commit:`
+M `(clean tree)`, `E2E_FAMILY: on`, `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`,
+`family F8 passed`, `family F8d passed`, `import passed` (A's synthetic import into a budget of its own, now up to
+2024-02-29 first and then the rest, D-165; its own Delete all my data removes it), `new-family skipped` (D-163's spec,
+local only, with its reason), `time-zone passed` (2 tests), `cleanup passed`, both accounts `sign-in checked (/api/me:
+…)` with their data deleted and signed out, `Password search over the artifacts: 0 hits` and `Result: PASSED` (a
+skipped spec doesn't fail it).
+
+- A second run is allowed once, after fixing the cause, only if the first stopped before sending anything (D-58). After
+  a failed sign-in or `ABORTED` there is no retry: do the checks of [OPS-2b's
+  appendix](#appendix-ops-2bs-browser-checks-and-smoke-test-by-hand) by hand, and answer `finish` from them.
+- If a spec or the cleanup failed (`Result: FAILED`): don't run `finish` until the PM has read the summary (D-59).
+- Left to check by hand, each with its reason: **the real export's import**, which is D3b-run's (step 10), never this
+  deploy's: production gets no real row from D3b-accept (D-137); the local run on the real export (D-144, up to
+  2026-08-31) is in D3b-accept's report. **D-163's first sign-in**: the spec needs a second sign-in, which production's
+  accounts don't do (D-52); D3b-run's step 10.3 adds the partner's place on the Members page and checks it is there.
+
+**6. On the server: finish**, only after step 5, alone in its block; type `yes` or `no` to each question: `yes` to both
+only if step 5's summary says `Result: PASSED` with 0 password hits (or, after a run that stopped before the specs, only
+if the appendix's checks passed in full); otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-<M's 7 characters>`, its `Scheduled shutdown:` line,
+the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before the deploy", the
+images and "Done". After `no`: `NOT PASSED: …`, exit status 3, and the rollback command, which isn't run.
+
+**7. On the server: verify D3b, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify D3b
+```
+
+You should see `verify D3b at <M's 7 characters> …: OK`, its `Scheduled shutdown:` line, both images "the recorded
+image", the pages 5 of 5, Flyway V14, the D-25 line "on", `D3b.expected`'s 29 lines, and the 22 numbers of step 3, the
+same. A real user writing meanwhile explains a difference
+in their own lines only; judge it before going on.
+
+**8. Acceptance: `rollback.sh 694fa3f` goes to its question**, changing nothing. Each block alone, in this order.
+
+The rollback state, before:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous finance-tracker-api:694fa3fbc9e265b38e3d74d2b89a46fd0487916f finance-tracker-web:694fa3fbc9e265b38e3d74d2b89a46fd0487916f; cat /var/lib/finance-deploy/last-good; }
+```
+
+You should see `694fa3fbc9e265b38e3d74d2b89a46fd0487916f`; the api's and the web's previous images twice each
+(`sha256:fefdcb0b…` and `sha256:1d8f482f…`, or other IDs of the same content); and `last-good` with `commit=` M and
+`finish=passed …`.
+
+`rollback.sh 694fa3f`, alone in its block; type `no` at its question.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh 694fa3f
+```
+
+You should see in step 1 `Scheduled shutdown: none (…)` (a scheduled one would only be a `WARNING`) and the image store
+and platform; step 2 `Target: 694fa3f docs: D3b's change log entry (D3b), the commit HEAD's deploy replaced (…-<M's 7
+characters>); its status, its newest line in the history: good`; step 3 the images accepted; step 4 `Flyway's latest
+row: 14 import sync of personal entries true; the target's highest migration: V14` and no condition line (the target is
+at V14: V14's count is only for a target below it); then the question, and after `no`: `REFUSED at "5. Confirmation":
+not confirmed` and "Nothing changed." Then the block "The rollback state, before" again: the same lines.
+
+**9. CI on Ubuntu 26.04 (D-44, D-124)**, last, only now, on M deployed and finished. On GitHub, Actions → "CI on Ubuntu
+26.04" → "Run workflow" on `main`, **exactly once**, and wait for it to the end (about fifteen minutes). If `main` has
+moved past M by then, run it under D-60: a temporary branch at exactly M, deleted afterwards. Then, read
+only, type M:
+
+```bash
+# On the laptop
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], "id", r["id"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+```
+
+You should see `1 runs`: `CI on Ubuntu 26.04`, its number and id, `workflow_dispatch main attempt 1 completed success`,
+and Backend, Frontend, Web image and Deploy scripts each `completed success`. Two runs mean a second dispatch, which
+cancels the first (D-124): send both to the PM. Send the output to the PM.
+
+**10. Last, only for a failed deploy where the site is down: the rollback**, alone in its block, at any hour; type
+`ROLLBACK 694fa3f` at its question. It goes to `694fa3f`, D3b's code and deploy scripts on the same V14 schema, with no
+condition of its own. A scheduled shutdown, however near, is only a warning here (D-126, D-131).
+
+```bash
+# On the server: only for a failed deploy where the site is down
+cd /opt/finance-tracker && deploy/rollback.sh 694fa3f
+```
 
 ## D3b's deploy checklist with the suite
 

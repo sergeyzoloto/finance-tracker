@@ -597,9 +597,8 @@ stops there; a later import with a later date adds the newer rows through the us
 `~/dev/finance-tracker/data/private/export-YYYY-MM-DD/` on the laptop (D-61): the owner's accounts, categories,
 transactions, daily balance and daily change files, and the partner's transactions file. The partner's daily files stay
 there and are never chosen. `data/private/` is git-ignored; never commit it. The export must be the one whose local run
-passes D-144 locally (data/private/reports/). D3b-accept's run of `export-2026-10-13` up to 2026-08-31 (D-166, D-167;
-`D3b-accept.md`) did **not** pass: EUR is 0.015 off at 3 month-ends, above D-63's 0.01, and the PM decides before D3b-run
-goes on. Its daily files hold no value in scientific notation with an exponent of zero or more; the
+passed D-144 locally: `export-2026-10-13` up to 2026-08-31 (D-166, D-167; data/private/reports/D3b-accept.md, D3b-accept-fix's
+run with D-169), or a later one that passes it the same way. Its daily files hold no value in scientific notation with an exponent of zero or more; the
 import refuses such a file (D-168), naming the columns: format them as numbers in Excel and export again.
 
 **10.2 A backup with its restore test**, before anything else.
@@ -639,14 +638,16 @@ data" deletes everything of his, 10.3's budget too, which is then created again)
 will be uploaded. Type **2026-08-31** into **Import up to** (D-165). Click **Check (dry run)**: it takes several minutes; leave the page
 open. Read the report:
 
-- **Imported up to 2026-08-31**, and per file the rows after it, "neither imported nor missing": the numbers of
-  D3b-accept's local run (its report names them).
+- **Imported up to 2026-08-31**, and per file the rows after it, "neither imported nor missing": 41 of the owner's 7013
+  rows and 136 of the partner's 7957, as D3b-accept-fix's local run had them (the page's filter: 7957 of his 12651 rows).
+- With that export, the local run's numbers: 14754 to create, 0 to update, 17 skipped, 50 not imported (D-84).
 - **No errors.** With errors, nothing can be committed: fix the rows in Excel (the report names them by Excel ID),
   export again, check again.
 - The counts by source and kind; **Not imported** are the owner's EUR incomes on the family debt that the partner's
   rows carry (D-84); **Skipped** the rows with Sum 0 (D-72).
 - **The reconciliation: Passed.** Every month-end up to the last compared one, per account and currency, with only
-  explained differences (D-68: shares, rounding), up to 2026-08-31, the date: every month-end up to it counts, since
+  explained differences (D-68: shares, rounding; D-169: the owner's hand-rounded halves, `OWNER_HALF`, every month
+  explained), up to 2026-08-31, the date: every month-end up to it counts, since
   D-69's last month (September 2026) is after it. In a currency without family rows the family debt and the equity are
   one sum, and the app's family debt there is 0 (D-147). Failed: don't commit; send the report's failing lines to the
   PM.
@@ -766,8 +767,8 @@ As of 2026-10-12, after D3b's `finish` (passed, 2026-10-12T19:30:05Z), `verify D
 - `main` and `feature/family-budget` were at `694fa3f` and pushed when D3b was deployed. CI for `694fa3f`: #75 and #76,
   10 check runs, all success (D-95), and with run #10's 4 the commit has 14.
 - D3b's, F8f's and F8e's checklists below stay as their records and are used for no other deploy. D3b-accept (the
-  import's cutoff date D-165, the daily files' guard D-168, D-163, D-164) is built on `feature/family-budget` and not
-  deployed; "D3b-accept's deploy checklist with the suite" below deploys it, after which the rollback target is
+  import's cutoff date D-165, the daily files' guard D-168, D-163, D-164) and D3b-accept-fix (D-169's `OWNER_HALF`,
+  D-170) are built on `feature/family-budget` and not deployed; "D3b-accept's deploy checklist with the suite" below deploys it, after which the rollback target is
   `694fa3f`.
 
 ### Automatic reboots
@@ -798,23 +799,22 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
 
 ## D3b-accept's deploy checklist with the suite
 
-**Not ready:** D-144 didn't pass in D3b-accept (EUR 0.015 off at 3 month-ends); this checklist waits for the PM's
-decision and is used only once the PM names M.
-
-**Commit to deploy (M):** `feature/family-budget`'s head after D3b-accept, the last commit D3b-accept's report names
-in full. M holds this checklist, so the checklist can't name M's hash itself: the report does, and every block below that
+**Commit to deploy (M):** `feature/family-budget`'s head after D3b-accept-fix, the last commit D3b-accept-fix's report
+names in full. M holds this checklist, so the checklist can't name M's hash itself: the report does, and every block below that
 takes it says `<M>`; type M's full hash (40 characters) there before pasting the block. Pasted as it is, bash reads `<M>`
 as a redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `D3b`, the checks of
 `deploy/checks/D3b.sql` and `D3b.expected` (29 lines), unchanged: D3b-accept adds **no migration** and no table, so it
 has no check files of its own and `run` and `verify` name D3b's. D3b-accept is "Import up to" (D-165: the import page's
 date and `--up-to`, rows after it neither imported nor missing, the reconciliation up to it), the daily files' precision
-guard (D-168), D-163's end-to-end spec and `.github/actionlint.yaml` (D-164). **It imports nothing**: the production import
+guard (D-168), D-163's end-to-end spec and `.github/actionlint.yaml` (D-164), and with D3b-accept-fix the owner's
+hand-rounded halves explained in the reconciliation (D-169, `OWNER_HALF`) and a typed member's name added by "Create
+family budget" (D-170). **It imports nothing**: the production import
 is D3b-run, step 10, a task of its own after this deploy is accepted. **The switch:** on (`FAMILY_LEDGERS_ENABLED=true`
 since 2026-10-03T09:25:40Z) before, during and after this deploy. **The suite:** run from a clean checkout of M itself,
 with `E2E_FAMILY=on`; it replaces the browser checks and the smoke test (D-51, D-56); its specs are D3b's, `import` now in
 two steps (up to 2024-02-29, then the rest, D-165), and the new `new-family` (D-163), which runs locally only and is
 `skipped` in production with its reason (a second sign-in needs the password, which only the local accounts have in the
-code, D-52). **The rollback target:** `694fa3f` (D3b's code on the same V14 schema), with no condition of its own: no
+code, D-52); locally it also types a second member without pressing Add member (D-170). **The rollback target:** `694fa3f` (D3b's code on the same V14 schema), with no condition of its own: no
 migration, so `rollback.sh` needs no new condition, and V14's (D-148) applies only to a target below V14. **The time
 (D-125):** no step of this checklist between 03:30 and 04:30 UTC, when the host may reboot by itself; the last block (a
 rollback for a site that is down) is the exception. This checklist is for this deploy only.
@@ -833,8 +833,8 @@ What runs and why:
   D-131 by itself: its step 1.1 prints `Scheduled shutdown: none (…)`, or a reboot with how far away it is and goes on,
   and refuses a scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-128), before CI,
   any backup and any image. Step 2 still prints the file (D-127). Step 1.3 requires M to be `origin/main` after `git
-  fetch` and a fast-forward of `HEAD` (`694fa3f`), lists the commits from `694fa3f` to M (D3b-accept's, the last of
-  them M), `Migrations added: none`, and under `deploy/` one file: `RUNBOOK.md`. `finance.caddy`, the postgres service
+  fetch` and a fast-forward of `HEAD` (`694fa3f`), lists the commits from `694fa3f` to M (D3b-accept's and
+  D3b-accept-fix's, the last of them M), `Migrations added: none`, and under `deploy/` one file: `RUNBOOK.md`. `finance.caddy`, the postgres service
   and `pg-backup/finance.conf` don't change.
 - Both images' build contexts change (`backend/`, `frontend/`): both are rebuilt with new content and recreated, and
   signed-in browser sessions end. The api starts on V14, `Schema "app" is up to date`, and starts.
@@ -858,13 +858,13 @@ What runs and why:
 M=<M>; cd ~/dev/finance-tracker && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
 ```
 
-You should see `HEAD` M with D3b-accept's last subject (on `feature/family-budget`); `origin/main` and
-`origin/feature/family-budget` both `694fa3fbc9e265b38e3d74d2b89a46fd0487916f` (D3b, deployed); D3b-accept's commits,
-`694fa3f..M`, the last of them M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any
+You should see `HEAD` M with D3b-accept-fix's last subject (on `feature/family-budget`); `origin/main` and
+`origin/feature/family-budget` both `694fa3fbc9e265b38e3d74d2b89a46fd0487916f` (D3b, deployed); D3b-accept's and
+D3b-accept-fix's commits, `694fa3f..M`, the last of them M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any
 line of `git status`: stop and tell the PM.
 
 **1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted
-D3b-accept and named M.
+D3b-accept-fix and named M.
 
 ```bash
 # On the laptop
@@ -872,8 +872,8 @@ cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git
 ```
 
 You should see a fast-forward of `main` from `694fa3f` (`Updating 694fa3f..` and M's 7 characters), the push of both
-branches (`694fa3f..` M's 7 characters on each), and M in full with its parent and D3b-accept's last subject: exactly
-the commit D3b-accept's report names. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the
+branches (`694fa3f..` M's 7 characters on each), and M in full with its parent and D3b-accept-fix's last subject:
+exactly the commit D3b-accept-fix's report names. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the
 PM. If the merge says `Not possible to fast-forward`, or the hash is another, stop. CI starts with the push, on M; don't
 start "CI on Ubuntu 26.04" now (step 9 says when, D-44).
 
@@ -985,7 +985,7 @@ It prints ("Deploying with deploy.sh" lists the steps):
   and it refuses here, D-131).
 - 1.2: `HEAD: 694fa3f docs: D3b's change log entry (D3b)`, the running images, `Last good deploy: 694fa3f … (deploy)`,
   its status `good`, both images "the recorded image", the read-only role's line.
-- 1.3: the fetch; D3b-accept's commits from `694fa3f` to M, the last of them M; `Migrations added: none`; under
+- 1.3: the fetch; D3b-accept's and D3b-accept-fix's commits from `694fa3f` to M, the last of them M; `Migrations added: none`; under
   `deploy/` the one file listed above.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (…)`. 1.6: the D3b files. 1.7: the 22 numbers of step 3.
@@ -1038,7 +1038,7 @@ skipped spec doesn't fail it).
 - If a spec or the cleanup failed (`Result: FAILED`): don't run `finish` until the PM has read the summary (D-59).
 - Left to check by hand, each with its reason: **the real export's import**, which is D3b-run's (step 10), never this
   deploy's: production gets no real row from D3b-accept (D-137); the local run on the real export (D-144, up to
-  2026-08-31) is in D3b-accept's report. **D-163's first sign-in**: the spec needs a second sign-in, which production's
+  2026-08-31, passed with D-169) is in D3b-accept-fix's report. **D-163's first sign-in**: the spec needs a second sign-in, which production's
   accounts don't do (D-52); D3b-run's step 10.3 adds the partner's place on the Members page and checks it is there.
 
 **6. On the server: finish**, only after step 5, alone in its block; type `yes` or `no` to each question: `yes` to both

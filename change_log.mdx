@@ -3,6 +3,57 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-14 · D3b-doc and D3c-0: D3b-accept's deploy and D3b-run recorded, two restore-test counts explained, D3c surveyed
+
+Two commits on `feature/family-budget` on top of `1d3b811` (deployed; `main` and `feature/family-budget` both there,
+pushed; these are not pushed and reach the server with the next deploy): `af1f630` "docs: D-172, D-173, D3b-accept's
+deploy and D3b-run in the runbook, CLAUDE.md, the new-family spec's row (D3b-doc)" and the commit of this entry, "docs:
+D3b-doc's change log entry (D3b-doc)". Production and the server not accessed. No code change, no migration.
+
+**Changes**
+- `requirements.md`: D-172 (D3b-accept-fix's choices confirmed; the partner is "he" and "his") and D-173 (the browser
+  signed in as the owner himself before an import, a private window the safe way); D3b-accept-fix's choices marked
+  confirmed; the planned stages (D3b-accept's deploy, D3b-run, D3c-0).
+- `deploy/RUNBOOK.md`: "Deployed revisions" has D3b-accept's deploy of `1d3b811` (CI #77 and #78, the run's dumps, images
+  and numbers, the suite, `finish`, `verify D3b`), its rollback acceptance (`rollback.sh 694fa3f` answered `no`, no
+  condition line), "CI on Ubuntu 26.04" #11 and D3b-run (step 10's results, 10.2 to 10.10); "Production now" is
+  `1d3b811` with the owner's history, the rollback target `694fa3f`, below V14 only by restoring 10.2's dump, and the
+  deploy numbers' `family_*` no longer 0 (a checklist expects what its own `verify` printed); step 10 says it was done
+  and what a later import meets, and 10.5 has D-173.
+- `e2e/README.md`: the `new-family` row names the second member typed without pressing Add member (D-170).
+- `CLAUDE.md`: the deployment facts (`1d3b811`, the import, the rollback state).
+- Part A2, the restore test's counts after D3b-run (accounts 44 to 45, counterparties 107 to 833), explained in the
+  runbook's D3b-run row: a local run of the same import gives the owner exactly 25 accounts (the 10 starter accounts,
+  the 14 the report calls new, his family debt account, which the posting service makes and the report doesn't count;
+  "6 updated" are starter accounts renamed), 44 categories and 833 counterparties, and every other count of 10.10;
+  production's 45 and 74 add two ledgers with only the starter rows. The earlier 44 and 107 held another ledger's rows
+  beyond the starter ones, gone by 10.10; the import deletes nothing (D-138). No loss, no duplicate.
+- D3c-0, read only and local (`data/private/reports/D3c-0.md`, not in the repository): the partner's export profiled,
+  the settlements' two sides matched, his family debt compared with the seat's balance, and a claim of the seat
+  simulated from the start date and from today on a throwaway database holding the D3b-run import; a plan for D3c with
+  options. Its headline: once the partner has an account, the owner's import is refused as it stands, and the
+  partner's own file lacks four columns the importer needs.
+
+**Verified**
+- This entry compiled with `@mdx-js/mdx`: exit 0.
+- `scripts/check-forbidden-names.sh` on the tree, `--rev HEAD` and `--log 1d3b811..HEAD`: exit 0, no hit each.
+- D3c-0's simulation (never production): `postgres:17-alpine` on 127.0.0.1:5433, the api of `1d3b811` on the host with
+  the dev Keycloak; `ImportRunner --commit` of `export-2026-10-13` up to 2026-08-31 into `testuser`'s ledger, 234 s,
+  exit 0: 14754 created, 0 row errors, the reconciliation passed, and entries 18446, postings 37035, counterparties 833,
+  family records 12167, shares 23096, links 15859 and journal 12167, as production's 10.10. The claim by `testuser2`:
+  from 2017-11-01, 20006 entries posted in 177.8 s; from 2026-10-14, one opening entry in 0.9 s. The owner's dry run
+  after the claim: exit 1, refused. Everything it made was removed afterwards (the container, the backend, Vite).
+- No backend, frontend or end-to-end suite ran: no code changed.
+
+**Open**
+- The owner's decisions for D3c (D3c-0's plan): the claim's join date, who imports what after the claim, the partner's
+  settlement rows, his rows' hash, his reconciliation.
+- D3c-0's questions: his 191 rows between FAMILY_DEBT and UNALLOCATED; 39 settlement rows of his and 68 of the owner's
+  after 2019-12 without a counterpart; two −0.50 steps of 2025 and the 0.99 between the two files' FAMILY_DEBT EUR.
+- Whose rows the restore tests' earlier 44 accounts and 107 counterparties were, and when they went (the 10.2 restore
+  test's output tells whether they were still there before the import).
+- No "her" naming the partner was found in a tracked file (D-172 asked to fix one).
+
 ## 2026-10-13 · D3b-accept-fix: the owner's halves explained (D-169), a typed member added (D-170), D-144 passed
 
 Five commits on `feature/family-budget` on top of D3b-accept's `2698588` (not pushed; `main` and `origin` at

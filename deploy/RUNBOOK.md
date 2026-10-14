@@ -593,6 +593,12 @@ daily balance file before anything is saved (D-63 to D-69, D-146, D-147). Since 
 2026** (D-165): rows of either file dated after it are left out, neither imported nor missing, and the reconciliation
 stops there; a later import with a later date adds the newer rows through the usual sync (D-139).
 
+**Done on 2026-10-13** with `export-2026-10-13` up to 2026-08-31, on `1d3b811` ("Deployed revisions" has each step's
+result). A later import follows the same steps with a later export and date; 10.3 and 10.4 then find the budget and the
+ledger that this one made, and 10.4's counts are no longer 0. After the partner takes his seat with an account (D3c),
+the owner's import is refused as it stands (it needs the partner's place to be a member without an account): D3c
+decides who imports what then (data/private/reports/D3c-0.md).
+
 **10.1 The export.** Export the workbooks' sheets as CSV (semicolons, `dd.MM.yyyy`) into a new dated folder
 `~/dev/finance-tracker/data/private/export-YYYY-MM-DD/` on the laptop (D-61): the owner's accounts, categories,
 transactions, daily balance and daily change files, and the partner's transactions file. The partner's daily files stay
@@ -633,7 +639,9 @@ You should see `entries 0`, `counterparties 0`, `family budgets 1` (10.3's) and 
 earlier data (the demo, a test): **the owner decides** what to do with it before going on (Settings → "Delete all my
 data" deletes everything of his, 10.3's budget too, which is then created again).
 
-**10.5 The dry run.** Open <https://app.finance-nl.com/import> and choose the owner's five files, the family budget of
+**10.5 The dry run.** First make sure the browser is signed in as the owner himself, not as an end-to-end test account
+(`e2e-a`, `e2e-b`): the import goes into the signed-in account's ledger (D-173). A private window, signed in fresh, is
+the safe way; the header shows the signed-in name. Then open <https://app.finance-nl.com/import> and choose the owner's five files, the family budget of
 10.3, the partner's place, and the partner's transactions file. The page says how many of his rows are family rows and
 will be uploaded. Type **2026-08-31** into **Import up to** (D-165). Click **Check (dry run)**: it takes several minutes; leave the page
 open. Read the report:
@@ -686,6 +694,10 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-13 | `1d3b811`; the database: the owner's history imported | D3b-run (D-137), [step 10](#10-import-the-excel-ledger), in the browser as the owner. 10.2: dump `finance-2026-10-13T2054Z.dump`, 1458602 bytes, restore test PASS: the way back below the import. 10.3: the family budget (base currency EUR, start date 2017-11-01) and the partner's place, a member without an account, listed on its Members page. 10.4: `entries 0`, `counterparties 0`, `family budgets 1`, `family records 0`. 10.5: the dry run on `export-2026-10-13` up to 2026-08-31: created 14754, updated 0, not imported 50 (D-84), skipped 17, errors 0; after the cutoff 41 of the owner's 7013 rows and 136 of the partner's 7957; the reconciliation Passed (3210 month-ends, per account and currency); 18 warnings: 2 rows with an empty `LOAN_CA` given 'Unassigned', 16 amounts rounded to 4 decimals. 10.7: the commit, 14754 created, the reconciliation Passed. 10.8: the integrity check `[]`. 10.9: the same import again: 0 created, 0 updated, 14754 unchanged, 0 conflicts, 0 missing. 10.10: dump `finance-2026-10-13T2122Z.dump`, 3172073 bytes, restore test PASS: ledgers 4, members 5, accounts 45, categories 74, counterparties 833, entries 18446, postings 37035, unbalanced 0, family_records 12167, family_shares 23096, family_links 15859, family_journal 12167. Those are the import's rows (a local run of the same import, D3b-doc, gives exactly 25 accounts, 44 categories, 833 counterparties, 18446 entries, 37035 postings and the same family counts) and two personal ledgers with only the starter rows (10 accounts and 15 categories each). The import report's "Accounts: 14 new, 6 updated" counts the owner's accounts file against his ledger (6 starter accounts renamed); his family debt account, which the posting service makes, is the 25th. The restore tests before it had counted 44 accounts and 107 counterparties: rows beyond the starter ones that were gone by 10.10 (the owner's ledger held no entry and no counterparty at 10.4); the import deletes nothing (D-138). |
+| 2026-10-13 | `1d3b811`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `1d3b811`, run #11 (id `38464029879`): success. Its check runs belong to `1d3b811`, deployed and finished, so they hold up no deploy. |
+| 2026-10-13 | `1d3b811`; nothing changed | D3b-accept's rollback acceptance: `deploy/rollback.sh 694fa3f`, answered `no`: REFUSED, nothing changed. No condition line: the target is at V14, and V14's condition is only for a target below it. The rollback state, read again afterwards, was unchanged; the rollback target is `694fa3f`. |
+| 2026-10-13 | `1d3b81138e95ea468d3ca8546dd04225719cb188` (docs: D3b-accept-fix's change log entry (D3b-accept-fix)), M | D3b-accept with D3b-accept-fix (D-161 to D-171: "Import up to", the daily files' precision guard, D-163's spec, actionlint's runner label, `OWNER_HALF`, a typed member's name at creation), Flyway V14, no migration, the switch on. Push: `main` and `feature/family-budget` at `1d3b811`; CI #77 (id `38454015782`, `push`, `feature/family-budget`) and #78 (id `38454015975`, `push`, `main`), attempt 1, 10 check runs, all success. `deploy/deploy.sh run 1d3b81138e95ea468d3ca8546dd04225719cb188 D3b`, run folder `/var/lib/finance-deploy/runs/2026-10-13T200040Z-1d3b811`. 1.8: dump `finance-2026-10-13T2000Z.dump`, 1458604 bytes, SHA-256 `6e4fa8d85b29…`; restore test PASS (migration 14). 3.2: `05397a7`'s tags removed. 3.3: api image `sha256:54044fea…` (content `sha256:edfdcd1b…`), web image `sha256:3bf6839b…` (content `sha256:37226932…`). 4.1: no migration, "Schema app is up to date", the api started at 20:29:19Z. 4.3: the same 22 numbers. 4.4: `D3b.expected`'s 29 lines. 4.6: dump `finance-2026-10-13T2029Z.dump`, 1458601 bytes, SHA-256 `becfdfc62aa4…`; restore test PASS. The end-to-end suite (`E2E_FAMILY=on`): `Result: PASSED`, `import` passed in its two steps (up to 2024-02-29, then the rest, D-165), `new-family` skipped by design (D-171), password search 0 hits. `finish`: passed, `finish=passed 2026-10-13T20:33:36Z`. `verify D3b`: OK. |
 | 2026-10-12 | `694fa3f`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `694fa3f`, run #10 (id `38298487723`), `workflow_dispatch` on `main` at `694fa3f`, attempt 1, dispatched once: Backend, Frontend, Web image and Deploy scripts completed with success. Its check runs belong to `694fa3f`, deployed and finished, so they hold up no deploy; with them the commit has 14 check runs, 10 from the two pushes (D-95) and these 4. |
 | 2026-10-12 | `694fa3f`; nothing changed | D3b's rollback acceptance: `deploy/rollback.sh fe35e26` reached its question; its step 4 printed V14's count line ("No settlement side on an account that requires a counterparty or on FX_EXCHANGE alone: …"). Answered `no`: REFUSED at its question, nothing changed. The rollback state, read again afterwards, was unchanged; the rollback target stays `fe35e26`, with V14's condition (D-148). |
 | 2026-10-12 | `694fa3fbc9e265b38e3d74d2b89a46fd0487916f` (docs: D3b's change log entry (D3b)), M | D3b (D-134 to D-160: the Excel import's code, its page and the browser's filter of the partner's file, settlement sides on accounts that require a counterparty and on FX_EXCHANGE, V14), Flyway V14, the switch on. It imported nothing (D-137); it was deployed before D-144 passed (D-161). Push: `main` and `feature/family-budget` at `694fa3f`; CI #75 (id `38294843939`, `push`, `main`) and #76 (id `38294844005`, `push`, `feature/family-budget`), attempt 1, 10 check runs, all success. `deploy/deploy.sh run 694fa3fbc9e265b38e3d74d2b89a46fd0487916f D3b`, run folder `/var/lib/finance-deploy/runs/2026-10-12T192425Z-694fa3f`, run by `fe35e26`'s script. 1.8: dump `finance-2026-10-12T1924Z.dump`, 1454066 bytes, SHA-256 `3fbcec2b…`; restore test PASS (migration 13). 3.2: `fe35e26`'s images kept as `:fe35e26ad194243af798ce5c313b5d45f53ac6bb` and `:previous`; `b6258f6`'s tags removed. 3.3: api image `sha256:fefdcb0b…` (content `sha256:fce027a1…`), web image `sha256:1d8f482f…` (content `sha256:a8d87b75…`), both recreated. 4.1: V14 applied in 0.042 s, the api started at 19:25:24Z. 4.3: the same 21 numbers. 4.4: `D3b.expected`'s 29 lines. 4.6: dump `finance-2026-10-12T1925Z.dump`, 1458430 bytes; restore test PASS (migration 14, 20 tables). The end-to-end suite (`E2E_FAMILY=on`): `Result: PASSED`, `import passed` (5.0 s, its first production run), password search 0 hits. `finish`: passed, `finish=passed 2026-10-12T19:30:05Z`. `verify D3b`: OK, 22 numbers (`imported_entries_deleted=0`). |
@@ -746,30 +758,39 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-12, after D3b's `finish` (passed, 2026-10-12T19:30:05Z), `verify D3b` (OK) and its rollback acceptance
-(answered `no`, nothing changed):
+As of 2026-10-13, after D3b-accept's deploy (`finish` passed, 2026-10-13T20:33:36Z; `verify D3b` OK; its rollback
+acceptance answered `no`, nothing changed) and D3b-run (step 10, the 10.10 restore test PASS):
 
-- `694fa3fbc9e265b38e3d74d2b89a46fd0487916f` (D3b, on F8f with F8f-fix, F8e, F8d, F8c-fix, F8c, F8c-0, F8, QA-1 and
-  QA-1b) on Flyway V14, `last-good` naming `694fa3f` (`finish=passed 2026-10-12T19:30:05Z`). Family budgets are switched
-  on since 2026-10-03T09:25:40Z. The containers run api `sha256:fefdcb0b…` (content `sha256:fce027a1…`) and web
-  `sha256:1d8f482f…` (content `sha256:a8d87b75…`), "the recorded image" for `verify`.
-- The numbers: users 3, every `family_*` 0, `imported_entries_deleted` 0 (22 numbers since D3b's `numbers.sql`). No
-  family record exists in production, and nothing real is imported: the production import is D3b-run (D-137, step 10),
-  after D3b-accept, once D-144 has passed (D-161).
-- The rollback state: the previous-commit file names `fe35e26` (F8f's code on the V14 schema, which it reads).
-  `rollback.sh`'s target is `fe35e26`, with V14's condition (D-148): it refuses while a settlement side is on an account
-  that requires a counterparty or on FX_EXCHANGE alone, which only the import writes. Until D3b-run there is none.
-  `rollback.sh fe35e26` was answered `no` in the acceptance checks (REFUSED), and the state read again afterwards was
-  unchanged. The way back from the family budget is `deploy/deploy.sh switch off`.
-- The end-to-end suite from `694fa3f` passed on production (2026-10-12, `E2E_FAMILY=on`, `Result: PASSED`, `import
-  passed`).
-- "CI on Ubuntu 26.04" for `694fa3f`: run #10 (id `38298487723`), dispatched once on `main`, all four jobs success.
-- `main` and `feature/family-budget` were at `694fa3f` and pushed when D3b was deployed. CI for `694fa3f`: #75 and #76,
-  10 check runs, all success (D-95), and with run #10's 4 the commit has 14.
-- D3b's, F8f's and F8e's checklists below stay as their records and are used for no other deploy. D3b-accept (the
-  import's cutoff date D-165, the daily files' guard D-168, D-163, D-164) and D3b-accept-fix (D-169's `OWNER_HALF`,
-  D-170) are built on `feature/family-budget` and not deployed; "D3b-accept's deploy checklist with the suite" below deploys it, after which the rollback target is
-  `694fa3f`.
+- `1d3b81138e95ea468d3ca8546dd04225719cb188` (D3b-accept with D3b-accept-fix, on D3b, F8f with F8f-fix, F8e, F8d,
+  F8c-fix, F8c, F8c-0, F8, QA-1 and QA-1b) on Flyway V14, `last-good` naming `1d3b811` (`finish=passed
+  2026-10-13T20:33:36Z`). Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api
+  `sha256:54044fea…` (content `sha256:edfdcd1b…`) and web `sha256:3bf6839b…` (content `sha256:37226932…`), "the
+  recorded image" for `verify`.
+- **The owner's history is imported** (D3b-run, 2026-10-13, up to 2026-08-31): his personal ledger and one family
+  budget with the partner's place, a member without an account. The 10.10 restore test: accounts 45, categories 74,
+  counterparties 833, entries 18446, postings 37035, family_records 12167, family_shares 23096, family_links 15859,
+  family_journal 12167. **The numbers are no longer 0 in `family_*`**: from the next deploy on, a checklist expects
+  the numbers its own step 3 (`verify`) printed, never zeros; `family_ledgers`, `family_members`,
+  `family_members_active`, `family_accounts`, `family_records` and the rest hold the import, and they change whenever
+  the owner (or, after D3c, the partner) writes in the app. `imported_entries_deleted` counts the imported personal
+  entries he deletes in the app (D-150), so it may be above 0 too. A real user's writes between `verify` and `run`
+  explain a difference in their own lines only. `deploy/checks/D3b.sql` holds no count of these rows and still applies.
+- The rollback state: the previous-commit file names `694fa3f` (D3b, the same V14 schema). `rollback.sh`'s target is
+  `694fa3f`, with no condition of its own (V14's condition, D-148, is only for a target below V14).
+  `rollback.sh 694fa3f` was answered `no` in the acceptance checks (REFUSED, no condition line), and the state read
+  again afterwards was unchanged. **Below V14 only by restoring `finance-2026-10-13T2054Z.dump`** (10.2's), which also
+  loses the import and everything written after it: the import wrote settlement sides on accounts that require a
+  counterparty and on FX_EXCHANGE alone, so `rollback.sh` refuses to go below V14 (step 10's note). The way back from
+  the family budget is `deploy/deploy.sh switch off`, which leaves the data.
+- The end-to-end suite from `1d3b811` passed on production (2026-10-13, `E2E_FAMILY=on`, `Result: PASSED`, `import`
+  in two steps, `new-family` skipped by design, D-171).
+- "CI on Ubuntu 26.04" for `1d3b811`: run #11 (id `38464029879`), success.
+- `main` and `feature/family-budget` were at `1d3b811` and pushed when D3b-accept was deployed. CI for `1d3b811`: #77
+  and #78, 10 check runs, all success (D-95).
+- D3b-accept's, D3b's, F8f's and F8e's checklists below stay as their records and are used for no other deploy.
+  D3b-doc (D-172, D-173, these facts) is documentation only, on `feature/family-budget`, not pushed; it reaches the
+  server with the next deploy. D3c (the partner's claim and his own import) is next, after D3c-0's survey: once the
+  partner has an account, the owner's import is refused as it stands (step 10's note).
 
 ### Automatic reboots
 

@@ -3,6 +3,77 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-15 · D3c: the partner's claim from a past join date and each member's own import
+
+Not committed yet.
+
+Five commits on `feature/family-budget` on top of D3b-doc's `d8cdfbe` (not pushed; `main`, `origin/main` and
+`origin/feature/family-budget` at `1d3b811`, deployed): `07b4c02` "docs: D-174 to D-191, D3b-run's demo data and step
+10's order (D3c)", `4de8a0f` "feat: the claim from a past join date and each member's own import (D3c)", `8836323` "fix:
+D-12 on the partner's records in the owner's import after a claim, the claim opening's D-12 part as SHARES (D3c)",
+`ffe51e1` "docs: D3c's choices and D-184's check, the runbook's step 11 and D3c's deploy checklist (D3c)" and the commit of
+this entry. Production and the server not accessed.
+
+**Changes**
+- `requirements.md`: D-174 to D-191 as decided, D-184 with D3c's local check, and D3c's choices (the agent's, for the
+  PM to confirm); the planned stages (D3c, D3c-accept, D3c-run).
+- V15 (`V15__member_import.sql`, additive, D-22): `family_import_cutoff`, each seat's latest committed cutoff per family
+  budget (D-175), and `imported_family_side`, a member's imported side of a record with its hash and the app's (D-181),
+  in his personal ledger, with a trigger that keeps it there.
+- The claim (D-174, D-182, D-183, D-176): the invite lookup's `recordsAttached`; accepting a claim makes the records an
+  import wrote from the place's file (`xls:<place>:`) the claimer's, as author, in the claim's one transaction, versions
+  and journal unchanged. F5's join date, picked by the owner, stays.
+- The import (`ImportService`, `MemberPlanner`, `SettlementMatcher`): three modes. The owner's with a place without an
+  account, as before; the owner's once the place has an account (D-175): no partner's file (409 with the reason), D-83's
+  lumps from the place's first record, D-169 and D-12 from the place's records, not refused; a member's own import of the
+  place he took (D-177 to D-181): his personal rows, his family records recognised by D-151's hash with his payment side
+  attached (its own hash), new ones created 50/50, his settlement rows matched by D-178's three tiers and his conversions
+  by both legs (his side on FX_EXCHANGE, a flag the service takes from the import only), unmatched rows and expenses
+  straight from FAMILY_DEBT refused, benefit rows checked per month (D-179); only an owner names another place. The
+  reconciliation: D-175's waiting for the other member's cutoff, D-180's claim opening (CLAIM_OPENING, D-12's part as
+  SHARES) and D-188's settlement dates (SETTLEMENT_DATE), the report's `member` summary and the Markdown report.
+- The pages: `Import.tsx` asks a member who took a place for his own files only, and the owner for no partner's file once
+  the place has an account, and shows the member's summary and the waiting family debt; `Invite.tsx` states the records a
+  claim attaches and waits while it runs, one request only (Enter too).
+- Tests: `MemberImportApiTests` (14), `ClaimAtomicityApiTests`, `MemberPlannerTests`, `SettlementMatcherTests`, a waiting
+  case in `ReconcilerTests`, V15 in `LedgerSchemaTests` and `LedgerBackfillMigrationTests`, the new tables in the owned
+  rows, on D3c's synthetic export (`src/test/resources/import/d3c/`, its own generator); the frontend's import, filter and
+  invite tests; the end-to-end spec `05-member-import.spec.ts` (local and production: it leaves nothing behind).
+- `deploy/checks/D3c.sql` and `D3c.expected` (12 lines, tried on a throwaway database at V15); `numbers.sql` adds
+  `family_import_cutoffs` and `imported_family_sides`.
+- `deploy/RUNBOOK.md`: D3b-run's row (D-184), step 10's order (D-185), step 11 (D3c-run), D3c's deploy checklist with
+  the suite (rollback target `1d3b811`, no condition).
+
+**Verified**
+- Backend, `./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>` on `ffe51e1`, seeds
+  20261021, 20261022 and 20261023: exit 0 each, `Tests run: 555, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- Frontend, `npm test`: exit 0, `Test Files 30 passed (30)`, `Tests 385 passed (385)`; `npm run build`: exit 0.
+- `deploy/tests/run.sh`: exit 0, 102 passed, 0 failed, of 102 cases; `deploy/tests/mutate.sh`: exit 0, 75 mutations,
+  every one caught; ShellCheck v0.11.0 as CI runs it: exit 0.
+- End-to-end: `npm run typecheck` exit 0; `npm run test:guards` exit 0, tests 37, pass 37, fail 0; `E2E_FAMILY=on npm
+  run e2e:local` on `ffe51e1` (the tree differed only in this entry and one line of the runbook): exit 0, `Result:
+  PASSED`, every spec passed at both widths, `member-import` among them, 0 password hits.
+- actionlint 1.7.7 on `ci.yml` and `ci-ubuntu-26.yml`: exit 0. This entry compiled with `@mdx-js/mdx` 3.1.1: exit 0.
+- `scripts/check-forbidden-names.sh` on the tree, `--rev HEAD` and `--log 1d3b811..HEAD`: exit 0, no hit each.
+- The local real-data run (D-189, D-191; never production, the dev Keycloak, the import and invite pages at Vite; the
+  result in `data/private/reports/D3c.md`): the replay of D3b-run gives production's 10.10 counts and a passing
+  reconciliation; the claim from 2019-12-01 attached 11381 records in 184 s (19196 entries); his dry run: 7817 family
+  rows (7809 unchanged, 8 edited, all D-190's; his payment side attached to each), settlements 453, 22 and 15 by tier
+  and 2 conversions, 187 benefit rows over 66 months with none differing, 97 rows refused (17 without a counterpart, 4
+  expenses from FAMILY_DEBT, 76 transfers within one account in one currency, D-156); the copy without them committed
+  with no error, again 0 created, 0 updated, 0 conflicts, both integrity checks clean, and the owner's dry run of his
+  newest export 0 changes with the family debt passing up to 2026-08-31.
+- D-184's check: "Load demo data" adds 164 entries, 10 counterparties, 3 accounts and 3 categories with "Demo
+  household": not the 296, 107 and 14.
+- `1d3b811`'s api started on a copy of the run's V15 database ("Schema "app" is up to date", health UP).
+
+**Open**
+- Item 7's criteria that failed, as the report says: the claim's RUB opening is 0.41 off his file (D-12's cut −0.385,
+  the rest −0.025); 76 refused rows beyond D-178 and D-179 (D-156); the copy's reconciliation fails at 505 points, 496 of
+  the 500 listed exactly the excluded rows' sums, 4 FAMILY_DEBT EUR month-ends of 2022 by 0.012 to 0.015.
+- D3c's choices for the PM to confirm (requirements.md), and D-184's counts for the owner.
+- D3c-accept: the Excel fixes of the 97 rows, and the local run again with 0 refused rows (step 11.1).
+
 ## 2026-10-14 · D3b-doc and D3c-0: D3b-accept's deploy and D3b-run recorded, two restore-test counts explained, D3c surveyed
 
 Two commits on `feature/family-budget` on top of `1d3b811` (deployed; `main` and `feature/family-budget` both there,

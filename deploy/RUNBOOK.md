@@ -700,7 +700,7 @@ records of his family rows, his side on the settlements his settlement rows matc
 are uploaded from his browser as the owner's were (the import page takes them by role, never by name, D-143).
 
 **After 11.5 the way back is only a dump restore** (11.2's): the claim gives the place an account, makes the records of
-his file his (D-176) and posts eleven thousand entries into his ledger, and the steps after it attach his sides; no
+his file his (D-176) and posts some nineteen thousand entries into his ledger (D3c's local run: 11381 records), and the steps after it attach his sides; no
 deploy script undoes any of that. `rollback.sh` to D3c's rollback target is unaffected (that code reads all of it), but
 it doesn't take the claim back.
 

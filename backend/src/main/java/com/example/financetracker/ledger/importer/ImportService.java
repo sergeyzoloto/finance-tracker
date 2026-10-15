@@ -508,6 +508,11 @@ public class ImportService {
             // an account, his incomes are his records, up to the cutoff.
             if (family != null && family.mode() == Mode.OWNER_AFTER_CLAIM && cutoff != null) {
                 carriedByThePartner.addAll(seatIncomes(family.scope(), seatId, cutoff));
+                // D-12 against Excel's exact halves for the records of the partner's file, which his rows no longer
+                // bring: as a member's import explains the other member's records (an agent's choice, D3c).
+                LocalDate joined = familyLedgers.members(family.scope()).stream().filter(m -> m.id() == ownerId)
+                        .findFirst().orElseThrow().joinDate();
+                drift.addAll(othersRecordsDrift(family.scope(), ownerId, joined));
             }
             Reconciler.OwnerHalves ownerHalves = Reconciler.ownerHalf(carriedByTheOwner, carriedByThePartner);
             drift.addAll(ownerHalves.drift());
@@ -1126,6 +1131,7 @@ public class ImportService {
                         first, amount.negate(), Drift.Reason.CLAIM_OPENING)));
             }
             drift.addAll(claimOpening(family.scope(), personal, me));
+            drift.addAll(claimShares(family.scope(), me, joinDate));
 
             String file = transactionsFile.name();
             List<MemberPlanner.SettlementRow> settlementRows = new ArrayList<>();
@@ -1939,6 +1945,29 @@ public class ImportService {
                         row.getObject("entry_date", LocalDate.class), row.getBigDecimal("shown"),
                         Drift.Reason.CLAIM_OPENING))
                 .list();
+    }
+
+    /**
+     * D-180, D-12: the part of the claim's opening balance that D-12's cut of his shares before the join date makes
+     * differ from Excel's exact halves, as SHARES, taken out of CLAIM_OPENING, so that what is left of the opening's
+     * difference is Excel's own (D3c-0: about -0.03 in RUB). The two add up to what the opening explains anyway.
+     */
+    private List<Drift> claimShares(LedgerScope family, long me, LocalDate joinDate) {
+        return jdbc.sql("""
+                SELECT r.currency,
+                       sum(CASE WHEN r.type = 'EXPENSE' THEN 1 ELSE -1 END
+                           * (s.amount - r.base_amount * s.share_bp / 10000.0)) AS cut
+                FROM family_record r JOIN family_share s ON s.record_id = r.id AND s.member_id = :me
+                WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL AND r.type IN ('EXPENSE', 'INCOME')
+                  AND r.record_date < :joinDate AND s.share_bp IS NOT NULL
+                GROUP BY r.currency""")
+                .param("ledgerId", family.ledgerId()).param("me", me).param("joinDate", joinDate)
+                .query((row, n) -> List.of(
+                        new Drift(Reconciler.FAMILY_DEBT, row.getString("currency"), joinDate,
+                                row.getBigDecimal("cut"), Drift.Reason.SHARES),
+                        new Drift(Reconciler.FAMILY_DEBT, row.getString("currency"), joinDate,
+                                row.getBigDecimal("cut").negate(), Drift.Reason.CLAIM_OPENING)))
+                .list().stream().flatMap(List::stream).filter(d -> d.amount().signum() != 0).toList();
     }
 
     /** What a member's own import counts beyond the tallies (D-175 to D-181, D-188). */

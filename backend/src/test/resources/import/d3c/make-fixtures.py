@@ -221,9 +221,10 @@ files('owner', OWNER_ACCOUNTS, OWNER, set(), PARTNER, partner_code,
       {'CASH_EUR': D(100), 'EURO_ACCOUNT_EUR': D(1000), 'USD_ACCOUNT_USD': D(50), 'RESERVE_EUR': D(1100),
        'RESERVE_USD': D(50)},
       date('31.12.2023'), ['CASH_EUR', 'EURO_ACCOUNT_EUR', 'USD_ACCOUNT_USD'] + COMMON, 'Sam', date('10.03.2024'))
-# His first balances: his family debt is his half of the owner's January family row (20.01 / 2), exact.
+# His first balances: his family debt is his half of the owner's January family row (20.01 / 2), as a file at 2
+# decimals holds it: 10.01, where the claim's opening is D-12's 10.00 (D-180's difference, reported once).
 files('partner', PARTNER_ACCOUNTS, PARTNER, REFUSED, OWNER, owner_code,
-      {'CASH_EUR': D(100), 'PARTNER_CARD_EUR': D(500), 'FAMILY_DEBT_EUR': D('10.005'), 'RESERVE_EUR': D('589.995')},
+      {'CASH_EUR': D(100), 'PARTNER_CARD_EUR': D(500), 'FAMILY_DEBT_EUR': D('10.01'), 'RESERVE_EUR': D('589.99')},
       date('31.01.2024'), ['CASH_EUR', 'CASH_USD', 'PARTNER_CARD_EUR'] + COMMON, 'Alex', date('08.03.2024'))
 write('categories.csv', ['Статьи движения средств', 'Доходы/расходы', 'Line'], CATEGORIES)
 # The partner's transactions file as export-2026-10-13 had it: 15 columns, no family columns (D-177's other layout).

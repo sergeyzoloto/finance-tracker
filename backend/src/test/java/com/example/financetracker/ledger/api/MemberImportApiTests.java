@@ -269,6 +269,12 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(reconciliation.get("passed").asBoolean()).isTrue();
         assertThat(reconciliation.get("explained").findValuesAsText("reason")).contains("CLAIM_OPENING",
                 "SETTLEMENT_DATE", "SHARES");
+        // D-180: his first family debt (10.01, two decimals) against the claim's opening (10.00, D-12's cut of 10.005),
+        // once: what D-12 doesn't explain of it.
+        JsonNode opening = StreamSupport.stream(reconciliation.get("explained").spliterator(), false)
+                .filter(e -> e.get("reason").asText().equals("CLAIM_OPENING")).findFirst().orElseThrow();
+        assertThat(opening.get("account").asText() + " " + opening.get("currency").asText() + " "
+                + opening.get("amount").asText()).isEqualTo("FAMILY_DEBT EUR -0.005");
         assertThat(committed.get("integrityViolations")).isEmpty();
         assertThat(jdbc.sql("SELECT cutoff FROM family_import_cutoff WHERE ledger_id = ? AND member_id = ?")
                 .params(family, seat).query(LocalDate.class).single()).isEqualTo(LocalDate.of(2024, 3, 8));

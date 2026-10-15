@@ -62,6 +62,8 @@ Amended in D3b-accept-fix on 2026-10-13: new D-169 to D-171 (decided by the PM),
 
 Amended in D3b-doc on 2026-10-14: new D-172 and D-173 (decided by the PM), about D3b-accept-fix's choices confirmed, the partner's pronoun and the account the browser is signed in as for an import; the planned stages (D3b-accept-fix's deploy, D3b-run, D3c-0).
 
+Amended in D3c on 2026-10-15: new D-174 to D-191 (D-174 to D-181 and D-184 decided by the owner, the others by the PM), about the partner's claim of his seat and his own import, what passes to him with the claim, who imports what afterwards, the reconciliation of his files, D3b-run's demo data and step 10's order, the safety of deleting and leaving, and D3c's local real-data run; the agent's choices of D3c; the planned stages (D3c, D3c-accept, D3c-run).
+
 ## Background
 The app is a personal finance tracker with double-entry bookkeeping: React SPA, Spring Boot BFF (confidential Keycloak client finance-tracker, tokens server-side), PostgreSQL with Flyway, deployed at https://app.finance-nl.com. Today every owned row belongs to one user (user_id = Keycloak sub), access to another user's object returns 404, and DataIsolationApiTests fails when an endpoint is not covered by an isolation check (since F2a; before, it failed only for an endpoint missing from a hand-kept list). OwnedRepository leaves out unscoped methods but does not stop unscoped native SQL, and ten classes use JdbcClient. There is no ledgers table today; a user's ledger is the set of rows keyed by their sub. Migration V5 introduces the ledger and membership tables. The existing SharedExpense entry kind splits an expense by user_settings.default_share_ratio and posts the partner's part to the FAMILY_DEBT liability ("Debt to family budget"); the partner is not a user.
 
@@ -424,6 +426,57 @@ Added in D3b (2026-10-12)
 - D-172 (the PM, 2026-10-14). D3b-accept-fix's choices are confirmed: D-169 counts only the incomes in BENEFIT, OTHERINC and CASHBACK in EUR, its drift is on each month's latest date, and the report lists every month in `ownerHalf`; D-170 stops at a typed name Add member would refuse, and a typed name sets custom shares back to equal. The partner is "he" and "his" throughout this document and the docs. (D3b-doc looked for a "her" naming the partner and found none in a tracked file: every "she" and "her" there names a test persona, such as Alice or Carol.)
 - D-173 (the PM, 2026-10-14). Before D3b-run's dry run, and before every later import, the owner makes sure the browser is signed in as himself, not as an end-to-end test account (`e2e-a`, `e2e-b`): the import goes into the signed-in account's ledger. A private window, signed in fresh, is the safe way. The runbook's step 10.5 says so.
 
+Added in D3c (2026-10-15)
+- D-174 (the owner, 2026-10-14). The partner's join date is 2019-12-01, the first day of his Excel.
+  - Claiming the seat posts into his personal ledger an opening entry per currency (D-31) with the seat's family-debt balance at the end of 2019-11-30, then his shares of every family record from 2019-12-01 on.
+  - Every record the seat paid is dated 2019-12-01 or later, so each stays open for his payment account (D-32).
+  - Not the budget's start: that posts two years of shares before his Excel exists, with nothing to reconcile them against. Not the day of the claim: no payment account could ever be named on past records.
+- D-175 (the owner, 2026-10-14). Once the seat is claimed, each member imports only his own file.
+  - The owner's import no longer takes the partner's transactions file. That field exists only while the budget has an unclaimed seat; a request that sends it for a claimed seat is refused with a clear message.
+  - The owner's import is not refused because another member has an account (D3c-0: it was).
+  - The member's import posts his personal rows into his personal ledger and attaches his payment side to the family records that came from his file.
+  - FAMILY_DEBT is reconciled per currency only up to the earlier of the two members' latest committed cutoffs. For a seat before its claim, its cutoff is that of the owner's import that uploaded its rows; after the claim, until the member imports himself, it stays that same cutoff. Later month-ends are reported as "waiting for the other member's import", not as failed.
+- D-176 (the owner, 2026-10-14). The records that came from the partner's file (imported for the seat by D3b-run) become his with the claim, as author and payer.
+  - His are the family fields (category, split, comment, amount, date), the payment side and delete; his re-imports update them.
+  - Records that came from the owner's file and were paid by the seat stay the owner's as author; the partner gets only their payment side.
+  - The owner sees the partner's records as any member's (D-14, D-88).
+- D-177 (the owner, 2026-10-15; replaces the version of 2026-10-14). The partner's files now have the owner's layout.
+  - The member's import reads his transactions file with the owner's parser and requires the same columns, CODE_ITEM, CUR_FAMILY, FAMILY_EXP and FAMILY_INC included. A file without them is refused with a message naming the missing columns. His daily files are read as the owner's are.
+  - His CODE_ITEM is checked against the categories file as the owner's is. In export-2026-10-15 every item matches, and his COUNT_DEBIT and COUNT_CREDIT match his accounts file.
+  - Family shares still come from the budget's records. His CUR_FAMILY must equal the family record's currency: a difference is a row error. His FAMILY_EXP or FAMILY_INC must equal his share of the record within D-180's tolerance: a difference is a warning with the Excel ID.
+  - Every reader takes columns by header name, never by position. The owner's upload of a seat's family rows (D-151's seven columns) works with either layout of the partner's file.
+  - His upload: his accounts file, the categories file (the same CashFlowItems the owner uploads), his transactions file, his daily balance file and his daily change file.
+- D-178 (the owner, 2026-10-14; refined by the PM 2026-10-15). His settlement rows (FAMILY_DEBT against an account of his) never create settlements.
+  - Each is matched to an existing settlement of the same currency and direction, in this order: (1) the same date and amount; (2) one row of his against several of the owner's on the same date whose sum equals it (2025-06-12 has such a case); (3) the same amount within ±7 days, when the pair is unambiguous.
+  - His FAMILY_DEBT conversions are matched to the owner's conversions by both legs (the currency and amount of each side), whichever currency the row's Sum is written in. The 2022-06-05 conversion is written in EUR on his side and in USD on the owner's.
+  - The matched settlement gets his account as the partner's side.
+  - His unmatched settlement rows are row errors: Excel ID, date, currency, amount, "no counterpart".
+  - The owner's settlements from 2019-12-01 on that end up without his side are warnings.
+  - The Family flag on a transfer row is ignored: 38 of his transfer rows are marked family, 4 of them settlements.
+- D-179 (the owner, 2026-10-14). His rows between FAMILY_DEBT and UNALLOCATED:
+  - Income straight into FAMILY_DEBT (his benefit rows, 187 up to 2026-08-31) is not posted. It is his share of the family incomes another member received, which the claim already posts. The import checks it per month and currency against his shares of the family income records paid by other members (D-180's tolerance), and lists every month that differs as a warning, with both sums. Expected with export-2026-10-15: no warning (the 2025 rows 9505 and 9693 are fixed, and with full precision the 2021 half-cents match too).
+  - An expense paid straight from FAMILY_DEBT (4 rows up to 2026-08-31, Excel IDs 836, 2788, 3530, 6913) is a row error: "split it in Excel into a settlement into an account of yours and the expense from that account".
+- D-180 (the owner, 2026-10-14). The member's reconciliation uses a 0.01 tolerance per account, currency and month-end, since his daily balance file may hold 2 decimals.
+  - FAMILY_DEBT is compared as movement since his first day. The difference between the claim's opening and his daily balance file at 2019-11-30 is reported once as an explained difference (D3c-0: about −0.03 in RUB).
+  - The two 2025 EUR steps are fixed in Excel (his Excel IDs 9505 and 9693 in export-2026-10-15), and his daily balance file must carry them. They are not covered by the tolerance.
+- D-181 (the owner, 2026-10-14). His family rows keep the stored hash over the 7 columns D-151 uploaded.
+  - His payment side (account, currency and amount columns, LOAN_CA) gets its own hash.
+  - A first import of his own file leaves the family records unchanged and reports "payment side attached", except D-190's precision edits.
+  - Later edits of either part are detected and reported separately.
+- D-182 (the PM). The claim is atomic: everything it posts commits together or not at all, and a failed claim leaves the seat unclaimed. The page waits with a message and doesn't allow a second click. If the request can't reliably outlive the timeouts on its way (Caddy, the browser, the session), it runs as a background job with a status the page polls; that is an agent's choice, reported with its reason, as is the claim's time on the local copy (D3c-0: 178 s from 2017-11-01).
+- D-183 (the PM). The owner sets the join date when he invites someone to a seat, and the default is the budget's start. The invite page and the accept page show it, and the accept page says how many records will be attached. If F5 already decides this differently and safely, F5's way stays and is reported.
+- D-184 (the owner, 2026-10-14). D3c-0's open item is closed. The 296 entries, 107 counterparties, 14 accounts beyond the starter ones and the extra categories in the 10.2 restore test were the owner's demo data. During step 10.3 he deleted them with "Delete all my data", which also deleted the budget he had just created; he created it again before 10.4. The runbook's D3b-run row records it, and D3c checks locally whether "Load demo data" adds exactly those counts.
+- D-185 (the PM). "Delete all my data" also deletes budgets, so the runbook's empty-ledger check comes before the budget is created (step 10's order for any later first import). In D3c-run it comes before the partner accepts the invite.
+- D-186 (the PM). After D-176 the partner authors about 7800 family records. "Delete all my data" and leaving a family budget, by either member, must never delete or change a family record that another active member's ledger posts. If today's code could do so, the button and the leave action refuse in that case with a message; closing or leaving a shared budget goes to the backlog. The end-to-end suite's cleanup keeps leaving no data, removing the accounts' data in an order the rule allows if it must.
+- D-187 (the PM). The partner sees and changes the counterparties on the records that pass to him, and the owner keeps all of his own unchanged. If D3b stored them under the owner, the claim gives the partner his own copies (by name, once each) and points his records to them; if the model already makes this unnecessary, it stays and is reported.
+- D-188 (the PM). The partner's side of a matched settlement is posted on the settlement's date, as the model posts it. The reconciliation counts the matched pairs that straddle a month-end; each one's amount at that month-end is an explained difference, listed.
+- D-189 (the PM). D3c's local real-data run and its pass criteria are those of D3c's task, item 7 (data/private/reports/D3c.md).
+- D-190 (the PM). The partner's export carries full precision from export-2026-10-15 on.
+  - Rows whose uploaded columns changed only in precision are ordinary edits: the next import that uploads them updates them and lists them. No special case.
+  - A Sum of "-" and a Sum of 0 mean the same: the row is skipped as zero, as D3b did.
+  - Up to 2026-08-31, ten of his family rows changed this way: 3273, 3274, 3784, 3785 and 4814 (SUM_DEBIT); 6242, 6243 and 9916 (Sum); 6402 and 6606 (Sum "-" to 0, skipped both times). Which of them count as edits depends on D-151's seven columns.
+- D-191 (the PM). Every local real-data run that prepares a production step first replays production's history: the imports production has had, with the same exports, cutoffs and order. Today that is D3b-run, export-2026-10-13 up to 2026-08-31. Only then comes the step under test, with the newest export. D3c's item 7 and the runbook's step 11.1 follow it.
+
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
 - F2a: migration V5, stronger isolation tests, these documents; deployed on its own.
@@ -456,6 +509,7 @@ Added in D3b (2026-10-12)
 - After F8f's deploy (2026-10-12, `fe35e26`, Flyway V13, decided by the PM, D-137): D3b is the owner's Excel import with the partner's family rows from his seat (D-82, D-136): the code, its tests, a local run on the real export (D-144) and a deploy, with V14 (D-148, D-150). D3b-run, the production import, follows as its own task after D3b's deploy is accepted; D3c (the partner's claim and his own import, D-48) after it.
 - After D3b's deploy (2026-10-12, `694fa3f`, Flyway V14, accepted in full, D-161): D3b-accept, before D3b-run: the import's cutoff date (D-165), the daily files' precision guard (D-168), D-163's spec, D-164, D-144 on the export of 2026-10-13 up to 2026-08-31 (D-166, D-167), D3b's deploy facts and a deploy checklist. D3b-run follows it.
 - After D3b-accept-fix's deploy (2026-10-13, `1d3b811`, Flyway V14) and D3b-run (2026-10-13: the owner's history imported up to 2026-08-31, Passed, the runbook's "Deployed revisions"): D3b-doc records both and D-172 and D-173; D3c-0 surveys D3c, read only, with a local simulation of the partner's claim and his own import (data/private/reports/D3c-0.md). D3c (the partner's claim and his import, D-48) follows once the owner has taken D3c-0's decisions.
+- After D3c-0 (2026-10-15, decided by the owner and the PM, D-174 to D-191): D3c is the code of the partner's claim with a past join date and of his own import (and the owner's after it), its tests, a local real-data run (D-189, D-191) and a deploy checklist. D3c-accept, a task of its own, runs the local run again on the export with the Excel fixes until no row is refused (the runbook's step 11.1); D3c-run, the production claim and import, is the runbook's step 11, after D3c's deploy is accepted.
 
 ## Later
 Found along the way; not part of a stage yet.

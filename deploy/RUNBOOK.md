@@ -594,10 +594,14 @@ daily balance file before anything is saved (D-63 to D-69, D-146, D-147). Since 
 stops there; a later import with a later date adds the newer rows through the usual sync (D-139).
 
 **Done on 2026-10-13** with `export-2026-10-13` up to 2026-08-31, on `1d3b811` ("Deployed revisions" has each step's
-result). A later import follows the same steps with a later export and date; 10.3 and 10.4 then find the budget and the
-ledger that this one made, and 10.4's counts are no longer 0. After the partner takes his seat with an account (D3c),
-the owner's import is refused as it stands (it needs the partner's place to be a member without an account): D3c
-decides who imports what then (data/private/reports/D3c-0.md).
+result). A later import follows the same steps with a later export and date; 10.3 and 10.4 then find the ledger and the
+budget that this one made, and 10.3's counts are no longer 0. After the partner takes his seat with an account (D3c,
+step 11), each member imports only his own file (D-175): the owner's import takes no partner's file any more, and the
+partner imports his own files himself.
+
+**The order (D-185).** "Delete all my data" deletes the user's family budgets too, so the check that the ledger holds no
+demo or test data (10.3) comes before the family budget is created (10.4). D3b-run ran them the other way round (its
+10.3 created the budget, its 10.4 checked the ledger), which is why its row in "Deployed revisions" names them so.
 
 **10.1 The export.** Export the workbooks' sheets as CSV (semicolons, `dd.MM.yyyy`) into a new dated folder
 `~/dev/finance-tracker/data/private/export-YYYY-MM-DD/` on the laptop (D-61): the owner's accounts, categories,
@@ -616,7 +620,20 @@ cd /opt/finance-tracker && systemctl start pg-backup@finance.service && pg-resto
 
 You should see the dump written and the restore test's `PASS`. Note the dump's name: it is the way back (10.10).
 
-**10.3 The family budget and the partner's place** (D-141), in the browser as the owner, once: **New family
+**10.3 The owner's ledger holds no demo or test data** (D-185: before the family budget is created), read only; type the owner's email for `<owner email>`:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT 'entries ' || count(*) FROM app.journal_entry e JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<owner email>' UNION ALL SELECT 'counterparties ' || count(*) FROM app.counterparty c JOIN app.users u ON u.keycloak_id = c.user_id WHERE u.email = '<owner email>' UNION ALL SELECT 'family budgets ' || count(*) FROM app.ledger_member m JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.status = 'ACTIVE' AND u.email = '<owner email>' UNION ALL SELECT 'family records ' || count(*) FROM app.family_record r JOIN app.ledger_member m ON m.ledger_id = r.ledger_id AND m.ledger_type = 'SHARED' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<owner email>'" </dev/null
+```
+
+You should see `entries 0`, `counterparties 0`, `family budgets 0` and `family records 0` for a first import. Anything
+else is earlier data (the demo, a test): **the owner decides** what to do with it before going on (Settings → "Delete
+all my data" deletes everything of his, his family budgets too, which is why this check comes before 10.4 creates one).
+A later import of the same ledger finds its own data here (D3b-run's: the counts of "Deployed revisions" and 1 family
+budget) and goes on to 10.5.
+
+**10.4 The family budget and the partner's place** (D-141), in the browser as the owner, once, after 10.3: **New family
 budget…**, its name, base currency EUR, the start date **1 November 2017** (D-70; the first family row is later),
 no category brought (the import makes the family categories it needs and merges the owner's personal ones of the same
 code, D-11), equal shares; then on its **Members** page his name in **Add a member without an account**, and **Add**: a
@@ -628,21 +645,10 @@ created with the budget, D-163, which is why he is added on the Members page her
 again. Go on only once it is listed; the
 import page's "The partner's place" offers only such members.
 
-**10.4 The owner's ledger holds no demo or test data**, read only; type the owner's email for `<owner email>`:
-
-```bash
-# On the server (read only)
-cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT 'entries ' || count(*) FROM app.journal_entry e JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<owner email>' UNION ALL SELECT 'counterparties ' || count(*) FROM app.counterparty c JOIN app.users u ON u.keycloak_id = c.user_id WHERE u.email = '<owner email>' UNION ALL SELECT 'family budgets ' || count(*) FROM app.ledger_member m JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.status = 'ACTIVE' AND u.email = '<owner email>' UNION ALL SELECT 'family records ' || count(*) FROM app.family_record r JOIN app.ledger_member m ON m.ledger_id = r.ledger_id AND m.ledger_type = 'SHARED' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<owner email>'" </dev/null
-```
-
-You should see `entries 0`, `counterparties 0`, `family budgets 1` (10.3's) and `family records 0`. Anything else is
-earlier data (the demo, a test): **the owner decides** what to do with it before going on (Settings → "Delete all my
-data" deletes everything of his, 10.3's budget too, which is then created again).
-
 **10.5 The dry run.** First make sure the browser is signed in as the owner himself, not as an end-to-end test account
 (`e2e-a`, `e2e-b`): the import goes into the signed-in account's ledger (D-173). A private window, signed in fresh, is
 the safe way; the header shows the signed-in name. Then open <https://app.finance-nl.com/import> and choose the owner's five files, the family budget of
-10.3, the partner's place, and the partner's transactions file. The page says how many of his rows are family rows and
+10.4, the partner's place, and the partner's transactions file. The page says how many of his rows are family rows and
 will be uploaded. Type **2026-08-31** into **Import up to** (D-165). Click **Check (dry run)**: it takes several minutes; leave the page
 open. Read the report:
 
@@ -694,7 +700,7 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
-| 2026-10-13 | `1d3b811`; the database: the owner's history imported | D3b-run (D-137), [step 10](#10-import-the-excel-ledger), in the browser as the owner. 10.2: dump `finance-2026-10-13T2054Z.dump`, 1458602 bytes, restore test PASS: the way back below the import. 10.3: the family budget (base currency EUR, start date 2017-11-01) and the partner's place, a member without an account, listed on its Members page. 10.4: `entries 0`, `counterparties 0`, `family budgets 1`, `family records 0`. 10.5: the dry run on `export-2026-10-13` up to 2026-08-31: created 14754, updated 0, not imported 50 (D-84), skipped 17, errors 0; after the cutoff 41 of the owner's 7013 rows and 136 of the partner's 7957; the reconciliation Passed (3210 month-ends, per account and currency); 18 warnings: 2 rows with an empty `LOAN_CA` given 'Unassigned', 16 amounts rounded to 4 decimals. 10.7: the commit, 14754 created, the reconciliation Passed. 10.8: the integrity check `[]`. 10.9: the same import again: 0 created, 0 updated, 14754 unchanged, 0 conflicts, 0 missing. 10.10: dump `finance-2026-10-13T2122Z.dump`, 3172073 bytes, restore test PASS: ledgers 4, members 5, accounts 45, categories 74, counterparties 833, entries 18446, postings 37035, unbalanced 0, family_records 12167, family_shares 23096, family_links 15859, family_journal 12167. Those are the import's rows (a local run of the same import, D3b-doc, gives exactly 25 accounts, 44 categories, 833 counterparties, 18446 entries, 37035 postings and the same family counts) and two personal ledgers with only the starter rows (10 accounts and 15 categories each). The import report's "Accounts: 14 new, 6 updated" counts the owner's accounts file against his ledger (6 starter accounts renamed); his family debt account, which the posting service makes, is the 25th. The restore tests before it had counted 44 accounts and 107 counterparties: rows beyond the starter ones that were gone by 10.10 (the owner's ledger held no entry and no counterparty at 10.4); the import deletes nothing (D-138). |
+| 2026-10-13 | `1d3b811`; the database: the owner's history imported | D3b-run (D-137), [step 10](#10-import-the-excel-ledger), in the browser as the owner. 10.2: dump `finance-2026-10-13T2054Z.dump`, 1458602 bytes, restore test PASS: the way back below the import. 10.3: the family budget (base currency EUR, start date 2017-11-01) and the partner's place, a member without an account, listed on its Members page. 10.4: `entries 0`, `counterparties 0`, `family budgets 1`, `family records 0`. 10.5: the dry run on `export-2026-10-13` up to 2026-08-31: created 14754, updated 0, not imported 50 (D-84), skipped 17, errors 0; after the cutoff 41 of the owner's 7013 rows and 136 of the partner's 7957; the reconciliation Passed (3210 month-ends, per account and currency); 18 warnings: 2 rows with an empty `LOAN_CA` given 'Unassigned', 16 amounts rounded to 4 decimals. 10.7: the commit, 14754 created, the reconciliation Passed. 10.8: the integrity check `[]`. 10.9: the same import again: 0 created, 0 updated, 14754 unchanged, 0 conflicts, 0 missing. 10.10: dump `finance-2026-10-13T2122Z.dump`, 3172073 bytes, restore test PASS: ledgers 4, members 5, accounts 45, categories 74, counterparties 833, entries 18446, postings 37035, unbalanced 0, family_records 12167, family_shares 23096, family_links 15859, family_journal 12167. Those are the import's rows (a local run of the same import, D3b-doc, gives exactly 25 accounts, 44 categories, 833 counterparties, 18446 entries, 37035 postings and the same family counts) and two personal ledgers with only the starter rows (10 accounts and 15 categories each). The import report's "Accounts: 14 new, 6 updated" counts the owner's accounts file against his ledger (6 starter accounts renamed); his family debt account, which the posting service makes, is the 25th. The restore tests before it had counted 44 accounts and 107 counterparties: rows beyond the starter ones that were gone by 10.10 (the owner's ledger held no entry and no counterparty at 10.4); the import deletes nothing (D-138). They were the owner's demo data (D-184, the owner, 2026-10-14): 296 entries, 107 counterparties, 14 accounts beyond the starter ones and the demo's extra categories; during 10.3 he deleted them with "Delete all my data", which also deleted the budget he had just created, and he created it again before 10.4 (hence D-185's order since). |
 | 2026-10-13 | `1d3b811`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `1d3b811`, run #11 (id `38464029879`): success. Its check runs belong to `1d3b811`, deployed and finished, so they hold up no deploy. |
 | 2026-10-13 | `1d3b811`; nothing changed | D3b-accept's rollback acceptance: `deploy/rollback.sh 694fa3f`, answered `no`: REFUSED, nothing changed. No condition line: the target is at V14, and V14's condition is only for a target below it. The rollback state, read again afterwards, was unchanged; the rollback target is `694fa3f`. |
 | 2026-10-13 | `1d3b81138e95ea468d3ca8546dd04225719cb188` (docs: D3b-accept-fix's change log entry (D3b-accept-fix)), M | D3b-accept with D3b-accept-fix (D-161 to D-171: "Import up to", the daily files' precision guard, D-163's spec, actionlint's runner label, `OWNER_HALF`, a typed member's name at creation), Flyway V14, no migration, the switch on. Push: `main` and `feature/family-budget` at `1d3b811`; CI #77 (id `38454015782`, `push`, `feature/family-budget`) and #78 (id `38454015975`, `push`, `main`), attempt 1, 10 check runs, all success. `deploy/deploy.sh run 1d3b81138e95ea468d3ca8546dd04225719cb188 D3b`, run folder `/var/lib/finance-deploy/runs/2026-10-13T200040Z-1d3b811`. 1.8: dump `finance-2026-10-13T2000Z.dump`, 1458604 bytes, SHA-256 `6e4fa8d85b29…`; restore test PASS (migration 14). 3.2: `05397a7`'s tags removed. 3.3: api image `sha256:54044fea…` (content `sha256:edfdcd1b…`), web image `sha256:3bf6839b…` (content `sha256:37226932…`). 4.1: no migration, "Schema app is up to date", the api started at 20:29:19Z. 4.3: the same 22 numbers. 4.4: `D3b.expected`'s 29 lines. 4.6: dump `finance-2026-10-13T2029Z.dump`, 1458601 bytes, SHA-256 `becfdfc62aa4…`; restore test PASS. The end-to-end suite (`E2E_FAMILY=on`): `Result: PASSED`, `import` passed in its two steps (up to 2024-02-29, then the rest, D-165), `new-family` skipped by design (D-171), password search 0 hits. `finish`: passed, `finish=passed 2026-10-13T20:33:36Z`. `verify D3b`: OK. |

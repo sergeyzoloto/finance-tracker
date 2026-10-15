@@ -34,6 +34,13 @@ import com.example.financetracker.ledger.importer.EntryPlan.Party;
  */
 final class EntryMapper {
 
+    /**
+     * D-192: a row without the Family flag whose two sides are the same account in one currency, with the same amount:
+     * it moves nothing, in Excel or in the app, and is skipped and named.
+     */
+    static final String SAME_ACCOUNT_NOOP = "SAME_ACCOUNT_NOOP: Debit and Credit are the same account, in one currency, "
+            + "and the row moves nothing: skipped (D-192)";
+
     /** Exp. Item of a row without a category. */
     static final String NO_CATEGORY = "-";
     /**
@@ -81,8 +88,13 @@ final class EntryMapper {
             checkItemCode(row, category, warnings);
         }
         // The same account on both sides is an exchange within it, from one of its currencies into another (rule 9; an
-        // agent's choice, D3b); in one currency it moves nothing.
+        // agent's choice, D3b); in one currency it moves nothing. Without the Family flag and with both sides equal it
+        // is skipped as a no-op, and named (D-192); otherwise an error (D-156).
         if (debit != null && debit.equals(credit) && row.debitCurrencyOrRow().equals(row.creditCurrencyOrRow())) {
+            if (!row.flagged() && row.debitAmount().compareTo(row.creditAmount()) == 0) {
+                warnings.add(SAME_ACCOUNT_NOOP);
+                return new RowResult.Skipped(SAME_ACCOUNT_NOOP, false, warnings);
+            }
             errors.add("Debit and Credit are the same account, in one currency");
         }
         checkLength(row.counteragent(), TransactionRow.COUNTERAGENT, errors);

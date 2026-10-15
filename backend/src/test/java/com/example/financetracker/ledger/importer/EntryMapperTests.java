@@ -90,10 +90,19 @@ class EntryMapperTests {
         assertThat(lines(exchange)).containsExactly("EURO_ACCOUNT EUR -10", "FX_EXCHANGE EUR 10",
                 "FX_EXCHANGE RUB -900", "EURO_ACCOUNT RUB 900");
         TransactionRow row = rows.get(24L);
+        // D-192: without the Family flag, both sides alike, it moves nothing: skipped and named.
         TransactionRow oneCurrency = new TransactionRow(row.row(), row.id(), row.contentHash(), row.date(), row.item(),
                 row.sum(), row.currency(), null, null, row.debit(), row.credit(), false, null, null, null, null, null,
                 null, null, null, null);
-        assertThat(mapper.map(oneCurrency)).isInstanceOf(RowResult.Failed.class)
+        assertThat(mapper.map(oneCurrency)).isInstanceOf(RowResult.Skipped.class).satisfies(r -> {
+            assertThat(((RowResult.Skipped) r).reason()).isEqualTo(EntryMapper.SAME_ACCOUNT_NOOP);
+            assertThat(r.warnings()).containsExactly(EntryMapper.SAME_ACCOUNT_NOOP);
+        });
+        // With the Family flag set (and no item: D-72 clears it on the way), it stays an error (D-156).
+        TransactionRow flagged = new TransactionRow(row.row(), row.id(), row.contentHash(), row.date(), row.item(),
+                row.sum(), row.currency(), null, null, row.debit(), row.credit(), false, null, null, null, null, null,
+                null, null, null, null, true);
+        assertThat(mapper.map(flagged)).isInstanceOf(RowResult.Failed.class)
                 .extracting(r -> ((RowResult.Failed) r).errors())
                 .isEqualTo(List.of("Debit and Credit are the same account, in one currency"));
     }

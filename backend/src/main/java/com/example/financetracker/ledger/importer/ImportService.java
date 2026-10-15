@@ -806,7 +806,8 @@ public class ImportService {
             switch (result) {
                 case RowResult.Entry entry -> writePersonal(file, row, excelId, entry.plan());
                 case RowResult.Skipped skip -> {
-                    tally(personalSource, skip.zeroFxGain() ? "FX_GAIN" : "ZERO").skipped++;
+                    tally(personalSource, skip.zeroFxGain() ? "FX_GAIN"
+                            : skip.reason().equals(EntryMapper.SAME_ACCOUNT_NOOP) ? "SAME_ACCOUNT_NOOP" : "ZERO").skipped++;
                     skipped.add(new Problem(file, row, excelId, skip.reason()));
                     if (skip.zeroFxGain()) {
                         zeroFxRows++;
@@ -942,6 +943,12 @@ public class ImportService {
                 }
                 case NEW, EDITED -> {
                 }
+            }
+            if (family.mode() == Mode.OWNER_AFTER_CLAIM && item.source() == Source.OWNER_SEAT) {
+                // D-196: the place has an account now; what it paid for the owner is the partner's to record.
+                tally.failed++;
+                errors.add(new Problem(file, row, item.excelId(), D73_AFTER_CLAIM));
+                return;
             }
             Map<String, Long> created = new HashMap<>();
             try {
@@ -1647,6 +1654,11 @@ public class ImportService {
     }
 
     // --- The database, by the scope of the ledger it reads -------------------------------------------------------
+
+    /** D-196: the owner's D-73 row once the partner's place has an account. */
+    static final String D73_AFTER_CLAIM = "a row on FAMILY_DEBT against UNALLOCATED is an expense the partner's place paid "
+            + "for you alone (D-73); the partner has taken his place and records it from his own file, so it can't come "
+            + "from yours any more: leave it out of your file, or ask him to record it (D-196)";
 
     /** How many writes between two refreshes of the planner's statistics. */
     static final int ANALYZE_EVERY = 500;

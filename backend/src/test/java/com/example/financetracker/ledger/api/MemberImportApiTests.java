@@ -2,6 +2,7 @@ package com.example.financetracker.ledger.api;
 
 import static com.example.financetracker.ledger.importer.ImportFixtures.seatRows;
 import static com.example.financetracker.ledger.importer.ImportFixtures.withField;
+import static com.example.financetracker.ledger.importer.ImportFixtures.withLine;
 import static com.example.financetracker.ledger.importer.ImportFixtures.withoutRows;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -350,6 +351,41 @@ class MemberImportApiTests extends MemberImportApiTest {
                 }).collect(Collectors.joining("\r\n", "", "\r\n"));
         JsonNode refused = ok(memberImport(withoutColumn.getBytes(StandardCharsets.UTF_8), null, null));
         assertThat(refused.get("errors").findValuesAsText("message")).contains("missing columns: CUR_FAMILY");
+    }
+
+    /**
+     * D-192: a row on one account in one currency, both sides alike and no Family flag, moves nothing: skipped and named;
+     * with the flag it is still an error (D-156).
+     */
+    @Test
+    void aSameAccountRowThatMovesNothingIsSkippedAndNamed() throws IOException {
+        ownersFirstImport();
+        claim();
+        byte[] withNoop = withLine(hisWithoutTheRefused(),
+                "117;14.02.2024;-;5;EUR;;;Наличные;Наличные;;;;;;;EUR;0;0;NULL;x");
+        JsonNode report = ok(memberImport(withNoop, null, null));
+        assertThat(report.get("errors")).isEmpty();
+        assertThat(StreamSupport.stream(report.get("warnings").spliterator(), false)
+                .filter(w -> w.get("message").asText().startsWith("SAME_ACCOUNT_NOOP"))
+                .map(w -> w.get("excelId").asText())).containsExactly("117");
+        assertThat(count(report, "MEMBER_PERSONAL", "SAME_ACCOUNT_NOOP")).isEqualTo("c0 u0 n0 x0 e0 s1 i0");
+        assertThat(report.get("reconciliation").get("passed").asBoolean()).isTrue();
+
+        byte[] flagged = withLine(hisWithoutTheRefused(),
+                "118;14.02.2024;-;5;EUR;;;Наличные;Наличные;да;;;;;;EUR;0;0;NULL;x");
+        assertThat(errors(ok(memberImport(flagged, null, null))))
+                .containsExactly("118: Debit and Credit are the same account, in one currency");
+    }
+
+    /** D-196: after the claim, the owner's row of an expense the place paid for him alone (D-73) is refused. */
+    @Test
+    void anOwnersRowOfAnExpenseThePlacePaidForHimIsRefusedAfterTheClaim() throws IOException {
+        ownersFirstImport();
+        claim();
+        byte[] withSeatRow = withLine(d3c("owner-transactions.csv"),
+                "16;20.02.2024;Транспорт;6;EUR;;;Свободный остаток;Общий семейный бюджет;;;;;;;EUR;0;0;TRANSPORT;x");
+        JsonNode report = ok(upload(owner, "owner", withSeatRow, null, seat, null, null));
+        assertThat(errors(report)).containsExactly("16: " + com.example.financetracker.ledger.importer.ImportFixtures.D73_AFTER_CLAIM);
     }
 
     /** D-175: the family debt waits for the other member's import beyond his latest committed cutoff. */

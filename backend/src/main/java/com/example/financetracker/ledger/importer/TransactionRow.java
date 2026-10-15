@@ -27,12 +27,24 @@ import com.example.financetracker.ledger.family.ImportSync;
  * @param familyExpense FAMILY_EXP, minus the family's part of a family expense; read only on a Family row
  * @param familyIncome FAMILY_INC, the family's part of a family income; read only on a Family row
  * @param itemCode CODE_ITEM, the code of Exp. Item, with typos fixed
+ * @param flagged whether the row's Family column is set, as the file has it: {@link #withoutFamily} keeps it (D-192)
  */
 record TransactionRow(int row, long id, String contentHash, LocalDate date, String item, BigDecimal sum,
         String currency, String counteragent, String comment, String debit, String credit, boolean family,
         String debitCurrency, BigDecimal debitSum, String creditCurrency, BigDecimal creditSum,
         String loanCounterparty, String familyCurrency, BigDecimal familyExpense, BigDecimal familyIncome,
-        String itemCode) {
+        String itemCode, boolean flagged) {
+
+    /** A row whose Family column is as {@code family} says. */
+    TransactionRow(int row, long id, String contentHash, LocalDate date, String item, BigDecimal sum,
+            String currency, String counteragent, String comment, String debit, String credit, boolean family,
+            String debitCurrency, BigDecimal debitSum, String creditCurrency, BigDecimal creditSum,
+            String loanCounterparty, String familyCurrency, BigDecimal familyExpense, BigDecimal familyIncome,
+            String itemCode) {
+        this(row, id, contentHash, date, item, sum, currency, counteragent, comment, debit, credit, family,
+                debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty, familyCurrency, familyExpense,
+                familyIncome, itemCode, family);
+    }
 
     static final String ID = "ID";
     static final String DATE = "Date";
@@ -88,7 +100,7 @@ record TransactionRow(int row, long id, String contentHash, LocalDate date, Stri
     TransactionRow withoutFamily() {
         return new TransactionRow(row, id, contentHash, date, item, sum, currency, counteragent, comment, debit, credit,
                 false, debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty, null, null, null,
-                itemCode);
+                itemCode, flagged);
     }
 
     /**

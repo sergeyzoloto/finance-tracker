@@ -16,6 +16,9 @@ import org.springframework.core.io.ClassPathResource;
  */
 public final class ImportFixtures {
 
+    /** D-196's message, for the API tests. */
+    public static final String D73_AFTER_CLAIM = ImportService.D73_AFTER_CLAIM;
+
     /** The name of UNALLOCATED in the synthetic accounts file. */
     public static final String UNALLOCATED = "Свободный остаток";
     /** The owner's personal rows: no family flag with an item and no FAMILY_DEBT (rows 7 and 8 are family rows without an item or amount). */

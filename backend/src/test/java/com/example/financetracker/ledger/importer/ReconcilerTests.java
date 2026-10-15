@@ -66,8 +66,13 @@ class ReconcilerTests {
 
     private static Reconciliation reconcile(DailyFile balance, Map<Key, NavigableMap<LocalDate, BigDecimal>> app,
             List<Drift> drift) {
+        return reconcile(balance, app, drift, null);
+    }
+
+    private static Reconciliation reconcile(DailyFile balance, Map<Key, NavigableMap<LocalDate, BigDecimal>> app,
+            List<Drift> drift, LocalDate familyDebtUpTo) {
         return Reconciler.reconcile(app, balance, drift, FAMILY, Set.of("CASH", "FAMILY_DEBT", "UNALLOCATED", "RESERVE"),
-                MAR_8, LocalDate.of(2024, 3, 1), List.of());
+                MAR_8, LocalDate.of(2024, 3, 1), List.of(), familyDebtUpTo);
     }
 
     @Test
@@ -92,6 +97,27 @@ class ReconcilerTests {
         // The tail shows 8 March, where the file and the app differ; nothing of 31 March is read (D-146).
         assertThat(r.tail()).extracting(p -> p.date() + " " + p.account()).contains("2024-03-08 CASH");
         assertThat(r.lines()).allSatisfy(l -> assertThat(l.failed()).isZero());
+    }
+
+    /** D-175: beyond the other member's latest import, the family debt waits; it is listed, not failed. */
+    @Test
+    void theFamilyDebtWaitsBeyondTheOtherMembersCutoff() {
+        var app = app(with("CASH EUR 2024-01-03 -10.01", "FAMILY_DEBT EUR 2024-01-03 -5.00",
+                "UNALLOCATED EUR 2024-01-03 -5.01", "FAMILY_DEBT EUR 2024-02-10 -3.00"));
+        assertThat(reconcile(balance("89.99", "89.99"), app, SHARES).passed()).isFalse();
+
+        Reconciliation r = reconcile(balance("89.99", "89.99"), app, SHARES, LocalDate.of(2024, 1, 31));
+        assertThat(r.passed()).isTrue();
+        assertThat(r.familyDebtUpTo()).isEqualTo(LocalDate.of(2024, 1, 31));
+        assertThat(r.lines()).filteredOn(l -> l.account().equals("FAMILY_DEBT")).singleElement().satisfies(l -> {
+            assertThat(l.compared()).isEqualTo(2);
+            assertThat(l.waiting()).isEqualTo(1);
+            assertThat(l.failed()).isZero();
+        });
+        assertThat(r.waiting()).extracting(p -> p.date() + " " + p.account()).containsExactly(FEB + " FAMILY_DEBT");
+        // The other accounts are compared as before.
+        assertThat(r.lines()).filteredOn(l -> l.account().equals("CASH")).singleElement()
+                .satisfies(l -> assertThat(l.compared()).isEqualTo(3));
     }
 
     @Test

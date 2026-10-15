@@ -66,12 +66,17 @@ abstract class LedgerApiTest extends IntegrationTest {
         // Their invites (V9).
         OWNED_ROWS.put("family ledger_invite", "FROM ledger_invite t WHERE t.ledger_id IN "
                 + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
+        // The seats' committed cutoffs (V15, D-175), and a member's imported sides, by his personal ledger (D-181).
+        OWNED_ROWS.put("family family_import_cutoff", "FROM family_import_cutoff t WHERE t.ledger_id IN "
+                + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
+        OWNED_ROWS.put("imported_family_side", "FROM imported_family_side t WHERE t.ledger_id IN "
+                + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL')");
     }
 
     /** The tables of {@link #OWNED_ROWS} that only a user in a family ledger has rows in. */
     protected static final Set<String> FAMILY_ROWS = Set.of("family ledger_member", "family category",
             "family family_record", "family family_share", "family family_record_change", "family family_entry_link",
-            "family ledger_invite");
+            "family ledger_invite", "family family_import_cutoff", "imported_family_side");
 
     @Autowired
     protected JdbcClient jdbc;

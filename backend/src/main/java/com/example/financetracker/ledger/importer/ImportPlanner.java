@@ -65,7 +65,15 @@ final class ImportPlanner {
         /** The monthly lumps before the partner's ledger starts (D-83). */
         OWNER_LUMP,
         /** The partner's family rows. */
-        PARTNER
+        PARTNER,
+        /** A member's own personal rows, once he took his seat (D-175). */
+        MEMBER_PERSONAL,
+        /** A member's own family rows: his records, his payment side on them (D-181). */
+        MEMBER_FAMILY,
+        /** A member's own settlement rows and conversions, matched to existing settlements (D-178). */
+        MEMBER_SETTLEMENT,
+        /** A member's own benefit rows, checked and not posted (D-179). */
+        MEMBER_BENEFIT
     }
 
     /** A record or a settlement of the family budget, by codes and names, which the import resolves to ids. */

@@ -259,7 +259,7 @@ public class FamilyInviteService {
                 preview.categories().stream().filter(c -> !c.archived())
                         .map(c -> new FamilyCategory(c.code(), c.name(), c.type())).toList(),
                 matches.merges(), matches.kept(), matches.mayBring(), accountName,
-                returning != null, after, openings, corrections);
+                returning != null, after, openings, corrections, preview.recordsAttached());
     }
 
     /**
@@ -328,6 +328,9 @@ public class FamilyInviteService {
 
         LedgerScope member = returning != null ? invites.rejoin(personal.userId(), invite, displayName)
                 : invites.join(personal.userId(), invite, displayName);
+        if (invite.claim()) {
+            takeOverImportedRecords(member);
+        }
         Map<String, LedgerCategory> familyCategories = new HashMap<>();
         categories.findAll(member).forEach(c -> familyCategories.put(c.code(), c));
         // Same code and type: merged into the family's, which keeps its name (D-11 as amended).
@@ -351,6 +354,21 @@ public class FamilyInviteService {
             posting.join(member);
         }
         return families.get(member);
+    }
+
+    /**
+     * D-176: the records an import wrote from the seat's own file (D-142: {@code xls:<seat>:<ID>}) become the member's
+     * who took the seat, as their author; they paid them already, as the seat. Neither the version nor the journal
+     * changes, so the next import of that file still recognises them as it left them (D-139). Records of anyone else's
+     * file that the seat paid stay their author's; the payer's side of them is the member's anyway (D-14).
+     */
+    private void takeOverImportedRecords(LedgerScope member) {
+        jdbc.sql("""
+                UPDATE family_record SET author_member_id = :memberId
+                WHERE ledger_id = :ledgerId AND starts_with(external_ref, :prefix) AND author_member_id <> :memberId""")
+                .param("memberId", member.memberId()).param("ledgerId", member.ledgerId())
+                .param("prefix", "xls:" + member.memberId() + ":")
+                .update();
     }
 
     /**

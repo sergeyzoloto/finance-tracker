@@ -1,0 +1,7 @@
+﻿Статьи баланса;Актив/пассив;Line
+Кошелёк;ASSET;CASH
+Евро-счёт;ASSET;EURO_ACCOUNT
+Долларовый счёт;ASSET;USD_ACCOUNT
+Общий семейный бюджет;LIABILITIES;FAMILY_DEBT
+Отложено;LIABILITIES;RESERVE
+Свободный остаток;LIABILITIES;UNALLOCATED

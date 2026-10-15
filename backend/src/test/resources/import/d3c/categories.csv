@@ -1,0 +1,7 @@
+﻿Статьи движения средств;Доходы/расходы;Line
+Оклад;INCOME;PAYCHECK
+Пособие;INCOME;BENEFIT
+Прочие поступления;INCOME;OTHERINC
+Продукты;EXPENSE;FOOD
+Транспорт;EXPENSE;TRANSPORT
+-;CASHFLOW;NULL

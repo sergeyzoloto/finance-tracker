@@ -26,13 +26,15 @@ import com.example.financetracker.ledger.report.IntegrityViolation;
  * @param errorSummary, warningSummary, skippedSummary each distinct message with its count and the first Excel IDs
  * @param reconciliation the owner's balances against his daily balance file (D-63, D-67, D-68, D-69, D-146, D-147)
  * @param integrityViolations {@code ReportService.integrityCheck} after the import; empty for a sound ledger
+ * @param member what a member's own import did with his family, settlement and benefit rows (D-175 to D-181); null
+ *        for the owner's
  */
 public record ImportReport(String userId, boolean commit, Outcome outcome, Instant startedAt, List<FileSummary> files,
         FamilyTarget family, Period period, LocalDate upTo, List<AfterCutoff> afterCutoff, List<String> currencies, List<Count> counts, Totals totals,
         List<RowRef> missing, List<RowRef> conflicts, List<Problem> errors, List<Problem> warnings,
         List<MessageCount> errorSummary, List<MessageCount> warningSummary, List<MessageCount> skippedSummary,
         ReferenceCounts referenceData, int zeroFxRowsSkipped, List<FxRow> fxRowsToReview,
-        Reconciliation reconciliation, List<IntegrityViolation> integrityViolations) {
+        Reconciliation reconciliation, List<IntegrityViolation> integrityViolations, MemberSummary member) {
 
     public enum Outcome {
         /** Everything was rolled back, as a dry run always is. */
@@ -54,9 +56,49 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
     public record FileSummary(String role, String name, String sha256, int rows) {
     }
 
-    /** The family budget and the partner's seat, by their names in the app (data, never in tracked files, D-141). */
+    /**
+     * The family budget and the seats, by their names in the app (data, never in tracked files, D-141).
+     *
+     * @param ownerMemberId the uploader's own seat: the owner's, or in a member's own import his (D-175)
+     * @param seatMemberId the other seat: the partner's place, or in a member's own import the member he splits his
+     *        new family records with
+     * @param mode {@code OWNER} for the owner's import with a place without an account, whose rows he uploads;
+     *        {@code OWNER_AFTER_CLAIM} once that place has an account and the owner imports only his own file; and
+     *        {@code MEMBER} for a member's own import (D-175)
+     */
     public record FamilyTarget(long ledgerId, String ledgerName, long ownerMemberId, long seatMemberId,
-            String seatName) {
+            String seatName, String mode) {
+    }
+
+    /**
+     * A member's own import (D-175 to D-181, D-188): what became of his family rows, his settlement rows, his
+     * conversions and his benefit rows. The errors and warnings themselves are the report's.
+     *
+     * @param recordsEdited the Excel IDs of his family rows whose records the import changed (D-190)
+     * @param sidesAttached his payment side put on a record for the first time (D-181)
+     * @param tier1 settlements matched by date and amount, {@code tier2} one of his rows against several on its date,
+     *        {@code tier3} by amount within 7 days (D-178)
+     * @param settlementsKnown settlement rows of an earlier import of his, recognised by their Excel ID
+     * @param ownerSettlementsWithoutSide the other member's settlements from his join date on without his side (D-178)
+     * @param benefitMonths per month and currency, his benefit rows against his shares of the family incomes the other
+     *        members received (D-179)
+     * @param straddling matched settlements whose two dates lie on either side of a month-end (D-188)
+     */
+    public record MemberSummary(int familyRows, int recordsUnchanged, List<String> recordsEdited, int recordsCreated,
+            int recordConflicts, int sidesAttached, int sidesUnchanged, int sidesEdited, int sideConflicts,
+            int settlementRows, int tier1, int tier2, int tier3, int settlementsKnown, int conversions,
+            int conversionsMatched, int unmatched, int ownerSettlementsWithoutSide, int benefitRows,
+            List<BenefitMonth> benefitMonths, List<Straddling> straddling, int shareWarnings) {
+    }
+
+    /** D-179: a month's benefit rows and his shares of the incomes others received, in one currency. */
+    public record BenefitMonth(LocalDate month, String currency, int rows, BigDecimal benefitRows, BigDecimal shares,
+            boolean differs) {
+    }
+
+    /** D-188: a settlement row of his and the settlement it matched, on either side of a month-end. */
+    public record Straddling(String excelId, LocalDate rowDate, LocalDate settlementDate, String currency,
+            BigDecimal amount) {
     }
 
     public record Period(LocalDate from, LocalDate to) {
@@ -130,11 +172,16 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
      * @param explained per account, currency and rule, the explained difference at the last compared point
      * @param appOnly the app's accounts with a balance and no column in Excel (FX_EXCHANGE and the like aren't listed)
      * @param ownerHalf D-169's months, explained or not
+     * @param familyDebtUpTo D-175: the family debt compared up to this day only, the earlier of the other members'
+     *        latest committed imports; null when nothing limits it
+     * @param waiting the family debt's points after {@code familyDebtUpTo} whose difference is above 0.01: "waiting
+     *        for the other member's import", not failed (D-175), first 500
      */
     public record Reconciliation(boolean passed, LocalDate cutoff, LocalDate tailFrom, int pointsCompared,
             LocalDate lastCompared, List<ReconciliationLine> lines, List<ReconciliationPoint> failures,
             List<ReconciliationPoint> tail, List<CurrencyWithoutFamilyRows> withoutFamilyRows,
-            List<ExplainedAmount> explained, List<String> appOnly, List<OwnerHalf> ownerHalf) {
+            List<ExplainedAmount> explained, List<String> appOnly, List<OwnerHalf> ownerHalf,
+            LocalDate familyDebtUpTo, List<ReconciliationPoint> waiting) {
     }
 
     /**
@@ -152,10 +199,11 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
      * @param account the account's code; EQUITY for UNALLOCATED and RESERVE, FAMILY_DEBT for the family budget's debt
      *        account, EQUITY+FAMILY_DEBT for D-147's sum
      * @param worstUnexplained the largest unexplained difference before the tail, in absolute value
+     * @param waiting the points after the reconciliation's {@code familyDebtUpTo}, not compared (D-175)
      */
     public record ReconciliationLine(String account, String currency, int compared, int failed,
             LocalDate firstFailure, BigDecimal worstUnexplained, BigDecimal lastExcel, BigDecimal lastApp,
-            BigDecimal lastExplained) {
+            BigDecimal lastExplained, int waiting) {
     }
 
     public record ReconciliationPoint(LocalDate date, String account, String currency, BigDecimal excel,

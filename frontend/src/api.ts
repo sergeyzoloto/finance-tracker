@@ -162,6 +162,11 @@ export interface InviteLookup {
    * date, negative if owed (D-34, D-45); empty when nothing is owed.
    */
   openingBalances?: CurrencyAmount[]
+  /**
+   * A claim's records posted to the user one by one: those dated from the join date that name the place (D-183);
+   * absent for a new member.
+   */
+  recordsAttached?: number | null
   /** Whether the user was a member before and comes back (D-26). */
   returning?: boolean
   /** For a returning member, the correction in each currency that brings their debt in line (D-26, D-45). */
@@ -526,6 +531,8 @@ export interface ImportReconciliationLine {
   lastExcel: string | null
   lastApp: string | null
   lastExplained: string | null
+  /** The points after the reconciliation's `familyDebtUpTo`, waiting for the other member's import (D-175). */
+  waiting?: number
 }
 export interface ImportReconciliationPoint {
   date: string; account: string; currency: string; excel: string; app: string; explained: string; unexplained: string
@@ -543,12 +550,47 @@ export interface ImportReconciliation {
   withoutFamilyRows: { currency: string; appFamilyDebt: string; excelFamilyDebt: string; ok: boolean }[]
   explained: { account: string; currency: string; reason: string; amount: string }[]
   appOnly: string[]
+  /** D-175: the family debt is compared up to this day only, the other member's latest import; null for no limit. */
+  familyDebtUpTo?: string | null
+  /** The family debt's points after `familyDebtUpTo` that differ: waiting, not failed. */
+  waiting?: ImportReconciliationPoint[]
+}
+/** Which import a run was (D-175). */
+export type ImportMode = 'OWNER' | 'OWNER_AFTER_CLAIM' | 'MEMBER'
+/** A member's own import (D-175 to D-181, D-188). */
+export interface ImportMemberSummary {
+  familyRows: number
+  recordsUnchanged: number
+  /** The Excel IDs of his family rows whose records changed (D-190). */
+  recordsEdited: string[]
+  recordsCreated: number
+  recordConflicts: number
+  sidesAttached: number
+  sidesUnchanged: number
+  sidesEdited: number
+  sideConflicts: number
+  settlementRows: number
+  tier1: number
+  tier2: number
+  tier3: number
+  settlementsKnown: number
+  conversions: number
+  conversionsMatched: number
+  unmatched: number
+  ownerSettlementsWithoutSide: number
+  benefitRows: number
+  benefitMonths: { month: string; currency: string; rows: number; benefitRows: string; shares: string; differs: boolean }[]
+  straddling: { excelId: string; rowDate: string; settlementDate: string; currency: string; amount: string }[]
+  shareWarnings: number
 }
 export interface ImportReport {
   commit: boolean
   outcome: 'DRY_RUN' | 'COMMITTED' | 'ABORTED'
   files: { role: string; name: string; sha256: string; rows: number }[]
-  family: { ledgerId: number; ledgerName: string; ownerMemberId: number; seatMemberId: number; seatName: string } | null
+  family: {
+    ledgerId: number; ledgerName: string; ownerMemberId: number; seatMemberId: number; seatName: string
+    mode?: ImportMode
+  } | null
   period: { from: string; to: string } | null
   /** "Import up to" (D-165), or null for none. */
   upTo: string | null
@@ -580,6 +622,8 @@ export interface ImportReport {
   fxRowsToReview: { row: number; excelId: string; date: string; sum: string; currency: string }[]
   reconciliation: ImportReconciliation | null
   integrityViolations: IntegrityViolation[]
+  /** A member's own import (D-175); null for the owner's. */
+  member?: ImportMemberSummary | null
 }
 
 /** What POST /api/demo-data created in an empty ledger. */

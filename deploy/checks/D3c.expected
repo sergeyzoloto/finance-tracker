@@ -1,0 +1,12 @@
+flyway latest 15 member import true
+table family_import_cutoff 1
+table imported_family_side 1
+constraint family_import_cutoff_pkey 1
+constraint imported_family_side_pkey 1
+trigger imported_family_side_check 1
+imported sides outside a personal ledger 0
+cutoffs outside a family ledger 0
+records or shares of the wrong sign 0
+journal rows without their currency 0
+imported entries without their reference or version 0
+unbalanced entries 0

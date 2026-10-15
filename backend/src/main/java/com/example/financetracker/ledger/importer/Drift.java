@@ -24,6 +24,16 @@ record Drift(String code, String currency, LocalDate date, BigDecimal amount, Re
          * D-169: the owner's D-84 rows of a month, typed by hand as half of the partner's family incomes rounded to a
          * cent, less that exact half; within half a cent per income.
          */
-        OWNER_HALF
+        OWNER_HALF,
+        /**
+         * D-180: a member's family debt is compared as movement since his first day: his daily balance file's first
+         * balance, which the app doesn't have, and the opening balance his claim posted on the join date (D-31).
+         */
+        CLAIM_OPENING,
+        /**
+         * D-188: a member's settlement row on its own date in Excel, and his side of the settlement it matches on the
+         * settlement's date in the app (D-178).
+         */
+        SETTLEMENT_DATE
     }
 }

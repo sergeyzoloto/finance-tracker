@@ -46,6 +46,16 @@ describe('the partner’s filter (D-78, D-140)', () => {
     ])
   })
 
+  it('uploads the same rows from the partner’s file in the owner’s layout, its columns taken by name (D-177)', () => {
+    // The owner's layout: the same columns among others, one of them before ID.
+    const [header, ...rows] = PARTNER.split('\r\n')
+    const owners = [
+      `\ufeffTYPE;${header.replace('\ufeff', '')};CUR_FAMILY;FAMILY_EXP;FAMILY_INC;CODE_ITEM`,
+      ...rows.map((row) => (row === '' ? '' : `x;${row};EUR;0;0;FOOD`)),
+    ].join('\r\n')
+    expect(filterPartnerRows(owners, 'Свободный остаток')).toEqual(filterPartnerRows(PARTNER, 'Свободный остаток'))
+  })
+
   it('never lets a comment, a counterparty, an account or a personal row through', () => {
     const { csv } = filterPartnerRows(PARTNER, 'Свободный остаток')
     for (const secret of ['secret', 'Лавка', 'Кафе', 'private', 'Карта', 'Восток', 'Друг', 'Фонд', 'note', 'Долларовый',

@@ -125,10 +125,12 @@ final class Reconciler {
      * @param cutoff the latest transaction of both files (D-146)
      * @param tailFrom the first day of the older export's month (D-69)
      * @param ownerHalf D-169's months, whose drift is in {@code drift} already, for the report
+     * @param familyDebtUpTo D-175: the family debt is compared up to this day only, the earlier of the other seats'
+     *        latest committed cutoffs; its later points wait for the other member's import. Null for no such day
      */
     static Reconciliation reconcile(Map<Key, NavigableMap<LocalDate, BigDecimal>> app, DailyFile balance,
             List<Drift> drift, Set<String> familyCurrencies, Set<String> comparedCodes, LocalDate cutoff,
-            LocalDate tailFrom, List<ImportReport.OwnerHalf> ownerHalf) {
+            LocalDate tailFrom, List<ImportReport.OwnerHalf> ownerHalf, LocalDate familyDebtUpTo) {
         // Excel's balances by key, its columns summed per key.
         Map<String, Key> columnKeys = new HashMap<>();
         balance.accountColumns().forEach((column, account) -> columnKeys.put(column,
@@ -179,10 +181,13 @@ final class Reconciler {
         List<ReconciliationLine> lines = new ArrayList<>();
         List<ReconciliationPoint> failures = new ArrayList<>();
         List<ReconciliationPoint> tail = new ArrayList<>();
+        List<ReconciliationPoint> waiting = new ArrayList<>();
         int compared = 0;
         for (Key key : keys) {
             int scale = scale(key.currency());
+            boolean familyDebt = key.account().equals(FAMILY_DEBT) || key.account().equals(EQUITY_AND_FAMILY_DEBT);
             int keyCompared = 0;
+            int keyWaiting = 0;
             int failed = 0;
             LocalDate firstFailure = null;
             BigDecimal worst = BigDecimal.ZERO;
@@ -208,6 +213,14 @@ final class Reconciler {
                     }
                     continue;
                 }
+                if (familyDebt && familyDebtUpTo != null && date.isAfter(familyDebtUpTo)) {
+                    // D-175: the other member hasn't imported this far yet.
+                    keyWaiting++;
+                    if (unexplained.abs().compareTo(TOLERANCE) > 0 && waiting.size() < MAX_FAILURES) {
+                        waiting.add(point);
+                    }
+                    continue;
+                }
                 keyCompared++;
                 if (unexplained.abs().compareTo(TOLERANCE) > 0) {
                     failed++;
@@ -225,7 +238,7 @@ final class Reconciler {
             }
             compared += keyCompared;
             lines.add(new ReconciliationLine(key.account(), key.currency(), keyCompared, failed, firstFailure,
-                    strip(worst), lastExcel, lastApp, lastExplained));
+                    strip(worst), lastExcel, lastApp, lastExplained, keyWaiting));
         }
 
         // D-147: in a currency without family rows, the app's FAMILY_DEBT is 0 at the last compared point.
@@ -258,7 +271,8 @@ final class Reconciler {
         boolean passed = lastCompared != null && failures.isEmpty()
                 && withoutFamilyRows.stream().allMatch(CurrencyWithoutFamilyRows::ok);
         return new Reconciliation(passed, cutoff, tailFrom, compared, lastCompared, lines, failures, tail,
-                withoutFamilyRows, explained, List.copyOf(appOnly), List.copyOf(ownerHalf));
+                withoutFamilyRows, explained, List.copyOf(appOnly), List.copyOf(ownerHalf), familyDebtUpTo,
+                waiting);
     }
 
     private static BigDecimal upTo(NavigableMap<LocalDate, BigDecimal> changes, LocalDate date) {

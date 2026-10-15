@@ -23,18 +23,31 @@ import java.time.LocalDate;
  *        (D-80); with an account, else for the account their payment is on; null keeps it
  * @param changesPayee whether the payee changes, also to none (D-81)
  * @param payeeId the caller's new payee, their own counterparty; null with {@code changesPayee} removes it
+ * @param throughExchange the caller's own side of a settlement goes through their FX_EXCHANGE, which
+ *        {@code paymentAccountId} then names: a leg of a conversion of the family debt (D-71), which only the import
+ *        puts there, for the other side too (D-178)
  */
 public record FamilyRecordChanges(Long categoryId, boolean changesComment, String comment, RecordSplit split,
         LocalDate date, BigDecimal amount, Long payerMemberId, Long paymentAccountId, boolean paymentLater,
         boolean changesNote, String note, String currency, BigDecimal accountAmount, String accountCurrency,
-        Long paymentCounterpartyId, boolean changesPayee, Long payeeId) {
+        Long paymentCounterpartyId, boolean changesPayee, Long payeeId, boolean throughExchange) {
+
+    /** A change whose side, if any, is on an account of the caller's own money or credit. */
+    public FamilyRecordChanges(Long categoryId, boolean changesComment, String comment, RecordSplit split,
+            LocalDate date, BigDecimal amount, Long payerMemberId, Long paymentAccountId, boolean paymentLater,
+            boolean changesNote, String note, String currency, BigDecimal accountAmount, String accountCurrency,
+            Long paymentCounterpartyId, boolean changesPayee, Long payeeId) {
+        this(categoryId, changesComment, comment, split, date, amount, payerMemberId, paymentAccountId, paymentLater,
+                changesNote, note, currency, accountAmount, accountCurrency, paymentCounterpartyId, changesPayee,
+                payeeId, false);
+    }
 
     /** A change with no counterparty and no payee. */
     public FamilyRecordChanges(Long categoryId, boolean changesComment, String comment, RecordSplit split,
             LocalDate date, BigDecimal amount, Long payerMemberId, Long paymentAccountId, boolean paymentLater,
             boolean changesNote, String note, String currency, BigDecimal accountAmount, String accountCurrency) {
         this(categoryId, changesComment, comment, split, date, amount, payerMemberId, paymentAccountId, paymentLater,
-                changesNote, note, currency, accountAmount, accountCurrency, null, false, null);
+                changesNote, note, currency, accountAmount, accountCurrency, null, false, null, false);
     }
 
     /** A change of the family fields only. */

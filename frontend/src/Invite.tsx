@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, ApiError, errorMessage, fieldMessages, formatDate, sentence, type FamilyLedger, type InviteLookup } from './api'
 import { Errors, Field, Loading } from './components'
@@ -82,12 +82,16 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
   const [bring, setBring] = useState<Set<number>>(new Set())
   const [failure, setFailure] = useState<Error>()
   const [pending, setPending] = useState(false)
+  // D-182: one request at a time, also for a submit by the Enter key while the button is disabled.
+  const sending = useRef(false)
   const claim = lookup.kind === 'CLAIM'
   // A return waits while the user's former debt account holds entries of their own dated after it (D-37).
   const toMove = lookup.entriesAfterReturn ?? []
 
   async function accept(event: FormEvent) {
     event.preventDefault()
+    if (sending.current) return
+    sending.current = true
     setPending(true)
     setFailure(undefined)
     try {
@@ -116,6 +120,7 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
         setFailure(e instanceof Error ? e : new Error(errorMessage(e)))
       }
     } finally {
+      sending.current = false
       setPending(false)
     }
   }
@@ -213,6 +218,12 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
           without a specified account”, for you to put on your own accounts; what {lookup.seatName} owed or was owed
           before that day arrives as one opening balance on that day.</>}
       </p>
+      {claim && lookup.recordsAttached != null && (
+        <p data-testid="records-attached">
+          <strong>{lookup.recordsAttached === 1 ? '1 record' : `${lookup.recordsAttached} records`}</strong> from
+          {' '}{formatDate(lookup.joinDate)} on will be attached to your account, one by one.
+        </p>
+      )}
       <p className="muted small">This invite works until {new Date(lookup.expiresAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.</p>
 
       <div className="choices">
@@ -295,6 +306,13 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
         <div className="actions">
           <button className="primary" disabled={pending || name.trim() === '' || toMove.length > 0}>Accept</button>
           <button type="button" disabled={pending} onClick={() => void decline()}>Decline</button>
+          {pending && claim && (
+            // D-182: all of it is posted together or nothing is; a long history takes a few minutes.
+            <span className="muted" role="status">
+              Taking the place: everything is posted to your budget together, or nothing is. With a long history this
+              takes a few minutes; leave this page open.
+            </span>
+          )}
         </div>
         <Errors messages={[others]} />
       </form>

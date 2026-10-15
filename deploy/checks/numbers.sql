@@ -26,6 +26,8 @@ FROM (VALUES
     ('family_journal', (SELECT count(*) FROM app.family_record_change)),
     ('family_accounts', (SELECT count(*) FROM app.account WHERE family_ledger_id IS NOT NULL)),
     ('family_invites', (SELECT count(*) FROM app.ledger_invite)),
+    ('family_import_cutoffs', (SELECT count(*) FROM app.family_import_cutoff)),
+    ('imported_family_sides', (SELECT count(*) FROM app.imported_family_side)),
     -- As F6a's checklist counted it: personal rows without a PERSONAL membership of their user in their ledger, and
     -- categories without a user (family categories) outside every SHARED ledger.
     ('outside_their_ledger',

@@ -153,6 +153,17 @@ final class EntryMapper {
      * @param balances by column's account code and currency, as Excel shows them; zeros are left out
      */
     RowResult openingEntry(LocalDate date, Map<DailyFile.Column, BigDecimal> balances) {
+        return openingEntry(date, balances, null);
+    }
+
+    /**
+     * As above, for a member who took his seat (D-180): his FAMILY_DEBT balance isn't an error but his claim's, and
+     * goes into {@code familyDebt} by currency, as Excel shows it, for the reconciliation.
+     *
+     * @param familyDebt where FAMILY_DEBT's balances go; null for the owner's import, where one is an error (D-70)
+     */
+    RowResult openingEntry(LocalDate date, Map<DailyFile.Column, BigDecimal> balances,
+            Map<String, BigDecimal> familyDebt) {
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         List<Line> lines = new ArrayList<>();
@@ -168,6 +179,10 @@ final class EntryMapper {
             if (account == null) {
                 errors.add("the daily balance file's first row has a balance on an account that isn't in the accounts "
                         + "file");
+                return;
+            }
+            if (account.familyDebt() && familyDebt != null) {
+                familyDebt.merge(column.currency(), cell, BigDecimal::add);
                 return;
             }
             if (account.familyDebt()) {

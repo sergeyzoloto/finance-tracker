@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import {
-  api, useApi, useMutation, type FamilyLedger, type FamilyMember, type ImportMessageCount, type ImportReconciliation,
-  type ImportReport, type ImportRowRef,
+  api, useApi, useMutation, type FamilyLedger, type FamilyMember, type ImportMemberSummary, type ImportMessageCount,
+  type ImportReconciliation, type ImportReport, type ImportRowRef,
 } from './api'
 import { Errors } from './components'
 import { filterPartnerRows, importForm, unallocatedName, type OwnerFiles, type PartnerUpload } from './importFilter'
@@ -24,6 +24,27 @@ const SOURCES: Record<string, string> = {
   OWNER_PERSONAL: 'Your personal rows', OWNER_FAMILY: 'Your family rows', OWNER_SETTLEMENT: 'Your settlements',
   OWNER_SEAT: 'Your rows on the family debt', OWNER_LUMP: 'Monthly lumps before the partner’s ledger',
   PARTNER: 'The partner’s family rows', OWNER: 'Your rows',
+  MEMBER_PERSONAL: 'Your personal rows', MEMBER_FAMILY: 'Your family rows', MEMBER_SETTLEMENT: 'Your settlements',
+  MEMBER_BENEFIT: 'Your rows on the family debt', MEMBER: 'Your rows',
+}
+
+/**
+ * Whose rows a family budget's import takes (D-175): the owner's with the partner's place, whose rows he uploads while
+ * it has no account; the owner's own once someone took that place; or, for a member who took a place, his own files
+ * into his own place. Null when the reader may not import into the budget.
+ */
+export type ImportRole = 'OWNER' | 'MEMBER' | null
+
+export function importRole(ledger: FamilyLedger | undefined, members: FamilyMember[] | undefined): ImportRole {
+  if (!ledger || !members) return null
+  const me = members.find((m) => m.id === ledger.memberId)
+  if (me?.claimedSeat) return 'MEMBER'
+  return ledger.role === 'OWNER' ? 'OWNER' : null
+}
+
+/** The places an owner's import may name: a member without an account, or one who took a place since (D-175). */
+export function partnerPlaces(ledger: FamilyLedger, members: FamilyMember[]): FamilyMember[] {
+  return members.filter((m) => m.id !== ledger.memberId && m.status === 'ACTIVE' && (!m.hasAccount || m.claimedSeat))
 }
 
 interface Choice { files: Partial<Record<Part, File>>; ledgerId: string; seatId: string; partner?: File; upTo: string }
@@ -46,11 +67,17 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   const [report, setReport] = useState<ImportReport>()
   const { run, error, pending } = useMutation()
   const members = useApi<FamilyMember[]>(choice.ledgerId ? `/family-ledgers/${choice.ledgerId}/members` : null)
-  const seats = (members.data ?? []).filter((m) => m.status === 'ACTIVE' && !m.hasAccount)
+  const ledger = families?.find((f) => String(f.id) === choice.ledgerId)
+  const role = importRole(ledger, members.data)
+  const seats = ledger && members.data ? partnerPlaces(ledger, members.data) : []
+  const seat = seats.find((m) => String(m.id) === choice.seatId)
+  // A place with an account imports its own file: the owner's import takes no partner's file then (D-175).
+  const partnerFile = role === 'OWNER' && seat !== undefined && !seat.hasAccount
 
   const family = choice.ledgerId !== ''
   const ownerReady = OWNER_FILES.every((f) => choice.files[f.part])
-  const familyReady = !family || (choice.seatId !== '' && upload !== undefined)
+  const familyReady = !family || role === 'MEMBER'
+    || (role === 'OWNER' && seat !== undefined && (!partnerFile || upload !== undefined))
   const ready = ownerReady && familyReady && !filterError
   const checked = report?.outcome === 'DRY_RUN' && reported === choice
   const canCommit = checked && report.errors.length === 0 && !pending
@@ -89,11 +116,12 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
     const sent = choice
     const files = choice.files as Record<Part, File>
     const names = Object.fromEntries(OWNER_FILES.map(({ part }) => [part, files[part].name])) as Record<Part, string>
-    const body = importForm(files as OwnerFiles, names, family ? upload : undefined)
+    const body = importForm(files as OwnerFiles, names, partnerFile ? upload : undefined)
     const query = new URLSearchParams({ dryRun: String(dryRun) })
-    if (family) {
+    if (family && ledger) {
       query.set('familyLedgerId', choice.ledgerId)
-      query.set('seatMemberId', choice.seatId)
+      // A member's own import names his own place (D-175).
+      query.set('seatMemberId', role === 'MEMBER' ? String(ledger.memberId) : choice.seatId)
     }
     if (choice.upTo) query.set('upTo', choice.upTo)
     const answer = await api<ImportReport>(`/import?${query}`, 'POST', body)
@@ -136,8 +164,8 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
           <>
             <h3>Family budget</h3>
             <p className="muted">
-              Your family rows, and the partner’s, go into a family budget, his into the place of a member without an
-              account. Create the budget and that place first; then choose them here.
+              Your family rows go into a family budget. Its owner imports his rows with the partner’s, into the place of a
+              member without an account, until someone takes that place; then each of you imports his own files.
             </p>
             <div className="fields">
               <label className="field">
@@ -148,7 +176,7 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
                   {families.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               </label>
-              {family && (
+              {family && role === 'OWNER' && (
                 <label className="field">
                   <span className="label">The partner’s place</span>
                   <select value={choice.seatId} name="seatMemberId" required
@@ -159,9 +187,25 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
                   {members.data && seats.length === 0 && (
                     <small className="hint">This budget has no member without an account: add one on its members page.</small>
                   )}
+                  {seat?.hasAccount && (
+                    <small className="hint" data-testid="own-file">
+                      {seat.displayName} took this place and imports their own files: only yours are uploaded.
+                    </small>
+                  )}
                 </label>
               )}
-              {family && (
+              {family && role === 'MEMBER' && (
+                <p className="muted" data-testid="member-import">
+                  Your own files, into the place you took: your personal rows into your ledger, and your side of the
+                  family records and settlements that came from your rows. Nobody else’s file is needed.
+                </p>
+              )}
+              {family && members.data && role === null && (
+                <p className="notice">
+                  Only the budget’s owner, or a member who took a place in it, imports into this budget.
+                </p>
+              )}
+              {partnerFile && (
                 <label className="field">
                   <span className="label">The partner’s transactions</span>
                   <input type="file" accept=".csv,text/csv" required name="partnerTransactions"
@@ -173,13 +217,13 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
                 </label>
               )}
             </div>
-            {family && upload && (
+            {partnerFile && upload && (
               <p className="muted" role="status">
                 {upload.kept} of his {upload.read} rows are family rows and will be uploaded.
                 {upload.withoutUnallocated > 0 && ` ${upload.withoutUnallocated} of them have UNALLOCATED on neither side.`}
               </p>
             )}
-            {family && !choice.files.accounts && choice.partner && (
+            {partnerFile && !choice.files.accounts && choice.partner && (
               <p className="muted">Choose your accounts file too: it names UNALLOCATED, which the filter needs.</p>
             )}
           </>
@@ -243,7 +287,9 @@ function Report({ report }: { report: ImportReport }) {
       {report.period && (
         <p className="muted">
           Rows from {report.period.from} to {report.period.to}, in {report.currencies.join(', ')}.
-          {report.family && ` Family budget “${report.family.ledgerName}”, the partner as “${report.family.seatName}”.`}
+          {report.family && (report.family.mode === 'MEMBER'
+            ? ` Family budget “${report.family.ledgerName}”, your own place.`
+            : ` Family budget “${report.family.ledgerName}”, the partner as “${report.family.seatName}”.`)}
         </p>
       )}
 
@@ -273,6 +319,7 @@ function Report({ report }: { report: ImportReport }) {
         {' '}of yours merged into them. Payees and people: {refs.counterpartiesCreated} new.
       </p>
 
+      {report.member && <MemberRows member={report.member} />}
       <Messages title="Errors" messages={report.errorSummary} className="error" open />
       <Messages title="Warnings" messages={report.warningSummary} />
       <Messages title="Skipped and not imported" messages={report.skippedSummary} />
@@ -311,6 +358,12 @@ function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconcili
           </tbody>
         </table>
       )}
+      {r.familyDebtUpTo && (
+        <p className="muted" data-testid="waiting">
+          The family debt is compared up to {r.familyDebtUpTo}, the other member’s latest import; after it, waiting for
+          the other member’s import ({r.waiting?.length ?? 0} month-ends differ for now), not failed.
+        </p>
+      )}
       {r.withoutFamilyRows.length > 0 && (
         <p className="muted">
           Without family rows, compared as one sum with the equity: {r.withoutFamilyRows.map((c) =>
@@ -346,6 +399,43 @@ function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconcili
 }
 
 const rows = (n: number) => (n === 1 ? '1 row' : `${n} rows`)
+
+/** A member's own import: his family rows, settlements and benefit rows (D-178 to D-181, D-188). */
+function MemberRows({ member: m }: { member: ImportMemberSummary }) {
+  const differing = m.benefitMonths.filter((b) => b.differs)
+  return (
+    <section className="member-import" data-testid="member-summary">
+      <h3>Your family rows</h3>
+      <table className="import-totals">
+        <tbody>
+          <tr><td>Family records as imported before</td><td className="amount">{m.recordsUnchanged}</td></tr>
+          <tr><td>Family records changed</td><td className="amount">{m.recordsEdited.length}</td></tr>
+          <tr><td>Family records new</td><td className="amount">{m.recordsCreated}</td></tr>
+          <tr><td>Your payment side attached</td><td className="amount">{m.sidesAttached}</td></tr>
+          <tr><td>Your side as imported before</td><td className="amount">{m.sidesUnchanged}</td></tr>
+          <tr><td>Settlements matched: same date and amount</td><td className="amount">{m.tier1}</td></tr>
+          <tr><td>Settlements matched: several on the date</td><td className="amount">{m.tier2}</td></tr>
+          <tr><td>Settlements matched: within 7 days</td><td className="amount">{m.tier3}</td></tr>
+          <tr><td>Conversions matched</td><td className="amount">{m.conversionsMatched} of {m.conversions}</td></tr>
+          <tr><td>Your rows without a counterpart</td><td className="amount">{m.unmatched}</td></tr>
+          <tr><td>The other member’s settlements without your side</td><td className="amount">{m.ownerSettlementsWithoutSide}</td></tr>
+          <tr><td>Benefit rows checked</td><td className="amount">{m.benefitRows}</td></tr>
+        </tbody>
+      </table>
+      {m.recordsEdited.length > 0 && <p className="muted">Changed, by Excel ID: {m.recordsEdited.join(', ')}.</p>}
+      <p className={differing.length === 0 ? 'muted' : 'notice'}>
+        Benefit months: {m.benefitMonths.length} compared with your shares of the incomes the others received,
+        {' '}{differing.length === 0 ? 'none differs' : `${differing.length} differ`}.
+      </p>
+      {m.straddling.length > 0 && (
+        <p className="muted">
+          {m.straddling.length} matched settlement{m.straddling.length === 1 ? '' : 's'} on either side of a month-end:
+          explained in the check.
+        </p>
+      )}
+    </section>
+  )
+}
 
 function Messages({ title, messages, className, open = false }: {
   title: string

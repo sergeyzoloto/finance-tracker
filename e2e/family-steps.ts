@@ -63,6 +63,39 @@ export async function joinThroughTheLink({ page }: Session, link: string, budget
   await expect(page.getByText('Family budget · EUR · Member')).toBeVisible()
 }
 
+/** An owner's link to take a place from a date (D-18, D-183), from the members page. */
+export async function inviteToTakeThePlace({ page }: Session, place: string, from: string, prefix: string): Promise<string> {
+  await page.getByRole('navigation', { name: 'Family budget' }).getByRole('link', { name: 'Members' }).click()
+  await page.getByRole('row', { name: new RegExp(`^${place}`) }).getByRole('button', { name: 'Invite to take this place' }).click()
+  await page.getByLabel(`Invite someone to take ${place}’s place, from`).fill(from)
+  await page.getByRole('button', { name: 'Create the link' }).click()
+  const link = page.getByRole('textbox', { name: 'Invite link' })
+  await expect(link).toHaveValue(/\/invite#[A-Za-z0-9_-]{43}$/)
+  await shot(page, `${prefix}-members-invite-place`)
+  return link.inputValue()
+}
+
+/**
+ * The invited account takes the place: the page names the join date and how many records it attaches (D-183), and the
+ * claim posts them all at once (D-182). Spaced from the other joins as {@link joinThroughTheLink} is.
+ */
+export async function claimThroughTheLink({ page }: Session, link: string, budget: string, ledgerId: string, joinDate: string,
+  records: number, name: string, prefix: string) {
+  const wait = lastJoin + 31_000 - Date.now()
+  if (wait > 0) await page.waitForTimeout(wait)
+  lastJoin = Date.now()
+  await page.goto(link)
+  await expect(page).toHaveURL(/\/invite$/)
+  await expect(page.getByRole('heading', { name: `Join the family budget “${budget}”` })).toBeVisible()
+  await expect(page.getByTestId('records-attached')).toHaveText(
+    `${records} records from ${joinDate} on will be attached to your account, one by one.`)
+  await page.getByLabel('Your name in this budget').fill(name)
+  await shot(page, `${prefix}-invite-place`)
+  await page.getByRole('button', { name: 'Accept' }).click()
+  await expect(page).toHaveURL(new RegExp(`/family/${ledgerId}$`), { timeout: 60_000 })
+  await expect(page.getByText('Family budget · EUR · Member')).toBeVisible()
+}
+
 /** Leaves the budget through its members page; the last one with an account is told it will be deleted (D-36). */
 export async function leave({ page }: Session, budgetPath: string, budget: string, button: string, deletion: string | null,
   prefix: string) {

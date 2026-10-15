@@ -21,7 +21,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * V5's backfill, on rows as the code before it writes them: a database migrated to V4 gets the rows of several users,
  * each known to other tables, and then V5. Every sub gets one personal ledger with itself as its one owner, and every
  * row its user's ledger, whether or not the sub has a users or user_settings row. Then each later migration on those
- * rows, to V12's time zone (F8c), V13's refunds and sync fields (F8d) and V14's sync of personal entries (D3b).
+ * rows, to V12's time zone (F8c), V13's refunds and sync fields (F8d), V14's sync of personal entries (D3b) and V15's
+ * member import (D3c).
  */
 class LedgerBackfillMigrationTests {
 
@@ -279,13 +280,26 @@ class LedgerBackfillMigrationTests {
                         || coalesce((SELECT string_agg(r::text, '|' ORDER BY r.id) FROM family_record r), '')""";
             String beforeV14 = strings(withoutPersonalSync).getFirst();
             Map<String, Long> rowsBeforeV14 = rows();
-            MigrateResult v14 = flyway(null).migrate();
+            MigrateResult v14 = flyway("14").migrate();
             assertThat(v14.success).isTrue();
             assertThat(v14.targetSchemaVersion).isEqualTo("14");
             assertThat(rows()).isEqualTo(rowsBeforeV14);
             assertThat(strings(withoutPersonalSync).getFirst()).isEqualTo(beforeV14);
             assertThat(strings("SELECT count(*) FROM journal_entry WHERE import_hash IS NOT NULL")).containsExactly("0");
             assertThat(strings("SELECT count(*) FROM imported_entry_deleted")).containsExactly("0");
+
+            // V15 (D3c: a member's own import, D-175, D-181) adds two tables and changes no row.
+            String allOfIt = withoutPersonalSync.replace("(to_jsonb(e) - 'import_hash' - 'import_version')::text",
+                    "e::text");
+            String beforeV15 = strings(allOfIt).getFirst();
+            Map<String, Long> rowsBeforeV15 = rows();
+            MigrateResult v15 = flyway(null).migrate();
+            assertThat(v15.success).isTrue();
+            assertThat(v15.targetSchemaVersion).isEqualTo("15");
+            assertThat(rows()).isEqualTo(rowsBeforeV15);
+            assertThat(strings(allOfIt).getFirst()).isEqualTo(beforeV15);
+            assertThat(strings("SELECT count(*) FROM family_import_cutoff")).containsExactly("0");
+            assertThat(strings("SELECT count(*) FROM imported_family_side")).containsExactly("0");
         } finally {
             db.close();
         }

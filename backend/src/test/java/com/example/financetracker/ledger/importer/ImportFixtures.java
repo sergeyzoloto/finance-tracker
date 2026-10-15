@@ -41,6 +41,14 @@ public final class ImportFixtures {
         return PartnerFilter.filter(file("partner-transactions.csv"), UNALLOCATED);
     }
 
+    /**
+     * D-151's upload of a partner's transactions file in either layout (D-177): his family rows' seven columns, as the
+     * import page and PartnerFilter make them.
+     */
+    public static byte[] seatRows(byte[] partnerTransactions) {
+        return PartnerFilter.filter(new ImportFile("partner.csv", partnerTransactions), UNALLOCATED);
+    }
+
     /** The whole synthetic export, for one run. */
     public static ImportRequest request(byte[] transactions, byte[] partner, Long ledger, Long seat, boolean commit) {
         return request(transactions, partner, ledger, seat, null, commit);

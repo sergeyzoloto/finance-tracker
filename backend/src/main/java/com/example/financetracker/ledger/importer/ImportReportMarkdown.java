@@ -42,8 +42,15 @@ public final class ImportReportMarkdown {
             md.append('\n');
         }
         if (report.family() != null) {
-            md.append("- Family budget %d, seat %d (the partner's)\n".formatted(report.family().ledgerId(),
-                    report.family().seatMemberId()));
+            md.append((switch (report.family().mode()) {
+                case "MEMBER" -> "- Family budget %d, your own seat %d (D-175); new family records split with member %d\n"
+                        .formatted(report.family().ledgerId(), report.family().ownerMemberId(),
+                                report.family().seatMemberId());
+                case "OWNER_AFTER_CLAIM" -> "- Family budget %d, seat %d (the partner's, with an account: his rows are his own import's, D-175)\n"
+                        .formatted(report.family().ledgerId(), report.family().seatMemberId());
+                default -> "- Family budget %d, seat %d (the partner's)\n".formatted(report.family().ledgerId(),
+                        report.family().seatMemberId());
+            }));
         }
         md.append("- Files:\n");
         for (FileSummary file : report.files()) {
@@ -79,6 +86,7 @@ public final class ImportReportMarkdown {
                         reference.categoriesUpdated(), reference.familyCategoriesCreated(),
                         reference.categoriesMerged(), reference.counterpartiesCreated()));
 
+        member(md, report.member());
         rows(md, "Missing from the files (D-138)", report.missing());
         rows(md, "Conflicts", report.conflicts());
         messages(md, "Errors", report.errorSummary());
@@ -88,6 +96,48 @@ public final class ImportReportMarkdown {
         md.append("\n## Integrity check\n\n").append(report.integrityViolations().isEmpty()
                 ? "Every currency adds up." : report.integrityViolations().size() + " violation(s).").append('\n');
         return md.toString();
+    }
+
+    /** A member's own import (D-175 to D-181, D-188). */
+    private static void member(StringBuilder md, ImportReport.MemberSummary m) {
+        if (m == null) {
+            return;
+        }
+        md.append("\n## Your family rows, settlements and benefit rows\n\n");
+        table(md, List.of("", "Rows"), "|---|---:|", List.of(
+                List.of("Family rows", n(m.familyRows())),
+                List.of("Family records unchanged", n(m.recordsUnchanged())),
+                List.of("Family records edited (D-190)", n(m.recordsEdited().size())),
+                List.of("Family records created", n(m.recordsCreated())),
+                List.of("Family records in conflict", n(m.recordConflicts())),
+                List.of("Payment side attached (D-181)", n(m.sidesAttached())),
+                List.of("Payment side unchanged", n(m.sidesUnchanged())),
+                List.of("Side edited", n(m.sidesEdited())),
+                List.of("Side in conflict", n(m.sideConflicts())),
+                List.of("Settlement rows", n(m.settlementRows())),
+                List.of("Matched by date and amount (D-178, 1)", n(m.tier1())),
+                List.of("Matched to several on the date (2)", n(m.tier2())),
+                List.of("Matched within 7 days (3)", n(m.tier3())),
+                List.of("Known from an earlier import", n(m.settlementsKnown())),
+                List.of("Conversions", n(m.conversions())),
+                List.of("Conversions matched", n(m.conversionsMatched())),
+                List.of("Rows without a counterpart", n(m.unmatched())),
+                List.of("The other member's settlements without your side", n(m.ownerSettlementsWithoutSide())),
+                List.of("Benefit rows (D-179)", n(m.benefitRows())),
+                List.of("FAMILY_EXP or FAMILY_INC not your share (D-177)", n(m.shareWarnings()))));
+        if (!m.recordsEdited().isEmpty()) {
+            md.append("\nEdited family records, by Excel ID: ").append(String.join(", ", m.recordsEdited())).append('\n');
+        }
+        long differ = m.benefitMonths().stream().filter(ImportReport.BenefitMonth::differs).count();
+        md.append("\nBenefit months compared: %d, differing: %d (D-179).\n".formatted(m.benefitMonths().size(), differ));
+        md.append("\nMatched settlements on either side of a month-end (D-188): %d.\n".formatted(m.straddling().size()));
+        if (!m.straddling().isEmpty()) {
+            List<List<String>> table = new ArrayList<>();
+            m.straddling().forEach(p -> table.add(List.of(p.excelId(), p.rowDate().toString(),
+                    p.settlementDate().toString(), p.currency(), p.amount().toPlainString())));
+            table(md, List.of("Excel ID", "Your row", "The settlement", "Currency", "Amount"), "|---|---|---|---|---:|",
+                    table);
+        }
     }
 
     private static void rows(StringBuilder md, String title, List<RowRef> rows) {
@@ -146,6 +196,11 @@ public final class ImportReportMarkdown {
             table(md, List.of("Account", "Currency", "Rule", "Amount"), "|---|---|---|---:|", explained);
         }
         points(md, "Failures", r.failures());
+        if (r.familyDebtUpTo() != null) {
+            md.append("\nThe family debt is compared up to %s, the other member's latest import (D-175); after it, "
+                    .formatted(r.familyDebtUpTo()) + "waiting for the other member's import.\n");
+            points(md, "Waiting for the other member's import", r.waiting());
+        }
         points(md, "The tail, not failing (D-69)", r.tail());
         if (!r.appOnly().isEmpty()) {
             md.append("\nThe app's accounts with a balance and no column in Excel: ")

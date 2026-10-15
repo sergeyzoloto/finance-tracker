@@ -31,12 +31,14 @@ import com.example.financetracker.ledger.family.FamilyInviteView.InviteKind;
  *        there is nothing to take on; null for a new member
  * @param corrections for a returning member, the correction in each currency whose amount isn't 0, the main currency
  *        first (D-26, D-39, D-45; additive, F8a); null otherwise
+ * @param recordsAttached for a claim, how many of the family's records are posted to the user one by one, those
+ *        dated from the join date that name the seat (D-183; additive, D3c); null for a new member
  */
 public record InviteLookup(String ledgerName, String baseCurrency, String invitedBy, InviteKind kind, String seatName,
         LocalDate joinDate, Instant expiresAt, List<FamilyCategory> categories, List<CategoryMerge> merges,
         List<CategoryKept> keptPrivate, List<CategoryChoice> mayBring, String displayName,
         boolean returning, List<EntryAfterReturn> entriesAfterReturn, List<CurrencyAmount> openingBalances,
-        List<CurrencyAmount> corrections) {
+        List<CurrencyAmount> corrections, Integer recordsAttached) {
 
     /**
      * One of the user's own entries on their former debt account, dated after the join date (D-37).

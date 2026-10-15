@@ -36,10 +36,10 @@ function report(errors: number, outcome: ImportReport['outcome'] = 'DRY_RUN'): I
 
 interface Sent { url: string; body: FormData }
 
-function stubApi(answers: ImportReport[]): Sent[] {
+function stubApi(answers: ImportReport[], budgetMembers: FamilyMember[] = members): Sent[] {
   const sent: Sent[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === '/api/family-ledgers/7/members') return new Response(JSON.stringify(members), { status: 200 })
+    if (url === '/api/family-ledgers/7/members') return new Response(JSON.stringify(budgetMembers), { status: 200 })
     sent.push({ url, body: init?.body as FormData })
     return new Response(JSON.stringify(answers.shift()), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }))
@@ -159,5 +159,81 @@ describe('the import page', () => {
     fireEvent.click(commit())
     await screen.findByText(/Imported: 3 created/)
     expect(sent[3].url).toBe('/api/import?dryRun=false&upTo=2026-08-31')
+  })
+
+  // D-175: once the partner took his place, each member imports only his own files.
+  const claimed: FamilyMember[] = [
+    members[0],
+    { id: 72, displayName: 'Sam B', role: 'MEMBER', status: 'ACTIVE', joinDate: '2019-12-01', hasAccount: true, share: null,
+      claimedSeat: true },
+  ]
+
+  it('lets a member who took a place import his own files into it, with no partner’s file (D-175)', async () => {
+    const memberReport: ImportReport = {
+      ...report(0), period: { from: '2024-02-01', to: '2024-03-08' },
+      family: { ledgerId: 7, ledgerName: 'Home', ownerMemberId: 72, seatMemberId: 71, seatName: 'Owner',
+        mode: 'MEMBER' },
+      member: { familyRows: 4, recordsUnchanged: 3, recordsEdited: ['113'], recordsCreated: 0, recordConflicts: 0,
+        sidesAttached: 4, sidesUnchanged: 0, sidesEdited: 0, sideConflicts: 0, settlementRows: 6, tier1: 3, tier2: 1,
+        tier3: 2, settlementsKnown: 0, conversions: 1, conversionsMatched: 1, unmatched: 0,
+        ownerSettlementsWithoutSide: 0, benefitRows: 1,
+        benefitMonths: [{ month: '2024-02-01', currency: 'EUR', rows: 1, benefitRows: '50.00', shares: '50.00', differs: false }],
+        straddling: [{ excelId: '109', rowDate: '2024-03-02', settlementDate: '2024-02-28', currency: 'EUR', amount: '12' }],
+        shareWarnings: 0 },
+    }
+    const sent = stubApi([memberReport], claimed)
+    render(<MemoryRouter><Import families={[{ ...home, role: 'MEMBER', memberId: 72 }]} /></MemoryRouter>)
+    chooseOwnerFiles()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Family budget' }), { target: { value: '7' } })
+    await screen.findByTestId('member-import')
+    expect(screen.queryByRole('combobox', { name: 'The partner’s place' })).toBeNull()
+    expect(document.querySelector('input[name="partnerTransactions"]')).toBeNull()
+
+    check()
+    await screen.findByText(/Dry run: nothing was saved/)
+    expect(sent[0].url).toBe('/api/import?dryRun=true&familyLedgerId=7&seatMemberId=72')
+    expect([...sent[0].body.keys()]).toEqual(['accounts', 'categories', 'transactions', 'dailyBalance', 'dailyChange'])
+    const summary = screen.getByTestId('member-summary')
+    expect(summary.textContent).toContain('Your payment side attached4')
+    expect(summary.textContent).toContain('Settlements matched: several on the date1')
+    expect(summary.textContent).toContain('Changed, by Excel ID: 113.')
+    expect(summary.textContent).toContain('none differs')
+    expect(screen.getByText(/Family budget “Home”, your own place\./)).toBeTruthy()
+  })
+
+  it('takes only the owner’s own files once the partner took his place (D-175)', async () => {
+    const sent = stubApi([report(0)], claimed)
+    render(<MemoryRouter><Import families={[home]} /></MemoryRouter>)
+    chooseOwnerFiles()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Family budget' }), { target: { value: '7' } })
+    await screen.findByRole('option', { name: 'Sam B' })
+    fireEvent.change(screen.getByRole('combobox', { name: 'The partner’s place' }), { target: { value: '72' } })
+    expect((await screen.findByTestId('own-file')).textContent).toContain('Sam B took this place')
+    expect(document.querySelector('input[name="partnerTransactions"]')).toBeNull()
+
+    check()
+    await screen.findByText(/Dry run: nothing was saved/)
+    expect(sent[0].url).toBe('/api/import?dryRun=true&familyLedgerId=7&seatMemberId=72')
+    expect([...sent[0].body.keys()]).not.toContain('partnerTransactions')
+  })
+
+  it('tells a member who took no place that only the owner imports into the budget', async () => {
+    stubApi([], [members[0], { ...members[1], id: 73, hasAccount: true }])
+    render(<MemoryRouter><Import families={[{ ...home, role: 'MEMBER', memberId: 73 }]} /></MemoryRouter>)
+    chooseOwnerFiles()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Family budget' }), { target: { value: '7' } })
+    expect(await screen.findByText(/Only the budget’s owner, or a member who took a place in it/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Check (dry run)' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('shows that the family debt waits for the other member’s import (D-175)', async () => {
+    stubApi([{ ...report(0), reconciliation: {
+      passed: true, cutoff: '2026-09-30', tailFrom: '2026-09-01', pointsCompared: 10, lastCompared: '2026-08-31',
+      lines: [], failures: [], tail: [], withoutFamilyRows: [], explained: [], appOnly: [],
+      familyDebtUpTo: '2026-08-31', waiting: [] } }])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    chooseOwnerFiles()
+    check()
+    expect((await screen.findByTestId('waiting')).textContent).toContain('compared up to 2026-08-31')
   })
 })

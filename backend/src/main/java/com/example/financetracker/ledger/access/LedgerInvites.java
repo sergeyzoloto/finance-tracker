@@ -92,7 +92,7 @@ public class LedgerInvites {
      *        the main currency first, then each other currency of a record before it; null for a new member
      */
     public record Preview(String ledgerName, String baseCurrency, String invitedBy, String seatName, LocalDate today,
-            List<FamilyCategory> categories, Map<String, BigDecimal> seatBalances) {
+            List<FamilyCategory> categories, Map<String, BigDecimal> seatBalances, Integer recordsAttached) {
     }
 
     /** A category of the family ledger, as the invite shows it: no id. */
@@ -191,11 +191,27 @@ public class LedgerInvites {
                 .list();
         Map<String, BigDecimal> seatBalances = invite.claim()
                 ? balancesBefore(invite.ledgerId(), invite.seatMemberId(), invite.joinDate()) : null;
+        Integer recordsAttached = invite.claim()
+                ? recordsFrom(invite.ledgerId(), invite.seatMemberId(), invite.joinDate()) : null;
         // D-104: a member's join date is never before the start date, which a holder in a zone behind the owner's would
         // otherwise get at the first hours of the budget's first day.
         LocalDate joinDate = max(today.date(userId), ledger.startDate());
         return new Preview(ledger.name(), ledger.baseCurrency(), ledger.invitedBy(), ledger.seatName(), joinDate,
-                categories, seatBalances);
+                categories, seatBalances, recordsAttached);
+    }
+
+    /**
+     * D-183: how many records a claim attaches to the seat's new account, one by one: those not deleted, dated from the
+     * join date on, that name the seat as payer, payee or with a share. The ones before it are in the opening balance.
+     */
+    private int recordsFrom(long ledgerId, long seatId, LocalDate joinDate) {
+        return jdbc.sql("""
+                SELECT count(*) FROM family_record r
+                WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL AND r.record_date >= :joinDate
+                  AND (r.payer_member_id = :seatId OR r.payee_member_id = :seatId
+                       OR EXISTS (SELECT FROM family_share s WHERE s.record_id = r.id AND s.member_id = :seatId))""")
+                .param("ledgerId", ledgerId).param("seatId", seatId).param("joinDate", joinDate)
+                .query(Integer.class).single();
     }
 
     /** The user's membership in the invite's family ledger, if any; a FORMER one has no sub any more (D-20). */

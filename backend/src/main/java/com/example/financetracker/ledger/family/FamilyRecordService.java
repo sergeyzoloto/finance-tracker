@@ -752,6 +752,10 @@ public class FamilyRecordService {
             violations.add(new Violation(COUNTERPARTY, family.memberId(), "name the counterparty with the account of "
                     + "your own side that requires it"));
         }
+        if (changes.throughExchange() && !(ownSide && changes.paymentAccountId() != null)) {
+            violations.add(new Violation(PAYMENT, family.memberId(), "FX_EXCHANGE goes only with an account of your own "
+                    + "side of the settlement"));
+        }
         Set<Long> guests = guests(record, Map.of(), members);
         for (long sideId : List.of(record.payerId(), record.payeeId())) {
             Member side = members.get(sideId);
@@ -764,7 +768,7 @@ public class FamilyRecordService {
             violations.add(beforeJoining(members.get(family.memberId()), SETTLEMENT));
         } else if (changes.namesAccount() && ownSide) {
             payment = paidWith(personal, family.memberId(), changes.paymentAccountId(), changes.paymentLater(), null,
-                    changes.paymentCounterpartyId(), null, violations, SETTLEMENT, false);
+                    changes.paymentCounterpartyId(), null, violations, SETTLEMENT, changes.throughExchange());
         } else if (changes.namesAccount()) {
             violations.add(new Violation(PAYMENT, family.memberId(), "you neither pay nor receive this settlement, so "
                     + "no account of yours is in it"));

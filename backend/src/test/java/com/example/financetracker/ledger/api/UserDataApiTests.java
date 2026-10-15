@@ -34,10 +34,11 @@ class UserDataApiTests extends LedgerApiTest {
                 {"date": "2026-08-01", "base": "EUR", "quote": "USD", "rate": "1.10"}"""));
         ok(put(user, "/api/settings", """
                 {"baseCurrency": "USD", "defaultShareRatio": "0.4"}"""));
-        // Rows in every table but import_batch and V14's deleted imports, and, with the demo's family budget (H1,
-        // F6c), in those of family ledgers but the invites.
+        // Rows in every table but import_batch, V14's deleted imports and V15's import tables, and, with the demo's
+        // family budget (H1, F6c), in those of family ledgers but the invites.
         assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows > 0).as(table)
-                .isEqualTo(!List.of("import_batch", "imported_entry_deleted", "family ledger_invite").contains(table)));
+                .isEqualTo(!List.of("import_batch", "imported_entry_deleted", "family ledger_invite",
+                        "family family_import_cutoff", "imported_family_side").contains(table)));
 
         assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
 

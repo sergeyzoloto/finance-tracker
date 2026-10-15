@@ -110,6 +110,38 @@ describe('the invite page', () => {
     expect(calls.filter((c) => c.url.includes(TOKEN))).toEqual([])
   })
 
+  it('says how many records a claim attaches, and waits for the claim without a second click (D-182, D-183)', async () => {
+    const calls = stubApi({
+      'POST /api/invites/lookup': { status: 200, body: { ...claim, joinDate: '2019-12-01', recordsAttached: 9137 } },
+      'POST /api/invites/accept': { status: 200, body: home },
+      'GET /api/family-ledgers': [{ status: 200, body: [] }, { status: 200, body: [home] }],
+      'GET /api/family-ledgers/7': { status: 200, body: home },
+      'GET /api/family-ledgers/7/members': { status: 200, body: [] },
+    })
+    // The claim's answer comes when the test says so.
+    const stubbed = globalThis.fetch
+    let release: () => void = () => {}
+    const answered = new Promise<void>((resolve) => { release = resolve })
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/invites/accept') await answered
+      return stubbed(url, init)
+    }))
+    renderApp(ON, '/invite')
+
+    expect((await screen.findByTestId('records-attached')).textContent)
+      .toBe('9137 records from Dec 1, 2019 on will be attached to your account, one by one.')
+    fireEvent.change(screen.getByLabelText(/^Your name in this budget/), { target: { value: 'Carol' } })
+    const accept = screen.getByRole('button', { name: 'Accept' }) as HTMLButtonElement
+    fireEvent.click(accept)
+    expect((await screen.findByText(/Taking the place: everything is posted to your budget together/))).toBeTruthy()
+    expect(accept.disabled).toBe(true)
+    fireEvent.click(accept)
+    fireEvent.submit(accept.closest('form')!)
+    release()
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7'))
+    expect(calls.filter((c) => c.url === '/api/invites/accept')).toHaveLength(1)
+  })
+
   it('declines, erases the token and says so', async () => {
     const calls = stubApi({
       'POST /api/invites/lookup': { status: 200, body: { ...claim, kind: 'NEW_MEMBER', seatName: null } },

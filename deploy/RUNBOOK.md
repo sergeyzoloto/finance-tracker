@@ -738,7 +738,8 @@ Read it per user (the ids are Keycloak subs; the owner and the partner know thei
 
 - **The current demo** ("Load demo data" in an empty ledger): one creation day with entries 164 and accounts beyond the
   starter ones 2 (`CREDIT_CARD` and `USD_ACCOUNT` among them: 2), and in the totals counterparties 10 and categories
-  beyond the starter ones 3, no import batch. Another user's demo is that user's business: nothing to do.
+  beyond the starter ones 2 (the demo's third one goes into its family budget "Demo household"; 3 with family budgets
+  off), no import batch. Another user's demo is that user's business: nothing to do.
 - **An older demo version**: the demo's two accounts, but other counts (D-184's 296 entries and 107 counterparties would
   be one): the same, a user's own data.
 - **End-to-end leftovers**: `e2e true`. The suite's cleanup deletes both accounts' data; rows there mean a run that

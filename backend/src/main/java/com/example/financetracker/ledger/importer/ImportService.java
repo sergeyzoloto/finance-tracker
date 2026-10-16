@@ -14,11 +14,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -1359,7 +1361,18 @@ public class ImportService {
                 List<MemberPlanner.ConversionRow> conversionRows, LocalDate joinDate) {
             long me = family.target().ownerMemberId();
             Map<String, List<SideRow>> byRef = new HashMap<>();
-            sideRows.values().forEach(side -> byRef.computeIfAbsent(side.ref(), r -> new ArrayList<>()).add(side));
+            // A side D-198 matched to several rows of his holds their references joined (xls:65+66+67).
+            Map<String, SideRow> groupOf = new HashMap<>();
+            sideRows.values().forEach(side -> {
+                if (side.ref().contains(GROUP)) {
+                    for (String id : side.ref().substring(EntryMapper.REFERENCE_PREFIX.length()).split(Pattern.quote(GROUP))) {
+                        groupOf.put(id, side);
+                    }
+                } else {
+                    byRef.computeIfAbsent(side.ref(), r -> new ArrayList<>()).add(side);
+                }
+            });
+            Map<SideRow, List<MemberPlanner.SettlementRow>> knownGroups = new LinkedHashMap<>();
             Map<String, MemberPlanner.SettlementRow> rowsById = new HashMap<>();
             Map<String, MemberPlanner.ConversionRow> conversionsById = new HashMap<>();
             List<SettlementMatcher.Row> toMatch = new ArrayList<>();
@@ -1367,6 +1380,12 @@ public class ImportService {
             for (MemberPlanner.SettlementRow row : settlementRows) {
                 memberTally.settlementRows++;
                 String excelId = id(row.row().id());
+                SideRow group = groupOf.get(excelId);
+                if (group != null) {
+                    memberTally.settlementsKnown++;
+                    knownGroups.computeIfAbsent(group, g -> new ArrayList<>()).add(row);
+                    continue;
+                }
                 List<SideRow> known = byRef.get(EntryMapper.reference(row.row().id()));
                 if (known != null) {
                     memberTally.settlementsKnown++;
@@ -1395,6 +1414,7 @@ public class ImportService {
                         .stream().map(leg -> new SettlementMatcher.Leg(leg.currency(), leg.amount(), leg.ownerPays()))
                         .toList()));
             }
+            knownGroups.forEach((side, rows) -> knownGroup(file, side, rows));
             List<SettlementMatcher.Candidate> candidates = openSettlements(family.scope(), personal, me, joinDate)
                     .stream().filter(c -> !sideRows.containsKey(c.id())).toList();
             SettlementMatcher.Result result = SettlementMatcher.match(toMatch, conversionsToMatch, candidates);
@@ -1412,6 +1432,11 @@ public class ImportService {
                             false);
                 }
             }
+            for (SettlementMatcher.GroupMatch group : result.groups()) {
+                matched.add(group.settlement().id());
+                attachGroup(file, group.rows().stream().map(r -> rowsById.get(r.excelId())).toList(),
+                        group.settlement(), false);
+            }
             for (SettlementMatcher.Row row : result.unmatched()) {
                 MemberPlanner.SettlementRow settlement = rowsById.get(row.excelId());
                 unmatched(file, settlement.row(), row.excelId(), "SETTLEMENT", row.date(), row.currency(),
@@ -1428,6 +1453,95 @@ public class ImportService {
                         + "side of yours: none of your rows matched it (D-178)").formatted(c.date(), c.currency(),
                                 c.amount().toPlainString())));
             });
+        }
+
+        /**
+         * D-198: several settlement rows of his on one date that add up to one settlement. His side of it is one, on one
+         * account: so the rows must be on one account, in the settlement's currency, with one counterparty; else each is
+         * an error naming why. The side keeps the rows' references together (xls:65+66+67) and their hashes as one.
+         */
+        private void attachGroup(String file, List<MemberPlanner.SettlementRow> rows, SettlementMatcher.Candidate settlement,
+                boolean edit) {
+            Tally tally = tally(Source.MEMBER_SETTLEMENT, "SETTLEMENT");
+            SettlementSpec first = rows.getFirst().spec();
+            boolean oneSide = rows.stream().allMatch(r -> r.spec().accountCode().equals(first.accountCode())
+                    && r.spec().accountCurrency().equals(settlement.currency()) && r.spec().accountAmount() == null
+                    && Objects.equals(r.spec().counterparty(), first.counterparty()));
+            String ids = rows.stream().map(r -> id(r.row().id())).collect(Collectors.joining(", "));
+            if (!oneSide) {
+                for (MemberPlanner.SettlementRow row : rows) {
+                    tally.failed++;
+                    memberTally.unmatched++;
+                    errors.add(new Problem(file, row.row().row(), id(row.row().id()), ("your rows %s add up to the "
+                            + "settlement of %s in %s of %s, but they aren't all on one account in %s: your side of a "
+                            + "settlement is one account; put them on one, or make them one row (D-198)").formatted(ids,
+                                    settlement.date(), settlement.currency(), settlement.amount().toPlainString(),
+                                    settlement.currency())));
+                }
+                return;
+            }
+            String ref = groupRef(rows);
+            String hash = groupHash(rows);
+            Map<String, Long> created = new HashMap<>();
+            try {
+                savepoint.executeWithoutResult(status -> {
+                    records.updateForImport(family.scope(), personal, settlement.id(), null,
+                            new FamilyRecordChanges(null, false, null, null, null, null, null,
+                                    accountId(first.accountCode()), false, false, null, null, null,
+                                    first.accountCurrency(),
+                                    counterparty(first.counterparty(), Counterparty.Kind.PERSON, created), false, null,
+                                    false));
+                    saveSide(personal, ref, settlement.id(), hash, appHash(personal, family.scope(), settlement.id()));
+                });
+            } catch (RuleViolationException e) {
+                tally.failed += rows.size();
+                String reasons = e.details().isEmpty() ? String.join("; ", e.violations())
+                        : e.details().stream().map(v -> v.code() + ": " + v.message()).collect(Collectors.joining("; "));
+                rows.forEach(row -> errors.add(new Problem(file, row.row().row(), id(row.row().id()),
+                        "your side of the settlement: " + reasons)));
+                return;
+            } catch (RuntimeException e) {
+                tally.failed += rows.size();
+                rows.forEach(row -> errors.add(new Problem(file, row.row().row(), id(row.row().id()),
+                        "your side can't go on the settlement: " + message(e))));
+                return;
+            }
+            counterpartyIds.putAll(created);
+            counterpartiesCreated += created.size();
+            tally.updated += rows.size();
+            if (edit) {
+                memberTally.sidesEdited++;
+            } else {
+                memberTally.tier2Many++;
+            }
+            rows.forEach(row -> drift.addAll(row.spec().drift()));
+            wrote();
+        }
+
+        /** D-198's group recognised again: unchanged, written again, or a conflict, as {@link #knownSettlement}. */
+        private void knownGroup(String file, SideRow side, List<MemberPlanner.SettlementRow> rows) {
+            Tally tally = tally(Source.MEMBER_SETTLEMENT, "SETTLEMENT");
+            List<SettlementMatcher.Candidate> settlement = settlementsOf(family.scope(),
+                    family.target().ownerMemberId(), List.of(side.recordId()));
+            if (!side.ref().equals(groupRef(rows)) || settlement.isEmpty()) {
+                tally.conflicts += rows.size();
+                rows.forEach(row -> conflicts.add(new RowRef(Source.MEMBER_SETTLEMENT.name(), id(row.row().id()),
+                        "the rows your side of the settlement was matched to have changed: not all of them are in "
+                                + "the file, or the settlement is gone (D-198)")));
+                return;
+            }
+            if (side.sideHash().equals(groupHash(rows))) {
+                tally.unchanged += rows.size();
+                rows.forEach(row -> drift.addAll(row.spec().drift()));
+                return;
+            }
+            if (!side.appHash().equals(appHash(personal, family.scope(), side.recordId()))) {
+                tally.conflicts += rows.size();
+                rows.forEach(row -> conflicts.add(new RowRef(Source.MEMBER_SETTLEMENT.name(), id(row.row().id()),
+                        "your side of the settlement changed in the app since its last import (D-181)")));
+                return;
+            }
+            attachGroup(file, rows, settlement.getFirst(), true);
         }
 
         /** D-178's error for a row of his that no settlement matches: with its date, currency and amount. */
@@ -1713,6 +1827,19 @@ public class ImportService {
 
     // --- A member's own import and the seats' cutoffs (D-175 to D-181) ---------------------------------------------
 
+    /** D-198: what joins the Excel IDs of a group's references. */
+    static final String GROUP = "+";
+
+    private static String groupRef(List<MemberPlanner.SettlementRow> rows) {
+        return EntryMapper.REFERENCE_PREFIX + rows.stream().map(r -> r.row().id()).sorted()
+                .map(String::valueOf).collect(Collectors.joining(GROUP));
+    }
+
+    private static String groupHash(List<MemberPlanner.SettlementRow> rows) {
+        return ImportSync.contentHash(rows.stream().sorted(Comparator.comparingLong(r -> r.row().id()))
+                .map(MemberPlanner.SettlementRow::sideHash).toArray(String[]::new));
+    }
+
     /** D-180's difference of 0.01 per account, currency and month-end, and D-177's and D-179's checks'. */
     static final BigDecimal TOLERANCE = new BigDecimal("0.01");
 
@@ -1997,6 +2124,7 @@ public class ImportService {
         int tier1;
         int tier2;
         int tier3;
+        int tier2Many;
         int settlementsKnown;
         int conversions;
         int conversionsMatched;
@@ -2010,7 +2138,7 @@ public class ImportService {
         ImportReport.MemberSummary summary() {
             return new ImportReport.MemberSummary(familyRows, recordsUnchanged, List.copyOf(recordsEdited),
                     recordsCreated, recordConflicts, sidesAttached, sidesUnchanged, sidesEdited, sideConflicts,
-                    settlementRows, tier1, tier2, tier3, settlementsKnown, conversions, conversionsMatched, unmatched,
+                    settlementRows, tier1, tier2, tier3, tier2Many, settlementsKnown, conversions, conversionsMatched, unmatched,
                     ownerSettlementsWithoutSide, benefitRows, List.copyOf(benefitMonths), List.copyOf(straddling),
                     shareWarnings);
         }

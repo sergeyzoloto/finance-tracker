@@ -77,7 +77,8 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
      * @param recordsEdited the Excel IDs of his family rows whose records the import changed (D-190)
      * @param sidesAttached his payment side put on a record for the first time (D-181)
      * @param tier1 settlements matched by date and amount, {@code tier2} one of his rows against several on its date,
-     *        {@code tier3} by amount within 7 days (D-178)
+     *        {@code tier3} by amount within 7 days (D-178); {@code tier2Many} several rows of his against one on its date
+ *        (D-198), counted once per settlement
      * @param settlementsKnown settlement rows of an earlier import of his, recognised by their Excel ID
      * @param ownerSettlementsWithoutSide the other member's settlements from his join date on without his side (D-178)
      * @param benefitMonths per month and currency, his benefit rows against his shares of the family incomes the other
@@ -86,7 +87,7 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
      */
     public record MemberSummary(int familyRows, int recordsUnchanged, List<String> recordsEdited, int recordsCreated,
             int recordConflicts, int sidesAttached, int sidesUnchanged, int sidesEdited, int sideConflicts,
-            int settlementRows, int tier1, int tier2, int tier3, int settlementsKnown, int conversions,
+            int settlementRows, int tier1, int tier2, int tier3, int tier2Many, int settlementsKnown, int conversions,
             int conversionsMatched, int unmatched, int ownerSettlementsWithoutSide, int benefitRows,
             List<BenefitMonth> benefitMonths, List<Straddling> straddling, int shareWarnings) {
     }
@@ -156,7 +157,7 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
 
     /**
      * The owner's balances, as the import leaves his ledger, against his daily balance file at every month-end up to
-     * the cutoff (D-63): per account code and currency, Excel's rounded half up to the minor unit, UNALLOCATED and
+     * the cutoff (D-63): per account code and currency, Excel's as read (D-199: no cut to cents), UNALLOCATED and
      * RESERVE as one equity (D-67), the family budget's debt account as FAMILY_DEBT. A difference that the import's own
      * rules explain (D-68: the shares' rounding, amounts rounded to the minor unit or to 4 decimals) is explained; any
      * other above 0.01 fails it, but from the month of the older export on (D-69), where it is only shown. In a

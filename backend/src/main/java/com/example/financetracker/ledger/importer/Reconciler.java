@@ -184,7 +184,6 @@ final class Reconciler {
         List<ReconciliationPoint> waiting = new ArrayList<>();
         int compared = 0;
         for (Key key : keys) {
-            int scale = scale(key.currency());
             boolean familyDebt = key.account().equals(FAMILY_DEBT) || key.account().equals(EQUITY_AND_FAMILY_DEBT);
             int keyCompared = 0;
             int keyWaiting = 0;
@@ -201,7 +200,7 @@ final class Reconciler {
                         excel = excel.add(balance.value(date, column.getKey()));
                     }
                 }
-                excel = excel.setScale(scale, RoundingMode.HALF_UP);
+                // D-199: Excel's balance as read, without D-63's cut to cents, against the app's exact one.
                 BigDecimal appBalance = upTo(appByKey.get(key), date);
                 BigDecimal explained = upTo(driftByKey.get(key), date);
                 BigDecimal unexplained = appBalance.subtract(excel).subtract(explained);

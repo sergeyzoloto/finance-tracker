@@ -18,8 +18,8 @@ import com.example.financetracker.ledger.importer.Reconciler.Key;
 import org.junit.jupiter.api.Test;
 
 /**
- * The reconciliation in plain Java (D-63, D-67, D-68, D-69, D-146, D-147): month-ends up to the cutoff, Excel rounded
- * half up, the equity together, explained drift, the tail shown but not failing, and a currency without family rows.
+ * The reconciliation in plain Java (D-63, D-67, D-68, D-69, D-146, D-147, D-199): month-ends up to the cutoff, Excel as
+ * read, the equity together, explained drift, the tail shown but not failing, and a currency without family rows.
  */
 class ReconcilerTests {
 
@@ -97,6 +97,31 @@ class ReconcilerTests {
         // The tail shows 8 March, where the file and the app differ; nothing of 31 March is read (D-146).
         assertThat(r.tail()).extracting(p -> p.date() + " " + p.account()).contains("2024-03-08 CASH");
         assertThat(r.lines()).allSatisfy(l -> assertThat(l.failed()).isZero());
+    }
+
+    /**
+     * D-199: Excel's balance as read, not cut to cents (D-63 before), against the app's exact one; the tolerance stays
+     * 0.01. A full-precision 89.9949 is 0.0049 from the app's 89.99, and 89.9851 is 0.0049 the other way, where a cut
+     * would have made both 0; and the family debt's -5.005 meets the app's -5.00 with D-12's explained 0.005 exactly.
+     */
+    @Test
+    void excelsBalanceIsComparedAsRead() {
+        var app = app(with("CASH EUR 2024-01-03 -10.01", "FAMILY_DEBT EUR 2024-01-03 -5.00",
+                "UNALLOCATED EUR 2024-01-03 -5.01"));
+        Reconciliation r = reconcile(balance("89.9949", "89.9851"), app, SHARES);
+        assertThat(r.passed()).isTrue();
+        assertThat(r.lines()).filteredOn(l -> l.account().equals("CASH")).singleElement()
+                .satisfies(l -> assertThat(l.worstUnexplained()).isEqualByComparingTo("0.0049"));
+        assertThat(r.lines()).filteredOn(l -> l.account().equals("FAMILY_DEBT")).singleElement()
+                .satisfies(l -> assertThat(l.worstUnexplained()).isEqualByComparingTo("0"));
+        // Beyond the tolerance as read: 89.9799 is 0.0101 off, which a cut to 89.98 would have hidden as 0.01.
+        Reconciliation off = reconcile(balance("89.99", "89.9799"), app, SHARES);
+        assertThat(off.passed()).isFalse();
+        assertThat(off.failures()).singleElement().satisfies(p -> {
+            assertThat(p.date()).isEqualTo(FEB);
+            assertThat(p.excel()).isEqualByComparingTo("89.9799");
+            assertThat(p.unexplained()).isEqualByComparingTo("0.0101");
+        });
     }
 
     /** D-175: beyond the other member's latest import, the family debt waits; it is listed, not failed. */
@@ -199,15 +224,17 @@ class ReconcilerTests {
     /** D-169's drift explains what the owner's rounding leaves in his balances, at every month-end after it. */
     @Test
     void anExplainedOwnerHalfPassesTheReconciliation() {
-        // Two incomes of 10.01 whose halves (10.01) the owner typed as 10.00: Excel's debt is 0.01 above the app's.
-        var app = app(with("CASH EUR 2024-01-03 -10.01", "FAMILY_DEBT EUR 2024-01-03 -5.02",
-                "UNALLOCATED EUR 2024-01-03 -4.99"));
+        // Three incomes of 10.01 whose halves (15.015) the owner typed as 15.00: Excel's debt is 0.015 below the app's
+        // story, within half a cent per income, so explained. Excel's balances are read as they are (D-199).
+        var app = app(with("CASH EUR 2024-01-03 -10.01", "FAMILY_DEBT EUR 2024-01-03 -5.015",
+                "UNALLOCATED EUR 2024-01-03 -4.995"));
         Reconciler.OwnerHalves halves = Reconciler.ownerHalf(
-                List.of(new Reconciler.Carried(LocalDate.of(2024, 1, 20), "EUR", new BigDecimal("10.00"))),
+                List.of(new Reconciler.Carried(LocalDate.of(2024, 1, 20), "EUR", new BigDecimal("15.00"))),
                 List.of(new Reconciler.Carried(LocalDate.of(2024, 1, 5), "EUR", new BigDecimal("10.01")),
-                        new Reconciler.Carried(LocalDate.of(2024, 1, 6), "EUR", new BigDecimal("10.01"))));
+                        new Reconciler.Carried(LocalDate.of(2024, 1, 6), "EUR", new BigDecimal("10.01")),
+                        new Reconciler.Carried(LocalDate.of(2024, 1, 7), "EUR", new BigDecimal("10.01"))));
         assertThat(halves.months()).singleElement().satisfies(h -> {
-            assertThat(h.ownerHalf()).isEqualByComparingTo("-0.01");
+            assertThat(h.ownerHalf()).isEqualByComparingTo("-0.015");
             assertThat(h.explained()).isTrue();
         });
         Reconciliation without = reconcile(balance("89.99", "89.99"), app, SHARES);
@@ -220,6 +247,7 @@ class ReconcilerTests {
         Reconciliation with = reconcile(balance("89.99", "89.99"), app, drift);
         assertThat(with.passed()).isTrue();
         assertThat(with.explained()).extracting(e -> e.account() + " " + e.reason() + " " + e.amount().toPlainString())
-                .contains("EQUITY OWNER_HALF 0.01", "FAMILY_DEBT OWNER_HALF -0.01");
+                .contains("EQUITY OWNER_HALF 0.015", "FAMILY_DEBT OWNER_HALF -0.015");
+        assertThat(with.lines()).allSatisfy(l -> assertThat(l.worstUnexplained()).isEqualByComparingTo("0"));
     }
 }

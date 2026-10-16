@@ -118,6 +118,7 @@ public final class ImportReportMarkdown {
                 List.of("Matched by date and amount (D-178, 1)", n(m.tier1())),
                 List.of("Matched to several on the date (2)", n(m.tier2())),
                 List.of("Matched within 7 days (3)", n(m.tier3())),
+                List.of("Several of your rows against one on the date (D-198)", n(m.tier2Many())),
                 List.of("Known from an earlier import", n(m.settlementsKnown())),
                 List.of("Conversions", n(m.conversions())),
                 List.of("Conversions matched", n(m.conversionsMatched())),

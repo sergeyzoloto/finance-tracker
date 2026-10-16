@@ -377,6 +377,45 @@ class MemberImportApiTests extends MemberImportApiTest {
                 .containsExactly("118: Debit and Credit are the same account, in one currency");
     }
 
+    /**
+     * D-198: his settlement row 106 (40 received on 10 February, the owner's row 5) as two rows of that date on one
+     * account match the owner's settlement as a group; committed, the same file again recognises the group. On two
+     * accounts, his one side can't hold them: each row is refused with the reason.
+     */
+    @Test
+    void severalRowsOfHisMatchOneOfTheOwnersSettlements() throws IOException {
+        ownersFirstImport();
+        claim();
+        byte[] split = withLine(withLine(withoutRows(hisWithoutTheRefused(), Set.of("106")),
+                "117;10.02.2024;-;25;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
+                "118;10.02.2024;-;15;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x");
+        JsonNode committed = ok(memberImport(split, null, "false"));
+        assertThat(committed.get("errors")).isEmpty();
+        assertThat(committed.get("member").get("tier2Many").asInt()).isEqualTo(1);
+        assertThat(committed.get("member").get("tier1").asInt()).isEqualTo(2);
+        assertThat(committed.get("member").get("ownerSettlementsWithoutSide").asInt()).isZero();
+        assertThat(jdbc.sql("SELECT external_ref FROM imported_family_side s JOIN ledger_member m ON m.ledger_id = s.ledger_id "
+                + "WHERE m.user_sub = ? AND m.ledger_type = 'PERSONAL' AND s.external_ref LIKE '%+%'")
+                .param(partner).query(String.class).list()).containsExactly("xls:117+118");
+        JsonNode again = ok(memberImport(split, null, null));
+        assertThat(again.get("totals").get("updated").asInt()).isZero();
+        assertThat(again.get("totals").get("conflicts").asInt()).isZero();
+        assertThat(count(again, "MEMBER_SETTLEMENT", "SETTLEMENT")).isEqualTo("c0 u0 n7 x0 e0 s0 i0");
+    }
+
+    @Test
+    void severalRowsOfHisOnTwoAccountsAreRefused() throws IOException {
+        ownersFirstImport();
+        claim();
+        byte[] split = withLine(withLine(withoutRows(hisWithoutTheRefused(), Set.of("106")),
+                "117;10.02.2024;-;25;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
+                "118;10.02.2024;-;15;EUR;;;Наличные;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x");
+        JsonNode report = ok(memberImport(split, null, null));
+        assertThat(errors(report)).hasSize(2).allSatisfy(e -> assertThat(e)
+                .contains("your rows 117, 118 add up to the settlement of 2024-02-10 in EUR of 40").contains("(D-198)"));
+        assertThat(report.get("member").get("tier2Many").asInt()).isZero();
+    }
+
     /** D-196: after the claim, the owner's row of an expense the place paid for him alone (D-73) is refused. */
     @Test
     void anOwnersRowOfAnExpenseThePlacePaidForHimIsRefusedAfterTheClaim() throws IOException {

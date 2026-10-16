@@ -101,4 +101,45 @@ class SettlementMatcherTests {
         assertThat(result.matches()).isEmpty();
         assertThat(result.unmatchedConversions()).extracting(ConversionRow::excelId).containsExactly("110");
     }
+
+    /** D-198: several rows of his on one date that add up to one settlement of the owner's, the only such set. */
+    @Test
+    void severalRowsOfHisMatchOneSettlementOnTheirDate() {
+        var result = SettlementMatcher.match(
+                List.of(row("1", "2024-06-12", "25", false), row("2", "2024-06-12", "15", false),
+                        row("3", "2024-06-12", "7", false)),
+                List.of(), List.of(settlement(7, "2024-06-12", "40", false)));
+        assertThat(result.groups()).singleElement().satisfies(g -> {
+            assertThat(g.rows()).extracting(Row::excelId).containsExactly("1", "2");
+            assertThat(g.settlement().id()).isEqualTo(7);
+        });
+        assertThat(result.matches()).isEmpty();
+        assertThat(result.unmatched()).extracting(Row::excelId).containsExactly("3");
+    }
+
+    @Test
+    void anAmbiguousSetOfHisRowsMatchesNothing() {
+        // 10 + 30 and 15 + 25 both make 40.
+        var result = SettlementMatcher.match(
+                List.of(row("1", "2024-06-12", "10", false), row("2", "2024-06-12", "30", false),
+                        row("3", "2024-06-12", "15", false), row("4", "2024-06-12", "25", false)),
+                List.of(), List.of(settlement(7, "2024-06-12", "40", false)));
+        assertThat(result.groups()).isEmpty();
+        assertThat(result.unmatched()).hasSize(4);
+    }
+
+    @Test
+    void rowsThatOnlyPartlyAddUpOrLieOnAnotherDateMatchNothing() {
+        // 25 + 14 isn't 40; and 25 + 15 a day apart isn't one date (no wider window, D-198).
+        var partial = SettlementMatcher.match(List.of(row("1", "2024-06-12", "25", false), row("2", "2024-06-12", "14",
+                false)), List.of(), List.of(settlement(7, "2024-06-12", "40", false)));
+        assertThat(partial.groups()).isEmpty();
+        var apart = SettlementMatcher.match(List.of(row("1", "2024-06-12", "25", false), row("2", "2024-06-13", "15",
+                false)), List.of(), List.of(settlement(7, "2024-06-12", "40", false)));
+        assertThat(apart.groups()).isEmpty();
+        // Nor rows of the other direction.
+        var other = SettlementMatcher.match(List.of(row("1", "2024-06-12", "25", false), row("2", "2024-06-12", "15",
+                true)), List.of(), List.of(settlement(7, "2024-06-12", "40", false)));
+        assertThat(other.groups()).isEmpty();
+    }
 }

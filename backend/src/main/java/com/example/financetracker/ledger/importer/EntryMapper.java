@@ -59,9 +59,12 @@ final class EntryMapper {
         this.chart = chart;
     }
 
+    /** What a reference to a row of the Excel file starts with (D-142, D-153). */
+    static final String REFERENCE_PREFIX = "xls:";
+
     /** The personal entry's reference in its ledger (D-142): the row's permanent ID. */
     static String reference(long id) {
-        return "xls:" + id;
+        return REFERENCE_PREFIX + id;
     }
 
     RowResult map(TransactionRow row) {

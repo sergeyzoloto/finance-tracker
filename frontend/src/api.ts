@@ -573,6 +573,8 @@ export interface ImportMemberSummary {
   tier1: number
   tier2: number
   tier3: number
+  /** Several rows of his against one settlement on its date (D-198), once per settlement. */
+  tier2Many: number
   settlementsKnown: number
   conversions: number
   conversionsMatched: number

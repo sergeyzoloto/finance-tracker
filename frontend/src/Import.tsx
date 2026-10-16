@@ -416,6 +416,7 @@ function MemberRows({ member: m }: { member: ImportMemberSummary }) {
           <tr><td>Settlements matched: same date and amount</td><td className="amount">{m.tier1}</td></tr>
           <tr><td>Settlements matched: several on the date</td><td className="amount">{m.tier2}</td></tr>
           <tr><td>Settlements matched: within 7 days</td><td className="amount">{m.tier3}</td></tr>
+          <tr><td>Settlements matched: several of your rows on the date</td><td className="amount">{m.tier2Many}</td></tr>
           <tr><td>Conversions matched</td><td className="amount">{m.conversionsMatched} of {m.conversions}</td></tr>
           <tr><td>Your rows without a counterpart</td><td className="amount">{m.unmatched}</td></tr>
           <tr><td>The other member’s settlements without your side</td><td className="amount">{m.ownerSettlementsWithoutSide}</td></tr>

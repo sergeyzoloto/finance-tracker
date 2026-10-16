@@ -17,7 +17,8 @@ import java.util.Set;
  * app) recorded, in plain Java. His rows never create a settlement: each finds one of the same currency and direction,
  * <ol>
  * <li>the same date and amount;
- * <li>else several on its date whose amounts add up to it, when exactly one such set exists;
+ * <li>else several on its date whose amounts add up to it, when exactly one such set exists; and the other way round
+ * (D-198), several rows of his on one date that add up to one settlement, when exactly one such set does;
  * <li>else the same amount within {@link #DAYS} days, when the pair is unambiguous: the row has that one settlement,
  * and the settlement that one row.
  * </ol>
@@ -65,7 +66,12 @@ final class SettlementMatcher {
     record Match(String excelId, LocalDate date, List<Candidate> settlements, int tier) {
     }
 
-    record Result(List<Match> matches, List<Row> unmatched, List<ConversionRow> unmatchedConversions) {
+    /** D-198: several rows of his on one date that add up to one settlement. */
+    record GroupMatch(List<Row> rows, Candidate settlement) {
+    }
+
+    record Result(List<Match> matches, List<GroupMatch> groups, List<Row> unmatched,
+            List<ConversionRow> unmatchedConversions) {
     }
 
     private SettlementMatcher() {
@@ -132,6 +138,24 @@ final class SettlementMatcher {
             }
         }
 
+        // 2, the other way round (D-198): several rows of his on one date that add up to one settlement, when exactly
+        // one set of them does.
+        List<GroupMatch> groups = new ArrayList<>();
+        for (Candidate settlement : new ArrayList<>(open)) {
+            List<Row> sameDay = left.stream().filter(r -> r.date().equals(settlement.date()) && alike(r, settlement))
+                    .toList();
+            if (sameDay.size() < 2 || sameDay.size() > MOST_CANDIDATES) {
+                continue;
+            }
+            List<List<Row>> sets = new ArrayList<>();
+            rowSets(sameDay, 0, new ArrayList<>(), BigDecimal.ZERO, settlement.amount(), sets);
+            if (sets.size() == 1) {
+                groups.add(new GroupMatch(List.copyOf(sets.getFirst()), settlement));
+                open.remove(settlement);
+                left.removeAll(sets.getFirst());
+            }
+        }
+
         // 3. The same amount within DAYS days, when unambiguous both ways; again while it finds pairs.
         boolean found = true;
         while (found) {
@@ -151,7 +175,7 @@ final class SettlementMatcher {
                 }
             }
         }
-        return new Result(List.copyOf(matches), List.copyOf(left), List.copyOf(unmatchedConversions));
+        return new Result(List.copyOf(matches), List.copyOf(groups), List.copyOf(left), List.copyOf(unmatchedConversions));
     }
 
     private static boolean alike(Row row, Candidate c) {
@@ -192,6 +216,22 @@ final class SettlementMatcher {
         for (int i = start; i < from.size(); i++) {
             chosen.add(from.get(i));
             subsets(from, i + 1, chosen, sum.add(from.get(i).amount()), target, sets);
+            chosen.removeLast();
+        }
+    }
+
+    /** As {@link #subsets}, of his rows. */
+    private static void rowSets(List<Row> from, int start, List<Row> chosen, BigDecimal sum, BigDecimal target,
+            List<List<Row>> sets) {
+        if (chosen.size() >= 2 && sum.compareTo(target) == 0) {
+            sets.add(List.copyOf(chosen));
+        }
+        if (chosen.size() == MOST_IN_A_SET || sets.size() > 1) {
+            return;
+        }
+        for (int i = start; i < from.size(); i++) {
+            chosen.add(from.get(i));
+            rowSets(from, i + 1, chosen, sum.add(from.get(i).amount()), target, sets);
             chosen.removeLast();
         }
     }

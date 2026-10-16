@@ -3,6 +3,66 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-16 · D3c-fix: D3c's open questions decided, rows that move nothing skipped, a fix list for the Excel ledgers
+
+Three commits on `feature/family-budget` on top of D3c's `36a4202` (not pushed; `main`, `origin/main` and
+`origin/feature/family-budget` at `1d3b811`, deployed): `3addb6e` "feat: a same-account row that moves nothing is skipped
+(D-192), the owner's D-73 row refused after a claim (D-196) (D3c-fix)", `4480158` "docs: D-192 to D-197, D3c's choices
+confirmed, D-194's finding (D3c-fix)" and the commit of this entry, "docs: D3c-fix's change log entry (D3c-fix)".
+Production and the server not accessed; neither Excel export changed.
+
+**Changes**
+- `requirements.md`: D-192 to D-196 (the PM's proposals, which the owner may still correct) and D-197; D3c's choices
+  confirmed by the PM; D-194's finding.
+- D-192: `EntryMapper` skips a row whose two sides are one account in one currency with the same amount and no Family
+  flag (`TransactionRow.flagged`, the column as read, which D-72's `withoutFamily` keeps), with the warning
+  `SAME_ACCOUNT_NOOP` and its ID, counted as skipped (`SAME_ACCOUNT_NOOP`); with the flag or two amounts it stays an error.
+  In any import, the owner's or a member's.
+- D-196: after a claim, the owner's import refuses a new or changed D-73 row (an expense the place paid for him alone)
+  with a reason that names it the partner's to record.
+- Tests: `EntryMapperTests` (the no-op skipped and named, the flagged row an error), `MemberImportApiTests` (a no-op row
+  in his file skipped with its warning and the reconciliation passing, a flagged one refused; the owner's D-73 row
+  refused after the claim).
+- D-192's check, D-194's cause and D-197's fix list are in data/private/reports/ (D3c-fixes.md, D3c-fix.md), not in the
+  repository.
+
+**Verified**
+- Backend, `./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=<seed>` on `4480158`, seeds
+  20261021, 20261022 and 20261023: exit 0 each, `Tests run: 557, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- Frontend, `npm test`: exit 0, `Test Files 30 passed (30)`, `Tests 385 passed (385)`; `npm run build`: exit 0.
+- `deploy/tests/run.sh`: exit 0, 102 passed, 0 failed, of 102 cases; `deploy/tests/mutate.sh`: exit 0, 75 mutations,
+  every one caught; ShellCheck v0.11.0 as CI runs it: exit 0.
+- End-to-end: `npm run typecheck` exit 0; `npm run test:guards` exit 0, tests 37, pass 37, fail 0; `E2E_FAMILY=on npm run e2e:local` on
+  `4480158` (the tree differed only in this entry): exit 0, `Result: PASSED`, every spec passed at both widths,
+  `member-import` among them, 0 password hits.
+- actionlint 1.7.7 on `ci.yml` and `ci-ubuntu-26.yml`: exit 0. This entry compiled with `@mdx-js/mdx` 3.1.1: exit 0.
+- `scripts/check-forbidden-names.sh` on the tree, `--rev HEAD` and `--log 1d3b811..HEAD`: exit 0, no hit each.
+- D-192 on the real file: all 76 rows D3c refused this way have no Family flag, and on each row's date his daily change
+  file moves the row's column by his other rows only. D3c's 496 points equal to the excluded rows' sums were 353 of the
+  D-178 rows' and 143 of the D-179 rows', none of the 76's.
+- D-194: not D-12's rounding. Each of the four is +0.01 plus Excel's balance cut to cents by the reconciler (D-63). The
+  +0.01 is two settlement mismatches the run's copy leaves visible (the owner's settlement 3610 without a row of his;
+  his refused row 4520 a cent from the owner's 3997), both in the fix list; the reconciler is unchanged, so no new
+  `ReconcilerTests` case.
+- The local real-data run again (never production; the replay of D3b-run, the claim, his dry run, the copy without the
+  rows still refused, its commit and re-import, the owner's dry run): the replay as production's 10.10; the claim 11381
+  records in 229 s, the opening's residual after D-12 RUB −0.025; refused 21 (17 D-178, 4 D-179), 76 skipped as
+  `SAME_ACCOUNT_NOOP`; 7817 family rows (7809 unchanged, 8 edited, all D-190's), each with his payment side; no benefit
+  month differing; the copy committed, again 0 created, 0 updated, 0 conflicts; all 500 listed of its 505 failing
+  points equal to the excluded rows' sums (counting the owner's settlements without his side); both integrity checks
+  clean; the owner's dry run 0 changes with the family debt passing. Every one of item 7's criteria passes, the third
+  for every row not refused.
+
+**Open**
+- D-192 to D-196 for the owner to confirm or correct.
+- The fix list (D-197) for the owner and the partner: 7 of his D-178 rows pair with 7 of the owner's settlements (five
+  where several of his rows add up to one of the owner's, one a date 15 days apart, one an amount within 1 %), 3 of his
+  and 11 of the owner's have no plausible pair; his 4 D-179 rows. Then D3c-accept (step 11.1).
+- D-178's second tier matches one row of his against several of the owner's; the real files hold the reverse five times
+  (several of his against one of the owner's). Whether the import should match those too, or the files be split alike.
+- The reconciler compares Excel's balance cut to cents (D-63) with the app's exact one; with a full-precision file that
+  adds up to 0.005 at a point (D-194's four would be exactly 0.01 without it).
+
 ## 2026-10-15 · D3c: the partner's claim from a past join date and each member's own import
 
 Six commits on `feature/family-budget` on top of D3b-doc's `d8cdfbe` (not pushed; `main`, `origin/main` and

@@ -175,7 +175,7 @@ describe('the import page', () => {
         mode: 'MEMBER' },
       member: { familyRows: 4, recordsUnchanged: 3, recordsEdited: ['113'], recordsCreated: 0, recordConflicts: 0,
         sidesAttached: 4, sidesUnchanged: 0, sidesEdited: 0, sideConflicts: 0, settlementRows: 6, tier1: 3, tier2: 1,
-        tier3: 2, tier2Many: 1, settlementsKnown: 0, conversions: 1, conversionsMatched: 1, unmatched: 0,
+        tier3: 2, tier2Many: 1, byDate: 0, ambiguous: 0, settlementsKnown: 0, conversions: 1, conversionsMatched: 1, unmatched: 0,
         ownerSettlementsWithoutSide: 0, benefitRows: 1,
         benefitMonths: [{ month: '2024-02-01', currency: 'EUR', rows: 1, benefitRows: '50.00', shares: '50.00', differs: false }],
         straddling: [{ excelId: '109', rowDate: '2024-03-02', settlementDate: '2024-02-28', currency: 'EUR', amount: '12' }],

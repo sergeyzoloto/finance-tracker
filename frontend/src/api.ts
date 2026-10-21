@@ -575,6 +575,10 @@ export interface ImportMemberSummary {
   tier3: number
   /** Several rows of his against one settlement on its date (D-198), once per settlement. */
   tier2Many: number
+  /** His rows matched by resolving a tied date as a whole (D-202), also in their tier's count. */
+  byDate: number
+  /** His rows refused as ambiguous on their date (D-202). */
+  ambiguous: number
   settlementsKnown: number
   conversions: number
   conversionsMatched: number

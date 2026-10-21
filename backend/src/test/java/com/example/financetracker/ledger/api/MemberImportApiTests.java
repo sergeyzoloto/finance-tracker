@@ -416,6 +416,47 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(report.get("member").get("tier2Many").asInt()).isZero();
     }
 
+    /**
+     * D-202: the owner's 40 of 10 February as 25 and 15; his 106 as 10 and 15 on his card and 15 in cash. Two of his 15s
+     * could take the owner's 15; the date as a whole has one way that covers all three rows: 10 + 15 on the card against
+     * the 25, the cash 15 against the 15.
+     */
+    @Test
+    void aTiedDateIsMatchedAsAWhole() throws IOException {
+        byte[] owners = withLine(withField(d3c("owner-transactions.csv"), "5", 3, "25"),
+                "16;10.02.2024;-;15;EUR;;;Общий семейный бюджет;Евро-счёт;;;;;;;EUR;0;0;NULL;x");
+        assertThat(ok(upload(owner, "owner", owners, seatRows(his()), seat, null, "false")).get("errors")).isEmpty();
+        claim();
+        byte[] split = withLine(withLine(withLine(withoutRows(hisWithoutTheRefused(), Set.of("106")),
+                "117;10.02.2024;-;10;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
+                "118;10.02.2024;-;15;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
+                "119;10.02.2024;-;15;EUR;;;Наличные;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x");
+        JsonNode report = ok(memberImport(split, null, null));
+        assertThat(report.get("errors")).isEmpty();
+        JsonNode member = report.get("member");
+        assertThat(member.get("byDate").asInt()).isEqualTo(3);
+        assertThat(member.get("ambiguous").asInt()).isZero();
+        assertThat(member.get("tier2Many").asInt()).isEqualTo(1);
+        assertThat(member.get("unmatched").asInt()).isZero();
+        assertThat(member.get("ownerSettlementsWithoutSide").asInt()).isZero();
+    }
+
+    /** D-202: two of his 40s, on his card and in cash, against the owner's one 40: either could be its side. */
+    @Test
+    void aDateTakenInTwoWaysIsRefusedAsAmbiguous() throws IOException {
+        ownersFirstImport();
+        claim();
+        byte[] two = withLine(withLine(withoutRows(hisWithoutTheRefused(), Set.of("106")),
+                "117;10.02.2024;-;40;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
+                "118;10.02.2024;-;40;EUR;;;Наличные;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x");
+        JsonNode report = ok(memberImport(two, null, null));
+        assertThat(errors(report)).hasSize(2).allSatisfy(e -> assertThat(e).contains("AMBIGUOUS_SETTLEMENT")
+                .contains("your rows 117, 118 of 2024-02-10 in EUR").contains("the other member's Excel ID 5")
+                .contains("(D-202)"));
+        assertThat(report.get("member").get("ambiguous").asInt()).isEqualTo(2);
+        assertThat(report.get("member").get("unmatched").asInt()).isZero();
+    }
+
     /** D-196: after the claim, the owner's row of an expense the place paid for him alone (D-73) is refused. */
     @Test
     void anOwnersRowOfAnExpenseThePlacePaidForHimIsRefusedAfterTheClaim() throws IOException {

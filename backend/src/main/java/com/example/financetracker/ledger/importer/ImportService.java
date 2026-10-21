@@ -1396,7 +1396,7 @@ public class ImportService {
                 rowsById.put(excelId, row);
                 SettlementSpec spec = row.spec();
                 toMatch.add(new SettlementMatcher.Row(excelId, spec.date(), spec.currency(), spec.amount(),
-                        spec.ownerPays()));
+                        spec.ownerPays(), side(spec)));
             }
             for (MemberPlanner.ConversionRow row : conversionRows) {
                 memberTally.conversions++;
@@ -1437,6 +1437,11 @@ public class ImportService {
                 attachGroup(file, group.rows().stream().map(r -> rowsById.get(r.excelId())).toList(),
                         group.settlement(), false);
             }
+            for (SettlementMatcher.Ambiguous tie : result.ambiguous()) {
+                tie.settlements().forEach(c -> matched.add(c.id()));
+                ambiguous(file, tie, rowsById);
+            }
+            memberTally.byDate += result.byDate().size();
             for (SettlementMatcher.Row row : result.unmatched()) {
                 MemberPlanner.SettlementRow settlement = rowsById.get(row.excelId());
                 unmatched(file, settlement.row(), row.excelId(), "SETTLEMENT", row.date(), row.currency(),
@@ -1453,6 +1458,37 @@ public class ImportService {
                         + "side of yours: none of your rows matched it (D-178)").formatted(c.date(), c.currency(),
                                 c.amount().toPlainString())));
             });
+        }
+
+        /**
+         * D-202: what a settlement row of his would be one side on, as {@link #attachGroup} requires of D-198's rows: the
+         * account in the row's own currency with nothing else entered, and the counterparty; else null.
+         */
+        private static String side(SettlementSpec spec) {
+            return spec.accountAmount() == null && spec.currency().equals(spec.accountCurrency())
+                    ? spec.accountCode() + '\u001f' + Objects.requireNonNullElse(spec.counterparty(), "")
+                    : null;
+        }
+
+        /**
+         * D-202: his rows of a date that its settlements take in more than one way, each an error naming both sides; the
+         * settlements stay without his side, and aren't counted as left without one.
+         */
+        private void ambiguous(String file, SettlementMatcher.Ambiguous tie, Map<String, MemberPlanner.SettlementRow> rowsById) {
+            String his = tie.rows().stream().map(SettlementMatcher.Row::excelId).collect(Collectors.joining(", "));
+            String theirs = tie.settlements().stream()
+                    .map(c -> "%s%s".formatted(c.amount().toPlainString(),
+                            c.excelId() == null ? "" : " (the other member's Excel ID " + c.excelId() + ")"))
+                    .collect(Collectors.joining(", "));
+            SettlementMatcher.Row first = tie.rows().getFirst();
+            for (SettlementMatcher.Row row : tie.rows()) {
+                memberTally.ambiguous++;
+                tally(Source.MEMBER_SETTLEMENT, "SETTLEMENT").failed++;
+                errors.add(new Problem(file, rowsById.get(row.excelId()).row().row(), row.excelId(), ("AMBIGUOUS_SETTLEMENT: "
+                        + "your rows %s of %s in %s and the settlements of that date %s match in more than one way, or "
+                        + "the date has more than %d of either (D-202): make the amounts or accounts tell them apart")
+                        .formatted(his, first.date(), first.currency(), theirs, SettlementMatcher.MOST_ON_A_DATE)));
+            }
         }
 
         /**
@@ -1983,7 +2019,8 @@ public class ImportService {
     private static final String SETTLEMENT_CANDIDATE = """
             SELECT r.id, r.record_date, r.currency, abs(r.base_amount) AS amount, r.payer_member_id = :me AS pays,
                    CASE WHEN r.external_ref ~ '^xls:[0-9]+:[0-9]+:[A-Z]{3}$'
-                        THEN regexp_replace(r.external_ref, ':[A-Z]{3}$', '') END AS conversion
+                        THEN regexp_replace(r.external_ref, ':[A-Z]{3}$', '') END AS conversion,
+                   CASE WHEN r.external_ref ~ '^xls:[0-9]+:[0-9]+$' THEN split_part(r.external_ref, ':', 3) END AS excel_id
             FROM family_record r
             WHERE r.ledger_id = :ledgerId AND r.type = 'SETTLEMENT' AND r.deleted_at IS NULL
               AND (r.payer_member_id = :me OR r.payee_member_id = :me)""";
@@ -1991,7 +2028,7 @@ public class ImportService {
     private static SettlementMatcher.Candidate candidate(java.sql.ResultSet row, int n) throws java.sql.SQLException {
         return new SettlementMatcher.Candidate(row.getLong("id"), row.getObject("record_date", LocalDate.class),
                 row.getString("currency"), row.getBigDecimal("amount").stripTrailingZeros(), row.getBoolean("pays"),
-                row.getString("conversion"));
+                row.getString("conversion"), row.getString("excel_id"));
     }
 
     /**
@@ -2125,6 +2162,8 @@ public class ImportService {
         int tier2;
         int tier3;
         int tier2Many;
+        int byDate;
+        int ambiguous;
         int settlementsKnown;
         int conversions;
         int conversionsMatched;
@@ -2138,7 +2177,8 @@ public class ImportService {
         ImportReport.MemberSummary summary() {
             return new ImportReport.MemberSummary(familyRows, recordsUnchanged, List.copyOf(recordsEdited),
                     recordsCreated, recordConflicts, sidesAttached, sidesUnchanged, sidesEdited, sideConflicts,
-                    settlementRows, tier1, tier2, tier3, tier2Many, settlementsKnown, conversions, conversionsMatched, unmatched,
+                    settlementRows, tier1, tier2, tier3, tier2Many, byDate, ambiguous, settlementsKnown, conversions,
+                    conversionsMatched, unmatched,
                     ownerSettlementsWithoutSide, benefitRows, List.copyOf(benefitMonths), List.copyOf(straddling),
                     shareWarnings);
         }

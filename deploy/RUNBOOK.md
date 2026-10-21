@@ -706,12 +706,30 @@ it doesn't take the claim back.
 
 **11.1 The local run** (D-189, D-191), a task of its own before this step (D3c-accept): on the laptop, never production,
 the local run of D3c's item 7, which first replays every import production has had by then, with the same exports, cutoffs
-and order (today D3b-run: `export-2026-10-13` up to 2026-08-31), then the claim from 2019-12-01, then the partner's dry
-run, commit and re-import, then the owner's dry run, on the export with the Excel fixes (the rows of
-data/private/reports/D3c.md's list), with **0 refused rows**. Its report gives the numbers 11.5 to 11.11 expect.
+and order (today D3b-run: `export-2026-10-13` up to 2026-08-31), then 11.2a (D-201) with the corrected export, then the
+claim from 2019-12-01, then the partner's dry run, commit and re-import, then the owner's dry run, on the export with the
+Excel fixes (`export-2026-10-21`, edited by D-197's list, data/private/reports/D3c-fixes.md), with **0 refused rows**.
+Its report gives the numbers 11.2a to 11.11 expect. D3c-accept (2026-10-21, data/private/reports/D3c-accept.md) ran it
+on `export-2026-10-21` and stopped at the partner's dry run: 2 rows refused (his 8690 and 8692, D-198), so step 11
+waits for that to be settled and 11.1 to pass.
 
 **11.2 A backup with its restore test**, before anything else: the block of 10.2. Note the dump's name: it is the way
 back.
+
+**11.2a The owner's corrected file first** (D-201), before the invite, in the owner's own browser, when his export
+corrects his own rows (`export-2026-10-21` does). The import never deletes (D-139), and once the partner's sides are on
+his accounts D-28 locks the date, amount and deletion of a settlement, so the owner's settlements are made final here:
+
+1. **His dry run** at <https://app.finance-nl.com/import>: his five files of the corrected export, the family budget, the
+   partner's place and the partner's transactions file of the same export (the place has no account yet), **Import up
+   to** 2026-08-31. You should see no errors and, under **Missing**, the records of his rows that the correction no
+   longer makes: on `export-2026-10-21` his Excel IDs 2888, 3610, 4238, 4239, 5246 and 5792 (11.1's report gives each
+   one's type, date, currency, amount and direction). Any other missing row or any error: stop and tell the PM.
+2. **He deletes each of those records** in the family budget's **Activity**, found by its date, amount and direction,
+   with **Delete** on its page: the income received by the place and the five settlements, none other.
+3. **The dry run again**: **Missing** 0, no errors, the reconciliation **Passed** (D3c-accept: created 6, updated 14,
+   skipped 20, not imported 50, 3210 points). Then **Commit import**, confirm: **Imported** with the same numbers. Then
+   **Check (dry run)** once more: 0 created, 0 updated.
 
 **11.3 The partner's account, empty** (D-173, D-185), before he accepts anything. He signs in at
 <https://app.finance-nl.com> with his own account, in a private window, signed in fresh; the header shows his name. Then,

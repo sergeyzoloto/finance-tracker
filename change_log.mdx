@@ -3,6 +3,63 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-21 · D3c-accept: item 7 on the corrected ledgers, stopped at the partner's dry run (D-200, D-201)
+
+One commit on `feature/family-budget` on top of D3c-fix2's `82e78e1`, the commit of this entry, "docs: D3c-accept's run
+stopped at the partner's dry run, D-200, D-201 (D3c-accept)" (not pushed; `main`, `origin/main` and `origin/feature/family-budget` at `1d3b811`,
+deployed). Production and the server not accessed; neither Excel export and no data changed to pass a criterion.
+
+**Changes**
+- `requirements.md`: D-200 (the PM's proposal: a dry run of both imports up to 2026-09-30 after the run, for information
+  only) and D-201 (proposed here: when the owner's export corrects his own rows, he first deletes in the app the
+  records of his rows that the corrected file no longer makes, then imports the export with the partner's file, all
+  before the claim), both for the owner to confirm or correct.
+- `RUNBOOK.md` step 11: 11.1 names `export-2026-10-21` and D-197's list, and says D3c-accept stopped; the new 11.2a is
+  D-201's order (the dry run listing the missing records, the owner deleting them, the dry run, commit and the same
+  again), with the owner's Excel IDs 2888, 3610, 4238, 4239, 5246 and 5792 and no amounts.
+- The run's report: data/private/reports/D3c-accept.md (git-ignored), the scripts and dumps in
+  data/private/scratch/accept/.
+
+**Verified**
+- No code changed, so no suite ran (D-97 applies to none). `scripts/check-forbidden-names.sh` on the tree, `--rev HEAD`
+  and `--log 1d3b811..HEAD`: exit 0, no hit each. This entry compiled with `@mdx-js/mdx` 3.1.1: exit 0.
+- Step 1, the exports (D3c-accept.md has every row):
+  - SHA-256 of all nine files recorded. The two accounts files and the categories file are identical to
+    `export-2026-10-15`'s.
+  - Daily balance against daily change from 2019-12-01 up to 2026-08-31: 0 cells beyond 0.01 for either ledger. The
+    owner's file has 21 beyond 0.01 from 2026-10-22, after his latest transaction.
+  - IDs: none renumbered, none reused, new ones unique and above the old maximum. The new months' rows took the IDs the
+    fix list proposed, so the fix rows came after them (his 12759 to 12762, the owner's 7066 to 7068).
+  - Applied as proposed: his 836, 2788, 3530 and 6913 with their four settlements, and the owner's 5685 and 5692 with
+    7066, 7067 and 7068.
+  - Applied as the list's alternative in the owner's file: 3997 and 4129 in place of his 4520 and 4857; 5245, 5246,
+    5792 and 5793 in place of his 7474 and 8941 (5246 and 5792 kept with Sum 0, not removed); 3610, 4238 and 4239 in
+    place of his new rows.
+  - None not applied. One change not in the list up to 2026-08-31: the owner's 2888, which goes with 7068.
+  - 60 rows dated after 2026-08-31.
+- The run (dev Keycloak, a throwaway database, the pages, never production):
+  - The replay of D3b-run matches production's 10.10 counts exactly: 14754 created, reconciliation passing at 3210
+    points.
+  - The owner's dry run of `export-2026-10-21` then listed 6 missing records (2888, 3610, 4238, 4239, 5246, 5792) and
+    failed the reconciliation. With those deleted as the owner, it passes with 0 missing. Committed: 6 created, 14
+    updated. The same again: 0 created, 0 updated.
+  - The claim from 2019-12-01: 11378 records, accepted in 167.9 s, opening residual after D-12 RUB −0.025.
+  - His dry run: **2 rows refused**, his 8690 and 8692 (D-198). Tier 1 gives the owner's new 5-EUR settlement 7066 his
+    first 5-EUR row by ID (8691, his deposit). That leaves 8690 + 8692 for 5685's 33 EUR, across two of his accounts.
+  - Its reconciliation fails only at those rows' sums: 20 points each on his debit card and deposit, from 2025-01-31.
+  - Otherwise: 76 `SAME_ACCOUNT_NOOP` (as before); 7819 family rows unchanged, each with his payment side, 0
+    conflicts; 0 benefit months differ; FAMILY_DEBT passing.
+- Criterion 1 passes; criterion 2 fails, so the run stopped there. Nothing of his was committed, D-200's dry runs were
+  not run and step 3 (the checklist, `D3c.expected`, the hashes in step 11) wasn't done. The environment was removed.
+
+**Open**
+- His 8690 and 8692: either the matcher's tier 1, given several of his rows tied for one settlement, takes the one
+  that leaves every D-198 set on its date on one account (a code change), or his file makes 8690 and 8691 one row. The
+  run then goes on from the dump after the claim.
+- D-200 and D-201 for the owner. D-201's deletions include 2888, which the fix list didn't ask for.
+- The owner kept 4239, 5246 and 5792 with Sum 0, where the list said to remove them. The import skips them (D-72).
+- Then D3c-accept again: criteria 2 to 8, D-200, and step 3.
+
 ## 2026-10-16 · D3c-fix2: several of his rows against one settlement, Excel's balance as read, D-184's query
 
 Commits on `feature/family-budget` on top of D3c-fix's `64c8f1b` (not pushed; `main`, `origin/main` and

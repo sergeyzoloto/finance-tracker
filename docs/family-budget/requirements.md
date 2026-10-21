@@ -64,6 +64,8 @@ Amended in D3b-doc on 2026-10-14: new D-172 and D-173 (decided by the PM), about
 
 Amended in D3c-fix2 on 2026-10-16: D-192 to D-196 confirmed by the owner; D-63 amended by D-199; D-184 corrected by the owner; new D-198 and D-199 (the PM's proposals, which the owner may still correct), about several settlement rows of the partner's against one of the owner's and the reconciliation without a cut to cents.
 
+Amended in D3c-accept on 2026-10-21: new D-200 (the PM's proposal) and D-201 (proposed in D3c-accept), about an information-only dry run past the cutoff and the owner's corrected file before the claim.
+
 Amended in D3c-fix on 2026-10-15: D3c's choices confirmed by the PM; new D-192 to D-196 (the PM's proposals, which the owner may still correct) and D-197 (the PM), about rows that move nothing, the claim opening's limit, the four FAMILY_DEBT EUR month-ends of 2022, deleting one's data, the owner's D-73 rows after a claim and the fix list for the Excel ledgers; the agent's choices of D3c-fix.
 
 Amended in D3c on 2026-10-15: new D-174 to D-191 (D-174 to D-181 and D-184 decided by the owner, the others by the PM), about the partner's claim of his seat and his own import, what passes to him with the claim, who imports what afterwards, the reconciliation of his files, D3b-run's demo data and step 10's order, the safety of deleting and leaving, and D3c's local real-data run; the agent's choices of D3c; the planned stages (D3c, D3c-accept, D3c-run).
@@ -506,6 +508,10 @@ Added in D3c-fix (2026-10-15; D-192 to D-196 the PM's proposals, confirmed by th
 Added in D3c-fix2 (2026-10-16; D-198 and D-199 the PM's proposals, which the owner may still correct)
 - D-198 (the PM's proposal). D-178's second tier also works the other way round: a set of 2 to 6 of the partner's settlement rows on one date that adds up exactly to one of the owner's settlements in the same currency and direction is matched to it, only when it is the only such set and the settlement's side of his is still unassigned. The same rules as the tier, mirrored; no wider date window. His side of a settlement is one, on one account: the rows must be on one account in the settlement's currency (else each is an error naming why); the side keeps the rows' Excel IDs together (`xls:<ID>+<ID>`) and their hashes as one, so that a re-import recognises them.
 - D-199 (the PM's proposal). The reconciliation compares the app's exact balance with Excel's balance as read, without D-63's cut to cents; the tolerance stays 0.01.
+
+Added in D3c-accept (2026-10-21; D-200 the PM's proposal and D-201 proposed in D3c-accept, both for the owner to confirm or correct)
+- D-200 (the PM's proposal). After step 11.1's run, an extra dry run of both members' imports with "Import up to" 2026-09-30, for information only: refused rows, conflicts and the reconciliation's result. It is not a criterion. D3c-accept's run stopped before it.
+- D-201 (proposed in D3c-accept). When the owner's export corrects his own settlement rows (D-197's fix list, export-2026-10-21), he applies it before the claim, in this order: he deletes in the app the family records of his rows that the corrected file no longer makes (the rows his dry run lists as missing, "no longer in the files", D-138: on export-2026-10-21 his Excel IDs 2888, 3610, 4238, 4239, 5246 and 5792), then imports the export with the partner's file and the same "Import up to" (dry run, commit, the same again), and only then invites the partner to his place. Reason: the import never deletes (D-139), and his settlements must be final before the partner's sides attach, after which D-28 locks their date, amount and deletion.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

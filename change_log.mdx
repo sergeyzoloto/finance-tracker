@@ -3,6 +3,81 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-21 · D3c-accept2: a tied date's settlements matched as a whole (D-202), step 11.1 passed
+
+Two commits on `feature/family-budget` on top of D3c-accept's `b6d69de` (not pushed; `main`, `origin/main` and
+`origin/feature/family-budget` at `1d3b811`, deployed): `e90c735` "feat: a tied date's settlements matched as a whole
+(D-202), D-200 and D-201 confirmed (D3c-accept2)" and the commit of this entry, "docs: D3c-accept2's run, step 11 and
+D3c's checklist ready for the deploy (D3c-accept2)". Production and the server not accessed; neither Excel export and
+no data changed to pass a criterion.
+
+**Changes**
+- D-202: `SettlementMatcher` resolves a date, in one currency and direction, as a whole before the tiers whenever two or
+  more of his rows have the amount of one of the owner's settlements.
+  - It enumerates every assignment of that date's rows and settlements by the first tier, the second and D-198 (a set's
+    rows only on one side).
+  - It takes the assignment that covers the most rows when it is the only one, never the first row by ID.
+  - Assignments that differ only by rows of one amount on one side, or by settlements of one amount, count as one.
+  - Otherwise the rows they cover are refused as `AMBIGUOUS_SETTLEMENT`, naming his Excel IDs and the owner's
+    settlements with their Excel IDs. They don't count as without a counterpart and don't go on to the third tier.
+  - Bound: more than 12 rows or settlements on such a date, or more than 100000 best assignments, is ambiguous as a
+    whole. Dates without a tie are matched as before.
+- `SettlementMatcher.Row` carries its side (account and counterparty, in the row's own currency) and `Candidate` the
+  owner's Excel ID (`ImportService`, from `external_ref`).
+- The report counts `byDate` and `ambiguous` (`ImportReport.MemberSummary`, the Markdown, `api.ts`, the import page).
+- `requirements.md`: D-200 and D-201 confirmed by the owner; D-197 as he applied it (his 2888 intended, with 7068; 4239,
+  5246 and 5792 kept with Sum 0, which the import skips, D-72); D-202 (the PM's proposal, which the owner may correct).
+- `RUNBOOK.md`:
+  - Step 11.1 records the passing run: export-2026-10-21's nine files by role with their SHA-256 (the partner's by role
+    only, since their names carry his), the order run and what each later step expects.
+  - 11.2a, 11.5, 11.6, 11.10 and 11.11 carry those numbers.
+  - D3c's checklist names D3c-accept2's last commit as M, the commits from D3c-fix to D3c-accept2, and five files under
+    `deploy/` (`checks/D184.sql` added by D3c-fix2).
+  - `D3c.expected` is unchanged: its 12 lines are the deploy's own checks, and no line counts D3c-run's rows.
+- Tests:
+  - `SettlementMatcherTests`: D3c-accept's date in every order of rows and settlements and with the IDs swapped; a date
+    taken in two ways; interchangeable rows; a date without a tie as before; the bound, 13 rows ambiguous and 12 searched.
+  - `MemberImportApiTests`: the tied date matched through the API, and the ambiguous one refused with both sides named.
+  - `Import.test.tsx`'s fixture.
+
+**Verified**
+- Backend, `./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=20261021` on the tree of
+  `e90c735`: exit 0, `Tests run: 570, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- Frontend, `npm test`: exit 0, `Test Files 30 passed (30)`, `Tests 385 passed (385)`; `npm run build`: exit 0.
+- End-to-end on `e90c735` (clean tree): `npm run typecheck` exit 0; `npm run test:guards` exit 0, tests 37, pass 37, fail
+  0; `E2E_FAMILY=on npm run e2e:local` exit 0, `Result: PASSED`, every spec passed at both widths, 0 password hits.
+- `deploy/tests/run.sh`: exit 0, 102 passed, 0 failed, of 102 cases; `deploy/tests/mutate.sh`: exit 0, 75 mutations,
+  every one caught; ShellCheck v0.11.0 as CI runs it: exit 0.
+- `scripts/check-forbidden-names.sh` on the tree, `--rev HEAD` and `--log 1d3b811..HEAD`: exit 0, no hit each. This entry
+  compiled with `@mdx-js/mdx` 3.1.1: exit 0.
+- Resumed from D3c-accept's dump after the claim. That dump is valid: the matcher's one caller is a member's own
+  import, which needs his place to have an account, and no migration was added.
+- His dry run of export-2026-10-21 up to 2026-08-31: 0 refused, 0 conflicts. 76 `SAME_ACCOUNT_NOOP` (still 76).
+- Family rows: 7819 unchanged, each with his payment side; 0 benefit months differ.
+- Settlements: tier 1 465, tier 2 22, tier 3 15, D-198 4 (9 rows), D-202 5 rows, 0 ambiguous; conversions 2 of 2. 0 of
+  his rows unmatched, and 0 of the owner's settlements without his side.
+- His reconciliation passes at 2788 points, unrounded, with the claim's residual RUB −0.025.
+- Committed with the same numbers. In the database no side of his is left on the placeholder (3530 and 6913 included).
+- The same import again: 0 created, 0 updated, 0 conflicts. Both integrity checks `[]`.
+- The owner's dry run: 0 changes, passing 3210 points with the family debt up to 2026-08-31. Item 7's eight criteria
+  pass.
+- D-202 on the real file: two tied dates.
+  - 2025-01-06: 8690 + 8691 on his deposit to the owner's 5685, and 8692 to 7066.
+  - 2024-07-29: two of his 50s on two accounts against two 50s of the owner's. The pairings differ only by which equal
+    settlement takes which row, so they count as one; the result is the first tier's pairs, as before.
+- D-200, up to 2026-09-30, dry runs for information:
+  - The owner's: 57 created, 0 refused, EQUITY EUR and RUB failing at 2026-09-30 only.
+  - His: 6 refused, his September settlements without a counterpart, and 4 lines failing at 2026-09-30 only.
+  - Probably because neither side's September is committed; not verified.
+- The environment was removed. The dev Keycloak, already running, was left running.
+
+**Open**
+- D-202 for the owner, in particular counting interchangeable settlements as one. Without that, 2024-07-29 would be
+  refused.
+- D-200's September findings, if the owner wants them checked: committing both imports up to 2026-09-30 in order, on a
+  throwaway database.
+- Then D3c's deploy, by its checklist, with M named in this task's report, then D3c-run (step 11).
+
 ## 2026-10-21 · D3c-accept: item 7 on the corrected ledgers, stopped at the partner's dry run (D-200, D-201)
 
 One commit on `feature/family-budget` on top of D3c-fix2's `82e78e1`, the commit of this entry, "docs: D3c-accept's run

@@ -700,18 +700,32 @@ records of his family rows, his side on the settlements his settlement rows matc
 are uploaded from his browser as the owner's were (the import page takes them by role, never by name, D-143).
 
 **After 11.5 the way back is only a dump restore** (11.2's): the claim gives the place an account, makes the records of
-his file his (D-176) and posts some nineteen thousand entries into his ledger (D3c's local run: 11381 records), and the steps after it attach his sides; no
-deploy script undoes any of that. `rollback.sh` to D3c's rollback target is unaffected (that code reads all of it), but
+his file his (D-176) and posts some nineteen thousand entries into his ledger (11.1's run: 11378 records), and the steps
+after it attach his sides; no deploy script undoes any of that. `rollback.sh` to D3c's rollback target is unaffected (that code reads all of it), but
 it doesn't take the claim back.
 
-**11.1 The local run** (D-189, D-191), a task of its own before this step (D3c-accept): on the laptop, never production,
-the local run of D3c's item 7, which first replays every import production has had by then, with the same exports, cutoffs
-and order (today D3b-run: `export-2026-10-13` up to 2026-08-31), then 11.2a (D-201) with the corrected export, then the
-claim from 2019-12-01, then the partner's dry run, commit and re-import, then the owner's dry run, on the export with the
-Excel fixes (`export-2026-10-21`, edited by D-197's list, data/private/reports/D3c-fixes.md), with **0 refused rows**.
-Its report gives the numbers 11.2a to 11.11 expect. D3c-accept (2026-10-21, data/private/reports/D3c-accept.md) ran it
-on `export-2026-10-21` and stopped at the partner's dry run: 2 rows refused (his 8690 and 8692, D-198), so step 11
-waits for that to be settled and 11.1 to pass.
+**11.1 The local run** (D-189, D-191), a task of its own before this step: on the laptop, never production, the local
+run of D3c's item 7, in this step's order: the replay of every import production has had (today D3b-run:
+`export-2026-10-13` up to 2026-08-31), 11.2a, the claim from 2019-12-01, the partner's dry run, commit and the same
+again, the integrity checks, the owner's dry run; with **0 refused rows**. D3c-accept2 (2026-10-21, `e90c735`, the
+report data/private/reports/D3c-accept2.md) passed it on `export-2026-10-21` (the Excel fixes of D-197's list,
+data/private/reports/D3c-fixes.md, as D-197's amendment records them), **Import up to** 2026-08-31. The files, by role
+(the import page takes them by role, D-143), with their SHA-256:
+
+| File | SHA-256 |
+|---|---|
+| The owner's accounts, `Balance sheet items.csv` | `db0e19bca106e70ca29acc81a2c6c75cd2d4ba4be35d0b41f26bb43f39b3dbfa` |
+| The categories, `CashFlowItems.csv` (both members) | `f8b9dd1728afd94809790e90cd1f0da512875547bd39afd0a6ec37cc305c0d77` |
+| The owner's transactions, `Transactions.csv` | `8e11861b9aa96a60529534afd2d037c15c6fd714429e3fe49b9fa45713e89b54` |
+| The owner's daily balance, `dailyBalance.csv` | `fce1047c6623b82d204141cc97fbd7b3b5ac3005be011e332e07ac618520e81e` |
+| The owner's daily change, `dailyChangeBalance.csv` | `b6985ad071a74e7a3c164d31be58f741c24a8b0b7defefac7f2e13bf89764aa9` |
+| The partner's accounts (`BalanceSheetItems…`) | `b5d728e988325307030b685ee6e767c406c5cab5fa1b7d0705e9c8392b3e1905` |
+| The partner's transactions (`Transactions…`) | `5cecb9ce7c6e163d14716f63c0d7bd3d45a3b0bfce6811c6c133741ecb94a7c7` |
+| The partner's daily balance (`dailyBalance…`) | `dd433dc08164b531b961ff98ccf1096288e7cf1171c900ad7909266019e33a87` |
+| The partner's daily change (`dailyChangeBalance…`) | `5e518c05dfac71fbecc402810bbf9778fb008bb78c7a9b590484920119f876b9` |
+
+`sha256sum` on the laptop, read only, shows whether the files to upload are these. The numbers 11.2a to 11.11 expect
+are 11.1's, as each step says; another export (or another cutoff) needs 11.1 again first.
 
 **11.2 A backup with its restore test**, before anything else: the block of 10.2. Note the dump's name: it is the way
 back.
@@ -722,14 +736,16 @@ his accounts D-28 locks the date, amount and deletion of a settlement, so the ow
 
 1. **His dry run** at <https://app.finance-nl.com/import>: his five files of the corrected export, the family budget, the
    partner's place and the partner's transactions file of the same export (the place has no account yet), **Import up
-   to** 2026-08-31. You should see no errors and, under **Missing**, the records of his rows that the correction no
-   longer makes: on `export-2026-10-21` his Excel IDs 2888, 3610, 4238, 4239, 5246 and 5792 (11.1's report gives each
-   one's type, date, currency, amount and direction). Any other missing row or any error: stop and tell the PM.
+   to** 2026-08-31. You should see no errors, created 6, updated 14, unchanged 14734, skipped 20, not imported 50, and
+   under **Missing** 6: the records of his rows that the correction no longer makes, his Excel IDs 2888, 3610, 4238,
+   4239, 5246 and 5792 (11.1's report gives each one's type, date, currency, amount and direction). The
+   reconciliation fails here, as those records still count; it passes once they are gone. Any other missing row or
+   any error: stop and tell the PM.
 2. **He deletes each of those records** in the family budget's **Activity**, found by its date, amount and direction,
    with **Delete** on its page: the income received by the place and the five settlements, none other.
-3. **The dry run again**: **Missing** 0, no errors, the reconciliation **Passed** (D3c-accept: created 6, updated 14,
-   skipped 20, not imported 50, 3210 points). Then **Commit import**, confirm: **Imported** with the same numbers. Then
-   **Check (dry run)** once more: 0 created, 0 updated.
+3. **The dry run again**: **Missing** 0, no errors, created 6, updated 14 (6 of his settlements and 8 of the place's records,
+   from the partner's file of the same export), the reconciliation **Passed** (3210 points). Then **Commit import**, confirm: **Imported** with
+   the same numbers. Then **Check (dry run)** once more: 0 created, 0 updated, unchanged 14754.
 
 **11.3 The partner's account, empty** (D-173, D-185), before he accepts anything. He signs in at
 <https://app.finance-nl.com> with his own account, in a private window, signed in fresh; the header shows his name. Then,
@@ -773,9 +789,9 @@ link**. The page shows the link once; send it to the partner. The owner's list o
 2019".
 
 **11.5 The partner accepts**, in his private window: he opens the link; the page names the family budget, the owner, the
-place, the date **Dec 1, 2019**, how many records will be attached (11.1's number) and his opening balance per currency
-(11.1's: in RUB, what the place owed before that day). He types his name and clicks **Accept** once: the page says it is
-taking the place and waits, a few minutes (11.1's time); everything is posted together or nothing is (D-182). Leave the
+place, the date **Dec 1, 2019**, how many records will be attached (11.1's: **11378**) and his opening balance per
+currency (11.1's: in RUB only, what the place owed before that day). He types his name and clicks **Accept** once: the
+page says it is taking the place and waits, a few minutes (11.1's: 168 s on the laptop); everything is posted together or nothing is (D-182). Leave the
 page open. It opens the family budget when done. Then check the opening, read only, type his email:
 
 ```bash
@@ -783,16 +799,21 @@ page open. It opens the family budget when done. Then check the opening, read on
 cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT e.kind || ' ' || count(*) FROM app.journal_entry e JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<partner email>' GROUP BY e.kind UNION ALL SELECT 'opening ' || e.entry_date || ' ' || p.currency || ' ' || -sum(p.amount) FROM app.journal_entry e JOIN app.posting p ON p.entry_id = e.id JOIN app.account a ON a.id = p.account_id JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<partner email>' AND e.kind = 'FAMILY_OPENING' AND a.family_ledger_id IS NOT NULL GROUP BY e.entry_date, p.currency" </dev/null
 ```
 
-You should see 11.1's counts of `FAMILY_OPENING` (1), `FAMILY_PAYMENT`, `FAMILY_SETTLEMENT` and `FAMILY_SHARE`, and
-`opening 2019-12-01 RUB …` as 11.1 had it. A failed or interrupted accept leaves the place unclaimed and nothing posted
+You should see 11.1's counts, `FAMILY_OPENING 1`, `FAMILY_PAYMENT 7819`, `FAMILY_SETTLEMENT 535` and `FAMILY_SHARE
+10838`, and one line `opening 2019-12-01 RUB …` with the amount the accept page showed. A failed or interrupted accept leaves the place unclaimed and nothing posted
 (D-182): open the link again. Anything else: stop and tell the PM.
 
 **11.6 His dry run**, in his private window: <https://app.finance-nl.com/import>, his five files (his accounts, the
 categories file, his transactions, his daily balance and his daily change files), the family budget (the page asks for no
 place and no partner's file: his own place), **Import up to** 2026-08-31 (or the date 11.1 used), **Check (dry run)**,
-several minutes. You should see 11.1's numbers: no errors; his family records as imported before (and D-190's precision
-edits, listed by Excel ID), his payment side attached to each; the settlements matched per tier and the conversions; the
-benefit months, none differing; the reconciliation **Passed**. Errors or another number: stop, nothing is committed.
+several minutes (11.1's: 8 minutes). You should see 11.1's numbers: no errors; created 3881, updated 8332, unchanged
+7819, missing 0, conflicts 0, skipped 79 (76 of them `SAME_ACCOUNT_NOOP`, D-192), not imported 187; his family records
+7819 as imported before, 0 changed (11.2a's import already took his file's changes), his payment side attached to 7819; settlement rows 511:
+465 by date and amount, 22 against several on the date, 15 within 7 days, 4 settlements matched by several of his
+rows (D-198), 5 rows matched by their date as a whole (D-202), 0 ambiguous; conversions 2 of 2; rows without a
+counterpart 0, the owner's settlements without his side 0; 187 benefit rows, 66 months, none differing; the
+reconciliation **Passed** (2788 points, the family debt up to 2026-08-31). Errors or another number: stop, nothing is
+committed.
 
 **11.7 The owner's go.** Send the dry run's totals and the reconciliation's verdict to the PM; the owner says "go".
 
@@ -803,12 +824,13 @@ with 11.6's numbers, and the reconciliation again **Passed**.
 <https://app.finance-nl.com/api/reports/integrity> shows `[]` for each.
 
 **11.10 The same import again**, as the partner: **Check (dry run)** with the same files and date. You should see **0
-created, 0 updated**, no conflicts and no missing rows.
+created, 0 updated**, unchanged 20032, no conflicts and no missing rows.
 
 **11.11 The owner's dry run of his last export**, in the owner's own browser (D-173): his five files of the last export
-he imported (step 10's), the family budget and the partner's place (now with an account: the page takes no partner's
-file), the same **Import up to**. You should see **no errors, 0 created, 0 updated** and the reconciliation **Passed**,
-the family debt compared up to the partner's cutoff (D-175). Don't commit.
+he imported (11.2a's), the family budget and the partner's place (now with an account: the page takes no partner's
+file), the same **Import up to**. You should see **no errors, 0 created, 0 updated** (unchanged 6935, skipped 18, not
+imported 50) and the reconciliation **Passed** (3210 points), the family debt compared up to the partner's cutoff
+(D-175). Don't commit.
 
 **11.12 A fresh backup with its restore test**, the block of 10.2. If something turns out wrong later, restore 11.2's dump
 ([Restore from a backup](#restore-from-a-backup)), which also loses everything written after it.
@@ -949,7 +971,8 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
 
 ## D3c's deploy checklist with the suite
 
-**Commit to deploy (M):** `feature/family-budget`'s head after D3c, the last commit D3c's report names in full. M holds
+**Commit to deploy (M):** `feature/family-budget`'s head after D3c-accept2, the last commit D3c-accept2's report names
+in full. M holds
 this checklist, so the checklist can't name M's hash itself: the report does, and every block below that takes it says
 `<M>`; type M's full hash (40 characters) there before pasting the block. Pasted as it is, bash reads `<M>` as a
 redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `D3c` (`deploy/checks/D3c.sql` and
@@ -957,7 +980,10 @@ redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `D3
 past join date and each member's own import (D-174 to D-191): the claim's lookup counts the records it attaches (D-183)
 and makes the records of the place's file the claimer's (D-176); once the place has an account the owner's import takes
 no partner's file (D-175); a member who took a place imports his own files (D-177 to D-181, D-188); with D3b-doc's two
-documentation commits. **Migration:** `V15__member_import.sql`, additive (D-22): the tables `family_import_cutoff` and
+documentation commits and the stages after D3c on the same branch: D3c-fix (a same-account row that moves nothing is
+skipped, D-192; the owner's D-73 row refused after a claim, D-196), D3c-fix2 (several of his rows against one
+settlement, D-198; Excel's balance as read, D-199; D-184's query, `deploy/checks/D184.sql`), D3c-accept (D-200, D-201,
+step 11.2a) and D3c-accept2 (a tied date's settlements matched as a whole, D-202; step 11's numbers). **Migration:** `V15__member_import.sql`, additive (D-22): the tables `family_import_cutoff` and
 `imported_family_side`, both empty after the deploy. **It claims and imports nothing**: the production claim and the
 partner's import are D3c-run, step 11, a task of its own after this deploy is accepted. **The switch:** on
 (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before, during and after this deploy. **The suite:** run from a
@@ -986,9 +1012,10 @@ What runs and why:
   D-131 by itself: its step 1.1 prints `Scheduled shutdown: none (…)`, or a reboot with how far away it is and goes on,
   and refuses a scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-128), before CI,
   any backup and any image. Step 2 still prints the file (D-127). Step 1.3 requires M to be `origin/main` after `git
-  fetch` and a fast-forward of `HEAD` (`1d3b811`), lists the commits from `1d3b811` to M (D3b-doc's two and D3c's, the
-  last of them M), `Migrations added: V15__member_import.sql`, and under `deploy/` four files: `RUNBOOK.md`,
-  `checks/D3c.expected`, `checks/D3c.sql` and `checks/numbers.sql`. `finance.caddy`, the postgres service and
+  fetch` and a fast-forward of `HEAD` (`1d3b811`), lists the commits from `1d3b811` to M (D3b-doc's two, then D3c's,
+  D3c-fix's, D3c-fix2's, D3c-accept's and D3c-accept2's, the last of them M), `Migrations added: V15__member_import.sql`,
+  and under `deploy/` five files: `RUNBOOK.md`, `checks/D184.sql`, `checks/D3c.expected`, `checks/D3c.sql` and
+  `checks/numbers.sql`. `checks/D184.sql` is read by nobody's script: step 11.3 types its query. `finance.caddy`, the postgres service and
   `pg-backup/finance.conf` don't change.
 - Both images' build contexts change (`backend/`, `frontend/`): both are rebuilt with new content and recreated, and
   signed-in browser sessions end. The api applies V15 at its start (`Successfully applied 1 migration to schema "app",
@@ -1014,9 +1041,9 @@ What runs and why:
 M=<M>; cd ~/dev/finance-tracker && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
 ```
 
-You should see `HEAD` M with D3c's last subject (on `feature/family-budget`); `origin/main` and
+You should see `HEAD` M with D3c-accept2's last subject (on `feature/family-budget`); `origin/main` and
 `origin/feature/family-budget` both `1d3b81138e95ea468d3ca8546dd04225719cb188` (D3b-accept-fix, deployed); D3b-doc's two
-commits and D3c's, `1d3b811..M`, the last of them M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another
+commits, then D3c's, D3c-fix's, D3c-fix2's, D3c-accept's and D3c-accept2's, `1d3b811..M`, the last of them M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another
 hash, or any line of `git status`: stop and tell the PM.
 
 **1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted D3c
@@ -1028,8 +1055,8 @@ cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git
 ```
 
 You should see a fast-forward of `main` from `1d3b811` (`Updating 1d3b811..` and M's 7 characters), the push of both
-branches (`1d3b811..` M's 7 characters on each), and M in full with its parent and D3c's last subject: exactly the commit
-D3c's report names. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the PM. If
+branches (`1d3b811..` M's 7 characters on each), and M in full with its parent and D3c-accept2's last subject: exactly the
+commit D3c-accept2's report names. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the PM. If
 the merge says `Not possible to fast-forward`, or the hash is another, stop. CI starts with the push, on M; don't start
 "CI on Ubuntu 26.04" now (step 9 says when, D-44).
 
@@ -1142,8 +1169,8 @@ It prints ("Deploying with deploy.sh" lists the steps):
   and it refuses here, D-131).
 - 1.2: `HEAD: 1d3b811 docs: D3b-accept-fix's change log entry (D3b-accept-fix)`, the running images, `Last good deploy:
   1d3b811 … (deploy)`, its status `good`, both images "the recorded image", the read-only role's line.
-- 1.3: the fetch; D3b-doc's and D3c's commits from `1d3b811` to M, the last of them M; `Migrations added:
-  V15__member_import.sql`; under `deploy/` the four files listed above.
+- 1.3: the fetch; the commits from `1d3b811` to M listed above, the last of them M; `Migrations added:
+  V15__member_import.sql`; under `deploy/` the five files listed above.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (…)`. 1.6: the D3c files. 1.7: the 22 numbers of step 3.
 - 1.8: a fresh dump, its restore test `PASS`, and the before-dump preserved in the run folder (D-43), with its SHA-256.
@@ -1195,8 +1222,8 @@ hits` and `Result: PASSED` (a skipped spec doesn't fail it).
   appendix](#appendix-ops-2bs-browser-checks-and-smoke-test-by-hand) by hand, and answer `finish` from them.
 - If a spec or the cleanup failed (`Result: FAILED`): don't run `finish` until the PM has read the summary (D-59).
 - Left to check by hand, each with its reason: **the partner's real claim and import**, which are D3c-run's (step 11),
-  never this deploy's: production gets no real claim from D3c; the local run on the real exports (D-189, D-191) is in
-  D3c's report. **D-163's first sign-in**: as D3b-accept's checklist says.
+  never this deploy's: production gets no real claim from D3c; the local run on the real exports (D-189, D-191) is
+  step 11.1, passed by D3c-accept2. **D-163's first sign-in**: as D3b-accept's checklist says.
 
 **6. On the server: finish**, only after step 5, alone in its block; type `yes` or `no` to each question: `yes` to both
 only if step 5's summary says `Result: PASSED` with 0 password hits (or, after a run that stopped before the specs, only

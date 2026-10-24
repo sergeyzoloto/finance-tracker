@@ -3,6 +3,89 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-24 · D3c-doc: D3c's deploy and D3c-run recorded, D-184 closed, D-203 to D-206, September checked locally
+
+One commit on `feature/family-budget` on top of `2cfeec0` (not pushed; `main`, `origin/main` and
+`origin/feature/family-budget` at `2cfeec0`, deployed): the commit of this entry, "docs: D3c's deploy and D3c-run
+recorded, D-184 closed, D-203 to D-206, September checked locally (D3c-doc)". Production and the server not accessed.
+No application code changed; no Excel data changed.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions", four rows of 2026-10-24, newest first:
+  - D3c-run (step 11): 11.2's dump, 11.2a's mistaken first dry run on `export-2026-10-13` and the corrected run, 11.3
+    with D-184's result, the claim's counts, his dry run's numbers, 11.7 to 11.11 as reported by the owner.
+  - 11.12's restore test, with the arithmetic of every count against a local replay.
+  - "CI on Ubuntu 26.04" #12 for `2cfeec0`.
+  - The rollback acceptance (`rollback.sh 1d3b811`, REFUSED, no condition line).
+  - D3c's deploy (`2cfeec0`, V15, the suite, `finish`, `verify D3c`).
+- "Production now" as of 2026-10-24:
+  - `2cfeec0` on V15, with both members' histories imported, each now importing only his own file.
+  - The rollback target `1d3b811`, with no condition of its own.
+  - The way back below the claim only by restoring 11.2's dump, below V14 only by restoring 10.2's.
+  - The next import with a later cutoff only after D-204's check.
+- Step 11:
+  - 11.3's and 11.5's queries first print `users with this email N` and compare the email without regard to case
+    (D-205).
+  - 11.2a, 11.6 and 11.11 state the rows the import page should show, before and at the first check (D-206).
+  - 11.3's reading of D-184's query has the end-to-end accounts' and older accounts' cases.
+- `deploy/checks/D184.sql` (and its copy in 11.3): the totals line also prints the personal ledger's creation day and
+  whether the user has a `users` row; the e2e email is compared in lower case. The query was right: D-184's two
+  `e2e false` users are not e2e-a and e2e-b. Those accounts leave no row after a run, and production had 3 users
+  before and after every run of the suite.
+- `docs/family-budget/requirements.md`:
+  - D-202 confirmed by the owner.
+  - D-203 and D-204 (confirmed by the owner).
+  - D-184 closed.
+  - D-205 and D-206 (the PM's proposals).
+  - The planned stages.
+
+**Verified**
+- 11.12's numbers, against D3c-accept's and D3c-accept2's dumps of the local replay, counted with the restore test's
+  statements:
+  - Equal in every count but the two other users' starter ledgers (2 users, 2 ledgers, 2 members, 20 accounts, 30
+    categories).
+  - family_records 12170: 12167 + 11.2a's 3 new settlements; the 6 deleted records stay as rows.
+  - family_journal 12182: 12167 + 3 creations, 6 changes and 6 deletions; 11.2a's 8 hash-only updates write none.
+  - accounts 74 = 25 + 29 + 20.
+  - categories 92 = 18 + 26 + 18 + 30: the partner's starter `GIFTS` and `LEISURE` merged at the claim.
+  - Every number follows.
+- D-184, on a throwaway database with the api of `2cfeec0` and two temporary dev users shaped like e2e-a and e2e-b:
+  - While they hold rows, `e2e true`.
+  - After the teardown's own cleanup, no line.
+  - A ledger without a `users` row reads `users row false`.
+  - Keycloak stores emails in lower case.
+  - The revised query also ran on the state after September; it has no backslash.
+- D-200, D-204: from 11.12's local state, `export-2026-10-21` (its nine files matched step 11.1's SHA-256), up to
+  2026-09-30:
+  - His import before the owner's refuses his 6 September settlement rows.
+  - The owner's import committed: 57 created, 0 refused. Its reconciliation fails only on EQUITY EUR and RUB at
+    2026-09-30, with FAMILY_DEBT waiting for the partner's cutoff.
+  - Then his import committed: 177 created, 6 updated (his sides on the owner's 6 September settlements, 5 by the first
+    tier, 1 by the third), 0 refused. Passed at 2822 points.
+  - Then the owner's dry run: 0 changes, Passed at 3240 points with the family debt up to 2026-09-30.
+  - Both imports again: 0 created, 0 updated. Both integrity checks `[]`.
+  - The owner's EQUITY difference is his shares of the partner's 141 September records: RUB 1224.50 to the cent; EUR
+    167.67, of which 0.345 is D-12's rounding (SHARES).
+- D-206's counts, from the files and with the page's own filter run under Node: the owner's 7068 rows, the partner's
+  12762, of which 8033 are family rows; `export-2026-10-13`'s 7013 and 12651.
+- 11.3's and 11.5's queries ran on the local states before and after the claim: `users with this email 0` before he
+  signs in, 1 after; the claim's counts and `opening 2019-12-01 RUB 1708.2300`.
+- The report: data/private/reports/D3c-doc.md (git-ignored).
+- `scripts/check-forbidden-names.sh` on the tree, `--rev HEAD` and `--log 2cfeec0..HEAD`. This entry compiled with
+  `@mdx-js/mdx`. Results are in the task's report.
+- No backend, frontend or end-to-end suite ran: no code changed (`deploy/checks/D184.sql` is a read-only check file).
+- The environment was removed: the api, Vite, the database container and the two temporary dev users. The dev
+  Keycloak, already running, was left running.
+
+**Open**
+- D-205 and D-206 for the owner.
+- The two older accounts with only a starter ledger: whose they are is the owner's to say; nothing is to be done.
+- The import page shows no row count of the owner's own file before a check (D-206 compares the first dry run's line):
+  a count before the check would be a code change, for the PM to decide.
+- The next production import with a later cutoff follows D-204's order. The owner's reconciliation then fails
+  expectedly on EQUITY at the new month-ends until the partner's import is in. A checklist should name those expected
+  failures by account and month-end, since a failing reconciliation doesn't hold a commit back.
+
 ## 2026-10-21 · D3c-accept2: a tied date's settlements matched as a whole (D-202), step 11.1 passed
 
 Two commits on `feature/family-budget` on top of D3c-accept's `b6d69de` (not pushed; `main`, `origin/main` and

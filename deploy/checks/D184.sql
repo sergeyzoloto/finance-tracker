@@ -1,12 +1,16 @@
 -- D-184: whose rows beyond the starter ledger the database holds, read only. One block of lines per user with a
 -- personal ledger, by the user's id (the Keycloak sub): whether it is an end-to-end test account (e2e-a, e2e-b), then
--- per day the entries and accounts beyond the starter ones were created, then the user's totals. No name, e-mail address,
--- account name or amount. How to read it: deploy/RUNBOOK.md, step 11.3. No backslash in this file.
+-- per day the entries and accounts beyond the starter ones were created, then the user's totals with the day the
+-- personal ledger was created (provisioning, or the first request after "Delete all my data") and whether the user has
+-- a users row (where the email is; without one, e2e reads false). No name, e-mail address, account name or amount. How
+-- to read it: deploy/RUNBOOK.md, step 11.3. No backslash in this file.
 WITH person AS (
-    SELECT m.user_sub AS sub, m.ledger_id,
-           coalesce((SELECT u.email LIKE 'e2e-%@finance-nl.com' FROM app.users u WHERE u.keycloak_id = m.user_sub),
-                    false) AS e2e
+    SELECT m.user_sub AS sub, m.ledger_id, l.created_at::date AS ledger_created,
+           EXISTS (SELECT FROM app.users u WHERE u.keycloak_id = m.user_sub) AS users_row,
+           coalesce((SELECT lower(u.email) LIKE 'e2e-%@finance-nl.com' FROM app.users u
+                     WHERE u.keycloak_id = m.user_sub), false) AS e2e
     FROM app.ledger_member m
+    JOIN app.ledger l ON l.id = m.ledger_id
     WHERE m.ledger_type = 'PERSONAL'
 ),
 starter_account (code) AS (VALUES ('CASH'), ('CREDITOR_DEBT'), ('CURRENT_ACCOUNT'), ('FAMILY_DEBT'), ('FX_EXCHANGE'),
@@ -36,7 +40,8 @@ SELECT line FROM (
     FROM per_day d JOIN person p ON p.sub = d.sub
     UNION ALL
     SELECT p.sub, 1, NULL,
-           'user ' || p.sub || ' e2e ' || p.e2e || ' totals: entries '
+           'user ' || p.sub || ' e2e ' || p.e2e || ' totals: personal ledger created ' || p.ledger_created
+               || ', users row ' || p.users_row || ', entries '
                || (SELECT count(*) FROM app.journal_entry e WHERE e.ledger_id = p.ledger_id)
                || ', counterparties ' || (SELECT count(*) FROM app.counterparty c WHERE c.ledger_id = p.ledger_id)
                || ', accounts beyond the starter ones '

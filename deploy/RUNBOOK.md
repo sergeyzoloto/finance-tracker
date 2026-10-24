@@ -736,7 +736,11 @@ his accounts D-28 locks the date, amount and deletion of a settlement, so the ow
 
 1. **His dry run** at <https://app.finance-nl.com/import>: his five files of the corrected export, the family budget, the
    partner's place and the partner's transactions file of the same export (the place has no account yet), **Import up
-   to** 2026-08-31. You should see no errors, created 6, updated 14, unchanged 14734, skipped 20, not imported 50, and
+   to** 2026-08-31. Before **Check (dry run)** (D-206), under the partner's file the page should say "8033 of his 12762
+   rows are family rows and will be uploaded"; after it, the report's line "Imported up to 2026-08-31. After it,
+   neither imported nor missing: 93 rows of 7068 of yours, 212 rows of 8033 of the partner's". Other numbers mean other
+   files (on 2026-10-24 a first dry run took `export-2026-10-13`'s transactions, 7013 and 12651 rows): stop, choose the
+   files again; a dry run saved nothing. You should see no errors, created 6, updated 14, unchanged 14734, skipped 20, not imported 50, and
    under **Missing** 6: the records of his rows that the correction no longer makes, his Excel IDs 2888, 3610, 4238,
    4239, 5246 and 5792 (11.1's report gives each one's type, date, currency, amount and direction). The
    reconciliation fails here, as those records still count; it passes once they are gone. Any other missing row or
@@ -753,11 +757,13 @@ read only, type his email for `<partner email>`:
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT 'entries ' || count(*) FROM app.journal_entry e JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<partner email>' UNION ALL SELECT 'counterparties ' || count(*) FROM app.counterparty c JOIN app.users u ON u.keycloak_id = c.user_id WHERE u.email = '<partner email>' UNION ALL SELECT 'family budgets ' || count(*) FROM app.ledger_member m JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.status = 'ACTIVE' AND u.email = '<partner email>'" </dev/null
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT line FROM (SELECT 0 AS n, 'users with this email ' || count(*) AS line FROM app.users u WHERE lower(u.email) = lower('<partner email>') UNION ALL SELECT 1, 'entries ' || count(*) FROM app.journal_entry e JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE lower(u.email) = lower('<partner email>') UNION ALL SELECT 2, 'counterparties ' || count(*) FROM app.counterparty c JOIN app.users u ON u.keycloak_id = c.user_id WHERE lower(u.email) = lower('<partner email>') UNION ALL SELECT 3, 'family budgets ' || count(*) FROM app.ledger_member m JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.status = 'ACTIVE' AND lower(u.email) = lower('<partner email>')) AS lines ORDER BY n" </dev/null
 ```
 
-You should see `entries 0`, `counterparties 0` and `family budgets 0`. Anything else (the demo, a test): he decides with
-the owner, before 11.4; "Delete all my data" in his Settings clears it.
+You should see `users with this email 1` first (D-205: 0 means a mistyped email or an account the app hasn't seen yet,
+so the zeros after it say nothing; stop and check), then `entries 0`, `counterparties 0` and `family budgets 0`.
+Anything else (the demo, a test): he decides with the owner, before 11.4; "Delete all my data" in his Settings clears
+it. The email is compared without regard to case (Keycloak stores it in lower case).
 
 Then D-184's query, read only: whose rows beyond the starter ledger the database holds, by user id and creation day,
 with no name, e-mail address or amount (the same query as `deploy/checks/D184.sql`, typed here because nothing read
@@ -765,7 +771,7 @@ from a file runs on the server):
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "WITH person AS ( SELECT m.user_sub AS sub, m.ledger_id, coalesce((SELECT u.email LIKE 'e2e-%@finance-nl.com' FROM app.users u WHERE u.keycloak_id = m.user_sub), false) AS e2e FROM app.ledger_member m WHERE m.ledger_type = 'PERSONAL' ), starter_account (code) AS (VALUES ('CASH'), ('CREDITOR_DEBT'), ('CURRENT_ACCOUNT'), ('FAMILY_DEBT'), ('FX_EXCHANGE'), ('LOANS_ASSET'), ('OPENING_BALANCE'), ('RESERVE'), ('SAVINGS_ACCOUNT'), ('UNALLOCATED')), starter_category (code) AS (VALUES ('BANK_FEES'), ('CLOTHING'), ('EATING_OUT'), ('GIFTS'), ('GIFTS_RECEIVED'), ('GROCERIES'), ('HEALTH'), ('HOUSING'), ('INTEREST'), ('LEISURE'), ('OTHER_EXPENSES'), ('OTHER_INCOME'), ('SALARY'), ('TRANSPORT'), ('UTILITIES')), added_account AS ( SELECT a.ledger_id, a.code, a.created_at FROM app.account a WHERE a.family_ledger_id IS NULL AND a.code NOT IN (SELECT code FROM starter_account) ), per_day AS ( SELECT p.sub, p.e2e, d.day, (SELECT count(*) FROM app.journal_entry e WHERE e.ledger_id = p.ledger_id AND e.created_at::date = d.day) AS entries, (SELECT count(*) FROM added_account a WHERE a.ledger_id = p.ledger_id AND a.created_at::date = d.day) AS accounts FROM person p JOIN LATERAL (SELECT e.created_at::date AS day FROM app.journal_entry e WHERE e.ledger_id = p.ledger_id UNION SELECT a.created_at::date FROM added_account a WHERE a.ledger_id = p.ledger_id) AS d ON true ) SELECT line FROM ( SELECT p.sub AS sub, 0 AS part, d.day AS day, 'user ' || p.sub || ' e2e ' || p.e2e || ' created ' || d.day || ': entries ' || d.entries || ', accounts beyond the starter ones ' || d.accounts AS line FROM per_day d JOIN person p ON p.sub = d.sub UNION ALL SELECT p.sub, 1, NULL, 'user ' || p.sub || ' e2e ' || p.e2e || ' totals: entries ' || (SELECT count(*) FROM app.journal_entry e WHERE e.ledger_id = p.ledger_id) || ', counterparties ' || (SELECT count(*) FROM app.counterparty c WHERE c.ledger_id = p.ledger_id) || ', accounts beyond the starter ones ' || (SELECT count(*) FROM added_account a WHERE a.ledger_id = p.ledger_id) || ' (the demo''s CREDIT_CARD and USD_ACCOUNT among them: ' || (SELECT count(*) FROM added_account a WHERE a.ledger_id = p.ledger_id AND a.code IN ('CREDIT_CARD', 'USD_ACCOUNT')) || ')' || ', categories beyond the starter ones ' || (SELECT count(*) FROM app.category c WHERE c.ledger_id = p.ledger_id AND c.code NOT IN (SELECT code FROM starter_category)) || ', import batches ' || (SELECT count(*) FROM app.import_batch b WHERE b.ledger_id = p.ledger_id) || coalesce(' (the first ' || (SELECT min(b.started_at)::date FROM app.import_batch b WHERE b.ledger_id = p.ledger_id) || ')', '') FROM person p ) AS lines ORDER BY sub, part, day;" </dev/null
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "WITH person AS ( SELECT m.user_sub AS sub, m.ledger_id, l.created_at::date AS ledger_created, EXISTS (SELECT FROM app.users u WHERE u.keycloak_id = m.user_sub) AS users_row, coalesce((SELECT lower(u.email) LIKE 'e2e-%@finance-nl.com' FROM app.users u WHERE u.keycloak_id = m.user_sub), false) AS e2e FROM app.ledger_member m JOIN app.ledger l ON l.id = m.ledger_id WHERE m.ledger_type = 'PERSONAL' ), starter_account (code) AS (VALUES ('CASH'), ('CREDITOR_DEBT'), ('CURRENT_ACCOUNT'), ('FAMILY_DEBT'), ('FX_EXCHANGE'), ('LOANS_ASSET'), ('OPENING_BALANCE'), ('RESERVE'), ('SAVINGS_ACCOUNT'), ('UNALLOCATED')), starter_category (code) AS (VALUES ('BANK_FEES'), ('CLOTHING'), ('EATING_OUT'), ('GIFTS'), ('GIFTS_RECEIVED'), ('GROCERIES'), ('HEALTH'), ('HOUSING'), ('INTEREST'), ('LEISURE'), ('OTHER_EXPENSES'), ('OTHER_INCOME'), ('SALARY'), ('TRANSPORT'), ('UTILITIES')), added_account AS ( SELECT a.ledger_id, a.code, a.created_at FROM app.account a WHERE a.family_ledger_id IS NULL AND a.code NOT IN (SELECT code FROM starter_account) ), per_day AS ( SELECT p.sub, p.e2e, d.day, (SELECT count(*) FROM app.journal_entry e WHERE e.ledger_id = p.ledger_id AND e.created_at::date = d.day) AS entries, (SELECT count(*) FROM added_account a WHERE a.ledger_id = p.ledger_id AND a.created_at::date = d.day) AS accounts FROM person p JOIN LATERAL (SELECT e.created_at::date AS day FROM app.journal_entry e WHERE e.ledger_id = p.ledger_id UNION SELECT a.created_at::date FROM added_account a WHERE a.ledger_id = p.ledger_id) AS d ON true ) SELECT line FROM ( SELECT p.sub AS sub, 0 AS part, d.day AS day, 'user ' || p.sub || ' e2e ' || p.e2e || ' created ' || d.day || ': entries ' || d.entries || ', accounts beyond the starter ones ' || d.accounts AS line FROM per_day d JOIN person p ON p.sub = d.sub UNION ALL SELECT p.sub, 1, NULL, 'user ' || p.sub || ' e2e ' || p.e2e || ' totals: personal ledger created ' || p.ledger_created || ', users row ' || p.users_row || ', entries ' || (SELECT count(*) FROM app.journal_entry e WHERE e.ledger_id = p.ledger_id) || ', counterparties ' || (SELECT count(*) FROM app.counterparty c WHERE c.ledger_id = p.ledger_id) || ', accounts beyond the starter ones ' || (SELECT count(*) FROM added_account a WHERE a.ledger_id = p.ledger_id) || ' (the demo''s CREDIT_CARD and USD_ACCOUNT among them: ' || (SELECT count(*) FROM added_account a WHERE a.ledger_id = p.ledger_id AND a.code IN ('CREDIT_CARD', 'USD_ACCOUNT')) || ')' || ', categories beyond the starter ones ' || (SELECT count(*) FROM app.category c WHERE c.ledger_id = p.ledger_id AND c.code NOT IN (SELECT code FROM starter_category)) || ', import batches ' || (SELECT count(*) FROM app.import_batch b WHERE b.ledger_id = p.ledger_id) || coalesce(' (the first ' || (SELECT min(b.started_at)::date FROM app.import_batch b WHERE b.ledger_id = p.ledger_id) || ')', '') FROM person p ) AS lines ORDER BY sub, part, day;" </dev/null
 ```
 
 Read it per user (the ids are Keycloak subs; the owner and the partner know theirs from 11.3 and step 10):
@@ -776,8 +782,17 @@ Read it per user (the ids are Keycloak subs; the owner and the partner know thei
   off), no import batch. Another user's demo is that user's business: nothing to do.
 - **An older demo version**: the demo's two accounts, but other counts (D-184's 296 entries and 107 counterparties would
   be one): the same, a user's own data.
-- **End-to-end leftovers**: `e2e true`. The suite's cleanup deletes both accounts' data; rows there mean a run that
-  didn't finish its cleanup: the owner runs the suite again or deletes them in the app as that account.
+- **End-to-end leftovers**: `e2e true`. The suite's cleanup deletes both accounts' data, `users` row and personal
+  ledger included, through the API, so after a finished run e2e-a and e2e-b have no line here at all (D3c-doc tried
+  it locally with two accounts shaped like them). Rows there mean a run that didn't finish its cleanup: the owner
+  runs the suite again or deletes them in the app as that account.
+- **A user with only the starter ledger** (`e2e false`): an account that signed in and holds nothing. The totals line's
+  `personal ledger created` is the day it was provisioned (or the first request after its "Delete all my data"), and
+  `users row` says whether the app has its email at all (`false`: a ledger without a users row, e.g. a command-line
+  import's, which e2e can't name). D3c-run's 11.3 (2026-10-24) found two such users. They aren't e2e-a and e2e-b:
+  every run of the suite since 2026-10-05 deleted both of those accounts' rows by their own subs, yet production had 3
+  users before and after each run (2026-10-04's OPS-2 numbers already 3, D3c's `verify` 3), so these two survived
+  every cleanup; `e2e false` was right for them (D-184).
 - **An import**: import batches above 0, accounts beyond the starter ones from an accounts file. The owner's own (step
   10) and, after 11.8, the partner's.
 
@@ -796,17 +811,19 @@ page open. It opens the family budget when done. Then check the opening, read on
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT e.kind || ' ' || count(*) FROM app.journal_entry e JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<partner email>' GROUP BY e.kind UNION ALL SELECT 'opening ' || e.entry_date || ' ' || p.currency || ' ' || -sum(p.amount) FROM app.journal_entry e JOIN app.posting p ON p.entry_id = e.id JOIN app.account a ON a.id = p.account_id JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE u.email = '<partner email>' AND e.kind = 'FAMILY_OPENING' AND a.family_ledger_id IS NOT NULL GROUP BY e.entry_date, p.currency" </dev/null
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT line FROM (SELECT 0 AS n, 'users with this email ' || count(*) AS line FROM app.users u WHERE lower(u.email) = lower('<partner email>') UNION ALL SELECT 1, e.kind || ' ' || count(*) FROM app.journal_entry e JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE lower(u.email) = lower('<partner email>') GROUP BY e.kind UNION ALL SELECT 2, 'opening ' || e.entry_date || ' ' || p.currency || ' ' || -sum(p.amount) FROM app.journal_entry e JOIN app.posting p ON p.entry_id = e.id JOIN app.account a ON a.id = p.account_id JOIN app.ledger_member m ON m.ledger_id = e.ledger_id AND m.ledger_type = 'PERSONAL' JOIN app.users u ON u.keycloak_id = m.user_sub WHERE lower(u.email) = lower('<partner email>') AND e.kind = 'FAMILY_OPENING' AND a.family_ledger_id IS NOT NULL GROUP BY e.entry_date, p.currency) AS lines ORDER BY n, line" </dev/null
 ```
 
-You should see 11.1's counts, `FAMILY_OPENING 1`, `FAMILY_PAYMENT 7819`, `FAMILY_SETTLEMENT 535` and `FAMILY_SHARE
-10838`, and one line `opening 2019-12-01 RUB …` with the amount the accept page showed. A failed or interrupted accept leaves the place unclaimed and nothing posted
+You should see `users with this email 1` first (D-205), then 11.1's counts, `FAMILY_OPENING 1`, `FAMILY_PAYMENT 7819`,
+`FAMILY_SETTLEMENT 535` and `FAMILY_SHARE 10838`, and one line `opening 2019-12-01 RUB …` with the amount the accept
+page showed (D3c-run: `opening 2019-12-01 RUB 1708.2300`). A failed or interrupted accept leaves the place unclaimed and nothing posted
 (D-182): open the link again. Anything else: stop and tell the PM.
 
 **11.6 His dry run**, in his private window: <https://app.finance-nl.com/import>, his five files (his accounts, the
 categories file, his transactions, his daily balance and his daily change files), the family budget (the page asks for no
 place and no partner's file: his own place), **Import up to** 2026-08-31 (or the date 11.1 used), **Check (dry run)**,
-several minutes (11.1's: 8 minutes). You should see 11.1's numbers: no errors; created 3881, updated 8332, unchanged
+several minutes (11.1's: 8 minutes). First the report's line (D-206): "Imported up to 2026-08-31. After it, neither
+imported nor missing: 284 rows of 12762 of yours"; other numbers mean another file: stop. You should see 11.1's numbers: no errors; created 3881, updated 8332, unchanged
 7819, missing 0, conflicts 0, skipped 79 (76 of them `SAME_ACCOUNT_NOOP`, D-192), not imported 187; his family records
 7819 as imported before, 0 changed (11.2a's import already took his file's changes), his payment side attached to 7819; settlement rows 511:
 465 by date and amount, 22 against several on the date, 15 within 7 days, 4 settlements matched by several of his
@@ -828,7 +845,8 @@ created, 0 updated**, unchanged 20032, no conflicts and no missing rows.
 
 **11.11 The owner's dry run of his last export**, in the owner's own browser (D-173): his five files of the last export
 he imported (11.2a's), the family budget and the partner's place (now with an account: the page takes no partner's
-file), the same **Import up to**. You should see **no errors, 0 created, 0 updated** (unchanged 6935, skipped 18, not
+file), the same **Import up to**. The report's line (D-206): "Imported up to 2026-08-31. After it, neither imported nor
+missing: 93 rows of 7068 of yours"; other numbers: stop. You should see **no errors, 0 created, 0 updated** (unchanged 6935, skipped 18, not
 imported 50) and the reconciliation **Passed** (3210 points), the family debt compared up to the partner's cutoff
 (D-175). Don't commit.
 
@@ -845,6 +863,10 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-24 | `2cfeec0`; the database: the partner's claim and his own import | D3c-run, [step 11](#11-the-partner-takes-his-place-and-imports-his-own-excel), in the browser, the owner and the partner. 11.1: `export-2026-10-21`'s nine files matched step 11.1's SHA-256. 11.2: dump `finance-2026-10-24T1123Z.dump` (11:23:12Z), 3181343 bytes, restore test PASS: the way back below the claim. 11.2a: a first dry run took `export-2026-10-13`'s transactions files by mistake (7013 and 12651 rows; the reconciliation failed on EQUITY and LOANS_ASSET RUB); nothing saved (D-206 since). With `export-2026-10-21`: the 6 missing records (the owner's Excel IDs 2888, 3610, 4238, 4239, 5246 and 5792) deleted by the owner, then the dry run, the commit and the same again, as 11.2a expects (reported by the owner). 11.3: the partner's account empty (users with his email 1, entries 0, counterparties 0, family budgets 0). D-184's query: no user holds demo-like or unexplained rows; the owner's ledger 18440 entries created 2026-10-13 and 6 on 2026-10-24, 833 counterparties, 14 accounts and 5 categories beyond the starter ones, 2 import batches; three other users with nothing (the partner, and two accounts older than the end-to-end ones, D-184 closed). 11.4 and 11.5: the invite from 2019-12-01; the claim attached the records: `FAMILY_OPENING 1`, `FAMILY_PAYMENT 7819`, `FAMILY_SETTLEMENT 535`, `FAMILY_SHARE 10838`; `opening 2019-12-01 RUB 1708.2300`. 11.6: his dry run, exactly 11.1's numbers: created 3881, updated 8332, unchanged 7819, missing 0, conflicts 0, skipped 79 (76 `SAME_ACCOUNT_NOOP`), not imported 187; payment side 7819; settlements 465, 22 and 15 by tier, D-198 4, D-202 5 rows, ambiguous 0; conversions 2 of 2; 0 rows without a counterpart on either side; 187 benefit rows, 66 months, none differing; the reconciliation Passed at 2788 points; accounts 17 new and 5 updated, categories 5 new and 1 updated, payees 574 new; 84 warnings. 11.7: the owner's go. 11.8 the commit, 11.9 the integrity check `[]` for both, 11.10 the same import again 0 created and 0 updated, 11.11 the owner's dry run 0 created and 0 updated, Passed: as step 11 expects (reported by the owner). 11.12: dump `finance-2026-10-24T1253Z.dump`, 4696438 bytes, restore test PASS: users 4, ledgers 5, members 6, accounts 74, categories 92, counterparties 1407, entries 41520, postings 83409, unbalanced 0, family_records 12170, family_shares 23096, family_links 35049, family_journal 12182, family_invites 1. D3c-doc's local replay (D3b-run, 11.2a, the claim, his import, from D3c-accept2's run) gives the same numbers but for the two other users' starter ledgers (each 1 user, 1 ledger, 1 member, 10 accounts, 15 categories): entries 41520 = 18446 + the claim's 19193 + his 3881 (11.2a's 6 created, 3 settlements and 3 transfers, take the place of the 6 entries its deleted records had); family_records 12170 = 12167 + 11.2a's 3 new settlements (the owner's 7066, 7067, 7068), the 6 deleted records staying as rows marked deleted, and neither the claim nor his import up to 2026-08-31 creating one; family_journal 12182 = 12167 + 11.2a's 3 creations, 6 changes (the owner's corrected settlements) and 6 deletions (its 8 updates of the place's records changed only their stored hash, which writes no journal row); family_links 35049 = 15859 − 6 + 3 + the claim's 19193; accounts 74 = the owner's 25 + the partner's 29 (10 starter, `FAMILY_DEBT_<id>` and `UNSPECIFIED_PAYMENTS` from the claim, 17 from his accounts file) + 2 × 10; categories 92 = the owner's 18 + the family budget's 26 + the partner's 18 (15 starter less `GIFTS` and `LEISURE`, merged into the family budget's categories of those codes at the claim, D-11, plus his 5) + 2 × 15; counterparties 1407 = 833 + his 574. Every number follows. |
+| 2026-10-24 | `2cfeec0`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `2cfeec0`, run #12 (id `40088612571`), `workflow_dispatch` on `main` at `2cfeec0`, attempt 1: Backend, Frontend, Web image and Deploy scripts completed with success. Its check runs belong to `2cfeec0`, deployed and finished, so they hold up no deploy. |
+| 2026-10-24 | `2cfeec0`; nothing changed | D3c's rollback acceptance: `deploy/rollback.sh 1d3b811`, run folder `/var/lib/finance-deploy/runs/2026-10-24T110625Z-rollback-1d3b811`: Flyway 15 against the target's V14, no condition line (V14's condition, D-148, is only for a target below V14, and V15 has none). Answered `no`: REFUSED, nothing changed. The read-only state block before and after wasn't run; the script's own lines named the target and its images. The rollback target is `1d3b811`. |
+| 2026-10-24 | `2cfeec002342b7e57faaacf4fcf8169602fcaeaa` (docs: D3c-accept2's run, step 11 and D3c's checklist ready for the deploy (D3c-accept2)), M | D3c (D-174 to D-202: the partner's claim from a past join date, each member's own import, D3c-fix, D3c-fix2, D3c-accept and D3c-accept2), Flyway V15, the switch on. Push: `main` and `feature/family-budget` `1d3b811..2cfeec0`; CI #79 (id `40087342003`, `main`) and #80 (id `40087342054`, `feature/family-budget`), attempt 1, 10 check runs, all success. Pre-flight at 11:00:08Z as expected. `verify D3b`: OK at 11:00:23Z, 22 numbers (accounts 45, categories 74, counterparties 833, entries 18446, family_records 12167, family_shares 23096, family_links 15859, family_journal 12167, import_batches 1, users 3). `deploy/deploy.sh run 2cfeec002342b7e57faaacf4fcf8169602fcaeaa D3c`, run folder `/var/lib/finance-deploy/runs/2026-10-24T110036Z-2cfeec0`. 1.8: dump `finance-2026-10-24T1100Z.dump`, 3174023 bytes, SHA-256 `3cab6b6969aaa62ba211e17223b1a7174eeb28b5ab7875fbc7c71cade78510ed`; restore test PASS (migration 14); preserved in the run folder. 3.2: `1d3b811`'s images kept as `:1d3b81138e95ea468d3ca8546dd04225719cb188` and `:previous`; `39e6e61`'s tags removed. 3.3: api image `sha256:4ff9fc91…` (content `sha256:f9152689…`), web image `sha256:50f1f557…` (content `sha256:5ffac006…`). 4.1: V15 applied at 11:02:11Z in 0.023 s, the api started at 11:02:14Z. 4.3: the same numbers. 4.4: `D3c.expected`'s 12 lines. 4.6: dump `finance-2026-10-24T1102Z.dump`, 3181343 bytes, SHA-256 `8a030a9516dd…`; restore test PASS (migration 15, 22 tables). The end-to-end suite (`E2E_FAMILY=on`), 11:03:06Z to 11:05:34Z: `Result: PASSED`, `member-import` passed, `new-family` skipped by design (D-171), password search 0 hits. `finish`: yes at 11:06:03Z and 11:06:04Z; `last-good` at 11:06:05Z. `verify D3c`: OK at 11:06:13Z, 24 numbers (`family_import_cutoffs=0`, `imported_family_sides=0`). |
 | 2026-10-13 | `1d3b811`; the database: the owner's history imported | D3b-run (D-137), [step 10](#10-import-the-excel-ledger), in the browser as the owner. 10.2: dump `finance-2026-10-13T2054Z.dump`, 1458602 bytes, restore test PASS: the way back below the import. 10.3: the family budget (base currency EUR, start date 2017-11-01) and the partner's place, a member without an account, listed on its Members page. 10.4: `entries 0`, `counterparties 0`, `family budgets 1`, `family records 0`. 10.5: the dry run on `export-2026-10-13` up to 2026-08-31: created 14754, updated 0, not imported 50 (D-84), skipped 17, errors 0; after the cutoff 41 of the owner's 7013 rows and 136 of the partner's 7957; the reconciliation Passed (3210 month-ends, per account and currency); 18 warnings: 2 rows with an empty `LOAN_CA` given 'Unassigned', 16 amounts rounded to 4 decimals. 10.7: the commit, 14754 created, the reconciliation Passed. 10.8: the integrity check `[]`. 10.9: the same import again: 0 created, 0 updated, 14754 unchanged, 0 conflicts, 0 missing. 10.10: dump `finance-2026-10-13T2122Z.dump`, 3172073 bytes, restore test PASS: ledgers 4, members 5, accounts 45, categories 74, counterparties 833, entries 18446, postings 37035, unbalanced 0, family_records 12167, family_shares 23096, family_links 15859, family_journal 12167. Those are the import's rows (a local run of the same import, D3b-doc, gives exactly 25 accounts, 44 categories, 833 counterparties, 18446 entries, 37035 postings and the same family counts) and two personal ledgers with only the starter rows (10 accounts and 15 categories each). The import report's "Accounts: 14 new, 6 updated" counts the owner's accounts file against his ledger (6 starter accounts renamed); his family debt account, which the posting service makes, is the 25th. The restore tests before it had counted 44 accounts and 107 counterparties: rows beyond the starter ones that were gone by 10.10 (the owner's ledger held no entry and no counterparty at 10.4); the import deletes nothing (D-138). D-184 (the owner, 2026-10-14) first called them his demo data, deleted with "Delete all my data" during 10.3; corrected by the owner on 2026-10-16: he doesn't recognise the 296 entries, 107 counterparties and 14 accounts, and they aren't his. D3c's check: "Load demo data" adds 164 entries, 10 counterparties and 3 accounts, not those. Whose they were is open; D3c-run's step 11.3 runs `deploy/checks/D184.sql`'s query to see whose such rows the database holds now. |
 | 2026-10-13 | `1d3b811`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `1d3b811`, run #11 (id `38464029879`): success. Its check runs belong to `1d3b811`, deployed and finished, so they hold up no deploy. |
 | 2026-10-13 | `1d3b811`; nothing changed | D3b-accept's rollback acceptance: `deploy/rollback.sh 694fa3f`, answered `no`: REFUSED, nothing changed. No condition line: the target is at V14, and V14's condition is only for a target below it. The rollback state, read again afterwards, was unchanged; the rollback target is `694fa3f`. |
@@ -909,39 +931,42 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-13, after D3b-accept's deploy (`finish` passed, 2026-10-13T20:33:36Z; `verify D3b` OK; its rollback
-acceptance answered `no`, nothing changed) and D3b-run (step 10, the 10.10 restore test PASS):
+As of 2026-10-24, after D3c's deploy (`finish` passed, `last-good` at 2026-10-24T11:06:05Z; `verify D3c` OK; its
+rollback acceptance answered `no`, nothing changed) and D3c-run (step 11, the 11.12 restore test PASS):
 
-- `1d3b81138e95ea468d3ca8546dd04225719cb188` (D3b-accept with D3b-accept-fix, on D3b, F8f with F8f-fix, F8e, F8d,
-  F8c-fix, F8c, F8c-0, F8, QA-1 and QA-1b) on Flyway V14, `last-good` naming `1d3b811` (`finish=passed
-  2026-10-13T20:33:36Z`). Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api
-  `sha256:54044fea…` (content `sha256:edfdcd1b…`) and web `sha256:3bf6839b…` (content `sha256:37226932…`), "the
-  recorded image" for `verify`.
-- **The owner's history is imported** (D3b-run, 2026-10-13, up to 2026-08-31): his personal ledger and one family
-  budget with the partner's place, a member without an account. The 10.10 restore test: accounts 45, categories 74,
-  counterparties 833, entries 18446, postings 37035, family_records 12167, family_shares 23096, family_links 15859,
-  family_journal 12167. **The numbers are no longer 0 in `family_*`**: from the next deploy on, a checklist expects
-  the numbers its own step 3 (`verify`) printed, never zeros; `family_ledgers`, `family_members`,
-  `family_members_active`, `family_accounts`, `family_records` and the rest hold the import, and they change whenever
-  the owner (or, after D3c, the partner) writes in the app. `imported_entries_deleted` counts the imported personal
-  entries he deletes in the app (D-150), so it may be above 0 too. A real user's writes between `verify` and `run`
-  explain a difference in their own lines only. `deploy/checks/D3b.sql` holds no count of these rows and still applies.
-- The rollback state: the previous-commit file names `694fa3f` (D3b, the same V14 schema). `rollback.sh`'s target is
-  `694fa3f`, with no condition of its own (V14's condition, D-148, is only for a target below V14).
-  `rollback.sh 694fa3f` was answered `no` in the acceptance checks (REFUSED, no condition line), and the state read
-  again afterwards was unchanged. **Below V14 only by restoring `finance-2026-10-13T2054Z.dump`** (10.2's), which also
-  loses the import and everything written after it: the import wrote settlement sides on accounts that require a
-  counterparty and on FX_EXCHANGE alone, so `rollback.sh` refuses to go below V14 (step 10's note). The way back from
-  the family budget is `deploy/deploy.sh switch off`, which leaves the data.
-- The end-to-end suite from `1d3b811` passed on production (2026-10-13, `E2E_FAMILY=on`, `Result: PASSED`, `import`
-  in two steps, `new-family` skipped by design, D-171).
-- "CI on Ubuntu 26.04" for `1d3b811`: run #11 (id `38464029879`), success.
-- `main` and `feature/family-budget` were at `1d3b811` and pushed when D3b-accept was deployed. CI for `1d3b811`: #77
-  and #78, 10 check runs, all success (D-95).
-- D3b-accept's, D3b's, F8f's and F8e's checklists below stay as their records and are used for no other deploy.
-  D3b-doc (D-172, D-173, these facts) is documentation only, on `feature/family-budget`, not pushed; it reaches the
-  server with the next deploy. D3c (the partner's claim and his own import) is next, after D3c-0's survey: once the
-  partner has an account, the owner's import is refused as it stands (step 10's note).
+- `2cfeec002342b7e57faaacf4fcf8169602fcaeaa` (D3c with D3c-fix, D3c-fix2, D3c-accept and D3c-accept2, on D3b-accept,
+  D3b, F8f, F8e, F8d, F8c, F8, QA-1 and QA-1b) on Flyway V15, `last-good` naming `2cfeec0`. Family budgets are switched
+  on since 2026-10-03T09:25:40Z. The containers run api `sha256:4ff9fc91…` (content `sha256:f9152689…`) and web
+  `sha256:50f1f557…` (content `sha256:5ffac006…`), "the recorded image" for `verify`.
+- **Both members' histories are imported**: the owner's (D3b-run, 2026-10-13, up to 2026-08-31; his settlements
+  corrected by `export-2026-10-21` in 11.2a, D-201) and the partner's (D3c-run, 2026-10-24): he took his place in the
+  family budget from 2019-12-01 and imported his own export up to 2026-08-31. From now on each of them imports only his
+  own file (D-175); the owner's import page takes no partner's file any more. The 11.12 restore test: users 4, ledgers
+  5, members 6, accounts 74, categories 92, counterparties 1407, entries 41520, postings 83409, family_records 12170,
+  family_shares 23096, family_links 35049, family_journal 12182, family_invites 1 (the row above explains each). These
+  numbers change whenever either of them writes in the app: a checklist expects the numbers its own `verify` printed.
+- **The next import with a later "Import up to"** (either member's) is checked first on a throwaway database (D-204).
+  D3c-doc did it for 2026-09-30 on `export-2026-10-21` (data/private/reports/D3c-doc.md): the owner's import first,
+  then the partner's, then the owner's dry run again; both commit with 0 refused rows, and both reconciliations pass
+  once both Septembers are in. The order matters: his settlement rows need the owner's settlements, so his import
+  before the owner's refuses them (D-178), and the owner's reconciliation fails at the new month-end only on EQUITY,
+  by the owner's shares of the partner's records that only the partner's own import brings. Another export or cutoff needs the check again.
+- The rollback state: the previous-commit file names `1d3b811` (D3b-accept-fix, V14). `rollback.sh`'s target is
+  `1d3b811`, with no condition of its own (V15 is additive; V14's condition, D-148, is only for a target below V14);
+  `rollback.sh 1d3b811` was answered `no` in the acceptance (REFUSED, no condition line). That code reads the claim
+  and both members' rows, but refuses the owner's import while the partner's place has an account and has no member's
+  own import. **Below the claim only by a restore**: `finance-2026-10-24T1123Z.dump` (11.2's, taken before 11.2a),
+  which loses 11.2a's corrections, the claim, his import and everything written after 11:23Z; **below V14 only by a
+  restore**: `finance-2026-10-13T2054Z.dump` (10.2's), which loses both imports. The way back from the family
+  budget is `deploy/deploy.sh switch off`, which leaves the data.
+- The end-to-end suite from `2cfeec0` passed on production (2026-10-24, `E2E_FAMILY=on`, `Result: PASSED`,
+  `member-import` passed, `new-family` skipped by design, D-171).
+- "CI on Ubuntu 26.04" for `2cfeec0`: run #12 (id `40088612571`), success.
+- `main` and `feature/family-budget` were at `2cfeec0` and pushed when D3c was deployed. CI for `2cfeec0`: #79 and #80,
+  10 check runs, all success (D-95).
+- D3c's, D3b-accept's, D3b's and F8f's checklists below stay as their records and are used for no other deploy. D3c-doc
+  (these facts, D-184 closed, D-203 to D-206, step 11's queries) is documentation and a check file only, on
+  `feature/family-budget`, not pushed; it reaches the server with the next deploy.
 
 ### Automatic reboots
 

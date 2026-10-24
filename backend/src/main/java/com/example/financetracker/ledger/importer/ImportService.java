@@ -334,6 +334,16 @@ public class ImportService {
         private final MemberTally memberTally = new MemberTally();
         private Map<String, MemberRecord> memberRecords = Map.of();
         private Map<Long, SideRow> sideRows = Map.of();
+        /** D-219: what the ledger holds of the rows earlier imports wrote, to compare with what they map to now. */
+        private Map<String, StoredEntry> personalStored = Map.of();
+        private Map<Long, StoredRecord> familyStored = Map.of();
+        private Map<Long, AccountRef> accountsById = Map.of();
+        private final List<RowRef> appEdited = new ArrayList<>();
+        private final List<ImportReport.AppEdit> appEdits = new ArrayList<>();
+        private final List<RowRef> replanned = new ArrayList<>();
+        private final List<RowRef> restamped = new ArrayList<>();
+        private final List<RowRef> notReplannable = new ArrayList<>();
+        private final List<String> twinsMerged = new ArrayList<>();
 
         Run(LedgerScope personal, ImportRequest request, Instant startedAt) {
             this.personal = personal;
@@ -422,15 +432,17 @@ public class ImportService {
                 currencies.add(row.creditCurrencyOrRow());
             });
 
-            familyCategoryIds = familyCategories(familyItems);
+            familyCategoryIds = familyCategories(familyItems, categoryRows);
             chart = chart(accountsByName, categoryRows);
             EntryMapper mapper = new EntryMapper(chart);
             counterpartyIds = counterparties.findAll(personal).stream()
                     .collect(Collectors.toMap(c -> key(c.name()), Counterparty::id, (first, second) -> first));
             personalKnown = personalKnown(personal);
+            personalStored = personalStored(personal);
             deletedInTheApp = deletedInTheApp(personal);
             if (family != null) {
                 familyKnown = familySync.known(family.scope(), familyItems.stream().map(FamilyItem::ref).toList());
+                familyStored = familyStored(family.scope());
             }
             findMissing(transactionRows, familyItems, partnerRows != null, after);
             ImportFile transactionsFile = transactionRows.file();
@@ -552,7 +564,9 @@ public class ImportService {
                     distinct(errors), distinct(warnings), distinct(skipped),
                     new ReferenceCounts(accountsCreated, accountsUpdated, categoriesCreated, categoriesUpdated,
                             familyCategoriesCreated, categoriesMerged, counterpartiesCreated),
-                    zeroFxRows, fxRows, reconciliation, reports.integrityCheck(personal), member);
+                    zeroFxRows, fxRows, reconciliation, reports.integrityCheck(personal), member,
+                    new ImportReport.Sync(List.copyOf(appEdited), List.copyOf(appEdits), List.copyOf(replanned),
+                            List.copyOf(restamped), List.copyOf(notReplannable), List.copyOf(twinsMerged)));
             batches.save(new ImportBatch(batchId, personal.userId(), personal.ledgerId(), transactionsFile.name(),
                     transactionsFile.sha256(), !commit, null, WallClock.now(), summary(report)));
             return report;
@@ -632,9 +646,14 @@ public class ImportService {
 
         /**
          * The family categories of the family records (D-11): the budget's own with the code, else a new one, into
-         * which the owner's personal category with the code merges. By code.
+         * which the owner's personal category with the code merges. By code. Then, since D3e, every other code of the
+         * categories file that the budget has already, of the same type, whichever rows use it: once the partner's
+         * place imports its own file, the owner's run no longer has the partner's records, and their codes would
+         * otherwise become personal categories beside the family's. A personal category of such a code that no posting
+         * uses merges into the family's (D-11); one that postings use stays, with a warning, and the code is the
+         * family's all the same.
          */
-        private Map<String, Long> familyCategories(List<FamilyItem> items) {
+        private Map<String, Long> familyCategories(List<FamilyItem> items, Sheet<CategoryRow> categoryRows) {
             Map<String, Long> ids = new HashMap<>();
             if (family == null) {
                 return ids;
@@ -654,6 +673,37 @@ public class ImportService {
                             "the family budget's category can't be found or made: " + message(e)));
                 }
             });
+            Map<String, LedgerCategory> familyByCode = categories.findAll(family.scope()).stream()
+                    .collect(Collectors.toMap(LedgerCategory::code, Function.identity(), (a, b) -> a));
+            Map<String, LedgerCategory> mineByCode = categories.findAll(personal).stream()
+                    .collect(Collectors.toMap(LedgerCategory::code, Function.identity(), (a, b) -> a));
+            for (CategoryRow row : categoryRows.rows()) {
+                LedgerCategory familyCategory = familyByCode.get(row.code());
+                if (familyCategory == null || familyCategory.type() != row.type() || ids.containsKey(row.code())) {
+                    continue;
+                }
+                ids.put(row.code(), familyCategory.id());
+                LedgerCategory twin = mineByCode.get(row.code());
+                if (twin == null || twin.type() != row.type()) {
+                    continue;
+                }
+                long used = categoryPostings(personal, twin.id());
+                if (used > 0) {
+                    warnings.add(new Problem(categoryRows.file().name(), row.row(), ("a personal category of yours has the "
+                            + "family budget's code and %d postings: not merged (D-11); its rows map to the family "
+                            + "category").formatted(used)));
+                    continue;
+                }
+                try {
+                    FamilyLedgerService.ImportedCategory category = savepoint.execute(status -> familyLedgers
+                            .importCategory(family.scope(), personal, row.code(), familyCategory.name(), row.type()));
+                    categoriesMerged += category.merged() ? 1 : 0;
+                    twinsMerged.add(row.code());
+                } catch (ConflictException | DataAccessException e) {
+                    errors.add(new Problem(request.categories().name(), row.row(),
+                            "your personal category can't merge into the family budget's: " + message(e)));
+                }
+            }
             return ids;
         }
 
@@ -693,6 +743,7 @@ public class ImportService {
             systemAccount(AccountRole.FX_EXCHANGE, "Currency exchange", accountsByCode);
             refsByCode = accountsByCode.values().stream()
                     .collect(Collectors.toMap(Account::code, ImportService::accountRef));
+            accountsById = refsByCode.values().stream().collect(Collectors.toMap(AccountRef::id, Function.identity()));
             return accountsByName;
         }
 
@@ -839,16 +890,39 @@ public class ImportService {
                         "the ledger has an entry with this reference that this import didn't write"));
                 return;
             }
-            if (known != null && known.hash().equals(plan.contentHash())) {
-                tally.unchanged++;
-                drift.addAll(plan.drift());
-                return;
-            }
-            if (known != null && known.version() != known.importVersion()) {
-                tally.conflicts++;
-                conflicts.add(new RowRef(personalSource.name(), excelId == null ? ref : excelId,
-                        "changed in the app since its last import (D-139)"));
-                return;
+            StoredEntry stored = known == null ? null : personalStored.get(ref);
+            ImportSync.Outcome outcome = ImportSync.recognise(known == null ? null
+                    : new ImportSync.Known(known.id(), known.hash(), known.importVersion(), known.version(), false),
+                    plan.contentHash(), stored != null && stored.holds(plan));
+            String name = excelId == null ? ref : excelId;
+            switch (outcome) {
+                case UNCHANGED -> {
+                    tally.unchanged++;
+                    drift.addAll(plan.drift());
+                    return;
+                }
+                case RESTAMP -> {
+                    stampEntry(personal, known.id(), plan.contentHash());
+                    tally.unchanged++;
+                    restamped.add(new RowRef(personalSource.name(), name, RESTAMPED));
+                    drift.addAll(plan.drift());
+                    return;
+                }
+                case APP_EDITED -> {
+                    tally.unchanged++;
+                    appEdited.add(new RowRef(personalSource.name(), name, APP_EDITED));
+                    drift.addAll(plan.drift());
+                    appEditedDrift(name, plan, stored);
+                    return;
+                }
+                case CONFLICT, DELETED -> {
+                    tally.conflicts++;
+                    conflicts.add(new RowRef(personalSource.name(), name,
+                            "changed in the app since its last import (D-139)"));
+                    return;
+                }
+                case NEW, EDITED, REPLANNED -> {
+                }
             }
             Map<String, Long> created = new HashMap<>();
             try {
@@ -874,8 +948,47 @@ public class ImportService {
             } else {
                 tally.updated++;
             }
+            if (outcome == ImportSync.Outcome.REPLANNED) {
+                replanned.add(new RowRef(personalSource.name(), name, REPLANNED));
+            }
             drift.addAll(plan.drift());
             wrote();
+        }
+
+        /**
+         * D-223: what an entry changed in the app moves on each account's displayed balance, beside what its row maps
+         * to (rule 4: ASSET as the sum, the others as minus the sum), on each one's date: explained as APP_EDITED, and
+         * listed per account and currency.
+         */
+        private void appEditedDrift(String excelId, EntryPlan plan, StoredEntry stored) {
+            record Change(String code, String currency, LocalDate date) {
+            }
+            Map<Change, BigDecimal> changes = new LinkedHashMap<>();
+            for (StoredLine line : stored.lines()) {
+                AccountRef account = accountsById.get(line.accountId());
+                changes.merge(new Change(account.code(), line.currency(), stored.date()), shown(account, line.amount()),
+                        BigDecimal::add);
+            }
+            for (EntryPlan.Line line : plan.postings()) {
+                AccountRef account = accountsById.get(line.accountId());
+                changes.merge(new Change(account.code(), line.currency(), plan.date()),
+                        shown(account, line.amount()).negate(), BigDecimal::add);
+            }
+            Map<Key, BigDecimal> byAccount = new TreeMap<>();
+            changes.forEach((change, amount) -> {
+                if (amount.signum() == 0) {
+                    return;
+                }
+                drift.add(new Drift(change.code(), change.currency(), change.date(), amount, Drift.Reason.APP_EDITED));
+                byAccount.merge(Reconciler.key(change.code(), change.currency(), familyCurrencies), amount,
+                        BigDecimal::add);
+            });
+            byAccount.forEach((key, amount) -> {
+                if (amount.signum() != 0) {
+                    appEdits.add(new ImportReport.AppEdit(personalSource.name(), excelId, stored.date(), key.account(),
+                            key.currency(), strip(amount)));
+                }
+            });
         }
 
         /**
@@ -925,9 +1038,34 @@ public class ImportService {
                 return;
             }
             ImportSync.Known known = familyKnown.get(item.ref());
-            switch (ImportSync.recognise(known, item.hash())) {
+            if (known != null && !known.deleted() && family.mode() == Mode.OWNER_AFTER_CLAIM
+                    && (item.source() == Source.OWNER_SEAT || item.source() == Source.OWNER_LUMP)
+                    && known.contentHash().equals(item.hash())) {
+                // D-219, D-196: the partner's place pays these records now; the owner's import never writes them.
+                tally.unchanged++;
+                notReplannable.add(new RowRef(item.source().name(), item.excelId(), NOT_REPLANNABLE));
+                drift.addAll(item.drift());
+                return;
+            }
+            StoredRecord stored = known == null || known.deleted() ? null : familyStored.get(known.recordId());
+            ImportSync.Outcome outcome = ImportSync.recognise(known, item.hash(),
+                    stored != null && stored.equals(planned(item)));
+            switch (outcome) {
                 case UNCHANGED -> {
                     tally.unchanged++;
+                    drift.addAll(item.drift());
+                    return;
+                }
+                case RESTAMP -> {
+                    familySync.stamp(family.scope(), known.recordId(), item.ref(), item.hash());
+                    tally.unchanged++;
+                    restamped.add(new RowRef(item.source().name(), item.excelId(), RESTAMPED));
+                    drift.addAll(item.drift());
+                    return;
+                }
+                case APP_EDITED -> {
+                    tally.unchanged++;
+                    appEdited.add(new RowRef(item.source().name(), item.excelId(), APP_EDITED));
                     drift.addAll(item.drift());
                     return;
                 }
@@ -943,7 +1081,7 @@ public class ImportService {
                             "deleted in the app after its import (D-113)"));
                     return;
                 }
-                case NEW, EDITED -> {
+                case NEW, EDITED, REPLANNED -> {
                 }
             }
             if (family.mode() == Mode.OWNER_AFTER_CLAIM && item.source() == Source.OWNER_SEAT) {
@@ -976,8 +1114,31 @@ public class ImportService {
             } else {
                 tally.updated++;
             }
+            if (outcome == ImportSync.Outcome.REPLANNED) {
+                replanned.add(new RowRef(item.source().name(), item.excelId(), REPLANNED));
+            }
             drift.addAll(item.drift());
             wrote();
+        }
+
+        /**
+         * D-219: what the record of a family row would be as the current code maps it, in the fields whose change in
+         * the app changes the record's version: its type and sign, date, currency, amount, category, payer, payee and
+         * split. The paying side isn't among them, since a member changes his own account without a new version (D-111);
+         * a member's side has its own hashes (D-181).
+         */
+        private StoredRecord planned(FamilyItem item) {
+            long owner = family.target().ownerMemberId();
+            long seat = family.target().seatMemberId();
+            return switch (item) {
+                case RecordSpec spec -> new StoredRecord(spec.type(), spec.refund(), spec.date(), spec.currency(),
+                        magnitude(spec.amount()), familyCategoryIds.get(spec.categoryCode()),
+                        spec.ownerPays() ? owner : seat, null, spec.ownerOnly() ? "ONE_MEMBER " + owner + ":-"
+                                : "PERCENT " + Math.min(owner, seat) + ":5000," + Math.max(owner, seat) + ":5000");
+                case SettlementSpec spec -> new StoredRecord("SETTLEMENT", false, spec.date(), spec.currency(),
+                        magnitude(spec.amount()), null, spec.ownerPays() ? owner : seat, spec.ownerPays() ? seat : owner,
+                        null);
+            };
         }
 
         private long create(FamilyItem item, Map<String, Long> created) {
@@ -1111,14 +1272,16 @@ public class ImportService {
                 currencies.add(row.creditCurrencyOrRow());
             });
 
-            familyCategoryIds = familyCategories(familyItems);
+            familyCategoryIds = familyCategories(familyItems, categoryRows);
             chart = chart(accountsByName, categoryRows);
             EntryMapper mapper = new EntryMapper(chart);
             counterpartyIds = counterparties.findAll(personal).stream()
                     .collect(Collectors.toMap(c -> key(c.name()), Counterparty::id, (first, second) -> first));
             personalKnown = personalKnown(personal);
+            personalStored = personalStored(personal);
             deletedInTheApp = deletedInTheApp(personal);
             familyKnown = familySync.known(family.scope(), familyItems.stream().map(FamilyItem::ref).toList());
+            familyStored = familyStored(family.scope());
             memberRecords = memberRecords(family.scope(), me);
             sideRows = sideRows(personal);
             findMissing(transactionRows, familyItems, false, after);
@@ -1229,8 +1392,23 @@ public class ImportService {
                             "FAMILY_EXP or FAMILY_INC isn't your share of the family record (D-177)"));
                 }
             }
-            ImportSync.Outcome outcome = ImportSync.recognise(known, spec.hash());
+            StoredRecord stored = known == null || known.deleted() ? null : familyStored.get(known.recordId());
+            ImportSync.Outcome outcome = ImportSync.recognise(known, spec.hash(),
+                    stored != null && stored.equals(planned(spec)));
             switch (outcome) {
+                case RESTAMP, APP_EDITED -> {
+                    if (outcome == ImportSync.Outcome.RESTAMP) {
+                        familySync.stamp(family.scope(), known.recordId(), spec.ref(), spec.hash());
+                        restamped.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId, RESTAMPED));
+                    } else {
+                        appEdited.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId, APP_EDITED));
+                    }
+                    tally.unchanged++;
+                    memberTally.recordsUnchanged++;
+                    drift.addAll(spec.drift());
+                    memberSide(file, number, excelId, row, known.recordId(), familyRow.sideHash(), spec);
+                    return;
+                }
                 case DELETED -> {
                     tally.conflicts++;
                     memberTally.recordConflicts++;
@@ -1253,7 +1431,7 @@ public class ImportService {
                     memberSide(file, number, excelId, row, known.recordId(), familyRow.sideHash(), spec);
                     return;
                 }
-                case NEW, EDITED -> {
+                case NEW, EDITED, REPLANNED -> {
                 }
             }
             // A new record, or an edited one with his payment side in the same change (D-89's amount goes with it).
@@ -1285,7 +1463,11 @@ public class ImportService {
                 memberTally.sidesAttached++;
             } else {
                 tally.updated++;
-                memberTally.recordsEdited.add(excelId);
+                if (outcome == ImportSync.Outcome.REPLANNED) {
+                    replanned.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId, REPLANNED));
+                } else {
+                    memberTally.recordsEdited.add(excelId);
+                }
                 if (side == null) {
                     memberTally.sidesAttached++;
                 } else {
@@ -2182,6 +2364,124 @@ public class ImportService {
                     ownerSettlementsWithoutSide, benefitRows, List.copyOf(benefitMonths), List.copyOf(straddling),
                     shareWarnings);
         }
+    }
+
+    // --- D-219: what earlier imports wrote, as the ledger holds it now --------------------------------------------
+
+    static final String RESTAMPED = "the ledger holds what the row maps to; its hash is stored again (D-219)";
+    static final String APP_EDITED = "changed in the app, the file unchanged: left as it is (D-219)";
+    static final String REPLANNED = "re-planned: the current code maps it differently (D-219)";
+    static final String NOT_REPLANNABLE = "can't be re-planned after the claim: the partner's place pays it (D-196, "
+            + "D-219)";
+
+    /** A personal entry an import wrote, as it stands: counterparties by name in lower case, as the import finds them. */
+    private record StoredEntry(LocalDate date, String kind, String payee, String memo, List<StoredLine> lines) {
+
+        /** Whether the entry is what the plan would write: its date, kind, payee and note, and every posting in order. */
+        boolean holds(EntryPlan plan) {
+            if (!date.equals(plan.date()) || !kind.equals(plan.kind().name()) || !Objects.equals(payee, name(plan.payee()))
+                    || !Objects.equals(memo, plan.memo()) || lines.size() != plan.postings().size()) {
+                return false;
+            }
+            for (int i = 0; i < lines.size(); i++) {
+                StoredLine stored = lines.get(i);
+                EntryPlan.Line line = plan.postings().get(i);
+                if (stored.accountId() != line.accountId() || !stored.currency().equals(line.currency())
+                        || stored.amount().compareTo(line.amount()) != 0
+                        || !Objects.equals(stored.categoryId(), line.categoryId())
+                        || !Objects.equals(stored.counterparty(), name(line.counterparty()))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static String name(Party party) {
+            return party == null ? null : key(party.name());
+        }
+    }
+
+    private record StoredLine(long accountId, String currency, BigDecimal amount, Long categoryId,
+            String counterparty) {
+    }
+
+    /**
+     * A family record an import wrote, in the fields D-219 compares: its amount without its sign, the split as its
+     * method and each member's basis points by member id ({@code PERCENT 12:5000,13:5000}, {@code ONE_MEMBER 12:-}).
+     */
+    private record StoredRecord(String type, boolean refund, LocalDate date, String currency, BigDecimal amount,
+            Long categoryId, long payer, Long payee, String split) {
+    }
+
+    private static BigDecimal magnitude(BigDecimal amount) {
+        return amount.abs().stripTrailingZeros();
+    }
+
+    /** Rule 4: an account's displayed change for a posting. */
+    private static BigDecimal shown(AccountRef account, BigDecimal amount) {
+        return account.type() == AccountType.ASSET ? amount : amount.negate();
+    }
+
+    /** The entries of the personal ledger that an import wrote, by reference, with their postings in order. */
+    private Map<String, StoredEntry> personalStored(LedgerScope personal) {
+        Map<String, StoredEntry> stored = new HashMap<>();
+        jdbc.sql("""
+                SELECT e.external_ref, e.kind, e.entry_date, py.name AS payee, e.memo, p.account_id, p.currency,
+                       p.amount, p.category_id, cp.name AS counterparty
+                FROM journal_entry e
+                JOIN posting p ON p.entry_id = e.id
+                LEFT JOIN counterparty py ON py.id = e.payee_id AND py.ledger_id = :ledgerId
+                LEFT JOIN counterparty cp ON cp.id = p.counterparty_id AND cp.ledger_id = :ledgerId
+                WHERE e.ledger_id = :ledgerId AND e.external_ref IS NOT NULL AND e.import_hash IS NOT NULL
+                ORDER BY e.id, p.line_no""")
+                .param("ledgerId", personal.ledgerId())
+                .query(row -> {
+                    String ref = row.getString("external_ref");
+                    StoredEntry entry = stored.get(ref);
+                    if (entry == null) {
+                        String payee = row.getString("payee");
+                        entry = new StoredEntry(row.getObject("entry_date", LocalDate.class), row.getString("kind"),
+                                payee == null ? null : key(payee), row.getString("memo"), new ArrayList<>());
+                        stored.put(ref, entry);
+                    }
+                    String counterparty = row.getString("counterparty");
+                    entry.lines().add(new StoredLine(row.getLong("account_id"), row.getString("currency"),
+                            row.getBigDecimal("amount"), row.getObject("category_id", Long.class),
+                            counterparty == null ? null : key(counterparty)));
+                });
+        return stored;
+    }
+
+    /** The live records of the family ledger that an import wrote, by id, in D-219's fields. */
+    private Map<Long, StoredRecord> familyStored(LedgerScope family) {
+        Map<Long, StoredRecord> stored = new HashMap<>();
+        jdbc.sql("""
+                SELECT r.id, r.type, r.base_amount < 0 AS refund, r.record_date, r.currency, r.base_amount,
+                       r.category_id, r.payer_member_id, r.payee_member_id,
+                       r.split_method || ' ' || coalesce((
+                           SELECT string_agg(s.member_id || ':' || coalesce(s.share_bp::text, '-'), ','
+                                             ORDER BY s.member_id)
+                           FROM family_share s WHERE s.record_id = r.id), '') AS split
+                FROM family_record r
+                WHERE r.ledger_id = :ledgerId AND r.external_ref IS NOT NULL AND r.deleted_at IS NULL""")
+                .param("ledgerId", family.ledgerId())
+                .query(row -> {
+                    stored.put(row.getLong("id"), new StoredRecord(row.getString("type"), row.getBoolean("refund"),
+                            row.getObject("record_date", LocalDate.class), row.getString("currency"),
+                            magnitude(row.getBigDecimal("base_amount")), row.getObject("category_id", Long.class),
+                            row.getLong("payer_member_id"), row.getObject("payee_member_id", Long.class),
+                            row.getString("split")));
+                });
+        return stored;
+    }
+
+    /** How many postings of the personal ledger use the category. */
+    private long categoryPostings(LedgerScope personal, long categoryId) {
+        return jdbc.sql("""
+                SELECT count(*) FROM posting p JOIN journal_entry e ON e.id = p.entry_id
+                WHERE e.ledger_id = :ledgerId AND p.category_id = :categoryId""")
+                .param("ledgerId", personal.ledgerId()).param("categoryId", categoryId)
+                .query(Long.class).single();
     }
 
     /** D-139: what the entry's row held, and its version right after this write. */

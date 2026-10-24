@@ -34,6 +34,11 @@ record Drift(String code, String currency, LocalDate date, BigDecimal amount, Re
          * D-188: a member's settlement row on its own date in Excel, and his side of the settlement it matches on the
          * settlement's date in the app (D-178).
          */
-        SETTLEMENT_DATE
+        SETTLEMENT_DATE,
+        /**
+         * D-223: a personal entry changed in the app while its row stayed as imported (D-219's "changed in the app,
+         * the file unchanged"): what the ledger holds less what the row maps to, on each one's date.
+         */
+        APP_EDITED
     }
 }

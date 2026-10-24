@@ -46,6 +46,33 @@ class ImportSyncTests {
         assertThat(ImportSync.recognise(known(HASH, 0, 1, true), edited)).isEqualTo(Outcome.DELETED);
     }
 
+    private static final String EDITED = ImportSync.contentHash("2026-09-10", "GROCERIES", "13.00", "EUR");
+
+    /** D-219 (D3e): what the import would write is compared first; then the hash and the versions. */
+    @Test
+    void aRowWhoseRecordIsWhatItMapsToIsUnchangedOrOnlyRestamped() {
+        assertThat(ImportSync.recognise(null, HASH, false)).isEqualTo(Outcome.NEW);
+        assertThat(ImportSync.recognise(known(HASH, 0, 0, false), HASH, true)).isEqualTo(Outcome.UNCHANGED);
+        assertThat(ImportSync.recognise(known(HASH, 0, 3, false), HASH, true)).isEqualTo(Outcome.UNCHANGED);
+        // The stored hash is old, the ledger holds what the row maps to: only the hash is stored again.
+        assertThat(ImportSync.recognise(known(HASH, 0, 0, false), EDITED, true)).isEqualTo(Outcome.RESTAMP);
+        // Also when the app made the record what the edited row says.
+        assertThat(ImportSync.recognise(known(HASH, 0, 2, false), EDITED, true)).isEqualTo(Outcome.RESTAMP);
+    }
+
+    @Test
+    void anUnchangedRowThatMapsOtherwiseIsReplannedOrLeftAsTheAppChangedIt() {
+        assertThat(ImportSync.recognise(known(HASH, 1, 1, false), HASH, false)).isEqualTo(Outcome.REPLANNED);
+        assertThat(ImportSync.recognise(known(HASH, 0, 1, false), HASH, false)).isEqualTo(Outcome.APP_EDITED);
+    }
+
+    @Test
+    void anEditedRowThatMapsOtherwiseIsEditedOrAConflictAsBefore() {
+        assertThat(ImportSync.recognise(known(HASH, 2, 2, false), EDITED, false)).isEqualTo(Outcome.EDITED);
+        assertThat(ImportSync.recognise(known(HASH, 2, 3, false), EDITED, false)).isEqualTo(Outcome.CONFLICT);
+        assertThat(ImportSync.recognise(known(HASH, 0, 1, true), HASH, true)).isEqualTo(Outcome.DELETED);
+    }
+
     @Test
     void theHashIsSha256OfTheFieldsAndNoTwoListsOfFieldsShareOne() {
         assertThat(HASH).hasSize(64).matches("[0-9a-f]{64}");

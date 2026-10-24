@@ -21,6 +21,8 @@ import java.util.HexFormat;
  * <li>the hash differs and the record changed in the app too: {@link Outcome#CONFLICT}, which the import reports and
  * leaves alone, for a member to decide.
  * </ul>
+ * Since D3e (D-219) the import first compares what it would write with what the ledger holds, and only then the hash
+ * and the versions: {@link #recognise(Known, String, boolean)}.
  */
 public final class ImportSync {
 
@@ -29,7 +31,13 @@ public final class ImportSync {
 
     /** What an import does with a row of its source. */
     public enum Outcome {
-        NEW, UNCHANGED, EDITED, CONFLICT, DELETED
+        NEW, UNCHANGED, EDITED, CONFLICT, DELETED,
+        /** D-219: what the import would write is what the ledger holds, but the row's hash isn't the one stored. */
+        RESTAMP,
+        /** D-219: the row is as imported last, and what it holds was changed in the app: left alone, not a conflict. */
+        APP_EDITED,
+        /** D-219: the row is as imported last, nobody changed it in the app, and the current code maps it otherwise. */
+        REPLANNED
     }
 
     /**
@@ -60,6 +68,30 @@ public final class ImportSync {
             return Outcome.UNCHANGED;
         }
         return known.version() == known.importedVersion() ? Outcome.EDITED : Outcome.CONFLICT;
+    }
+
+    /**
+     * D-219: what to do with a row of the source, knowing whether what the import would write now is what the ledger
+     * holds ({@code planEqual}). That comes first: an equal one is {@link Outcome#UNCHANGED}, or {@link Outcome#RESTAMP}
+     * when only the stored hash is old. Otherwise a row whose hash is the one imported last is {@link Outcome#APP_EDITED}
+     * if it changed in the app since and {@link Outcome#REPLANNED} if not; and an edited row is {@link Outcome#EDITED}
+     * or a {@link Outcome#CONFLICT}, as {@link #recognise(Known, String)} says.
+     */
+    public static Outcome recognise(Known known, String contentHash, boolean planEqual) {
+        if (known == null) {
+            return Outcome.NEW;
+        }
+        if (known.deleted()) {
+            return Outcome.DELETED;
+        }
+        boolean untouched = known.version() == known.importedVersion();
+        if (planEqual) {
+            return known.contentHash().equals(contentHash) ? Outcome.UNCHANGED : Outcome.RESTAMP;
+        }
+        if (known.contentHash().equals(contentHash)) {
+            return untouched ? Outcome.REPLANNED : Outcome.APP_EDITED;
+        }
+        return untouched ? Outcome.EDITED : Outcome.CONFLICT;
     }
 
     /**

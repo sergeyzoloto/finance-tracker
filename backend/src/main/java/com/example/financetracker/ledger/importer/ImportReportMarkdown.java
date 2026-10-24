@@ -89,6 +89,7 @@ public final class ImportReportMarkdown {
         member(md, report.member());
         rows(md, "Missing from the files (D-138)", report.missing());
         rows(md, "Conflicts", report.conflicts());
+        sync(md, report.sync());
         messages(md, "Errors", report.errorSummary());
         messages(md, "Warnings", report.warningSummary());
         messages(md, "Skipped and not imported", report.skippedSummary());
@@ -152,6 +153,24 @@ public final class ImportReportMarkdown {
         List<List<String>> table = new ArrayList<>();
         rows.forEach(r -> table.add(List.of(r.source(), r.excelId(), r.reason())));
         table(md, List.of("Source", "Excel ID", "Why"), "|---|---|---|", table);
+    }
+
+    /** D-219's groups, D-223's amounts and the categories merged (D3e). */
+    private static void sync(StringBuilder md, ImportReport.Sync sync) {
+        rows(md, "Changed in the app, the file unchanged (D-219)", sync.appEdited());
+        if (!sync.appEdits().isEmpty()) {
+            md.append("\nExplained as APP_EDITED (D-223):\n\n");
+            List<List<String>> table = new ArrayList<>();
+            sync.appEdits().forEach(e -> table.add(List.of(e.excelId(), e.date().toString(), e.account(),
+                    e.currency(), e.amount().toPlainString())));
+            table(md, List.of("Excel ID", "Date", "Account", "Currency", "Amount"), "|---|---|---|---|---:|", table);
+        }
+        rows(md, "Re-planned: the current code maps it differently (D-219)", sync.replanned());
+        rows(md, "Hash stored again (D-219)", sync.restamped());
+        rows(md, "Can't be re-planned after the claim (D-196, D-219)", sync.notReplannable());
+        md.append("\nPersonal categories merged into the family budget's (D-11): ")
+                .append(sync.categoriesMerged().isEmpty() ? "none" : String.join(", ", sync.categoriesMerged()))
+                .append(".\n");
     }
 
     private static void messages(StringBuilder md, String title, List<MessageCount> messages) {

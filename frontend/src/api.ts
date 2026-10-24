@@ -630,6 +630,24 @@ export interface ImportReport {
   integrityViolations: IntegrityViolation[]
   /** A member's own import (D-175); null for the owner's. */
   member?: ImportMemberSummary | null
+  /** D-219's groups of rows known from an earlier import (D3e); missing from an older server. */
+  sync?: ImportSync
+}
+
+/** D-219, D-223 (D3e): what became of rows an earlier import wrote, beyond unchanged, updated and in conflict. */
+export interface ImportSync {
+  /** Changed in the app while the file row stayed as imported: left alone, never a conflict by itself. */
+  appEdited: ImportRowRef[]
+  /** What those personal entries move on each account, which the reconciliation explains as APP_EDITED. */
+  appEdits: { source: string; excelId: string; date: string; account: string; currency: string; amount: string }[]
+  /** Untouched in the app, mapped otherwise by the current code: written over. */
+  replanned: ImportRowRef[]
+  /** The ledger holds what the row maps to under an old hash: the hash is stored again. */
+  restamped: ImportRowRef[]
+  /** The owner's D-73 rows and lumps after the claim (D-196): listed, never written. */
+  notReplannable: ImportRowRef[]
+  /** The codes of unused personal categories merged into the family budget's (D-11). */
+  categoriesMerged: string[]
 }
 
 /** What POST /api/demo-data created in an empty ledger. */

@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import {
   api, useApi, useMutation, type FamilyLedger, type FamilyMember, type ImportMemberSummary, type ImportMessageCount,
-  type ImportReconciliation, type ImportReport, type ImportRowRef,
+  type ImportReconciliation, type ImportReport, type ImportRowRef, type ImportSync,
 } from './api'
 import { Errors } from './components'
-import { filterPartnerRows, importForm, unallocatedName, type OwnerFiles, type PartnerUpload } from './importFilter'
+import {
+  filterPartnerRows, importForm, parseCsv, unallocatedName, type OwnerFiles, type PartnerUpload,
+} from './importFilter'
 
 /**
  * The owner's export, by the name of each file's part in POST /api/import. The hints describe each file's role; the
@@ -56,7 +58,8 @@ interface Choice { files: Partial<Record<Part, File>>; ledgerId: string; seatId:
  * everything, reconciles your balances with your daily balance file, reports and rolls back; then, if no row has an
  * error, the same files for real. Running it again recognises the rows by their IDs: nothing is written twice.
  * “Import up to” leaves out the rows of either file dated after it, and the check stops there (D-165); Commit is only
- * for the files, the budget and the date its dry run read.
+ * for the files, the budget and the date its dry run read, and once they are committed, not again until a file or the
+ * date changes (D3e). Your transactions file's rows are counted as soon as it is chosen, before any check (D-221).
  */
 export default function Import({ families }: { families?: FamilyLedger[] }) {
   const [choice, setChoice] = useState<Choice>({ files: {}, ledgerId: '', seatId: '', upTo: '' })
@@ -65,6 +68,10 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   const [upload, setUpload] = useState<PartnerUpload>()
   const [filterError, setFilterError] = useState<string>()
   const [report, setReport] = useState<ImportReport>()
+  // The choice last committed: Commit stays off for it until a file or the date changes (D3e).
+  const [committed, setCommitted] = useState<Choice>()
+  // D-221: the transactions file's rows, as the import counts them (every line with a value, less the header).
+  const [fileRows, setFileRows] = useState<number>()
   const { run, error, pending } = useMutation()
   const members = useApi<FamilyMember[]>(choice.ledgerId ? `/family-ledgers/${choice.ledgerId}/members` : null)
   const ledger = families?.find((f) => String(f.id) === choice.ledgerId)
@@ -80,7 +87,8 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
     || (role === 'OWNER' && seat !== undefined && (!partnerFile || upload !== undefined))
   const ready = ownerReady && familyReady && !filterError
   const checked = report?.outcome === 'DRY_RUN' && reported === choice
-  const canCommit = checked && report.errors.length === 0 && !pending
+  const committedAlready = committed === choice
+  const canCommit = checked && report.errors.length === 0 && !pending && !committedAlready
 
   function change(next: Choice) {
     setChoice(next)
@@ -104,6 +112,14 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
     const next = { ...choice, files: { ...choice.files, [part]: file } }
     change(next)
     if (part === 'accounts') void filter(next)
+    if (part === 'transactions') void countRows(file)
+  }
+
+  async function countRows(file: File | undefined) {
+    setFileRows(undefined)
+    if (!file) return
+    const rows = parseCsv(await file.text()).length
+    setFileRows(Math.max(rows - 1, 0))
   }
 
   function choosePartner(file: File | undefined) {
@@ -127,6 +143,7 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
     const answer = await api<ImportReport>(`/import?${query}`, 'POST', body)
     setReported(sent)
     setReport(answer)
+    if (answer.outcome === 'COMMITTED') setCommitted(sent)
   })
 
   return (
@@ -149,6 +166,11 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
             </label>
           ))}
         </div>
+        {fileRows !== undefined && (
+          <p className="muted" data-testid="file-rows">
+            Your transactions file: {rows(fileRows)}, counted as the import counts them.
+          </p>
+        )}
         <div className="fields">
           <label className="field">
             <span className="label">Import up to</span>
@@ -236,6 +258,11 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
           {checked && report.errors.length > 0 && (
             <span className="error">Fix the {rows(report.errors.length)} with errors and check again to commit.</span>
           )}
+          {committedAlready && (
+            <span className="muted" data-testid="committed-already">
+              These files are committed. Commit is off until a file or the date changes.
+            </span>
+          )}
         </div>
       </form>
       <Errors messages={[error, filterError]} />
@@ -249,6 +276,11 @@ function Report({ report }: { report: ImportReport }) {
   const refs = report.referenceData
   return (
     <section className="report">
+      <h3 data-testid="report-kind" className={report.outcome === 'COMMITTED' ? 'success' : ''}>
+        {report.outcome === 'DRY_RUN' ? 'Check (dry run): nothing was saved'
+          : report.outcome === 'COMMITTED' ? 'Commit: the import was saved'
+            : 'Commit refused: nothing was saved'}
+      </h3>
       {report.outcome === 'DRY_RUN' && (
         <p className={report.errors.length === 0 ? 'success' : 'notice'} role="status">
           Dry run: nothing was saved. {report.errors.length === 0
@@ -325,6 +357,7 @@ function Report({ report }: { report: ImportReport }) {
       <Messages title="Skipped and not imported" messages={report.skippedSummary} />
       <RowRefs title="Conflicts: changed or deleted in the app, left as they are" refs={report.conflicts} />
       <RowRefs title="No longer in the files: reported, nothing deleted" refs={report.missing} />
+      {report.sync && <SyncGroups sync={report.sync} />}
       <Reconciliation reconciliation={report.reconciliation} />
       {report.integrityViolations.length > 0 && (
         <div className="error-box" role="alert">
@@ -399,6 +432,34 @@ function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconcili
 }
 
 const rows = (n: number) => (n === 1 ? '1 row' : `${n} rows`)
+
+/** D-219, D-223 (D3e): rows an earlier import wrote that are neither plainly unchanged nor updated. None stops a commit. */
+function SyncGroups({ sync }: { sync: ImportSync }) {
+  return (
+    <section className="sync-groups" data-testid="sync-groups">
+      <RowRefs title="Changed in the app, the file unchanged: left as they are" refs={sync.appEdited} />
+      {sync.appEdits.length > 0 && (
+        <table data-testid="app-edits">
+          <thead><tr><th>Excel ID</th><th>Date</th><th>Account</th><th className="amount">Explained as APP_EDITED</th></tr></thead>
+          <tbody>
+            {sync.appEdits.map((e) => (
+              <tr key={`${e.excelId} ${e.account} ${e.currency}`}>
+                <td>{e.excelId}</td><td>{e.date}</td><td>{e.account} {e.currency}</td><td className="amount">{e.amount}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <RowRefs title="Re-planned: the current code maps them differently, written over" refs={sync.replanned} />
+      <RowRefs title="As the ledger holds them, under an old hash: the hash stored again" refs={sync.restamped} />
+      <RowRefs title="Can’t be re-planned after the claim: listed, never written" refs={sync.notReplannable} />
+      <p className="muted" data-testid="categories-merged">
+        Personal categories merged into the family budget’s: {sync.categoriesMerged.length === 0 ? 'none'
+          : sync.categoriesMerged.join(', ')}.
+      </p>
+    </section>
+  )
+}
 
 /** A member's own import: his family rows, settlements and benefit rows (D-178 to D-181, D-188). */
 function MemberRows({ member: m }: { member: ImportMemberSummary }) {

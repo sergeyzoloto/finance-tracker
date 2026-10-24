@@ -28,13 +28,16 @@ import com.example.financetracker.ledger.report.IntegrityViolation;
  * @param integrityViolations {@code ReportService.integrityCheck} after the import; empty for a sound ledger
  * @param member what a member's own import did with his family, settlement and benefit rows (D-175 to D-181); null
  *        for the owner's
+ * @param sync D-219's groups of rows known from an earlier import, and the personal categories merged into the family
+ *        budget's (D-11, D3e)
  */
 public record ImportReport(String userId, boolean commit, Outcome outcome, Instant startedAt, List<FileSummary> files,
         FamilyTarget family, Period period, LocalDate upTo, List<AfterCutoff> afterCutoff, List<String> currencies, List<Count> counts, Totals totals,
         List<RowRef> missing, List<RowRef> conflicts, List<Problem> errors, List<Problem> warnings,
         List<MessageCount> errorSummary, List<MessageCount> warningSummary, List<MessageCount> skippedSummary,
         ReferenceCounts referenceData, int zeroFxRowsSkipped, List<FxRow> fxRowsToReview,
-        Reconciliation reconciliation, List<IntegrityViolation> integrityViolations, MemberSummary member) {
+        Reconciliation reconciliation, List<IntegrityViolation> integrityViolations, MemberSummary member,
+        Sync sync) {
 
     public enum Outcome {
         /** Everything was rolled back, as a dry run always is. */
@@ -106,6 +109,33 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
     }
 
     public record Period(LocalDate from, LocalDate to) {
+    }
+
+    /**
+     * D-219: what became of rows an earlier import wrote, beyond unchanged, updated and in conflict. None of these
+     * groups stops an import by itself.
+     *
+     * @param appEdited "changed in the app, the file unchanged": what the current code maps the row to isn't what the
+     *        ledger holds, the row is as imported last, and the entry or record was changed in the app since. Left
+     *        alone, never written over
+     * @param appEdits D-223: per row of {@code appEdited} that is a personal entry, account and currency, what the
+     *        ledger holds less what the row maps to, which the reconciliation explains as APP_EDITED
+     * @param replanned "re-planned: the current code maps it differently": the row is as imported last, nobody changed
+     *        it in the app, and the current code maps it otherwise; written over as an edited row
+     * @param restamped the ledger holds what the row maps to, but under another hash: the hash is stored again, nothing
+     *        else is written
+     * @param notReplannable "can't be re-planned after the claim" (D-196): the owner's D-73 rows and the lumps before
+     *        the partner's ledger (D-83), whose records the partner's place pays; listed, never written
+     * @param categoriesMerged the codes of the personal categories, unused, merged into the family budget's category of
+     *        the same code (D-11, D3e); a dry run reports them, a commit merges them
+     */
+    public record Sync(List<RowRef> appEdited, List<AppEdit> appEdits, List<RowRef> replanned, List<RowRef> restamped,
+            List<RowRef> notReplannable, List<String> categoriesMerged) {
+    }
+
+    /** D-223: a personal entry's change in the app, as one account and currency's displayed balance shows it. */
+    public record AppEdit(String source, String excelId, LocalDate date, String account, String currency,
+            BigDecimal amount) {
     }
 
     /**

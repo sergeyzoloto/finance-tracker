@@ -298,16 +298,21 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(owners.get("reconciliation").get("familyDebtUpTo").asText()).isEqualTo("2024-03-08");
     }
 
-    /** D-190: a row whose uploaded columns changed only in precision is an ordinary edit, listed. */
+    /**
+     * D-190, amended by D-219 (D3e): a row whose uploaded columns changed only in precision, which the record holds to
+     * the cent either way, makes the same record: its hash is stored again and the row listed as such, nothing else
+     * written.
+     */
     @Test
-    void aPrecisionEditIsAnOrdinaryEdit() throws IOException {
+    void aPrecisionEditIsOnlyRestamped() throws IOException {
         // The owner uploaded Sam's row 113 rounded to cents, as export-2026-10-13 had it.
         ownersFirstImport(seatRows(withField(his(), "113", 3, "8.00")));
         claim();
         JsonNode report = ok(memberImport(hisWithoutTheRefused(), null, null));
         assertThat(report.get("errors")).isEmpty();
-        assertThat(report.get("member").get("recordsEdited")).isEqualTo(Answers.json("[\"113\"]"));
-        assertThat(report.get("member").get("recordsUnchanged").asInt()).isEqualTo(3);
+        assertThat(report.get("member").get("recordsEdited")).isEmpty();
+        assertThat(report.get("sync").get("restamped").findValuesAsText("excelId")).containsExactly("113");
+        assertThat(report.get("member").get("recordsUnchanged").asInt()).isEqualTo(4);
         assertThat(report.get("member").get("sidesAttached").asInt()).isEqualTo(4);
     }
 
@@ -466,6 +471,42 @@ class MemberImportApiTests extends MemberImportApiTest {
                 "16;20.02.2024;Транспорт;6;EUR;;;Свободный остаток;Общий семейный бюджет;;;;;;;EUR;0;0;TRANSPORT;x");
         JsonNode report = ok(upload(owner, "owner", withSeatRow, null, seat, null, null));
         assertThat(errors(report)).containsExactly("16: " + com.example.financetracker.ledger.importer.ImportFixtures.D73_AFTER_CLAIM);
+    }
+
+    /**
+     * D-219 (D3e): after the claim, the owner's D-73 rows (and the lumps before the partner's ledger, which this
+     * export has none of) are "can't be re-planned after the claim": listed, never written, and no error while they
+     * stay as imported.
+     */
+    @Test
+    void theOwnersSeatRowsAndLumpsCantBeReplannedAfterTheClaim() throws IOException {
+        byte[] withSeatRow = withLine(d3c("owner-transactions.csv"),
+                "16;20.02.2024;Транспорт;6;EUR;;;Свободный остаток;Общий семейный бюджет;;;;;;;EUR;0;0;TRANSPORT;x");
+        JsonNode first = ok(upload(owner, "owner", withSeatRow, seatRows(d3c("partner-transactions.csv")), seat, null,
+                "false"));
+        assertThat(first.get("errors")).isEmpty();
+        assertThat(first.get("sync").get("notReplannable")).isEmpty();
+        List<String> lumps = jdbc.sql("""
+                SELECT split_part(external_ref, ':', 3) || ':' || split_part(external_ref, ':', 4) || ':'
+                       || split_part(external_ref, ':', 5)
+                FROM family_record WHERE ledger_id = ? AND external_ref LIKE ? ORDER BY 1""")
+                .params(family, "xls:" + ownerMember + ":PL:%").query(String.class).list();
+        claim();
+
+        for (String dryRun : new String[] {null, "false"}) {
+            JsonNode report = ok(upload(owner, "owner", withSeatRow, null, seat, null, dryRun));
+            assertThat(report.get("errors")).isEmpty();
+            assertThat(report.get("totals").get("updated").asInt()).isZero();
+            JsonNode group = report.get("sync").get("notReplannable");
+            assertThat(StreamSupport.stream(group.spliterator(), false)
+                    .map(r -> r.get("source").asText() + " " + r.get("excelId").asText()))
+                    .containsExactlyInAnyOrderElementsOf(java.util.stream.Stream.concat(
+                            java.util.stream.Stream.of("OWNER_SEAT 16"), lumps.stream().map(l -> "OWNER_LUMP " + l))
+                            .toList());
+            assertThat(group.findValuesAsText("reason")).containsOnly(
+                    "can't be re-planned after the claim: the partner's place pays it (D-196, D-219)");
+            assertThat(report.get("sync").get("replanned")).isEmpty();
+        }
     }
 
     /** D-175: the family debt waits for the other member's import beyond his latest committed cutoff. */

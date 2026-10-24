@@ -302,6 +302,202 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(entryOf("xls:21").get("memo").asText()).isEqualTo("mine now");
     }
 
+    /**
+     * D-219, D-223 (D3e), as production's rows 211 and 2839: entries changed in the app while their rows stayed as
+     * imported are "changed in the app, the file unchanged", never written over and no conflict; what one of them moves
+     * on the balances is explained as APP_EDITED, so the reconciliation passes.
+     */
+    @Test
+    void rowsChangedInTheAppWithTheFileUnchangedAreLeftAndExplained() throws IOException {
+        run("false");
+        // Row 21, an expense, made a transfer from the euro account to the wallet: 1.50 off the equity, onto CASH.
+        JsonNode expense = entryOf("xls:21");
+        ok(put(owner, "/api/entries/%d?version=%d".formatted(expense.get("id").asLong(), expense.get("version").asInt()),
+                """
+                {"kind": "MANUAL", "entryDate": "2024-01-22", "memo": "mine now", "postings": [
+                  {"accountId": %d, "currency": "EUR", "amount": "-1.50"},
+                  {"accountId": %d, "currency": "EUR", "amount": "1.50"}]}"""
+                        .formatted(accountId(owner, "EURO_ACCOUNT"), accountId(owner, "CASH"))));
+        // Row 20, a loan, given another borrower: no balance moves.
+        long borrower = body(post(owner, "/api/counterparties", """
+                {"name": "Another friend", "kind": "PERSON"}"""), HttpStatus.CREATED).get("id").asLong();
+        JsonNode loan = entryOf("xls:20");
+        ok(put(owner, "/api/entries/%d?version=%d".formatted(loan.get("id").asLong(), loan.get("version").asInt()), """
+                {"kind": "MANUAL", "entryDate": "2024-01-21", "postings": [
+                  {"accountId": %d, "currency": "EUR", "amount": "-50"},
+                  {"accountId": %d, "currency": "EUR", "amount": "50", "counterpartyId": %d}]}"""
+                .formatted(accountId(owner, "EURO_ACCOUNT"), accountId(owner, "LOANS_ASSET"), borrower)));
+
+        for (String dryRun : new String[] {"true", "false", "false"}) {
+            JsonNode report = run(dryRun);
+            assertThat(report.get("errors")).isEmpty();
+            assertThat(report.get("conflicts")).isEmpty();
+            assertThat(report.get("totals").get("created").asInt()).isZero();
+            assertThat(report.get("totals").get("updated").asInt()).isZero();
+            JsonNode sync = report.get("sync");
+            assertThat(refs(sync.get("appEdited"))).containsExactly("OWNER_PERSONAL 20", "OWNER_PERSONAL 21");
+            assertThat(sync.get("appEdited").findValuesAsText("reason")).containsOnly(
+                    "changed in the app, the file unchanged: left as it is (D-219)");
+            assertThat(sync.get("appEdits")).isEqualTo(Answers.json("""
+                    [{"source": "OWNER_PERSONAL", "excelId": "21", "date": "2024-01-22", "account": "CASH",
+                      "currency": "EUR", "amount": "1.50"},
+                     {"source": "OWNER_PERSONAL", "excelId": "21", "date": "2024-01-22", "account": "EQUITY",
+                      "currency": "EUR", "amount": "1.50"}]"""));
+            assertThat(sync.get("replanned")).isEmpty();
+            assertThat(sync.get("restamped")).isEmpty();
+            JsonNode reconciliation = report.get("reconciliation");
+            assertThat(reconciliation.get("failures")).isEmpty();
+            assertThat(reconciliation.get("passed").asBoolean()).isTrue();
+            assertThat(StreamSupport.stream(reconciliation.get("explained").spliterator(), false)
+                    .filter(e -> e.get("reason").asText().equals("APP_EDITED"))
+                    .map(e -> e.get("account").asText() + " " + e.get("currency").asText() + " "
+                            + e.get("amount").asText()))
+                    .containsExactlyInAnyOrder("CASH EUR 1.50", "EQUITY EUR 1.50");
+        }
+        assertThat(entryOf("xls:21").get("memo").asText()).isEqualTo("mine now");
+        assertThat(entryOf("xls:20").get("postings").get(1).get("counterpartyId").asLong()).isEqualTo(borrower);
+    }
+
+    /**
+     * D-219: a row as imported last whose entry or record nobody changed in the app, but which the current code maps
+     * otherwise (here, as an older code would have left it), is re-planned: written over and listed; then it is
+     * unchanged. A dry run saves none of it.
+     */
+    @Test
+    void anUntouchedRowThatTheCurrentCodeMapsOtherwiseIsReplanned() throws IOException {
+        run("false");
+        long recordOf2 = recordOf("xls:" + ownerMember + ":2");
+        long food = jdbc.sql("SELECT category_id FROM family_record WHERE id = ?").param(recordOf2).query(Long.class)
+                .single();
+        long other = body(post(owner, "/api/family-ledgers/" + family + "/categories", """
+                {"code": "OLD_FOOD", "name": "Food, as it was", "type": "EXPENSE"}"""), HttpStatus.CREATED)
+                .get("id").asLong();
+        // What older code wrote, as the database holds it, with no new version.
+        jdbc.sql("UPDATE journal_entry SET kind = 'MANUAL' WHERE external_ref = 'xls:21' AND ledger_id = ?")
+                .param(personalLedger(owner)).update();
+        jdbc.sql("UPDATE family_record SET category_id = ? WHERE id = ?").params(other, recordOf2).update();
+
+        JsonNode dry = run(null);
+        assertThat(refs(dry.get("sync").get("replanned"))).containsExactlyInAnyOrder("OWNER_PERSONAL 21",
+                "OWNER_FAMILY 2");
+        assertThat(dry.get("totals").get("updated").asInt()).isEqualTo(2);
+        assertThat(entryOf("xls:21").get("kind").asText()).isEqualTo("MANUAL");
+
+        JsonNode committed = run("false");
+        assertThat(committed.get("outcome").asText()).isEqualTo("COMMITTED");
+        assertThat(refs(committed.get("sync").get("replanned"))).containsExactlyInAnyOrder("OWNER_PERSONAL 21",
+                "OWNER_FAMILY 2");
+        assertThat(committed.get("sync").get("replanned").findValuesAsText("reason")).containsOnly(
+                "re-planned: the current code maps it differently (D-219)");
+        JsonNode entry = entryOf("xls:21");
+        assertThat(entry.get("kind").asText()).isEqualTo("EXPENSE");
+        assertThat(jdbc.sql("SELECT import_version = version FROM journal_entry WHERE id = ?")
+                .param(entry.get("id").asLong()).query(Boolean.class).single()).isTrue();
+        assertThat(jdbc.sql("SELECT category_id FROM family_record WHERE id = ?").param(recordOf2).query(Long.class)
+                .single()).isEqualTo(food);
+
+        JsonNode again = run("false");
+        assertThat(again.get("totals").get("created").asInt()).isZero();
+        assertThat(again.get("totals").get("updated").asInt()).isZero();
+        assertThat(again.get("sync").get("replanned")).isEmpty();
+    }
+
+    /** D-219: what the ledger holds is what the row maps to, but under an old hash: only the hash is stored again. */
+    @Test
+    void anEqualPlanUnderAnOldHashIsOnlyRestamped() throws IOException {
+        run("false");
+        long recordOf2 = recordOf("xls:" + ownerMember + ":2");
+        String old = "0".repeat(64);
+        String entryHash = jdbc.sql("SELECT import_hash FROM journal_entry WHERE external_ref = 'xls:21' AND ledger_id = ?")
+                .param(personalLedger(owner)).query(String.class).single();
+        String recordHash = jdbc.sql("SELECT content_hash FROM family_record WHERE id = ?").param(recordOf2)
+                .query(String.class).single();
+        jdbc.sql("UPDATE journal_entry SET import_hash = ? WHERE external_ref = 'xls:21' AND ledger_id = ?")
+                .params(old, personalLedger(owner)).update();
+        jdbc.sql("UPDATE family_record SET content_hash = ? WHERE id = ?").params(old, recordOf2).update();
+        int entryVersion = entryOf("xls:21").get("version").asInt();
+
+        JsonNode report = run("false");
+        assertThat(report.get("outcome").asText()).isEqualTo("COMMITTED");
+        assertThat(refs(report.get("sync").get("restamped"))).containsExactlyInAnyOrder("OWNER_PERSONAL 21",
+                "OWNER_FAMILY 2");
+        assertThat(report.get("totals").get("created").asInt()).isZero();
+        assertThat(report.get("totals").get("updated").asInt()).isZero();
+        assertThat(entryOf("xls:21").get("version").asInt()).isEqualTo(entryVersion);
+        assertThat(jdbc.sql("SELECT import_hash FROM journal_entry WHERE external_ref = 'xls:21' AND ledger_id = ?")
+                .param(personalLedger(owner)).query(String.class).single()).isEqualTo(entryHash);
+        assertThat(jdbc.sql("SELECT content_hash || ' ' || version || ' ' || (SELECT count(*) FROM family_record_change "
+                + "c WHERE c.record_id = r.id) FROM family_record r WHERE id = ?").param(recordOf2).query(String.class)
+                .single()).isEqualTo(recordHash + " 0 1");
+
+        JsonNode again = run("false");
+        assertThat(again.get("sync").get("restamped")).isEmpty();
+        assertThat(again.get("totals").get("updated").asInt()).isZero();
+    }
+
+    /**
+     * D3e: a personal category with a code the family budget has, which no posting uses, merges into the family's
+     * (D-11) on a commit, and a dry run only reports it; one that postings use stays, with a warning, and its rows are
+     * re-planned onto the family category.
+     */
+    @Test
+    void personalTwinsOfTheFamilysCategoriesMerge() throws IOException {
+        run("false");
+        // FX_GAIN is in the categories file and no posting uses it (row 18 is skipped); PAYCHECK is row 1's, a
+        // personal income.
+        long fxGain = categoryOf("FX_GAIN");
+        long paycheck = categoryOf("PAYCHECK");
+        long familyFxGain = body(post(owner, "/api/family-ledgers/" + family + "/categories", """
+                {"code": "FX_GAIN", "name": "Exchange gains", "type": "INCOME"}"""), HttpStatus.CREATED)
+                .get("id").asLong();
+        long familyIncome = body(post(owner, "/api/family-ledgers/" + family + "/categories", """
+                {"code": "PAYCHECK", "name": "Pay", "type": "INCOME"}"""), HttpStatus.CREATED)
+                .get("id").asLong();
+
+        JsonNode dry = run(null);
+        assertThat(dry.get("sync").get("categoriesMerged")).isEqualTo(Answers.json("[\"FX_GAIN\"]"));
+        assertThat(dry.get("referenceData").get("categoriesMerged").asInt()).isEqualTo(1);
+        assertThat(dry.get("warningSummary").findValuesAsText("message")).contains("a personal category of yours "
+                + "has the family budget's code and 1 postings: not merged (D-11); its rows map to the family category");
+        assertThat(refs(dry.get("sync").get("replanned"))).containsExactly("OWNER_PERSONAL 1");
+        assertThat(categoryExists(fxGain)).isTrue();
+
+        JsonNode committed = run("false");
+        assertThat(committed.get("sync").get("categoriesMerged")).isEqualTo(Answers.json("[\"FX_GAIN\"]"));
+        assertThat(categoryExists(fxGain)).isFalse();
+        assertThat(categoryExists(paycheck)).isTrue();
+        assertThat(entryOf("xls:1").get("postings").findValuesAsText("categoryId"))
+                .contains(String.valueOf(familyIncome));
+
+        // Row 1 is on the family category now, so its personal twin is unused, and merges next time.
+        JsonNode next = run("false");
+        assertThat(next.get("sync").get("categoriesMerged")).isEqualTo(Answers.json("[\"PAYCHECK\"]"));
+        assertThat(next.get("totals").get("updated").asInt()).isZero();
+        assertThat(categoryExists(paycheck)).isFalse();
+
+        JsonNode again = run("false");
+        assertThat(again.get("sync").get("categoriesMerged")).isEmpty();
+        assertThat(again.get("sync").get("replanned")).isEmpty();
+        assertThat(again.get("totals").get("updated").asInt()).isZero();
+        assertThat(again.get("reconciliation").get("passed").asBoolean()).isTrue();
+        assertThat(jdbc.sql("SELECT count(*) FROM category WHERE id = ?").param(familyFxGain).query(Integer.class)
+                .single()).isEqualTo(1);
+    }
+
+    private long categoryOf(String code) {
+        return jdbc.sql("SELECT id FROM category WHERE ledger_id = ? AND code = ?").params(personalLedger(owner), code)
+                .query(Long.class).single();
+    }
+
+    private boolean categoryExists(long id) {
+        return jdbc.sql("SELECT count(*) FROM category WHERE id = ?").param(id).query(Integer.class).single() == 1;
+    }
+
+    private long personalLedger(String user) {
+        return jdbc.sql("SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'")
+                .param(user).query(Long.class).single();
+    }
+
     /** D-138: a row gone from the export is reported, by its Excel ID, and nothing is deleted. */
     @Test
     void aRowGoneFromTheExportIsReportedAndNothingIsDeleted() throws IOException {

@@ -227,6 +227,84 @@ describe('the import page', () => {
     expect((screen.getByRole('button', { name: 'Check (dry run)' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('counts the transactions file’s rows as the import does, before any check (D-221)', async () => {
+    const sent = stubApi([])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    expect(screen.queryByTestId('file-rows')).toBeNull()
+    // The header, two rows, a blank line and a line of blanks: 2 rows.
+    choose('transactions', '﻿ID;Date;Sum\r\n1;01.09.2026;5\r\n\r\n;; \r\n2;"02.09.2026";"1;5"\r\n')
+    expect((await screen.findByTestId('file-rows')).textContent)
+      .toBe('Your transactions file: 2 rows, counted as the import counts them.')
+    choose('transactions', 'ID;Date\r\n7;01.09.2026\r\n')
+    await waitFor(() => expect(screen.getByTestId('file-rows').textContent).toContain('1 row,'))
+    expect(sent).toHaveLength(0)
+  })
+
+  it('keeps Commit off after a commit until a file or the date changes, and says which it was (D3e)', async () => {
+    const sent = stubApi([report(0), { ...report(0, 'COMMITTED'), totals: { ...report(0).totals, created: 3 } },
+      { ...report(0), totals: { ...report(0).totals, created: 0 } }, report(0), report(0, 'COMMITTED')])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    const commit = () => screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement
+    chooseOwnerFiles()
+    check()
+    expect((await screen.findByTestId('report-kind')).textContent).toBe('Check (dry run): nothing was saved')
+    fireEvent.click(commit())
+    await waitFor(() => expect(screen.getByTestId('report-kind').textContent).toBe('Commit: the import was saved'))
+    expect(commit().disabled).toBe(true)
+
+    // The check again: Commit stays off for the files just committed.
+    check()
+    await waitFor(() => expect(sent).toHaveLength(3))
+    await screen.findByText(/committing would create 0/)
+    expect(screen.getByTestId('report-kind').textContent).toBe('Check (dry run): nothing was saved')
+    expect(commit().disabled).toBe(true)
+    expect(screen.getByTestId('committed-already').textContent).toContain('Commit is off until a file or the date changes')
+
+    // Another date (or file) and a check: Commit again.
+    fireEvent.change(screen.getByLabelText(/^Import up to/), { target: { value: '2026-10-31' } })
+    expect(screen.queryByTestId('committed-already')).toBeNull()
+    check()
+    await waitFor(() => expect(commit().disabled).toBe(false))
+    fireEvent.click(commit())
+    await waitFor(() => expect(sent).toHaveLength(5))
+    expect(sent.map((s) => s.url.split('&')[0])).toEqual(['/api/import?dryRun=true', '/api/import?dryRun=false',
+      '/api/import?dryRun=true', '/api/import?dryRun=true', '/api/import?dryRun=false'])
+  })
+
+  it('names a refused commit as one', async () => {
+    stubApi([report(0), report(1, 'ABORTED')])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    chooseOwnerFiles()
+    check()
+    await screen.findByTestId('report-kind')
+    fireEvent.click(screen.getByRole('button', { name: 'Commit import' }))
+    await waitFor(() => expect(screen.getByTestId('report-kind').textContent).toBe('Commit refused: nothing was saved'))
+  })
+
+  it('lists D-219’s groups and D-223’s amounts (D3e)', async () => {
+    const ref = (excelId: string, reason: string) => ({ source: 'OWNER_PERSONAL', excelId, reason })
+    stubApi([{ ...report(0), sync: {
+      appEdited: [ref('211', 'changed in the app, the file unchanged: left as it is (D-219)'),
+        ref('2839', 'changed in the app, the file unchanged: left as it is (D-219)')],
+      appEdits: [{ source: 'OWNER_PERSONAL', excelId: '211', date: '2018-01-23', account: 'EQUITY', currency: 'RUB',
+        amount: '-2.50' }],
+      replanned: [], restamped: [ref('9', 'the ledger holds what the row maps to; its hash is stored again (D-219)')],
+      notReplannable: [{ source: 'OWNER_LUMP', excelId: 'PL:2017-11:RUB', reason: 'never written' }],
+      categoriesMerged: ['CASHBACK', 'CHARITY'],
+    } }])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    chooseOwnerFiles()
+    check()
+    const groups = await screen.findByTestId('sync-groups')
+    expect(groups.textContent).toContain('Changed in the app, the file unchanged: left as they are (2)')
+    expect(screen.getByTestId('app-edits').textContent).toContain('2112018-01-23EQUITY RUB-2.50')
+    expect(groups.textContent).toContain('As the ledger holds them, under an old hash: the hash stored again (1)')
+    expect(groups.textContent).toContain('Can’t be re-planned after the claim: listed, never written (1)')
+    expect(groups.textContent).not.toContain('Re-planned')
+    expect(screen.getByTestId('categories-merged').textContent)
+      .toBe('Personal categories merged into the family budget’s: CASHBACK, CHARITY.')
+  })
+
   it('shows that the family debt waits for the other member’s import (D-175)', async () => {
     stubApi([{ ...report(0), reconciliation: {
       passed: true, cutoff: '2026-09-30', tailFrom: '2026-09-01', pointsCompared: 10, lastCompared: '2026-08-31',

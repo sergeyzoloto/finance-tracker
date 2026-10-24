@@ -853,6 +853,346 @@ imported 50) and the reconciliation **Passed** (3210 points), the family debt co
 **11.12 A fresh backup with its restore test**, the block of 10.2. If something turns out wrong later, restore 11.2's dump
 ([Restore from a backup](#restore-from-a-backup)), which also loses everything written after it.
 
+## 12. Monthly import, two participants
+
+**What it is.** After D3c-run (step 11) each participant imports only his own Excel (D-175): the owner his five files,
+the partner his five files, each in his own browser session, each with the same later **Import up to**. Step 12 is that
+monthly import. It is a task of its own, never part of a deploy, with both participants present. The procedure (12.0 to
+12.12) is the same every month; the numbers it expects are in [Step 12's figures](#step-12s-figures-september-2026),
+valid for one export and one date only (D-212). The first run is September 2026: `export-2026-10-21`, **Import up to
+2026-09-30**.
+
+**The order is fixed (D-204): (1) the owner's import, (2) the partner's import, (3) the owner's dry run.** The
+partner's settlement rows are matched to the owner's settlements (D-178), which exist only once the owner's import has
+committed them. **If the partner imports first, his settlement rows of the new month are refused** ("no counterpart",
+D-178; September 2026: 6 rows), and with a refused row his import saves nothing. Nothing is damaged, but nothing is
+imported either: stop, and wait for the owner's go. The owner gives it in words, **"go for your import"**, only at
+12.5, after his own import is committed and the backup after it has passed its restore test. Until then the partner
+doesn't open the import page.
+
+**Rules for the whole step.**
+
+- **Not between 03:30 and 04:30 UTC** (D-125), when the host may reboot by itself. Start at a time when 12.1 to 12.10
+  fit before 03:30 UTC; a stop for that hour is not a failure, and the next block waits for 04:30.
+- **Production changes only through the imports and the backups.** Every other block is read only. Server blocks start
+  with `# On the server`, laptop blocks with `# On the laptop`; read-only blocks say so in their first comment.
+- **No block needs editing.** Two values are typed, never pasted: the confirmation `E2E PROD` of the end-to-end suite
+  (12.12), and a dump's name in a restore (12.13), which [Restore from a backup](#restore-from-a-backup) takes as it
+  always has. No block here holds an answer to a question.
+- Git on the laptop runs as `git --no-pager`, and a dirty tree stops a chain (`test -z "$(git status --porcelain)"`,
+  D-127). The laptop's free disk space is not a gate (D-120).
+- **A dry run saves nothing.** A commit saves everything or nothing: any refused row (error) and nothing is saved. A
+  failing reconciliation does **not** hold a commit back, which is why the owner's expected failures are listed exactly
+  (D-208, D-209).
+- **Every phase has STOP conditions.** STOP means: no further block, no commit; send the page's report (or the block's
+  output) to the PM; [12.13](#1213-where-to-go-back-to) says which backup, if any, is the way back.
+
+**The local rehearsal (D-204), before any month.** A later **Import up to**, or any other export, is rehearsed first on
+the laptop, never production: a throwaway database with production's state replayed (D-191), then exactly 12.2 to 12.10
+with their three backups and their restore tests, and one restore drill (12.13's B2 restored over the live database, its
+numbers compared, the partner's dry run again). Its figures replace [Step 12's
+figures](#step-12s-figures-september-2026) before step 12 runs. D3d-doc rehearsed September 2026
+(data/private/reports/D3d-doc.md).
+
+**12.0 The gate (D-212, D-206)**, on the laptop, read only, before anything else: are both participants' files the
+rehearsed ones, and how many rows do the two transactions files hold?
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker/data/private/export-2026-10-21 && python3 -I - <<'EOF'
+import csv, glob, hashlib
+expected = [
+    ("the owner's accounts", "Balance sheet items.csv", "db0e19bca106e70ca29acc81a2c6c75cd2d4ba4be35d0b41f26bb43f39b3dbfa", None),
+    ("the categories (both)", "CashFlowItems.csv", "f8b9dd1728afd94809790e90cd1f0da512875547bd39afd0a6ec37cc305c0d77", None),
+    ("the owner's transactions", "Transactions.csv", "8e11861b9aa96a60529534afd2d037c15c6fd714429e3fe49b9fa45713e89b54", 7068),
+    ("the owner's daily balance", "dailyBalance.csv", "fce1047c6623b82d204141cc97fbd7b3b5ac3005be011e332e07ac618520e81e", None),
+    ("the owner's daily change", "dailyChangeBalance.csv", "b6985ad071a74e7a3c164d31be58f741c24a8b0b7defefac7f2e13bf89764aa9", None),
+    ("the partner's accounts", "BalanceSheetItems?*.csv", "b5d728e988325307030b685ee6e767c406c5cab5fa1b7d0705e9c8392b3e1905", None),
+    ("the partner's transactions", "Transactions?*.csv", "5cecb9ce7c6e163d14716f63c0d7bd3d45a3b0bfce6811c6c133741ecb94a7c7", 12762),
+    ("the partner's daily balance", "dailyBalance?*.csv", "dd433dc08164b531b961ff98ccf1096288e7cf1171c900ad7909266019e33a87", None),
+    ("the partner's daily change", "dailyChangeBalance?*.csv", "5e518c05dfac71fbecc402810bbf9778fb008bb78c7a9b590484920119f876b9", None),
+]
+bad = 0
+for role, pattern, digest, rows in expected:
+    files = glob.glob(pattern)
+    if len(files) != 1:
+        print(f"{role}: {len(files)} files match, not 1: STOP"); bad += 1; continue
+    data = open(files[0], "rb").read()
+    same = hashlib.sha256(data).hexdigest() == digest
+    line = f"{role}: {'same' if same else 'DIFFERENT'}"
+    if rows is not None:
+        with open(files[0], encoding="utf-8-sig", newline="") as f:
+            n = sum(1 for r in csv.reader(f, delimiter=";") if any(c.strip() for c in r)) - 1
+        line += f", rows {n} (expected {rows})"
+        same = same and n == rows
+    bad += 0 if same else 1
+    print(line)
+print("GATE: export-2026-10-21 as rehearsed" if bad == 0 else f"GATE: STOP, {bad} difference(s): rehearse again (D-212)")
+EOF
+```
+
+You should see nine lines ending in `same`, the owner's transactions with `rows 7068 (expected 7068)`, the partner's with
+`rows 12762 (expected 12762)`, and last `GATE: export-2026-10-21 as rehearsed`. The partner's files are found by role
+(their names carry his), never by name. The rows are counted as the import counts them: every line with a value, less
+the header. **STOP** on any `DIFFERENT`, any `STOP` or another row count: these files are not the rehearsed ones, so
+none of the figures below holds. Rehearse with them first (D-212) and replace the figures.
+
+**12.1 The pre-flight**, on the server, read only, three blocks, each alone.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+git log -1 --format='Clone: %H %s'
+cat /var/lib/finance-deploy/last-good
+}
+```
+
+You should see `Now:` outside 03:30 to 04:30 UTC; `Scheduled shutdown: cat: …: No such file or directory` (a scheduled
+reboot: STOP, and start after it has happened); the clone and `last-good` at the commit [Production
+now](#production-now) names, `finish=passed`.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify D3c
+```
+
+You should see `verify D3c at …: OK` and the 24 numbers of the figures' **before** list. **STOP** on any other number:
+either participant has written in the app since the rehearsed state, and the rehearsal's figures no longer hold (rehearse
+again from production's current state).
+
+The participants (D-205), by the family budget's members with an account, so that no email is typed or stored here:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT line FROM (SELECT 0 AS n, '' AS r, 'family budgets ' || count(*) AS line FROM app.ledger WHERE type = 'SHARED' UNION ALL SELECT 1, m.role, m.role || ' ' || m.status || ', users with this email ' || (SELECT count(*) FROM app.users o WHERE lower(o.email) = lower(u.email)) || ', personal entries ' || (SELECT count(*) FROM app.journal_entry e JOIN app.ledger_member p ON p.ledger_id = e.ledger_id AND p.ledger_type = 'PERSONAL' WHERE p.user_sub = m.user_sub) FROM app.ledger_member m LEFT JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.user_sub IS NOT NULL) AS lines ORDER BY n, r DESC" </dev/null
+```
+
+You should see the figures' three **participants before** lines: `family budgets 1`, then the owner (`OWNER ACTIVE`)
+and the partner (`MEMBER ACTIVE`), each with `users with this email 1` and his personal entries. **STOP** on
+`users with this email` other than 1 (no users row, or two accounts with one email), on another count of family budgets
+(an end-to-end run in progress leaves one more: wait for its cleanup), or on other entries.
+
+**12.2 Backup B1, before the owner's import** (D-210), the block of 10.2:
+
+```bash
+# On the server
+cd /opt/finance-tracker && systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null && ls -l /var/backups/pg/finance/ | tail -n 3
+```
+
+You should see the dump written, the restore test's table with every line `ok` and the figures' **B1** numbers, and
+`PASS`. **Note the newest dump's name as B1** (`finance-<date>T<hhmm>Z.dump`, the time in UTC): the way back if the
+owner's import goes wrong. A `MISMATCH`: run the block again (someone wrote between the dump and the test); twice:
+STOP.
+
+**12.3 The owner's dry run**, in the owner's own browser: a private window, signed in fresh as the owner (the header
+shows his name, never `e2e-a` or `e2e-b`, D-173). Open <https://app.finance-nl.com/import>; choose his five files of the
+export of 12.0 (his accounts, the categories file, his transactions, his daily balance, his daily change), the family
+budget and the partner's place (the page takes no partner's file: the place has an account); type the figures' **Import
+up to** date; click **Check (dry run)** and read the report against the figures' **phase 1** block:
+
+- the line under the totals, "Imported up to …. After it, neither imported nor missing: … of 7068 of yours" (D-206:
+  the owner's file count, which the page shows only here, after the check);
+- the totals: created, updated, unchanged, missing, conflicts, errors, skipped, not imported;
+- the reconciliation: its first line ("Failed: N month-end balances compared …"), the table of failing lines (Account,
+  Failing month-ends, From, Worst) and the family debt's "waiting" line.
+
+**STOP** (nothing is saved) on: any error (a refused row), any conflict or missing row, a count that differs, a file
+count that differs, or a reconciliation that isn't exactly the figures' expected list (D-208, D-209 below).
+
+**The expected failures (D-208, D-209).** After the owner's import, and only then, the reconciliation fails at the new
+month-end on the lines the figures list: the owner's equity lacks his shares of the partner's records of the new month,
+which only the partner's own import writes (D-175), and the family debt waits for the partner's date. A failing line is
+expected only if its **account, currency, From date and Worst amount** all match a listed line, the amount within 0.01
+(D-199's tolerance; the page's Worst is the difference without its sign); and the list must be complete. Anything
+else is STOP: a failing line not listed, a listed line missing, an amount further than 0.01 from the listed one, another
+count of failing month-ends, or a "waiting" line with another date or count.
+
+**12.4 The owner's commit**, with the same files and date still on the page: **Commit import**, confirm. You should see
+**Imported** with 12.3's totals and the same expected failures. Then **Check (dry run)** once more: 0 created, 0
+updated, the same reconciliation. Then <https://app.finance-nl.com/api/reports/integrity> in his window: `[]`. **STOP** on
+another total, another reconciliation than the expected list, the check again creating or updating anything, or an
+integrity line; the way back is B1 (12.13).
+
+**12.5 Backup B2, after the owner's import, before the partner's** (D-210): the block of 12.2.
+
+```bash
+# On the server
+cd /opt/finance-tracker && systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null && ls -l /var/backups/pg/finance/ | tail -n 3
+```
+
+You should see `PASS` with the figures' **B2** numbers. **Note the newest dump's name as B2.** Then, and only then, **the
+owner tells the partner "go for your import"**.
+
+**12.6 The partner's dry run**, in his own private window, signed in fresh as the partner (the header shows his name):
+<https://app.finance-nl.com/import>, his five files (his accounts, the categories file, his transactions, his daily
+balance, his daily change; the page asks for no place and no partner's file: his own place), the family budget, the
+same **Import up to**, **Check (dry run)**. Compare with the figures' **phase 2** block: the line "… of 12762 of yours"
+(D-206), the totals, the table "Your family rows", and the reconciliation **Passed** with the family debt compared up to
+the new date. **STOP** on any error, conflict or missing row, a count that differs, or a reconciliation that isn't
+**Passed** (the partner's import has no expected failure). Errors "no counterpart: no settlement of … matches it
+(D-178)" mean the owner's import of the month isn't in: STOP and check 12.4 and 12.5.
+
+**12.7 The partner's commit**, the same files and date: **Commit import**, confirm: **Imported** with 12.6's totals, the
+reconciliation **Passed**. Then **Check (dry run)** once more: 0 created, 0 updated. Then the integrity check in his
+window and in the owner's: `[]` for both. **STOP** on any difference; the way back is B2 (12.13).
+
+**12.8 The owner's final dry run**, in his window, the same files and date as 12.3, **Check (dry run)**, never commit:
+**0 created, 0 updated**, no error, conflict or missing row, and the reconciliation **Passed** with the family debt
+compared up to the new date, every line explained (figures, **phase 3**). **STOP** on any change or failing line.
+
+**12.9 Backup B3, after the final dry run** (D-210): the block of 12.2. You should see `PASS` with the figures' **B3**
+numbers. **Note its name as B3.**
+
+```bash
+# On the server
+cd /opt/finance-tracker && systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null && ls -l /var/backups/pg/finance/ | tail -n 3
+```
+
+**12.10 The numbers after**, on the server, read only, two blocks, each alone:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify D3c
+```
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT line FROM (SELECT 0 AS n, '' AS r, 'family budgets ' || count(*) AS line FROM app.ledger WHERE type = 'SHARED' UNION ALL SELECT 1, m.role, m.role || ' ' || m.status || ', users with this email ' || (SELECT count(*) FROM app.users o WHERE lower(o.email) = lower(u.email)) || ', personal entries ' || (SELECT count(*) FROM app.journal_entry e JOIN app.ledger_member p ON p.ledger_id = e.ledger_id AND p.ledger_type = 'PERSONAL' WHERE p.user_sub = m.user_sub) FROM app.ledger_member m LEFT JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.user_sub IS NOT NULL) AS lines ORDER BY n, r DESC" </dev/null
+```
+
+You should see `verify D3c at …: OK` with the figures' **after** numbers, and the **participants after** lines. **STOP**
+on any other number.
+
+**12.11 The end-to-end suite's checkout**, on the laptop, read only: a clean checkout of the deployed commit.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see the commit 12.1's `last-good` named, in full. Nothing after the checkout: the tree is dirty, STOP. Another
+commit: STOP.
+
+**12.12 The end-to-end suite against production** (D-51), on the laptop, alone in its block, last. Read its banner (the
+target https://app.finance-nl.com, `e2e-a (e2e-a@finance-nl.com)`, `e2e-b (e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, the
+commit and "clean tree"), then type `E2E PROD` after the question and press Enter.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary into the chat, from `===== E2E summary =====` to `=======================`. You should see `E2E_FAMILY:
+on`, every spec passed but `new-family` (skipped by design, D-171), `cleanup passed` with both accounts' data deleted,
+`Password search over the artifacts: 0 hits` and `Result: PASSED`. The suite works only in its own two accounts and
+deletes their data at the end, so it changes nothing of the participants'. A failure: STOP and send the summary to the
+PM; it is no reason to restore (12.13). Nothing is left to check by hand.
+
+### 12.13 Where to go back to
+
+Each restore is [Restore from a backup](#restore-from-a-backup), with the dump named by its noted name
+(`dump=/var/backups/pg/finance/<B1, B2 or B3's name>`), and it also loses whatever else anyone wrote after that dump.
+Restore only once the PM has read the STOP's output and said so; a dry run never needs a restore.
+
+| Where it stopped | Restore | What it takes back |
+| --- | --- | --- |
+| 12.0 to 12.3, 12.6 (gate, pre-flight, dry runs) | nothing | nothing was written |
+| 12.2, 12.5, 12.9 `MISMATCH` twice | nothing | the backup is taken again later; ask the PM |
+| 12.4 (the owner's commit or its check again) | B1 | the owner's import of the new month |
+| 12.7 (the partner's commit, its check again, an integrity line) | B2 | the partner's import; the owner's stays |
+| 12.8 (the final dry run shows a change or a failing line) | B2, or B1 if the PM finds the owner's import at fault | the partner's import (B2), or both (B1) |
+| 12.10 (the numbers after differ) | none until the PM has compared them; then as 12.8 | as 12.8 |
+| 12.12 (the suite) | none | nothing of the participants' |
+| later (something found wrong after step 12) | B3 is the state step 12 left | anything written since B3 |
+
+After a restore, step 12 starts again at the phase after that dump: from B1 at 12.3, from B2 at 12.6 (the owner's go
+stays given), with the same figures; a cause that the rehearsal didn't show means rehearsing again first.
+
+### Step 12's figures: September 2026
+
+Valid only for `export-2026-10-21`'s nine files (12.0's hashes) and **Import up to 2026-09-30** (D-212), on production
+as D3c-run left it (`2cfeec0`, Flyway V15, the 11.12 numbers). Rehearsed by D3d-doc on 2026-10-24 on the laptop:
+production's state replayed from D3c-accept2's run (the same numbers as 11.12 but for the two other users' starter
+ledgers, which no import touches), then 12.2 to 12.9 with their backups, and the restore drill.
+
+**Files (D-206):** the owner's transactions 7068 rows, the partner's 12762. The report's line: the owner "34 rows of 7068
+of yours", the partner "100 rows of 12762 of yours" (the rows dated after 2026-09-30).
+
+**Before** (12.1's `verify D3c`, 24 numbers): `accounts=74`, `categories=92`, `counterparties=1407`, `entries=41520`,
+`family_accounts=2`, `family_import_cutoffs=2`, `family_invites=1`, `family_journal=12182`, `family_ledgers=1`,
+`family_links=35049`, `family_members=2`, `family_members_active=2`, `family_members_former=0`, `family_members_left=0`,
+`family_records=12170`, `family_shares=23096`, `import_batches=3`, `imported_entries_deleted=0`,
+`imported_family_sides=8354`, `outside_their_ledger=0`, `personal_ledgers=4`, `personal_members=4`, `settings=4`,
+`users=4`.
+
+**Participants before:** `family budgets 1`, `OWNER ACTIVE, users with this email 1, personal entries 18446`, `MEMBER
+ACTIVE, users with this email 1, personal entries 23074`.
+
+**B1** (12.2's restore test): users 4, ledgers 5, members 6, accounts 74, categories 92, counterparties 1407, entries
+41520, postings 83409, unbalanced 0, family_records 12170, family_shares 23096, family_links 35049, family_journal 12182,
+family_invites 1.
+
+**Phase 1, the owner's import (12.3, 12.4):**
+
+- Totals: created 57, updated 0, unchanged 6935, missing 0, conflicts 0, errors 0, skipped 18, not imported 52; by
+  source and kind: his family rows 35 expenses, 5 refunds, 1 income; his settlements 6; his personal rows 9 transfers
+  and 1 income; 3 categories and 3 counterparties new.
+- The reconciliation: "Failed: 3237 month-end balances compared, up to 2026-09-30. From 2026-10-01 on they are shown but
+  don't count; the files are read up to 2026-09-30."
+- **The expected failing lines, exactly two (D-208):**
+
+  | Account | Failing month-ends | From | Worst |
+  | --- | --- | --- | --- |
+  | EQUITY EUR | 1 of 108 | 2026-09-30 | 167.328088 |
+  | EQUITY RUB | 1 of 108 | 2026-09-30 | 1224.50000487 |
+
+  Each is the owner's share of the partner's 141 September records, less what the reconciliation already explains as
+  D-12's rounding (SHARES): EUR 167.67 of shares, 0.341912 of them explained, 167.328088 left; RUB 1224.50 of shares (the
+  line's 0.00000487 beyond it is far below the tolerance). The line under them: "The family debt is compared up to 2026-08-31, the other member's latest
+  import; after it, waiting for the other member's import (2 month-ends differ for now), not failed." (FAMILY_DEBT EUR
+  and RUB at 2026-09-30, by the same amounts the other way.)
+- The commit: **Imported** with the same totals and failing lines. The check again: created 0, updated 0, unchanged
+  6992, the same two failing lines. Integrity `[]`.
+
+**B2** (12.5): users 4, ledgers 5, members 6, accounts 74, categories 95, counterparties 1410, entries 41665, postings
+83699, unbalanced 0, family_records 12217, family_shares 23178, family_links 35184, family_journal 12229, family_invites
+1.
+
+**Phase 2, the partner's import (12.6, 12.7):**
+
+- Totals: created 177, updated 6, unchanged 20032, missing 0, conflicts 0, errors 0, skipped 79, not imported 188 (his
+  benefit rows, D-179); by kind: his family rows 133 expenses, 5 refunds, 3 incomes; his personal rows 34 transfers and
+  2 incomes; his settlements 6 updated (his side on the owner's 6 September settlements).
+- "Your family rows": family records as imported before 7819, changed 0, new 141; your payment side attached 141; your
+  side as imported before 7819; settlements matched: same date and amount 5, several on the date 0, within 7 days 1,
+  several of your rows on the date 0, by their date as a whole 0; your rows ambiguous on their date 0; conversions
+  matched 0 of 2 (both were matched in step 11 and count only when matched anew); your rows without a counterpart 0;
+  the other member's settlements without your side 0; benefit rows checked 188; "Benefit months: 67 compared …, none
+  differs".
+- The reconciliation: "Passed: 2822 month-end balances compared, up to 2026-09-30", the family debt compared up to
+  2026-09-30, "(0 month-ends differ for now)".
+- The commit: **Imported**, the same. The check again: created 0, updated 0, unchanged 20356. Integrity `[]` for both.
+
+**Phase 3, the owner's final dry run (12.8):** created 0, updated 0, unchanged 6992, missing 0, conflicts 0, errors 0,
+skipped 18, not imported 52; "Passed: 3240 month-end balances compared, up to 2026-09-30", the family debt compared up to
+2026-09-30, no failing line.
+
+**B3** (12.9): users 4, ledgers 5, members 6, accounts 74, categories 95, counterparties 1410, entries 42124, postings
+84617, unbalanced 0, family_records 12358, family_shares 23460, family_links 35607, family_journal 12370, family_invites
+1.
+
+**After** (12.10's `verify D3c`): as **before** but `categories=95`, `counterparties=1410`, `entries=42124`,
+`family_journal=12370`, `family_links=35607`, `family_records=12358`, `family_shares=23460`, `import_batches=5`,
+`imported_family_sides=8501`; `users=4` unchanged. **Participants after:** `family budgets 1`, `OWNER ACTIVE, users with
+this email 1, personal entries 18685`, `MEMBER ACTIVE, users with this email 1, personal entries 23439`.
+
+**The restore drill** (rehearsal only): after phase 3, B2 restored over the live database (steps 3 to 6 of [Restore
+from a backup](#restore-from-a-backup)): every restore-test number equal to B2's; the owner's dry run as after 12.4
+(0 created, the two expected failing lines); the partner's dry run as 12.6 (177 created, 6 updated, Passed); integrity
+`[]` for both.
+
 ---
 
 ## Deployed revisions
@@ -951,6 +1291,7 @@ rollback acceptance answered `no`, nothing changed) and D3c-run (step 11, the 11
   once both Septembers are in. The order matters: his settlement rows need the owner's settlements, so his import
   before the owner's refuses them (D-178), and the owner's reconciliation fails at the new month-end only on EQUITY,
   by the owner's shares of the partner's records that only the partner's own import brings. Another export or cutoff needs the check again.
+  That import is [step 12](#12-monthly-import-two-participants); its September 2026 figures were rehearsed by D3d-doc.
 - The rollback state: the previous-commit file names `1d3b811` (D3b-accept-fix, V14). `rollback.sh`'s target is
   `1d3b811`, with no condition of its own (V15 is additive; V14's condition, D-148, is only for a target below V14);
   `rollback.sh 1d3b811` was answered `no` in the acceptance (REFUSED, no condition line). That code reads the claim
@@ -965,8 +1306,9 @@ rollback acceptance answered `no`, nothing changed) and D3c-run (step 11, the 11
 - `main` and `feature/family-budget` were at `2cfeec0` and pushed when D3c was deployed. CI for `2cfeec0`: #79 and #80,
   10 check runs, all success (D-95).
 - D3c's, D3b-accept's, D3b's and F8f's checklists below stay as their records and are used for no other deploy. D3c-doc
-  (these facts, D-184 closed, D-203 to D-206, step 11's queries) is documentation and a check file only, on
-  `feature/family-budget`, not pushed; it reaches the server with the next deploy.
+  (these facts, D-184 closed, D-203 to D-206, step 11's queries; `346d325`, pushed) and D3d-doc (step 12, not pushed)
+  are documentation and a check file only, on `feature/family-budget`; they reach the server's clone with the next
+  deploy. Step 12 runs from this runbook on the laptop; its server blocks need nothing from the clone.
 
 ### Automatic reboots
 

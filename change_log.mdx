@@ -3,6 +3,65 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-24 · D3d-doc: runbook step 12, the monthly import with two participants, rehearsed for September 2026
+
+One commit on `feature/family-budget` on top of `346d325` (not pushed): the commit of this entry, "docs: runbook step
+12, the monthly import with two participants, rehearsed for September 2026 (D3d-doc)". Production and the server not
+accessed; no code changed; nothing of `data/private/` committed.
+
+**Changes**
+- `deploy/RUNBOOK.md`, new step 12, "Monthly import, two participants". The procedure, the same every month:
+  - The order (D-204): the owner's import, the partner's, the owner's dry run. What happens if the partner imports
+    first, and the owner's spoken go at 12.5.
+  - 12.0, a laptop gate (D-212, D-206): both participants' nine files by role against the rehearsed SHA-256, and both
+    transactions files' rows counted as the import counts them.
+  - 12.1, the pre-flight: the time and a scheduled shutdown, `verify D3c` against the rehearsed numbers, and D-205's
+    `users with this email` for each member of the family budget with an account, with no email typed or stored.
+  - Three backups with their restore tests (D-210): B1 before the owner's import, B2 after it, B3 after the final dry
+    run.
+  - Each phase's STOP conditions. The owner's expected reconciliation failures, matched by account, currency, date and
+    amount within 0.01 (D-208, D-209).
+  - The numbers after, then the end-to-end suite from a clean checkout of the deployed commit.
+  - 12.13, where to go back to: the dump to restore for each point where the step can stop.
+- Its figures for September 2026 (`export-2026-10-21`, Import up to 2026-09-30) in a block of their own, valid for that
+  export only: every phase's totals, the two expected failing lines, the backups' and `verify`'s numbers before and
+  after.
+- "Production now" points the next import at step 12.
+- `docs/family-budget/requirements.md`: D-207 to D-210 and D-212, as the PM gave them.
+
+**Verified**
+- The rehearsal, on a throwaway database with the api of `2cfeec0` (no file under `backend/`, `frontend/` or `e2e/`
+  differs at `346d325`), the dev Keycloak and the import page:
+  - Baseline: D3c-doc's local replay of production's state after D3c-run. Production's own dump isn't on the laptop.
+  - 12.0 to 12.9 in order, with all three backups PASS. Each backup was restored into a scratch database and its
+    restore-test counts compared.
+  - The owner: 57 created, 0 refused. Failing exactly EQUITY EUR 1 of 108 from 2026-09-30, worst 167.328088, and EQUITY
+    RUB 1 of 108 from 2026-09-30, worst 1224.50000487; the family debt waiting at 2 month-ends. Again: 0 created, 0
+    updated.
+  - The partner: 177 created, 6 updated, 0 refused, Passed at 2822 points. Again: 0 created, 0 updated.
+  - The owner's final dry run: 0 changes, Passed at 3240 points. Integrity `[]` for both after each commit.
+  - The restore drill: B2 restored over the live database in one transaction. Every count equal to B2's; the owner's
+    and the partner's dry runs back to the phase 1 and phase 2 figures.
+- 12.0's block and 12.1's query, taken out of the runbook as written, ran as written: the gate passed, and it stopped
+  on a changed file and on a second file of one role. The query ran also as a read-only role shaped like
+  `finance_checks`.
+- The page's Worst for EQUITY EUR is 167.328088, not the 167.67 of the owner's shares: the reconciliation explains
+  0.341912 of them as D-12's rounding. Step 12 lists the page's numbers (D-209).
+- The report: data/private/reports/D3d-doc.md (git-ignored).
+- `scripts/check-forbidden-names.sh` on the tree, `--rev HEAD` and `--log 346d325..HEAD`. This entry compiled with
+  `@mdx-js/mdx`. Results are in the task's report.
+- No backend, frontend or end-to-end suite ran: no code changed.
+- The environment was removed: the api, Vite and the database container. The dev Keycloak, already running, was left
+  running.
+
+**Open**
+- The rehearsal's baseline was the local replay, not production's dump. A rehearsal from production's own dump needs
+  its users to sign in locally, which their subs don't allow.
+- Step 12's first production run: the "before" numbers are derived from the replay plus the two starter-only users. A
+  difference at 12.1 stops the step.
+- Dump names are known only once written, so a restore takes the noted name, typed.
+- D-211 wasn't part of D3d-doc's task and isn't recorded.
+
 ## 2026-10-24 · D3c-doc: D3c's deploy and D3c-run recorded, D-184 closed, D-203 to D-206, September checked locally
 
 One commit on `feature/family-budget` on top of `2cfeec0` (not pushed; `main`, `origin/main` and

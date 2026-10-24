@@ -886,13 +886,41 @@ doesn't open the import page.
   (D-208, D-209).
 - **Every phase has STOP conditions.** STOP means: no further block, no commit; send the page's report (or the block's
   output) to the PM; [12.13](#1213-where-to-go-back-to) says which backup, if any, is the way back.
+- **Pasted, never told (D-222).** A checkpoint closes only with the page's text or the command's output pasted into the
+  chat: the report's header, totals, groups and reconciliation, or the block's whole output. "As expected" in words closes
+  none. On step 12's first run three presses of **Commit** went down as checks (D-218): only the import batches showed it.
+- **The reconciliation decides with the totals.** A run whose reconciliation differs from the figures (another failing
+  line, another From, Worst or count of points, another "waiting" line) stops even when every total matches: so it was at
+  12.4 on 2026-10-24, where the totals were the rehearsed ones and a third line failed. The figures' amounts are the
+  page's (D-213).
+- **The report's sync groups (D-219, D-223; since D3e).** Below the totals the page lists, by Excel ID: **Changed in the
+  app, the file unchanged** (left as they are; a personal entry's balance effect is explained in the reconciliation as
+  APP_EDITED, with its amounts), **Re-planned** (written over: the current code maps them differently), **the hash stored
+  again** (the ledger holds what the row maps to), **Can't be re-planned after the claim** (the owner's D-73 rows and
+  lumps, never written), and the personal categories merged into the family budget's. None of them stops a run by
+  itself; **any difference from the figures' lists** (a row more or less in any group, another APP_EDITED amount, other
+  merged codes) is a STOP: send the page's report to the PM.
 
-**The local rehearsal (D-204), before any month.** A later **Import up to**, or any other export, is rehearsed first on
-the laptop, never production: a throwaway database with production's state replayed (D-191), then exactly 12.2 to 12.10
-with their three backups and their restore tests, and one restore drill (12.13's B2 restored over the live database, its
-numbers compared, the partner's dry run again). Its figures replace [Step 12's
-figures](#step-12s-figures-september-2026) before step 12 runs. D3d-doc rehearsed September 2026
-(data/private/reports/D3d-doc.md).
+**The local rehearsal (D-204, D-220), before any month.** A later **Import up to**, or any other export, is rehearsed
+first on the laptop, never production, **from production's latest dump** (D-220), with the code production runs:
+
+1. The daily pull brings the dump (`systemctl --user start finance-nl-backup-pull.service`, read only for the server:
+   its key runs only `rrsync -ro`); take the newest `~/backups/finance-nl-server/finance/finance-*.dump`.
+2. `scripts/rehearsal-db.sh <dump>` (D-214), with the dev Keycloak up (`../auth_server`, `docker compose up -d`): it
+   restores the dump into `finance-tracker-rehearsal-db`, its data on tmpfs (127.0.0.1:5434, database `finance`, user
+   `postgres`, password `rehearsal`), maps the two participants' subs onto the dev users `testuser` (the owner) and
+   `testuser2` (the partner) and nothing else, checks that no column holds their subs any more, and prints the restore
+   test's numbers, which must equal the dump's (its restore test, as 12.2 printed it).
+3. The api of the deployed commit on the host against it (`SERVER_PORT=8081`, `FAMILY_LEDGERS_ENABLED=true`,
+   `ECB_RATES_ENABLED=false`, the `KEYCLOAK_*` of `.env`, `SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5434/finance`),
+   and Vite (`npx vite` in `frontend/`); then 12.3 to 12.8 in the browser, signed in as `testuser` and `testuser2`, with
+   both participants' files, and the integrity check for both; the backups are the database's own (`pg_dump` in its
+   container), the restore drill B2's over it.
+4. `scripts/rehearsal-db.sh --remove` at the end.
+
+Its figures replace [Step 12's figures](#step-12s-figures-september-2026) before step 12 runs. D3d-doc rehearsed
+September 2026 from a replay (data/private/reports/D3d-doc.md); D3e from B3, production's dump after step 12, with D3e's
+code ([D3e's rehearsal from B3](#d3es-rehearsal-from-b3-september-again)).
 
 **12.0 The gate (D-212, D-206)**, on the laptop, read only, before anything else: are both participants' files the
 rehearsed ones, and how many rows do the two transactions files hold?
@@ -992,11 +1020,14 @@ export of 12.0 (his accounts, the categories file, his transactions, his daily b
 budget and the partner's place (the page takes no partner's file: the place has an account); type the figures' **Import
 up to** date; click **Check (dry run)** and read the report against the figures' **phase 1** block:
 
-- the line under the totals, "Imported up to …. After it, neither imported nor missing: … of 7068 of yours" (D-206:
-  the owner's file count, which the page shows only here, after the check);
+- before the check, as soon as the transactions file is chosen, "Your transactions file: 7068 rows, counted as the
+  import counts them." (D-221, since D3e; on `2cfeec0` the page shows no such line, and 12.0's count stands in for it);
+- the report's header, **"Check (dry run): nothing was saved"**, and the line under the totals, "Imported up to …. After
+  it, neither imported nor missing: … of 7068 of yours" (D-206);
 - the totals: created, updated, unchanged, missing, conflicts, errors, skipped, not imported;
 - the reconciliation: its first line ("Failed: N month-end balances compared …"), the table of failing lines (Account,
-  Failing month-ends, From, Worst) and the family debt's "waiting" line.
+  Failing month-ends, From, Worst) and the family debt's "waiting" line;
+- since D3e, the sync groups and the categories merged, against the figures' lists.
 
 **STOP** (nothing is saved) on: any error (a refused row), any conflict or missing row, a count that differs, a file
 count that differs, or a reconciliation that isn't exactly the figures' expected list (D-208, D-209 below).
@@ -1010,8 +1041,9 @@ else is STOP: a failing line not listed, a listed line missing, an amount furthe
 count of failing month-ends, or a "waiting" line with another date or count.
 
 **12.4 The owner's commit**, with the same files and date still on the page: **Commit import**, confirm. You should see
-**Imported** with 12.3's totals and the same expected failures. Then **Check (dry run)** once more: 0 created, 0
-updated, the same reconciliation. Then <https://app.finance-nl.com/api/reports/integrity> in his window: `[]`. **STOP** on
+the header **"Commit: the import was saved"** and **Imported** with 12.3's totals and the same expected failures. Then
+**Check (dry run)** once more, never **Commit** again (since D3e Commit stays off for files just committed): the header
+"Check (dry run): nothing was saved", 0 created, 0 updated, the same reconciliation. Then <https://app.finance-nl.com/api/reports/integrity> in his window: `[]`. **STOP** on
 another total, another reconciliation than the expected list, the check again creating or updating anything, or an
 integrity line; the way back is B1 (12.13).
 
@@ -1112,6 +1144,11 @@ stays given), with the same figures; a cause that the rehearsal didn't show mean
 
 ### Step 12's figures: September 2026
 
+**Used on 2026-10-24** by step 12's first run on `2cfeec0` ("Deployed revisions" has what it showed). The next month's
+figures are rehearsed from production's dump with the code then deployed (D-220) and replace these; with D3e's code the
+report adds the sync groups ([D3e's rehearsal from B3](#d3es-rehearsal-from-b3-september-again) shows them on
+September's files).
+
 Valid only for `export-2026-10-21`'s nine files (12.0's hashes) and **Import up to 2026-09-30** (D-212), on production
 as D3c-run left it (`2cfeec0`, Flyway V15, the 11.12 numbers). Rehearsed by D3d-doc on 2026-10-24 on the laptop:
 production's state replayed from D3c-accept2's run (the same numbers as 11.12 but for the two other users' starter
@@ -1193,6 +1230,26 @@ from a backup](#restore-from-a-backup)): every restore-test number equal to B2's
 (0 created, the two expected failing lines); the partner's dry run as 12.6 (177 created, 6 updated, Passed); integrity
 `[]` for both.
 
+### D3e's rehearsal from B3 (September again)
+
+D3e, 2026-10-24, on the laptop: B3 (`finance-2026-10-24T1434Z.dump`, 4752011 bytes, SHA-256 `c051c06c46eb…`, the state
+step 12 left) restored by `scripts/rehearsal-db.sh` (users 4, ledgers 5, members 6, accounts 74, categories 95,
+counterparties 1410, entries 42124, postings 84617, family_records 12358, family_shares 23460, family_links 35607,
+family_journal 12370, family_invites 1: B3's numbers), D3e's code, `export-2026-10-21`'s nine files and **Import up to
+2026-09-30**, through the import page as `testuser` and `testuser2`. September is in already, so nothing is created;
+these are the figures D3e's code shows on production's state, and they say what the next month's figures add.
+
+| Run | Page | Totals | Reconciliation | Sync groups |
+| --- | --- | --- | --- | --- |
+| the owner's dry run | "Your transactions file: 7068 rows"; header "Check (dry run): nothing was saved"; 34 of 7068 after the date | created 0, updated 0, unchanged 6992, missing 0, conflicts 0, errors 0, skipped 18, not imported 52 | **Passed 3240**, the family debt compared up to 2026-09-30, waiting 0; explained APP_EDITED: EQUITY RUB -2.50, LOANS_ASSET RUB -2.50 | changed in the app, the file unchanged: 211, 2839 (211: EQUITY RUB -2.50 and LOANS_ASSET RUB -2.50 from 2018-01-23); re-planned 0; hash stored again 0; can't be re-planned after the claim 30 (D-73: 752, 755, 756, 2122, 2257; the lumps `PL:2017-11:RUB` to `PL:2019-11:RUB`, 25); categories merged OTHERINC, CASHBACK, CHARITY |
+| the partner's dry run | "Your transactions file: 12762 rows"; 100 of 12762 after the date | created 0, updated 0, unchanged 20356, missing 0, conflicts 0, errors 0, skipped 79, not imported 188 | **Passed 2822**, the family debt up to 2026-09-30, waiting 0 | every group empty; no category merged |
+| the owner's commit (to show the merge) | header "Commit: the import was saved"; Commit off after it | as his dry run | as his dry run | as his dry run; the three personal categories merged: categories 95 to 92, the participants with no personal category of a family code left |
+| the owner's dry run again | | as his first | Passed 3240, APP_EDITED as before | as before, but no category merged |
+| the partner's dry run again | | as his first | Passed 2822 | every group empty |
+
+Integrity `[]` for both after the commit. Production's 12.8 on the same state, with `2cfeec0`, showed Failed 3240 on
+EQUITY RUB and LOANS_ASSET RUB: the same two rows, now explained (D-223).
+
 ---
 
 ## Deployed revisions
@@ -1203,7 +1260,8 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
-| 2026-10-24 | `2cfeec0`; the database: the partner's claim and his own import | D3c-run, [step 11](#11-the-partner-takes-his-place-and-imports-his-own-excel), in the browser, the owner and the partner. 11.1: `export-2026-10-21`'s nine files matched step 11.1's SHA-256. 11.2: dump `finance-2026-10-24T1123Z.dump` (11:23:12Z), 3181343 bytes, restore test PASS: the way back below the claim. 11.2a: a first dry run took `export-2026-10-13`'s transactions files by mistake (7013 and 12651 rows; the reconciliation failed on EQUITY and LOANS_ASSET RUB); nothing saved (D-206 since). With `export-2026-10-21`: the 6 missing records (the owner's Excel IDs 2888, 3610, 4238, 4239, 5246 and 5792) deleted by the owner, then the dry run, the commit and the same again, as 11.2a expects (reported by the owner). 11.3: the partner's account empty (users with his email 1, entries 0, counterparties 0, family budgets 0). D-184's query: no user holds demo-like or unexplained rows; the owner's ledger 18440 entries created 2026-10-13 and 6 on 2026-10-24, 833 counterparties, 14 accounts and 5 categories beyond the starter ones, 2 import batches; three other users with nothing (the partner, and two accounts older than the end-to-end ones, D-184 closed). 11.4 and 11.5: the invite from 2019-12-01; the claim attached the records: `FAMILY_OPENING 1`, `FAMILY_PAYMENT 7819`, `FAMILY_SETTLEMENT 535`, `FAMILY_SHARE 10838`; `opening 2019-12-01 RUB 1708.2300`. 11.6: his dry run, exactly 11.1's numbers: created 3881, updated 8332, unchanged 7819, missing 0, conflicts 0, skipped 79 (76 `SAME_ACCOUNT_NOOP`), not imported 187; payment side 7819; settlements 465, 22 and 15 by tier, D-198 4, D-202 5 rows, ambiguous 0; conversions 2 of 2; 0 rows without a counterpart on either side; 187 benefit rows, 66 months, none differing; the reconciliation Passed at 2788 points; accounts 17 new and 5 updated, categories 5 new and 1 updated, payees 574 new; 84 warnings. 11.7: the owner's go. 11.8 the commit, 11.9 the integrity check `[]` for both, 11.10 the same import again 0 created and 0 updated, 11.11 the owner's dry run 0 created and 0 updated, Passed: as step 11 expects (reported by the owner). 11.12: dump `finance-2026-10-24T1253Z.dump`, 4696438 bytes, restore test PASS: users 4, ledgers 5, members 6, accounts 74, categories 92, counterparties 1407, entries 41520, postings 83409, unbalanced 0, family_records 12170, family_shares 23096, family_links 35049, family_journal 12182, family_invites 1. D3c-doc's local replay (D3b-run, 11.2a, the claim, his import, from D3c-accept2's run) gives the same numbers but for the two other users' starter ledgers (each 1 user, 1 ledger, 1 member, 10 accounts, 15 categories): entries 41520 = 18446 + the claim's 19193 + his 3881 (11.2a's 6 created, 3 settlements and 3 transfers, take the place of the 6 entries its deleted records had); family_records 12170 = 12167 + 11.2a's 3 new settlements (the owner's 7066, 7067, 7068), the 6 deleted records staying as rows marked deleted, and neither the claim nor his import up to 2026-08-31 creating one; family_journal 12182 = 12167 + 11.2a's 3 creations, 6 changes (the owner's corrected settlements) and 6 deletions (its 8 updates of the place's records changed only their stored hash, which writes no journal row); family_links 35049 = 15859 − 6 + 3 + the claim's 19193; accounts 74 = the owner's 25 + the partner's 29 (10 starter, `FAMILY_DEBT_<id>` and `UNSPECIFIED_PAYMENTS` from the claim, 17 from his accounts file) + 2 × 10; categories 92 = the owner's 18 + the family budget's 26 + the partner's 18 (15 starter less `GIFTS` and `LEISURE`, merged into the family budget's categories of those codes at the claim, D-11, plus his 5) + 2 × 15; counterparties 1407 = 833 + his 574. Every number follows. |
+| 2026-10-24 | `2cfeec0`; the database: September 2026 imported by both participants | Step 12's first run, [step 12](#12-monthly-import-two-participants), September 2026, `export-2026-10-21`, **Import up to 2026-09-30**, in the browser, the owner and the partner. 12.0: the gate as rehearsed. 12.1 at 14:12:44Z: no scheduled shutdown; the clone and `last-good` at `2cfeec0`, `finish=passed`; `verify D3c` OK with the figures' 24 before numbers; the participants as expected. 12.2: B1 `finance-2026-10-24T1413Z.dump`, 4696438 bytes, SHA-256 `733741370388c692fbed4fb84108f21f4578a93ffe284a1698e4fbce4a2d6338`, restore test PASS, B1's numbers as rehearsed. 12.3 and 12.4, the owner: the totals as rehearsed (57 created, 0 refused; the check again 0 and 0, unchanged 6992), but three failing lines where two were expected: EQUITY EUR 1 of 108 from 2026-09-30 worst 167.328088 (expected), EQUITY RUB 105 of 108 from 2018-01-31 worst 1222.00000487 (expected: 1 of 108 from 2026-09-30, 1224.50000487) and LOANS_ASSET RUB 105 of 108 from 2018-01-31 worst 2.50000063 (not expected). D-218: the partner's phase went ahead, the difference being the owner's personal entries only. The cause given then, a row mapped by an older code, was wrong: the owner's rows 211 and 2839 had been changed in the app on 2026-10-14 (version 1, imported 0) while their file rows stayed as imported, and D3b-run's code had mapped them as the current code does; 211's 2.50 RUB went from LOANS_ASSET to the equity (D3e, data/private/reports/D3e-part1.md). 12.5: B2 `finance-2026-10-24T1418Z.dump`, 4706966 bytes, SHA-256 `4e5bc94313c5970ee6f799cef58aeab8feacddc02caabca6bfd63b0a7845114a`, PASS, B2's numbers as rehearsed. 12.6 and 12.7, the partner: exactly as rehearsed (100 of 12762 after the date; 177 created, 6 updated, unchanged 20032; Passed 2822; the check again 0 and 0; integrity `[]` for both, confirmed by the owner). 12.8, the owner: 0 and 0, unchanged 6992; **Failed 3240** on exactly two lines, EQUITY RUB and LOANS_ASSET RUB, each 105 of 108 from 2018-01-31, worst 2.50006153 and 2.50000063 (D-218's expectation); EQUITY EUR passes; the family debt compared up to 2026-09-30, 0 differ. 12.9: B3 `finance-2026-10-24T1434Z.dump`, 4752011 bytes, SHA-256 `c051c06c46eb969fa2f85f6a7a199642b53c0375eb9f966d8916b1041b9a226f` (its name wasn't sent; D3e read it from the daily pull), PASS, confirmed by the owner. The import batches show that 12.4's and 12.7's checks again and 12.8's final dry run were pressed as **Commit**: batches 34 (14:21:04Z, the owner), 38 (14:30:17Z, the partner) and 40 (14:32:44Z, the owner), each 0 created and 0 updated, which changed nothing but the batches and the time of the cutoffs; so `import_batches` is 8 after step 12, not the figures' 5, which 12.10's numbers, confirmed in words, would have shown (D-222). 12.11: `main` at `2cfeec002342b7e57faaacf4fcf8169602fcaeaa`, clean. 12.12: the end-to-end suite from `2cfeec0`, 14:35:00Z to 14:37:08Z, `E2E_FAMILY` on, every spec passed but `new-family` (skipped by design, D-171), the cleanup deleted both accounts' data, password search 0 hits, `Result: PASSED`. |
+| 2026-10-24 | `2cfeec0`; the database: the partner's claim and his own import | D3c-run, [step 11](#11-the-partner-takes-his-place-and-imports-his-own-excel), in the browser, the owner and the partner. 11.1: `export-2026-10-21`'s nine files matched step 11.1's SHA-256. 11.2: dump `finance-2026-10-24T1123Z.dump` (11:23:12Z), 3181343 bytes, restore test PASS: the way back below the claim. 11.2a: a first dry run took `export-2026-10-13`'s transactions files by mistake (7013 and 12651 rows; the reconciliation failed on EQUITY and LOANS_ASSET RUB); nothing saved (D-206 since). With `export-2026-10-21`: the 6 missing records (the owner's Excel IDs 2888, 3610, 4238, 4239, 5246 and 5792) deleted by the owner, then the dry run, the commit and the same again, reported by the owner as 11.2a expects; but their reconciliation failed on EQUITY RUB and LOANS_ASSET RUB, 2.50 from 2018-01-31 (the commit's import batch records it as failed): the owner's rows 211 and 2839, changed in the app on 2026-10-14 (D3e found it on B1; the earlier text came from a report in words, D-222). The first dry run's failure with the wrong files had the same cause. 11.3: the partner's account empty (users with his email 1, entries 0, counterparties 0, family budgets 0). D-184's query: no user holds demo-like or unexplained rows; the owner's ledger 18440 entries created 2026-10-13 and 6 on 2026-10-24, 833 counterparties, 14 accounts and 5 categories beyond the starter ones, 2 import batches; three other users with nothing (the partner, and two accounts older than the end-to-end ones, D-184 closed). 11.4 and 11.5: the invite from 2019-12-01; the claim attached the records: `FAMILY_OPENING 1`, `FAMILY_PAYMENT 7819`, `FAMILY_SETTLEMENT 535`, `FAMILY_SHARE 10838`; `opening 2019-12-01 RUB 1708.2300`. 11.6: his dry run, exactly 11.1's numbers: created 3881, updated 8332, unchanged 7819, missing 0, conflicts 0, skipped 79 (76 `SAME_ACCOUNT_NOOP`), not imported 187; payment side 7819; settlements 465, 22 and 15 by tier, D-198 4, D-202 5 rows, ambiguous 0; conversions 2 of 2; 0 rows without a counterpart on either side; 187 benefit rows, 66 months, none differing; the reconciliation Passed at 2788 points; accounts 17 new and 5 updated, categories 5 new and 1 updated, payees 574 new; 84 warnings. 11.7: the owner's go. 11.8 the commit, 11.9 the integrity check `[]` for both, 11.10 the same import again 0 created and 0 updated, 11.11 the owner's dry run 0 created and 0 updated, as step 11 expects, but its reconciliation failed on EQUITY RUB and LOANS_ASSET RUB, 104 of 107 from 2018-01-31, worst 2.50006153 and 2.50000063, by rows 211 and 2839 (D3e ran the same dry run on B1, the state 11.11 saw; the earlier "Passed" came from a report in words). 11.12: dump `finance-2026-10-24T1253Z.dump`, 4696438 bytes, restore test PASS: users 4, ledgers 5, members 6, accounts 74, categories 92, counterparties 1407, entries 41520, postings 83409, unbalanced 0, family_records 12170, family_shares 23096, family_links 35049, family_journal 12182, family_invites 1. D3c-doc's local replay (D3b-run, 11.2a, the claim, his import, from D3c-accept2's run) gives the same numbers but for the two other users' starter ledgers (each 1 user, 1 ledger, 1 member, 10 accounts, 15 categories): entries 41520 = 18446 + the claim's 19193 + his 3881 (11.2a's 6 created, 3 settlements and 3 transfers, take the place of the 6 entries its deleted records had); family_records 12170 = 12167 + 11.2a's 3 new settlements (the owner's 7066, 7067, 7068), the 6 deleted records staying as rows marked deleted, and neither the claim nor his import up to 2026-08-31 creating one; family_journal 12182 = 12167 + 11.2a's 3 creations, 6 changes (the owner's corrected settlements) and 6 deletions (its 8 updates of the place's records changed only their stored hash, which writes no journal row); family_links 35049 = 15859 − 6 + 3 + the claim's 19193; accounts 74 = the owner's 25 + the partner's 29 (10 starter, `FAMILY_DEBT_<id>` and `UNSPECIFIED_PAYMENTS` from the claim, 17 from his accounts file) + 2 × 10; categories 92 = the owner's 18 + the family budget's 26 + the partner's 18 (15 starter less `GIFTS` and `LEISURE`, merged into the family budget's categories of those codes at the claim, D-11, plus his 5) + 2 × 15; counterparties 1407 = 833 + his 574. Every number follows. |
 | 2026-10-24 | `2cfeec0`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `2cfeec0`, run #12 (id `40088612571`), `workflow_dispatch` on `main` at `2cfeec0`, attempt 1: Backend, Frontend, Web image and Deploy scripts completed with success. Its check runs belong to `2cfeec0`, deployed and finished, so they hold up no deploy. |
 | 2026-10-24 | `2cfeec0`; nothing changed | D3c's rollback acceptance: `deploy/rollback.sh 1d3b811`, run folder `/var/lib/finance-deploy/runs/2026-10-24T110625Z-rollback-1d3b811`: Flyway 15 against the target's V14, no condition line (V14's condition, D-148, is only for a target below V14, and V15 has none). Answered `no`: REFUSED, nothing changed. The read-only state block before and after wasn't run; the script's own lines named the target and its images. The rollback target is `1d3b811`. |
 | 2026-10-24 | `2cfeec002342b7e57faaacf4fcf8169602fcaeaa` (docs: D3c-accept2's run, step 11 and D3c's checklist ready for the deploy (D3c-accept2)), M | D3c (D-174 to D-202: the partner's claim from a past join date, each member's own import, D3c-fix, D3c-fix2, D3c-accept and D3c-accept2), Flyway V15, the switch on. Push: `main` and `feature/family-budget` `1d3b811..2cfeec0`; CI #79 (id `40087342003`, `main`) and #80 (id `40087342054`, `feature/family-budget`), attempt 1, 10 check runs, all success. Pre-flight at 11:00:08Z as expected. `verify D3b`: OK at 11:00:23Z, 22 numbers (accounts 45, categories 74, counterparties 833, entries 18446, family_records 12167, family_shares 23096, family_links 15859, family_journal 12167, import_batches 1, users 3). `deploy/deploy.sh run 2cfeec002342b7e57faaacf4fcf8169602fcaeaa D3c`, run folder `/var/lib/finance-deploy/runs/2026-10-24T110036Z-2cfeec0`. 1.8: dump `finance-2026-10-24T1100Z.dump`, 3174023 bytes, SHA-256 `3cab6b6969aaa62ba211e17223b1a7174eeb28b5ab7875fbc7c71cade78510ed`; restore test PASS (migration 14); preserved in the run folder. 3.2: `1d3b811`'s images kept as `:1d3b81138e95ea468d3ca8546dd04225719cb188` and `:previous`; `39e6e61`'s tags removed. 3.3: api image `sha256:4ff9fc91…` (content `sha256:f9152689…`), web image `sha256:50f1f557…` (content `sha256:5ffac006…`). 4.1: V15 applied at 11:02:11Z in 0.023 s, the api started at 11:02:14Z. 4.3: the same numbers. 4.4: `D3c.expected`'s 12 lines. 4.6: dump `finance-2026-10-24T1102Z.dump`, 3181343 bytes, SHA-256 `8a030a9516dd…`; restore test PASS (migration 15, 22 tables). The end-to-end suite (`E2E_FAMILY=on`), 11:03:06Z to 11:05:34Z: `Result: PASSED`, `member-import` passed, `new-family` skipped by design (D-171), password search 0 hits. `finish`: yes at 11:06:03Z and 11:06:04Z; `last-good` at 11:06:05Z. `verify D3c`: OK at 11:06:13Z, 24 numbers (`family_import_cutoffs=0`, `imported_family_sides=0`). |
@@ -1272,43 +1330,50 @@ prints a row's text (no pipe character in it).
 ### Production now
 
 As of 2026-10-24, after D3c's deploy (`finish` passed, `last-good` at 2026-10-24T11:06:05Z; `verify D3c` OK; its
-rollback acceptance answered `no`, nothing changed) and D3c-run (step 11, the 11.12 restore test PASS):
+rollback acceptance answered `no`, nothing changed), D3c-run (step 11) and step 12's first run (September 2026, B3
+`finance-2026-10-24T1434Z.dump` the state it left):
 
 - `2cfeec002342b7e57faaacf4fcf8169602fcaeaa` (D3c with D3c-fix, D3c-fix2, D3c-accept and D3c-accept2, on D3b-accept,
   D3b, F8f, F8e, F8d, F8c, F8, QA-1 and QA-1b) on Flyway V15, `last-good` naming `2cfeec0`. Family budgets are switched
   on since 2026-10-03T09:25:40Z. The containers run api `sha256:4ff9fc91…` (content `sha256:f9152689…`) and web
   `sha256:50f1f557…` (content `sha256:5ffac006…`), "the recorded image" for `verify`.
-- **Both members' histories are imported**: the owner's (D3b-run, 2026-10-13, up to 2026-08-31; his settlements
-  corrected by `export-2026-10-21` in 11.2a, D-201) and the partner's (D3c-run, 2026-10-24): he took his place in the
-  family budget from 2019-12-01 and imported his own export up to 2026-08-31. From now on each of them imports only his
-  own file (D-175); the owner's import page takes no partner's file any more. The 11.12 restore test: users 4, ledgers
-  5, members 6, accounts 74, categories 92, counterparties 1407, entries 41520, postings 83409, family_records 12170,
-  family_shares 23096, family_links 35049, family_journal 12182, family_invites 1 (the row above explains each). These
-  numbers change whenever either of them writes in the app: a checklist expects the numbers its own `verify` printed.
-- **The next import with a later "Import up to"** (either member's) is checked first on a throwaway database (D-204).
-  D3c-doc did it for 2026-09-30 on `export-2026-10-21` (data/private/reports/D3c-doc.md): the owner's import first,
-  then the partner's, then the owner's dry run again; both commit with 0 refused rows, and both reconciliations pass
-  once both Septembers are in. The order matters: his settlement rows need the owner's settlements, so his import
-  before the owner's refuses them (D-178), and the owner's reconciliation fails at the new month-end only on EQUITY,
-  by the owner's shares of the partner's records that only the partner's own import brings. Another export or cutoff needs the check again.
-  That import is [step 12](#12-monthly-import-two-participants); its September 2026 figures were rehearsed by D3d-doc.
+- **Both members' histories are imported up to 2026-09-30**: the owner's (D3b-run up to 2026-08-31, corrected in
+  11.2a, and step 12) and the partner's (D3c-run from his claim of 2019-12-01, and step 12). Each imports only his own
+  file (D-175). B3's restore test: users 4, ledgers 5, members 6, accounts 74, categories 95, counterparties 1410,
+  entries 42124, postings 84617, family_records 12358, family_shares 23460, family_links 35607, family_journal 12370,
+  family_invites 1; `import_batches` 8 (three of them step 12's commits pressed for checks, D-222). These numbers change
+  whenever either of them writes in the app: a checklist expects the numbers its own `verify` printed.
+- **The owner's reconciliation fails by 2.50 RUB until D3e's code explains it**: EQUITY RUB and LOANS_ASSET RUB, 105 of
+  108 month-ends from 2018-01-31, worst 2.50006153 and 2.50000063, on `2cfeec0`. Its cause is the owner's rows 211 and
+  2839, changed in the app on 2026-10-14 while their file rows stayed as imported (D-218); the owner keeps them as
+  edited (D3e's task). With D3e's code they are "changed in the app, the file unchanged" and explained as APP_EDITED,
+  and the owner's reconciliation passes, 3240 points (D-219, D-223; [D3e's rehearsal from
+  B3](#d3es-rehearsal-from-b3-september-again)). The partner's passes, 2822 points.
+- **Three personal categories of the owner's share a family category's code** (OTHERINC, CASHBACK, CHARITY), unused:
+  `2cfeec0`'s 12.4 commit made them, since its owner's import no longer maps the codes that only the partner's records
+  use to the family budget's. D3e maps them and merges such twins at the next import's commit (D-224); nothing is done
+  for them before.
+- **The next import with a later "Import up to"** (October 2026) is [step 12](#12-monthly-import-two-participants),
+  rehearsed first from production's latest dump (D-220, `scripts/rehearsal-db.sh`) with the code then deployed; its
+  figures replace September's.
 - The rollback state: the previous-commit file names `1d3b811` (D3b-accept-fix, V14). `rollback.sh`'s target is
   `1d3b811`, with no condition of its own (V15 is additive; V14's condition, D-148, is only for a target below V14);
   `rollback.sh 1d3b811` was answered `no` in the acceptance (REFUSED, no condition line). That code reads the claim
   and both members' rows, but refuses the owner's import while the partner's place has an account and has no member's
-  own import. **Below the claim only by a restore**: `finance-2026-10-24T1123Z.dump` (11.2's, taken before 11.2a),
-  which loses 11.2a's corrections, the claim, his import and everything written after 11:23Z; **below V14 only by a
-  restore**: `finance-2026-10-13T2054Z.dump` (10.2's), which loses both imports. The way back from the family
-  budget is `deploy/deploy.sh switch off`, which leaves the data.
-- The end-to-end suite from `2cfeec0` passed on production (2026-10-24, `E2E_FAMILY=on`, `Result: PASSED`,
-  `member-import` passed, `new-family` skipped by design, D-171).
+  own import. **Below step 12's September** only by a restore of B1 `finance-2026-10-24T1413Z.dump` (both
+  participants' September) or B2 `finance-2026-10-24T1418Z.dump` (the partner's); **below the claim only by a
+  restore**: `finance-2026-10-24T1123Z.dump` (11.2's, taken before 11.2a), which loses 11.2a's corrections, the claim,
+  his import and everything written after 11:23Z; **below V14 only by a restore**: `finance-2026-10-13T2054Z.dump`
+  (10.2's), which loses both imports. The way back from the family budget is `deploy/deploy.sh switch off`, which
+  leaves the data.
+- The end-to-end suite from `2cfeec0` passed on production twice: after D3c's deploy and at step 12.12 (2026-10-24,
+  14:35:00Z to 14:37:08Z, `E2E_FAMILY=on`, `Result: PASSED`, `new-family` skipped by design, D-171).
 - "CI on Ubuntu 26.04" for `2cfeec0`: run #12 (id `40088612571`), success.
-- `main` and `feature/family-budget` were at `2cfeec0` and pushed when D3c was deployed. CI for `2cfeec0`: #79 and #80,
-  10 check runs, all success (D-95).
-- D3c's, D3b-accept's, D3b's and F8f's checklists below stay as their records and are used for no other deploy. D3c-doc
-  (these facts, D-184 closed, D-203 to D-206, step 11's queries; `346d325`, pushed) and D3d-doc (step 12, not pushed)
-  are documentation and a check file only, on `feature/family-budget`; they reach the server's clone with the next
-  deploy. Step 12 runs from this runbook on the laptop; its server blocks need nothing from the clone.
+- `main` is at `2cfeec0`; `feature/family-budget` holds D3c-doc's and D3d-doc's documentation commits (`346d325`,
+  `bc49f65`, pushed, D-211) and D3e's, not pushed. CI for `2cfeec0`: #79 and #80, 10 check runs, all success (D-95).
+- D3e's checklist below is for D3e's deploy only, once the PM has accepted D3e; D3c's, D3b-accept's, D3b's and F8f's
+  stay as their records and are used for no other deploy.
+  Step 12 runs from this runbook on the laptop; its server blocks need nothing from the clone.
 
 ### Automatic reboots
 
@@ -1335,6 +1400,343 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   2026-10-08 04:00Z), and the strict rule would block deploys for most of that day. `verify` and `finish` print the line
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
+
+## D3e's deploy checklist with the suite
+
+**Commit to deploy (M):** `feature/family-budget`'s head after D3e, the last commit D3e's report names in full. M holds
+this checklist, so the checklist can't name M's hash itself: the report does, and every block below that takes it says
+`<M>`; type M's full hash (40 characters) there before pasting the block. Pasted as it is, bash reads `<M>` as a
+redirection from a file `M` that doesn't exist, and runs nothing. **Stage:** `D3e` (`deploy/checks/D3e.sql` and
+`D3e.expected`, 6 lines: Flyway V15 and the import's invariants). D3e is the import's comparison with what the ledger
+holds (D-219: unchanged, the hash stored again, changed in the app with the file unchanged, re-planned, can't be
+re-planned after the claim), D-223's explanation of rows changed in the app, the family budget's codes in the owner's
+import (its personal twins merged, D-11), the import page's file count before a check (D-221) and its Commit button,
+and `scripts/rehearsal-db.sh` (D-214, D-220, laptop only); with D3c-doc's and D3d-doc's documentation commits before it
+(D-211). **Migration:** none. **It writes no data** (D-224): the three twins merge and any hash is stored again at
+October's import (step 12), rehearsed from production's dump. **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since
+2026-10-03T09:25:40Z) before, during and after this deploy. **The suite:** run from a clean checkout of M itself, with
+`E2E_FAMILY=on`; it replaces the browser checks and the smoke test (D-51, D-56); its specs are D3c's, `import` now also
+reading the file count before the check, the report's header and Commit off after a commit. **The rollback target:**
+`2cfeec0` (D3c's code on V15), with no condition of its own: D3e has no migration, and `2cfeec0`'s code reads every row
+D3e's import writes (re-planned rows and records as edited ones, hashes stored again, a merged category gone); its own
+next import would make the twins again and show the owner's 2.50 RUB unexplained, as before D3e, without harm to any
+row. **The time (D-125):** no step of this checklist between 03:30 and 04:30 UTC, when the host may reboot by itself; the
+last block (a rollback for a site that is down) is the exception. This checklist is for this deploy only.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
+`cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it
+does nothing. A command that asks a question (`deploy.sh run`, `finish`, `rollback.sh`, and on the laptop
+`npm run e2e:prod`) is alone in its block; type its answer on the keyboard, after the question, never paste it. Every
+laptop git command that can page runs as `git --no-pager`, and a dirty tree stops a chain (`test -z "$(git status
+--porcelain)"`), D-127. Each step closes with its output pasted, never a confirmation in words (D-222).
+
+What runs and why:
+
+- `run` is the clone's script, `2cfeec0`'s (bash reads it, with `common.sh`, before the merge), which applies D-126 and
+  D-131 by itself: its step 1.1 prints `Scheduled shutdown: none (…)`, or a reboot with how far away it is and goes on,
+  and refuses a scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-128), before CI,
+  any backup and any image. Step 2 still prints the file (D-127). Step 1.3 requires M to be `origin/main` after `git
+  fetch` and a fast-forward of `HEAD` (`2cfeec0`), lists the commits from `2cfeec0` to M (D3c-doc's `346d325`, D3d-doc's
+  `bc49f65`, then D3e's, the last of them M), `Migrations added: none`, and under `deploy/` four files: `RUNBOOK.md`,
+  `checks/D184.sql` (D3c-doc's, read by no script), `checks/D3e.expected` and `checks/D3e.sql`. `finance.caddy`, the
+  postgres service and `pg-backup/finance.conf` don't change.
+- Both images' build contexts change (`backend/`, `frontend/`): both are rebuilt with new content and recreated, and
+  signed-in browser sessions end. The api finds the schema up to date (`Schema "app" is up to date. No migration
+  necessary.`) and starts.
+- 1.7 and 4.3 count the numbers with `numbers.sql` (24 numbers, unchanged since D3c), the same before and after.
+- 3.2 keeps the running images (`2cfeec0`'s api `sha256:4ff9fc91…`, web `sha256:50f1f557…`) as
+  `:2cfeec002342b7e57faaacf4fcf8169602fcaeaa` and `:previous`, `/root/finance-tracker.previous` then names `2cfeec0`,
+  and it removes the tags of the oldest revision it keeps, as "Deploying with deploy.sh" says.
+- 4.4 compares `D3e.sql`'s output with `D3e.expected`, which D3e tried on B3 restored. A difference in any line is a
+  fault: stop and send the diff to the PM.
+- **The rollback target after this deploy is `2cfeec0`** (D3c's code and deploy scripts on V15), with no condition of
+  its own.
+- `finish` has no time limit after `run`'s summary; run nothing else of `deploy.sh` or `rollback.sh` between `run` and
+  `finish` but what this checklist names.
+
+**0. On the laptop, read only: where things stand.** Before anything else; type M.
+
+```bash
+# On the laptop
+M=<M>; cd ~/dev/finance-tracker && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
+```
+
+You should see `HEAD` M with D3e's last subject (on `feature/family-budget`); `origin/main`
+`2cfeec002342b7e57faaacf4fcf8169602fcaeaa` (D3c, deployed); `origin/feature/family-budget`
+`bc49f65…` (D3d-doc) or M if D3e is pushed already; `346d325`, `bc49f65` and D3e's commits, `2cfeec0..M`, the last of
+them M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any line of `git status`: stop
+and tell the PM.
+
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted D3e
+and named M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see a fast-forward of `main` from `2cfeec0` (`Updating 2cfeec0..` and M's 7 characters), the push of both
+branches (`2cfeec0..` M's 7 characters on `main`, `bc49f65..` on `feature/family-budget`), and M in full with its parent
+and D3e's last subject: exactly the commit D3e's report names. A dirty tree stops the chain before the merge, with no
+message: run `git status` and tell the PM. If the merge says `Not possible to fast-forward`, or the hash is another,
+stop. CI starts with the push, on M; don't start "CI on Ubuntu 26.04" now (step 9 says when, D-44).
+
+CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about fifteen minutes). First the
+runs with their jobs; type M:
+
+```bash
+# On the laptop
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+```
+
+You should see `2 runs`: `CI`, `push`, once on `main` and once on `feature/family-budget` (D-95), attempt 1, each
+`completed success`, each with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` and `Dependency
+updates`, `completed success`. No "CI on Ubuntu 26.04" run (step 9 is later). Then the check runs, which `run`'s gate
+(1.5) counts:
+
+```bash
+# On the laptop
+M=<M>; curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see `10`, then the five names twice each, each `completed success`. The two Backend runs ran the test
+classes in random order with their run numbers as seeds (D-99); a failure of either is a real fault: stop. A failure
+only of the Frontend job may be re-run once (D-94); if the re-run passes the deploy goes on, if it fails again stop.
+Anything else: stop; `run`'s gate would refuse anyway.
+
+**2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-api:1d3b81138e95ea468d3ca8546dd04225719cb188 finance-tracker-web:previous finance-tracker-web:latest finance-tracker-web:1d3b81138e95ea468d3ca8546dd04225719cb188; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Successfully applied|Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+}
+```
+
+You should see, as "Production now" left it after D3c's deploy, D3c-run and step 12 (2026-10-24):
+
+- `Now:` outside 03:30 to 04:30 UTC (D-125), with the seconds since the epoch.
+- `Scheduled shutdown: cat: /run/systemd/shutdown/scheduled: No such file or directory`: nothing is scheduled. A
+  scheduled reboot isn't a stop by hand: `run` (`2cfeec0`'s) decides by D-131 itself in its step 1.1. Start step 4 only
+  if the reboot is at least 2 hours after the moment you start it; otherwise `run` refuses, which changes nothing. Send
+  the line to the PM either way.
+- `Reboot required:` either `No such file or directory` or `*** System restart required ***`; the second is not a stop
+  by itself (the line above says whether a reboot is scheduled).
+- Docker server 29.8.2, linux/amd64 (or a later patch the PM knows of); Compose; `Image store:
+  [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: 2cfeec002342b7e57faaacf4fcf8169602fcaeaa docs: D3c-accept2's run, step 11 and D3c's checklist ready for the
+  deploy (D3c-accept2)`; `git status --short` printing **nothing**, so only `previous file:
+  1d3b81138e95ea468d3ca8546dd04225719cb188` follows.
+- `last-good`: `commit=2cfeec002342b7e57faaacf4fcf8169602fcaeaa`, `api_image=sha256:4ff9fc91…`,
+  `web_image=sha256:50f1f557…`, `web_content=sha256:5ffac006…`, the api's content `sha256:f9152689…`, `source=deploy`,
+  `finish=passed 2026-10-24T11:06:05Z`. `contents` holds the contents of the revisions it keeps, `2cfeec0`'s among them.
+- The history ending with D3c's `good 2cfeec0…` lines (its refused rollback acceptance writes none). The newest run
+  folders D3c's run (`2026-10-24T110036Z-2cfeec0`) and, last, its rollback acceptance
+  (`2026-10-24T110625Z-rollback-1d3b811`, refused).
+- The containers on api `sha256:4ff9fc91…` (content `sha256:f9152689…`) and web `sha256:50f1f557…` (content
+  `sha256:5ffac006…`). If the host rebooted since, both show that reboot's time: not a stop by itself, but say so.
+- `:previous` and `:1d3b811…` as D3c's 3.2 left them (`1d3b811`'s api `sha256:54044fea…`, web `sha256:3bf6839b…`);
+  `:latest` the running images; the listing's other `finance-tracker-` tags those of the revisions D3c's 3.2 kept. No
+  tag of `2cfeec0…` yet: this deploy's 3.2 creates it.
+- The log lines of the api's start by D3c's run: `Successfully applied 1 migration to schema "app", now at version
+  v15`, the D-25 line "on" and `Started FinanceTrackerApplication`; `1`; `600 root` for `.env` and its copies.
+
+If anything differs, stop and send it to the PM: a difference in the images or `last-good` changes what 3.2 does.
+
+**3. On the server: verify, read only**, with the running script.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify D3c
+```
+
+You should see `verify D3c at 2cfeec0 …: OK`, its `Scheduled shutdown:` line, both images "the recorded image",
+`Image store: containerd, platform linux/amd64`, the pages 5 of 5, Flyway V15, the D-25 line "on", `D3c.expected`'s 12
+lines, and the 24 numbers as step 12 left them: as step 12's figures' **after** list but `import_batches=8` (D-222):
+`accounts=74`, `categories=95`, `counterparties=1410`, `entries=42124`, `family_accounts=2`, `family_import_cutoffs=2`,
+`family_invites=1`, `family_journal=12370`, `family_ledgers=1`, `family_links=35607`, `family_members=2`,
+`family_members_active=2`, `family_members_former=0`, `family_members_left=0`, `family_records=12358`,
+`family_shares=23460`, `import_batches=8`, `imported_entries_deleted=0`, `imported_family_sides=8501`,
+`outside_their_ledger=0`, `personal_ledgers=4`, `personal_members=4`, `settings=4`, `users=4`. Keep them: step 4 prints
+them again, and step 7 compares with them. A participant writing in the app since explains a difference in his own
+lines only: say so before going on.
+
+**4. On the server: the deploy**, alone in its block, not between 03:30 and 04:30 UTC; type M's 7 characters at the
+confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> D3e
+```
+
+It prints ("Deploying with deploy.sh" lists the steps):
+
+- 1.1: `Tools present: …` and `Scheduled shutdown: none (…)` (or a reboot with its distance, at least 2 hours away; less,
+  and it refuses here, D-131).
+- 1.2: `HEAD: 2cfeec0 docs: D3c-accept2's run, step 11 and D3c's checklist ready for the deploy (D3c-accept2)`, the
+  running images, `Last good deploy: 2cfeec0 … (deploy)`, its status `good`, both images "the recorded image", the
+  read-only role's line.
+- 1.3: the fetch; the commits from `2cfeec0` to M listed above, the last of them M; `Migrations added: none`; under
+  `deploy/` the four files listed above.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (…)`. 1.6: the D3e files. 1.7: the 24 numbers of step 3.
+- 1.8: a fresh dump, its restore test `PASS`, and the before-dump preserved in the run folder (D-43), with its SHA-256.
+  **Note the dump's name**.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage D3e, over 2cfeec0.` and the commits line; type the 7 characters.
+- 3.1: `git merge --ff-only <M>`: `Fast-forward` and the files. 3.2: the running images kept as
+  `:2cfeec002342b7e57faaacf4fcf8169602fcaeaa` and `:previous`, and the oldest kept revision's tags removed. 3.3: api
+  built (Maven: a few minutes), web built. 3.4: both recreated. 3.5: `api: healthy, web: healthy`. 3.6: `Pages: 5 of 5
+  as expected`.
+- 4.1: Flyway's `Schema "app" is up to date. No migration necessary.`, `Latest row: 15 member import true; the highest
+  migration in <M>: V15` and `Started: …` of this deploy's time. 4.2: the D-25 line "on". 4.3: `The same numbers`. 4.4:
+  the 6 lines of `D3e.expected`. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump and `PASS`
+  (migration 15).
+- 5: the summary, with `Numbers: the same before and after (…)` (keep it for step 7), then `Left for you: …
+  deploy/deploy.sh finish`: here, the suite of step 5.
+
+A FAILED line: stop, read it, and send it to the PM; it prints the rollback command, which isn't run. The way back is
+the last block, and only for a failed deploy.
+
+**5. On the laptop: the end-to-end suite against production** (D-51, D-56), not between 03:30 and 04:30 UTC, from a
+clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. If nothing prints after the checkout, the tree is dirty: stop. If the commit is another, stop.
+
+Then the suite, alone in its block. Read its banner (the target https://app.finance-nl.com, `e2e-a
+(e2e-a@finance-nl.com)`, `e2e-b (e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, M and "clean tree"), then type `E2E PROD`
+after the question and press Enter.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary into the chat, from `===== E2E summary =====` to `=======================`. You should see `Commit:`
+M `(clean tree)`, `E2E_FAMILY: on`, `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`,
+`family F8 passed`, `family F8d passed`, `import passed` (A's synthetic import, now with its file's 25 rows counted
+before the check, the report's header, and Commit off after the files are committed), `member import passed`,
+`new-family skipped` (D-163's spec, local only, with its reason), `time-zone passed` (2 tests), `cleanup passed`, both
+accounts `sign-in checked (/api/me: …)` with their data deleted and signed out, `Password search over the artifacts: 0
+hits` and `Result: PASSED` (a skipped spec doesn't fail it).
+
+- A second run is allowed once, after fixing the cause, only if the first stopped before sending anything (D-58). After
+  a failed sign-in or `ABORTED` there is no retry: do the checks of [OPS-2b's
+  appendix](#appendix-ops-2bs-browser-checks-and-smoke-test-by-hand) by hand, and answer `finish` from them.
+- If a spec or the cleanup failed (`Result: FAILED`): don't run `finish` until the PM has read the summary (D-59).
+- Left to check by hand, each with its reason: **the participants' own imports with D3e's code** (the sync groups,
+  APP_EDITED, the twins' merge), which are October's step 12 (D-224), rehearsed from production's dump; D3e rehearsed
+  them from B3 ([D3e's rehearsal from B3](#d3es-rehearsal-from-b3-september-again)). **D-163's first sign-in**: as
+  D3b-accept's checklist says.
+
+**6. On the server: finish**, only after step 5, alone in its block; type `yes` or `no` to each question: `yes` to both
+only if step 5's summary says `Result: PASSED` with 0 password hits (or, after a run that stopped before the specs, only
+if the appendix's checks passed in full); otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-<M's 7 characters>`, its `Scheduled shutdown:` line,
+the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before the deploy", the
+images and "Done". After `no`: `NOT PASSED: …`, exit status 3, and the rollback command, which isn't run.
+
+**7. On the server: verify D3e, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify D3e
+```
+
+You should see `verify D3e at <M's 7 characters> …: OK`, its `Scheduled shutdown:` line, both images "the recorded
+image", the pages 5 of 5, Flyway V15, the D-25 line "on", `D3e.expected`'s 6 lines, and the 24 numbers of step 3, the
+same. A real user writing meanwhile explains a difference in their own lines only; judge it before going on.
+
+**8. Acceptance: `rollback.sh 2cfeec0` goes to its question**, changing nothing. Each block alone, in this order.
+
+The rollback state, before:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous finance-tracker-api:2cfeec002342b7e57faaacf4fcf8169602fcaeaa finance-tracker-web:2cfeec002342b7e57faaacf4fcf8169602fcaeaa; cat /var/lib/finance-deploy/last-good; }
+```
+
+You should see `2cfeec002342b7e57faaacf4fcf8169602fcaeaa`; the api's and the web's previous images twice each
+(`sha256:4ff9fc91…` and `sha256:50f1f557…`, or other IDs of the same content); and `last-good` with `commit=` M and
+`finish=passed …`.
+
+`rollback.sh 2cfeec0`, alone in its block; type `no` at its question.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh 2cfeec0
+```
+
+You should see in step 1 `Scheduled shutdown: none (…)` (a scheduled one would only be a `WARNING`) and the image store
+and platform; step 2 `Target: 2cfeec0 docs: D3c-accept2's run, step 11 and D3c's checklist ready for the deploy
+(D3c-accept2), the commit HEAD's deploy replaced (…-<M's 7 characters>); its status, its newest line in the history:
+good`; step 3 the images accepted; step 4 `Flyway's latest row: 15 member import true; the target's highest migration:
+V15` and no condition line (the conditions are for targets below V7, V11, V13 and V14); then the question, and after
+`no`: `REFUSED at "5. Confirmation": not confirmed` and "Nothing changed." Then the block "The rollback state, before"
+again: the same lines.
+
+**9. CI on Ubuntu 26.04 (D-44, D-124)**, last, only now, on M deployed and finished. On GitHub, Actions → "CI on Ubuntu
+26.04" → "Run workflow" on `main`, **exactly once**, and wait for it to the end (about fifteen minutes). If `main` has
+moved past M by then, run it under D-60: a temporary branch at exactly M, deleted afterwards. Then, read only, type M:
+
+```bash
+# On the laptop
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], "id", r["id"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+```
+
+You should see `1 runs`: `CI on Ubuntu 26.04`, its number and id, `workflow_dispatch main attempt 1 completed success`,
+and Backend, Frontend, Web image and Deploy scripts each `completed success`. Two runs mean a second dispatch, which
+cancels the first (D-124): send both to the PM. Send the output to the PM.
+
+**10. Last, only for a failed deploy where the site is down: the rollback**, alone in its block, at any hour; type
+`ROLLBACK 2cfeec0` at its question. It goes to `2cfeec0`, D3c's code and deploy scripts on V15, with no condition of its
+own. A scheduled shutdown, however near, is only a warning here (D-126, D-131).
+
+```bash
+# On the server: only for a failed deploy where the site is down
+cd /opt/finance-tracker && deploy/rollback.sh 2cfeec0
+```
 
 ## D3c's deploy checklist with the suite
 

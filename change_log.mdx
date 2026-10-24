@@ -3,6 +3,96 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-24 · D3e: the import compares with what the ledger holds, the rehearsal from production's dump, step 12's first run recorded
+
+Three commits on `feature/family-budget` on top of `bc49f65` (not pushed, not merged): `7db9ba5` "feat: the import
+compares with what the ledger holds, the family's codes, the file count and Commit once (D3e)", `d89ce6a` "feat:
+scripts/rehearsal-db.sh, step 12's rehearsal from production's dump (D-214, D-220, D3e)", and the commit of this entry,
+"docs: step 12's first run, D-211 and D-213 to D-224, D3e's rehearsal and deploy checklist (D3e)". Nothing written to
+production; the server was reached once, in the task's first part, by the daily backup pull (read only). Nothing of
+`data/private/` committed.
+
+**Changes**
+- The import's sync (D-219), for both participants' personal entries and family records:
+  - `ImportSync.recognise(known, hash, planEqual)`: what the current code would write is compared with what the
+    ledger holds first, then the hash and the versions. The new outcomes are `RESTAMP`, `APP_EDITED` and `REPLANNED`.
+  - `ImportService` reads what the ledger holds. A personal entry is compared on its date, kind, payee, note and
+    postings. A family record is compared on its type, sign, date, currency, amount, category, payer, payee and split.
+  - Re-stamping writes only the hash. A re-planned row is written over as an edited one.
+  - After the claim the owner's D-73 rows and lumps are listed as "can't be re-planned" and never written.
+  - `ImportReport.sync` lists every group. `ImportReportMarkdown` prints them.
+  - D-190's precision edit that makes the same record is now re-stamped.
+- D-223: for a personal entry of the group "changed in the app, the file unchanged", what the ledger holds less what
+  the row maps to is the reconciliation's `APP_EDITED` (`Drift.Reason`). It is listed per account and currency.
+- The family budget's codes in the import: every code of the categories file that the budget has maps to its family
+  category. A personal twin that no posting uses merges into it (D-11): a dry run reports it, a commit does it. One
+  that postings use stays, with a warning.
+- The import page (`Import.tsx`, `api.ts`):
+  - D-221: the transactions file's rows are counted as soon as it is chosen.
+  - The report's header names a check, a commit, or a refused commit.
+  - Commit stays off after a commit until a file or the date changes.
+  - The sync groups and the merged categories are listed.
+- `scripts/rehearsal-db.sh` (D-214, D-220):
+  - Restores a dump into `finance-tracker-rehearsal-db` on tmpfs (production's pinned image, 127.0.0.1:5434).
+  - Maps the participants' subs onto the dev Keycloak's `testuser` and `testuser2`, every text column of schema `app`
+    that holds one, and nothing else. Checks that none is left.
+  - Prints the restore test's numbers. `--remove` removes the container.
+- Tests:
+  - `ImportSyncTests`: the new rules.
+  - `ImportApiTests`: rows 211's and 2839's cases; an untouched row re-planned (an entry and a record); an old hash
+    re-stamped with nothing written; the twins merged on a commit and not on a dry run, and one with postings left.
+  - `MemberImportApiTests`: the D-73 row after the claim in its group; the precision edit re-stamped.
+  - `Import.test.tsx`: the count, Commit after a commit, the headers, the groups.
+  - `e2e/specs/05-import.spec.ts`: the count, the header, Commit off after the files are committed.
+- `deploy/checks/D3e.sql` and `D3e.expected`: Flyway V15 and the import's invariants, 6 lines.
+- `deploy/RUNBOOK.md`:
+  - "Deployed revisions": step 12's first run, with B1 to B3, the three Commit presses (batches 34, 38 and 40,
+    `import_batches` 8) and D-218 with its corrected cause.
+  - D3c-run's row corrected: 11.2a's and 11.11's reconciliations failed by 2.50 RUB; the earlier text came from a report
+    in words.
+  - "Production now" after step 12.
+  - Step 12: the rehearsal from production's dump (D-220), D-221's count, D-222's rule, the reconciliation's rule, the
+    groups' meaning for STOP, and D3e's rehearsal figures.
+  - D3e's deploy checklist.
+- `docs/family-budget/requirements.md`: D-211 and D-213 to D-224, the twins' rule, D-190 amended, the planned stage.
+- `CLAUDE.md`: the sync's rules and the tool in the project map.
+
+**Verified**
+- `./mvnw -B clean verify` in `backend/`: exit 0, `Tests run: 578, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- `npm test` in `frontend/`: exit 0, `Test Files 30 passed (30)`, `Tests 389 passed (389)`, no errors. `npm run build`:
+  exit 0.
+- `npm run test:guards` in `e2e/`: exit 0, `tests 37`, `pass 37`, `fail 0`.
+- `npm run e2e:local`: exit 0, `Result: PASSED`, every spec passed at both widths, cleanup passed, 0 password hits.
+  The stack: the jar of `clean verify` on the host against a fresh PostgreSQL on tmpfs, Vite and the dev Keycloak.
+  `./dev.sh` builds images, which the laptop's 0.4 GB free couldn't take.
+  - Three runs before it failed: Chrome's `ERR_INSUFFICIENT_RESOURCES` and `ENOSPC` while the disk was full, then the
+    F8 spec without ECB rates, since the api had started with `ECB_RATES_ENABLED=false`.
+- `deploy/tests/run.sh`: exit 0, `102 passed, 0 failed, of 102 cases`. ShellCheck v0.11.0 on
+  `scripts/rehearsal-db.sh`: exit 0, no finding.
+- The rehearsal from B3 (`finance-2026-10-24T1434Z.dump`), restored by the tool, with every restore-test number equal
+  to B3's, through the import page as both dev users, Import up to 2026-09-30:
+  - The owner's dry run: 7068 rows counted before the check; 0 created, 0 updated, unchanged 6992.
+  - Passed 3240, with `APP_EDITED` EQUITY RUB -2.50 and LOANS_ASSET RUB -2.50.
+  - Changed in the app: 211 and 2839. Re-planned 0, re-stamped 0.
+  - Can't be re-planned after the claim: 30 (5 D-73 rows and 25 lumps; Part 1 had counted 31 by mistake).
+  - Merged: OTHERINC, CASHBACK and CHARITY.
+  - The partner's: 12762 rows, 0 and 0, unchanged 20356, Passed 2822, every group empty.
+  - The owner's commit merged the three (categories 95 to 92). Both dry runs again gave the same figures, with nothing
+    left to merge. Integrity `[]` for both.
+- `D3e.sql` on B3 equals `D3e.expected`. `numbers.sql` on B3 gives the 24 numbers D3e's step 3 expects
+  (`import_batches=8`).
+- `scripts/check-forbidden-names.sh` on the tree: no hit. This entry compiled with `@mdx-js/mdx`.
+
+**Open**
+- D3e isn't deployed. Its checklist is in the runbook; M is this entry's commit. D-224: no data step follows it; the
+  twins merge at October's import.
+- A family record changed in the app with its file row unchanged is listed, but its balance effect isn't worked out:
+  none exists today. If one appears, the reconciliation fails on it.
+- The owner's own paying side on his family records isn't compared (D-219). A member changes his own account without
+  a new version, so an untouched side can't be told from an edited one there.
+- Step 12's first run left `import_batches` at 8 where 12.10 should have shown 5. The owner's confirmation in words
+  didn't show it (D-222).
+
 ## 2026-10-24 · D3d-doc: runbook step 12, the monthly import with two participants, rehearsed for September 2026
 
 One commit on `feature/family-budget` on top of `346d325` (not pushed): the commit of this entry, "docs: runbook step

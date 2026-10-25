@@ -1,11 +1,13 @@
 import {
-  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, shot, test, wholeNumber, type Session,
-  type Watch,
+  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, shot, test, today, wholeNumber,
+  type Session, type Watch,
 } from '../fixtures.ts'
+import { expectExport } from '../export-steps.ts'
 
 // The deploy checklists' smoke test, with account A: signed in, the switch as E2E_FAMILY says, an expense of the
 // personal budget created, changed and deleted, the demo (with "Demo household" and Sam when the family budget is on:
 // its balance and report, then left, which deletes it, D-36), the integrity check; Delete all my data at both ends.
+// With the demo loaded, D4a's export of the whole period and of this month, read only (export-steps.ts).
 
 test('smoke', async ({ as, family, watch }) => {
   const a = await as('A')
@@ -60,7 +62,8 @@ async function anExpenseCreatedChangedAndDeleted({ page }: Session) {
   await expect(page.getByText('No entries yet.')).toBeVisible()
 }
 
-async function loadTheDemo({ page }: Session, withFamily: boolean) {
+async function loadTheDemo(session: Session, withFamily: boolean) {
+  const { page } = session
   await page.goto('/')
   await expect(page.getByText('It also creates the family budget “Demo household”')).toHaveCount(withFamily ? 1 : 0)
   await page.getByRole('button', { name: 'Load demo data' }).click()
@@ -72,6 +75,11 @@ async function loadTheDemo({ page }: Session, withFamily: boolean) {
   await expect(page.getByText('Loading chart…')).toHaveCount(0)
   await expect(page.locator('.recharts-surface').first()).toBeVisible()
   await shot(page, 'smoke-04-demo-dashboard')
+  // D4a: the demo's ledger exported, its file in the import's format and its rows moving the balances (D-242).
+  const month = today().slice(0, 7)
+  const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10)
+  const file = await expectExport(session, { from: `${month}-01`, to: last })
+  expect(file.rows.length, 'the demo exported').toBeGreaterThan(0)
 }
 
 async function theDemoAlone(session: Session) {

@@ -21,7 +21,7 @@ export function numberNeedles(source: string): string[] {
 
 function sources(): string[] {
   const specs = readdirSync(join(root, 'specs')).filter((name) => name.endsWith('.ts')).map((name) => join('specs', name))
-  return [...specs, 'family-steps.ts', 'fixtures.ts']
+  return [...specs, 'family-steps.ts', 'fixtures.ts', 'export-steps.ts']
 }
 
 test('no spec looks for a number as a substring of rendered text', () => {

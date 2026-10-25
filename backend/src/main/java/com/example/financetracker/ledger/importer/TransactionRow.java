@@ -140,12 +140,23 @@ record TransactionRow(int row, long id, String contentHash, LocalDate date, Stri
         if (errors.size() > errorsBefore) {
             return null;
         }
-        String hash = ImportSync.contentHash(date.toString(), item, plain(sum), currency, counteragent, comment, debit,
-                credit, family ? FAMILY_YES : "", debitCurrency, plain(debitSum), creditCurrency, plain(creditSum),
-                loanCounterparty);
+        String hash = contentHash(date, item, sum, currency, counteragent, comment, debit, credit, family,
+                debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty);
         return new TransactionRow(row.number(), id, hash, date, item, sum, currency, counteragent, comment, debit,
                 credit, family, debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty, familyCurrency,
                 familyExpense, familyIncome, itemCode == null ? null : Workbook.code(itemCode));
+    }
+
+    /**
+     * The row's content hash (D-139) from its typed columns, Date to LOAN_CA, as {@link #parse} reads them: optional text
+     * null when empty, LOAN_CA null for NULL. The export hashes the rows it writes with it too (D4a).
+     */
+    static String contentHash(LocalDate date, String item, BigDecimal sum, String currency, String counteragent,
+            String comment, String debit, String credit, boolean family, String debitCurrency, BigDecimal debitSum,
+            String creditCurrency, BigDecimal creditSum, String loanCounterparty) {
+        return ImportSync.contentHash(date.toString(), item, plain(sum), currency, counteragent, comment, debit, credit,
+                family ? FAMILY_YES : "", debitCurrency, plain(debitSum), creditCurrency, plain(creditSum),
+                loanCounterparty);
     }
 
     /** An ID: a positive whole number (D-86). */

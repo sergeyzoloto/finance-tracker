@@ -1,4 +1,5 @@
 import { deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, shot, test, today, wholeNumber, type Session } from '../fixtures.ts'
+import { expectExport, familyRows } from '../export-steps.ts'
 import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave, money, share } from '../family-steps.ts'
 
 // F8's check with two accounts (D-45 to D-47, D-49, D-87 to D-89), every record dated today:
@@ -6,6 +7,8 @@ import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave, mon
 // 2. Records in three currencies: A pays €90.00 from an account in euros; B pays $40.00 ("Specify later"); A pays
 //    RUB 3,000.00 from the same euro account, naming the €32.10 that went from it (D-89, through A's FX_EXCHANGE).
 // 3. The paying side is A's alone (D-88): A's page of the rouble record names the euros, B's names only the record.
+// 3b. D4a's export, read only: each one's file holds the records he paid, never the other's (D-239), and its rows
+//    move his balances with his shares of the other's records (D-242).
 // 4. Balances per currency: B owes A €45.00 and RUB 1,500.00, A owes B $20.00. The total in EUR: none for A while
 //    nobody has a RUB rate, "No RUB rate" with its link to the rates page.
 // 5. A enters "1 EUR = 95,50 RUB" there; A's total appears, "≈", labelled manual, with each rate's date and source;
@@ -53,6 +56,18 @@ test('family F8', async ({ as, family, target, watch }) => {
   await b.page.goto(`${budget}/journal`)
   await expect(b.page.getByRole('heading', { name: 'Journal' })).toBeVisible()
   await expect(b.page.locator('main')).not.toContainText(wholeNumber('32.10'))
+
+  // 3b. The export: A paid the euros and the roubles, B the dollars; each one's file has his own, and the other's
+  // records only as his share of them, in the check (D-239, D-242).
+  const thisMonth = today().slice(0, 7)
+  const monthEnd = new Date(Date.UTC(Number(thisMonth.slice(0, 4)), Number(thisMonth.slice(5, 7)), 0)).toISOString().slice(0, 10)
+  const filesOf = [await expectExport(a, { from: `${thisMonth}-01`, to: monthEnd }),
+    await expectExport(b, { from: `${thisMonth}-01`, to: monthEnd })]
+  const [ofA, ofB] = filesOf.map((file) => familyRows(file).map((row) => `${row[0]} ${row[4]} ${row[10]}`))
+  expect(ofA.map((row) => row.split(' ').slice(1).join(' ')).sort(), "A's family rows").toEqual(['EUR ', 'EUR RUB'])
+  expect(ofB.map((row) => row.split(' ').slice(1).join(' ')), "B's family rows").toEqual(['USD '])
+  const idsOfA = new Set(ofA.map((row) => row.split(' ')[0]))
+  expect(ofB.filter((row) => idsOfA.has(row.split(' ')[0])), 'in both files').toEqual([])
 
   // 4. Balances per currency, and no total without a RUB rate.
   // The main currency first, then the others alphabetically.

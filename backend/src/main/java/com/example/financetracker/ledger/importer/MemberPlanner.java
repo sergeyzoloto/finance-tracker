@@ -1,6 +1,7 @@
 package com.example.financetracker.ledger.importer;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -174,23 +175,35 @@ final class MemberPlanner {
     static String uploadHash(TransactionRow row, Map<String, AccountRef> accountsByName) {
         AccountRef debit = accountsByName.get(row.debit().toLowerCase(Locale.ROOT));
         AccountRef credit = accountsByName.get(row.credit().toLowerCase(Locale.ROOT));
+        return uploadHash(row.date(), row.item(), debit != null && debit.is(AccountRole.UNALLOCATED),
+                credit != null && credit.is(AccountRole.UNALLOCATED), row.currency(), row.sum(), row.debitCurrency(),
+                row.debitAmount(), row.creditCurrency(), row.creditAmount());
+    }
+
+    /**
+     * {@link #uploadHash(TransactionRow, Map)} from the row's values, with which side is UNALLOCATED already known; the
+     * export checks the rows it writes against it (D4a).
+     */
+    static String uploadHash(LocalDate date, String item, boolean debitUnallocated, boolean creditUnallocated,
+            String rowCurrency, BigDecimal sum, String debitCurrency, BigDecimal debitAmount, String creditCurrency,
+            BigDecimal creditAmount) {
         String side = "";
-        String currency = row.currency();
-        BigDecimal amount = row.sum();
-        if (debit != null && debit.is(AccountRole.UNALLOCATED)) {
+        String currency = rowCurrency;
+        BigDecimal amount = sum;
+        if (debitUnallocated) {
             side = PartnerRow.DEBIT;
-            if (row.debitCurrency() != null) {
-                currency = row.debitCurrency();
-                amount = row.debitAmount();
+            if (debitCurrency != null) {
+                currency = debitCurrency;
+                amount = debitAmount;
             }
-        } else if (credit != null && credit.is(AccountRole.UNALLOCATED)) {
+        } else if (creditUnallocated) {
             side = PartnerRow.CREDIT;
-            if (row.creditCurrency() != null) {
-                currency = row.creditCurrency();
-                amount = row.creditAmount();
+            if (creditCurrency != null) {
+                currency = creditCurrency;
+                amount = creditAmount;
             }
         }
-        return ImportSync.contentHash(row.date().toString(), row.item(), side, currency, TransactionRow.plain(amount));
+        return ImportSync.contentHash(date.toString(), item, side, currency, TransactionRow.plain(amount));
     }
 
     /**
@@ -199,8 +212,16 @@ final class MemberPlanner {
      * The date and the family part are the record's, whose hash is {@link #uploadHash}.
      */
     static String sideHash(TransactionRow row) {
-        return ImportSync.contentHash("side", row.debit(), row.debitCurrencyOrRow(),
-                TransactionRow.plain(row.debitAmount()), row.credit(), row.creditCurrencyOrRow(),
-                TransactionRow.plain(row.creditAmount()), row.loanCounterparty(), row.counteragent(), row.comment());
+        return sideHash(row.debit(), row.debitCurrencyOrRow(), row.debitAmount(), row.credit(),
+                row.creditCurrencyOrRow(), row.creditAmount(), row.loanCounterparty(), row.counteragent(),
+                row.comment());
+    }
+
+    /** {@link #sideHash(TransactionRow)} from the row's values, as the export checks the rows it writes (D4a). */
+    static String sideHash(String debit, String debitCurrency, BigDecimal debitAmount, String credit,
+            String creditCurrency, BigDecimal creditAmount, String loanCounterparty, String counteragent,
+            String comment) {
+        return ImportSync.contentHash("side", debit, debitCurrency, TransactionRow.plain(debitAmount), credit,
+                creditCurrency, TransactionRow.plain(creditAmount), loanCounterparty, counteragent, comment);
     }
 }

@@ -15,7 +15,7 @@ const t = target.name
 /** The sign-in and the cleanup record no trace and take no screenshot: the login form is in them (D-52, guards 3, 4). */
 const quiet = { trace: 'off', screenshot: 'off', video: 'off' } as const
 /**
- * Smoke, family F7, family F8, family F8d, the import, the member's import, then the time zone (which saves another zone for A, so it is last; every spec before
+ * Smoke, family F7, family F8, the export page (D4a), family F8d, the import, the member's import, then the time zone (which saves another zone for A, so it is last; every spec before
  * it starts with Delete all my data, which takes the zone along), in this order (workers 1, files in order); the
  * guards' tests run a probe instead.
  */

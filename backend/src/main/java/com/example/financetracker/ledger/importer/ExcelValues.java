@@ -72,7 +72,15 @@ final class ExcelValues {
         }
     }
 
-    /** The date as the workbook writes it, for messages. */
+    /**
+     * A number as the workbook's CSV writes it (D-240): as stored, without its trailing zeros, a point before the
+     * decimals, no thousands separators and no exponent; 0 as {@code 0}.
+     */
+    static String write(BigDecimal amount) {
+        return amount.signum() == 0 ? "0" : amount.stripTrailingZeros().toPlainString();
+    }
+
+    /** The date as the workbook writes it, for messages and the export. */
     static String format(LocalDate date) {
         return DATE.format(date);
     }

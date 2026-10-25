@@ -8,6 +8,7 @@ import { Safe } from './components'
 import Dashboard from './Dashboard'
 import Entries from './Entries'
 import EntryEditor from './EntryEditor'
+import Export from './Export'
 import Family from './Family'
 import Import from './Import'
 import InvitePage from './Invite'
@@ -62,6 +63,7 @@ function Shell() {
           <NavLink to="/categories">Categories</NavLink>
           <NavLink to="/rates">Rates</NavLink>
           <NavLink to="/import">Import</NavLink>
+          <NavLink to="/export">Export</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
         <Link className="button primary" to="/entries/new">New entry</Link>
@@ -81,6 +83,7 @@ function Shell() {
           <Route path="/categories" element={<Categories />} />
           <Route path="/rates" element={<Rates />} />
           <Route path="/import" element={<Import families={familyOn ? families.data ?? [] : undefined} />} />
+          <Route path="/export" element={<Export />} />
           <Route path="/settings" element={<Settings onDeleted={() => { families.reload(); void reloadMe() }} familyOn={familyOn} />} />
           {familyOn && <Route path="/family/new" element={<NewFamily me={me} onCreated={families.reload} />} />}
           {familyOn && <Route path="/family/:ledgerId/*" element={<Family onChanged={families.reload} onLeft={left} />} />}

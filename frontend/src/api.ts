@@ -589,6 +589,25 @@ export interface ImportMemberSummary {
   straddling: { excelId: string; rowDate: string; settlementDate: string; currency: string; amount: string }[]
   shareWarnings: number
 }
+/** GET /api/export/summary (D4a): the transactions file of a period, before it is downloaded. */
+export interface ExportSummary {
+  from: string | null
+  to: string | null
+  first: string | null
+  last: string | null
+  rows: number
+  skipped: { kind: string; count: number }[]
+  fileName: string
+  /** D-242: per account and currency, the change of its balance against what the rows and the others move. */
+  check: {
+    ok: boolean
+    accounts: {
+      account: string; name: string; currency: string; opening: string; closing: string; exported: string
+      others: string; skipped: string; ok: boolean
+    }[]
+  }
+}
+
 export interface ImportReport {
   commit: boolean
   outcome: 'DRY_RUN' | 'COMMITTED' | 'ABORTED'

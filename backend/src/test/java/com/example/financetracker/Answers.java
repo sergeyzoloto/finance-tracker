@@ -62,6 +62,42 @@ public final class Answers {
         return result.getResponse().getContentAsString();
     }
 
+    /**
+     * A CSV answer, parsed as the import reads it (D4a's transactions file): each line's values, the header first,
+     * and what its bytes say of its format.
+     *
+     * @param byteOrderMark whether it starts with UTF-8's byte order mark
+     * @param crlf whether it ends in CRLF and every line ends so: no LF without its CR, none without its LF
+     */
+    public record Csv(boolean byteOrderMark, boolean crlf, List<List<String>> lines) {
+    }
+
+    /** The body as a CSV file separated by semicolons, parsed: never searched as text. */
+    public static Csv csv(MvcTestResult result) throws IOException {
+        byte[] bytes = result.getResponse().getContentAsByteArray();
+        String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        boolean bom = text.startsWith("\uFEFF");
+        String body = bom ? text.substring(1) : text;
+        // Outside quotes every LF has its CR before it and every CR its LF after it.
+        boolean crlf = body.endsWith("\r\n");
+        boolean quoted = false;
+        for (int i = 0; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (c == '"') {
+                quoted = !quoted;
+            } else if (!quoted && (c == '\n' && (i == 0 || body.charAt(i - 1) != '\r')
+                    || c == '\r' && (i + 1 == body.length() || body.charAt(i + 1) != '\n'))) {
+                crlf = false;
+            }
+        }
+        List<List<String>> lines = new ArrayList<>();
+        try (org.apache.commons.csv.CSVParser parser = org.apache.commons.csv.CSVFormat.RFC4180.builder()
+                .setDelimiter(';').get().parse(new java.io.StringReader(body))) {
+            parser.forEach(record -> lines.add(record.toList()));
+        }
+        return new Csv(bom, crlf, lines);
+    }
+
     /** The JSON text, parsed: for comparing a whole answer with {@code isEqualTo}, never as text. */
     public static JsonNode json(String text) {
         try {

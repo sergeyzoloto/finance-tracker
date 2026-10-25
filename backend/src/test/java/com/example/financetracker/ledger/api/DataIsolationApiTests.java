@@ -84,7 +84,9 @@ class DataIsolationApiTests extends LedgerApiTest {
             "/api/reports/integrity",
             "/api/rates",
             "/api/rates/manual",
-            "/api/settings");
+            "/api/settings",
+            "/api/export/summary",
+            "/api/export/summary" + AUGUST);
 
     /** The mapped endpoints that hold nothing of any user's, so that there is nothing to isolate, with the reason. */
     private static final Map<String, String> NOT_USER_SCOPED = Map.of(
@@ -109,6 +111,8 @@ class DataIsolationApiTests extends LedgerApiTest {
 
     /** Bob's answer to every read, before Alice wrote anything. */
     private Map<String, JsonNode> bobsViewBefore;
+    /** Bob's transactions file (D4a), before Alice wrote anything. */
+    private Answers.Csv bobsFileBefore;
     private long bobsCash;
     private long bobsGroceries;
     private long bobsFriend;
@@ -127,6 +131,7 @@ class DataIsolationApiTests extends LedgerApiTest {
     void writeBothLedgers() throws IOException {
         writeBobsLedger();
         bobsViewBefore = view(bob);
+        bobsFileBefore = Answers.csv(get(bob, "/api/export/transactions"));
         writeAlicesLedger();
     }
 
@@ -155,6 +160,22 @@ class DataIsolationApiTests extends LedgerApiTest {
         // Her ledger doesn't add up any more (writeAlicesLedger), and his integrity check doesn't notice.
         assertThat(alicesView.get("/api/reports/integrity")).isNotEmpty();
         assertThat(bobsView.get("/api/reports/integrity")).isEmpty();
+    }
+
+    /** D-239: Bob's export (D4a) is his own rows, the same before and after Alice writes hers, and none of hers. */
+    @Test
+    void bobsExportIsHisOwnLedgerOnly() throws IOException {
+        for (String query : List.of("", AUGUST)) {
+            Answers.Csv his = Answers.csv(bobsRequest(HttpMethod.GET, "/api/export/transactions" + query, null));
+            Answers.Csv hers = Answers.csv(get(alice, "/api/export/transactions" + query));
+            if (query.isEmpty()) {
+                assertThat(his).isEqualTo(bobsFileBefore);
+                assertThat(his.lines()).hasSizeGreaterThan(1);
+            }
+            assertThat(hers.lines()).isNotEqualTo(his.lines());
+            assertThat(his.lines()).allSatisfy(line -> assertThat(line).noneMatch(value -> value.contains("Alice")
+                    || value.contains("ALICE") || value.contains(alice)));
+        }
     }
 
     @Test

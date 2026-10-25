@@ -3,6 +3,42 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-25 · D3e-doc: D3e's deploy recorded, D-216 worded, D-225 and D-226
+
+One commit on `feature/family-budget` on top of `b3013d2` (not pushed, D-211: the owner pushes it): the commit of this
+entry, "docs: D3e's deploy recorded, D-216 worded, D-225 and D-226 (D3e-doc)". Documentation only: no code changed,
+production and the server not accessed, nothing of `data/private/` committed. The facts come from the owner's pasted
+output.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions", three rows of 2026-10-25:
+  - D3e's deploy of `b3013d2efdb2f6af2f54f1bcffe5a8fe16edaa03`: CI #84 and #83, the pre-flight at 04:29:53Z, 7 s
+    inside D-125's window (recorded), `verify D3c`, the run's steps with both dumps and their SHA-256, the images, the
+    end-to-end suite, `finish` and `verify D3e`.
+  - Its rollback acceptance: `rollback.sh 2cfeec0`, no condition, answered `no`, REFUSED, nothing changed.
+  - "CI on Ubuntu 26.04" run #13 (id `40164735153`), 4 jobs, success.
+- "Production now" after D3e: `b3013d2` on V15, the switch on, the rollback target `2cfeec0` with no condition, the
+  deploy's dumps of 2026-10-25, the owner's 2.50 RUB (rows 211 and 2839) explained as APP_EDITED at the next import,
+  the three twins merged at October's step 12 (D-224), and `<M>` kept in checklists (D-226).
+- `docs/family-budget/requirements.md`: D-216 worded ("the backup prints the ready restore line for its own dump";
+  deferred, `pg-backup` lives in the auth server's repository); new D-225 (rehearsal databases restored on tmpfs, the
+  standard method) and D-226 (a checklist keeps `<M>`; the PM gives the blocks with M filled in, in the chat); the
+  amendment line and the planned stages.
+- `CLAUDE.md`: the deployment line at `b3013d2` (D3e) on V15, the rollback target `2cfeec0`, both histories imported up
+  to 2026-09-30, decisions up to D-226.
+
+**Verified**
+- No test suite was run: the task changes documentation only.
+- Every hash, time, size and number in the new rows checked against the task's facts by reading the diff.
+- This file compiled with `@mdx-js/mdx`.
+- `git status --porcelain` before the commit: only the four files above.
+
+**Open**
+- The push of this commit (D-211, the owner).
+- October's step 12: the rehearsal from production's latest dump (D-220, D-225), then the import, at whose commit the
+  twins merge and rows 211 and 2839 are explained as APP_EDITED (D-224).
+- D-216's restore line waits for a task in the auth server's repository.
+
 ## 2026-10-24 · D3e: the import compares with what the ledger holds, the rehearsal from production's dump, step 12's first run recorded
 
 Three commits on `feature/family-budget` on top of `bc49f65` (not pushed, not merged): `7db9ba5` "feat: the import

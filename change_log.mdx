@@ -3,6 +3,96 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-25 · D4a: the export of a user's ledger in the import's format, D-227 to D-252
+
+Two commits on `feature/family-budget` on top of `434d09b`: `0f077d3` "feat: the export of a user's ledger as one
+transactions file in the import's format, the page /export (D4a)" and the commit of this entry, "docs: D-227 to D-252,
+D4a's rehearsal and deploy checklist (D4a)". `main` fast-forwarded to it, both branches pushed, so `434d09b` reaches
+`main` with this stage (D-211). Not deployed; the server not touched. Nothing of `data/private/` committed: the
+rehearsal's files and reports are in `data/private/reports/d4a-*`.
+
+**Changes**
+- The export (D-235 to D-243), read only, no migration, in `ledger/importer/` beside the import whose format it writes:
+  - `ExcelRow`, the row writer: one row's 15 typed columns, the 17 that Excel computes from them and from the
+    accounts' and categories' codes and types (D-237: CODE_ITEM to EXP_ITEM_CODE, CHECK_CORR's sign turned on a row
+    from a liability into an asset, LOAN_SUM over both sides), and the import's three hashes of it (D-139's content
+    hash, D-151's upload hash, D-181's side hash). The rules reproduce every row of both members' exports of 2026-10-21
+    but where Excel's CSV cut a typed number to 10 significant digits or showed it rounded.
+  - `TransactionsCsv`: the file of D-240 (a byte order mark, semicolons, CRLF, quotes only where needed).
+  - `ExportService.export(LedgerScope, from, to)`, one REPEATABLE READ snapshot: the user's personal entries and his
+    own family rows (D-239), each one record in the form the ledger holds it (D-247); where the ledger can't tell two
+    forms apart, the one whose hash the import stored (D-245); `app-<entry id>` and `app-f<record id>` for the rest
+    (D-244); what no single row stands for skipped and counted by kind (D-248); D-242's check per account and
+    currency, the effects by entry (D-249).
+  - `ExportSummary`, `ExcelValues.write`; `TransactionRow.contentHash` and `MemberPlanner`'s `uploadHash` and
+    `sideHash` taken out into functions of values, which the import's own calls now go through (the same inputs).
+- `ExportController`: GET `/api/export/summary` and GET `/api/export/transactions` (`text/csv`, an attachment named by
+  D-241), both with `from` and `to` or neither, else 400 (D-250).
+- The page `/export` (`Export.tsx`), linked next to Import: "Whole period" or "From–to", the summary line (rows, dates,
+  what is left out as no single row, a notice if D-242's check doesn't add up) and Download.
+- Tests:
+  - `ExcelRowTests`: an expense, a family expense and income, a transfer, two currencies in the four type
+    combinations and with Sum on either side, loans on one side and on both, 9 decimals never rounded, an `app-` ID;
+    the hashes against the import's own reading of the written line.
+  - `TransactionsCsvTests`: the header string, the byte order mark, CRLF, quoting a `;` and a `"`, numbers, the import
+    reading the file back.
+  - `ExportApiTests` over D3c's family: each member's file is his own rows as he imported them and none of the
+    other's; the file imported back changes nothing (but the one side whose 8.004 the record holds as 8.00); D-242
+    against the balances report; the period's bounds; an empty period; the format; 400s; rows made in the app.
+  - `DataIsolationApiTests`: the summary among Bob's reads, and Bob's file, the same before and after Alice writes,
+    none of hers. `ApiTests`: both paths in the 401 and OpenAPI lists. `Answers.csv`: a CSV answer, parsed.
+  - `Export.test.tsx`: the page.
+  - End to end: `05-export.spec.ts` (the page and Download; local on the demo, read only in production) and
+    `e2e/export-steps.ts`, called by `02-smoke` (the demo) and `04-family-f8` (A's and B's files), read only (D-250);
+    `lib/spec-hygiene.test.ts` reads the new file too.
+- `deploy/checks/D4a.sql` and `D4a.expected` (6 lines), tried on D-251's dump; `deploy/RUNBOOK.md`: "D4a's deploy
+  checklist with the suite", `<M>` in its blocks (D-226). Step 12 unchanged.
+- `docs/family-budget/requirements.md`: D-227 to D-243 (the PM's) and D-244 to D-252 (the agent's), the amendment line
+  and the planned stage. `CLAUDE.md` and `e2e/README.md`: the export.
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B clean verify`: exit status 0; Results: Tests run: 607, Failures: 0, Errors: 0,
+  Skipped: 0.
+- Frontend, `npm test`: exit status 0, Test Files 31 passed (31), Tests 394 passed (394); `npm run build`: exit status 0.
+- End to end, in `e2e/`: `npm run typecheck` exit status 0; `npm run test:guards` exit status 0, tests 37, pass 37, fail
+  0; `npm run e2e:local` exit status 0, 2 + 22 tests passed (every spec at 1280 and 375 px, `export` among them),
+  `Result: PASSED`, password search 0 hits. The prod project not run (CLAUDE.md, QA).
+- The deploy scripts' tests not run: no script changed; `D4a.sql` is read only by `deploy.sh` at a deploy.
+- The rehearsal (D-251: `finance-2026-10-24T1434Z.dump` by `scripts/rehearsal-db.sh`, the backend and Vite on the host,
+  the two dev users through the browser), every file under `data/private/reports/d4a-*`:
+  - The exports: the owner's 6989 rows, 2017-11-01 to 2026-09-29, skipped OPENING_BALANCE 1, 25 `app-f` rows (the
+    lumps); the partner's 12386 rows, 2019-12-01 to 2026-09-30, skipped FAMILY_OPENING 1, OPENING_BALANCE 1,
+    SETTLEMENT_GROUP 4, no `app-` row. About a second each.
+  - Parity (4b), every exported Excel ID up to 2026-09-30 against the original row, all 32 columns: the owner's 6964
+    rows, 1107 with a difference, the partner's 12386, 763; each difference with its cause (D-252), none unexplained.
+    The owner's expected ones: 211 and 2839 (APP_EDITED) and the 140 rows naming MONEYCARD_DEBIT "Moneycard V-Pay".
+    On one side only: the owner's 70 originals (18 with Sum 0, 52 on FAMILY_DEBT against UNALLOCATED: D-84's rows and
+    a deleted D-73 record) and the partner's 276 (3 with Sum 0, 76 on one account, 188 benefit rows, the 9 rows of
+    D-198's 4 groups); none in the exports only.
+  - The round trip (4c), dry runs up to 2026-09-30: the baselines 0 created, 0 updated, 0 conflicts for both (the
+    owner's APP_EDITED 211 and 2839, the reconciliation passed at 3240 points; the partner's passed at 2822). With
+    each one's export in place of his transactions file (25 `app-` rows taken out of the owner's): the owner 0
+    created, 0 updated, 1 conflict (2839: its app edit made it MANUAL, its row maps to LOAN_REPAID), the
+    reconciliation failed at 306 points, the explanations that vanish with the rounded and edited forms (at the last
+    compared month-end in RUB: EQUITY -2.47686, FAMILY_DEBT 0.02329 and LOANS_ASSET -2.49593 unexplained, the
+    baseline's explanations less the export run's within 0.00001); the partner 0 created, 528 updated
+    (his sides written again with the same account and amount, as their texts aren't kept), 0 conflicts, the
+    reconciliation passed at 2788 points (September is the tail: the export ends on 2026-09-30).
+  - D-242 for the whole period and for 2026-09, both members: the check holds on every account and currency; for
+    2026-09 against `/api/reports/balances` as well, 23 and 23 accounts, none differing.
+  - `D4a.sql` on the dump printed `D4a.expected`.
+- This file compiled with `@mdx-js/mdx`.
+
+**Open**
+- D4b (D-228 to D-234), with what D4a's report proposes from its analysis: a single file's period limiting what is
+  missing; `app-` rows recognised by id; a member's side and an entry compared by what the ledger holds, not only by
+  hash, so that an export imported back changes nothing where the ledger keeps no text (the partner's 528 sides) or
+  the app changed an entry's kind (the owner's 2839).
+- D-252: the parity differences that need what the ledger doesn't keep (a settlement's and D-73's Counteragent and
+  Comment, amounts the import rounds, a row's own spelling of an account or counterparty, the workbook's typo of a
+  code) stay until the PM decides whether to keep that information (a migration, D-243).
+- The deploy, by D4a's checklist; after it, each member's own export by hand (step 5).
+
 ## 2026-10-25 · D3e-doc: D3e's deploy recorded, D-216 worded, D-225 and D-226
 
 One commit on `feature/family-budget` on top of `b3013d2` (not pushed, D-211: the owner pushes it): the commit of this

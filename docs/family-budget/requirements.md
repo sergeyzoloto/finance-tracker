@@ -78,6 +78,8 @@ Amended in D3e-doc on 2026-10-25: D-216 worded (the backup prints the ready rest
 
 Amended in D4a on 2026-10-25: new D-227 to D-243 (decided by the PM, as D4a's task states them), about the export of a user's ledger as one transactions file in the import's format (D4a) and the import from that one file (D4b, recorded only); new D-244 to D-252, the agent's choices of D4a, which the PM may correct.
 
+Amended in D4b on 2026-10-26: new D-253 (the PM, D4a's deploy), about the steps of D4a's checklist run as they were.
+
 Amended in D3c-fix on 2026-10-15: D3c's choices confirmed by the PM; new D-192 to D-196 (the PM's proposals, which the owner may still correct) and D-197 (the PM), about rows that move nothing, the claim opening's limit, the four FAMILY_DEBT EUR month-ends of 2022, deleting one's data, the owner's D-73 rows after a claim and the fix list for the Excel ledgers; the agent's choices of D3c-fix.
 
 Amended in D3c on 2026-10-15: new D-174 to D-191 (D-174 to D-181 and D-184 decided by the owner, the others by the PM), about the partner's claim of his seat and his own import, what passes to him with the claim, who imports what afterwards, the reconciliation of his files, D3b-run's demo data and step 10's order, the safety of deleting and leaving, and D3c's local real-data run; the agent's choices of D3c; the planned stages (D3c, D3c-accept, D3c-run).
@@ -597,6 +599,9 @@ Added in D4a (2026-10-25; D-227 to D-243 decided by the PM, D-244 to D-252 the a
 - D-250 (the agent, D4a). The API: GET `/api/export/summary` and GET `/api/export/transactions` (`text/csv`, an attachment), both with `from` and `to` or neither; one without the other, or `from` after `to`, answers 400. An empty whole period is `Transactions.csv`. The production suite's read-only export checks are a step (`e2e/export-steps.ts`) in the smoke test (the demo) and in family F8 (A and B in one budget), which write their own data as before, since every spec deletes its data at both ends and a spec of its own would only see empty ledgers; `05-export` is the page's spec, read only in production.
 - D-251 (the agent, D4a). D4a's rehearsal restored `finance-2026-10-24T1434Z.dump`, the latest the daily pull had copied: `finance-2026-10-25T0453Z.dump` (D3e's after-dump) wasn't on the laptop, and the server wasn't to be touched. Its counts are those of `verify D3e` (entries 42124, family records 12358, shares 23460, links 35607, journal 12370, categories 95, counterparties 1410).
 - D-252 (the agent, D4a; the PM may correct). The parity's differences that the ledger can't reproduce are listed with their cause, not fixed: each is information the import doesn't keep (Counteragent and Comment of a row on FAMILY_DEBT, an amount the import rounded, the workbook's typo in a code, an account's or counterparty's other spelling in a row, a value's spaces, a LOAN_CA the import ignored, the date of a member's settlement row, D-188), and keeping it would need a migration (D-243).
+
+Added in D4b (2026-10-26)
+- D-253 (the PM, D4a's deploy). D4a's checklist ran with step 1 skipped, as `main` and `feature/family-budget` were already at M and `run`'s gate 1.5 checks CI on M; steps 2 and 3 ran as one read-only block; the partner's own export wasn't checked by hand, since the rehearsal (D4a's 4c and D-242) and the F8 spec's export step cover it.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

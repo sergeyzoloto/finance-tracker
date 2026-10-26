@@ -85,7 +85,7 @@ final class MemberPlanner {
 
     /**
      * @param accountsByName his accounts by their names in lower case
-     * @param categoriesByName the categories file's rows by name
+     * @param categoriesByName the file's categories by name (D-228)
      * @param memberId his member id in the family budget: his seat
      * @param otherId the other member, with whom his new family records are split 50/50
      */
@@ -104,7 +104,7 @@ final class MemberPlanner {
             return familyOrPersonal(row);
         }
         if (debit == null || credit == null) {
-            return new Refused(row, List.of((debit == null ? "Debit" : "Credit") + " is not in the accounts file"));
+            return new Refused(row, List.of((debit == null ? "Debit" : "Credit") + " is none of the file's accounts"));
         }
         if (zero(row)) {
             return new Skipped(row, "Sum is 0 (D-72)");

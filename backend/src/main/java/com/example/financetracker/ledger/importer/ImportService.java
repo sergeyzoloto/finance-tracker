@@ -95,18 +95,20 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Imports the owner's Excel ledger (D3b): his personal rows into his personal ledger, and his family rows, his rows on
- * FAMILY_DEBT, the lumps before the partner's ledger starts and the partner's family rows into the family budget and
- * the partner's seat he names (D-82, D-141), as {@link ImportPlanner} maps them; then it reconciles his balances with
- * his daily balance file ({@link Reconciler}). Entries are written through {@link EntryService} and the family budget's
- * records through {@link FamilyRecordService}, so the ledger's rules hold for them as for any other.
+ * Imports a user's transactions file (D3b, D4b): the Excel ledger's export or the app's own (D-235), its accounts and
+ * categories taken from its rows (D-228, D-229). His personal rows go into his personal ledger, and his family rows,
+ * his rows on FAMILY_DEBT and, for a place without an account, the partner's family rows into the family budget and
+ * the seat he names (D-82, D-141, D-260), as {@link ImportPlanner} maps them; then it checks the ledger against the
+ * file ({@link Reconciler}, D-231, D-255, D-256). Entries are written through {@link EntryService} and the family
+ * budget's records through {@link FamilyRecordService}, so the ledger's rules hold for them as for any other.
  * <p>
  * Each row is recognised again by its permanent ID (D-86, D-142): {@code xls:<ID>} in the personal ledger, and
  * {@code xls:<seat>:<ID>} in the family budget, the seat being the one whose file the row comes from. A row the import
  * wrote before with the same content is unchanged; with another content it is written over the way the app changes
  * it, unless it was changed in the app since, which is a conflict that the import leaves alone (D-139); one deleted in
- * the app stays deleted and is a conflict too (D-113, D-150); one the files no longer have is reported, never deleted
- * (D-138).
+ * the app stays deleted and is a conflict too (D-113, D-150); one the file no longer has, within the file's period,
+ * is reported, never deleted (D-138, D-256). A row the app made ({@code app-…}) is compared with the ledger and never
+ * written (D-259).
  * <p>
  * The whole run is one transaction. A dry run rolls it back at the end, after the report has read the balances, and
  * a commit rolls it back too if any row can't be imported, so a commit saves everything or nothing. Each row is
@@ -115,8 +117,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Once the partner's seat has an account (D3c), each member imports only his own file (D-175): the owner's import takes
  * no partner's file, and the partner imports his own, with the owner's layout (D-177), as {@link MemberPlanner} reads
  * it: his personal rows into his personal ledger, his payment side on the records of his family rows (D-181), his
- * side on the settlements his settlement rows match (D-178), his benefit rows checked (D-179). The family debt is
- * reconciled up to the earlier of the seats' latest committed cutoffs (D-175).
+ * side on the settlements his settlement rows match (D-178), his benefit rows checked (D-179). Neither's check waits for
+ * the other's import (D-258): another member's records cancel out in one's family debt and equity together (D-255).
  */
 @Service
 public class ImportService {
@@ -132,6 +134,7 @@ public class ImportService {
     private final FamilyLedgerService familyLedgers;
     private final FamilyRecordService records;
     private final FamilyImportSync familySync;
+    private final ExportService exports;
     private final JdbcClient jdbc;
     private final ObjectMapper json;
     private final TransactionTemplate transaction;
@@ -140,8 +143,8 @@ public class ImportService {
     ImportService(AccountRepository accounts, LedgerCategoryRepository categories,
             CounterpartyRepository counterparties, ImportBatchRepository batches, EntryService entries,
             ReportService reports, LedgerAccess access, FamilySwitch familySwitch, FamilyLedgerService familyLedgers,
-            FamilyRecordService records, FamilyImportSync familySync, JdbcClient jdbc, ObjectMapper json,
-            PlatformTransactionManager transactionManager) {
+            FamilyRecordService records, FamilyImportSync familySync, ExportService exports, JdbcClient jdbc,
+            ObjectMapper json, PlatformTransactionManager transactionManager) {
         this.accounts = accounts;
         this.categories = categories;
         this.counterparties = counterparties;
@@ -153,6 +156,7 @@ public class ImportService {
         this.familyLedgers = familyLedgers;
         this.records = records;
         this.familySync = familySync;
+        this.exports = exports;
         this.jdbc = jdbc;
         this.json = json;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -161,40 +165,28 @@ public class ImportService {
     }
 
     /**
-     * @param personal the personal ledger of the owner, who imports
+     * @param personal the personal ledger of the user who imports
+     * @throws TransactionsFileRefused if the file isn't a transactions file, or its accounts and categories don't fit
+     *         together, within the file or with the app's (D-229, D-262): before anything is written
      * @throws PartnerFileRefused if the partner's file holds what the import page's filter never lets through (D-140)
-     * @throws NotFoundException if the family budget or the seat isn't one the owner may import into, or the family
+     * @throws NotFoundException if the family budget or the seat isn't one the user may import into, or the family
      *         budgets are switched off (D-25)
-     * @throws ConflictException if the seat is a member with an account
+     * @throws ConflictException if the seat is a member with an account and the partner's rows come with it
      */
     public ImportReport run(LedgerScope personal, ImportRequest request) {
         Instant startedAt = WallClock.now();
         Sheet<PartnerRow> partnerRows = request.partnerTransactions() == null ? null
                 : Workbook.partner(request.partnerTransactions());
-        Sheet<AccountRow> accountRows = Workbook.accounts(request.accounts());
-        Sheet<CategoryRow> categoryRows = Workbook.categories(request.categories());
         Sheet<TransactionRow> transactionRows = Workbook.transactions(request.transactions());
-        // D-146: the daily files are read up to the latest transaction of both files, and D-69's tail starts in the
-        // older one's month; both from every row of the files, the rows after "Import up to" included.
-        LocalDate ownerLatest = transactionRows.rows().stream().map(TransactionRow::date).max(LocalDate::compareTo)
-                .orElse(null);
-        LocalDate partnerLatest = partnerRows == null ? null : partnerRows.rows().stream().map(PartnerRow::date)
-                .max(LocalDate::compareTo).orElse(null);
-        LocalDate partnerFirst = partnerRows == null ? null : partnerRows.rows().stream().map(PartnerRow::date)
-                .min(LocalDate::compareTo).orElse(null);
-        LocalDate latest = Stream.of(ownerLatest, partnerLatest).filter(d -> d != null).max(LocalDate::compareTo)
-                .orElse(null);
-        // D-165: the rows after "Import up to" are left out, and the daily files and the reconciliation stop at it.
+        Workbook.FileChart fileChart = Workbook.chart(transactionRows.rows());
+        // D-231 (c): the gaps in the Excel IDs, over every row of the file.
+        List<String> gaps = idGaps(transactionRows.rows());
+        // D-165: the rows after "Import up to" are left out, and the check stops at it.
         LocalDate upTo = request.upTo();
         AfterCutoff after = upTo == null ? AfterCutoff.NONE : AfterCutoff.cut(upTo, transactionRows, partnerRows);
-        LocalDate cutoff = upTo != null && latest != null && upTo.isBefore(latest) ? upTo : latest;
-        List<Problem> dailyErrors = new ArrayList<>();
-        DailyFile balance = DailyFile.read(request.dailyBalance(), cutoff, dailyErrors);
-        DailyFile change = DailyFile.read(request.dailyChange(), cutoff, dailyErrors);
         return transaction.execute(status -> {
             Run run = new Run(personal, request, startedAt);
-            ImportReport report = run.execute(accountRows, categoryRows, transactionRows, partnerRows, balance, change,
-                    dailyErrors, ownerLatest, partnerLatest, partnerFirst, cutoff, after);
+            ImportReport report = run.execute(transactionRows, fileChart, partnerRows, gaps, after);
             if (report.outcome() != Outcome.COMMITTED) {
                 status.setRollbackOnly();
             }
@@ -202,24 +194,38 @@ public class ImportService {
         });
     }
 
+    /** The Excel IDs missing between the file's lowest and highest, as ranges ("12", "40-45"). */
+    static List<String> idGaps(List<TransactionRow> rows) {
+        TreeSet<Long> ids = rows.stream().filter(row -> !row.isApp()).map(TransactionRow::id)
+                .collect(Collectors.toCollection(TreeSet::new));
+        List<String> gaps = new ArrayList<>();
+        Long previous = null;
+        for (long id : ids) {
+            if (previous != null && id > previous + 1) {
+                gaps.add(id == previous + 2 ? String.valueOf(previous + 1) : (previous + 1) + "-" + (id - 1));
+            }
+            previous = id;
+        }
+        return gaps;
+    }
+
     /** The Excel IDs of the rows dated after {@code upTo}. */
-    private static <T> Set<Long> ids(List<T> rows, Function<T, LocalDate> date, Function<T, Long> id, LocalDate upTo) {
+    private static <T> Set<String> ids(List<T> rows, Function<T, LocalDate> date, Function<T, String> id, LocalDate upTo) {
         return rows.stream().filter(row -> date.apply(row).isAfter(upTo)).map(id).collect(Collectors.toSet());
     }
 
     /**
-     * D-165: "Import up to" and the rows of each transactions file after it, by Excel ID, which are neither imported
-     * nor missing (D-138).
+     * D-165: "Import up to" and the rows of each file after it, by ID, which are neither imported nor missing (D-138).
      */
-    private record AfterCutoff(LocalDate upTo, Set<Long> owner, Set<Long> partner, int ownerRead, int partnerRead) {
+    private record AfterCutoff(LocalDate upTo, Set<String> owner, Set<String> partner, int ownerRead, int partnerRead) {
 
         static final AfterCutoff NONE = new AfterCutoff(null, Set.of(), Set.of(), 0, 0);
 
         /** Takes the rows after {@code upTo} out of both files, and keeps their IDs. */
         static AfterCutoff cut(LocalDate upTo, Sheet<TransactionRow> owner, Sheet<PartnerRow> partner) {
-            Set<Long> ownerIds = ids(owner.rows(), TransactionRow::date, TransactionRow::id, upTo);
-            Set<Long> partnerIds = partner == null ? Set.of()
-                    : ids(partner.rows(), PartnerRow::date, PartnerRow::id, upTo);
+            Set<String> ownerIds = ids(owner.rows(), TransactionRow::date, TransactionRow::excelId, upTo);
+            Set<String> partnerIds = partner == null ? Set.of()
+                    : ids(partner.rows(), PartnerRow::date, row -> String.valueOf(row.id()), upTo);
             int ownerRead = owner.rows().size();
             int partnerRead = partner == null ? 0 : partner.rows().size();
             owner.removeRows(row -> row.date().isAfter(upTo));
@@ -230,7 +236,7 @@ public class ImportService {
         }
 
         /** Whether a row known from an earlier import is left alone: dated after the date, or a row of the files that is. */
-        boolean leftAlone(Set<Long> ids, String excelId, LocalDate stored) {
+        boolean leftAlone(Set<String> ids, String excelId, LocalDate stored) {
             if (upTo == null) {
                 return false;
             }
@@ -238,8 +244,7 @@ public class ImportService {
                 return true;
             }
             int end = excelId.indexOf(':');
-            String id = end < 0 ? excelId : excelId.substring(0, end);
-            return id.matches("[0-9]{1,18}") && ids.contains(Long.parseLong(id));
+            return ids.contains(end < 0 ? excelId : excelId.substring(0, end));
         }
 
         List<ImportReport.AfterCutoff> counts(boolean partnerRead) {
@@ -288,6 +293,9 @@ public class ImportService {
     private record MemberRecord(long id, String currency, long payerId, int version, BigDecimal share) {
     }
 
+    /** The source of the rows the app made (D-259). */
+    static final String APP_SOURCE = "APP";
+
     /** One run's state. */
     private final class Run {
 
@@ -304,13 +312,14 @@ public class ImportService {
         private final List<RowRef> missing = new ArrayList<>();
         private final List<FxRow> fxRows = new ArrayList<>();
         private final List<Drift> drift = new ArrayList<>();
-        /** D-169: the owner's D-84 rows and the partner's family incomes they carry. */
-        private final List<Reconciler.Carried> carriedByTheOwner = new ArrayList<>();
-        private final List<Reconciler.Carried> carriedByThePartner = new ArrayList<>();
+        /** D-231 (a): what the import builds of each Excel row it maps. */
+        private final List<Reconciler.Built> built = new ArrayList<>();
         private final Set<String> currencies = new TreeSet<>();
-        private final Set<String> familyCurrencies = new TreeSet<>();
         private LocalDate from;
         private LocalDate to;
+        /** The period of each file: its first and its last row date, up to "Import up to" (D-256). */
+        private LocalDate[] ownPeriod = new LocalDate[2];
+        private LocalDate[] partnerPeriod = new LocalDate[2];
         private int zeroFxRows;
         private int accountsCreated;
         private int accountsUpdated;
@@ -319,6 +328,8 @@ public class ImportService {
         private int familyCategoriesCreated;
         private int categoriesMerged;
         private int counterpartiesCreated;
+        private final List<ImportReport.ChartItem> chartCreated = new ArrayList<>();
+        private final List<ImportReport.Rename> chartRenamed = new ArrayList<>();
         /** The ledger's counterparties by lowercase name, as the database's unique index compares them. */
         private Map<String, Long> counterpartyIds;
         private Map<String, PersonalKnown> personalKnown;
@@ -344,6 +355,10 @@ public class ImportService {
         private final List<RowRef> restamped = new ArrayList<>();
         private final List<RowRef> notReplannable = new ArrayList<>();
         private final List<String> twinsMerged = new ArrayList<>();
+        private int appRowsUnchanged;
+        private final List<RowRef> appRows = new ArrayList<>();
+        /** The ledger as the export reads it before the rows are written (D-259, NO_ROW). */
+        private ExportService.Export snapshot;
 
         Run(LedgerScope personal, ImportRequest request, Instant startedAt) {
             this.personal = personal;
@@ -352,43 +367,49 @@ public class ImportService {
             this.startedAt = startedAt;
         }
 
-        ImportReport execute(Sheet<AccountRow> accountRows, Sheet<CategoryRow> categoryRows,
-                Sheet<TransactionRow> transactionRows, Sheet<PartnerRow> partnerRows, DailyFile balance,
-                DailyFile change, List<Problem> dailyErrors, LocalDate ownerLatest, LocalDate partnerLatest,
-                LocalDate partnerFirst, LocalDate cutoff, AfterCutoff after) {
-            read("accounts", accountRows);
-            read("categories", categoryRows);
+        ImportReport execute(Sheet<TransactionRow> transactionRows, Workbook.FileChart fileChart,
+                Sheet<PartnerRow> partnerRows, List<String> gaps, AfterCutoff after) {
             read("transactions", transactionRows);
             if (partnerRows != null) {
                 read("partner's transactions", partnerRows);
             }
-            files.add(new FileSummary("daily balance", balance.file().name(), balance.file().sha256(),
-                    balance.values().size()));
-            files.add(new FileSummary("daily change", change.file().name(), change.file().sha256(),
-                    change.values().size()));
-            errors.addAll(dailyErrors);
             family = family();
             if (family != null && family.mode() == Mode.OWNER && partnerRows == null) {
                 errors.add(new Problem(null, null, "with a family budget, the partner's family rows are needed too "
                         + "(D-82): choose his transactions file"));
             }
+            refuseOtherTypes(fileChart);
+            if (!gaps.isEmpty()) {
+                warnings.add(new Problem(transactionRows.file().name(), null, ("the file's Excel IDs have %d gap(s) "
+                        + "between its lowest and highest ID (D-231): listed in the report").formatted(gaps.size())));
+            }
+            List<TransactionRow> excelRows = transactionRows.rows().stream().filter(r -> !r.isApp()).toList();
+            List<TransactionRow> appFileRows = transactionRows.rows().stream().filter(TransactionRow::isApp).toList();
+            transactionRows.rows().forEach(row -> {
+                period(row.date());
+                widen(ownPeriod, row.date());
+                currencies.add(row.debitCurrencyOrRow());
+                currencies.add(row.creditCurrencyOrRow());
+            });
+            if (partnerRows != null) {
+                partnerRows.rows().forEach(row -> widen(partnerPeriod, row.date()));
+            }
 
-            Map<String, AccountRef> accountsByName = accounts(accountRows);
-            Map<String, CategoryRow> categoryRowsByName = categoryRows.rows().stream()
-                    .collect(Collectors.toMap(CategoryRow::name, Function.identity(), (a, b) -> a));
+            Map<String, AccountRef> accountsByName = accounts(fileChart.accounts(), transactionRows.file());
+            Map<String, CategoryRow> categoryRowsByName = new HashMap<>();
+            fileChart.categories().forEach(c -> c.spellings().forEach(name -> categoryRowsByName.put(name, c)));
             long ownerId = family == null ? 0 : family.target().ownerMemberId();
             long seatId = family == null ? 0 : family.target().seatMemberId();
             if (family != null && family.mode() == Mode.MEMBER) {
-                return member(accountRows, categoryRows, transactionRows, balance, accountsByName, categoryRowsByName,
-                        ownerLatest, cutoff, after);
+                return member(transactionRows, excelRows, appFileRows, fileChart, accountsByName, categoryRowsByName,
+                        gaps, after);
             }
             ImportPlanner planner = new ImportPlanner(accountsByName, categoryRowsByName, ownerId, seatId);
 
             // What each row becomes.
             List<Map.Entry<TransactionRow, Planned>> owner = new ArrayList<>();
-            for (TransactionRow row : transactionRows.rows()) {
+            for (TransactionRow row : excelRows) {
                 owner.add(Map.entry(row, planner.plan(row)));
-                period(row.date());
             }
             List<Map.Entry<PartnerRow, Planned>> partner = new ArrayList<>();
             if (partnerRows != null) {
@@ -397,43 +418,21 @@ public class ImportService {
                     period(row.date());
                 }
             }
-            // D-83's months before the partner's first family row, whatever "Import up to" leaves out (D-165); once his
-            // place has an account and his rows aren't uploaded any more, his first record's (an agent's choice, D3c).
-            LocalDate lumpsBefore = family != null && family.mode() == Mode.OWNER_AFTER_CLAIM
-                    ? seatFirst(family.scope(), seatId) : partnerFirst;
-            List<RecordSpec> lumps = family != null && lumpsBefore != null ? planner.lumps(change, lumpsBefore)
-                    : List.of();
             List<FamilyItem> familyItems = new ArrayList<>();
             owner.forEach(e -> {
                 if (e.getValue() instanceof ImportPlanner.Family f) {
                     familyItems.addAll(f.items());
                 }
             });
-            familyItems.addAll(lumps);
             partner.forEach(e -> {
                 if (e.getValue() instanceof ImportPlanner.Family f) {
                     familyItems.addAll(f.items());
                 }
             });
-            familyItems.forEach(item -> {
-                currencies.add(item.currency());
-                if (item instanceof RecordSpec) {
-                    familyCurrencies.add(item.currency());
-                }
-            });
-            if (family != null && family.mode() == Mode.OWNER_AFTER_CLAIM) {
-                // The partner's rows are his own import's now, but their records are in the owner's family debt too.
-                LocalDate joined = familyLedgers.members(family.scope()).stream().filter(m -> m.id() == ownerId)
-                        .findFirst().orElseThrow().joinDate();
-                familyCurrencies.addAll(recordCurrencies(family.scope(), ownerId, joined));
-            }
-            transactionRows.rows().forEach(row -> {
-                currencies.add(row.debitCurrencyOrRow());
-                currencies.add(row.creditCurrencyOrRow());
-            });
+            familyItems.forEach(item -> currencies.add(item.currency()));
 
-            familyCategoryIds = familyCategories(familyItems, categoryRows);
-            chart = chart(accountsByName, categoryRows);
+            familyCategoryIds = familyCategories(familyItems, fileChart.categories(), transactionRows.file());
+            chart = chart(accountsByName, fileChart.categories(), transactionRows.file());
             EntryMapper mapper = new EntryMapper(chart);
             counterpartyIds = counterparties.findAll(personal).stream()
                     .collect(Collectors.toMap(c -> key(c.name()), Counterparty::id, (first, second) -> first));
@@ -444,21 +443,13 @@ public class ImportService {
                 familyKnown = familySync.known(family.scope(), familyItems.stream().map(FamilyItem::ref).toList());
                 familyStored = familyStored(family.scope());
             }
-            findMissing(transactionRows, familyItems, partnerRows != null, after);
+            snapshot = exports.export(personal, null, null);
+            findMissing(excelRows, familyItems, partnerRows != null, after);
             ImportFile transactionsFile = transactionRows.file();
             batchId = batches.save(new ImportBatch(null, personal.userId(), personal.ledgerId(),
                     transactionsFile.name(), transactionsFile.sha256(), !commit, null, null, null)).id();
             analyze(personal);
 
-            // D-62: the opening balances from the first row of the daily balance file.
-            if (!balance.isEmpty()) {
-                Map<DailyFile.Column, BigDecimal> opening = new LinkedHashMap<>();
-                LocalDate first = balance.values().firstKey();
-                balance.accountColumns().forEach((column, account) -> opening.merge(account,
-                        balance.value(first, column), BigDecimal::add));
-                RowResult result = mapper.openingEntry(first, opening);
-                importPersonal(balance.file().name(), null, null, "OPENING_BALANCE", result);
-            }
             for (Map.Entry<TransactionRow, Planned> e : owner) {
                 TransactionRow row = e.getKey();
                 String file = transactionsFile.name();
@@ -467,19 +458,24 @@ public class ImportService {
                     case ImportPlanner.Personal p -> {
                         RowResult result = mapper.map(p.row());
                         importPersonal(file, row.row(), id(row.id()), kindOf(result), result);
+                        builtPersonal(row, result);
                         if (result instanceof RowResult.Entry entry && entry.plan().fxGain()) {
                             fxRows.add(new FxRow(row.row(), id(row.id()), row.date(), row.sum(), row.currency()));
                         }
                     }
-                    case ImportPlanner.Family f -> f.items().forEach(item -> importFamily(file, item));
+                    case ImportPlanner.Family f -> {
+                        f.items().forEach(item -> importFamily(file, item));
+                        builtFamily(row, f.items());
+                    }
                     case ImportPlanner.NotImported n -> {
                         tally(Source.OWNER_SEAT, "INCOME").notImported++;
-                        carriedByTheOwner.add(n.carried());
                         skipped.add(new Problem(file, row.row(), id(row.id()), n.reason()));
+                        built.add(new Reconciler.Built(row, Map.of(), List.of()));
                     }
                     case ImportPlanner.Skipped s -> {
                         tally(Source.OWNER_FAMILY, "ZERO").skipped++;
                         skipped.add(new Problem(file, row.row(), id(row.id()), s.reason()));
+                        built.add(new Reconciler.Built(row, Map.of(), List.of()));
                     }
                     case ImportPlanner.Failed failure -> {
                         tally(Source.OWNER_FAMILY, "ROW").failed++;
@@ -487,18 +483,11 @@ public class ImportService {
                     }
                 }
             }
-            lumps.forEach(lump -> importFamily(change.file().name(), lump));
             for (Map.Entry<PartnerRow, Planned> e : partner) {
                 PartnerRow row = e.getKey();
                 String file = partnerRows.file().name();
                 switch (e.getValue()) {
-                    case ImportPlanner.Family f -> {
-                        f.items().forEach(item -> importFamily(file, item));
-                        Reconciler.Carried carried = planner.carried(row);
-                        if (carried != null) {
-                            carriedByThePartner.add(carried);
-                        }
-                    }
+                    case ImportPlanner.Family f -> f.items().forEach(item -> importFamily(file, item));
                     case ImportPlanner.Skipped s -> {
                         tally(Source.PARTNER, "ZERO").skipped++;
                         skipped.add(new Problem(file, row.row(), id(row.id()), s.reason()));
@@ -510,53 +499,23 @@ public class ImportService {
                     default -> throw new IllegalStateException("A partner's row is a family row or none");
                 }
             }
+            appRows(appFileRows);
             String deferred = deferredConstraintsFail(personal);
             if (deferred != null) {
                 errors.add(new Problem(null, null, deferred));
             }
-
-            Set<String> comparedCodes = accountRows.rows().stream().map(AccountRow::code).collect(Collectors.toSet());
-            LocalDate older = Stream.of(ownerLatest, partnerLatest).filter(d -> d != null).min(LocalDate::compareTo)
-                    .orElse(null);
-            // D-169: the owner's hand-rounded halves of the partner's incomes that D-84 leaves out; once his place has
-            // an account, his incomes are his records, up to the cutoff.
-            if (family != null && family.mode() == Mode.OWNER_AFTER_CLAIM && cutoff != null) {
-                carriedByThePartner.addAll(seatIncomes(family.scope(), seatId, cutoff));
-                // D-12 against Excel's exact halves for the records of the partner's file, which his rows no longer
-                // bring: as a member's import explains the other member's records (an agent's choice, D3c).
-                LocalDate joined = familyLedgers.members(family.scope()).stream().filter(m -> m.id() == ownerId)
-                        .findFirst().orElseThrow().joinDate();
-                drift.addAll(othersRecordsDrift(family.scope(), ownerId, joined));
-            }
-            Reconciler.OwnerHalves ownerHalves = Reconciler.ownerHalf(carriedByTheOwner, carriedByThePartner);
-            drift.addAll(ownerHalves.drift());
-            // D-175: the seats this run imports; the others' latest committed cutoffs limit the family debt.
-            List<Long> seats = new ArrayList<>();
-            if (family != null) {
-                seats.add(ownerId);
-                if (partnerRows != null) {
-                    seats.add(seatId);
-                }
-            }
-            LocalDate familyDebtUpTo = family == null ? null : othersCutoff(family.scope(), seats);
-            ImportReport.Reconciliation reconciliation = balance.isEmpty() || cutoff == null ? null
-                    : Reconciler.reconcile(appBalances(personal), balance, drift, familyCurrencies, comparedCodes,
-                            cutoff, older.withDayOfMonth(1), ownerHalves.months(), familyDebtUpTo);
-            return finish(transactionsFile, partnerRows != null, after, reconciliation, seats, cutoff, null);
+            ImportReport.Reconciliation reconciliation = reconcile(transactionRows.rows(), fileChart);
+            return finish(transactionsFile, partnerRows != null, after, reconciliation, gaps, null);
         }
 
-        /** The report, the import batch, and on a commit each seat's cutoff (D-175). */
+        /** The report and the import batch. */
         private ImportReport finish(ImportFile transactionsFile, boolean partnerRead, AfterCutoff after,
-                ImportReport.Reconciliation reconciliation, List<Long> seats, LocalDate cutoff,
-                ImportReport.MemberSummary member) {
+                ImportReport.Reconciliation reconciliation, List<String> gaps, ImportReport.MemberSummary member) {
             if (reconciliation != null) {
                 reconciliation.appOnly().forEach(a -> warnings.add(new Problem(null, null,
-                        "an account of the app has a balance and no column in the daily balance file")));
+                        "an account of the app moved in the file's period in a currency that no row of the file has")));
             }
             Outcome outcome = !commit ? Outcome.DRY_RUN : errors.isEmpty() ? Outcome.COMMITTED : Outcome.ABORTED;
-            if (outcome == Outcome.COMMITTED && family != null && cutoff != null) {
-                seats.forEach(seat -> storeCutoff(family.scope(), seat, cutoff));
-            }
             ImportReport report = new ImportReport(personal.userId(), commit, outcome, startedAt, files,
                     family == null ? null : family.target(), from == null ? null : new Period(from, to),
                     after.upTo(), after.counts(partnerRead),
@@ -564,12 +523,140 @@ public class ImportService {
                     distinct(errors), distinct(warnings), distinct(skipped),
                     new ReferenceCounts(accountsCreated, accountsUpdated, categoriesCreated, categoriesUpdated,
                             familyCategoriesCreated, categoriesMerged, counterpartiesCreated),
-                    zeroFxRows, fxRows, reconciliation, reports.integrityCheck(personal), member,
+                    new ImportReport.ChartChanges(List.copyOf(chartCreated), List.copyOf(chartRenamed)),
+                    List.copyOf(gaps), zeroFxRows, fxRows, reconciliation, reports.integrityCheck(personal), member,
                     new ImportReport.Sync(List.copyOf(appEdited), List.copyOf(appEdits), List.copyOf(replanned),
-                            List.copyOf(restamped), List.copyOf(notReplannable), List.copyOf(twinsMerged)));
+                            List.copyOf(restamped), List.copyOf(notReplannable), List.copyOf(twinsMerged),
+                            appRowsUnchanged, List.copyOf(appRows)));
             batches.save(new ImportBatch(batchId, personal.userId(), personal.ledgerId(), transactionsFile.name(),
                     transactionsFile.sha256(), !commit, null, WallClock.now(), summary(report)));
             return report;
+        }
+
+        /**
+         * D-231 as D-255 and D-256 amend it: the rows (what the import built of each, and their computed columns), then
+         * the month-ends from the file's first row date to its last (or "Import up to"), with the entries of the ledger
+         * that no row stands for explained as NO_ROW.
+         *
+         * @param rows the file's rows up to the cutoff, the app's included
+         */
+        private ImportReport.Reconciliation reconcile(List<TransactionRow> rows, Workbook.FileChart fileChart) {
+            Set<String> compared = fileChart.accounts().stream().map(Workbook.AccountRow::code)
+                    .collect(Collectors.toSet());
+            LocalDate first = rows.stream().map(TransactionRow::date).min(LocalDate::compareTo).orElse(null);
+            LocalDate last = rows.stream().map(TransactionRow::date).max(LocalDate::compareTo).orElse(null);
+            Map<Key, NavigableMap<LocalDate, BigDecimal>> file = new HashMap<>();
+            for (TransactionRow row : rows) {
+                Reconciler.fileEffect(row).forEach((key, amount) -> file.computeIfAbsent(key, k -> new TreeMap<>())
+                        .merge(row.date(), amount, BigDecimal::add));
+            }
+            Set<String> named = rows.stream().map(row -> row.isApp() ? row.appId()
+                    : EntryMapper.reference(row.id())).collect(Collectors.toSet());
+            for (ExportService.Unwritten entry : snapshot.unwritten()) {
+                // An entry a row of the file names is that row's; a side of several rows (D-198) is theirs.
+                if (entry.externalRef() != null && Stream.of(entry.externalRef()
+                        .substring(entry.externalRef().startsWith(EntryMapper.REFERENCE_PREFIX)
+                                ? EntryMapper.REFERENCE_PREFIX.length() : 0).split(Pattern.quote(GROUP)))
+                        .anyMatch(id -> named.contains(EntryMapper.REFERENCE_PREFIX + id)
+                                || named.contains(entry.externalRef()))) {
+                    continue;
+                }
+                entry.effects().forEach(effect -> drift.add(new Drift(effect.account(), effect.currency(),
+                        entry.date(), effect.amount(), Drift.Reason.NO_ROW)));
+            }
+            List<Drift> shownRounded = new ArrayList<>();
+            ImportReport.RowLevel rowLevel = Reconciler.rows(rows, built, compared, shownRounded);
+            drift.addAll(shownRounded);
+            return Reconciler.reconcile(appBalances(personal), file, drift, compared, first, last, rowLevel);
+        }
+
+        /** What the import builds of a personal row: its entry's postings, as displayed (rule 4). */
+        private void builtPersonal(TransactionRow row, RowResult result) {
+            switch (result) {
+                case RowResult.Entry entry -> {
+                    Map<Key, BigDecimal> effect = new TreeMap<>();
+                    for (EntryPlan.Line line : entry.plan().postings()) {
+                        AccountRef account = accountsById.get(line.accountId());
+                        effect.merge(Reconciler.key(account.code(), line.currency()), shown(account, line.amount()),
+                                BigDecimal::add);
+                    }
+                    built.add(new Reconciler.Built(row, effect, entry.plan().drift()));
+                }
+                case RowResult.Skipped s -> built.add(new Reconciler.Built(row, Map.of(), List.of()));
+                case RowResult.Failed f -> {
+                }
+            }
+        }
+
+        /**
+         * What the import builds of a family row on the user's own side, as displayed: his paying side on its account,
+         * and on the family debt and the equity together the record's amount (his share and his payment, D-7), or for
+         * a settlement its amount; a record another member pays moves the two by his share each, which cancel out.
+         */
+        private void builtFamily(TransactionRow row, List<? extends FamilyItem> items) {
+            Map<Key, BigDecimal> effect = new TreeMap<>();
+            List<Drift> rowDrift = new ArrayList<>();
+            for (FamilyItem item : items) {
+                rowDrift.addAll(item.drift());
+                switch (item) {
+                    case RecordSpec spec -> {
+                        if (!spec.ownerPays()) {
+                            continue;
+                        }
+                        boolean expense = spec.type().equals("EXPENSE");
+                        BigDecimal sign = BigDecimal.valueOf(spec.refund() ? -1 : 1);
+                        BigDecimal paid = (spec.accountAmount() == null ? spec.amount() : spec.accountAmount())
+                                .multiply(sign);
+                        side(effect, spec.accountCode(), spec.accountCurrency(), expense ? paid.negate() : paid);
+                        BigDecimal record = spec.amount().multiply(sign);
+                        effect.merge(Reconciler.key(Reconciler.FAMILY_DEBT, spec.currency()),
+                                expense ? record.negate() : record, BigDecimal::add);
+                    }
+                    case SettlementSpec spec -> {
+                        BigDecimal amount = spec.ownerPays() ? spec.amount().negate() : spec.amount();
+                        effect.merge(Reconciler.key(Reconciler.FAMILY_DEBT, spec.currency()), amount,
+                                BigDecimal::add);
+                        if (!spec.throughExchange()) {
+                            BigDecimal side = spec.accountAmount() == null ? spec.amount() : spec.accountAmount();
+                            side(effect, spec.accountCode(), spec.accountCurrency(),
+                                    spec.ownerPays() ? side.negate() : side);
+                        }
+                    }
+                }
+            }
+            built.add(new Reconciler.Built(row, effect, rowDrift));
+        }
+
+        /** A posting on the account in the currency, as its displayed change. */
+        private void side(Map<Key, BigDecimal> effect, String code, String currency, BigDecimal posting) {
+            AccountRef account = chart.accountsByCode().get(code);
+            if (account != null) {
+                effect.merge(Reconciler.key(code, currency), shown(account, posting), BigDecimal::add);
+            }
+        }
+
+        /**
+         * D-259: the rows the app made, compared with what the export writes of the same record now. One that is the
+         * same is nothing to do; one that isn't (changed in the file), or that names no entry or record of the user's,
+         * is listed and never written.
+         */
+        private void appRows(List<TransactionRow> rows) {
+            Map<String, ExcelRow> exported = new HashMap<>();
+            snapshot.rows().stream().filter(r -> r.id().startsWith(ExportService.APP)).forEach(r -> exported.put(r.id(), r));
+            for (TransactionRow row : rows) {
+                Tally tally = tally(APP_SOURCE, row.appId().startsWith(ExportService.APP_FAMILY) ? "FAMILY" : "ENTRY");
+                ExcelRow current = exported.get(row.appId());
+                if (current == null) {
+                    tally.conflicts++;
+                    appRows.add(new RowRef(APP_SOURCE, row.appId(), APP_ROW_UNKNOWN));
+                } else if (!current.contentHash().equals(row.contentHash())) {
+                    tally.conflicts++;
+                    appRows.add(new RowRef(APP_SOURCE, row.appId(), APP_ROW_CHANGED));
+                } else {
+                    tally.unchanged++;
+                    appRowsUnchanged++;
+                }
+            }
         }
 
         private void read(String role, Sheet<?> sheet) {
@@ -645,19 +732,56 @@ public class ImportService {
         }
 
         /**
-         * The family categories of the family records (D-11): the budget's own with the code, else a new one, into
-         * which the owner's personal category with the code merges. By code. Then, since D3e, every other code of the
-         * categories file that the budget has already, of the same type, whichever rows use it: once the partner's
-         * place imports its own file, the owner's run no longer has the partner's records, and their codes would
-         * otherwise become personal categories beside the family's. A personal category of such a code that no posting
-         * uses merges into the family's (D-11); one that postings use stays, with a warning, and the code is the
-         * family's all the same.
+         * D-229: a code of the file that the app has with another type refuses the whole file, before anything is
+         * written: an account (the workbook's ASSET or LIABILITIES, which rule 4 makes LIABILITY or EQUITY), a personal
+         * category, or a category of the family budget.
          */
-        private Map<String, Long> familyCategories(List<FamilyItem> items, Sheet<CategoryRow> categoryRows) {
+        private void refuseOtherTypes(Workbook.FileChart fileChart) {
+            List<String> reasons = new ArrayList<>();
+            Map<String, Account> accountsByCode = accounts.findAll(personal).stream()
+                    .collect(Collectors.toMap(Account::code, Function.identity()));
+            for (AccountRow row : fileChart.accounts()) {
+                Account existing = accountsByCode.get(row.code());
+                // Rule 4: the workbook's LIABILITIES is a LIABILITY or an EQUITY account, its ASSET an ASSET one.
+                if (existing != null && (existing.type() == AccountType.ASSET) != (row.type() == AccountType.ASSET)) {
+                    reasons.add("the account %s is %s in the app and %s in the file (D-229)".formatted(row.code(),
+                            existing.type(), row.type() == AccountType.ASSET ? "ASSET" : "LIABILITIES"));
+                }
+            }
+            Map<String, LedgerCategory> categoriesByCode = new HashMap<>();
+            categories.findAll(personal).forEach(c -> categoriesByCode.putIfAbsent(c.code(), c));
+            if (family != null) {
+                categories.findAll(family.scope()).forEach(c -> categoriesByCode.put(c.code(), c));
+            }
+            for (CategoryRow row : fileChart.categories()) {
+                LedgerCategory existing = categoriesByCode.get(row.code());
+                if (existing != null && existing.type() != row.type()) {
+                    reasons.add("the category %s is %s in the app and %s in the file (D-229)".formatted(row.code(),
+                            existing.type(), row.type()));
+                }
+            }
+            if (!reasons.isEmpty()) {
+                throw new TransactionsFileRefused(reasons);
+            }
+        }
+
+        /**
+         * The family categories of the family records (D-11): the budget's own with the code, else a new one, into
+         * which the user's personal category with the code merges. By code. Then, since D3e, every other code of the
+         * file that the budget has already, of the same type, whichever rows use it: once the partner's place imports
+         * its own file, the owner's run no longer has the partner's records, and their codes would otherwise become
+         * personal categories beside the family's. A personal category of such a code that no posting uses merges into
+         * the family's (D-11); one that postings use stays, with a warning, and the code is the family's all the same.
+         * A family category keeps its first name (D-254).
+         */
+        private Map<String, Long> familyCategories(List<FamilyItem> items, List<CategoryRow> categoryRows,
+                ImportFile file) {
             Map<String, Long> ids = new HashMap<>();
             if (family == null) {
                 return ids;
             }
+            Map<String, LedgerCategory> before = categories.findAll(family.scope()).stream()
+                    .collect(Collectors.toMap(LedgerCategory::code, Function.identity(), (a, b) -> a));
             Map<String, RecordSpec> byCode = new TreeMap<>();
             items.stream().filter(RecordSpec.class::isInstance).map(RecordSpec.class::cast)
                     .forEach(spec -> byCode.putIfAbsent(spec.categoryCode(), spec));
@@ -668,17 +792,19 @@ public class ImportService {
                     ids.put(code, category.id());
                     familyCategoriesCreated += category.created() ? 1 : 0;
                     categoriesMerged += category.merged() ? 1 : 0;
+                    if (category.created()) {
+                        chartCreated.add(new ImportReport.ChartItem("FAMILY_CATEGORY", code, spec.categoryName(),
+                                spec.categoryType().name()));
+                    }
                 } catch (ConflictException | DataAccessException e) {
-                    errors.add(new Problem(request.categories().name(), null,
+                    errors.add(new Problem(file.name(), null,
                             "the family budget's category can't be found or made: " + message(e)));
                 }
             });
-            Map<String, LedgerCategory> familyByCode = categories.findAll(family.scope()).stream()
-                    .collect(Collectors.toMap(LedgerCategory::code, Function.identity(), (a, b) -> a));
             Map<String, LedgerCategory> mineByCode = categories.findAll(personal).stream()
                     .collect(Collectors.toMap(LedgerCategory::code, Function.identity(), (a, b) -> a));
-            for (CategoryRow row : categoryRows.rows()) {
-                LedgerCategory familyCategory = familyByCode.get(row.code());
+            for (CategoryRow row : categoryRows) {
+                LedgerCategory familyCategory = before.get(row.code());
                 if (familyCategory == null || familyCategory.type() != row.type() || ids.containsKey(row.code())) {
                     continue;
                 }
@@ -689,9 +815,9 @@ public class ImportService {
                 }
                 long used = categoryPostings(personal, twin.id());
                 if (used > 0) {
-                    warnings.add(new Problem(categoryRows.file().name(), row.row(), ("a personal category of yours has the "
-                            + "family budget's code and %d postings: not merged (D-11); its rows map to the family "
-                            + "category").formatted(used)));
+                    warnings.add(new Problem(file.name(), null, ("your personal category %s has the family budget's "
+                            + "code and %d postings: not merged (D-11); its rows map to the family category")
+                            .formatted(row.code(), used)));
                     continue;
                 }
                 try {
@@ -700,8 +826,8 @@ public class ImportService {
                     categoriesMerged += category.merged() ? 1 : 0;
                     twinsMerged.add(row.code());
                 } catch (ConflictException | DataAccessException e) {
-                    errors.add(new Problem(request.categories().name(), row.row(),
-                            "your personal category can't merge into the family budget's: " + message(e)));
+                    errors.add(new Problem(file.name(), null, ("your personal category %s can't merge into the family "
+                            + "budget's: ").formatted(row.code()) + message(e)));
                 }
             }
             return ids;
@@ -710,33 +836,42 @@ public class ImportService {
         // --- The chart ----------------------------------------------------------------------------------------------
 
         /**
-         * Creates or updates the personal accounts of the accounts file by code, and makes sure the system accounts
-         * exist (rules 4, 8, 9 and 10). By name in lower case.
+         * Creates the personal accounts the file's rows name and the ledger lacks, by code, and writes the file's name
+         * to those it has (D-228, D-254); the system accounts the import posts to exist (rules 9 and 10). A system
+         * account keeps its name. By name in lower case, in every spelling the file has (D-261).
          */
-        private Map<String, AccountRef> accounts(Sheet<AccountRow> accountRows) {
+        private Map<String, AccountRef> accounts(List<AccountRow> accountRows, ImportFile file) {
             Map<String, Account> accountsByCode = accounts.findAll(personal).stream()
                     .collect(Collectors.toMap(Account::code, Function.identity()));
             Map<String, AccountRef> accountsByName = new HashMap<>();
-            for (AccountRow row : accountRows.rows()) {
+            for (AccountRow row : accountRows) {
                 Account existing = accountsByCode.get(row.code());
-                Account wanted = existing == null
-                        ? new Account(null, personal.userId(), personal.ledgerId(), row.code(), row.name(), row.type(),
-                                null, row.requiresCounterparty(), false, null, null)
-                        : new Account(existing.id(), existing.userId(), existing.ledgerId(), existing.code(),
-                                row.name(), row.type(), existing.defaultCurrency(), row.requiresCounterparty(),
-                                existing.isSystem(), existing.archivedAt(), existing.createdAt());
                 Account account = existing;
-                if (!wanted.equals(existing)) {
-                    account = save(accountRows.file(), row.row(), () -> accounts.save(wanted), "the account");
-                    if (account != null && existing == null) {
+                if (existing == null) {
+                    Account wanted = new Account(null, personal.userId(), personal.ledgerId(), row.code(), row.name(),
+                            row.type(), null, row.requiresCounterparty(), false, null, null);
+                    account = save(file, () -> accounts.save(wanted), "the account " + row.code());
+                    if (account != null) {
                         accountsCreated++;
-                    } else if (account != null) {
+                        chartCreated.add(new ImportReport.ChartItem("ACCOUNT", row.code(), row.name(),
+                                row.type().name()));
+                    }
+                } else if (!existing.isSystem() && !row.spellings().contains(existing.name())) {
+                    // D-254: the file's name, unless the app's is one of its spellings (D-261).
+                    Account wanted = new Account(existing.id(), existing.userId(), existing.ledgerId(), existing.code(),
+                            row.name(), existing.type(), existing.defaultCurrency(), existing.requiresCounterparty(),
+                            existing.isSystem(), existing.archivedAt(), existing.createdAt());
+                    account = save(file, () -> accounts.save(wanted), "the account " + row.code());
+                    if (account != null) {
                         accountsUpdated++;
+                        chartRenamed.add(new ImportReport.Rename("ACCOUNT", row.code(), existing.name(), row.name()));
                     }
                 }
                 if (account != null) {
                     accountsByCode.put(account.code(), account);
-                    accountsByName.put(row.name().toLowerCase(Locale.ROOT), accountRef(account));
+                    for (String name : row.spellings()) {
+                        accountsByName.put(name.toLowerCase(Locale.ROOT), accountRef(account));
+                    }
                 }
             }
             systemAccount(AccountRole.OPENING_BALANCE, "Opening balance", accountsByCode);
@@ -750,40 +885,40 @@ public class ImportService {
         private Map<String, AccountRef> refsByCode;
 
         /**
-         * The categories by the file's names: the family budget's for the codes of its records, which the owner's
-         * personal rows use too (D-11), and the personal ones, created or updated by code, for the rest.
+         * The categories by the file's names: the family budget's for the codes of its records, which the user's
+         * personal rows use too (D-11), and the personal ones, created by code or given the file's name (D-254), for the
+         * rest.
          */
-        private Chart chart(Map<String, AccountRef> accountsByName, Sheet<CategoryRow> categoryRows) {
+        private Chart chart(Map<String, AccountRef> accountsByName, List<CategoryRow> categoryRows, ImportFile file) {
             Map<String, LedgerCategory> categoriesByCode = categories.findAll(personal).stream()
-                    .collect(Collectors.toMap(LedgerCategory::code, Function.identity()));
+                    .collect(Collectors.toMap(LedgerCategory::code, Function.identity(), (a, b) -> a));
             Map<String, CategoryRef> categoriesByName = new HashMap<>();
-            for (CategoryRow row : categoryRows.rows()) {
+            for (CategoryRow row : categoryRows) {
                 Long familyId = familyCategoryIds.get(row.code());
                 if (familyId != null) {
-                    categoriesByName.put(row.name(), new CategoryRef(familyId, row.code(), row.type()));
+                    row.spellings().forEach(name -> categoriesByName.put(name,
+                            new CategoryRef(familyId, row.code(), row.type())));
                     continue;
                 }
                 LedgerCategory existing = categoriesByCode.get(row.code());
-                if (existing != null && existing.type() != row.type()) {
-                    // Decided on 2026-09-25: a category's type never changes.
-                    errors.add(new Problem(categoryRows.file().name(), row.row(),
-                            "the category's type can't change"));
-                    continue;
-                }
-                LedgerCategory wanted = new LedgerCategory(existing == null ? null : existing.id(), personal.userId(),
-                        personal.ledgerId(), row.code(), row.name(), row.type(),
-                        existing == null ? null : existing.archivedAt());
                 LedgerCategory category = existing;
-                if (!wanted.equals(existing)) {
-                    category = save(categoryRows.file(), row.row(), () -> categories.save(wanted), "the category");
+                if (existing == null || !row.spellings().contains(existing.name())) {
+                    LedgerCategory wanted = new LedgerCategory(existing == null ? null : existing.id(),
+                            personal.userId(), personal.ledgerId(), row.code(), row.name(), row.type(),
+                            existing == null ? null : existing.archivedAt());
+                    category = save(file, () -> categories.save(wanted), "the category " + row.code());
                     if (category != null && existing == null) {
                         categoriesCreated++;
+                        chartCreated.add(new ImportReport.ChartItem("CATEGORY", row.code(), row.name(),
+                                row.type().name()));
                     } else if (category != null) {
                         categoriesUpdated++;
+                        chartRenamed.add(new ImportReport.Rename("CATEGORY", row.code(), existing.name(), row.name()));
                     }
                 }
                 if (category != null) {
-                    categoriesByName.put(row.name(), new CategoryRef(category.id(), category.code(), category.type()));
+                    CategoryRef ref = new CategoryRef(category.id(), category.code(), category.type());
+                    row.spellings().forEach(name -> categoriesByName.put(name, ref));
                 }
             }
             return new Chart(accountsByName, refsByCode, categoriesByName);
@@ -801,27 +936,32 @@ public class ImportService {
         }
 
         /**
-         * Writes an account or category of the files under a savepoint. Null if the database refuses it, such as an
-         * account whose postings rule out its new type; that is an error of the row.
+         * Writes an account or category of the file under a savepoint. Null if the database refuses it; that is an
+         * error of the file.
          */
-        private <T> T save(ImportFile file, int row, Supplier<T> save, String what) {
+        private <T> T save(ImportFile file, Supplier<T> save, String what) {
             try {
                 return savepoint.execute(status -> save.get());
             } catch (DataAccessException e) {
-                errors.add(new Problem(file.name(), row, what + " can't be saved: " + cause(e)));
+                errors.add(new Problem(file.name(), null, what + " can't be saved: " + cause(e)));
                 return null;
             }
         }
 
         // --- What the ledgers hold from earlier imports (D-138, D-139, D-150) --------------------------------------
 
-        private void findMissing(Sheet<TransactionRow> transactionRows, List<FamilyItem> familyItems,
-                boolean partnerRead, AfterCutoff after) {
-            Set<String> personalRefs = transactionRows.rows().stream().map(r -> EntryMapper.reference(r.id()))
+        /**
+         * D-138 within the file's period (D-256): a row an earlier import wrote, dated from the file's first row date to
+         * its last (up to "Import up to"), that the file no longer has. Before or after the period, a row is the file's
+         * to leave out. No row of the file stands for D-83's lumps, which D3b's import made from a daily file (D-232).
+         */
+        private void findMissing(List<TransactionRow> excelRows, List<FamilyItem> familyItems, boolean partnerRead,
+                AfterCutoff after) {
+            Set<String> personalRefs = excelRows.stream().map(r -> EntryMapper.reference(r.id()))
                     .collect(Collectors.toSet());
             personalKnown.forEach((ref, known) -> {
                 if (known.hash() != null && ref.matches("xls:[0-9]+") && !personalRefs.contains(ref)
-                        && !after.leftAlone(after.owner(), ref.substring(4), known.date())) {
+                        && within(ownPeriod, known.date()) && !after.leftAlone(after.owner(), ref.substring(4), known.date())) {
                     missing.add(new RowRef(personalSource.name(), ref.substring(4),
                             "no longer in the transactions file (D-138)"));
                 }
@@ -831,7 +971,7 @@ public class ImportService {
             }
             Set<String> familyRefs = familyItems.stream().map(FamilyItem::ref).collect(Collectors.toSet());
             // A member's row that his file still has is not missing, whatever became of it in this run.
-            Set<String> memberRows = family.mode() != Mode.MEMBER ? Set.of() : transactionRows.rows().stream()
+            Set<String> memberRows = family.mode() != Mode.MEMBER ? Set.of() : excelRows.stream()
                     .map(row -> ImportPlanner.ref(family.target().ownerMemberId(), String.valueOf(row.id())))
                     .collect(Collectors.toSet());
             List<Long> seats = new ArrayList<>(List.of(family.target().ownerMemberId()));
@@ -843,13 +983,24 @@ public class ImportService {
                 boolean owners = seat == family.target().ownerMemberId();
                 liveFamilyRefs(family.scope(), prefix).forEach((ref, date) -> {
                     String excelId = ref.substring(prefix.length());
-                    if (!familyRefs.contains(ref) && !memberRows.contains(ref)
+                    if (!familyRefs.contains(ref) && !memberRows.contains(ref) && !excelId.startsWith(LUMP)
+                            && within(owners ? ownPeriod : partnerPeriod, date)
                             && !after.leftAlone(owners ? after.owner() : after.partner(), excelId, date)) {
                         missing.add(new RowRef(owners ? family.mode() == Mode.MEMBER ? "MEMBER" : "OWNER"
                                 : Source.PARTNER.name(), excelId, "no longer in the files (D-138)"));
                     }
                 });
             }
+        }
+
+        /** Whether a date is within a file's period, from its first row date to its last (D-256). */
+        private static boolean within(LocalDate[] period, LocalDate date) {
+            return date != null && period[0] != null && !date.isBefore(period[0]) && !date.isAfter(period[1]);
+        }
+
+        private static void widen(LocalDate[] period, LocalDate date) {
+            period[0] = period[0] == null || date.isBefore(period[0]) ? date : period[0];
+            period[1] = period[1] == null || date.isAfter(period[1]) ? date : period[1];
         }
 
         // --- Personal entries ---------------------------------------------------------------------------------------
@@ -980,7 +1131,7 @@ public class ImportService {
                     return;
                 }
                 drift.add(new Drift(change.code(), change.currency(), change.date(), amount, Drift.Reason.APP_EDITED));
-                byAccount.merge(Reconciler.key(change.code(), change.currency(), familyCurrencies), amount,
+                byAccount.merge(Reconciler.key(change.code(), change.currency()), amount,
                         BigDecimal::add);
             });
             byAccount.forEach((key, amount) -> {
@@ -1039,7 +1190,7 @@ public class ImportService {
             }
             ImportSync.Known known = familyKnown.get(item.ref());
             if (known != null && !known.deleted() && family.mode() == Mode.OWNER_AFTER_CLAIM
-                    && (item.source() == Source.OWNER_SEAT || item.source() == Source.OWNER_LUMP)
+                    && item.source() == Source.OWNER_SEAT
                     && known.contentHash().equals(item.hash())) {
                 // D-219, D-196: the partner's place pays these records now; the owner's import never writes them.
                 tally.unchanged++;
@@ -1244,36 +1395,30 @@ public class ImportService {
         /**
          * A member's own import: his personal rows as the owner's are, his family rows on the records an import of his
          * rows wrote before (or new ones), his side on the settlements his settlement rows match, his benefit rows
-         * checked, and his reconciliation with his family debt compared as movement since his first day (D-180).
+         * checked, and the reconciliation of his ledger with his file as any user's (D-256).
          */
-        private ImportReport member(Sheet<AccountRow> accountRows, Sheet<CategoryRow> categoryRows,
-                Sheet<TransactionRow> transactionRows, DailyFile balance, Map<String, AccountRef> accountsByName,
-                Map<String, CategoryRow> categoryRowsByName, LocalDate latest, LocalDate cutoff, AfterCutoff after) {
+        private ImportReport member(Sheet<TransactionRow> transactionRows, List<TransactionRow> excelRows,
+                List<TransactionRow> appFileRows, Workbook.FileChart fileChart, Map<String, AccountRef> accountsByName,
+                Map<String, CategoryRow> categoryRowsByName, List<String> gaps, AfterCutoff after) {
             long me = family.target().ownerMemberId();
             LocalDate joinDate = familyLedgers.members(family.scope()).stream().filter(m -> m.id() == me).findFirst()
                     .orElseThrow().joinDate();
             MemberPlanner planner = new MemberPlanner(accountsByName, categoryRowsByName, me,
                     family.target().seatMemberId());
             List<MemberPlanner.Plan> plans = new ArrayList<>();
-            for (TransactionRow row : transactionRows.rows()) {
+            for (TransactionRow row : excelRows) {
                 plans.add(planner.plan(row));
-                period(row.date());
             }
             List<FamilyItem> familyItems = new ArrayList<>();
             plans.forEach(plan -> {
                 if (plan instanceof MemberPlanner.FamilyRow row) {
                     familyItems.add(row.spec());
-                    familyCurrencies.add(row.spec().currency());
                 }
             });
-            familyCurrencies.addAll(recordCurrencies(family.scope(), me, joinDate));
-            transactionRows.rows().forEach(row -> {
-                currencies.add(row.debitCurrencyOrRow());
-                currencies.add(row.creditCurrencyOrRow());
-            });
 
-            familyCategoryIds = familyCategories(familyItems, categoryRows);
-            chart = chart(accountsByName, categoryRows);
+            ImportFile transactionsFile = transactionRows.file();
+            familyCategoryIds = familyCategories(familyItems, fileChart.categories(), transactionsFile);
+            chart = chart(accountsByName, fileChart.categories(), transactionsFile);
             EntryMapper mapper = new EntryMapper(chart);
             counterpartyIds = counterparties.findAll(personal).stream()
                     .collect(Collectors.toMap(c -> key(c.name()), Counterparty::id, (first, second) -> first));
@@ -1284,26 +1429,11 @@ public class ImportService {
             familyStored = familyStored(family.scope());
             memberRecords = memberRecords(family.scope(), me);
             sideRows = sideRows(personal);
-            findMissing(transactionRows, familyItems, false, after);
-            ImportFile transactionsFile = transactionRows.file();
+            snapshot = exports.export(personal, null, null);
+            findMissing(excelRows, familyItems, false, after);
             batchId = batches.save(new ImportBatch(null, personal.userId(), personal.ledgerId(),
                     transactionsFile.name(), transactionsFile.sha256(), !commit, null, null, null)).id();
             analyze(personal);
-
-            // D-62, with his family debt left to his claim (D-180): compared as movement since his first day.
-            if (!balance.isEmpty()) {
-                Map<DailyFile.Column, BigDecimal> opening = new LinkedHashMap<>();
-                LocalDate first = balance.values().firstKey();
-                balance.accountColumns().forEach((column, account) -> opening.merge(account,
-                        balance.value(first, column), BigDecimal::add));
-                Map<String, BigDecimal> firstFamilyDebt = new TreeMap<>();
-                RowResult result = mapper.openingEntry(first, opening, firstFamilyDebt);
-                importPersonal(balance.file().name(), null, null, "OPENING_BALANCE", result);
-                firstFamilyDebt.forEach((currency, amount) -> drift.add(new Drift(Reconciler.FAMILY_DEBT, currency,
-                        first, amount.negate(), Drift.Reason.CLAIM_OPENING)));
-            }
-            drift.addAll(claimOpening(family.scope(), personal, me));
-            drift.addAll(claimShares(family.scope(), me, joinDate));
 
             String file = transactionsFile.name();
             List<MemberPlanner.SettlementRow> settlementRows = new ArrayList<>();
@@ -1316,19 +1446,28 @@ public class ImportService {
                     case MemberPlanner.Personal personalRow -> {
                         RowResult result = mapper.map(personalRow.row());
                         importPersonal(file, row.row(), excelId, kindOf(result), result);
+                        builtPersonal(row, result);
                         if (result instanceof RowResult.Entry entry && entry.plan().fxGain()) {
                             fxRows.add(new FxRow(row.row(), excelId, row.date(), row.sum(), row.currency()));
                         }
                     }
-                    case MemberPlanner.FamilyRow familyRow -> memberFamily(file, familyRow);
+                    case MemberPlanner.FamilyRow familyRow -> {
+                        memberFamily(file, familyRow);
+                        builtFamily(row, List.of(familyRow.spec()));
+                    }
                     case MemberPlanner.SettlementRow settlement -> {
                         settlement.warnings().forEach(w -> warnings.add(new Problem(file, row.row(), excelId, w)));
                         settlementRows.add(settlement);
+                        builtFamily(row, List.of(settlement.spec()));
                     }
-                    case MemberPlanner.ConversionRow conversion -> conversionRows.add(conversion);
+                    case MemberPlanner.ConversionRow conversion -> {
+                        conversionRows.add(conversion);
+                        builtFamily(row, conversion.legs());
+                    }
                     case MemberPlanner.Benefit benefit -> {
                         tally(Source.MEMBER_BENEFIT, "INCOME").notImported++;
                         benefits.add(benefit);
+                        built.add(new Reconciler.Built(row, Map.of(), List.of()));
                     }
                     case MemberPlanner.Refused refused -> {
                         tally(Source.MEMBER_FAMILY, "ROW").failed++;
@@ -1337,24 +1476,21 @@ public class ImportService {
                     case MemberPlanner.Skipped skippedRow -> {
                         tally(Source.MEMBER_FAMILY, "ZERO").skipped++;
                         skipped.add(new Problem(file, row.row(), excelId, skippedRow.reason()));
+                        built.add(new Reconciler.Built(row, Map.of(), List.of()));
                     }
                 }
             }
             memberSettlements(file, settlementRows, conversionRows, joinDate);
+            LocalDate cutoff = transactionRows.rows().stream().map(TransactionRow::date).max(LocalDate::compareTo)
+                    .orElse(null);
             memberBenefits(benefits, joinDate, cutoff);
-            drift.addAll(othersRecordsDrift(family.scope(), me, joinDate));
+            appRows(appFileRows);
             String deferred = deferredConstraintsFail(personal);
             if (deferred != null) {
                 errors.add(new Problem(null, null, deferred));
             }
-
-            Set<String> comparedCodes = accountRows.rows().stream().map(AccountRow::code).collect(Collectors.toSet());
-            LocalDate familyDebtUpTo = othersCutoff(family.scope(), List.of(me));
-            ImportReport.Reconciliation reconciliation = balance.isEmpty() || cutoff == null || latest == null ? null
-                    : Reconciler.reconcile(appBalances(personal), balance, drift, familyCurrencies, comparedCodes,
-                            cutoff, latest.withDayOfMonth(1), List.of(), familyDebtUpTo);
-            return finish(transactionsFile, false, after, reconciliation, List.of(me), cutoff,
-                    memberTally.summary());
+            ImportReport.Reconciliation reconciliation = reconcile(transactionRows.rows(), fileChart);
+            return finish(transactionsFile, false, after, reconciliation, gaps, memberTally.summary());
         }
 
         /**
@@ -1487,7 +1623,11 @@ public class ImportService {
                 String sideHash, RecordSpec spec) {
             Tally tally = tally(Source.MEMBER_FAMILY, "PAYMENT_SIDE");
             SideRow known = sideRows.get(recordId);
-            if (known != null && known.sideHash().equals(sideHash)) {
+            // D-256: a side the ledger holds as the row has it is unchanged, whatever texts its row has that the
+            // ledger doesn't keep.
+            if (known != null && (known.sideHash().equals(sideHash) || sideHolds(recordId, spec.accountCode(),
+                    spec.accountCurrency(), spec.accountAmount() == null ? spec.amount() : spec.accountAmount(),
+                    spec.counterparty(), true, spec.payee(), spec.note()))) {
                 tally.unchanged++;
                 memberTally.sidesUnchanged++;
                 return;
@@ -1876,7 +2016,16 @@ public class ImportService {
             Tally tally = tally(Source.MEMBER_SETTLEMENT, kind);
             List<SettlementMatcher.Candidate> settlements = settlementsOf(family.scope(),
                     family.target().ownerMemberId(), known.stream().map(SideRow::recordId).toList());
-            if (known.getFirst().sideHash().equals(sideHash)) {
+            // D-256: the sides the ledger holds as the row has them are unchanged.
+            boolean held = !settlements.isEmpty() && settlements.stream().allMatch(settlement -> {
+                SettlementSpec spec = specOf.apply(settlement.currency());
+                BigDecimal amount = spec.accountAmount() != null && settlements.size() == 1 && !spec.throughExchange()
+                        ? spec.accountAmount() : settlement.amount();
+                return sideHolds(settlement.id(), spec.accountCode(), spec.throughExchange() ? settlement.currency()
+                        : spec.accountCurrency(), amount, spec.throughExchange() ? null : spec.counterparty(), false,
+                        null, null);
+            });
+            if (known.getFirst().sideHash().equals(sideHash) || held) {
                 tally.unchanged++;
                 for (SettlementMatcher.Candidate settlement : settlements) {
                     SettlementSpec spec = specOf.apply(settlement.currency());
@@ -1898,6 +2047,28 @@ public class ImportService {
             int tier = settlements.size() > 1 ? 2 : kind.equals("CONVERSION") ? 0 : 1;
             attachSettlement(file, row, new SettlementMatcher.Match(excelId, row.date(), settlements, tier), sideHash,
                     kind, specOf, true);
+        }
+
+        /**
+         * D-256: whether his own entry for the record (his payment or his side of a settlement) has a line on the
+         * account in the currency, of the amount (either sign), with the counterparty; and for a payment, the payee and
+         * the note. That is all of a side the ledger keeps (D-181's hash also covers texts it doesn't).
+         */
+        private boolean sideHolds(long recordId, String accountCode, String currency, BigDecimal amount,
+                String counterparty, boolean payment, String payee, String note) {
+            AccountRef account = chart.accountsByCode().get(accountCode);
+            if (account == null || amount == null) {
+                return false;
+            }
+            StoredSide side = storedSide(personal, family.scope(), recordId);
+            if (side == null || payment && (!Objects.equals(side.payee(), payee == null ? null : key(payee))
+                    || !Objects.equals(side.memo(), note))) {
+                return false;
+            }
+            String party = counterparty == null ? null : key(counterparty);
+            return side.lines().stream().anyMatch(line -> line.accountId() == account.id()
+                    && line.currency().equals(currency) && line.amount().abs().compareTo(amount.abs()) == 0
+                    && Objects.equals(line.counterparty(), party));
         }
 
         /**
@@ -1943,7 +2114,11 @@ public class ImportService {
         // --- The report ---------------------------------------------------------------------------------------------
 
         private Tally tally(Source source, String kind) {
-            return tallies.computeIfAbsent(source.name() + " " + kind, k -> new Tally());
+            return tally(source.name(), kind);
+        }
+
+        private Tally tally(String source, String kind) {
+            return tallies.computeIfAbsent(source + " " + kind, k -> new Tally());
         }
 
         private List<Count> counts() {
@@ -2058,60 +2233,12 @@ public class ImportService {
                 .map(MemberPlanner.SettlementRow::sideHash).toArray(String[]::new));
     }
 
-    /** D-180's difference of 0.01 per account, currency and month-end, and D-177's and D-179's checks'. */
+    /** D-177's and D-179's checks' difference: a cent. */
     static final BigDecimal TOLERANCE = new BigDecimal("0.01");
 
     private static BigDecimal strip(BigDecimal amount) {
         BigDecimal stripped = amount.stripTrailingZeros();
         return stripped.scale() < 2 ? stripped.setScale(2) : stripped;
-    }
-
-    /** D-175: the earliest of the latest committed cutoffs of the seats other than {@code seats}; null for none. */
-    private LocalDate othersCutoff(LedgerScope family, List<Long> seats) {
-        return jdbc.sql("""
-                SELECT min(cutoff) FROM family_import_cutoff
-                WHERE ledger_id = :ledgerId AND NOT (member_id = ANY (:seats))""")
-                .param("ledgerId", family.ledgerId()).param("seats", seats.toArray(Long[]::new))
-                .query(LocalDate.class).optional().orElse(null);
-    }
-
-    /** D-175: a committed import of the seat's file up to {@code cutoff}, by the member who acts. */
-    private void storeCutoff(LedgerScope family, long seat, LocalDate cutoff) {
-        jdbc.sql("""
-                INSERT INTO family_import_cutoff (ledger_id, member_id, cutoff, imported_by_member_id)
-                VALUES (:ledgerId, :seat, :cutoff, :memberId)
-                ON CONFLICT (ledger_id, member_id) DO UPDATE
-                    SET cutoff = EXCLUDED.cutoff, imported_by_member_id = EXCLUDED.imported_by_member_id,
-                        imported_at = now()""")
-                .param("ledgerId", family.ledgerId()).param("seat", seat).param("cutoff", cutoff)
-                .param("memberId", family.memberId())
-                .update();
-    }
-
-    /** The date of the first record an import wrote from the seat's file (D-142), deleted ones too; null for none. */
-    private LocalDate seatFirst(LedgerScope family, long seat) {
-        return jdbc.sql("""
-                SELECT min(record_date) FROM family_record
-                WHERE ledger_id = :ledgerId AND starts_with(external_ref, :prefix)""")
-                .param("ledgerId", family.ledgerId()).param("prefix", "xls:" + seat + ":")
-                .query(LocalDate.class).optional().orElse(null);
-    }
-
-    /** D-169 after the claim: the incomes of the seat's file that the owner's D-84 rows carry, up to the cutoff. */
-    private List<Reconciler.Carried> seatIncomes(LedgerScope family, long seat, LocalDate cutoff) {
-        return jdbc.sql("""
-                SELECT r.record_date, r.currency, abs(r.base_amount) AS amount
-                FROM family_record r JOIN category c ON c.id = r.category_id AND c.ledger_id = r.ledger_id
-                WHERE r.ledger_id = :ledgerId AND starts_with(r.external_ref, :prefix) AND r.deleted_at IS NULL
-                  AND r.type = 'INCOME' AND r.currency = :currency AND c.code = ANY (:codes)
-                  AND r.record_date <= :cutoff""")
-                .param("ledgerId", family.ledgerId()).param("prefix", "xls:" + seat + ":")
-                .param("currency", ImportPlanner.CARRIED_CURRENCY)
-                .param("codes", ImportPlanner.CARRIED_BY_THE_PARTNER.toArray(String[]::new))
-                .param("cutoff", cutoff)
-                .query((row, n) -> new Reconciler.Carried(row.getObject("record_date", LocalDate.class),
-                        row.getString("currency"), row.getBigDecimal("amount")))
-                .list();
     }
 
     /** The records of a member's own file (D-142), by reference: currency, payer, version and his share. */
@@ -2129,18 +2256,6 @@ public class ImportService {
                             row.getBigDecimal("share")));
                 });
         return records;
-    }
-
-    /** The currencies of the records from the join date on that he pays, receives or has a share in. */
-    private Set<String> recordCurrencies(LedgerScope family, long me, LocalDate joinDate) {
-        return new TreeSet<>(jdbc.sql("""
-                SELECT DISTINCT r.currency FROM family_record r
-                WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL AND r.type IN ('EXPENSE', 'INCOME')
-                  AND r.record_date >= :joinDate
-                  AND (r.payer_member_id = :me
-                       OR EXISTS (SELECT FROM family_share s WHERE s.record_id = r.id AND s.member_id = :me))""")
-                .param("ledgerId", family.ledgerId()).param("me", me).param("joinDate", joinDate)
-                .query(String.class).list());
     }
 
     /** His sides that his imports attached (D-181), by record. */
@@ -2196,6 +2311,42 @@ public class ImportService {
                     fields.add(String.valueOf(row.getObject("counterparty_id")));
                 });
         return ImportSync.contentHash(fields.toArray(String[]::new));
+    }
+
+    /** D-256: a member's own entry for a record, as the ledger holds it; counterparties by name in lower case. */
+    private record StoredSide(String payee, String memo, List<StoredLine> lines) {
+    }
+
+    /** The member's own entry for the record (his payment or settlement side); null if he has none. */
+    private StoredSide storedSide(LedgerScope personal, LedgerScope family, long recordId) {
+        List<StoredLine> lines = new ArrayList<>();
+        String[] texts = new String[2];
+        boolean[] found = {false};
+        jdbc.sql("""
+                SELECT py.name AS payee, e.memo, p.account_id, p.currency, p.amount, p.category_id,
+                       cp.name AS counterparty
+                FROM family_entry_link l
+                JOIN journal_entry e ON e.id = l.entry_id
+                JOIN posting p ON p.entry_id = e.id
+                LEFT JOIN counterparty py ON py.id = e.payee_id AND py.ledger_id = :ledgerId
+                LEFT JOIN counterparty cp ON cp.id = p.counterparty_id AND cp.ledger_id = :ledgerId
+                WHERE l.family_ledger_id = :familyId AND l.record_id = :recordId AND l.member_id = :memberId
+                  AND l.link_type IN ('PAYMENT', 'SETTLEMENT') AND l.detached_at IS NULL
+                  AND e.ledger_id = :ledgerId
+                ORDER BY e.id, p.line_no""")
+                .param("familyId", family.ledgerId()).param("recordId", recordId)
+                .param("memberId", family.memberId()).param("ledgerId", personal.ledgerId())
+                .query(row -> {
+                    found[0] = true;
+                    String payee = row.getString("payee");
+                    texts[0] = payee == null ? null : key(payee);
+                    texts[1] = row.getString("memo");
+                    String counterparty = row.getString("counterparty");
+                    lines.add(new StoredLine(row.getLong("account_id"), row.getString("currency"),
+                            row.getBigDecimal("amount"), row.getObject("category_id", Long.class),
+                            counterparty == null ? null : key(counterparty)));
+                });
+        return found[0] ? new StoredSide(texts[0], texts[1], lines) : null;
     }
 
     private static final String SETTLEMENT_CANDIDATE = """
@@ -2259,75 +2410,6 @@ public class ImportService {
                 .list();
     }
 
-    /**
-     * D-12 against Excel's exact halves for the records of the other members' files (and the app's) that he has a
-     * share in, from his join date: his share less its exact part ({@code share_bp} of the amount), on the family debt
-     * and the other way on the equity (D-68's SHARES). A share without its basis points has none.
-     */
-    private List<Drift> othersRecordsDrift(LedgerScope family, long me, LocalDate joinDate) {
-        return jdbc.sql("""
-                SELECT r.type, r.record_date, r.currency, r.base_amount, s.amount AS share, s.share_bp
-                FROM family_record r JOIN family_share s ON s.record_id = r.id AND s.member_id = :me
-                WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL AND r.type IN ('EXPENSE', 'INCOME')
-                  AND r.record_date >= :joinDate AND s.share_bp IS NOT NULL
-                  AND (r.external_ref IS NULL OR NOT starts_with(r.external_ref, :prefix))""")
-                .param("ledgerId", family.ledgerId()).param("me", me).param("joinDate", joinDate)
-                .param("prefix", "xls:" + me + ":")
-                .query((row, n) -> {
-                    BigDecimal exact = row.getBigDecimal("base_amount").multiply(BigDecimal.valueOf(row.getInt("share_bp")))
-                            .divide(BigDecimal.valueOf(10000));
-                    BigDecimal difference = row.getBigDecimal("share").subtract(exact);
-                    boolean expense = row.getString("type").equals("EXPENSE");
-                    LocalDate date = row.getObject("record_date", LocalDate.class);
-                    String currency = row.getString("currency");
-                    BigDecimal debt = expense ? difference : difference.negate();
-                    return List.of(new Drift(Reconciler.FAMILY_DEBT, currency, date, debt, Drift.Reason.SHARES),
-                            new Drift("UNALLOCATED", currency, date, debt.negate(), Drift.Reason.SHARES));
-                })
-                .list().stream().flatMap(List::stream).filter(d -> d.amount().signum() != 0).toList();
-    }
-
-    /** D-180: the opening balance his claim posted (D-31), as his debt account shows it, by date and currency. */
-    private List<Drift> claimOpening(LedgerScope family, LedgerScope personal, long me) {
-        return jdbc.sql("""
-                SELECT e.entry_date, p.currency, -sum(p.amount) AS shown
-                FROM family_entry_link l
-                JOIN journal_entry e ON e.id = l.entry_id
-                JOIN posting p ON p.entry_id = e.id
-                JOIN account a ON a.id = p.account_id
-                WHERE l.family_ledger_id = :familyId AND l.member_id = :me AND l.link_type = 'OPENING_BALANCE'
-                  AND l.detached_at IS NULL AND e.ledger_id = :ledgerId AND a.family_ledger_id = :familyId
-                GROUP BY e.entry_date, p.currency""")
-                .param("familyId", family.ledgerId()).param("me", me).param("ledgerId", personal.ledgerId())
-                .query((row, n) -> new Drift(Reconciler.FAMILY_DEBT, row.getString("currency"),
-                        row.getObject("entry_date", LocalDate.class), row.getBigDecimal("shown"),
-                        Drift.Reason.CLAIM_OPENING))
-                .list();
-    }
-
-    /**
-     * D-180, D-12: the part of the claim's opening balance that D-12's cut of his shares before the join date makes
-     * differ from Excel's exact halves, as SHARES, taken out of CLAIM_OPENING, so that what is left of the opening's
-     * difference is Excel's own (D3c-0: about -0.03 in RUB). The two add up to what the opening explains anyway.
-     */
-    private List<Drift> claimShares(LedgerScope family, long me, LocalDate joinDate) {
-        return jdbc.sql("""
-                SELECT r.currency,
-                       sum(CASE WHEN r.type = 'EXPENSE' THEN 1 ELSE -1 END
-                           * (s.amount - r.base_amount * s.share_bp / 10000.0)) AS cut
-                FROM family_record r JOIN family_share s ON s.record_id = r.id AND s.member_id = :me
-                WHERE r.ledger_id = :ledgerId AND r.deleted_at IS NULL AND r.type IN ('EXPENSE', 'INCOME')
-                  AND r.record_date < :joinDate AND s.share_bp IS NOT NULL
-                GROUP BY r.currency""")
-                .param("ledgerId", family.ledgerId()).param("me", me).param("joinDate", joinDate)
-                .query((row, n) -> List.of(
-                        new Drift(Reconciler.FAMILY_DEBT, row.getString("currency"), joinDate,
-                                row.getBigDecimal("cut"), Drift.Reason.SHARES),
-                        new Drift(Reconciler.FAMILY_DEBT, row.getString("currency"), joinDate,
-                                row.getBigDecimal("cut").negate(), Drift.Reason.CLAIM_OPENING)))
-                .list().stream().flatMap(List::stream).filter(d -> d.amount().signum() != 0).toList();
-    }
-
     /** What a member's own import counts beyond the tallies (D-175 to D-181, D-188). */
     private static final class MemberTally {
         int familyRows;
@@ -2373,13 +2455,20 @@ public class ImportService {
     static final String REPLANNED = "re-planned: the current code maps it differently (D-219)";
     static final String NOT_REPLANNABLE = "can't be re-planned after the claim: the partner's place pays it (D-196, "
             + "D-219)";
+    static final String APP_ROW_CHANGED = "a row the app made, changed in the file: listed, never written (D-259)";
+    static final String APP_ROW_UNKNOWN = "names no entry or family record of yours: listed, never written (D-259)";
+    /** The Excel IDs of D-83's lumps, which D3b's import made from a daily file (D-232). */
+    static final String LUMP = "PL:";
 
     /** A personal entry an import wrote, as it stands: counterparties by name in lower case, as the import finds them. */
     private record StoredEntry(LocalDate date, String kind, String payee, String memo, List<StoredLine> lines) {
 
-        /** Whether the entry is what the plan would write: its date, kind, payee and note, and every posting in order. */
+        /**
+         * Whether the entry is what the plan would write: its date, payee and note, and every posting in order. The kind
+         * is only the interface's hint (rule 6), and an entry changed in the app may have another (D-256).
+         */
         boolean holds(EntryPlan plan) {
-            if (!date.equals(plan.date()) || !kind.equals(plan.kind().name()) || !Objects.equals(payee, name(plan.payee()))
+            if (!date.equals(plan.date()) || !Objects.equals(payee, name(plan.payee()))
                     || !Objects.equals(memo, plan.memo()) || lines.size() != plan.postings().size()) {
                 return false;
             }

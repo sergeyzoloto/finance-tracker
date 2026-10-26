@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { filterPartnerRows, importForm, parseCsv, PARTNER_COLUMNS, PARTNER_FILE_NAME, unallocatedName } from './importFilter'
+import {
+  fileFacts, filterPartnerRows, importForm, parseCsv, PARTNER_COLUMNS, PARTNER_FILE_NAME, PARTNER_ITEM_COLUMNS,
+  TRANSACTIONS_COLUMNS, unallocatedName,
+} from './importFilter'
 
-// Synthetic files in the export's format (D-61): invented names and amounts, semicolons, a byte order mark.
-const ACCOUNTS = '﻿Статьи баланса;Актив/пассив;Line\r\nКошелёк;ASSET;CASH\r\n"Свободный остаток";LIABILITIES;UNALLOCATED\r\n'
+// Synthetic files in the export's format (D-61, D-235): invented names and amounts, semicolons, a byte order mark.
+const OWN = `﻿${TRANSACTIONS_COLUMNS.join(';')}\r\n`
+  + '1;02.01.2024;-;50;EUR;;;Кошелёк;Евро-счёт;;;;;;;NULL;CASHFLOW;CASH;EURO_ACCOUNT;ASSET;ASSET;CASH_EUR;EURO_ACCOUNT_EUR;'
+  + '50;-50;EUR;0;0;0;0;;NULL\r\n'
+  + '2;03.01.2024;Продукты;5;EUR;;;"Свободный остаток";Кошелёк;;;;;;;FOOD;EXPENSE;UNALLOCATED;CASH;LIABILITIES;ASSET;'
+  + 'UNALLOCATED_EUR;CASH_EUR;-5;-5;EUR;0;0;0;0;;FOOD\r\n'
 const HEADER = 'ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;SUM_CREDIT;LOAN_CA'
 const PARTNER = [
   `﻿${HEADER}`,
@@ -26,8 +33,9 @@ describe('the partner’s filter (D-78, D-140)', () => {
     expect(parseCsv('﻿a;"b;c";"d ""e"""\r\n\r\nf;g;h\n')).toEqual([['a', 'b;c', 'd "e"'], ['f', 'g', 'h']])
   })
 
-  it('finds UNALLOCATED by its code in the owner’s accounts file', () => {
-    expect(unallocatedName(ACCOUNTS)).toBe('Свободный остаток')
+  it('finds UNALLOCATED by its code in the owner’s own transactions file (D-260)', () => {
+    expect(unallocatedName(OWN)).toBe('Свободный остаток')
+    expect(unallocatedName(OWN.split('\r\n').slice(0, 2).join('\r\n'))).toBeNull()
     expect(unallocatedName('Статьи баланса;Актив/пассив;Line\r\nКошелёк;ASSET;CASH\r\n')).toBeNull()
   })
 
@@ -50,10 +58,21 @@ describe('the partner’s filter (D-78, D-140)', () => {
     // The owner's layout: the same columns among others, one of them before ID.
     const [header, ...rows] = PARTNER.split('\r\n')
     const owners = [
-      `\ufeffTYPE;${header.replace('\ufeff', '')};CUR_FAMILY;FAMILY_EXP;FAMILY_INC;CODE_ITEM`,
-      ...rows.map((row) => (row === '' ? '' : `x;${row};EUR;0;0;FOOD`)),
+      `\ufeffFAMILY_EXP;${header.replace('\ufeff', '')};CUR_FAMILY;FAMILY_INC`,
+      ...rows.map((row) => (row === '' ? '' : `x;${row};EUR;0`)),
     ].join('\r\n')
     expect(filterPartnerRows(owners, 'Свободный остаток')).toEqual(filterPartnerRows(PARTNER, 'Свободный остаток'))
+  })
+
+  it('adds each row’s item code and type where his file has D-235’s columns (D-260)', () => {
+    const [header, ...rows] = PARTNER.split('\r\n')
+    const full = [
+      `${header};CODE_ITEM;TYPE`,
+      ...rows.map((row) => (row === '' ? '' : `${row};FOOD;EXPENSE`)),
+    ].join('\r\n')
+    const [head, first] = parseCsv(filterPartnerRows(full, 'Свободный остаток').csv)
+    expect(head).toEqual([...PARTNER_COLUMNS, ...PARTNER_ITEM_COLUMNS])
+    expect(first).toEqual(['101', '01.02.2024', 'Продукты', 'да', 'Debit', 'EUR', '40.02', 'FOOD', 'EXPENSE'])
   })
 
   it('never lets a comment, a counterparty, an account or a personal row through', () => {
@@ -70,20 +89,13 @@ describe('the partner’s filter (D-78, D-140)', () => {
 })
 
 describe('the request’s payload', () => {
-  const owner = {
-    accounts: new Blob([ACCOUNTS]), categories: new Blob(['c']), transactions: new Blob(['t']),
-    dailyBalance: new Blob(['b']), dailyChange: new Blob(['d']),
-  }
-  const names = {
-    accounts: 'accounts.csv', categories: 'categories.csv', transactions: 'transactions.csv',
-    dailyBalance: 'balance.csv', dailyChange: 'change.csv',
-  }
+  const own = new Blob([OWN])
 
-  it('holds the owner’s five files and the partner’s filtered rows under a name of their own, nothing else', async () => {
+  it('holds the user’s one file and the partner’s filtered rows under a name of their own, nothing else', async () => {
     const upload = filterPartnerRows(PARTNER, 'Свободный остаток')
-    const body = importForm(owner, names, upload)
-    expect([...body.keys()]).toEqual(['accounts', 'categories', 'transactions', 'dailyBalance', 'dailyChange',
-      'partnerTransactions'])
+    const body = importForm(own, 'TransactionsDima.csv', upload)
+    expect([...body.keys()]).toEqual(['transactions', 'partnerTransactions'])
+    expect((body.get('transactions') as File).name).toBe('TransactionsDima.csv')
     const partner = body.get('partnerTransactions') as File
     expect(partner.name).toBe(PARTNER_FILE_NAME)
     const sent = await partner.text()
@@ -95,7 +107,16 @@ describe('the request’s payload', () => {
   })
 
   it('holds no partner part without a family budget', () => {
-    expect([...importForm(owner, names).keys()]).toEqual(['accounts', 'categories', 'transactions', 'dailyBalance',
-      'dailyChange'])
+    expect([...importForm(own, 'transactions.csv').keys()]).toEqual(['transactions'])
+  })
+})
+
+describe('the file before the check (D-221, D-257)', () => {
+  it('counts the rows as the import does, and names the highest ID and the last row date', () => {
+    expect(fileFacts(OWN)).toEqual({ rows: 2, highestId: '2', lastDate: '2024-01-03', header: true })
+    // The app's IDs aren't Excel IDs; dates compare as dates, not as text.
+    const more = `${OWN}app-f9;15.02.2024;-;1\r\n10;31.12.2023;-;1\r\n`
+    expect(fileFacts(more)).toEqual({ rows: 4, highestId: '10', lastDate: '2024-02-15', header: true })
+    expect(fileFacts('ID;Date\r\n1;01.01.2024\r\n').header).toBe(false)
   })
 })

@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * What each row of the synthetic export becomes (D-82, option C), without a database: the owner's family rows
- * (D-74, D-79, D-80, D-81), his rows on FAMILY_DEBT (D-71, D-73, D-84, D-148), the lumps (D-83), the partner's rows,
+ * (D-74, D-79, D-80, D-81), his rows on FAMILY_DEBT (D-71, D-73, D-84, D-148), the partner's rows,
  * the references (D-142) and the drift (D-68).
  */
 class ImportPlannerTests {
@@ -37,11 +37,11 @@ class ImportPlannerTests {
 
     ImportPlannerTests() {
         long id = 1;
-        for (var row : Workbook.accounts(ImportFixtures.file("accounts.csv")).rows()) {
+        for (var row : ImportFixtures.chart("transactions.csv").accounts()) {
             accounts.put(row.name().toLowerCase(Locale.ROOT), new AccountRef(id++, row.code(), row.type(),
                     row.requiresCounterparty()));
         }
-        Map<String, CategoryRow> categories = Workbook.categories(ImportFixtures.file("categories.csv")).rows().stream()
+        Map<String, CategoryRow> categories = ImportFixtures.chart("transactions.csv").categories().stream()
                 .collect(Collectors.toMap(CategoryRow::name, Function.identity()));
         planner = new ImportPlanner(accounts, categories, OWNER, SEAT);
         rows = Workbook.transactions(ImportFixtures.file("transactions.csv")).rows().stream()
@@ -185,24 +185,6 @@ class ImportPlannerTests {
     }
 
     /** D-83: twice the lump, 50/50, the seat paying; only the months before the partner's ledger starts. */
-    @Test
-    void lumpsBeforeThePartnersLedger() {
-        DailyFile change = DailyFile.read(ImportFixtures.file("daily-change.csv"), LocalDate.of(2024, 3, 8),
-                new java.util.ArrayList<>());
-        List<RecordSpec> lumps = planner.lumps(change, LocalDate.of(2024, 2, 1));
-        // The USD lump column is 0 (D-85): no USD lump.
-        assertThat(lumps).extracting(RecordSpec::excelId).containsExactly("PL:2024-01:RUB", "PL:2024-01:EUR");
-        RecordSpec roubles = lumps.getFirst();
-        assertThat(roubles.amount()).isEqualByComparingTo("666.67");
-        assertThat(roubles.categoryCode()).isEqualTo(ImportPlanner.LUMP_CATEGORY_CODE);
-        assertThat(roubles.categoryName()).isEqualTo("Без детализации");
-        assertThat(roubles.ref()).isEqualTo("xls:10:PL:2024-01:RUB");
-        // The seat paid: the extra kopeck is his, so the owner's share is 333.33 against Excel's 333.335.
-        assertThat(drift(roubles)).containsExactlyInAnyOrder("FAMILY_DEBT RUB -0.005 SHARES",
-                "UNALLOCATED RUB 0.005 SHARES");
-        assertThat(planner.lumps(change, LocalDate.of(2024, 1, 15))).isEmpty();
-    }
-
     /** The partner's rows, keyed by his seat (D-142). */
     @Test
     void thePartnersRows() {

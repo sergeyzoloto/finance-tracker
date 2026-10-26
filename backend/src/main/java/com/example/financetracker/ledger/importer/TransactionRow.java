@@ -6,15 +6,17 @@ import static com.example.financetracker.ledger.importer.Workbook.required;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 
 import com.example.financetracker.ledger.family.ImportSync;
 
 /**
- * One row of the owner's journal, with the columns the importer reads. The workbook's other columns are formulas over
- * these and are ignored (rule 13), but for the family's part of a family row (FAMILY_EXP, FAMILY_INC), which the
- * reconciliation compares with the shares (D-68), and CODE_ITEM, which is only compared. Optional text is null when
- * empty.
+ * One row of a user's transactions file (D-235's 32 columns, D4b): the typed columns, ID to LOAN_CA, which the import
+ * maps, and the 17 the workbook computes from them, CODE_ITEM to EXP_ITEM_CODE ({@link Computed}), from which the
+ * import takes the accounts and categories (D-228) and which the reconciliation compares with what it builds (D-231).
+ * A row the app made carries {@code app-<id>} or {@code app-f<id>} in its ID (D-236, D-244): it is compared with the
+ * ledger and never written (D-259). Optional text is null when empty.
  *
  * @param row the row in the spreadsheet, where the header is row 1
  * @param id the row's permanent ID (D-86): a positive whole number, never reused
@@ -28,12 +30,29 @@ import com.example.financetracker.ledger.family.ImportSync;
  * @param familyIncome FAMILY_INC, the family's part of a family income; read only on a Family row
  * @param itemCode CODE_ITEM, the code of Exp. Item, with typos fixed
  * @param flagged whether the row's Family column is set, as the file has it: {@link #withoutFamily} keeps it (D-192)
+ * @param appId the ID of a row the app made ({@code app-<id>}, {@code app-f<id>}); null for an Excel row, whose ID is
+ *        {@code id} (which is 0 for an app row)
+ * @param computed the workbook's computed columns as the file has them; null for a row made in a test
  */
 record TransactionRow(int row, long id, String contentHash, LocalDate date, String item, BigDecimal sum,
         String currency, String counteragent, String comment, String debit, String credit, boolean family,
         String debitCurrency, BigDecimal debitSum, String creditCurrency, BigDecimal creditSum,
         String loanCounterparty, String familyCurrency, BigDecimal familyExpense, BigDecimal familyIncome,
-        String itemCode, boolean flagged) {
+        String itemCode, boolean flagged, String appId, Computed computed) {
+
+    /**
+     * The columns the workbook computes (D-237), as the file has them; codes with the workbook's typos fixed
+     * ({@link Workbook#code}).
+     *
+     * @param itemType TYPE: INCOME, EXPENSE, or CASHFLOW for a row without a category
+     * @param debitType TYPE_DEBIT, ASSET or LIABILITIES
+     * @param debitAccount COUNT_DEBIT, the code and the currency of the debit side
+     */
+    record Computed(String itemType, String debitCode, String creditCode, String debitType, String creditType,
+            String debitAccount, String creditAccount, BigDecimal debitChange, BigDecimal creditChange,
+            String familyCurrency, BigDecimal familyExpense, BigDecimal familyIncome, BigDecimal checkCorrection,
+            BigDecimal loanSum, String loanCurrency, String expItemCode) {
+    }
 
     /** A row whose Family column is as {@code family} says. */
     TransactionRow(int row, long id, String contentHash, LocalDate date, String item, BigDecimal sum,
@@ -43,7 +62,7 @@ record TransactionRow(int row, long id, String contentHash, LocalDate date, Stri
             String itemCode) {
         this(row, id, contentHash, date, item, sum, currency, counteragent, comment, debit, credit, family,
                 debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty, familyCurrency, familyExpense,
-                familyIncome, itemCode, family);
+                familyIncome, itemCode, family, null, null);
     }
 
     static final String ID = "ID";
@@ -65,10 +84,22 @@ record TransactionRow(int row, long id, String contentHash, LocalDate date, Stri
     static final String FAMILY_EXP = "FAMILY_EXP";
     static final String FAMILY_INC = "FAMILY_INC";
     static final String CODE_ITEM = "CODE_ITEM";
+    static final String TYPE = "TYPE";
+    static final String CODE_DEBIT = "CODE_DEBIT";
+    static final String CODE_CREDIT = "CODE_CREDIT";
+    static final String TYPE_DEBIT = "TYPE_DEBIT";
+    static final String TYPE_CREDIT = "TYPE_CREDIT";
+    static final String COUNT_DEBIT = "COUNT_DEBIT";
+    static final String COUNT_CREDIT = "COUNT_CREDIT";
+    static final String DEBIT_CHANGE = "DEBIT_CHANGE";
+    static final String CREDIT_CHANGE = "CREDIT_CHANGE";
+    static final String CHECK_CORR = "CHECK_CORR";
+    static final String LOAN_SUM = "LOAN_SUM";
+    static final String LOAN_CUR = "LOAN_CUR";
+    static final String EXP_ITEM_CODE = "EXP_ITEM_CODE";
 
-    static final List<String> COLUMNS = List.of(ID, DATE, ITEM, SUM, CURRENCY, COUNTERAGENT, COMMENT, DEBIT, CREDIT,
-            FAMILY, CUR_DEBIT, SUM_DEBIT, CUR_CREDIT, SUM_CREDIT, LOAN_CA, CUR_FAMILY, FAMILY_EXP, FAMILY_INC,
-            CODE_ITEM);
+    /** The ID of a row the app made: a personal entry's (D-236) or a family record's (D-244). */
+    static final java.util.regex.Pattern APP_ID = java.util.regex.Pattern.compile("app-f?[1-9][0-9]{0,17}");
 
     static final String FAMILY_YES = "да";
 
@@ -100,16 +131,29 @@ record TransactionRow(int row, long id, String contentHash, LocalDate date, Stri
     TransactionRow withoutFamily() {
         return new TransactionRow(row, id, contentHash, date, item, sum, currency, counteragent, comment, debit, credit,
                 false, debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty, null, null, null,
-                itemCode, flagged);
+                itemCode, flagged, appId, computed);
+    }
+
+    /** Whether the app made the row (D-259): never written by the import. */
+    boolean isApp() {
+        return appId != null;
+    }
+
+    /** The row's ID as the file writes it: the Excel ID, or the app's. */
+    String excelId() {
+        return appId != null ? appId : String.valueOf(id);
     }
 
     /**
      * The row, or null if it can't be read, with the reasons added to {@code errors}. The reasons never hold a value of
-     * the row: the report names the row by its number and ID.
+     * the row: the report names the row by its number and ID. An ID is a positive whole number (D-86) or an app row's
+     * (D-236, D-244).
      */
     static TransactionRow parse(CsvTable.Row row, List<String> errors) {
         int errorsBefore = errors.size();
-        Long id = required(row, ID, TransactionRow::id, errors);
+        String idText = row.get(ID);
+        String appId = APP_ID.matcher(idText).matches() ? idText : null;
+        Long id = appId != null ? Long.valueOf(0) : required(row, ID, TransactionRow::id, errors);
         LocalDate date = required(row, DATE, ExcelValues::date, errors);
         String item = required(row, ITEM, Function.identity(), errors);
         BigDecimal sum = required(row, SUM, ExcelValues::amount, errors);
@@ -128,23 +172,40 @@ record TransactionRow(int row, long id, String contentHash, LocalDate date, Stri
         String creditCurrency = text(row.get(CUR_CREDIT));
         BigDecimal creditSum = optional(row, SUM_CREDIT, ExcelValues::amount, errors);
         String loanCounterparty = formulaText(row.get(LOAN_CA));
-        String familyCurrency = null;
-        BigDecimal familyExpense = null;
-        BigDecimal familyIncome = null;
-        if (family) {
-            familyCurrency = required(row, CUR_FAMILY, Function.identity(), errors);
-            familyExpense = optional(row, FAMILY_EXP, ExcelValues::amount, errors);
-            familyIncome = optional(row, FAMILY_INC, ExcelValues::amount, errors);
-        }
+        // The workbook's computed columns, on every row (D-231): CUR_FAMILY is the debit side's currency, FAMILY_EXP
+        // and FAMILY_INC are 0 but on a family row.
+        String familyCurrency = required(row, CUR_FAMILY, Function.identity(), errors);
+        BigDecimal familyExpense = amountOrZero(row, FAMILY_EXP, errors);
+        BigDecimal familyIncome = amountOrZero(row, FAMILY_INC, errors);
         String itemCode = formulaText(row.get(CODE_ITEM));
+        Computed computed = new Computed(row.get(TYPE), code(row.get(CODE_DEBIT)), code(row.get(CODE_CREDIT)),
+                row.get(TYPE_DEBIT), row.get(TYPE_CREDIT), row.get(COUNT_DEBIT), row.get(COUNT_CREDIT),
+                amountOrZero(row, DEBIT_CHANGE, errors), amountOrZero(row, CREDIT_CHANGE, errors), familyCurrency,
+                familyExpense, familyIncome, amountOrZero(row, CHECK_CORR, errors), amountOrZero(row, LOAN_SUM, errors), row.get(LOAN_CUR),
+                code(Objects.requireNonNullElse(formulaText(row.get(EXP_ITEM_CODE)), "")));
+        if (computed.debitCode().isEmpty() || computed.creditCode().isEmpty()) {
+            errors.add("CODE_DEBIT or CODE_CREDIT is empty");
+        }
         if (errors.size() > errorsBefore) {
             return null;
         }
         String hash = contentHash(date, item, sum, currency, counteragent, comment, debit, credit, family,
                 debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty);
         return new TransactionRow(row.number(), id, hash, date, item, sum, currency, counteragent, comment, debit,
-                credit, family, debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty, familyCurrency,
-                familyExpense, familyIncome, itemCode == null ? null : Workbook.code(itemCode));
+                credit, family, debitCurrency, debitSum, creditCurrency, creditSum, loanCounterparty,
+                family ? familyCurrency : null, family ? familyExpense : null, family ? familyIncome : null,
+                itemCode == null ? null : Workbook.code(itemCode), family, appId, computed);
+    }
+
+    /** A computed number; empty is 0, as a formula that finds nothing to add up. */
+    private static BigDecimal amountOrZero(CsvTable.Row row, String column, List<String> errors) {
+        BigDecimal amount = optional(row, column, ExcelValues::amount, errors);
+        return amount == null ? BigDecimal.ZERO : amount;
+    }
+
+    /** A code as the ledger stores it; NULL, a formula's nothing, as empty. */
+    private static String code(String value) {
+        return Workbook.NULL.equals(value) ? "" : Workbook.code(value);
     }
 
     /**

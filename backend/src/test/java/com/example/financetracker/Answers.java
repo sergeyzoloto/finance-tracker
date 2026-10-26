@@ -98,6 +98,14 @@ public final class Answers {
         return new Csv(bom, crlf, lines);
     }
 
+    /**
+     * A downloaded file's bytes as they came (D4a's transactions file), to upload again (D4b's round trip): never
+     * searched as text; {@link #csv} reads it.
+     */
+    public static byte[] download(MvcTestResult result) {
+        return result.getResponse().getContentAsByteArray();
+    }
+
     /** The JSON text, parsed: for comparing a whole answer with {@code isEqualTo}, never as text. */
     public static JsonNode json(String text) {
         try {

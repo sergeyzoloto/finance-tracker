@@ -1,14 +1,14 @@
-"""The synthetic export of D3b's tests, in the real export's format (D-61): invented names and amounts, and daily
-files that follow Excel's own rules, independently of the importer: each row moves its two sides, a family row's
-family part (FAMILY_EXP, FAMILY_INC) moves FAMILY_DEBT and UNALLOCATED, each month's lump moves them at the month-end,
-and the 1st of each month sweeps UNALLOCATED into RESERVE. The USD lump column is 0 (D-85), while the balances keep
-copied USD lumps (D-147). Rows after the cutoff are padding and garbage, never read (D-146).
+"""The synthetic export of the importer's tests: the owner's transactions file and the partner's, in the real export's
+format with D-235's 32 columns (D4b), invented names and amounts. The 17 computed columns follow Excel's own rules
+(D-237), written here independently of the importer: the codes and types of each side and of the item, each side's
+change of its account's displayed balance less a family row's family part (FAMILY_EXP, FAMILY_INC: minus half of the
+debit side on UNALLOCATED, half of the credit side on UNALLOCATED), CHECK_CORR, LOAN_SUM and LOAN_CUR. The codes
+COMMISION and GEMENTE_FUND keep the workbook's typos (D-246).
 
 Usage, from this folder: python3 -I make-fixtures.py .
 """
-import sys, os, datetime
+import sys, os
 from decimal import Decimal as D
-from collections import defaultdict
 
 OUT = sys.argv[1]
 BOM = '﻿'
@@ -87,126 +87,63 @@ PARTNER = [
 CODE[PCARD.lower()] = 'PARTNER_CARD'
 TYPE['PARTNER_CARD'] = 'ASSET'
 HEADER = ['ID', 'Date', 'Exp. Item', 'Sum', 'Currency', 'Counteragent', 'Comment', 'Debit', 'Credit', 'Family',
-          'CUR_DEBIT', 'SUM_DEBIT', 'CUR_CREDIT', 'SUM_CREDIT', 'LOAN_CA']
+          'CUR_DEBIT', 'SUM_DEBIT', 'CUR_CREDIT', 'SUM_CREDIT', 'LOAN_CA', 'CODE_ITEM', 'TYPE', 'CODE_DEBIT',
+          'CODE_CREDIT', 'TYPE_DEBIT', 'TYPE_CREDIT', 'COUNT_DEBIT', 'COUNT_CREDIT', 'DEBIT_CHANGE', 'CREDIT_CHANGE',
+          'CUR_FAMILY', 'FAMILY_EXP', 'FAMILY_INC', 'CHECK_CORR', 'LOAN_SUM', 'LOAN_CUR', 'EXP_ITEM_CODE']
+CATTYPE = {n: t for n, t, _ in CATEGORIES}
+LOANS = ('LOANS_ASSET', 'CREDITOR_DEBT')
 
 
 def num(s):
-    s = s.replace(' ', '').replace(' ', '').strip()
+    s = s.replace(' ', '').replace('\u00a0', '').strip()
     return D(0) if s in ('', '-') else D(s)
 
 
-def date(s):
-    return datetime.datetime.strptime(s, '%d.%m.%Y').date()
+def text(v):
+    return '0' if v == 0 else format(v.normalize(), 'f')
 
 
-def csv(path, header, rows):
+def csv(path, rows):
     def f(v):
         v = str(v)
         return '"' + v.replace('"', '""') + '"' if any(c in v for c in ';"\r\n') else v
     with open(os.path.join(OUT, path), 'w', encoding='utf-8', newline='') as fh:
-        fh.write(BOM + ';'.join(header) + '\r\n')
+        fh.write(BOM + ';'.join(HEADER) + '\r\n')
         for r in rows:
             fh.write(';'.join(f(v) for v in r) + '\r\n')
 
 
-def sides(r):
-    _, d, item, s, cur, _, _, deb, cre, fam, cd, sd, cc, sc, _ = r
-    S = num(s)
-    return (CODE[deb.lower()], cd or cur, num(sd) if cd else S), (CODE[cre.lower()], cc or cur, num(sc) if cc else S)
-
-
-# Excel's computed family columns of the owner's rows.
-owner_rows = []
-for r in OWNER:
-    (dc, dcur, dsum), (cc, ccur, csum) = sides(r)
-    fam = r[9] == 'да' and r[2] != '-'
-    cur_family, fe, fi = '', D(0), D(0)
-    if fam:
-        if dc == 'UNALLOCATED':
-            cur_family, fe = dcur, -dsum / 2
-        else:
-            cur_family, fi = ccur, csum / 2
-    owner_rows.append(list(r) + [cur_family or r[4], fe, fi, CAT.get(r[2], 'NULL')])
-
-# Lumps: before the partner's ledger (January), with odd decimals; from February, half his family rows but BENEFIT,
-# CASHBACK and OTHERINC; USD a copy of EUR (the workbook's error), which D-147 makes harmless.
-LUMPS = {(date('31.01.2024'), 'RUB'): D('333.335'), (date('31.01.2024'), 'EUR'): D('12.345')}
-feb = date('29.02.2024')
-for r in PARTNER:
-    if r[9] != 'да' or r[2] == '-':
-        continue
-    (dc, dcur, dsum), (cc, ccur, csum) = sides(r)
-    if CAT[r[2]] in ('BENEFIT', 'CASHBACK', 'OTHERINC') or date(r[1]) >= date('01.03.2024'):
-        continue
-    if dc == 'UNALLOCATED':
-        LUMPS[(feb, dcur)] = LUMPS.get((feb, dcur), D(0)) + dsum / 2
+def computed(r):
+    """The row with Excel's 17 computed columns after its 15 typed ones (D-237)."""
+    _, _, item, s, cur, _, _, deb, cre, fam, cd, sd, cc, sc, _ = r
+    dcode, ccode = CODE[deb.lower()], CODE[cre.lower()]
+    dtype, ctype = TYPE[dcode], TYPE[ccode]
+    dcur, ccur = cd or cur, cc or cur
+    dsum, csum = (num(sd) if cd else num(s)), (num(sc) if cc else num(s))
+    family = fam == 'да' and item != '-'  # a family row without an item has no family part
+    fe = -dsum / 2 if family and dcode == 'UNALLOCATED' else D(0)
+    fi = csum / 2 if family and ccode == 'UNALLOCATED' else D(0)
+    dchange = (dsum if dtype == 'ASSET' else -dsum) - fe
+    cchange = (-csum if ctype == 'ASSET' else csum) - fi
+    assets, liabilities = D(0), fe + fi
+    if dtype == 'ASSET':
+        assets += dchange
     else:
-        LUMPS[(feb, ccur)] = LUMPS.get((feb, ccur), D(0)) - csum / 2
-for d in (date('31.01.2024'), feb):
-    LUMPS[(d, 'USD')] = LUMPS.get((d, 'EUR'), D(0))
-
-COLUMNS = ['CASH_EUR', 'NORTH_CARD_RUB', 'EURO_ACCOUNT_EUR', 'EURO_ACCOUNT_RUB', 'USD_ACCOUNT_USD', 'LOANS_ASSET_EUR',
-           'GEMENTE_FUND_EUR', 'CREDITOR_DEBT_EUR', 'FAMILY_DEBT_RUB', 'FAMILY_DEBT_EUR', 'FAMILY_DEBT_USD',
-           'UNALLOCATED_RUB', 'UNALLOCATED_EUR', 'UNALLOCATED_USD', 'RESERVE_RUB', 'RESERVE_EUR', 'RESERVE_USD']
-OPENING = {'CASH_EUR': D(100), 'EURO_ACCOUNT_EUR': D(1000), 'NORTH_CARD_RUB': D(5000), 'USD_ACCOUNT_USD': D(50),
-           'RESERVE_EUR': D(1100), 'RESERVE_RUB': D(5000), 'RESERVE_USD': D(50)}
-start, end, cutoff = date('31.12.2023'), date('31.12.2024'), date('08.03.2024')
-changes = defaultdict(lambda: defaultdict(D))
-
-
-def move(day, code, cur, amount):
-    changes[day][f'{code}_{cur}'] += amount
-
-
-for r in owner_rows:
-    day = date(r[1])
-    (dc, dcur, dsum), (cc, ccur, csum) = sides(tuple(r[:15]))
-    move(day, dc, dcur, dsum if TYPE[dc] == 'ASSET' else -dsum)
-    move(day, cc, ccur, -csum if TYPE[cc] == 'ASSET' else csum)
-    part = r[16] + r[17]
-    if part:
-        move(day, 'FAMILY_DEBT', r[15], part)
-        move(day, 'UNALLOCATED', r[15], -part)
-current = defaultdict(D, OPENING)
-day = start
-rows_balance, rows_change = [], []
-while day <= end:
-    if day > start:
-        if day.day == 1:
-            for cur in ('RUB', 'EUR', 'USD'):  # the 1st of the month's sweep
-                x = current[f'UNALLOCATED_{cur}']
-                move(day, 'UNALLOCATED', cur, -x)
-                move(day, 'RESERVE', cur, x)
-        for (d, cur), pl in LUMPS.items():
-            if d == day:
-                move(day, 'FAMILY_DEBT', cur, pl)
-                move(day, 'UNALLOCATED', cur, -pl)
-        for c, v in changes[day].items():
-            current[c] += v
-    cells = [current[c] for c in COLUMNS]
-    if day > cutoff:  # padding, as the workbook's: never read (D-146)
-        cells = [D(0)] * len(COLUMNS)
-    rows_balance.append((day, cells))
-    # The USD lump column is 0, as in the export of 2026-10-12 (D-85), while the balances keep the copied lumps (D-147).
-    rows_change.append((day, [changes[day][c] for c in COLUMNS] + [LUMPS.get((day, c), D(0)) for c in ('RUB', 'EUR')] + [D(0)]))
-    day += datetime.timedelta(days=1)
+        liabilities += dchange
+    if ctype == 'ASSET':
+        assets += cchange
+    else:
+        liabilities += cchange
+    corr = assets - liabilities
+    if dtype == 'ASSET' and ctype == 'LIABILITIES':
+        corr = -corr
+    loan = (-dsum if dcode in LOANS else D(0)) + (csum if ccode in LOANS else D(0))
+    loan_cur = dcur if dcode in LOANS else ccur if ccode in LOANS else ''
+    code_item = CAT.get(item, 'NULL')
+    return list(r) + [code_item, CATTYPE.get(item, 'CASHFLOW'), dcode, ccode, dtype, ctype, f'{dcode}_{dcur}',
+                      f'{ccode}_{ccur}', text(dchange), text(cchange), dcur, text(fe), text(fi), text(corr),
+                      text(loan), loan_cur, code_item]
 
 
-def cell(v, n):
-    if n % 7 == 3 and v == 0:  # Excel's floating-point residues, read as the decimals they are
-        return '-1.42109E-14'
-    s = format(v.normalize(), 'f') if v != 0 else '0'
-    return s + (' ' if n % 5 == 0 else '')
-
-
-bal = [[d.strftime('%d.%m.%Y')] + [cell(v, i + j) for j, v in enumerate(cells)] for i, (d, cells) in enumerate(rows_balance)]
-bal[-1][1] = '#VALUE!'  # after the cutoff: never read (D-146)
-csv('daily-balance.csv', ['Date'] + COLUMNS, bal)
-chg_cols = COLUMNS + ['PL_family_Sam_RUB', 'PL_family_Sam_EUR', 'PL_family_Sam_USD']
-csv('daily-change.csv', ['Date'] + chg_cols,
-    [[d.strftime('%d.%m.%Y')] + [cell(v, i + j) for j, v in enumerate(cells)] for i, (d, cells) in enumerate(rows_change)])
-csv('accounts.csv', ['Статьи баланса', 'Актив/пассив', 'Line'], ACCOUNTS)
-csv('categories.csv', ['Статьи движения средств', 'Доходы/расходы', 'Line'], CATEGORIES)
-csv('transactions.csv', HEADER + ['CUR_FAMILY', 'FAMILY_EXP', 'FAMILY_INC', 'CODE_ITEM', 'TYPE'],
-    [r[:15] + [r[15], format(r[16], 'f'), format(r[17], 'f'), r[18], 'x'] for r in owner_rows])
-csv('partner-transactions.csv', HEADER, PARTNER)
+csv('transactions.csv', [computed(r) for r in OWNER])
+csv('partner-transactions.csv', [computed(r) for r in PARTNER])

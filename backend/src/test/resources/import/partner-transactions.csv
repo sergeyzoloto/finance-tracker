@@ -1,10 +1,10 @@
-﻿ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;SUM_CREDIT;LOAN_CA
-101;01.02.2024;Продукты;40.02;EUR;Лавка «Угол»;his note;Свободный остаток;Карта «Восток»;да;;;;;
-102;02.02.2024;Продукты;-10.00;EUR;Лавка «Угол»;;Свободный остаток;Карта «Восток»;да;;;;;
-103;03.02.2024;Пособие;60;EUR;Фонд;;Карта «Восток»;Свободный остаток;да;;;;;
-104;04.02.2024;Транспорт;500.5;RUB;;;Свободный остаток;Карта «Восток»;да;;;;;
-105;05.02.2024;Продукты; - ;EUR;;;Свободный остаток;Карта «Восток»;да;;;;;
-106;06.02.2024;Продукты;12;EUR;Кафе;private;Свободный остаток;Карта «Восток»;;;;;;
-107;07.02.2024;-;50;EUR;;;Кошелёк;Карта «Восток»;да;;;;;
-108;08.02.2024;Транспорт;2.5;USD;;;Свободный остаток;Карта «Восток»;да;RUB;230.75;;;Друг
-109;08.03.2024;Продукты;8.00;EUR;;;Свободный остаток;Карта «Восток»;да;;;;;
+﻿ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;SUM_CREDIT;LOAN_CA;CODE_ITEM;TYPE;CODE_DEBIT;CODE_CREDIT;TYPE_DEBIT;TYPE_CREDIT;COUNT_DEBIT;COUNT_CREDIT;DEBIT_CHANGE;CREDIT_CHANGE;CUR_FAMILY;FAMILY_EXP;FAMILY_INC;CHECK_CORR;LOAN_SUM;LOAN_CUR;EXP_ITEM_CODE
+101;01.02.2024;Продукты;40.02;EUR;Лавка «Угол»;his note;Свободный остаток;Карта «Восток»;да;;;;;;FOOD;EXPENSE;UNALLOCATED;PARTNER_CARD;LIABILITIES;ASSET;UNALLOCATED_EUR;PARTNER_CARD_EUR;-20.01;-40.02;EUR;-20.01;0;0;0;;FOOD
+102;02.02.2024;Продукты;-10.00;EUR;Лавка «Угол»;;Свободный остаток;Карта «Восток»;да;;;;;;FOOD;EXPENSE;UNALLOCATED;PARTNER_CARD;LIABILITIES;ASSET;UNALLOCATED_EUR;PARTNER_CARD_EUR;5;10;EUR;5;0;0;0;;FOOD
+103;03.02.2024;Пособие;60;EUR;Фонд;;Карта «Восток»;Свободный остаток;да;;;;;;BENEFIT;INCOME;PARTNER_CARD;UNALLOCATED;ASSET;LIABILITIES;PARTNER_CARD_EUR;UNALLOCATED_EUR;60;30;EUR;0;30;0;0;;BENEFIT
+104;04.02.2024;Транспорт;500.5;RUB;;;Свободный остаток;Карта «Восток»;да;;;;;;TRANSPORT;EXPENSE;UNALLOCATED;PARTNER_CARD;LIABILITIES;ASSET;UNALLOCATED_RUB;PARTNER_CARD_RUB;-250.25;-500.5;RUB;-250.25;0;0;0;;TRANSPORT
+105;05.02.2024;Продукты; - ;EUR;;;Свободный остаток;Карта «Восток»;да;;;;;;FOOD;EXPENSE;UNALLOCATED;PARTNER_CARD;LIABILITIES;ASSET;UNALLOCATED_EUR;PARTNER_CARD_EUR;0;0;EUR;0;0;0;0;;FOOD
+106;06.02.2024;Продукты;12;EUR;Кафе;private;Свободный остаток;Карта «Восток»;;;;;;;FOOD;EXPENSE;UNALLOCATED;PARTNER_CARD;LIABILITIES;ASSET;UNALLOCATED_EUR;PARTNER_CARD_EUR;-12;-12;EUR;0;0;0;0;;FOOD
+107;07.02.2024;-;50;EUR;;;Кошелёк;Карта «Восток»;да;;;;;;NULL;CASHFLOW;CASH;PARTNER_CARD;ASSET;ASSET;CASH_EUR;PARTNER_CARD_EUR;50;-50;EUR;0;0;0;0;;NULL
+108;08.02.2024;Транспорт;2.5;USD;;;Свободный остаток;Карта «Восток»;да;RUB;230.75;;;Друг;TRANSPORT;EXPENSE;UNALLOCATED;PARTNER_CARD;LIABILITIES;ASSET;UNALLOCATED_RUB;PARTNER_CARD_USD;-115.375;-2.5;RUB;-115.375;0;228.25;0;;TRANSPORT
+109;08.03.2024;Продукты;8.00;EUR;;;Свободный остаток;Карта «Восток»;да;;;;;;FOOD;EXPENSE;UNALLOCATED;PARTNER_CARD;LIABILITIES;ASSET;UNALLOCATED_EUR;PARTNER_CARD_EUR;-4;-8;EUR;-4;0;0;0;;FOOD

@@ -5,19 +5,18 @@ import static com.example.financetracker.ledger.importer.ImportFixtures.file;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Set;
 
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.importer.ImportReport.Problem;
 import org.junit.jupiter.api.Test;
 
 /**
- * The export's files read into rows (D3b): semicolons, dd.MM.yyyy, the real headers, IDs (D-86), the partner's rows
- * as the import page filters them (D-140), and the daily files up to the cutoff (D-146).
+ * The files read into rows (D3b, D4b): semicolons, dd.MM.yyyy, D-235's header, IDs (D-86) and the app's (D-236), the
+ * accounts and categories the rows name and the file's refusal (D-228, D-229), and the partner's rows as the import page
+ * filters them (D-140).
  */
 class WorkbookTests {
 
@@ -25,17 +24,88 @@ class WorkbookTests {
         return new ImportFile(name, ("﻿" + text).getBytes(StandardCharsets.UTF_8));
     }
 
+    /** D4b: a transactions file is recognised by D-235's 32 columns, in order; any other header is refused, naming them. */
     @Test
-    void theAccountsFileHasTheRealHeaderAndNamesUniqueInAnyCase() {
-        var sheet = Workbook.accounts(file("accounts.csv"));
+    void aTransactionsFileIsRecognisedByItsHeader() {
+        assertThat(Workbook.transactions(file("transactions.csv")).errors()).isEmpty();
+        String expected = String.join(";", ExcelRow.HEADER);
+        var old = catchThrowableOfType(TransactionsFileRefused.class, () -> Workbook.transactions(csv("t.csv",
+                "ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;"
+                        + "SUM_CREDIT;LOAN_CA\r\n1;02.01.2024;Оклад;1;EUR;;;A;B;;;;;;\r\n")));
+        assertThat(old.violations()).singleElement().asString().contains(expected).contains("D-235");
+        // The same columns in another order are another header.
+        List<String> swapped = new java.util.ArrayList<>(ExcelRow.HEADER);
+        java.util.Collections.swap(swapped, 0, 1);
+        assertThat(catchThrowableOfType(TransactionsFileRefused.class, () -> Workbook.transactions(csv("t.csv",
+                String.join(";", swapped) + "\r\n")))).isNotNull();
+        // An accounts file is no transactions file either.
+        assertThat(catchThrowableOfType(TransactionsFileRefused.class, () -> Workbook.transactions(csv("a.csv",
+                "Статьи баланса;Актив/пассив;Line\r\nКошелёк;ASSET;CASH\r\n")))).isNotNull();
+    }
+
+    /** D-228, D-246, D-261: the accounts and categories come from the rows, the workbook's typos fixed. */
+    @Test
+    void theAccountsAndCategoriesComeFromTheRows() {
+        Workbook.FileChart chart = Workbook.chart(Workbook.transactions(file("transactions.csv")).rows());
+        assertThat(chart.accounts()).extracting(Workbook.AccountRow::code).containsExactly("CASH", "CREDITOR_DEBT",
+                "EURO_ACCOUNT", "FAMILY_DEBT", "GEMEENTE_FUND", "LOANS_ASSET", "NORTH_CARD", "UNALLOCATED",
+                "USD_ACCOUNT");
+        assertThat(chart.accounts()).filteredOn(a -> a.code().equals("UNALLOCATED"))
+                .extracting(Workbook.AccountRow::type, Workbook.AccountRow::name)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(AccountType.EQUITY, ImportFixtures.UNALLOCATED));
+        assertThat(chart.accounts()).filteredOn(a -> a.code().equals("LOANS_ASSET"))
+                .extracting(Workbook.AccountRow::requiresCounterparty).containsExactly(true);
+        assertThat(chart.categories()).extracting(Workbook.CategoryRow::code).containsExactly("BENEFIT", "COMMISSION",
+                "FOOD", "FX_GAIN", "GIFTS", "OTHERINC", "PAYCHECK");
+        // D-261: a name in another case is the same name; the spelling most rows use is kept.
+        byte[] csv = ImportFixtures.withField(bytes("transactions.csv"), "17", 7, "КОШЕЛЁК");
+        Workbook.FileChart cased = Workbook.chart(Workbook.transactions(new ImportFile("t.csv", csv)).rows());
+        assertThat(cased.accounts()).filteredOn(a -> a.code().equals("CASH")).singleElement()
+                .satisfies(a -> {
+                    assertThat(a.name()).isEqualTo("Кошелёк");
+                    assertThat(a.spellings()).containsExactlyInAnyOrder("Кошелёк", "КОШЕЛЁК");
+                });
+    }
+
+    /** D-229 and D-262: the whole file is refused, naming codes and IDs, never a name or an amount. */
+    @Test
+    void codesWithTwoNamesOrTwoTypesAndNamesOfTwoCodesRefuseTheFile() {
+        byte[] csv = bytes("transactions.csv");
+        // Row 17's Debit names the cash account otherwise: two names of CASH.
+        byte[] twoNames = ImportFixtures.withField(csv, "17", 7, "Кошелёк-секрет");
+        assertThat(refusal(twoNames)).containsExactly("the account CASH has 2 names in the file, first in the IDs "
+                + "7, 17 (D-229)");
+        // Row 2's item typed as an income: two types of FOOD.
+        byte[] twoTypes = ImportFixtures.withField(csv, "2", 16, "INCOME");
+        assertThat(refusal(twoTypes)).containsExactly("the category FOOD has the types INCOME and EXPENSE in the "
+                + "file, first in the IDs 2, 3 (D-229)");
+        // Row 25's debit side named as the cash but coded otherwise: a name of two codes.
+        byte[] sharedName = ImportFixtures.withField(csv, "25", 18, "WALLET");
+        assertThat(refusal(sharedName)).contains("the accounts CASH and WALLET have one name, and rows name them by "
+                + "it (D-262)");
+        byte[] badType = ImportFixtures.withField(ImportFixtures.withField(csv, "25", 20, "EQUITY"), "25", 18, "X");
+        assertThat(refusal(badType)).anySatisfy(r -> assertThat(r).startsWith("the account X has the type EQUITY"));
+        assertThat(List.of(twoNames, twoTypes, sharedName)).allSatisfy(f -> assertThat(String.join(" ", refusal(f)))
+                .doesNotContain("секрет", "Кошелёк", "1000"));
+    }
+
+    private static List<String> refusal(byte[] csv) {
+        return catchThrowableOfType(TransactionsFileRefused.class,
+                () -> Workbook.chart(Workbook.transactions(new ImportFile("t.csv", csv)).rows())).violations();
+    }
+
+    /** D-236, D-244: a row the app made has its own ID, which no Excel ID collides with. */
+    @Test
+    void aRowTheAppMadeKeepsItsId() {
+        byte[] csv = ImportFixtures.withField(ImportFixtures.withField(bytes("transactions.csv"), "1", 0, "app-7"),
+                "2", 0, "app-f7");
+        var sheet = Workbook.transactions(new ImportFile("t.csv", csv));
         assertThat(sheet.errors()).isEmpty();
-        assertThat(sheet.rows()).extracting(Workbook.AccountRow::code).contains("CASH", "GEMEENTE_FUND", "UNALLOCATED");
-        assertThat(sheet.rows()).filteredOn(a -> a.code().equals("RESERVE")).extracting(Workbook.AccountRow::type)
-                .containsExactly(AccountType.EQUITY);
-        var twice = Workbook.accounts(csv("a.csv", "Статьи баланса;Актив/пассив;Line\r\nКошелёк;ASSET;CASH\r\n"
-                + "кошелёк;ASSET;CASH2\r\n"));
-        assertThat(twice.errors()).extracting(Problem::row, Problem::message)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple(3, "the name is in an earlier row too"));
+        assertThat(sheet.rows()).filteredOn(TransactionRow::isApp).extracting(TransactionRow::excelId)
+                .containsExactly("app-7", "app-f7");
+        byte[] twice = ImportFixtures.withField(csv, "3", 0, "app-7");
+        assertThat(Workbook.transactions(new ImportFile("t.csv", twice)).errors()).extracting(Problem::message)
+                .containsExactly("the ID is in an earlier row too (D-86)");
     }
 
     @Test
@@ -97,7 +167,7 @@ class WorkbookTests {
         var comment = catchThrowableOfType(PartnerFileRefused.class, () -> Workbook.partner(csv("p.csv",
                 "ID;Date;Exp. Item;Family;Side;Currency;Sum;Comment\r\n1;01.02.2024;Продукты;да;Debit;EUR;5;secret\r\n")));
         assertThat(comment.violations()).containsExactly("the partner's file has a column the import doesn't take: "
-                + "only ID, Date, Exp. Item, Family, Side, Currency, Sum leave the laptop");
+                + "only ID, Date, Exp. Item, Family, Side, Currency, Sum (and CODE_ITEM, TYPE) leave the laptop");
         assertThat(List.of(personal, noItem, comment)).allSatisfy(e -> assertThat(String.join(" ", e.violations()))
                 .doesNotContain("secret", "Кафе"));
     }
@@ -107,69 +177,5 @@ class WorkbookTests {
         var sheet = Workbook.partner(csv("p.csv", "ID;Date;Exp. Item;Family;Side;Currency;Sum\r\n"
                 + "1;01.02.2024;Продукты;да;;EUR;5\r\n"));
         assertThat(sheet.errors()).extracting(Problem::message).containsExactly("Side is empty");
-    }
-
-    /** D-146 and D-62: the daily files up to the cutoff, scientific notation exactly, padding and garbage after it unread. */
-    @Test
-    void theDailyFilesAreReadUpToTheCutoff() {
-        List<Problem> errors = new java.util.ArrayList<>();
-        DailyFile balance = DailyFile.read(file("daily-balance.csv"), LocalDate.of(2024, 3, 8), errors);
-        assertThat(errors).isEmpty();
-        assertThat(balance.values().firstKey()).isEqualTo(LocalDate.of(2023, 12, 31));
-        assertThat(balance.values().lastKey()).isEqualTo(LocalDate.of(2024, 3, 8));
-        assertThat(balance.accountColumns()).containsEntry("GEMENTE_FUND_EUR",
-                new DailyFile.Column("GEMEENTE_FUND", "EUR"));
-        assertThat(balance.value(LocalDate.of(2023, 12, 31), "RESERVE_EUR")).isEqualByComparingTo("1100");
-        // Without the cutoff the padding's garbage is read, and is an error.
-        List<Problem> all = new java.util.ArrayList<>();
-        DailyFile.read(file("daily-balance.csv"), null, all);
-        assertThat(all).extracting(Problem::message).containsExactly("CASH_EUR: not a number");
-
-        DailyFile change = DailyFile.read(file("daily-change.csv"), LocalDate.of(2024, 3, 8), errors);
-        assertThat(errors).isEmpty();
-        assertThat(change.lumpColumns()).containsOnlyKeys("PL_family_Sam_RUB", "PL_family_Sam_EUR", "PL_family_Sam_USD")
-                .containsValues("RUB", "EUR", "USD");
-        assertThat(change.accountColumns()).doesNotContainKey("PL_family_Sam_RUB");
-        assertThat(change.value(LocalDate.of(2024, 1, 31), "PL_family_Sam_RUB")).isEqualByComparingTo("333.335");
-        assertThat(change.value(LocalDate.of(2023, 12, 31), "FAMILY_DEBT_USD"))
-                .isEqualByComparingTo(new BigDecimal("-0.0000000000000142109"));
-    }
-
-    @Test
-    void aDailyFilesColumnIsDateOrAnAccountAndACurrency() {
-        List<Problem> errors = new java.util.ArrayList<>();
-        DailyFile file = DailyFile.read(csv("b.csv", "Date;CASH_EUR;Total\r\n31.12.2023;1;2\r\n"), null, errors);
-        assertThat(errors).extracting(Problem::message)
-                .containsExactly("a column is neither Date nor an account's code and currency (CODE_CUR)");
-        assertThat(file.isEmpty()).isTrue();
-        assertThat(Set.of(DailyFile.read(csv("b.csv", "Month;Year;Date;CASH_EUR\r\n12;2023;31.12.2023;5\r\n"), null,
-                errors).accountColumns().keySet())).containsExactly(Set.of("CASH_EUR"));
-    }
-
-    @Test
-    void aDailyFileWithAnExponentOfZeroOrMoreIsRefusedNamingColumnsAndCountsOnly() {
-        // D-168: Excel writes 6.90E+02 only for a cell formatted as scientific, whose digits are lost.
-        List<Problem> errors = new java.util.ArrayList<>();
-        DailyFile file = DailyFile.read(csv("b.csv", "Date;CASH_EUR;CASH_RUB;PL_family_Sam_EUR\r\n"
-                + "30.12.2023;6.90E+02;1;0.00E+00\r\n"
-                + "31.12.2023;1.5e3;0.00E+00;2\r\n"
-                + "01.01.2027;7E1;1;2\r\n"), LocalDate.of(2023, 12, 31), errors);
-        assertThat(file.isEmpty()).isTrue();
-        assertThat(errors).extracting(Problem::message).containsExactly("5 cell(s) in scientific notation with an "
-                + "exponent of zero or more, whose digits Excel's scientific format has lost (D-168), in the columns "
-                + "CASH_EUR, CASH_RUB, PL_family_…_EUR: format them as numbers and export again");
-        assertThat(errors.getFirst().row()).isNull();
-        // The partner's name in a lump's column, and no value, is ever in the message (D-143).
-        assertThat(errors.getFirst().message()).doesNotContain("Sam").doesNotContain("6.90").doesNotContain("1.5");
-    }
-
-    @Test
-    void aNegativeExponentIsAResidueAndIsRead() {
-        List<Problem> errors = new java.util.ArrayList<>();
-        DailyFile file = DailyFile.read(csv("b.csv", "Date;CASH_EUR;CASH_RUB\r\n"
-                + "31.12.2023;1.13687E-12;-1.42109E-14\r\n"), null, errors);
-        assertThat(errors).isEmpty();
-        assertThat(file.value(LocalDate.of(2023, 12, 31), "CASH_EUR"))
-                .isEqualByComparingTo(new BigDecimal("0.00000000000113687"));
     }
 }

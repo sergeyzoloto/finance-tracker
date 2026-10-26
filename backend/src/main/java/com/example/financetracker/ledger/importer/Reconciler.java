@@ -1,97 +1,63 @@
 package com.example.financetracker.ledger.importer;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-import com.example.financetracker.ledger.family.ShareSplit;
-import com.example.financetracker.ledger.importer.ImportReport.CurrencyWithoutFamilyRows;
+import com.example.financetracker.ledger.importer.ExcelRow.Item;
+import com.example.financetracker.ledger.importer.ExcelRow.Side;
 import com.example.financetracker.ledger.importer.ImportReport.ExplainedAmount;
 import com.example.financetracker.ledger.importer.ImportReport.Reconciliation;
 import com.example.financetracker.ledger.importer.ImportReport.ReconciliationLine;
 import com.example.financetracker.ledger.importer.ImportReport.ReconciliationPoint;
+import com.example.financetracker.ledger.importer.ImportReport.RowDifference;
+import com.example.financetracker.ledger.importer.ImportReport.RowLevel;
 
 /**
- * The reconciliation of the owner's balances with his daily balance file (D-63), in plain Java: what
- * {@link ImportReport.Reconciliation} says. The app's side is each account's displayed balance by date, as the import
- * leaves the ledger; Excel's is the daily balance file up to the cutoff (D-146); the explained difference is the import
- * rules' {@link Drift} (D-68).
+ * The reconciliation of a user's ledger with his transactions file (D-231 as D-255 and D-256 amend it), in plain Java:
+ * what {@link ImportReport.Reconciliation} says. It uses the file only, at two levels:
+ * <ul>
+ * <li>Each row ({@link #rows}): the workbook's computed columns against what {@link ExcelRow} computes from the row's
+ * typed ones, and what the import builds of the row against those columns, the difference being the row's
+ * {@link Drift} (D-68).
+ * <li>Each month-end from the file's first row date to the cutoff ({@link #reconcile}): each account's displayed change
+ * in the ledger since the day before the file's first row date, against what the file's rows move on it, the
+ * difference being the drift of the rows and of the ledger's entries no row stands for (NO_ROW). The family debt, the
+ * equity's UNALLOCATED and RESERVE are one sum per currency (D-255), in which every share of another member's record
+ * cancels out.
+ * </ul>
  */
 final class Reconciler {
 
-    static final String EQUITY = "EQUITY";
+    /** D-255: FAMILY_DEBT, UNALLOCATED and RESERVE, compared as one sum per currency. */
+    static final String POOL = "EQUITY+FAMILY_DEBT";
     static final String FAMILY_DEBT = "FAMILY_DEBT";
-    /** D-147: in a currency without family rows, FAMILY_DEBT and the equity are one sum. */
-    static final String EQUITY_AND_FAMILY_DEBT = "EQUITY+FAMILY_DEBT";
-    private static final Set<String> EQUITY_CODES = Set.of("UNALLOCATED", "RESERVE");
-    private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
+    private static final Set<String> POOLED = Set.of(FAMILY_DEBT, "UNALLOCATED", Workbook.RESERVE);
+    /** A month-end's or a row's difference that fails, in absolute value: more than a cent (D-63). */
+    static final BigDecimal TOLERANCE = new BigDecimal("0.01");
+    /**
+     * A row's unexplained difference between what the import builds and its computed columns: more than this fails
+     * (D-263). Its computed columns are cut to 10 significant digits in the CSV (D4a).
+     */
+    static final BigDecimal ROW_TOLERANCE = new BigDecimal("0.0001");
+    /**
+     * A computed number the same as the typed columns give within this part of its size (D-263): the CSV keeps 10
+     * significant digits of a number, of a typed Sum too, and Excel computes from the whole of it.
+     */
+    private static final BigDecimal CSV_PRECISION = new BigDecimal("0.000000001");
     private static final int MAX_FAILURES = 500;
 
-    /** A row's date, currency and amount (above 0), as D-169 adds them up per month. */
-    record Carried(LocalDate date, String currency, BigDecimal amount) {
-    }
-
-    /** D-169's months, and the drift of those it explains. */
-    record OwnerHalves(List<ImportReport.OwnerHalf> months, List<Drift> drift) {
-    }
-
-    /** D-169's limit per income of the month: half a cent. */
-    private static final BigDecimal HALF_CENT = new BigDecimal("0.005");
-
-    /**
-     * D-169: per month and currency, OWNER_HALF = the owner's D-84 rows less half of the partner's family incomes they
-     * carry, exactly. Within half a cent per income it is explained: FAMILY_DEBT by +OWNER_HALF and UNALLOCATED by
-     * -OWNER_HALF (Excel's debt moved by the owner's rows where the partner's records assume the exact half), on the
-     * month's latest date of either. Otherwise, or in a month without such an income, the whole of it stays
-     * unexplained.
-     */
-    static OwnerHalves ownerHalf(List<Carried> ownerRows, List<Carried> partnerIncomes) {
-        record Month(LocalDate first, String currency) {
-        }
-        Map<Month, BigDecimal> owner = new TreeMap<>(Comparator.comparing(Month::first).thenComparing(Month::currency));
-        Map<Month, BigDecimal> partner = new HashMap<>();
-        Map<Month, Integer> incomes = new HashMap<>();
-        Map<Month, LocalDate> latest = new HashMap<>();
-        for (Carried row : ownerRows) {
-            Month month = new Month(row.date().withDayOfMonth(1), row.currency());
-            owner.merge(month, row.amount(), BigDecimal::add);
-            latest.merge(month, row.date(), (a, b) -> a.isAfter(b) ? a : b);
-        }
-        for (Carried row : partnerIncomes) {
-            Month month = new Month(row.date().withDayOfMonth(1), row.currency());
-            owner.putIfAbsent(month, BigDecimal.ZERO);
-            partner.merge(month, row.amount(), BigDecimal::add);
-            incomes.merge(month, 1, Integer::sum);
-            latest.merge(month, row.date(), (a, b) -> a.isAfter(b) ? a : b);
-        }
-        List<ImportReport.OwnerHalf> months = new ArrayList<>();
-        List<Drift> drift = new ArrayList<>();
-        owner.forEach((month, own) -> {
-            BigDecimal partners = partner.getOrDefault(month, BigDecimal.ZERO);
-            int count = incomes.getOrDefault(month, 0);
-            BigDecimal half = own.subtract(partners.divide(BigDecimal.TWO));
-            boolean explained = count > 0 && half.abs().compareTo(HALF_CENT.multiply(BigDecimal.valueOf(count))) <= 0;
-            months.add(new ImportReport.OwnerHalf(month.first(), month.currency(), strip(own), strip(partners), count,
-                    strip(half), explained));
-            if (explained && half.signum() != 0) {
-                LocalDate date = latest.get(month);
-                drift.add(new Drift(FAMILY_DEBT, month.currency(), date, half, Drift.Reason.OWNER_HALF));
-                drift.add(new Drift("UNALLOCATED", month.currency(), date, half.negate(), Drift.Reason.OWNER_HALF));
-            }
-        });
-        return new OwnerHalves(List.copyOf(months), List.copyOf(drift));
-    }
-
-    /** An account and a currency, as the reconciliation compares them. */
+    /** An account (or the pool) and a currency, as the reconciliation compares them. */
     record Key(String account, String currency) implements Comparable<Key> {
 
         @Override
@@ -103,90 +69,278 @@ final class Reconciler {
     private Reconciler() {
     }
 
-    /**
-     * The key of an account code and currency: UNALLOCATED and RESERVE are the equity (D-67), and in a currency without
-     * family rows the equity and FAMILY_DEBT are one (D-147).
-     */
-    static Key key(String code, String currency, Set<String> familyCurrencies) {
-        String account = EQUITY_CODES.contains(code) ? EQUITY : code;
-        if (!familyCurrencies.contains(currency) && (account.equals(EQUITY) || account.equals(FAMILY_DEBT))) {
-            account = EQUITY_AND_FAMILY_DEBT;
+    /** The key of an account's code and a currency: FAMILY_DEBT, UNALLOCATED and RESERVE are one (D-255). */
+    static Key key(String code, String currency) {
+        return new Key(POOLED.contains(code) ? POOL : code, currency);
+    }
+
+    /** What the row moves as the workbook computed it, from its own columns, by key. */
+    static Map<Key, BigDecimal> fileEffect(TransactionRow row) {
+        TransactionRow.Computed c = row.computed();
+        Map<Key, BigDecimal> effect = new TreeMap<>();
+        effect.merge(key(c.debitCode(), row.debitCurrencyOrRow()), c.debitChange(), BigDecimal::add);
+        effect.merge(key(c.creditCode(), row.creditCurrencyOrRow()), c.creditChange(), BigDecimal::add);
+        BigDecimal family = c.familyExpense().add(c.familyIncome());
+        if (family.signum() != 0) {
+            effect.merge(key(FAMILY_DEBT, c.familyCurrency()), family, BigDecimal::add);
         }
-        return new Key(account, currency);
+        return effect;
+    }
+
+    // --- The rows (D-231 a) ------------------------------------------------------------------------------------------
+
+    /** What the import builds of one row, by key; null for a row it builds nothing of because it can't (an error). */
+    record Built(TransactionRow row, Map<Key, BigDecimal> effect, List<Drift> drift) {
     }
 
     /**
-     * @param app each account code's displayed change by date and currency (the family budget's debt account as
-     *        FAMILY_DEBT), as the ledger holds it after the import
-     * @param balance the daily balance file, up to the cutoff
-     * @param drift every explained difference of the rows in the ledger
-     * @param familyCurrencies the currencies of the family records on either side (D-147's are the others)
-     * @param comparedCodes the account codes the app compares: those of the accounts file, the system ones left out
-     * @param cutoff the latest transaction of both files (D-146)
-     * @param tailFrom the first day of the older export's month (D-69)
-     * @param ownerHalf D-169's months, whose drift is in {@code drift} already, for the report
-     * @param familyDebtUpTo D-175: the family debt is compared up to this day only, the earlier of the other seats'
-     *        latest committed cutoffs; its later points wait for the other member's import. Null for no such day
+     * D-231 (a), per row: the computed columns against what {@link ExcelRow} computes from the row's typed columns and
+     * its codes and types (a changed Sum, account or currency shows here), then for each row the import maps, what it
+     * builds against what the row's columns move, the difference being the row's drift. A difference no rule explains
+     * is reported by the row's ID.
+     *
+     * @param rows every row of the file up to the cutoff, the app's included
+     * @param built what the import builds of each Excel row it maps
+     * @param compared the account codes of the file: what the import builds on any other account (FX_EXCHANGE) isn't
+     *        the workbook's
      */
-    static Reconciliation reconcile(Map<Key, NavigableMap<LocalDate, BigDecimal>> app, DailyFile balance,
-            List<Drift> drift, Set<String> familyCurrencies, Set<String> comparedCodes, LocalDate cutoff,
-            LocalDate tailFrom, List<ImportReport.OwnerHalf> ownerHalf, LocalDate familyDebtUpTo) {
-        // Excel's balances by key, its columns summed per key.
-        Map<String, Key> columnKeys = new HashMap<>();
-        balance.accountColumns().forEach((column, account) -> columnKeys.put(column,
-                key(account.code(), account.currency(), familyCurrencies)));
-        Set<Key> keys = new TreeSet<>(columnKeys.values());
-
-        // The app's balances and the drift, by key.
-        Map<Key, NavigableMap<LocalDate, BigDecimal>> appByKey = new HashMap<>();
-        Set<String> appOnly = new TreeSet<>();
-        Map<String, NavigableMap<LocalDate, BigDecimal>> appFamilyDebt = new HashMap<>();
-        app.forEach((raw, changes) -> {
-            Key key = key(raw.account(), raw.currency(), familyCurrencies);
-            if (raw.account().equals(FAMILY_DEBT)) {
-                changes.forEach((date, change) -> appFamilyDebt.computeIfAbsent(raw.currency(), c -> new TreeMap<>())
-                        .merge(date, change, BigDecimal::add));
+    static RowLevel rows(List<TransactionRow> rows, List<Built> built, Set<String> compared, List<Drift> shownRounded) {
+        List<RowDifference> failures = new ArrayList<>();
+        int failed = 0;
+        java.util.Set<String> failedRows = new java.util.HashSet<>();
+        java.util.Set<String> rounded = new java.util.HashSet<>();
+        for (TransactionRow row : rows) {
+            if (shownRounded(row)) {
+                rounded.add(row.excelId());
             }
-            if (!keys.contains(key)) {
-                if (comparedCodes.contains(raw.account()) || raw.account().equals(FAMILY_DEBT)) {
-                    BigDecimal total = changes.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-                    if (total.signum() != 0) {
-                        appOnly.add(raw.account() + " " + raw.currency());
+            for (RowDifference difference : columns(row)) {
+                failedRows.add(row.excelId());
+                if (failures.size() < MAX_FAILURES) {
+                    failures.add(difference);
+                }
+            }
+        }
+        Map<String, BigDecimal> explained = new TreeMap<>();
+        int explainedRows = 0;
+        for (Built b : built) {
+            Map<Key, BigDecimal> file = fileEffect(b.row());
+            Map<Key, BigDecimal> drift = new TreeMap<>();
+            for (Drift d : b.drift()) {
+                drift.merge(key(d.code(), d.currency()), d.amount(), BigDecimal::add);
+            }
+            Set<Key> keys = new TreeSet<>(file.keySet());
+            b.effect().keySet().stream().filter(k -> k.account().equals(POOL) || compared.contains(k.account()))
+                    .forEach(keys::add);
+            boolean any = false;
+            List<Drift> rowDrift = new ArrayList<>(b.drift());
+            for (Key key : keys) {
+                BigDecimal app = b.effect().getOrDefault(key, BigDecimal.ZERO);
+                BigDecimal excel = file.getOrDefault(key, BigDecimal.ZERO);
+                BigDecimal because = drift.getOrDefault(key, BigDecimal.ZERO);
+                BigDecimal unexplained = app.subtract(excel).subtract(because);
+                if (rounded.contains(b.row().excelId()) && unexplained.signum() != 0
+                        && unexplained.abs().compareTo(halfUnit(b.row())) <= 0) {
+                    // D-263: the typed amount the CSV shows rounded; the computed columns keep Excel's whole one.
+                    Drift d = new Drift(key.account(), key.currency(), b.row().date(), unexplained,
+                            Drift.Reason.SHOWN_ROUNDED);
+                    shownRounded.add(d);
+                    rowDrift.add(d);
+                    because = because.add(unexplained);
+                    unexplained = BigDecimal.ZERO;
+                }
+                if (unexplained.abs().compareTo(ROW_TOLERANCE) > 0) {
+                    failedRows.add(b.row().excelId());
+                    if (failures.size() < MAX_FAILURES) {
+                        failures.add(new RowDifference(b.row().excelId(), b.row().row(),
+                                key.account() + " " + key.currency(), strip(excel), strip(app), strip(because),
+                                strip(unexplained)));
                     }
                 }
-                return;
+                any |= because.signum() != 0;
             }
+            if (any) {
+                explainedRows++;
+                for (Drift d : rowDrift) {
+                    Key key = key(d.code(), d.currency());
+                    explained.merge(d.reason().name() + " " + key.account() + " " + key.currency(), d.amount(),
+                            BigDecimal::add);
+                }
+            }
+        }
+        failed = failedRows.size();
+        List<ExplainedAmount> byReason = new ArrayList<>();
+        explained.forEach((name, amount) -> {
+            if (amount.signum() != 0) {
+                String[] parts = name.split(" ", 3);
+                byReason.add(new ExplainedAmount(parts[1], parts[2], parts[0], strip(amount)));
+            }
+        });
+        return new RowLevel(rows.size(), built.size(), explainedRows, failed, failures, byReason);
+    }
+
+    /** The row's computed columns that aren't what its typed columns compute (D-237's rules), as differences. */
+    static List<RowDifference> columns(TransactionRow row) {
+        TransactionRow.Computed c = row.computed();
+        ExcelRow excel = excel(row);
+        List<RowDifference> differences = new ArrayList<>();
+        int scale = typedScale(row);
+        number(row, TransactionRow.DEBIT_CHANGE, c.debitChange(), excel.debitChange(), scale, differences);
+        number(row, TransactionRow.CREDIT_CHANGE, c.creditChange(), excel.creditChange(), scale, differences);
+        number(row, TransactionRow.FAMILY_EXP, c.familyExpense(), excel.familyExpense(), scale, differences);
+        number(row, TransactionRow.FAMILY_INC, c.familyIncome(), excel.familyIncome(), scale, differences);
+        number(row, TransactionRow.CHECK_CORR, c.checkCorrection(), excel.checkCorrection(), scale, differences);
+        number(row, TransactionRow.LOAN_SUM, c.loanSum(), excel.loanSum(), scale, differences);
+        text(row, TransactionRow.CUR_FAMILY, c.familyCurrency(), excel.debitCurrencyOrRow(), differences);
+        text(row, TransactionRow.COUNT_DEBIT, account(c.debitAccount()), c.debitCode() + "_"
+                + excel.debitCurrencyOrRow(), differences);
+        text(row, TransactionRow.COUNT_CREDIT, account(c.creditAccount()), c.creditCode() + "_"
+                + excel.creditCurrencyOrRow(), differences);
+        text(row, TransactionRow.LOAN_CUR, c.loanCurrency(), excel.loanCurrency(), differences);
+        text(row, TransactionRow.EXP_ITEM_CODE, c.expItemCode(), row.itemCode(), differences);
+        return differences;
+    }
+
+    /** The row as {@link ExcelRow} computes it from its typed columns and its codes and types. */
+    private static ExcelRow excel(TransactionRow row) {
+        TransactionRow.Computed c = row.computed();
+        return new ExcelRow(row.excelId(), row.date(), new Item(row.item(), row.itemCode(), c.itemType()), row.sum(),
+                row.currency(), "", "", new Side(row.debit(), c.debitCode(), c.debitType()),
+                new Side(row.credit(), c.creditCode(), c.creditType()), row.flagged(), row.debitCurrency(),
+                row.debitSum(), row.creditCurrency(), row.creditSum(), "");
+    }
+
+    /** COUNT_DEBIT or COUNT_CREDIT with its code's typo fixed: {@code CODE_CUR}. */
+    private static String account(String count) {
+        int cut = count.lastIndexOf('_');
+        return cut < 0 ? count : Workbook.code(count.substring(0, cut)) + count.substring(cut);
+    }
+
+    /** The decimals of the row's typed amounts as the file shows them: Sum, SUM_DEBIT and SUM_CREDIT. */
+    private static int typedScale(TransactionRow row) {
+        int scale = 0;
+        for (BigDecimal amount : java.util.Arrays.asList(row.sum(), row.debitSum(), row.creditSum())) {
+            if (amount != null) {
+                scale = Math.max(scale, amount.scale());
+            }
+        }
+        return scale;
+    }
+
+    /** Half a unit of the last decimal the row's typed amounts show. */
+    private static BigDecimal halfUnit(TransactionRow row) {
+        return BigDecimal.ONE.movePointLeft(typedScale(row)).divide(BigDecimal.TWO);
+    }
+
+    /** D-263: the row has a computed number that is its typed one's whole value, which the CSV shows rounded. */
+    static boolean shownRounded(TransactionRow row) {
+        TransactionRow.Computed c = row.computed();
+        ExcelRow excel = excel(row);
+        int scale = typedScale(row);
+        BigDecimal[][] pairs = {{c.debitChange(), excel.debitChange()}, {c.creditChange(), excel.creditChange()},
+            {c.checkCorrection(), excel.checkCorrection()}, {c.loanSum(), excel.loanSum()}};
+        for (BigDecimal[] pair : pairs) {
+            if (!same(pair[0], pair[1]) && shown(pair[0], pair[1], scale)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Equal, or within a billionth of their size: the CSV's 10 significant digits (D-263). */
+    private static boolean same(BigDecimal file, BigDecimal computed) {
+        BigDecimal size = file.abs().max(computed.abs()).max(BigDecimal.ONE);
+        return file.subtract(computed).abs().compareTo(size.multiply(CSV_PRECISION)) <= 0;
+    }
+
+    /**
+     * Whether the file's number, rounded half up to the typed amounts' decimals, is what they compute (D-263): only for
+     * typed amounts of two decimals or more, as Excel's cells show them; a Sum of 10 against a computed 10.01 is a Sum
+     * changed by hand.
+     */
+    private static boolean shown(BigDecimal file, BigDecimal computed, int scale) {
+        return scale >= 2 && file.setScale(scale, java.math.RoundingMode.HALF_UP).compareTo(computed) == 0;
+    }
+
+    private static void number(TransactionRow row, String column, BigDecimal file, BigDecimal computed, int scale,
+            List<RowDifference> differences) {
+        if (same(file, computed) || shown(file, computed, scale)) {
+            return;
+        }
+        differences.add(new RowDifference(row.excelId(), row.row(), column, strip(file), strip(computed),
+                BigDecimal.ZERO.setScale(2), strip(file.subtract(computed))));
+    }
+
+    private static void text(TransactionRow row, String column, String file, String computed,
+            List<RowDifference> differences) {
+        if (!Objects.equals(emptyAsNull(file), emptyAsNull(computed))) {
+            differences.add(new RowDifference(row.excelId(), row.row(), column + " isn't what the row computes", null,
+                    null, null, null));
+        }
+    }
+
+    private static String emptyAsNull(String value) {
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    // --- The month-ends (D-231 b) ------------------------------------------------------------------------------------
+
+    /**
+     * @param app each account code's displayed change by date and currency (a family budget's debt account as
+     *        FAMILY_DEBT), as the ledger holds it after the import
+     * @param file what the file's rows move, by key and date, from their computed columns ({@link #fileEffect})
+     * @param drift every explained difference: the rows', D-223's APP_EDITED, D-188's SETTLEMENT_DATE and NO_ROW
+     * @param compared the account codes of the file; the ledger's other accounts (FX_EXCHANGE, OPENING_BALANCE and
+     *        the like) aren't the workbook's
+     * @param from the file's first row date: movements are from the day before it (D-256)
+     * @param cutoff the file's last row date, or "Import up to" if earlier (D-165)
+     * @param rows D-231 (a)'s result, which fails the reconciliation too
+     */
+    static Reconciliation reconcile(Map<Key, NavigableMap<LocalDate, BigDecimal>> app,
+            Map<Key, NavigableMap<LocalDate, BigDecimal>> file, List<Drift> drift, Set<String> compared,
+            LocalDate from, LocalDate cutoff, RowLevel rows) {
+        Map<Key, NavigableMap<LocalDate, BigDecimal>> appByKey = new HashMap<>();
+        app.forEach((raw, changes) -> {
+            Key key = key(raw.account(), raw.currency());
             NavigableMap<LocalDate, BigDecimal> merged = appByKey.computeIfAbsent(key, k -> new TreeMap<>());
             changes.forEach((date, change) -> merged.merge(date, change, BigDecimal::add));
         });
+        Map<Key, NavigableMap<LocalDate, BigDecimal>> fileByKey = new TreeMap<>();
+        file.forEach((raw, changes) -> {
+            NavigableMap<LocalDate, BigDecimal> merged = fileByKey.computeIfAbsent(key(raw.account(), raw.currency()),
+                    k -> new TreeMap<>());
+            changes.forEach((date, change) -> merged.merge(date, change, BigDecimal::add));
+        });
+        Set<Key> keys = new TreeSet<>(fileByKey.keySet());
+        Set<String> appOnly = new TreeSet<>();
+        appByKey.forEach((key, changes) -> {
+            if (!keys.contains(key) && (key.account().equals(POOL) || compared.contains(key.account()))
+                    && between(changes, from, cutoff).signum() != 0) {
+                appOnly.add(key.account() + " " + key.currency());
+            }
+        });
         Map<Key, NavigableMap<LocalDate, BigDecimal>> driftByKey = new HashMap<>();
-        Map<Key, Map<Drift.Reason, NavigableMap<LocalDate, BigDecimal>>> driftByReason = new HashMap<>();
+        Map<Key, Map<Drift.Reason, NavigableMap<LocalDate, BigDecimal>>> driftByReason = new TreeMap<>();
         for (Drift d : drift) {
-            Key key = key(d.code(), d.currency(), familyCurrencies);
+            Key key = key(d.code(), d.currency());
             driftByKey.computeIfAbsent(key, k -> new TreeMap<>()).merge(d.date(), d.amount(), BigDecimal::add);
-            driftByReason.computeIfAbsent(key, k -> new HashMap<>()).computeIfAbsent(d.reason(), r -> new TreeMap<>())
+            driftByReason.computeIfAbsent(key, k -> new TreeMap<>()).computeIfAbsent(d.reason(), r -> new TreeMap<>())
                     .merge(d.date(), d.amount(), BigDecimal::add);
         }
 
-        // The points: every month-end of the file up to the cutoff, and the cutoff itself, which is in the tail.
+        // Every month-end from the file's first month up to the cutoff, and the cutoff itself.
         List<LocalDate> points = new ArrayList<>();
-        for (LocalDate date : balance.values().keySet()) {
-            if (date.plusDays(1).getDayOfMonth() == 1 || date.equals(cutoff)) {
-                points.add(date);
+        if (from != null && cutoff != null && !cutoff.isBefore(from)) {
+            for (YearMonth month = YearMonth.from(from); month.atEndOfMonth().isBefore(cutoff);
+                    month = month.plusMonths(1)) {
+                points.add(month.atEndOfMonth());
             }
+            points.add(cutoff);
         }
-        LocalDate lastCompared = points.stream().filter(date -> date.isBefore(tailFrom)).reduce((a, b) -> b)
-                .orElse(null);
 
         List<ReconciliationLine> lines = new ArrayList<>();
         List<ReconciliationPoint> failures = new ArrayList<>();
-        List<ReconciliationPoint> tail = new ArrayList<>();
-        List<ReconciliationPoint> waiting = new ArrayList<>();
-        int compared = 0;
+        int pointsCompared = 0;
         for (Key key : keys) {
-            boolean familyDebt = key.account().equals(FAMILY_DEBT) || key.account().equals(EQUITY_AND_FAMILY_DEBT);
-            int keyCompared = 0;
-            int keyWaiting = 0;
             int failed = 0;
             LocalDate firstFailure = null;
             BigDecimal worst = BigDecimal.ZERO;
@@ -194,100 +348,54 @@ final class Reconciler {
             BigDecimal lastApp = null;
             BigDecimal lastExplained = null;
             for (LocalDate date : points) {
-                BigDecimal excel = BigDecimal.ZERO;
-                for (Map.Entry<String, Key> column : columnKeys.entrySet()) {
-                    if (column.getValue().equals(key)) {
-                        excel = excel.add(balance.value(date, column.getKey()));
-                    }
-                }
-                // D-199: Excel's balance as read, without D-63's cut to cents, against the app's exact one.
-                BigDecimal appBalance = upTo(appByKey.get(key), date);
-                BigDecimal explained = upTo(driftByKey.get(key), date);
-                BigDecimal unexplained = appBalance.subtract(excel).subtract(explained);
-                ReconciliationPoint point = new ReconciliationPoint(date, key.account(), key.currency(), excel,
-                        strip(appBalance), strip(explained), strip(unexplained));
-                if (!date.isBefore(tailFrom)) {
-                    if (appBalance.subtract(excel).signum() != 0) {
-                        tail.add(point);
-                    }
-                    continue;
-                }
-                if (familyDebt && familyDebtUpTo != null && date.isAfter(familyDebtUpTo)) {
-                    // D-175: the other member hasn't imported this far yet.
-                    keyWaiting++;
-                    if (unexplained.abs().compareTo(TOLERANCE) > 0 && waiting.size() < MAX_FAILURES) {
-                        waiting.add(point);
-                    }
-                    continue;
-                }
-                keyCompared++;
+                BigDecimal excel = between(fileByKey.get(key), from, date);
+                BigDecimal appMovement = between(appByKey.get(key), from, date);
+                BigDecimal explained = between(driftByKey.get(key), from, date);
+                BigDecimal unexplained = appMovement.subtract(excel).subtract(explained);
+                pointsCompared++;
                 if (unexplained.abs().compareTo(TOLERANCE) > 0) {
                     failed++;
                     firstFailure = firstFailure == null ? date : firstFailure;
                     if (failures.size() < MAX_FAILURES) {
-                        failures.add(point);
+                        failures.add(new ReconciliationPoint(date, key.account(), key.currency(), strip(excel),
+                                strip(appMovement), strip(explained), strip(unexplained)));
                     }
                 }
                 worst = worst.max(unexplained.abs());
-                if (date.equals(lastCompared)) {
-                    lastExcel = excel;
-                    lastApp = strip(appBalance);
-                    lastExplained = strip(explained);
-                }
+                lastExcel = strip(excel);
+                lastApp = strip(appMovement);
+                lastExplained = strip(explained);
             }
-            compared += keyCompared;
-            lines.add(new ReconciliationLine(key.account(), key.currency(), keyCompared, failed, firstFailure,
-                    strip(worst), lastExcel, lastApp, lastExplained, keyWaiting));
-        }
-
-        // D-147: in a currency without family rows, the app's FAMILY_DEBT is 0 at the last compared point.
-        List<CurrencyWithoutFamilyRows> withoutFamilyRows = new ArrayList<>();
-        Set<String> freeCurrencies = new TreeSet<>();
-        keys.stream().filter(k -> k.account().equals(EQUITY_AND_FAMILY_DEBT)).forEach(k -> freeCurrencies.add(k.currency()));
-        for (String currency : freeCurrencies) {
-            BigDecimal appDebt = lastCompared == null ? BigDecimal.ZERO : upTo(appFamilyDebt.get(currency), lastCompared);
-            BigDecimal excelDebt = BigDecimal.ZERO;
-            if (lastCompared != null) {
-                for (Map.Entry<String, DailyFile.Column> column : balance.accountColumns().entrySet()) {
-                    if (column.getValue().code().equals(FAMILY_DEBT) && column.getValue().currency().equals(currency)) {
-                        excelDebt = excelDebt.add(balance.value(lastCompared, column.getKey()));
-                    }
-                }
-            }
-            withoutFamilyRows.add(new CurrencyWithoutFamilyRows(currency, strip(appDebt),
-                    excelDebt.setScale(scale(currency), RoundingMode.HALF_UP), appDebt.signum() == 0));
+            lines.add(new ReconciliationLine(key.account(), key.currency(), points.size(), failed, firstFailure,
+                    strip(worst), lastExcel, lastApp, lastExplained));
         }
 
         List<ExplainedAmount> explained = new ArrayList<>();
-        if (lastCompared != null) {
-            new TreeMap<>(driftByReason).forEach((key, reasons) -> reasons.forEach((reason, byDate) -> {
-                BigDecimal amount = upTo(byDate, lastCompared);
+        if (cutoff != null) {
+            driftByReason.forEach((key, reasons) -> new TreeMap<>(reasons).forEach((reason, byDate) -> {
+                BigDecimal amount = between(byDate, from, cutoff);
                 if (amount.signum() != 0) {
                     explained.add(new ExplainedAmount(key.account(), key.currency(), reason.name(), strip(amount)));
                 }
             }));
         }
-        boolean passed = lastCompared != null && failures.isEmpty()
-                && withoutFamilyRows.stream().allMatch(CurrencyWithoutFamilyRows::ok);
-        return new Reconciliation(passed, cutoff, tailFrom, compared, lastCompared, lines, failures, tail,
-                withoutFamilyRows, explained, List.copyOf(appOnly), List.copyOf(ownerHalf), familyDebtUpTo,
-                waiting);
+        boolean passed = !points.isEmpty() && failures.isEmpty() && rows.failed() == 0;
+        return new Reconciliation(passed, from, cutoff, pointsCompared, points.isEmpty() ? null : cutoff, lines, failures,
+                explained, List.copyOf(appOnly), rows);
     }
 
-    private static BigDecimal upTo(NavigableMap<LocalDate, BigDecimal> changes, LocalDate date) {
-        return changes == null ? BigDecimal.ZERO
-                : changes.headMap(date, true).values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    private static int scale(String currency) {
-        try {
-            return ShareSplit.minorUnit(currency);
-        } catch (IllegalArgumentException e) {
-            return 2;
+    /** The sum of the changes dated from {@code from} to {@code to}, both included. */
+    private static BigDecimal between(NavigableMap<LocalDate, BigDecimal> changes, LocalDate from, LocalDate to) {
+        if (changes == null || from == null || to == null || to.isBefore(from)) {
+            return BigDecimal.ZERO;
         }
+        return changes.subMap(from, true, to, true).values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    private static BigDecimal strip(BigDecimal amount) {
+    static BigDecimal strip(BigDecimal amount) {
+        if (amount == null) {
+            return null;
+        }
         BigDecimal stripped = amount.stripTrailingZeros();
         return stripped.scale() < 2 ? stripped.setScale(2) : stripped;
     }

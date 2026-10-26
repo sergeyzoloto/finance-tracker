@@ -7,11 +7,11 @@ import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
 
 /**
- * The user's accounts and categories as the importer finds them: by the names of the accounts and categories files,
- * which is how the journal names them, and accounts also by code. A category of a family budget's family rows is the
+ * The user's accounts and categories as the importer finds them: by the names the transactions file's rows give them
+ * (D-228), which is how the journal names them, and accounts also by code. A category of a family budget's family rows is the
  * family category, which personal rows use too (D-11).
  *
- * @param accountsByName by the accounts file's names in lower case: the journal spells them in any case
+ * @param accountsByName by the rows' names in lower case, every spelling: the journal spells them in any case
  * @param accountsByCode all the user's accounts, the system accounts included
  */
 record Chart(Map<String, AccountRef> accountsByName, Map<String, AccountRef> accountsByCode,

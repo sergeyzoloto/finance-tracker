@@ -3,7 +3,6 @@ package com.example.financetracker.ledger.importer;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -33,8 +32,6 @@ import com.example.financetracker.ledger.importer.Workbook.CategoryRow;
  * (D-73; the one without a category in OTHERINC); against FAMILY_DEBT in another currency, a conversion: two
  * settlements through his FX_EXCHANGE (D-71); against any other account, a settlement between him and the seat on that
  * account (D-148 for one that requires a counterparty).
- * <li>Each month's family lump in the owner's daily change file before the partner's ledger starts: a record paid by
- * the seat of twice the lump, 50/50, in "Без детализации" (D-83).
  * <li>The partner's family row: a record paid or received by the seat, 50/50.
  * </ul>
  * Amounts are rounded half up to the currency's minor unit (D-74), and each record's split is D-12's. What that makes
@@ -43,15 +40,11 @@ import com.example.financetracker.ledger.importer.Workbook.CategoryRow;
  */
 final class ImportPlanner {
 
-    /** D-83's category of the lumps, with the code an agent's choice (D3b). */
-    static final String LUMP_CATEGORY_CODE = "NO_DETAIL";
-    static final String LUMP_CATEGORY_NAME = "Без детализации";
     /** D-73: the owner's FAMILY_DEBT row against UNALLOCATED without a category is an income in this category. */
     static final String OTHER_INCOME = "OTHERINC";
     /** D-84: the owner's EUR incomes on FAMILY_DEBT that the partner's family rows carry, which aren't imported. */
     static final Set<String> CARRIED_BY_THE_PARTNER = Set.of("BENEFIT", "OTHERINC", "CASHBACK");
     static final String CARRIED_CURRENCY = "EUR";
-    private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("uuuu-MM");
 
     enum Source {
         /** The owner's personal rows. */
@@ -62,8 +55,6 @@ final class ImportPlanner {
         OWNER_SETTLEMENT,
         /** The owner's rows on FAMILY_DEBT against UNALLOCATED, the seat's records 100 % his (D-73). */
         OWNER_SEAT,
-        /** The monthly lumps before the partner's ledger starts (D-83). */
-        OWNER_LUMP,
         /** The partner's family rows. */
         PARTNER,
         /** A member's own personal rows, once he took his seat (D-175). */
@@ -81,10 +72,10 @@ final class ImportPlanner {
 
         Source source();
 
-        /** The row in its file, where the header is row 1; 0 for a lump. */
+        /** The row in its file, where the header is row 1. */
         int row();
 
-        /** What names the row: its Excel ID, or for a lump {@code PL:<month>:<currency>}. */
+        /** What names the row: its Excel ID, and for a conversion's leg its currency after it. */
         String excelId();
 
         /** Its reference in the family budget (D-142): {@code xls:<seat's member id>:<excelId>}. */
@@ -151,12 +142,8 @@ final class ImportPlanner {
     record Family(List<FamilyItem> items, List<String> warnings) implements Planned {
     }
 
-    /**
-     * A row the decisions leave out (D-84).
-     *
-     * @param carried the row's date, currency and amount, for D-169's reconciliation
-     */
-    record NotImported(String reason, Reconciler.Carried carried, List<String> warnings) implements Planned {
+    /** A row the decisions leave out (D-84). */
+    record NotImported(String reason, List<String> warnings) implements Planned {
     }
 
     record Skipped(String reason, List<String> warnings) implements Planned {
@@ -172,7 +159,7 @@ final class ImportPlanner {
 
     /**
      * @param accountsByName the owner's accounts by their names in lower case ({@link Chart#accountsByName})
-     * @param categoriesByName the categories file's rows by name
+     * @param categoriesByName the file's categories by name, in every spelling (D-228)
      * @param ownerId the owner's member id in the family budget, his seat
      * @param seatId the partner's seat
      */
@@ -208,10 +195,10 @@ final class ImportPlanner {
         AccountRef credit = accountsByName.get(row.credit().toLowerCase(Locale.ROOT));
         List<String> errors = new ArrayList<>();
         if (debit == null) {
-            errors.add("Debit is not in the accounts file");
+            errors.add("Debit is none of the file's accounts");
         }
         if (credit == null) {
-            errors.add("Credit is not in the accounts file");
+            errors.add("Credit is none of the file's accounts");
         }
         if (!errors.isEmpty()) {
             return new Failed(errors, List.of());
@@ -236,7 +223,7 @@ final class ImportPlanner {
         }
         CategoryRow category = categoriesByName.get(row.item());
         if (category == null) {
-            errors.add("Exp. Item is not in the categories file");
+            errors.add("Exp. Item is none of the file's categories");
         } else if (category.type() != (expense ? CategoryType.EXPENSE : CategoryType.INCOME)) {
             errors.add(expense ? "a family expense needs an expense category" : "a family income needs an income category");
         }
@@ -335,8 +322,8 @@ final class ImportPlanner {
         boolean noCategory = EntryMapper.NO_CATEGORY.equals(row.item());
         CategoryRow category = noCategory ? categoryByCode(OTHER_INCOME) : categoriesByName.get(row.item());
         if (category == null) {
-            return new Failed(List.of(noCategory ? "the categories file has no %s, for a row on FAMILY_DEBT without a "
-                    .formatted(OTHER_INCOME) + "category (D-73)" : "Exp. Item is not in the categories file"),
+            return new Failed(List.of(noCategory ? "the file names no category %s, for a row on FAMILY_DEBT without a "
+                    .formatted(OTHER_INCOME) + "category (D-73)" : "Exp. Item is none of the file's categories"),
                     warnings);
         }
         if (!currency.equals(otherCurrency)) {
@@ -345,8 +332,7 @@ final class ImportPlanner {
         boolean lowersTheDebt = debt.signum() < 0;
         if (currency.equals(CARRIED_CURRENCY) && lowersTheDebt && category.type() == CategoryType.INCOME
                 && CARRIED_BY_THE_PARTNER.contains(category.code())) {
-            return new NotImported("an income on FAMILY_DEBT that the partner's family rows carry (D-84)",
-                    new Reconciler.Carried(row.date(), currency, debt.negate()), warnings);
+            return new NotImported("an income on FAMILY_DEBT that the partner's family rows carry (D-84)", warnings);
         }
         String type;
         boolean refund = false;
@@ -428,59 +414,25 @@ final class ImportPlanner {
         return new Family(items, List.of());
     }
 
-    // --- D-83's lumps ------------------------------------------------------------------------------------------------
-
-    /**
-     * The seat's records for the owner's monthly family lumps before the partner's ledger starts (D-83): each non-zero
-     * lump of a month before {@code partnerStart}'s, twice its amount, 50/50, on its date.
-     */
-    List<RecordSpec> lumps(DailyFile change, LocalDate partnerStart) {
-        List<RecordSpec> records = new ArrayList<>();
-        LocalDate before = partnerStart.withDayOfMonth(1);
-        change.lumpColumns().forEach((column, currency) -> change.values().headMap(before, false).forEach((date, cells) -> {
-            BigDecimal lump = cells.getOrDefault(column, BigDecimal.ZERO);
-            BigDecimal amount = minorUnits(lump.abs().multiply(BigDecimal.TWO), currency);
-            // A lump that is 0 at the minor unit, such as Excel's floating-point residue, is none.
-            if (amount.signum() == 0) {
-                return;
-            }
-            boolean refund = lump.signum() < 0;
-            int sign = refund ? -1 : 1;
-            BigDecimal own = halves(amount, currency, seatId)[0].amount().multiply(BigDecimal.valueOf(sign));
-            List<Drift> drift = new ArrayList<>();
-            add(drift, "FAMILY_DEBT", currency, date, own.subtract(lump), Drift.Reason.SHARES);
-            add(drift, "UNALLOCATED", currency, date, lump.subtract(own), Drift.Reason.SHARES);
-            String excelId = "PL:" + MONTH.format(date) + ":" + currency;
-            records.add(new RecordSpec(Source.OWNER_LUMP, 0, excelId, ref(ownerId, excelId),
-                    ImportSync.contentHash("PL", date.toString(), currency, TransactionRow.plain(lump)), "EXPENSE",
-                    refund, date, LUMP_CATEGORY_CODE, LUMP_CATEGORY_NAME, CategoryType.EXPENSE, amount, currency, false,
-                    null, null, null, null, null, null, false, drift));
-        }));
-        return records;
-    }
-
     // --- The partner's family rows -----------------------------------------------------------------------------------
-
-    /**
-     * D-169: a partner's family income that the owner's D-84 rows carry the other half of (BENEFIT, OTHERINC, CASHBACK
-     * in EUR), as its date, currency and amount; null for any other row.
-     */
-    Reconciler.Carried carried(PartnerRow row) {
-        CategoryRow category = categoriesByName.get(row.item());
-        if (row.expense() || row.amount().signum() <= 0 || category == null
-                || !CARRIED_BY_THE_PARTNER.contains(category.code()) || !row.currency().equals(CARRIED_CURRENCY)) {
-            return null;
-        }
-        return new Reconciler.Carried(row.date(), row.currency(), row.amount());
-    }
 
     Planned partner(PartnerRow row) {
         if (row.amount().signum() == 0) {
             return new Skipped("Sum is 0 (D-72)", List.of());
         }
+        // The owner's own name for the item first, else the code and type the partner's row brings (D-260).
         CategoryRow category = categoriesByName.get(row.item());
+        if (category == null && row.itemCode() != null && row.itemType() != null) {
+            CategoryType type = switch (row.itemType()) {
+                case "INCOME" -> CategoryType.INCOME;
+                case "EXPENSE" -> CategoryType.EXPENSE;
+                default -> null;
+            };
+            category = type == null ? null : new CategoryRow(row.item(), Set.of(row.item()), row.itemCode(), type);
+        }
         if (category == null) {
-            return new Failed(List.of("Exp. Item is not in the categories file"), List.of());
+            return new Failed(List.of("Exp. Item is neither in your transactions file nor coded in the partner's"),
+                    List.of());
         }
         if (category.type() != (row.expense() ? CategoryType.EXPENSE : CategoryType.INCOME)) {
             return new Failed(List.of(row.expense() ? "a family expense needs an expense category"
@@ -496,8 +448,8 @@ final class ImportPlanner {
         boolean refund = row.expense() && row.amount().signum() < 0;
         int sign = refund ? -1 : 1;
         BigDecimal own = halves(amount, row.currency(), seatId)[0].amount().multiply(BigDecimal.valueOf(sign));
-        // Excel's owner side: half of the row, in the monthly lump (or, for BENEFIT, CASHBACK and OTHERINC, in his own
-        // rows on FAMILY_DEBT, D-84).
+        // Excel's owner side: half of the row, in the owner's monthly lump (or, for BENEFIT, CASHBACK and OTHERINC, in
+        // his own rows on FAMILY_DEBT, D-84); his family debt and equity together don't move by it (D-255).
         BigDecimal half = row.amount().divide(BigDecimal.TWO);
         BigDecimal appDebt = row.expense() ? own : own.negate();
         BigDecimal excelDebt = row.expense() ? half : half.negate();

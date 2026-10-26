@@ -2,10 +2,7 @@ package com.example.financetracker.ledger.importer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -28,15 +25,15 @@ class EntryMapperTests {
     EntryMapperTests() {
         Map<String, AccountRef> byName = new HashMap<>();
         long id = 1;
-        for (var row : Workbook.accounts(ImportFixtures.file("accounts.csv")).rows()) {
+        for (var row : ImportFixtures.chart("transactions.csv").accounts()) {
             AccountRef ref = new AccountRef(id++, row.code(), row.type(), row.requiresCounterparty());
-            byName.put(row.name().toLowerCase(Locale.ROOT), ref);
+            row.spellings().forEach(name -> byName.put(name.toLowerCase(Locale.ROOT), ref));
             byCode.put(row.code(), ref);
         }
         byCode.put("FX_EXCHANGE", new AccountRef(90, "FX_EXCHANGE", AccountType.EQUITY, false));
         byCode.put("OPENING_BALANCE", new AccountRef(91, "OPENING_BALANCE", AccountType.EQUITY, false));
         Map<String, CategoryRef> categories = new HashMap<>();
-        for (var row : Workbook.categories(ImportFixtures.file("categories.csv")).rows()) {
+        for (var row : ImportFixtures.chart("transactions.csv").categories()) {
             categories.put(row.name(), new CategoryRef(id++, row.code(), row.type()));
         }
         mapper = new EntryMapper(new Chart(byName, byCode, categories));
@@ -101,7 +98,7 @@ class EntryMapperTests {
         // With the Family flag set (and no item: D-72 clears it on the way), it stays an error (D-156).
         TransactionRow flagged = new TransactionRow(row.row(), row.id(), row.contentHash(), row.date(), row.item(),
                 row.sum(), row.currency(), null, null, row.debit(), row.credit(), false, null, null, null, null, null,
-                null, null, null, null, true);
+                null, null, null, null, true, null, null);
         assertThat(mapper.map(flagged)).isInstanceOf(RowResult.Failed.class)
                 .extracting(r -> ((RowResult.Failed) r).errors())
                 .isEqualTo(List.of("Debit and Credit are the same account, in one currency"));
@@ -110,20 +107,5 @@ class EntryMapperTests {
     @Test
     void zeroRowsAreSkipped() {
         assertThat(mapper.map(rows.get(18L))).isInstanceOf(RowResult.Skipped.class);
-    }
-
-    /** D-62: the first daily row's balances, assets against RESERVE; Excel's residues and zeros are left out. */
-    @Test
-    void theOpeningBalancesComeFromTheFirstRowOfTheDailyBalanceFile() {
-        Map<DailyFile.Column, BigDecimal> balances = new LinkedHashMap<>();
-        balances.put(new DailyFile.Column("CASH", "EUR"), new BigDecimal("100"));
-        balances.put(new DailyFile.Column("RESERVE", "EUR"), new BigDecimal("100"));
-        balances.put(new DailyFile.Column("FAMILY_DEBT", "USD"), new BigDecimal("-1.42109E-14"));
-        RowResult result = mapper.openingEntry(LocalDate.of(2023, 12, 31), balances);
-        EntryPlan opening = ((RowResult.Entry) result).plan();
-        assertThat(opening.externalRef()).isEqualTo("xls-opening:2023-12-31");
-        assertThat(lines(opening)).containsExactly("CASH EUR 100", "RESERVE EUR -100");
-        balances.put(new DailyFile.Column("FAMILY_DEBT", "EUR"), new BigDecimal("5"));
-        assertThat(mapper.openingEntry(LocalDate.of(2023, 12, 31), balances)).isInstanceOf(RowResult.Failed.class);
     }
 }

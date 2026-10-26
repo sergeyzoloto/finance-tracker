@@ -35,11 +35,11 @@ class MemberPlannerTests {
 
     MemberPlannerTests() throws IOException {
         long id = 1;
-        for (var row : Workbook.accounts(file("partner-accounts.csv")).rows()) {
+        for (var row : ImportFixtures.chart("d3c/partner-transactions.csv").accounts()) {
             accounts.put(row.name().toLowerCase(Locale.ROOT), new AccountRef(id++, row.code(), row.type(),
                     row.requiresCounterparty()));
         }
-        Map<String, CategoryRow> categories = Workbook.categories(file("categories.csv")).rows().stream()
+        Map<String, CategoryRow> categories = ImportFixtures.chart("d3c/partner-transactions.csv").categories().stream()
                 .collect(Collectors.toMap(CategoryRow::name, Function.identity()));
         planner = new MemberPlanner(accounts, categories, MEMBER, OTHER);
         rows = Workbook.transactions(file("partner-transactions.csv")).rows().stream()

@@ -18,7 +18,7 @@ import com.example.financetracker.ledger.domain.AccountRole;
  *
  * @param id the row's ID: its Excel ID, or {@code app-…} for a row the app made (D-236)
  * @param item Exp. Item, with the category's code and type
- * @param debit the Debit account, with its code and type as the workbook's accounts file has them
+ * @param debit the Debit account, with its code and type as the workbook has them
  * @param debitCurrency CUR_DEBIT, or null when the debit side is in the row's currency
  * @param debitSum SUM_DEBIT, with {@code debitCurrency}
  */
@@ -80,15 +80,19 @@ public record ExcelRow(String id, LocalDate date, Item item, BigDecimal sum, Str
         return creditCurrency != null ? creditSum : sum;
     }
 
-    /** FAMILY_EXP: minus half of a family row's debit side on UNALLOCATED, its expense; else 0. */
+    /**
+     * FAMILY_EXP: minus half of a family row's debit side on UNALLOCATED, its expense; else 0. A family row without an
+     * item has none (D4b's rehearsal: the partner's rows 7766 and 8097).
+     */
     public BigDecimal familyExpense() {
-        return family && UNALLOCATED.equals(debit.code()) ? debitAmount().negate().divide(BigDecimal.TWO)
-                : BigDecimal.ZERO;
+        return family && item.code() != null && UNALLOCATED.equals(debit.code())
+                ? debitAmount().negate().divide(BigDecimal.TWO) : BigDecimal.ZERO;
     }
 
-    /** FAMILY_INC: half of a family row's credit side on UNALLOCATED, its income; else 0. */
+    /** FAMILY_INC: half of a family row's credit side on UNALLOCATED, its income; else 0, as FAMILY_EXP. */
     public BigDecimal familyIncome() {
-        return family && UNALLOCATED.equals(credit.code()) ? creditAmount().divide(BigDecimal.TWO) : BigDecimal.ZERO;
+        return family && item.code() != null && UNALLOCATED.equals(credit.code())
+                ? creditAmount().divide(BigDecimal.TWO) : BigDecimal.ZERO;
     }
 
     /**

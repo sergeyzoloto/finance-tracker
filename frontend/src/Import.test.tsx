@@ -3,10 +3,10 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FamilyLedger, FamilyMember, ImportReport } from './api'
 import Import from './Import'
-import { parseCsv, PARTNER_COLUMNS, PARTNER_FILE_NAME } from './importFilter'
+import { parseCsv, PARTNER_COLUMNS, PARTNER_FILE_NAME, TRANSACTIONS_COLUMNS } from './importFilter'
 
-// The import page (D3b): the owner's five files, the family budget and the partner's seat (D-141), the partner's file
-// filtered in the browser before the upload (D-140), and Commit only after a dry run without errors.
+// The import page (D3b, D4b): the user's one transactions file, the family budget and the partner's seat (D-141), the
+// partner's file filtered in the browser before the upload (D-140), and Commit only after a dry run without errors.
 
 const home: FamilyLedger = { id: 7, name: 'Home', baseCurrency: 'EUR', splitRule: 'EQUAL', role: 'OWNER', memberId: 71,
   createdAt: '2026-10-01T10:00:00Z', startDate: '2017-11-01' }
@@ -14,7 +14,10 @@ const members: FamilyMember[] = [
   { id: 71, displayName: 'Owner', role: 'OWNER', status: 'ACTIVE', joinDate: '2017-11-01', hasAccount: true, share: null },
   { id: 72, displayName: 'Sam', role: 'MEMBER', status: 'ACTIVE', joinDate: '2017-11-01', hasAccount: false, share: null },
 ]
-const ACCOUNTS = 'Статьи баланса;Актив/пассив;Line\r\nСвободный остаток;LIABILITIES;UNALLOCATED\r\n'
+/** The owner's own file (D-235): one row on UNALLOCATED, whose name the partner's filter takes from it (D-260). */
+const OWN = `${TRANSACTIONS_COLUMNS.join(';')}\r\n1;02.01.2024;Оклад;1000;EUR;;;Евро-счёт;Свободный остаток;;;;;;;`
+  + 'PAYCHECK;INCOME;EURO_ACCOUNT;UNALLOCATED;ASSET;LIABILITIES;EURO_ACCOUNT_EUR;UNALLOCATED_EUR;1000;1000;EUR;0;0;0;0;;'
+  + 'PAYCHECK\r\n'
 const PARTNER = 'ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;SUM_CREDIT;LOAN_CA\r\n'
   + '101;01.02.2024;Продукты;40.02;EUR;Лавка;his note;Свободный остаток;Карта;да;;;;;\r\n'
   + '106;06.02.2024;Продукты;12;EUR;Кафе;private;Свободный остаток;Карта;;;;;;\r\n'
@@ -30,6 +33,7 @@ function report(errors: number, outcome: ImportReport['outcome'] = 'DRY_RUN'): I
     skippedSummary: [],
     referenceData: { accountsCreated: 0, accountsUpdated: 0, categoriesCreated: 0, categoriesUpdated: 0,
       familyCategoriesCreated: 0, categoriesMerged: 0, counterpartiesCreated: 0 },
+    chart: { created: [], renamed: [] }, idGaps: [],
     zeroFxRowsSkipped: 0, fxRowsToReview: [], reconciliation: null, integrityViolations: [],
   }
 }
@@ -57,9 +61,8 @@ function check() {
   fireEvent.submit(document.querySelector('form.import')!)
 }
 
-function chooseOwnerFiles() {
-  choose('accounts', ACCOUNTS)
-  for (const part of ['categories', 'transactions', 'dailyBalance', 'dailyChange']) choose(part, `${part};x\r\n`)
+function chooseOwnFile() {
+  choose('transactions', OWN)
 }
 
 beforeEach(() => vi.stubGlobal('confirm', () => true))
@@ -69,10 +72,10 @@ afterEach(() => {
 })
 
 describe('the import page', () => {
-  it('uploads the owner’s files and only the partner’s family rows, under a name of their own, with the budget and the seat', async () => {
+  it('uploads the owner’s file and only the partner’s family rows, under a name of their own, with the budget and the seat', async () => {
     const sent = stubApi([report(0), report(0, 'COMMITTED')])
     render(<MemoryRouter><Import families={[home]} /></MemoryRouter>)
-    chooseOwnerFiles()
+    chooseOwnFile()
     fireEvent.change(screen.getByRole('combobox', { name: 'Family budget' }), { target: { value: '7' } })
     await screen.findByRole('option', { name: 'Sam' })
     // The owner's own place has an account: only Sam is offered.
@@ -86,8 +89,8 @@ describe('the import page', () => {
     expect(sent).toHaveLength(1)
     expect(sent[0].url).toBe('/api/import?dryRun=true&familyLedgerId=7&seatMemberId=72')
     const body = sent[0].body
-    expect([...body.keys()]).toEqual(['accounts', 'categories', 'transactions', 'dailyBalance', 'dailyChange',
-      'partnerTransactions'])
+    expect([...body.keys()]).toEqual(['transactions', 'partnerTransactions'])
+    expect((body.get('transactions') as File).name).toBe('transactions.csv')
     const partner = body.get('partnerTransactions') as File
     expect(partner.name).toBe(PARTNER_FILE_NAME)
     const rows = parseCsv(await partner.text())
@@ -107,7 +110,7 @@ describe('the import page', () => {
     render(<MemoryRouter><Import /></MemoryRouter>)
     const commit = () => screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement
     expect(commit().disabled).toBe(true)
-    chooseOwnerFiles()
+    chooseOwnFile()
     check()
     await screen.findByText(/2 rows with errors; a commit would save nothing/)
     expect(commit().disabled).toBe(true)
@@ -121,7 +124,7 @@ describe('the import page', () => {
     const sent = stubApi([report(0)])
     render(<MemoryRouter><Import /></MemoryRouter>)
     expect(screen.queryByRole('combobox', { name: 'Family budget' })).toBeNull()
-    chooseOwnerFiles()
+    chooseOwnFile()
     check()
     await waitFor(() => expect(sent).toHaveLength(1))
     expect(sent[0].url).toBe('/api/import?dryRun=true')
@@ -136,7 +139,7 @@ describe('the import page', () => {
     const commit = () => screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement
     const date = screen.getByLabelText(/^Import up to/) as HTMLInputElement
     expect(date.value).toBe('')
-    chooseOwnerFiles()
+    chooseOwnFile()
     fireEvent.change(date, { target: { value: '2026-08-31' } })
     check()
     expect((await screen.findByTestId('after-cutoff')).textContent).toBe('Imported up to 2026-08-31. After it, '
@@ -183,7 +186,7 @@ describe('the import page', () => {
     }
     const sent = stubApi([memberReport], claimed)
     render(<MemoryRouter><Import families={[{ ...home, role: 'MEMBER', memberId: 72 }]} /></MemoryRouter>)
-    chooseOwnerFiles()
+    chooseOwnFile()
     fireEvent.change(screen.getByRole('combobox', { name: 'Family budget' }), { target: { value: '7' } })
     await screen.findByTestId('member-import')
     expect(screen.queryByRole('combobox', { name: 'The partner’s place' })).toBeNull()
@@ -192,7 +195,7 @@ describe('the import page', () => {
     check()
     await screen.findByText(/Dry run: nothing was saved/)
     expect(sent[0].url).toBe('/api/import?dryRun=true&familyLedgerId=7&seatMemberId=72')
-    expect([...sent[0].body.keys()]).toEqual(['accounts', 'categories', 'transactions', 'dailyBalance', 'dailyChange'])
+    expect([...sent[0].body.keys()]).toEqual(['transactions'])
     const summary = screen.getByTestId('member-summary')
     expect(summary.textContent).toContain('Your payment side attached4')
     expect(summary.textContent).toContain('Settlements matched: several on the date1')
@@ -205,7 +208,7 @@ describe('the import page', () => {
   it('takes only the owner’s own files once the partner took his place (D-175)', async () => {
     const sent = stubApi([report(0)], claimed)
     render(<MemoryRouter><Import families={[home]} /></MemoryRouter>)
-    chooseOwnerFiles()
+    chooseOwnFile()
     fireEvent.change(screen.getByRole('combobox', { name: 'Family budget' }), { target: { value: '7' } })
     await screen.findByRole('option', { name: 'Sam B' })
     fireEvent.change(screen.getByRole('combobox', { name: 'The partner’s place' }), { target: { value: '72' } })
@@ -221,22 +224,28 @@ describe('the import page', () => {
   it('tells a member who took no place that only the owner imports into the budget', async () => {
     stubApi([], [members[0], { ...members[1], id: 73, hasAccount: true }])
     render(<MemoryRouter><Import families={[{ ...home, role: 'MEMBER', memberId: 73 }]} /></MemoryRouter>)
-    chooseOwnerFiles()
+    chooseOwnFile()
     fireEvent.change(screen.getByRole('combobox', { name: 'Family budget' }), { target: { value: '7' } })
     expect(await screen.findByText(/Only the budget’s owner, or a member who took a place in it/)).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Check (dry run)' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('counts the transactions file’s rows as the import does, before any check (D-221)', async () => {
+  it('shows the file’s rows, its highest ID and its last row date before any check (D-221, D-257)', async () => {
     const sent = stubApi([])
     render(<MemoryRouter><Import /></MemoryRouter>)
     expect(screen.queryByTestId('file-rows')).toBeNull()
-    // The header, two rows, a blank line and a line of blanks: 2 rows.
-    choose('transactions', '﻿ID;Date;Sum\r\n1;01.09.2026;5\r\n\r\n;; \r\n2;"02.09.2026";"1;5"\r\n')
-    expect((await screen.findByTestId('file-rows')).textContent)
-      .toBe('Your transactions file: 2 rows, counted as the import counts them.')
-    choose('transactions', 'ID;Date\r\n7;01.09.2026\r\n')
-    await waitFor(() => expect(screen.getByTestId('file-rows').textContent).toContain('1 row,'))
+    // The header, three rows (one of them the app's), a blank line and a line of blanks: 3 rows.
+    const header = TRANSACTIONS_COLUMNS.join(';')
+    choose('transactions', `\ufeff${header}\r\n12;01.09.2026;-;5\r\n\r\n;; \r\n9;"30.09.2026";-;"1;5"\r\n`
+      + 'app-77;02.10.2026;-;1\r\n')
+    expect((await screen.findByTestId('file-rows')).textContent).toBe('Your transactions file: 3 rows, counted as the '
+      + 'import counts them; highest ID 12; last row dated 2026-10-02.')
+    expect(screen.queryByTestId('not-transactions')).toBeNull()
+    // Another file's header is named before the check.
+    choose('transactions', 'Статьи баланса;Актив/пассив;Line\r\nКошелёк;ASSET;CASH\r\n')
+    await waitFor(() => expect(screen.getByTestId('file-rows').textContent).toBe('Your transactions file: 1 row, '
+      + 'counted as the import counts them.'))
+    expect(screen.getByTestId('not-transactions').textContent).toContain('isn’t a transactions file’s')
     expect(sent).toHaveLength(0)
   })
 
@@ -245,7 +254,7 @@ describe('the import page', () => {
       { ...report(0), totals: { ...report(0).totals, created: 0 } }, report(0), report(0, 'COMMITTED')])
     render(<MemoryRouter><Import /></MemoryRouter>)
     const commit = () => screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement
-    chooseOwnerFiles()
+    chooseOwnFile()
     check()
     expect((await screen.findByTestId('report-kind')).textContent).toBe('Check (dry run): nothing was saved')
     fireEvent.click(commit())
@@ -274,7 +283,7 @@ describe('the import page', () => {
   it('names a refused commit as one', async () => {
     stubApi([report(0), report(1, 'ABORTED')])
     render(<MemoryRouter><Import /></MemoryRouter>)
-    chooseOwnerFiles()
+    chooseOwnFile()
     check()
     await screen.findByTestId('report-kind')
     fireEvent.click(screen.getByRole('button', { name: 'Commit import' }))
@@ -289,11 +298,13 @@ describe('the import page', () => {
       appEdits: [{ source: 'OWNER_PERSONAL', excelId: '211', date: '2018-01-23', account: 'EQUITY', currency: 'RUB',
         amount: '-2.50' }],
       replanned: [], restamped: [ref('9', 'the ledger holds what the row maps to; its hash is stored again (D-219)')],
-      notReplannable: [{ source: 'OWNER_LUMP', excelId: 'PL:2017-11:RUB', reason: 'never written' }],
-      categoriesMerged: ['CASHBACK', 'CHARITY'],
+      notReplannable: [{ source: 'OWNER_SEAT', excelId: '4117', reason: 'never written' }],
+      categoriesMerged: ['CASHBACK', 'CHARITY'], appRowsUnchanged: 25,
+      appRows: [{ source: 'APP', excelId: 'app-f9', reason: 'a row the app made, changed in the file: listed, never '
+        + 'written (D-259)' }],
     } }])
     render(<MemoryRouter><Import /></MemoryRouter>)
-    chooseOwnerFiles()
+    chooseOwnFile()
     check()
     const groups = await screen.findByTestId('sync-groups')
     expect(groups.textContent).toContain('Changed in the app, the file unchanged: left as they are (2)')
@@ -303,16 +314,38 @@ describe('the import page', () => {
     expect(groups.textContent).not.toContain('Re-planned')
     expect(screen.getByTestId('categories-merged').textContent)
       .toBe('Personal categories merged into the family budget’s: CASHBACK, CHARITY.')
+    // D-259: the app's rows.
+    expect(screen.getByTestId('app-rows-unchanged').textContent).toBe('Rows the app made, as your ledger holds them: 25.')
+    expect(groups.textContent).toContain('Rows the app made that aren’t as your ledger holds them: listed, never '
+      + 'written (1)')
+    expect(groups.textContent).toContain('Rows the app madeapp-f9')
   })
 
-  it('shows that the family debt waits for the other member’s import (D-175)', async () => {
-    stubApi([{ ...report(0), reconciliation: {
-      passed: true, cutoff: '2026-09-30', tailFrom: '2026-09-01', pointsCompared: 10, lastCompared: '2026-08-31',
-      lines: [], failures: [], tail: [], withoutFamilyRows: [], explained: [], appOnly: [],
-      familyDebtUpTo: '2026-08-31', waiting: [] } }])
+  it('shows the check against the file: the month-ends, the rows that fail, what is created and renamed (D4b)', async () => {
+    stubApi([{ ...report(0),
+      chart: { created: [{ kind: 'ACCOUNT', code: 'NORTH_CARD', name: 'Карта', type: 'ASSET' }],
+        renamed: [{ kind: 'CATEGORY', code: 'COMMISSION', from: 'Комиссия', to: 'Комиссии' }] },
+      idGaps: ['4', '11-13'],
+      reconciliation: {
+        passed: false, from: '2024-01-02', cutoff: '2024-03-05', pointsCompared: 6, lastCompared: '2024-03-05',
+        lines: [{ account: 'EQUITY+FAMILY_DEBT', currency: 'EUR', compared: 3, failed: 0, firstFailure: null,
+          worstUnexplained: '0.00', lastExcel: '-10.00', lastApp: '-10.00', lastExplained: '0.00' },
+        { account: 'CASH', currency: 'EUR', compared: 3, failed: 1, firstFailure: '2024-03-05',
+          worstUnexplained: '2.00', lastExcel: '5.00', lastApp: '7.00', lastExplained: '0.00' }],
+        failures: [], explained: [], appOnly: [],
+        rows: { rows: 25, built: 24, explainedRows: 3, failed: 1, explained: [],
+          failures: [{ excelId: '21', row: 22, what: 'DEBIT_CHANGE', file: '-1.50', computed: '-2.50',
+            explained: '0.00', unexplained: '1.00' }] },
+      } }])
     render(<MemoryRouter><Import /></MemoryRouter>)
-    chooseOwnerFiles()
+    chooseOwnFile()
     check()
-    expect((await screen.findByTestId('waiting')).textContent).toContain('compared up to 2026-08-31')
+    const failed = await screen.findByRole('alert')
+    expect(failed.textContent).toBe('Failed: 6 month-end balances compared, from 2024-01-02 to 2024-03-05, as '
+      + 'movements since the day before the file’s first row; 25 rows checked, 1 failing.')
+    expect(screen.getByTestId('row-failures').textContent).toContain('21DEBIT_CHANGE-1.50-2.501.00')
+    expect(screen.getByTestId('chart').textContent).toContain('New account NORTH_CARD “Карта” (ASSET)')
+    expect(screen.getByTestId('chart').textContent).toContain('Renamed category COMMISSION: “Комиссия” to “Комиссии”')
+    expect(screen.getByTestId('id-gaps').textContent).toContain('4, 11-13')
   })
 })

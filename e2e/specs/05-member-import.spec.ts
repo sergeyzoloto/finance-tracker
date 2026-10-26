@@ -3,16 +3,17 @@ import { fileURLToPath } from 'node:url'
 import { claimThroughTheLink, inviteToTakeThePlace } from '../family-steps.ts'
 import { deleteAllMyData, expect, expectIntegrity, ledgerIdOf, shot, test } from '../fixtures.ts'
 
-// D3c with A and B, on the synthetic export of backend/src/test/resources/import/d3c/ (invented names and amounts, the
-// owner's layout for both, D-177), never a real one:
-// 1. A creates "Member import check" from 1 January 2024 with Sam, a place without an account, and imports A's files
+// D3c with A and B, on the synthetic transactions files of backend/src/test/resources/import/d3c/ (invented names and
+// amounts, D-235's 32 columns for both, D4b), never a real one:
+// 1. A creates "Member import check" from 1 January 2024 with Sam, a place without an account, and imports A's file
 //    with Sam's family rows (D-151), as D3b-run did.
 // 2. A invites someone to take Sam's place from 1 February 2024, a past join date (D-174, D-183); B opens the link, sees
 //    the date and the 15 records the claim attaches, and takes the place (D-182).
-// 3. B's import of B's own files (D-175), without the two rows that are refused (D-178, D-179): the dry run attaches
+// 3. B's import of B's own file (D-175), without the two rows that are refused (D-178, D-179): the dry run attaches
 //    B's payment side to the 4 records of Sam's rows and B's side to 7 settlements and the conversion, each tier of
 //    D-178, and reconciles; its commit; the same files again change nothing.
-// 4. A's own import: no partner's file any more, nothing to change. The integrity checks pass. Delete all my data for A
+// 4. A's own import: no partner's file any more, nothing to change, and A's check needs nothing of B's (D-258). The
+//    integrity checks pass. Delete all my data for A
 //    keeps the budget, B's (D-186); B's then takes it (D-36), so the run leaves nothing behind, in production too.
 
 const BUDGET = 'Member import check'
@@ -44,11 +45,7 @@ test('member import', async ({ as, family }) => {
   const ledgerId = ledgerIdOf(a.page)
 
   await a.page.goto('/import')
-  await a.page.locator('input[name="accounts"]').setInputFiles(file('owner-accounts.csv'))
-  await a.page.locator('input[name="categories"]').setInputFiles(file('categories.csv'))
   await a.page.locator('input[name="transactions"]').setInputFiles(file('owner-transactions.csv'))
-  await a.page.locator('input[name="dailyBalance"]').setInputFiles(file('owner-daily-balance.csv'))
-  await a.page.locator('input[name="dailyChange"]').setInputFiles(file('owner-daily-change.csv'))
   await a.page.getByLabel('Family budget').selectOption({ label: BUDGET })
   await a.page.getByLabel('The partner’s place').selectOption({ label: 'Sam' })
   await a.page.locator('input[name="partnerTransactions"]').setInputFiles(file('partner-transactions.csv'))
@@ -66,13 +63,9 @@ test('member import', async ({ as, family }) => {
   const link = await inviteToTakeThePlace(a, 'Sam', '2024-02-01', 'member-import-02')
   await claimThroughTheLink(b, link, BUDGET, ledgerId, 'Feb 1, 2024', 15, 'Sam B', 'member-import-03')
 
-  // 3. B's own files: no place to choose and no partner's file; the dry run, its commit, the same again.
+  // 3. B's own file: no place to choose and no partner's file; the dry run, its commit, the same again.
   await b.page.goto('/import')
-  await b.page.locator('input[name="accounts"]').setInputFiles(file('partner-accounts.csv'))
-  await b.page.locator('input[name="categories"]').setInputFiles(file('categories.csv'))
   await b.page.locator('input[name="transactions"]').setInputFiles(bsTransactions())
-  await b.page.locator('input[name="dailyBalance"]').setInputFiles(file('partner-daily-balance.csv'))
-  await b.page.locator('input[name="dailyChange"]').setInputFiles(file('partner-daily-change.csv'))
   await b.page.getByLabel('Family budget').selectOption({ label: BUDGET })
   await expect(b.page.getByTestId('member-import')).toBeVisible()
   await expect(b.page.getByLabel('The partner’s place')).toHaveCount(0)
@@ -101,13 +94,9 @@ test('member import', async ({ as, family }) => {
     'Dry run: nothing was saved. No errors: committing would create 0 and update 0.', { timeout: 60_000 })
   await shot(b.page, 'member-import-05-again')
 
-  // 4. A's own files only, now: nothing to change.
+  // 4. A's own file only, now: nothing to change.
   await a.page.goto('/import')
-  await a.page.locator('input[name="accounts"]').setInputFiles(file('owner-accounts.csv'))
-  await a.page.locator('input[name="categories"]').setInputFiles(file('categories.csv'))
   await a.page.locator('input[name="transactions"]').setInputFiles(file('owner-transactions.csv'))
-  await a.page.locator('input[name="dailyBalance"]').setInputFiles(file('owner-daily-balance.csv'))
-  await a.page.locator('input[name="dailyChange"]').setInputFiles(file('owner-daily-change.csv'))
   await a.page.getByLabel('Family budget').selectOption({ label: BUDGET })
   await a.page.getByLabel('The partner’s place').selectOption({ label: 'Sam B' })
   await expect(a.page.getByTestId('own-file')).toBeVisible()

@@ -22,35 +22,34 @@ import org.springframework.stereotype.Component;
 
 /**
  * The importer on the command line, with the Spring profile "import" (CLAUDE.md shows the command). It runs one
- * import, writes the report as Markdown, and exits:
+ * import of a user's transactions file (D4b), writes the report as Markdown, and exits:
  * <ul>
  * <li>0: no row errors; a commit saved everything;
- * <li>1: wrong arguments or a file that can't be read or written;
+ * <li>1: wrong arguments, a file that can't be read or written, or a file refused as a whole (D-229);
  * <li>2: row errors; nothing was saved.
  * </ul>
  * The report goes next to the transactions file as import-report.md, unless --report names another file.
  * <p>
  * The entries go into the personal ledger of the sub that --user-sub names, which {@link LedgerAccess} creates if the
  * sub has none yet, as it does on a user's first request; the family rows into the family budget and the partner's seat
- * that --family-ledger-id and --seat-member-id name (D-141), of which the sub is a member. The partner's transactions
- * file is filtered here as the import page filters it in the browser (D-140, {@link PartnerFilter}): only his family
- * rows, and of them only the columns the mapping needs. --up-to=yyyy-MM-dd is "Import up to" (D-165): rows of either
- * transactions file dated after it are not imported, and the reconciliation stops at it.
+ * that --family-ledger-id and --seat-member-id name (D-141), of which the sub is a member. For a place without an
+ * account, the partner's transactions file is filtered here as the import page filters it in the browser (D-140,
+ * D-260, {@link PartnerFilter}): only his family rows, and of them only the columns the mapping needs.
+ * --up-to=yyyy-MM-dd is "Import up to" (D-165): rows of either file dated after it are not imported, and the check
+ * stops at it.
  */
 @Component
 @Profile("import")
 class ImportRunner implements ApplicationRunner {
 
     static final String USAGE = """
-            Usage: --user-sub=<Keycloak sub> --accounts=<file> --categories=<file> --transactions=<file>
-                   --daily-balance=<file> --daily-change=<file>
-                   [--partner-transactions=<file> --family-ledger-id=<id> --seat-member-id=<id>]
+            Usage: --user-sub=<Keycloak sub> --transactions=<file>
+                   [--family-ledger-id=<id> --seat-member-id=<id> [--partner-transactions=<file>]]
                    [--up-to=yyyy-MM-dd] [--commit] [--report=<file>]
             Without --commit it is a dry run, which saves nothing.""";
 
-    private static final Set<String> OPTIONS = Set.of("user-sub", "accounts", "categories", "transactions",
-            "daily-balance", "daily-change", "partner-transactions", "family-ledger-id", "seat-member-id", "commit",
-            "report", "up-to");
+    private static final Set<String> OPTIONS = Set.of("user-sub", "transactions", "partner-transactions",
+            "family-ledger-id", "seat-member-id", "commit", "report", "up-to");
 
     private final ImportService imports;
     private final LedgerAccess ledgers;
@@ -92,19 +91,19 @@ class ImportRunner implements ApplicationRunner {
                     : transactions.toAbsolutePath().normalize().resolveSibling("import-report.md");
 
             String userSub = value(args, "user-sub", true);
-            ImportFile accounts = file(Path.of(value(args, "accounts", true)));
+            ImportFile own = file(transactions);
             ImportFile partnerRows = null;
             if (partner != null) {
-                String unallocated = Workbook.accounts(accounts).rows().stream()
-                        .filter(a -> a.code().equals("UNALLOCATED")).map(Workbook.AccountRow::name).findFirst()
-                        .orElseThrow(() -> new UsageException("The accounts file has no UNALLOCATED"));
+                String unallocated = PartnerFilter.unallocatedName(own);
+                if (unallocated == null) {
+                    throw new UsageException("Your transactions file has no row on UNALLOCATED, whose name the "
+                            + "partner's filter needs");
+                }
                 partnerRows = new ImportFile("partner-family-rows.csv",
                         PartnerFilter.filter(file(Path.of(partner)), unallocated));
             }
-            ImportRequest request = new ImportRequest(accounts, file(Path.of(value(args, "categories", true))),
-                    file(transactions), file(Path.of(value(args, "daily-balance", true))),
-                    file(Path.of(value(args, "daily-change", true))), partnerRows, number(familyLedgerId),
-                    number(seatMemberId), date(value(args, "up-to", false)), args.containsOption("commit"));
+            ImportRequest request = new ImportRequest(own, partnerRows, number(familyLedgerId), number(seatMemberId),
+                    date(value(args, "up-to", false)), args.containsOption("commit"));
             ImportReport report = imports.run(ledgers.provisionPersonal(userSub), request);
             Files.writeString(reportFile, ImportReportMarkdown.render(report));
 

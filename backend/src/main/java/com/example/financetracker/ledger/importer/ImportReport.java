@@ -19,12 +19,14 @@ import com.example.financetracker.ledger.report.IntegrityViolation;
  * @param currencies every currency of the rows read
  * @param counts per source and kind, what happened to its rows (D-139)
  * @param totals the sums of {@code counts}, with the missing rows (D-138)
- * @param missing rows the ledger has from an earlier import that the files no longer have (D-138): reported, never
- *        deleted
+ * @param missing rows the ledger has from an earlier import, dated within the file's period (D-256), that the files no
+ *        longer have (D-138): reported, never deleted
  * @param conflicts rows changed in the app since their last import, or deleted there (D-139, D-150, D-113): left alone
  * @param errors rows that can't be imported as they are. One or more of them abort a commit.
  * @param errorSummary, warningSummary, skippedSummary each distinct message with its count and the first Excel IDs
- * @param reconciliation the owner's balances against his daily balance file (D-63, D-67, D-68, D-69, D-146, D-147)
+ * @param chart the accounts and categories the file's rows name that the import creates or renames (D-228, D-254)
+ * @param idGaps the Excel IDs missing between the file's lowest and highest, as ranges (D-231 c): a warning
+ * @param reconciliation the ledger against the transactions file, per row and per month-end (D-231, D-255, D-256)
  * @param integrityViolations {@code ReportService.integrityCheck} after the import; empty for a sound ledger
  * @param member what a member's own import did with his family, settlement and benefit rows (D-175 to D-181); null
  *        for the owner's
@@ -35,9 +37,9 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
         FamilyTarget family, Period period, LocalDate upTo, List<AfterCutoff> afterCutoff, List<String> currencies, List<Count> counts, Totals totals,
         List<RowRef> missing, List<RowRef> conflicts, List<Problem> errors, List<Problem> warnings,
         List<MessageCount> errorSummary, List<MessageCount> warningSummary, List<MessageCount> skippedSummary,
-        ReferenceCounts referenceData, int zeroFxRowsSkipped, List<FxRow> fxRowsToReview,
-        Reconciliation reconciliation, List<IntegrityViolation> integrityViolations, MemberSummary member,
-        Sync sync) {
+        ReferenceCounts referenceData, ChartChanges chart, List<String> idGaps, int zeroFxRowsSkipped,
+        List<FxRow> fxRowsToReview, Reconciliation reconciliation, List<IntegrityViolation> integrityViolations,
+        MemberSummary member, Sync sync) {
 
     public enum Outcome {
         /** Everything was rolled back, as a dry run always is. */
@@ -124,13 +126,30 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
      *        it in the app, and the current code maps it otherwise; written over as an edited row
      * @param restamped the ledger holds what the row maps to, but under another hash: the hash is stored again, nothing
      *        else is written
-     * @param notReplannable "can't be re-planned after the claim" (D-196): the owner's D-73 rows and the lumps before
-     *        the partner's ledger (D-83), whose records the partner's place pays; listed, never written
+     * @param notReplannable "can't be re-planned after the claim" (D-196): the owner's D-73 rows, whose records the
+     *        partner's place pays; listed, never written (D-83's lumps aren't read since D4b, D-232)
      * @param categoriesMerged the codes of the personal categories, unused, merged into the family budget's category of
      *        the same code (D-11, D3e); a dry run reports them, a commit merges them
+     * @param appRowsUnchanged the rows the app made ({@code app-…}) that are what the ledger holds (D-259)
+     * @param appRows the rows the app made that aren't: changed in the file, or not a row of the user's; listed, never
+     *        written (D-259)
      */
     public record Sync(List<RowRef> appEdited, List<AppEdit> appEdits, List<RowRef> replanned, List<RowRef> restamped,
-            List<RowRef> notReplannable, List<String> categoriesMerged) {
+            List<RowRef> notReplannable, List<String> categoriesMerged, int appRowsUnchanged, List<RowRef> appRows) {
+    }
+
+    /**
+     * The accounts and categories the file's rows name that the import creates, and those whose name it changes to the
+     * file's (D-228, D-229, D-254). A family category keeps its first name.
+     */
+    public record ChartChanges(List<ChartItem> created, List<Rename> renamed) {
+    }
+
+    /** @param kind ACCOUNT, CATEGORY or FAMILY_CATEGORY */
+    public record ChartItem(String kind, String code, String name, String type) {
+    }
+
+    public record Rename(String kind, String code, String from, String to) {
     }
 
     /** D-223: a personal entry's change in the app, as one account and currency's displayed balance shows it. */
@@ -147,7 +166,8 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
     }
 
     /**
-     * @param source OWNER_PERSONAL, OWNER_FAMILY, OWNER_SETTLEMENT, OWNER_SEAT, OWNER_LUMP or PARTNER
+     * @param source OWNER_PERSONAL, OWNER_FAMILY, OWNER_SETTLEMENT, OWNER_SEAT, PARTNER, the MEMBER_ ones, or APP for
+     *        the rows the app made (D-259)
      * @param kind an entry kind for a personal entry; EXPENSE, REFUND, INCOME, SETTLEMENT or CONVERSION for the family
      *        budget's
      * @param notImported rows the decisions leave out (D-84)
@@ -189,63 +209,66 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
     }
 
     /**
-     * The owner's balances, as the import leaves his ledger, against his daily balance file at every month-end up to
-     * the cutoff (D-63): per account code and currency, Excel's as read (D-199: no cut to cents), UNALLOCATED and
-     * RESERVE as one equity (D-67), the family budget's debt account as FAMILY_DEBT. A difference that the import's own
-     * rules explain (D-68: the shares' rounding, amounts rounded to the minor unit or to 4 decimals) is explained; any
-     * other above 0.01 fails it, but from the month of the older export on (D-69), where it is only shown. In a
-     * currency with no family row on either side, FAMILY_DEBT and the equity are one sum, and the app's FAMILY_DEBT
-     * there is 0 at the last month-end compared (D-147).
+     * The ledger against the transactions file (D-231 as D-255 and D-256 amend it), from the file only. Per row
+     * ({@code rows}): the workbook's computed columns against what the typed columns compute, and what the import builds
+     * against those columns. Per month-end from the file's first row date to the cutoff: each account's displayed change
+     * in the ledger since the day before the file's first row date against what the file's rows move on it, per code
+     * and currency, with FAMILY_DEBT, UNALLOCATED and RESERVE as one sum per currency ({@code EQUITY+FAMILY_DEBT}). A
+     * difference the import's rules explain (D-68: the shares' rounding, amounts rounded to the minor unit or to 4
+     * decimals; D-223's APP_EDITED; D-188's SETTLEMENT_DATE; NO_ROW, the ledger's entries no row stands for) is
+     * explained; any other above 0.01 fails it, as does any row that fails.
      *
-     * @param cutoff the latest transaction of both files: the daily files are read up to it (D-146)
-     * @param tailFrom the first day of the older export's month: from it on nothing fails (D-69)
+     * @param from the file's first row date: the movements start the day before it
+     * @param cutoff the file's last row date, or "Import up to" if earlier (D-165)
      * @param lines per account and currency
-     * @param failures every point whose unexplained difference is above 0.01 before the tail, first 500
-     * @param tail every point of the tail with a difference
-     * @param withoutFamilyRows D-147's currencies, with the app's and Excel's FAMILY_DEBT at the last compared point
-     * @param explained per account, currency and rule, the explained difference at the last compared point
-     * @param appOnly the app's accounts with a balance and no column in Excel (FX_EXCHANGE and the like aren't listed)
-     * @param ownerHalf D-169's months, explained or not
-     * @param familyDebtUpTo D-175: the family debt compared up to this day only, the earlier of the other members'
-     *        latest committed imports; null when nothing limits it
-     * @param waiting the family debt's points after {@code familyDebtUpTo} whose difference is above 0.01: "waiting
-     *        for the other member's import", not failed (D-175), first 500
+     * @param failures every point whose unexplained difference is above 0.01, first 500
+     * @param explained per account, currency and rule, the explained difference at the cutoff
+     * @param appOnly the app's accounts with a movement in the period and no row of the file in that currency
+     *        (FX_EXCHANGE and the like, which the workbook hasn't, aren't listed)
+     * @param rows D-231 (a)
      */
-    public record Reconciliation(boolean passed, LocalDate cutoff, LocalDate tailFrom, int pointsCompared,
+    public record Reconciliation(boolean passed, LocalDate from, LocalDate cutoff, int pointsCompared,
             LocalDate lastCompared, List<ReconciliationLine> lines, List<ReconciliationPoint> failures,
-            List<ReconciliationPoint> tail, List<CurrencyWithoutFamilyRows> withoutFamilyRows,
-            List<ExplainedAmount> explained, List<String> appOnly, List<OwnerHalf> ownerHalf,
-            LocalDate familyDebtUpTo, List<ReconciliationPoint> waiting) {
+            List<ExplainedAmount> explained, List<String> appOnly, RowLevel rows) {
     }
 
     /**
-     * D-169, per month and currency: the owner's D-84 rows less half of the partner's family incomes they carry,
-     * exactly; explained when within half a cent per income, otherwise left unexplained, whole.
+     * D-231 (a), per row.
      *
-     * @param month the month's first day
-     * @param incomes how many of the partner's family incomes the month has
+     * @param rows the rows checked, the app's included
+     * @param built the Excel rows whose build was compared
+     * @param explainedRows those whose difference a rule explains
+     * @param failed the rows with a difference no rule explains
+     * @param failures their differences, first 500
+     * @param explained per rule, account and currency, what the rules explain
      */
-    public record OwnerHalf(LocalDate month, String currency, BigDecimal ownerRows, BigDecimal partnerIncomes,
-            int incomes, BigDecimal ownerHalf, boolean explained) {
+    public record RowLevel(int rows, int built, int explainedRows, int failed, List<RowDifference> failures,
+            List<ExplainedAmount> explained) {
     }
 
     /**
-     * @param account the account's code; EQUITY for UNALLOCATED and RESERVE, FAMILY_DEBT for the family budget's debt
-     *        account, EQUITY+FAMILY_DEBT for D-147's sum
-     * @param worstUnexplained the largest unexplained difference before the tail, in absolute value
-     * @param waiting the points after the reconciliation's {@code familyDebtUpTo}, not compared (D-175)
+     * A row's difference: a computed column against what its typed columns compute ({@code what} names the column), or
+     * what the import builds on an account and currency against what the row's columns move ({@code what} names them).
+     * A text column's difference has no amounts.
+     */
+    public record RowDifference(String excelId, int row, String what, BigDecimal file, BigDecimal computed,
+            BigDecimal explained, BigDecimal unexplained) {
+    }
+
+    /**
+     * @param account the account's code; EQUITY+FAMILY_DEBT for the family debt, UNALLOCATED and RESERVE (D-255)
+     * @param compared the month-ends compared
+     * @param worstUnexplained the largest unexplained difference, in absolute value
+     * @param lastExcel what the file's rows move up to the cutoff, {@code lastApp} the ledger's movement,
+     *        {@code lastExplained} the explained part
      */
     public record ReconciliationLine(String account, String currency, int compared, int failed,
             LocalDate firstFailure, BigDecimal worstUnexplained, BigDecimal lastExcel, BigDecimal lastApp,
-            BigDecimal lastExplained, int waiting) {
+            BigDecimal lastExplained) {
     }
 
     public record ReconciliationPoint(LocalDate date, String account, String currency, BigDecimal excel,
             BigDecimal app, BigDecimal explained, BigDecimal unexplained) {
-    }
-
-    public record CurrencyWithoutFamilyRows(String currency, BigDecimal appFamilyDebt, BigDecimal excelFamilyDebt,
-            boolean ok) {
     }
 
     public record ExplainedAmount(String account, String currency, String reason, BigDecimal amount) {

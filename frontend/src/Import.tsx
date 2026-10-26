@@ -6,28 +6,14 @@ import {
 } from './api'
 import { Errors } from './components'
 import {
-  filterPartnerRows, importForm, parseCsv, unallocatedName, type OwnerFiles, type PartnerUpload,
+  fileFacts, filterPartnerRows, importForm, unallocatedName, type FileFacts, type PartnerUpload,
 } from './importFilter'
-
-/**
- * The owner's export, by the name of each file's part in POST /api/import. The hints describe each file's role; the
- * export's own file names stay out of the code (D-64, D-75).
- */
-const OWNER_FILES = [
-  { part: 'accounts', label: 'Accounts', hint: 'the balance sheet items: name, ASSET or LIABILITIES, code' },
-  { part: 'categories', label: 'Categories', hint: 'the cash flow items: name, INCOME or EXPENSE, code' },
-  { part: 'transactions', label: 'Transactions', hint: 'your journal, with its ID column' },
-  { part: 'dailyBalance', label: 'Daily balances', hint: 'each account’s balance per day: opening balances and the check' },
-  { part: 'dailyChange', label: 'Daily changes', hint: 'each day’s change, with the monthly family lumps' },
-] as const
-type Part = (typeof OWNER_FILES)[number]['part']
 
 const SOURCES: Record<string, string> = {
   OWNER_PERSONAL: 'Your personal rows', OWNER_FAMILY: 'Your family rows', OWNER_SETTLEMENT: 'Your settlements',
-  OWNER_SEAT: 'Your rows on the family debt', OWNER_LUMP: 'Monthly lumps before the partner’s ledger',
-  PARTNER: 'The partner’s family rows', OWNER: 'Your rows',
+  OWNER_SEAT: 'Your rows on the family debt', PARTNER: 'The partner’s family rows', OWNER: 'Your rows',
   MEMBER_PERSONAL: 'Your personal rows', MEMBER_FAMILY: 'Your family rows', MEMBER_SETTLEMENT: 'Your settlements',
-  MEMBER_BENEFIT: 'Your rows on the family debt', MEMBER: 'Your rows',
+  MEMBER_BENEFIT: 'Your rows on the family debt', MEMBER: 'Your rows', APP: 'Rows the app made',
 }
 
 /**
@@ -49,20 +35,21 @@ export function partnerPlaces(ledger: FamilyLedger, members: FamilyMember[]): Fa
   return members.filter((m) => m.id !== ledger.memberId && m.status === 'ACTIVE' && (!m.hasAccount || m.claimedSeat))
 }
 
-interface Choice { files: Partial<Record<Part, File>>; ledgerId: string; seatId: string; partner?: File; upTo: string }
+interface Choice { file?: File; ledgerId: string; seatId: string; partner?: File; upTo: string }
 
 /**
- * Imports the Excel export (D3b): your personal rows into your ledger, and, with a family budget and the partner’s
- * seat (D-141), the family rows of both of you into the budget. The partner’s file is filtered here, in the browser:
- * only his family rows, and only what the import needs, are uploaded (D-140). A dry run first, which writes
- * everything, reconciles your balances with your daily balance file, reports and rolls back; then, if no row has an
- * error, the same files for real. Running it again recognises the rows by their IDs: nothing is written twice.
- * “Import up to” leaves out the rows of either file dated after it, and the check stops there (D-165); Commit is only
- * for the files, the budget and the date its dry run read, and once they are committed, not again until a file or the
- * date changes (D3e). Your transactions file's rows are counted as soon as it is chosen, before any check (D-221).
+ * Imports your transactions file (D3b, D4b): the Excel ledger's or this app's export, its 32 columns (D-235), its
+ * accounts and categories taken from its rows (D-228). Your personal rows go into your ledger, and, with a family
+ * budget and the partner’s seat (D-141), the family rows into the budget. For a place without an account the partner’s
+ * file is filtered here, in the browser: only his family rows, and only what the import needs, are uploaded (D-140). A
+ * dry run first, which writes everything, checks the ledger against the file, reports and rolls back; then, if no row
+ * has an error, the same file for real. Running it again recognises the rows by their IDs: nothing is written twice.
+ * “Import up to” leaves out the rows dated after it, and the check stops there (D-165); Commit is only for the files,
+ * the budget and the date its dry run read, and once they are committed, not again until a file or the date changes
+ * (D3e). Your file's rows, highest ID and last date are shown as soon as it is chosen, before any check (D-221, D-257).
  */
 export default function Import({ families }: { families?: FamilyLedger[] }) {
-  const [choice, setChoice] = useState<Choice>({ files: {}, ledgerId: '', seatId: '', upTo: '' })
+  const [choice, setChoice] = useState<Choice>({ ledgerId: '', seatId: '', upTo: '' })
   // The choice the report is about: Commit only for exactly what the dry run read.
   const [reported, setReported] = useState<Choice>()
   const [upload, setUpload] = useState<PartnerUpload>()
@@ -70,8 +57,9 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   const [report, setReport] = useState<ImportReport>()
   // The choice last committed: Commit stays off for it until a file or the date changes (D3e).
   const [committed, setCommitted] = useState<Choice>()
-  // D-221: the transactions file's rows, as the import counts them (every line with a value, less the header).
-  const [fileRows, setFileRows] = useState<number>()
+  // D-221, D-257: the file's rows as the import counts them (every line with a value, less the header), its highest
+  // ID and its last row date.
+  const [facts, setFacts] = useState<FileFacts>()
   const { run, error, pending } = useMutation()
   const members = useApi<FamilyMember[]>(choice.ledgerId ? `/family-ledgers/${choice.ledgerId}/members` : null)
   const ledger = families?.find((f) => String(f.id) === choice.ledgerId)
@@ -82,7 +70,7 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   const partnerFile = role === 'OWNER' && seat !== undefined && !seat.hasAccount
 
   const family = choice.ledgerId !== ''
-  const ownerReady = OWNER_FILES.every((f) => choice.files[f.part])
+  const ownerReady = choice.file !== undefined
   const familyReady = !family || role === 'MEMBER'
     || (role === 'OWNER' && seat !== undefined && (!partnerFile || upload !== undefined))
   const ready = ownerReady && familyReady && !filterError
@@ -98,28 +86,27 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   async function filter(next: Choice) {
     setUpload(undefined)
     setFilterError(undefined)
-    if (!next.partner || !next.files.accounts) return
+    if (!next.partner || !next.file) return
     try {
-      const unallocated = unallocatedName(await next.files.accounts.text())
-      if (!unallocated) throw new Error('Your accounts file has no UNALLOCATED account.')
+      const unallocated = unallocatedName(await next.file.text())
+      if (!unallocated) throw new Error('Your transactions file has no row on UNALLOCATED, whose name the filter needs.')
       setUpload(filterPartnerRows(await next.partner.text(), unallocated))
     } catch (e) {
       setFilterError(e instanceof Error ? e.message : String(e))
     }
   }
 
-  function chooseFile(part: Part, file: File | undefined) {
-    const next = { ...choice, files: { ...choice.files, [part]: file } }
+  function chooseFile(file: File | undefined) {
+    const next = { ...choice, file }
     change(next)
-    if (part === 'accounts') void filter(next)
-    if (part === 'transactions') void countRows(file)
+    void filter(next)
+    void readFacts(file)
   }
 
-  async function countRows(file: File | undefined) {
-    setFileRows(undefined)
+  async function readFacts(file: File | undefined) {
+    setFacts(undefined)
     if (!file) return
-    const rows = parseCsv(await file.text()).length
-    setFileRows(Math.max(rows - 1, 0))
+    setFacts(fileFacts(await file.text()))
   }
 
   function choosePartner(file: File | undefined) {
@@ -130,9 +117,8 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
 
   const send = (dryRun: boolean) => run(async () => {
     const sent = choice
-    const files = choice.files as Record<Part, File>
-    const names = Object.fromEntries(OWNER_FILES.map(({ part }) => [part, files[part].name])) as Record<Part, string>
-    const body = importForm(files as OwnerFiles, names, partnerFile ? upload : undefined)
+    const file = choice.file as File
+    const body = importForm(file, file.name, partnerFile ? upload : undefined)
     const query = new URLSearchParams({ dryRun: String(dryRun) })
     if (family && ledger) {
       query.set('familyLedgerId', choice.ledgerId)
@@ -150,25 +136,33 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
     <>
       <h2>Import</h2>
       <p className="muted">
-        Import the Excel ledger’s CSV export. <strong>Check</strong> runs the whole import, compares your balances with
-        your daily balance file, and then undoes it, so you can see what it would do. <strong>Commit</strong> saves it,
-        all or nothing. Rows imported before are recognised by their IDs and never written twice.
+        Import your transactions file: the Excel ledger’s CSV export, or this app’s own (<Link to="/export">Export</Link>).
+        {' '}<strong>Check</strong> runs the whole import, checks your ledger against the file, and then undoes it, so you
+        can see what it would do. <strong>Commit</strong> saves it, all or nothing. Rows imported before are recognised by
+        their IDs and never written twice.
       </p>
       <form className="import" onSubmit={(e) => { e.preventDefault(); void send(true) }}>
-        <h3>Your export</h3>
+        <h3>Your file</h3>
         <div className="fields">
-          {OWNER_FILES.map(({ part, label, hint }) => (
-            <label key={part} className="field">
-              <span className="label">{label}</span>
-              <input type="file" accept=".csv,text/csv" required name={part}
-                onChange={(e) => chooseFile(part, e.target.files?.[0])} />
-              <small className="hint">{hint}</small>
-            </label>
-          ))}
+          <label className="field">
+            <span className="label">Transactions</span>
+            <input type="file" accept=".csv,text/csv" required name="transactions"
+              onChange={(e) => chooseFile(e.target.files?.[0])} />
+            <small className="hint">
+              Your journal with its 32 columns, ID to EXP_ITEM_CODE: its accounts and categories come from its rows.
+            </small>
+          </label>
         </div>
-        {fileRows !== undefined && (
+        {facts !== undefined && (
           <p className="muted" data-testid="file-rows">
-            Your transactions file: {rows(fileRows)}, counted as the import counts them.
+            Your transactions file: {rows(facts.rows)}, counted as the import counts them
+            {facts.highestId !== null && <>; highest ID {facts.highestId}</>}
+            {facts.lastDate !== null && <>; last row dated {facts.lastDate}</>}.
+          </p>
+        )}
+        {facts !== undefined && !facts.header && (
+          <p className="notice" data-testid="not-transactions">
+            This file’s header isn’t a transactions file’s: the import will refuse it.
           </p>
         )}
         <div className="fields">
@@ -177,8 +171,8 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
             <input type="date" name="upTo" value={choice.upTo}
               onChange={(e) => change({ ...choice, upTo: e.target.value })} />
             <small className="hint">
-              Rows of either transactions file dated after it are left out, and the check stops there. Empty: every row.
-              A later import with a later date adds the newer rows.
+              Rows dated after it are left out, and the check stops there. Empty: every row. A later import with a later
+              date adds the newer rows.
             </small>
           </label>
         </div>
@@ -245,8 +239,8 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
                 {upload.withoutUnallocated > 0 && ` ${upload.withoutUnallocated} of them have UNALLOCATED on neither side.`}
               </p>
             )}
-            {partnerFile && !choice.files.accounts && choice.partner && (
-              <p className="muted">Choose your accounts file too: it names UNALLOCATED, which the filter needs.</p>
+            {partnerFile && !choice.file && choice.partner && (
+              <p className="muted">Choose your transactions file too: it names UNALLOCATED, which the filter needs.</p>
             )}
           </>
         )}
@@ -346,10 +340,16 @@ function Report({ report }: { report: ImportReport }) {
         </table>
       </details>
       <p className="muted">
-        Accounts: {refs.accountsCreated} new, {refs.accountsUpdated} updated. Categories: {refs.categoriesCreated} new,
-        {' '}{refs.categoriesUpdated} updated; family categories: {refs.familyCategoriesCreated} new, {refs.categoriesMerged}
-        {' '}of yours merged into them. Payees and people: {refs.counterpartiesCreated} new.
+        Accounts: {refs.accountsCreated} new, {refs.accountsUpdated} renamed. Categories: {refs.categoriesCreated} new,
+        {' '}{refs.categoriesUpdated} renamed; family categories: {refs.familyCategoriesCreated} new,
+        {' '}{refs.categoriesMerged} of yours merged into them. Payees and people: {refs.counterpartiesCreated} new.
       </p>
+      <Chart chart={report.chart} />
+      {report.idGaps?.length > 0 && (
+        <p className="notice" data-testid="id-gaps">
+          Gaps in the file’s IDs, between its lowest and highest: {report.idGaps.join(', ')}.
+        </p>
+      )}
 
       {report.member && <MemberRows member={report.member} />}
       <Messages title="Errors" messages={report.errorSummary} className="error" open />
@@ -369,14 +369,15 @@ function Report({ report }: { report: ImportReport }) {
 }
 
 function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconciliation | null }) {
-  if (!r) return <p className="notice">No reconciliation: the daily balance file couldn’t be read.</p>
+  if (!r) return <p className="notice">No check: the file has no rows to compare.</p>
   const failing = r.lines.filter((l) => l.failed > 0)
   return (
     <section className="reconciliation">
-      <h3>Your balances against the daily balance file</h3>
+      <h3>Your ledger against the file</h3>
       <p className={r.passed ? 'success' : 'error-box'} role={r.passed ? 'status' : 'alert'}>
-        {r.passed ? 'Passed' : 'Failed'}: {r.pointsCompared} month-end balances compared, up to {r.lastCompared ?? '–'}.
-        From {r.tailFrom} on they are shown but don’t count; the files are read up to {r.cutoff}.
+        {r.passed ? 'Passed' : 'Failed'}: {r.pointsCompared} month-end balances compared, from {r.from ?? '–'} to
+        {' '}{r.cutoff ?? '–'}, as movements since the day before the file’s first row; {r.rows.rows} rows checked,
+        {' '}{r.rows.failed} failing.
       </p>
       {failing.length > 0 && (
         <table>
@@ -391,23 +392,32 @@ function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconcili
           </tbody>
         </table>
       )}
-      {r.familyDebtUpTo && (
-        <p className="muted" data-testid="waiting">
-          The family debt is compared up to {r.familyDebtUpTo}, the other member’s latest import; after it, waiting for
-          the other member’s import ({r.waiting?.length ?? 0} month-ends differ for now), not failed.
-        </p>
+      {r.rows.failures.length > 0 && (
+        <details open data-testid="row-failures">
+          <summary className="error">Rows that don’t add up ({r.rows.failed})</summary>
+          <table>
+            <thead><tr><th>ID</th><th>What</th><th className="amount">File</th><th className="amount">Import</th>
+              <th className="amount">Unexplained</th></tr></thead>
+            <tbody>
+              {r.rows.failures.map((d) => (
+                <tr key={`${d.excelId} ${d.what}`}>
+                  <td>{d.excelId}</td><td>{d.what}</td><td className="amount">{d.file ?? ''}</td>
+                  <td className="amount">{d.computed ?? ''}</td><td className="amount">{d.unexplained ?? ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
       )}
-      {r.withoutFamilyRows.length > 0 && (
-        <p className="muted">
-          Without family rows, compared as one sum with the equity: {r.withoutFamilyRows.map((c) =>
-            `${c.currency} (the family debt here ${c.ok ? 'is 0' : `is ${c.appFamilyDebt}, not 0`})`).join(', ')}.
-        </p>
-      )}
+      <p className="muted">
+        The family debt is compared together with the equity, per currency: another member’s records move both by your
+        share, the other way round.
+      </p>
       <details>
         <summary>Every account and currency ({r.lines.length})</summary>
         <table>
           <thead>
-            <tr><th>Account</th><th className="amount">Excel</th><th className="amount">App</th>
+            <tr><th>Account</th><th className="amount">File</th><th className="amount">App</th>
               <th className="amount">Explained</th></tr>
           </thead>
           <tbody>
@@ -420,16 +430,27 @@ function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconcili
           </tbody>
         </table>
       </details>
-      {r.tail.length > 0 && (
-        <details>
-          <summary>The last month, shown only ({r.tail.length})</summary>
-          <ul>{r.tail.map((p) => <li key={`${p.date} ${p.account} ${p.currency}`}>
-            {p.date} {p.account} {p.currency}: Excel {p.excel}, app {p.app}</li>)}</ul>
-        </details>
-      )}
     </section>
   )
 }
+
+/** D-228, D-254: the accounts and categories the import creates, and those it renames to the file's names. */
+function Chart({ chart }: { chart?: ImportReport['chart'] }) {
+  if (!chart || (chart.created.length === 0 && chart.renamed.length === 0)) return null
+  return (
+    <details data-testid="chart">
+      <summary>Accounts and categories: {chart.created.length} new, {chart.renamed.length} renamed</summary>
+      <ul>
+        {chart.created.map((c) => <li key={`new ${c.kind} ${c.code}`}>New {kind(c.kind)} {c.code} “{c.name}” ({c.type})</li>)}
+        {chart.renamed.map((r) => (
+          <li key={`renamed ${r.kind} ${r.code}`}>Renamed {kind(r.kind)} {r.code}: “{r.from}” to “{r.to}”</li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
+const kind = (k: string) => (k === 'ACCOUNT' ? 'account' : k === 'FAMILY_CATEGORY' ? 'family category' : 'category')
 
 const rows = (n: number) => (n === 1 ? '1 row' : `${n} rows`)
 
@@ -453,6 +474,13 @@ function SyncGroups({ sync }: { sync: ImportSync }) {
       <RowRefs title="Re-planned: the current code maps them differently, written over" refs={sync.replanned} />
       <RowRefs title="As the ledger holds them, under an old hash: the hash stored again" refs={sync.restamped} />
       <RowRefs title="Can’t be re-planned after the claim: listed, never written" refs={sync.notReplannable} />
+      {(sync.appRowsUnchanged ?? 0) > 0 && (
+        <p className="muted" data-testid="app-rows-unchanged">
+          Rows the app made, as your ledger holds them: {sync.appRowsUnchanged}.
+        </p>
+      )}
+      <RowRefs title="Rows the app made that aren’t as your ledger holds them: listed, never written"
+        refs={sync.appRows ?? []} />
       <p className="muted" data-testid="categories-merged">
         Personal categories merged into the family budget’s: {sync.categoriesMerged.length === 0 ? 'none'
           : sync.categoriesMerged.join(', ')}.

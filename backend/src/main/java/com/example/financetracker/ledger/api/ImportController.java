@@ -19,8 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * The Excel importer (D3b; CLAUDE.md, "How to run the importer") for the signed-in user, with the files uploaded
- * instead of read from disk.
+ * The importer (D3b, D4b; CLAUDE.md, "How to run the importer") for the signed-in user, with the file uploaded instead
+ * of read from disk.
  */
 @RestController
 class ImportController {
@@ -40,35 +40,33 @@ class ImportController {
     }
 
     /**
-     * Imports the owner's Excel export: his personal rows into his personal ledger, and, with a family budget and the
-     * partner's seat in it (D-141), his family rows and the partner's family rows into that budget (D-82); then
-     * reconciles his balances with his daily balance file. A dry run writes everything, reports, and rolls back; a
-     * commit saves everything, or nothing if any row has an error. Rows imported before are recognised by their IDs:
-     * unchanged ones stay, edited ones are written over unless changed in the app (D-139), and missing ones are only
-     * reported (D-138). The report says what happened in {@code outcome}: DRY_RUN, COMMITTED, or ABORTED for a commit
-     * with row errors.
+     * Imports a user's transactions file (D4b): the Excel ledger's or the app's own export (D-235), recognised by its
+     * header, its accounts and categories taken from its rows (D-228). His personal rows go into his personal ledger,
+     * and, with a family budget and a seat in it (D-141), his family rows into that budget (D-82); with the partner's
+     * place without an account, the partner's family rows too. Then it checks the ledger against the file (D-231). A dry
+     * run writes everything, reports, and rolls back; a commit saves everything, or nothing if any row has an error.
+     * Rows imported before are recognised by their IDs: unchanged ones stay, edited ones are written over unless changed
+     * in the app (D-139), and missing ones are only reported (D-138); the app's own rows are compared, never written
+     * (D-259). The report says what happened in {@code outcome}: DRY_RUN, COMMITTED, or ABORTED for a commit with row
+     * errors. A file whose header isn't D-235's, or whose accounts and categories don't fit together, is refused whole
+     * (422) before anything is written (D-229).
      *
-     * @param dailyBalance the owner's daily balance file: the opening balances and the reconciliation
-     * @param dailyChange the owner's daily change file: the monthly family lumps (D-83)
      * @param partnerTransactions the partner's family rows, as the import page filters them in the browser (D-140):
      *        exactly the columns ID, Date, Exp. Item, Family, Side, Currency and Sum, and only rows with Family = "да"
      *        and an item; any other column or row refuses the whole request (422). Needs {@code familyLedgerId}
      * @param familyLedgerId the family budget the family rows go into; another user's answers 404
-     * @param seatMemberId the partner's seat in it, a member without an account; with {@code familyLedgerId}
-     * @param upTo "Import up to" (D-165), yyyy-MM-dd: rows of either transactions file dated after it are neither
-     *        imported nor missing, and the reconciliation stops at it; empty for none
+     * @param seatMemberId the partner's seat in it, or the member's own for his own import (D-175)
+     * @param upTo "Import up to" (D-165), yyyy-MM-dd: rows of either file dated after it are neither imported nor
+     *        missing, and the check stops at it; empty for none
      * @param dryRun false to commit
      */
     @PostMapping(path = "/api/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    ImportReport importLedger(LedgerScope ledger, @RequestPart MultipartFile accounts,
-            @RequestPart MultipartFile categories, @RequestPart MultipartFile transactions,
-            @RequestPart MultipartFile dailyBalance, @RequestPart MultipartFile dailyChange,
+    ImportReport importLedger(LedgerScope ledger, @RequestPart MultipartFile transactions,
             @RequestPart(required = false) MultipartFile partnerTransactions,
             @RequestParam(required = false) Long familyLedgerId, @RequestParam(required = false) Long seatMemberId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate upTo,
             @RequestParam(defaultValue = "true") boolean dryRun) throws IOException {
-        return imports.run(ledger, new ImportRequest(file(accounts), file(categories), file(transactions),
-                file(dailyBalance), file(dailyChange),
+        return imports.run(ledger, new ImportRequest(file(transactions),
                 partnerTransactions == null ? null : new ImportFile(PARTNER_FILE, partnerTransactions.getBytes()),
                 familyLedgerId, seatMemberId, upTo, !dryRun));
     }

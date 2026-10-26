@@ -12,7 +12,7 @@ import com.example.financetracker.ledger.importer.ImportReport.ReconciliationPoi
 import com.example.financetracker.ledger.importer.ImportReport.RowRef;
 
 /**
- * An {@link ImportReport} as Markdown, for the owner to read (the command line's report). It names rows by their
+ * An {@link ImportReport} as Markdown, for the user to read (the command line's report). It names rows by their
  * number and Excel ID, as the report does, and holds no value of a row but the reconciliation's balances.
  */
 public final class ImportReportMarkdown {
@@ -86,8 +86,12 @@ public final class ImportReportMarkdown {
                         reference.categoriesUpdated(), reference.familyCategoriesCreated(),
                         reference.categoriesMerged(), reference.counterpartiesCreated()));
 
+        chart(md, report.chart());
+        if (!report.idGaps().isEmpty()) {
+            md.append("\nGaps in the Excel IDs (D-231): ").append(String.join(", ", report.idGaps())).append('\n');
+        }
         member(md, report.member());
-        rows(md, "Missing from the files (D-138)", report.missing());
+        rows(md, "Missing from the files within their period (D-138, D-256)", report.missing());
         rows(md, "Conflicts", report.conflicts());
         sync(md, report.sync());
         messages(md, "Errors", report.errorSummary());
@@ -168,9 +172,28 @@ public final class ImportReportMarkdown {
         rows(md, "Re-planned: the current code maps it differently (D-219)", sync.replanned());
         rows(md, "Hash stored again (D-219)", sync.restamped());
         rows(md, "Can't be re-planned after the claim (D-196, D-219)", sync.notReplannable());
+        md.append("\nRows the app made, as the ledger holds them (D-259): %d.\n".formatted(sync.appRowsUnchanged()));
+        rows(md, "Rows the app made, listed and never written (D-259)", sync.appRows());
         md.append("\nPersonal categories merged into the family budget's (D-11): ")
                 .append(sync.categoriesMerged().isEmpty() ? "none" : String.join(", ", sync.categoriesMerged()))
                 .append(".\n");
+    }
+
+    /** The accounts and categories the file's rows name that the import creates or renames (D-228, D-254). */
+    private static void chart(StringBuilder md, ImportReport.ChartChanges chart) {
+        md.append("\n## Accounts and categories created (%d) and renamed (%d)\n\n".formatted(chart.created().size(),
+                chart.renamed().size()));
+        if (!chart.created().isEmpty()) {
+            List<List<String>> table = new ArrayList<>();
+            chart.created().forEach(c -> table.add(List.of(c.kind(), c.code(), c.name(), c.type())));
+            table(md, List.of("Kind", "Code", "Name", "Type"), "|---|---|---|---|", table);
+        }
+        if (!chart.renamed().isEmpty()) {
+            md.append('\n');
+            List<List<String>> table = new ArrayList<>();
+            chart.renamed().forEach(r -> table.add(List.of(r.kind(), r.code(), r.from(), r.to())));
+            table(md, List.of("Kind", "Code", "Name in the app", "Name in the file"), "|---|---|---|---|", table);
+        }
     }
 
     private static void messages(StringBuilder md, String title, List<MessageCount> messages) {
@@ -185,14 +208,17 @@ public final class ImportReportMarkdown {
     }
 
     private static void reconciliation(StringBuilder md, Reconciliation r) {
-        md.append("\n## Reconciliation with the daily balance file\n\n");
+        md.append("\n## Reconciliation with the transactions file (D-231)\n\n");
         if (r == null) {
-            md.append("Not run: no daily balance file could be read.\n");
+            md.append("Not run.\n");
             return;
         }
-        md.append(("**%s.** %d points compared up to %s; the files are read up to %s (D-146); from %s on, nothing "
-                + "fails (D-69).\n\n").formatted(r.passed() ? "Passed" : "FAILED", r.pointsCompared(), r.lastCompared(),
-                        r.cutoff(), r.tailFrom()));
+        ImportReport.RowLevel rows = r.rows();
+        md.append(("**%s.** Rows: %d checked, %d built and compared, %d explained, %d failed. Month-ends: %d points "
+                + "compared from %s to %s, the movements since the day before the first row date (D-256); "
+                + "FAMILY_DEBT, UNALLOCATED and RESERVE as one sum per currency (D-255).\n\n").formatted(
+                        r.passed() ? "Passed" : "FAILED", rows.rows(), rows.built(), rows.explainedRows(),
+                        rows.failed(), r.pointsCompared(), r.from(), r.cutoff()));
         List<List<String>> lines = new ArrayList<>();
         for (ReconciliationLine line : r.lines()) {
             lines.add(List.of(line.account(), line.currency(), n(line.compared()), n(line.failed()),
@@ -201,31 +227,33 @@ public final class ImportReportMarkdown {
                     plain(line.lastExplained())));
         }
         table(md, List.of("Account", "Currency", "Points", "Failed", "First failure", "Worst unexplained",
-                "Excel (last)", "App (last)", "Explained (last)"), "|---|---|---:|---:|---|---:|---:|---:|---:|", lines);
-        if (!r.withoutFamilyRows().isEmpty()) {
-            md.append("\nCurrencies without family rows (D-147): FAMILY_DEBT and the equity compared as one sum.\n\n");
-            List<List<String>> free = new ArrayList<>();
-            r.withoutFamilyRows().forEach(c -> free.add(List.of(c.currency(), plain(c.appFamilyDebt()),
-                    plain(c.excelFamilyDebt()), c.ok() ? "ok" : "NOT 0")));
-            table(md, List.of("Currency", "App FAMILY_DEBT", "Excel FAMILY_DEBT (explained)", "App's is 0"),
-                    "|---|---:|---:|---|", free);
-        }
+                "File (to the cutoff)", "App (to the cutoff)", "Explained"), "|---|---|---:|---:|---|---:|---:|---:|---:|",
+                lines);
         if (!r.explained().isEmpty()) {
-            md.append("\nExplained at the last point compared (D-68):\n\n");
+            md.append("\nExplained at the cutoff (D-68, D-223, D-188, NO_ROW):\n\n");
             List<List<String>> explained = new ArrayList<>();
             r.explained().forEach(e -> explained.add(List.of(e.account(), e.currency(), e.reason(),
                     e.amount().toPlainString())));
             table(md, List.of("Account", "Currency", "Rule", "Amount"), "|---|---|---|---:|", explained);
         }
-        points(md, "Failures", r.failures());
-        if (r.familyDebtUpTo() != null) {
-            md.append("\nThe family debt is compared up to %s, the other member's latest import (D-175); after it, "
-                    .formatted(r.familyDebtUpTo()) + "waiting for the other member's import.\n");
-            points(md, "Waiting for the other member's import", r.waiting());
+        if (!rows.explained().isEmpty()) {
+            md.append("\nExplained in the rows:\n\n");
+            List<List<String>> explained = new ArrayList<>();
+            rows.explained().forEach(e -> explained.add(List.of(e.account(), e.currency(), e.reason(),
+                    e.amount().toPlainString())));
+            table(md, List.of("Account", "Currency", "Rule", "Amount"), "|---|---|---|---:|", explained);
         }
-        points(md, "The tail, not failing (D-69)", r.tail());
+        md.append("\n### Rows that fail (").append(rows.failed()).append(")\n\n");
+        if (!rows.failures().isEmpty()) {
+            List<List<String>> table = new ArrayList<>();
+            rows.failures().stream().limit(200).forEach(d -> table.add(List.of(d.excelId(), d.what(), plain(d.file()),
+                    plain(d.computed()), plain(d.explained()), plain(d.unexplained()))));
+            table(md, List.of("ID", "What", "File", "Computed or built", "Explained", "Unexplained"),
+                    "|---|---|---:|---:|---:|---:|", table);
+        }
+        points(md, "Failures", r.failures());
         if (!r.appOnly().isEmpty()) {
-            md.append("\nThe app's accounts with a balance and no column in Excel: ")
+            md.append("\nThe app's accounts that moved in a currency no row of the file has: ")
                     .append(String.join(", ", r.appOnly())).append('\n');
         }
     }

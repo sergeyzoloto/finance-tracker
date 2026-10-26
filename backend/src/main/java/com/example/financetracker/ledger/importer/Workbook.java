@@ -1,11 +1,14 @@
 package com.example.financetracker.ledger.importer;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -15,17 +18,11 @@ import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.importer.ImportReport.Problem;
 
 /**
- * The Excel ledger's CSV exports, read into typed rows: the accounts, the categories, the owner's journal and the
- * partner's family rows (D-140). The daily files are {@link DailyFile}'s. A row that can't be read is a row error, and
- * the rows after it are still read; no error holds a value of the row.
+ * The Excel ledger's CSV exports, read into typed rows: a user's transactions file, with the accounts and categories its
+ * rows name (D4b, D-228), and the partner's family rows (D-140). A row that can't be read is a row error, and the rows
+ * after it are still read; no error holds a value of the row.
  */
 final class Workbook {
-
-    static final String ACCOUNT_NAME = "Статьи баланса";
-    static final String ACCOUNT_TYPE = "Актив/пассив";
-    static final String CATEGORY_NAME = "Статьи движения средств";
-    static final String CATEGORY_TYPE = "Доходы/расходы";
-    static final String LINE = "Line";
 
     /** Where a workbook formula found nothing, it writes this text; in LOAN_CA and CODE_ITEM it means empty. */
     static final String NULL = "NULL";
@@ -67,80 +64,26 @@ final class Workbook {
         };
     }
 
-    /** The accounts file: columns "Balance sheet items" (the name), "Актив/пассив" (the type) and "Line" (the code). */
-    static Sheet<AccountRow> accounts(ImportFile file) {
-        CsvTable table = CsvTable.read(file, List.of(ACCOUNT_NAME, ACCOUNT_TYPE, LINE));
-        Sheet<AccountRow> sheet = new Sheet<>(file, table);
-        Set<String> names = new HashSet<>();
-        Set<String> codes = new HashSet<>();
-        for (CsvTable.Row row : sheet.dataRows()) {
-            List<String> errors = new ArrayList<>();
-            String name = name(row, ACCOUNT_NAME, errors);
-            // The journal names accounts in any case ("Moneycard V-Pay" for "Moneycard V-PAY"), so names are unique
-            // whatever their case.
-            String code = code(row, errors);
-            String excelType = row.get(ACCOUNT_TYPE);
-            AccountType type = code == null ? null : accountType(excelType, code);
-            if (code != null && type == null) {
-                errors.add("Актив/пассив is neither ASSET nor LIABILITIES");
-            }
-            unique(name == null ? null : name.toLowerCase(Locale.ROOT), names, "name", errors);
-            unique(code, codes, "code", errors);
-            if (errors.isEmpty()) {
-                sheet.add(new AccountRow(row.number(), name, code, type, REQUIRE_COUNTERPARTY.contains(code)));
-            } else {
-                sheet.error(row, errors);
-            }
-        }
-        return sheet;
-    }
-
     /**
-     * The categories file: columns "Статьи движения средств" (the name), "Доходы/расходы" (the type) and "Line" (the
-     * code). The row whose code is NULL stands for "no category" and is skipped.
+     * A user's transactions file (D-235, D4b), recognised by its header: exactly the 32 columns of
+     * {@link ExcelRow#HEADER}, in that order, whatever the file is called. An ID in an earlier row too is an error of the
+     * later row.
+     *
+     * @throws TransactionsFileRefused for any other header, naming the expected one; nothing is read
      */
-    static Sheet<CategoryRow> categories(ImportFile file) {
-        CsvTable table = CsvTable.read(file, List.of(CATEGORY_NAME, CATEGORY_TYPE, LINE));
-        Sheet<CategoryRow> sheet = new Sheet<>(file, table);
-        Set<String> names = new HashSet<>();
-        Set<String> codes = new HashSet<>();
-        for (CsvTable.Row row : sheet.dataRows()) {
-            if (NULL.equals(row.get(LINE))) {
-                sheet.skip(row, "Line NULL means \"no category\"");
-                continue;
-            }
-            List<String> errors = new ArrayList<>();
-            String name = name(row, CATEGORY_NAME, errors);
-            String code = code(row, errors);
-            String typeText = row.get(CATEGORY_TYPE);
-            CategoryType type = switch (typeText) {
-                case "INCOME" -> CategoryType.INCOME;
-                case "EXPENSE" -> CategoryType.EXPENSE;
-                default -> null;
-            };
-            if (type == null) {
-                errors.add("Доходы/расходы is neither INCOME nor EXPENSE");
-            }
-            unique(name, names, "name", errors);
-            unique(code, codes, "code", errors);
-            if (errors.isEmpty()) {
-                sheet.add(new CategoryRow(row.number(), name, code, type));
-            } else {
-                sheet.error(row, errors);
-            }
-        }
-        return sheet;
-    }
-
-    /** The owner's journal; see {@link TransactionRow}. An ID in an earlier row too is an error of the later row. */
     static Sheet<TransactionRow> transactions(ImportFile file) {
-        CsvTable table = CsvTable.read(file, TransactionRow.COLUMNS);
+        CsvTable table = CsvTable.read(file, List.of());
+        if (table.problems().isEmpty() && !table.header().equals(ExcelRow.HEADER)) {
+            throw new TransactionsFileRefused(List.of(("the file isn't a transactions file: its header has to be "
+                    + "exactly these %d columns, in this order: %s (D-235)").formatted(ExcelRow.HEADER.size(),
+                            String.join(";", ExcelRow.HEADER))));
+        }
         Sheet<TransactionRow> sheet = new Sheet<>(file, table);
-        Set<Long> ids = new HashSet<>();
+        Set<String> ids = new HashSet<>();
         for (CsvTable.Row row : sheet.dataRows()) {
             List<String> errors = new ArrayList<>();
             TransactionRow transaction = TransactionRow.parse(row, errors);
-            if (transaction != null && !ids.add(transaction.id())) {
+            if (transaction != null && !ids.add(transaction.excelId())) {
                 errors.add("the ID is in an earlier row too (D-86)");
             }
             if (errors.isEmpty()) {
@@ -153,9 +96,141 @@ final class Workbook {
     }
 
     /**
+     * The accounts and categories of a transactions file (D-228): each code, with the workbook's typos fixed
+     * ({@link #CODE_ALIASES}, D-246), its name from Debit, Credit or Exp. Item and its type from TYPE_DEBIT,
+     * TYPE_CREDIT or TYPE. A code's names are compared ignoring case, as the journal spells an account in any case
+     * (D-261). The whole file is refused if a code has two names or two types, a type the workbook doesn't have, or if
+     * a name is two codes' (D-229, D-262). Messages name codes and IDs, never a name or an amount.
+     *
+     * @param rows the file's rows that could be read, the app's included
+     * @throws TransactionsFileRefused with every reason
+     */
+    static FileChart chart(List<TransactionRow> rows) {
+        Map<String, Uses> accounts = new TreeMap<>();
+        Map<String, Uses> categories = new TreeMap<>();
+        List<TransactionRow> ordered = rows.stream().filter(r -> r.computed() != null)
+                .sorted(Comparator.comparing(TransactionRow::isApp).thenComparingLong(TransactionRow::id))
+                .toList();
+        for (TransactionRow row : ordered) {
+            TransactionRow.Computed c = row.computed();
+            accounts.computeIfAbsent(c.debitCode(), k -> new Uses()).add(row.debit(), c.debitType(), row.excelId());
+            accounts.computeIfAbsent(c.creditCode(), k -> new Uses()).add(row.credit(), c.creditType(),
+                    row.excelId());
+            if (row.itemCode() != null) {
+                categories.computeIfAbsent(row.itemCode(), k -> new Uses()).add(row.item(), c.itemType(),
+                        row.excelId());
+            }
+        }
+        List<String> reasons = new ArrayList<>();
+        List<AccountRow> accountRows = new ArrayList<>();
+        accounts.forEach((code, uses) -> {
+            uses.check("account", code, reasons);
+            AccountType type = accountType(uses.type(), code);
+            if (uses.types.size() == 1 && type == null) {
+                reasons.add("the account %s has the type %s, neither ASSET nor LIABILITIES (first in ID %s)"
+                        .formatted(code, uses.type(), uses.firstId));
+            }
+            checkLengths("account", code, uses, reasons);
+            accountRows.add(new AccountRow(uses.name(), uses.spellings(), code, type,
+                    REQUIRE_COUNTERPARTY.contains(code)));
+        });
+        List<CategoryRow> categoryRows = new ArrayList<>();
+        categories.forEach((code, uses) -> {
+            uses.check("category", code, reasons);
+            CategoryType type = switch (uses.type()) {
+                case "INCOME" -> CategoryType.INCOME;
+                case "EXPENSE" -> CategoryType.EXPENSE;
+                default -> null;
+            };
+            if (uses.types.size() == 1 && type == null) {
+                reasons.add("the category %s has the type %s, neither INCOME nor EXPENSE (first in ID %s)"
+                        .formatted(code, uses.type(), uses.firstId));
+            }
+            checkLengths("category", code, uses, reasons);
+            categoryRows.add(new CategoryRow(uses.name(), uses.spellings(), code, type));
+        });
+        // D-262: rows name their accounts by name in any case, and their categories by name.
+        sharedNames("accounts", accountRows.stream().flatMap(a -> a.spellings().stream()
+                .map(name -> Map.entry(name.toLowerCase(Locale.ROOT), a.code()))).toList(), reasons);
+        sharedNames("categories", categoryRows.stream().flatMap(c -> c.spellings().stream()
+                .map(name -> Map.entry(name, c.code()))).toList(), reasons);
+        if (!reasons.isEmpty()) {
+            throw new TransactionsFileRefused(reasons);
+        }
+        return new FileChart(accountRows, categoryRows);
+    }
+
+    private static void checkLengths(String what, String code, Uses uses, List<String> reasons) {
+        if (code.length() > CODE_MAX_LENGTH) {
+            reasons.add("the %s code %s is longer than %d characters".formatted(what, code, CODE_MAX_LENGTH));
+        }
+        if (uses.spellings().stream().anyMatch(n -> n.codePointCount(0, n.length()) > NAME_MAX_LENGTH)) {
+            reasons.add("the %s %s has a name longer than %d characters".formatted(what, code, NAME_MAX_LENGTH));
+        }
+    }
+
+    private static void sharedNames(String what, List<Map.Entry<String, String>> names, List<String> reasons) {
+        Map<String, Set<String>> codes = new TreeMap<>();
+        names.forEach(e -> codes.computeIfAbsent(e.getKey(), k -> new java.util.TreeSet<>()).add(e.getValue()));
+        codes.values().stream().filter(c -> c.size() > 1).forEach(c -> reasons.add(
+                "the %s %s have one name, and rows name them by it (D-262)".formatted(what, String.join(" and ", c))));
+    }
+
+    /** One code's spellings and types in a file, in the order of the rows' IDs. */
+    private static final class Uses {
+
+        /** By the name in lower case: each spelling and how many rows use it, in the order of first use. */
+        private final Map<String, Map<String, Integer>> names = new LinkedHashMap<>();
+        private final Map<String, String> firstIdOfName = new LinkedHashMap<>();
+        private final Map<String, String> types = new LinkedHashMap<>();
+        private String firstId;
+
+        void add(String name, String type, String id) {
+            firstId = firstId == null ? id : firstId;
+            String key = name.toLowerCase(Locale.ROOT);
+            names.computeIfAbsent(key, k -> new LinkedHashMap<>()).merge(name, 1, Integer::sum);
+            firstIdOfName.putIfAbsent(key, id);
+            types.putIfAbsent(type, id);
+        }
+
+        void check(String what, String code, List<String> reasons) {
+            if (names.size() > 1) {
+                reasons.add("the %s %s has %d names in the file, first in the IDs %s (D-229)".formatted(what, code,
+                        names.size(), String.join(", ", firstIdOfName.values())));
+            }
+            if (types.size() > 1) {
+                reasons.add("the %s %s has the types %s in the file, first in the IDs %s (D-229)".formatted(what,
+                        code, String.join(" and ", types.keySet()), String.join(", ", types.values())));
+            }
+        }
+
+        /** The spelling most rows use, the first one on a tie (D-261). */
+        String name() {
+            String best = null;
+            int most = 0;
+            for (Map.Entry<String, Integer> form : names.values().iterator().next().entrySet()) {
+                if (form.getValue() > most) {
+                    best = form.getKey();
+                    most = form.getValue();
+                }
+            }
+            return best;
+        }
+
+        /** Every spelling of its first name: the app's own name is kept when it is one of them (D-261). */
+        Set<String> spellings() {
+            return Set.copyOf(names.values().iterator().next().keySet());
+        }
+
+        String type() {
+            return types.keySet().iterator().next();
+        }
+    }
+
+    /**
      * The partner's family rows as the import page uploads them (D-78, D-140). The whole file is refused if it has any
-     * column but {@link PartnerRow#COLUMNS}, or any row that isn't a family row with an item: then something other than
-     * the page's filter made it, and nothing of it is read.
+     * column but {@link PartnerRow#COLUMNS} and {@link PartnerRow#ITEM_COLUMNS} (D-260), or any row that isn't a family
+     * row with an item: then something other than the page's filter made it, and nothing of it is read.
      *
      * @throws PartnerFileRefused naming the columns and the rows (by number only) that break the filter
      */
@@ -165,9 +240,12 @@ final class Workbook {
         CsvTable table = CsvTable.read(file, List.of());
         List<String> refusals = new ArrayList<>();
         table.rows().stream().findFirst().ifPresent(row -> {
-            if (!Set.copyOf(PartnerRow.COLUMNS).containsAll(row.columns().keySet())) {
+            Set<String> allowed = new HashSet<>(PartnerRow.COLUMNS);
+            allowed.addAll(PartnerRow.ITEM_COLUMNS);
+            if (!allowed.containsAll(row.columns().keySet())) {
                 refusals.add("the partner's file has a column the import doesn't take: only "
-                        + String.join(", ", PartnerRow.COLUMNS) + " leave the laptop");
+                        + String.join(", ", PartnerRow.COLUMNS) + " (and " + String.join(", ", PartnerRow.ITEM_COLUMNS)
+                        + ") leave the laptop");
             }
         });
         for (CsvTable.Row row : refusals.isEmpty() && row0HasFamily(table) ? table.rows() : List.<CsvTable.Row>of()) {
@@ -237,34 +315,22 @@ final class Workbook {
         }
     }
 
-    private static String name(CsvTable.Row row, String column, List<String> errors) {
-        String name = required(row, column, Function.identity(), errors);
-        if (name != null && name.codePointCount(0, name.length()) > NAME_MAX_LENGTH) {
-            errors.add("%s is longer than %d characters".formatted(column, NAME_MAX_LENGTH));
-        }
-        return name;
+    /**
+     * An account as a transactions file names it (D-228).
+     *
+     * @param name the spelling of its name that most rows use (D-261)
+     * @param spellings every spelling of the name in the file, which differ only in case
+     */
+    record AccountRow(String name, Set<String> spellings, String code, AccountType type,
+            boolean requiresCounterparty) {
     }
 
-    private static String code(CsvTable.Row row, List<String> errors) {
-        String code = required(row, LINE, Workbook::code, errors);
-        if (code != null && code.length() > CODE_MAX_LENGTH) {
-            errors.add("Line is longer than %d characters".formatted(CODE_MAX_LENGTH));
-        }
-        return code;
+    /** A category as a transactions file names it (D-228). */
+    record CategoryRow(String name, Set<String> spellings, String code, CategoryType type) {
     }
 
-    private static void unique(String value, Set<String> seen, String what, List<String> errors) {
-        if (value != null && !seen.add(value)) {
-            errors.add("the %s is in an earlier row too".formatted(what));
-        }
-    }
-
-    /** An account as the accounts file defines it. */
-    record AccountRow(int row, String name, String code, AccountType type, boolean requiresCounterparty) {
-    }
-
-    /** A category as the categories file defines it. */
-    record CategoryRow(int row, String name, String code, CategoryType type) {
+    /** A transactions file's accounts and categories (D-228). */
+    record FileChart(List<AccountRow> accounts, List<CategoryRow> categories) {
     }
 
     /** The rows of one file that could be read, and what happened to the others. */

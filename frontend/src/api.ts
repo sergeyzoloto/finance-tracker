@@ -531,29 +531,35 @@ export interface ImportReconciliationLine {
   lastExcel: string | null
   lastApp: string | null
   lastExplained: string | null
-  /** The points after the reconciliation's `familyDebtUpTo`, waiting for the other member's import (D-175). */
-  waiting?: number
 }
 export interface ImportReconciliationPoint {
   date: string; account: string; currency: string; excel: string; app: string; explained: string; unexplained: string
 }
-/** The owner's balances against his daily balance file (D-63, D-67, D-68, D-69, D-146, D-147). */
+/** One amount a rule explains, per account (EQUITY+FAMILY_DEBT for the family debt with the equity, D-255). */
+export interface ImportExplained { account: string; currency: string; reason: string; amount: string }
+/** A row's difference (D-231 a): a computed column, or what the import builds on an account; texts have no amounts. */
+export interface ImportRowDifference {
+  excelId: string; row: number; what: string; file: string | null; computed: string | null
+  explained: string | null; unexplained: string | null
+}
+/**
+ * The ledger against the transactions file (D-231, D-255, D-256): per row, and per month-end from the file's first row
+ * date to the cutoff, the movements since the day before it.
+ */
 export interface ImportReconciliation {
   passed: boolean
-  cutoff: string
-  tailFrom: string
+  from: string | null
+  cutoff: string | null
   pointsCompared: number
   lastCompared: string | null
   lines: ImportReconciliationLine[]
   failures: ImportReconciliationPoint[]
-  tail: ImportReconciliationPoint[]
-  withoutFamilyRows: { currency: string; appFamilyDebt: string; excelFamilyDebt: string; ok: boolean }[]
-  explained: { account: string; currency: string; reason: string; amount: string }[]
+  explained: ImportExplained[]
   appOnly: string[]
-  /** D-175: the family debt is compared up to this day only, the other member's latest import; null for no limit. */
-  familyDebtUpTo?: string | null
-  /** The family debt's points after `familyDebtUpTo` that differ: waiting, not failed. */
-  waiting?: ImportReconciliationPoint[]
+  rows: {
+    rows: number; built: number; explainedRows: number; failed: number; failures: ImportRowDifference[]
+    explained: ImportExplained[]
+  }
 }
 /** Which import a run was (D-175). */
 export type ImportMode = 'OWNER' | 'OWNER_AFTER_CLAIM' | 'MEMBER'
@@ -634,6 +640,13 @@ export interface ImportReport {
   errorSummary: ImportMessageCount[]
   warningSummary: ImportMessageCount[]
   skippedSummary: ImportMessageCount[]
+  /** The accounts and categories the file's rows name that the import creates or renames (D-228, D-254). */
+  chart: {
+    created: { kind: string; code: string; name: string; type: string }[]
+    renamed: { kind: string; code: string; from: string; to: string }[]
+  }
+  /** The Excel IDs missing between the file's lowest and highest, as ranges (D-231 c). */
+  idGaps: string[]
   referenceData: {
     accountsCreated: number
     accountsUpdated: number
@@ -663,10 +676,14 @@ export interface ImportSync {
   replanned: ImportRowRef[]
   /** The ledger holds what the row maps to under an old hash: the hash is stored again. */
   restamped: ImportRowRef[]
-  /** The owner's D-73 rows and lumps after the claim (D-196): listed, never written. */
+  /** The owner's D-73 rows after the claim (D-196): listed, never written. */
   notReplannable: ImportRowRef[]
   /** The codes of unused personal categories merged into the family budget's (D-11). */
   categoriesMerged: string[]
+  /** The rows the app made (`app-…`) that are what the ledger holds (D-259). */
+  appRowsUnchanged: number
+  /** The rows the app made that aren't, listed and never written (D-259). */
+  appRows: ImportRowRef[]
 }
 
 /** What POST /api/demo-data created in an empty ledger. */

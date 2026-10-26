@@ -160,19 +160,17 @@ abstract class LedgerApiTest extends IntegrationTest {
     }
 
     /**
-     * POST /api/import of the synthetic workbook in {@code src/test/resources/import/}: its accounts and categories,
-     * and these transactions.
+     * POST /api/import of a transactions file alone, no family budget (D4b).
      *
      * @param dryRun the parameter's value, or null to leave it out
      */
-    /** The synthetic export's personal rows alone (no family budget), with {@code transactions} in their place. */
     protected MvcTestResult importWorkbook(String user, byte[] transactions, String dryRun) throws IOException {
         return importExport(user, transactions, null, null, null, dryRun);
     }
 
     /**
-     * The synthetic export through POST /api/import: the owner's five files, with {@code transactions} in place of his
-     * transactions file, and, with a family budget and a seat, the partner's rows as the import page uploads them.
+     * POST /api/import of a transactions file (D4b), and, with a family budget and a seat, the partner's rows as the
+     * import page uploads them.
      */
     protected MvcTestResult importExport(String user, byte[] transactions, byte[] partner, Long ledger, Long seat,
             String dryRun) throws IOException {
@@ -183,12 +181,7 @@ abstract class LedgerApiTest extends IntegrationTest {
     protected MvcTestResult importExport(String user, byte[] transactions, byte[] partner, Long ledger, Long seat,
             String upTo, String dryRun) throws IOException {
         var request = mvc.post().uri("/api/import").multipart()
-                .file(new MockMultipartFile("accounts", "accounts.csv", "text/csv", fixture("accounts.csv")))
-                .file(new MockMultipartFile("categories", "categories.csv", "text/csv", fixture("categories.csv")))
                 .file(new MockMultipartFile("transactions", "transactions.csv", "text/csv", transactions))
-                .file(new MockMultipartFile("dailyBalance", "daily-balance.csv", "text/csv",
-                        fixture("daily-balance.csv")))
-                .file(new MockMultipartFile("dailyChange", "daily-change.csv", "text/csv", fixture("daily-change.csv")))
                 .with(member(user));
         if (partner != null) {
             request.file(new MockMultipartFile("partnerTransactions", "Transactions-of-someone.csv", "text/csv",

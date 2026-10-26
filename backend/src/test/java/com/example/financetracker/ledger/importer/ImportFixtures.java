@@ -11,8 +11,8 @@ import java.util.Set;
 import org.springframework.core.io.ClassPathResource;
 
 /**
- * The synthetic export of src/test/resources/import/ (invented names and amounts, the real export's format: D-61), and
- * ways to change it, for the importer's tests. Each row of its files is on one line.
+ * The synthetic transactions files of src/test/resources/import/ (invented names and amounts, the real export's format
+ * with D-235's 32 columns), and ways to change them, for the importer's tests. Each row of a file is on one line.
  */
 public final class ImportFixtures {
 
@@ -52,18 +52,22 @@ public final class ImportFixtures {
         return PartnerFilter.filter(new ImportFile("partner.csv", partnerTransactions), UNALLOCATED);
     }
 
-    /** The whole synthetic export, for one run. */
+    /** One run of a transactions file (D4b). */
     public static ImportRequest request(byte[] transactions, byte[] partner, Long ledger, Long seat, boolean commit) {
         return request(transactions, partner, ledger, seat, null, commit);
     }
 
-    /** The whole synthetic export, for one run "up to" a date (D-165). */
+    /** One run of a transactions file "up to" a date (D-165). */
     public static ImportRequest request(byte[] transactions, byte[] partner, Long ledger, Long seat, LocalDate upTo,
             boolean commit) {
-        return new ImportRequest(file("accounts.csv"), file("categories.csv"),
-                new ImportFile("transactions.csv", transactions), file("daily-balance.csv"), file("daily-change.csv"),
+        return new ImportRequest(new ImportFile("transactions.csv", transactions),
                 partner == null ? null : new ImportFile("partner-family-rows.csv", partner), ledger, seat, upTo,
                 commit);
+    }
+
+    /** The accounts and categories a transactions file's rows name, as the import reads them (D-228). */
+    static Workbook.FileChart chart(String name) {
+        return Workbook.chart(Workbook.transactions(file(name)).rows());
     }
 
     /** The file with only the header and the rows whose first field, the ID, is one of these. */
@@ -97,6 +101,27 @@ public final class ImportFixtures {
             }
         }
         return join(lines);
+    }
+
+    /**
+     * A row with D-235's 32 columns: its 15 typed ones as given, and the 17 Excel computes from them and from the codes
+     * and types, as {@link ExcelRow} computes them (D-237).
+     *
+     * @param typed ID to LOAN_CA, separated by semicolons
+     * @param debit the debit side's code and type, such as {@code CASH:ASSET}; {@code credit} the credit side's
+     * @param item the item's code and type, {@code NULL:CASHFLOW} for none
+     */
+    public static String line(String typed, String debit, String credit, String item) {
+        String[] f = typed.split(";", -1);
+        String[] d = debit.split(":");
+        String[] c = credit.split(":");
+        String[] i = item.split(":");
+        ExcelRow row = new ExcelRow(f[0], ExcelValues.date(f[1]), new ExcelRow.Item(f[2],
+                i[0].equals(Workbook.NULL) ? null : i[0], i[1]), ExcelValues.amount(f[3]), f[4], f[5], f[6],
+                new ExcelRow.Side(f[7], d[0], d[1]), new ExcelRow.Side(f[8], c[0], c[1]), f[9].equals("да"),
+                f[10].isEmpty() ? null : f[10], f[11].isEmpty() ? null : ExcelValues.amount(f[11]),
+                f[12].isEmpty() ? null : f[12], f[13].isEmpty() ? null : ExcelValues.amount(f[13]), f[14]);
+        return String.join(";", row.columns().stream().map(TransactionsCsv::field).toList());
     }
 
     /** The file with an extra line at the end. */

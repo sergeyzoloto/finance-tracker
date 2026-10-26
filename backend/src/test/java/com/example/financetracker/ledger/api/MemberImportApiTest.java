@@ -58,12 +58,12 @@ abstract class MemberImportApiTest extends LedgerApiTest {
         return report;
     }
 
-    /** POST /api/import with the owner's five files, and Sam's rows where not null. */
+    /** POST /api/import with the owner's transactions file, and Sam's rows where not null. */
     protected MvcTestResult ownerImport(byte[] seatRows, String upTo, String dryRun) throws IOException {
         return upload(owner, "owner", d3c("owner-transactions.csv"), seatRows, seat, upTo, dryRun);
     }
 
-    /** POST /api/import with the partner's five files, as himself in his own place (D-175). */
+    /** POST /api/import with the partner's transactions file, as himself in his own place (D-175). */
     protected MvcTestResult memberImport(byte[] transactions, String upTo, String dryRun) throws IOException {
         return upload(partner, "partner", transactions, null, seat, upTo, dryRun);
     }
@@ -71,13 +71,7 @@ abstract class MemberImportApiTest extends LedgerApiTest {
     protected MvcTestResult upload(String user, String prefix, byte[] transactions, byte[] seatRows, long seatId,
             String upTo, String dryRun) throws IOException {
         var request = mvc.post().uri("/api/import").multipart()
-                .file(new MockMultipartFile("accounts", "accounts.csv", "text/csv", d3c(prefix + "-accounts.csv")))
-                .file(new MockMultipartFile("categories", "categories.csv", "text/csv", d3c("categories.csv")))
-                .file(new MockMultipartFile("transactions", "transactions.csv", "text/csv", transactions))
-                .file(new MockMultipartFile("dailyBalance", "daily-balance.csv", "text/csv",
-                        d3c(prefix + "-daily-balance.csv")))
-                .file(new MockMultipartFile("dailyChange", "daily-change.csv", "text/csv",
-                        d3c(prefix + "-daily-change.csv")))
+                .file(new MockMultipartFile("transactions", prefix + "-transactions.csv", "text/csv", transactions))
                 .param("familyLedgerId", String.valueOf(family)).param("seatMemberId", String.valueOf(seatId))
                 .with(member(user));
         if (seatRows != null) {

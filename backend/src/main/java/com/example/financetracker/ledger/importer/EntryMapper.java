@@ -2,30 +2,26 @@ package com.example.financetracker.ledger.importer;
 
 import static com.example.financetracker.ledger.domain.AccountRole.FX_EXCHANGE;
 import static com.example.financetracker.ledger.domain.AccountRole.LOANS;
-import static com.example.financetracker.ledger.domain.AccountRole.OPENING_BALANCE;
 import static com.example.financetracker.ledger.domain.AccountRole.UNALLOCATED;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 import com.example.financetracker.ledger.Counterparty;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.domain.EntryKind;
-import com.example.financetracker.ledger.family.ImportSync;
 import com.example.financetracker.ledger.importer.Chart.AccountRef;
 import com.example.financetracker.ledger.importer.Chart.CategoryRef;
 import com.example.financetracker.ledger.importer.EntryPlan.Line;
 import com.example.financetracker.ledger.importer.EntryPlan.Party;
 
 /**
- * Turns a row of the owner's personal journal into an entry by the domain rules, without a database: a row without the
+ * Turns a row of a user's personal journal into an entry by the domain rules, without a database: a row without the
  * family flag, or one with it and no item (D-72). Its postings come in the order credit side, the exchange through
  * FX_EXCHANGE if the two sides' currencies differ, debit side. Family rows are {@link ImportPlanner}'s.
  * <p>
@@ -84,7 +80,7 @@ final class EntryMapper {
         if (!NO_CATEGORY.equals(row.item())) {
             category = chart.categoriesByName().get(row.item());
             if (category == null) {
-                errors.add("Exp. Item is not in the categories file");
+                errors.add("Exp. Item is none of the file's categories");
             }
         }
         if (category != null || NO_CATEGORY.equals(row.item())) {
@@ -161,82 +157,6 @@ final class EntryMapper {
     }
 
     /**
-     * The opening balances (D-62): the first row of the daily balance file, one entry on its date, each account's
-     * displayed balance turned into a posting by rule 4, and OPENING_BALANCE taking the rest in each currency (rule 10).
-     * FAMILY_DEBT's opening is the family budget's, which starts at 0 (D-70): a non-zero one is an error.
-     *
-     * @param balances by column's account code and currency, as Excel shows them; zeros are left out
-     */
-    RowResult openingEntry(LocalDate date, Map<DailyFile.Column, BigDecimal> balances) {
-        return openingEntry(date, balances, null);
-    }
-
-    /**
-     * As above, for a member who took his seat (D-180): his FAMILY_DEBT balance isn't an error but his claim's, and
-     * goes into {@code familyDebt} by currency, as Excel shows it, for the reconciliation.
-     *
-     * @param familyDebt where FAMILY_DEBT's balances go; null for the owner's import, where one is an error (D-70)
-     */
-    RowResult openingEntry(LocalDate date, Map<DailyFile.Column, BigDecimal> balances,
-            Map<String, BigDecimal> familyDebt) {
-        List<String> errors = new ArrayList<>();
-        List<String> warnings = new ArrayList<>();
-        List<Line> lines = new ArrayList<>();
-        List<String> hashed = new ArrayList<>();
-        hashed.add(date.toString());
-        balances.forEach((column, cell) -> {
-            // Excel's floating-point residues (-1.42109E-14) are 0 at the 4 decimals a posting holds.
-            BigDecimal balance = cell.setScale(POSTING_SCALE, RoundingMode.HALF_UP);
-            if (balance.signum() == 0) {
-                return;
-            }
-            AccountRef account = chart.accountsByCode().get(column.code());
-            if (account == null) {
-                errors.add("the daily balance file's first row has a balance on an account that isn't in the accounts "
-                        + "file");
-                return;
-            }
-            if (account.familyDebt() && familyDebt != null) {
-                familyDebt.merge(column.currency(), cell, BigDecimal::add);
-                return;
-            }
-            if (account.familyDebt()) {
-                errors.add("the daily balance file's first row has a FAMILY_DEBT balance, which the family budget "
-                        + "starts without (D-70)");
-                return;
-            }
-            Party counterparty = null;
-            if (account.requiresCounterparty()) {
-                counterparty = new Party(UNASSIGNED, null);
-                warnings.add("an opening balance on an account that requires a counterparty: '%s' is used"
-                        .formatted(UNASSIGNED));
-            }
-            BigDecimal amount = account.type() == AccountType.ASSET ? balance : balance.negate();
-            lines.add(new Line(account.id(), column.currency(), amount, null, counterparty));
-            hashed.add(column.code() + " " + column.currency() + " " + TransactionRow.plain(balance));
-        });
-        if (!errors.isEmpty()) {
-            return new RowResult.Failed(errors, warnings);
-        }
-        if (lines.isEmpty()) {
-            return new RowResult.Skipped("the first row of the daily balance file has no balance", false, warnings);
-        }
-        Map<String, BigDecimal> totals = new LinkedHashMap<>();
-        lines.forEach(line -> totals.merge(line.currency(), line.amount(), BigDecimal::add));
-        long openingBalance = chart.account(OPENING_BALANCE).id();
-        List<Line> all = new ArrayList<>(lines);
-        totals.forEach((currency, total) -> {
-            // Balances that cancel out, such as the assets against RESERVE, leave nothing to post.
-            if (total.signum() != 0) {
-                all.add(new Line(openingBalance, currency, total.negate(), null, null));
-            }
-        });
-        return new RowResult.Entry(new EntryPlan("xls-opening:" + date, ImportSync.contentHash(
-                hashed.toArray(String[]::new)), date, EntryKind.OPENING_BALANCE, null, null, all, false, List.of()),
-                warnings);
-    }
-
-    /**
      * The amount as a posting holds it: rounded half up to 4 decimals where the workbook has more, the difference
      * being explained drift of the account's displayed balance (D-68; an agent's choice, D3b).
      *
@@ -291,7 +211,7 @@ final class EntryMapper {
     private AccountRef account(String name, String column, List<String> errors) {
         AccountRef account = chart.accountsByName().get(name.toLowerCase(Locale.ROOT));
         if (account == null) {
-            errors.add("%s is not in the accounts file".formatted(column));
+            errors.add("%s is none of the file's accounts".formatted(column));
         }
         return account;
     }

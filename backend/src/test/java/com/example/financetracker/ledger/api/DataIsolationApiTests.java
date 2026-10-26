@@ -356,7 +356,7 @@ class DataIsolationApiTests extends LedgerApiTest {
         // The reconciliation is of his ledger alone: the same as hers, for the same files.
         assertThat(committed.get("reconciliation").get("lines"))
                 .isEqualTo(alicesImport.get("reconciliation").get("lines"));
-        assertThat(bobReads("/api/entries").get("totalElements").asLong()).isEqualTo(4 + 10);
+        assertThat(bobReads("/api/entries").get("totalElements").asLong()).isEqualTo(4 + 9);
         assertThat(view(alice)).isEqualTo(alicesView);
     }
 

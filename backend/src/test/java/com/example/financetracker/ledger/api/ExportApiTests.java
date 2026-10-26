@@ -159,46 +159,34 @@ class ExportApiTests extends MemberImportApiTest {
         assertThat(his.values()).allSatisfy(row -> assertThat(row).hasSize(32));
     }
 
-    /** D-238: a member's file imported back into his own ledger changes nothing. */
+    /**
+     * D-238, D4b's round trip: each member's file, of the whole period and of one month, imported back into his own
+     * ledger as it is, the app's rows among it, creates, updates and conflicts with nothing, misses nothing, and
+     * reconciles (D-256: his sides compared by what the ledger holds, 113's 8.004 held as 8.00 included).
+     */
     @Test
     void anExportImportedBackChangesNothing() throws IOException {
         imported();
-        // The rows the app made aren't the import's (D-236): taken out, as D4a's rehearsal does.
-        byte[] owners = withoutApp(file(owner, null));
-        JsonNode report = ok(ownerImport(null, null, null));
-        JsonNode again = ok(upload(owner, "owner", owners, null, seat, null, null));
-        assertThat(again.get("errors")).isEmpty();
-        assertThat(again.get("totals").get("created").asInt()).isZero();
-        assertThat(again.get("totals").get("updated").asInt()).isZero();
-        assertThat(again.get("totals").get("conflicts").asInt()).isZero();
-        assertThat(again.get("missing")).isEmpty();
-        assertThat(report.get("totals").get("unchanged").asInt()).isPositive();
-
-        JsonNode hisAgain = ok(memberImport(withoutApp(file(partner, null)), null, null));
-        assertThat(hisAgain.get("errors")).isEmpty();
-        assertThat(hisAgain.get("totals").get("created").asInt()).isZero();
-        assertThat(hisAgain.get("totals").get("conflicts").asInt()).isZero();
-        assertThat(hisAgain.get("missing")).isEmpty();
-        // Only 113's side, whose row said 8.004 and whose record holds 8.00 (D-74): his side's hash was made of the
-        // former, so the side is written again, with the same account and amount (D-181).
-        assertThat(hisAgain.get("totals").get("updated").asInt()).isEqualTo(1);
-        assertThat(count(hisAgain, "MEMBER_FAMILY", "PAYMENT_SIDE")).startsWith("c0 u1 ");
-    }
-
-    /** The file without the app's rows, as the five-file import reads one. */
-    private static byte[] withoutApp(Answers.Csv csv) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try (Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
-            writer.write('﻿');
-            for (List<String> line : csv.lines()) {
-                if (!line.getFirst().startsWith("app-")) {
-                    writer.write(String.join(";", line.stream().map(v -> v.contains(";") || v.contains("\"")
-                            ? '"' + v.replace("\"", "\"\"") + '"' : v).toList()) + "\r\n");
-                }
-            }
+        for (String query : new String[] {null, "from=2024-02-01&to=2024-02-29"}) {
+            byte[] owners = Answers.download(transactions(owner, query));
+            assertNothingChanges(ok(upload(owner, "owner", owners, null, seat, null, null)), query);
+            byte[] his = Answers.download(transactions(partner, query));
+            assertNothingChanges(ok(memberImport(his, null, null)), query);
         }
-        return out.toByteArray();
     }
+
+    private static void assertNothingChanges(JsonNode report, String query) {
+        assertThat(report.get("errors")).as(query).isEmpty();
+        assertThat(report.get("totals").get("created").asInt()).as(query).isZero();
+        assertThat(report.get("totals").get("updated").asInt()).as(query).isZero();
+        assertThat(report.get("totals").get("conflicts").asInt()).as(query).isZero();
+        assertThat(report.get("missing")).as(query).isEmpty();
+        assertThat(report.get("sync").get("appRows")).as(query).isEmpty();
+        assertThat(report.get("reconciliation").get("failures")).as(query).isEmpty();
+        assertThat(report.get("reconciliation").get("rows").get("failed").asInt()).as(query).isZero();
+        assertThat(report.get("reconciliation").get("passed").asBoolean()).as(query).isTrue();
+    }
+
 
     /**
      * D-242: for every account and currency, the balance at the end less the balance the day before is what the

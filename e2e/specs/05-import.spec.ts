@@ -1,17 +1,18 @@
 import { fileURLToPath } from 'node:url'
 import { deleteAllMyData, expect, expectIntegrity, ledgerIdOf, shot, test } from '../fixtures.ts'
 
-// D3b's import with A alone, on the synthetic export of backend/src/test/resources/import/ (invented names and amounts,
-// the real export's format), never a real one:
+// D3b's import with A alone, on the synthetic transactions files of backend/src/test/resources/import/ (invented names
+// and amounts, the real export's format with D-235's 32 columns), never a real one:
 // 1. A creates the family budget "Import check" from 1 January 2024 with Sam, a member without an account (D-141).
-// 2. The import page: A's five files, the budget and Sam's place, and the partner's transactions file, which the page
-//    filters in the browser: 7 of his 9 rows are family rows and leave it (D-140). A's transactions file is counted as
-//    soon as it is chosen, as the import counts it: 25 rows (D-221).
-// 3. A dry run "up to" 2024-02-29 (D-165): no error, 31 rows to create, one row of each file after the date, and the
-//    balances reconcile with the daily balance file up to it (D-63 to D-69, D-146, D-147); its commit; then the date
-//    cleared: a dry run creates the 2 rows after it, whose commit completes the import, and the same files again
-//    create and update nothing (D-139). The report's header names a check or a commit, and once the files are
-//    committed, Commit stays off for them, also after another check (D3e).
+// 2. The import page: A's one transactions file (D4b), the budget and Sam's place, and the partner's transactions file,
+//    which the page filters in the browser: 7 of his 9 rows are family rows and leave it (D-140). A's file is counted
+//    as soon as it is chosen, as the import counts it: 25 rows, the highest ID 25, the last row of 2024-03-05 (D-221,
+//    D-257).
+// 3. A dry run "up to" 2024-02-29 (D-165): no error, 28 rows to create, one row of each file after the date, and the
+//    ledger checks out against the file up to it (D-231, D-255, D-256); its commit; then the date cleared: a dry run
+//    creates the 2 rows after it, whose commit completes the import, and the same files again create and update
+//    nothing (D-139). The report's header names a check or a commit, and once the files are committed, Commit stays
+//    off for them, also after another check (D3e).
 // 4. The budget holds Sam's records; the integrity check passes. Delete all my data takes the budget with it (D-36), so
 //    the run leaves nothing behind, in production too.
 
@@ -35,16 +36,12 @@ test('import', async ({ as, family }) => {
   await expect(page.getByRole('heading', { level: 2, name: BUDGET })).toBeVisible()
   const ledgerId = ledgerIdOf(page)
 
-  // 2. The files, the budget, the place, and the partner's file filtered here.
+  // 2. The file, the budget, the place, and the partner's file filtered here.
   await page.goto('/import')
   await expect(page.getByRole('heading', { name: 'Import', exact: true })).toBeVisible()
-  await page.locator('input[name="accounts"]').setInputFiles(file('accounts.csv'))
-  await page.locator('input[name="categories"]').setInputFiles(file('categories.csv'))
   await page.locator('input[name="transactions"]').setInputFiles(file('transactions.csv'))
   await expect(page.getByTestId('file-rows')).toHaveText('Your transactions file: 25 rows, counted as the import '
-    + 'counts them.')
-  await page.locator('input[name="dailyBalance"]').setInputFiles(file('daily-balance.csv'))
-  await page.locator('input[name="dailyChange"]').setInputFiles(file('daily-change.csv'))
+    + 'counts them; highest ID 25; last row dated 2024-03-05.')
   await page.getByLabel('Family budget').selectOption({ label: BUDGET })
   await page.getByLabel('The partner’s place').selectOption({ label: 'Sam' })
   await page.locator('input[name="partnerTransactions"]').setInputFiles(file('partner-transactions.csv'))
@@ -63,7 +60,7 @@ test('import', async ({ as, family }) => {
   expect(body).not.toContain('Восток')
   // The report's own verdict (the filter's line above the buttons is a status too).
   const verdict = page.locator('section.report > [role="status"]')
-  await expect(verdict).toHaveText('Dry run: nothing was saved. No errors: committing would create 31 and update 0.',
+  await expect(verdict).toHaveText('Dry run: nothing was saved. No errors: committing would create 28 and update 0.',
     { timeout: 60_000 })
   await expect(page.getByTestId('report-kind')).toHaveText('Check (dry run): nothing was saved')
   await expect(page.getByTestId('after-cutoff')).toHaveText('Imported up to 2024-02-29. After it, neither imported '
@@ -73,7 +70,7 @@ test('import', async ({ as, family }) => {
 
   page.once('dialog', (dialog) => void dialog.accept())
   await page.getByRole('button', { name: 'Commit import' }).click()
-  await expect(verdict).toHaveText(/^Imported: 31 created, 0 updated\./, { timeout: 60_000 })
+  await expect(verdict).toHaveText(/^Imported: 28 created, 0 updated\./, { timeout: 60_000 })
   await expect(page.getByTestId('report-kind')).toHaveText('Commit: the import was saved')
   await shot(page, 'import-03-committed')
 

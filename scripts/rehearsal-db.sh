@@ -18,8 +18,8 @@
 #    Then no column holds a participant's sub any more, which it checks. No sub is printed.
 # 4. Prints the numbers of pg-restore-test's table (users, ledgers, ... family_invites), to compare with the dump's.
 #
-# Then run the backend on the host against it and Vite (the runbook's step 12, "The local rehearsal"), and sign in as
-# the two dev users. Exit status: 0 done, 1 a refusal or a failure, 2 usage.
+# Then run the backend on the host against it and Vite (the runbook's step 12, "The local rehearsal"), sign in as the
+# two dev users, and import each one's transactions file, the owner's first (D4b: one file per member, D-258). Exit status: 0 done, 1 a refusal or a failure, 2 usage.
 set -euo pipefail
 
 NAME=finance-tracker-rehearsal-db

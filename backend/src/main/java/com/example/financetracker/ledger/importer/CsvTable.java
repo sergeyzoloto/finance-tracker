@@ -21,9 +21,10 @@ import org.apache.commons.csv.CSVRecord;
  * A sheet exported from Excel as CSV: UTF-8, possibly with a byte order mark, separated by semicolons, fields quoted
  * where needed, lines ending in CRLF or LF. The first row names the columns. Values come back trimmed.
  *
+ * @param header the first row's column names, trimmed, in the file's order
  * @param problems what makes the file as a whole unreadable; there are no rows then
  */
-record CsvTable(List<Row> rows, List<Problem> problems) {
+record CsvTable(List<String> header, List<Row> rows, List<Problem> problems) {
 
     private static final CSVFormat FORMAT = CSVFormat.RFC4180.builder().setDelimiter(';').setIgnoreEmptyLines(true)
             .get();
@@ -55,9 +56,9 @@ record CsvTable(List<Row> rows, List<Problem> problems) {
         }
 
         Map<String, Integer> columns = new HashMap<>();
-        List<String> header = records.getFirst().toList();
+        List<String> header = records.getFirst().toList().stream().map(ExcelValues::trim).toList();
         for (int i = 0; i < header.size(); i++) {
-            String name = ExcelValues.trim(header.get(i));
+            String name = header.get(i);
             if (!name.isEmpty() && columns.putIfAbsent(name, i) != null) {
                 return failed(file, "the column '%s' appears twice".formatted(name));
             }
@@ -71,11 +72,11 @@ record CsvTable(List<Row> rows, List<Problem> problems) {
         for (CSVRecord record : records.subList(1, records.size())) {
             rows.add(new Row(Math.toIntExact(record.getRecordNumber()), columns, record.toList()));
         }
-        return new CsvTable(rows, List.of());
+        return new CsvTable(header, rows, List.of());
     }
 
     private static CsvTable failed(ImportFile file, String problem) {
-        return new CsvTable(List.of(), List.of(new Problem(file.name(), null, problem)));
+        return new CsvTable(List.of(), List.of(), List.of(new Problem(file.name(), null, problem)));
     }
 
     /**

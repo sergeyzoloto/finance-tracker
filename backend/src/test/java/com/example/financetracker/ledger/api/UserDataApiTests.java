@@ -57,7 +57,7 @@ class UserDataApiTests extends LedgerApiTest {
         byte[] transactions = personalRows();
         JsonNode imported = ok(importWorkbook(user, transactions, "false"));
         assertThat(imported.get("outcome").asText()).isEqualTo("COMMITTED");
-        assertThat(rowsOf(user)).containsEntry("import_batch", 1L).containsEntry("journal_entry", 10L);
+        assertThat(rowsOf(user)).containsEntry("import_batch", 1L).containsEntry("journal_entry", 9L);
         // An imported entry deleted in the app is remembered (D-150), and goes with the rest.
         JsonNode first = ok(get(user, "/api/entries?size=1")).get("content").get(0);
         assertThat(delete(user, "/api/entries/%d?version=%d".formatted(first.get("id").asLong(),

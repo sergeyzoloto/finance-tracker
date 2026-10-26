@@ -22,14 +22,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 /**
- * POST /api/import over the synthetic export of {@code src/test/resources/import/} (D3b): the owner's personal and
- * family rows and the partner's family rows into a family budget and the partner's seat (D-82, D-141), the
- * reconciliation with the daily balance file, and the sync by permanent IDs (D-138, D-139, D-142, D-150).
+ * POST /api/import of the synthetic transactions file of {@code src/test/resources/import/} (D3b, D4b): the owner's
+ * personal and family rows and the partner's family rows into a family budget and the partner's seat (D-82, D-141),
+ * the accounts and categories from the file's rows (D-228, D-229), the reconciliation with the file (D-231, D-255,
+ * D-256), the sync by permanent IDs (D-138, D-139, D-142, D-150) and the app's own rows (D-259).
  */
 class ImportApiTests extends LedgerApiTest {
 
-    /** What the export holds, by source and kind: created on a first import. */
-    private static final int CREATED = 33;
+    /** What the file holds, by source and kind: created on a first import. */
+    private static final int CREATED = 30;
 
     private final String owner = newUser();
     private long family;
@@ -88,7 +89,7 @@ class ImportApiTests extends LedgerApiTest {
 
     /** A dry run writes everything, reconciles, reports and keeps nothing; it is the default. */
     @Test
-    void aDryRunImportsTheWholeExportReconcilesItAndSavesNothing() throws IOException {
+    void aDryRunImportsTheWholeFileReconcilesItAndSavesNothing() throws IOException {
         JsonNode report = run(null);
 
         assertThat(report.get("outcome").asText()).isEqualTo("DRY_RUN");
@@ -96,13 +97,13 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(report.get("totals")).isEqualTo(Answers.json("""
                 {"created": %d, "updated": 0, "unchanged": 0, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 3,
                  "notImported": 1}""".formatted(CREATED)));
-        assertThat(count(report, "OWNER_PERSONAL", "OPENING_BALANCE")).isEqualTo("c1 u0 n0 x0 e0 s0 i0");
+        // D-233, D-232: no opening balances and no lumps.
+        assertThat(count(report, "OWNER_PERSONAL", "OPENING_BALANCE")).isEqualTo("none");
         assertThat(count(report, "OWNER_FAMILY", "EXPENSE")).isEqualTo("c3 u0 n0 x0 e0 s0 i0");
         assertThat(count(report, "OWNER_FAMILY", "REFUND")).isEqualTo("c1 u0 n0 x0 e0 s0 i0");
         assertThat(count(report, "OWNER_SETTLEMENT", "SETTLEMENT")).isEqualTo("c4 u0 n0 x0 e0 s0 i0");
         assertThat(count(report, "OWNER_SETTLEMENT", "CONVERSION")).isEqualTo("c4 u0 n0 x0 e0 s0 i0");
         assertThat(count(report, "OWNER_SEAT", "INCOME")).isEqualTo("c1 u0 n0 x0 e0 s0 i1");
-        assertThat(count(report, "OWNER_LUMP", "EXPENSE")).isEqualTo("c2 u0 n0 x0 e0 s0 i0");
         assertThat(count(report, "PARTNER", "EXPENSE")).isEqualTo("c4 u0 n0 x0 e0 s0 i0");
         assertThat(count(report, "PARTNER", "ZERO")).isEqualTo("c0 u0 n0 x0 e0 s1 i0");
         assertThat(report.get("period")).isEqualTo(Answers.json("""
@@ -110,24 +111,34 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(StreamSupport.stream(report.get("currencies").spliterator(), false).map(JsonNode::asText))
                 .containsExactly("EUR", "RUB", "USD");
         assertThat(report.get("family").get("seatName").asText()).isEqualTo("Sam");
-        // The partner's file goes by a name of the server's, never his file's (D-143).
+        // One file of the user's, and the partner's rows by a name of the server's, never his file's (D-143).
+        assertThat(report.get("files").findValuesAsText("role")).containsExactly("transactions",
+                "partner's transactions");
         assertThat(report.get("files").findValuesAsText("name")).contains("partner-family-rows.csv")
                 .noneMatch(name -> name.contains("someone"));
+        // D-228: the accounts and categories the rows name, created; the typos' codes fixed (D-246).
+        JsonNode chart = report.get("chart");
+        assertThat(chart.get("created").findValuesAsText("code")).contains("NORTH_CARD", "GEMEENTE_FUND",
+                "COMMISSION", "TRANSPORT").doesNotContain("GEMENTE_FUND", "COMMISION");
+        assertThat(report.get("idGaps")).isEmpty();
 
         JsonNode reconciliation = report.get("reconciliation");
         assertThat(reconciliation.get("failures")).isEmpty();
         assertThat(reconciliation.get("passed").asBoolean()).isTrue();
-        assertThat(reconciliation.get("cutoff").asText()).isEqualTo("2024-03-08");
-        assertThat(reconciliation.get("tailFrom").asText()).isEqualTo("2024-03-01");
-        assertThat(reconciliation.get("lastCompared").asText()).isEqualTo("2024-02-29");
-        assertThat(reconciliation.get("withoutFamilyRows").findValuesAsText("currency")).containsExactly("USD");
-        assertThat(reconciliation.get("withoutFamilyRows").get(0).get("ok").asBoolean()).isTrue();
-        assertThat(reconciliation.get("explained").findValuesAsText("reason")).contains("SHARES", "MINOR_UNIT",
+        // From the file's first row date to its last (D-256): the partner's rows aren't the owner's file.
+        assertThat(reconciliation.get("from").asText()).isEqualTo("2024-01-02");
+        assertThat(reconciliation.get("cutoff").asText()).isEqualTo("2024-03-05");
+        assertThat(reconciliation.get("lastCompared").asText()).isEqualTo("2024-03-05");
+        assertThat(reconciliation.get("lines").findValuesAsText("account")).contains("EQUITY+FAMILY_DEBT")
+                .doesNotContain("FAMILY_DEBT", "UNALLOCATED", "EQUITY");
+        assertThat(reconciliation.get("explained").findValuesAsText("reason")).contains("MINOR_UNIT",
                 "FOUR_DECIMALS");
-        // D-169: the owner's D-84 row of February is exactly half of the partner's benefit.
-        assertThat(reconciliation.get("ownerHalf")).isEqualTo(Answers.json("""
-                [{"month": "2024-02-01", "currency": "EUR", "ownerRows": "30.00", "partnerIncomes": "60.00", "incomes": 1,
-                  "ownerHalf": "0.00", "explained": true}]"""));
+        JsonNode rows = reconciliation.get("rows");
+        assertThat(rows.get("rows").asInt()).isEqualTo(25);
+        assertThat(rows.get("failed").asInt()).isZero();
+        // D-12's shares move FAMILY_DEBT and UNALLOCATED the other way round: nothing in the pool (D-255).
+        assertThat(rows.get("explained").findValuesAsText("reason")).contains("MINOR_UNIT", "FOUR_DECIMALS")
+                .doesNotContain("SHARES");
         assertThat(report.get("integrityViolations")).isEmpty();
 
         assertThat(entries()).isZero();
@@ -147,15 +158,14 @@ class ImportApiTests extends LedgerApiTest {
         String p = "xls:" + seat + ":";
         assertThat(externalRefs()).containsExactlyInAnyOrder(o + "2", o + "3", o + "4", o + "5", o + "6", o + "9",
                 o + "10", o + "11", o + "12", o + "13", o + "14:EUR", o + "14:RUB", o + "15:EUR", o + "15:USD", o + "16",
-                o + "PL:2024-01:EUR", o + "PL:2024-01:RUB", p + "101", p + "102", p + "103", p + "104", p + "108",
-                p + "109");
+                p + "101", p + "102", p + "103", p + "104", p + "108", p + "109");
         assertThat(jdbc.sql("""
                 SELECT count(*) FROM journal_entry e JOIN ledger_member m ON m.ledger_id = e.ledger_id
                 WHERE m.user_sub = ? AND e.external_ref ~ '^xls:[0-9]+$' AND e.import_hash IS NOT NULL""")
                 .param(owner).query(Long.class).single()).isEqualTo(9);
         // The partner's records are paid by his seat, imported by the owner (D-48).
         JsonNode records = ok(get(owner, "/api/family-ledgers/" + family + "/records?size=100")).get("content");
-        assertThat(records).hasSize(23);
+        assertThat(records).hasSize(21);
         assertThat(records).allSatisfy(r -> assertThat(r.get("importedBy").get("memberId").asLong())
                 .isEqualTo(ownerMember));
 
@@ -165,7 +175,7 @@ class ImportApiTests extends LedgerApiTest {
                 {"created": 0, "updated": 0, "unchanged": %d, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 3,
                  "notImported": 1}""".formatted(CREATED)));
         assertThat(again.get("reconciliation").get("passed").asBoolean()).isTrue();
-        assertThat(externalRefs()).hasSize(23);
+        assertThat(externalRefs()).hasSize(21);
     }
 
     private JsonNode runUpTo(byte[] transactions, String upTo) throws IOException {
@@ -204,15 +214,11 @@ class ImportApiTests extends LedgerApiTest {
         // The rows imported end before the date: the last of them is of 2024-01-24.
         assertThat(january.get("period").get("to").asText()).isEqualTo("2024-01-24");
         JsonNode reconciliation = january.get("reconciliation");
-        // Every month-end up to the date agrees; but the dollar family debt is still open on 2024-01-31 (row 16 settles
-        // it on 2024-02-05), so D-147's check at the last compared point (D-157) says so, as it would in Excel's month.
+        // The movements up to the last row before the date agree, the dollar family debt with the equity (D-255).
         assertThat(reconciliation.get("failures")).isEmpty();
-        assertThat(reconciliation.get("withoutFamilyRows")).isEqualTo(Answers.json("""
-                [{"currency": "USD", "appFamilyDebt": "10.00", "excelFamilyDebt": "22.35", "ok": false}]"""));
-        assertThat(reconciliation.get("passed").asBoolean()).isFalse();
-        assertThat(reconciliation.get("cutoff").asText()).isEqualTo("2024-01-31");
-        assertThat(reconciliation.get("lastCompared").asText()).isEqualTo("2024-01-31");
-        assertThat(reconciliation.get("pointsCompared").asInt()).isEqualTo(2 * reconciliation.get("lines").size());
+        assertThat(reconciliation.get("passed").asBoolean()).isTrue();
+        assertThat(reconciliation.get("cutoff").asText()).isEqualTo("2024-01-24");
+        assertThat(reconciliation.get("pointsCompared").asInt()).isEqualTo(reconciliation.get("lines").size());
         assertThat(importedAfter("2024-01-31")).isZero();
         int createdInJanuary = january.get("totals").get("created").asInt();
 
@@ -228,7 +234,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(february.get("totals").get("updated").asInt()).isZero();
         assertThat(february.get("totals").get("unchanged").asInt()).isEqualTo(createdInJanuary);
         assertThat(february.get("totals").get("missing").asInt()).isZero();
-        assertThat(february.get("reconciliation").get("lastCompared").asText()).isEqualTo("2024-02-29");
+        assertThat(february.get("reconciliation").get("lastCompared").asText()).isEqualTo("2024-02-05");
         assertThat(february.get("reconciliation").get("passed").asBoolean()).isTrue();
         assertThat(importedAfter("2024-02-29")).isZero();
         assertThat(importedAfter("2024-01-31")).isEqualTo(february.get("totals").get("created").asLong());
@@ -243,7 +249,7 @@ class ImportApiTests extends LedgerApiTest {
                 + all.get("totals").get("created").asInt()).isEqualTo(CREATED);
         assertThat(all.get("totals").get("unchanged").asInt()).isEqualTo(CREATED - all.get("totals").get("created")
                 .asInt());
-        assertThat(externalRefs()).hasSize(23);
+        assertThat(externalRefs()).hasSize(21);
         assertThat(all.get("reconciliation").get("passed").asBoolean()).isTrue();
 
         // An earlier date after that leaves the newer rows alone: neither missing nor changed, even one gone from the
@@ -252,11 +258,12 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(earlier.get("totals")).isEqualTo(Answers.json("""
                 {"created": 0, "updated": 0, "unchanged": %d, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 2,
                  "notImported": 0}""".formatted(createdInJanuary)));
-        assertThat(externalRefs()).hasSize(23);
+        assertThat(externalRefs()).hasSize(21);
         assertThat(entryOf("xls:25")).isNotNull();
-        // Without the date, the row gone from the file is missing again (D-138).
-        assertThat(refs(run(withoutRows(bytes("transactions.csv"), Set.of("25")), partnerRows(), "true")
-                .get("missing"))).containsExactly("OWNER_PERSONAL 25");
+        // Without the date, the file without its last row ends on 2024-02-05, before row 25's date: not missing either
+        // (D-256). Within the period it would be (aRowGoneFromTheFileWithinItsPeriodIsReported).
+        assertThat(run(withoutRows(bytes("transactions.csv"), Set.of("25")), partnerRows(), "true").get("missing"))
+                .isEmpty();
     }
 
     /**
@@ -341,7 +348,7 @@ class ImportApiTests extends LedgerApiTest {
             assertThat(sync.get("appEdits")).isEqualTo(Answers.json("""
                     [{"source": "OWNER_PERSONAL", "excelId": "21", "date": "2024-01-22", "account": "CASH",
                       "currency": "EUR", "amount": "1.50"},
-                     {"source": "OWNER_PERSONAL", "excelId": "21", "date": "2024-01-22", "account": "EQUITY",
+                     {"source": "OWNER_PERSONAL", "excelId": "21", "date": "2024-01-22", "account": "EQUITY+FAMILY_DEBT",
                       "currency": "EUR", "amount": "1.50"}]"""));
             assertThat(sync.get("replanned")).isEmpty();
             assertThat(sync.get("restamped")).isEmpty();
@@ -352,7 +359,7 @@ class ImportApiTests extends LedgerApiTest {
                     .filter(e -> e.get("reason").asText().equals("APP_EDITED"))
                     .map(e -> e.get("account").asText() + " " + e.get("currency").asText() + " "
                             + e.get("amount").asText()))
-                    .containsExactlyInAnyOrder("CASH EUR 1.50", "EQUITY EUR 1.50");
+                    .containsExactlyInAnyOrder("CASH EUR 1.50", "EQUITY+FAMILY_DEBT EUR 1.50");
         }
         assertThat(entryOf("xls:21").get("memo").asText()).isEqualTo("mine now");
         assertThat(entryOf("xls:20").get("postings").get(1).get("counterpartyId").asLong()).isEqualTo(borrower);
@@ -361,7 +368,7 @@ class ImportApiTests extends LedgerApiTest {
     /**
      * D-219: a row as imported last whose entry or record nobody changed in the app, but which the current code maps
      * otherwise (here, as an older code would have left it), is re-planned: written over and listed; then it is
-     * unchanged. A dry run saves none of it.
+     * unchanged. A dry run saves none of it. An entry's kind alone is no difference (D-256).
      */
     @Test
     void anUntouchedRowThatTheCurrentCodeMapsOtherwiseIsReplanned() throws IOException {
@@ -372,8 +379,10 @@ class ImportApiTests extends LedgerApiTest {
         long other = body(post(owner, "/api/family-ledgers/" + family + "/categories", """
                 {"code": "OLD_FOOD", "name": "Food, as it was", "type": "EXPENSE"}"""), HttpStatus.CREATED)
                 .get("id").asLong();
-        // What older code wrote, as the database holds it, with no new version.
-        jdbc.sql("UPDATE journal_entry SET kind = 'MANUAL' WHERE external_ref = 'xls:21' AND ledger_id = ?")
+        // What older code wrote, as the database holds it, with no new version: row 21's memo, row 7's kind.
+        jdbc.sql("UPDATE journal_entry SET memo = 'as it was' WHERE external_ref = 'xls:21' AND ledger_id = ?")
+                .param(personalLedger(owner)).update();
+        jdbc.sql("UPDATE journal_entry SET kind = 'MANUAL' WHERE external_ref = 'xls:7' AND ledger_id = ?")
                 .param(personalLedger(owner)).update();
         jdbc.sql("UPDATE family_record SET category_id = ? WHERE id = ?").params(other, recordOf2).update();
 
@@ -381,7 +390,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(refs(dry.get("sync").get("replanned"))).containsExactlyInAnyOrder("OWNER_PERSONAL 21",
                 "OWNER_FAMILY 2");
         assertThat(dry.get("totals").get("updated").asInt()).isEqualTo(2);
-        assertThat(entryOf("xls:21").get("kind").asText()).isEqualTo("MANUAL");
+        assertThat(entryOf("xls:21").get("memo").asText()).isEqualTo("as it was");
 
         JsonNode committed = run("false");
         assertThat(committed.get("outcome").asText()).isEqualTo("COMMITTED");
@@ -390,7 +399,9 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(committed.get("sync").get("replanned").findValuesAsText("reason")).containsOnly(
                 "re-planned: the current code maps it differently (D-219)");
         JsonNode entry = entryOf("xls:21");
-        assertThat(entry.get("kind").asText()).isEqualTo("EXPENSE");
+        assertThat(entry.get("memo").isNull()).isTrue();
+        // The kind is only the interface's hint: row 7 stays MANUAL, unchanged.
+        assertThat(entryOf("xls:7").get("kind").asText()).isEqualTo("MANUAL");
         assertThat(jdbc.sql("SELECT import_version = version FROM journal_entry WHERE id = ?")
                 .param(entry.get("id").asLong()).query(Boolean.class).single()).isTrue();
         assertThat(jdbc.sql("SELECT category_id FROM family_record WHERE id = ?").param(recordOf2).query(Long.class)
@@ -443,8 +454,7 @@ class ImportApiTests extends LedgerApiTest {
     @Test
     void personalTwinsOfTheFamilysCategoriesMerge() throws IOException {
         run("false");
-        // FX_GAIN is in the categories file and no posting uses it (row 18 is skipped); PAYCHECK is row 1's, a
-        // personal income.
+        // FX_GAIN is row 18's item and no posting uses it (row 18 is skipped); PAYCHECK is row 1's, a personal income.
         long fxGain = categoryOf("FX_GAIN");
         long paycheck = categoryOf("PAYCHECK");
         long familyFxGain = body(post(owner, "/api/family-ledgers/" + family + "/categories", """
@@ -457,7 +467,7 @@ class ImportApiTests extends LedgerApiTest {
         JsonNode dry = run(null);
         assertThat(dry.get("sync").get("categoriesMerged")).isEqualTo(Answers.json("[\"FX_GAIN\"]"));
         assertThat(dry.get("referenceData").get("categoriesMerged").asInt()).isEqualTo(1);
-        assertThat(dry.get("warningSummary").findValuesAsText("message")).contains("a personal category of yours "
+        assertThat(dry.get("warningSummary").findValuesAsText("message")).contains("your personal category PAYCHECK "
                 + "has the family budget's code and 1 postings: not merged (D-11); its rows map to the family category");
         assertThat(refs(dry.get("sync").get("replanned"))).containsExactly("OWNER_PERSONAL 1");
         assertThat(categoryExists(fxGain)).isTrue();
@@ -498,18 +508,42 @@ class ImportApiTests extends LedgerApiTest {
                 .param(user).query(Long.class).single();
     }
 
-    /** D-138: a row gone from the export is reported, by its Excel ID, and nothing is deleted. */
+    /**
+     * D-138 within the file's period (D-256): a row gone from the file between its first and last row date is reported,
+     * by its Excel ID, and nothing is deleted; one before or after the period is the file's to leave out.
+     */
     @Test
-    void aRowGoneFromTheExportIsReportedAndNothingIsDeleted() throws IOException {
+    void aRowGoneFromTheFileWithinItsPeriodIsReported() throws IOException {
         run("false");
         long before = entries();
-        JsonNode report = run(withoutRows(bytes("transactions.csv"), Set.of("1", "2")),
-                withoutRows(partnerRows(), Set.of("101")), "false");
+        JsonNode report = run(withoutRows(bytes("transactions.csv"), Set.of("1", "6", "21")),
+                withoutRows(partnerRows(), Set.of("101", "103")), "false");
         assertThat(report.get("outcome").asText()).isEqualTo("COMMITTED");
-        assertThat(refs(report.get("missing"))).containsExactlyInAnyOrder("OWNER_PERSONAL 1", "OWNER 2", "PARTNER 101");
+        // Row 1 (2024-01-02) was the file's first row and the partner's 101 his: the files now start after them.
+        assertThat(refs(report.get("missing"))).containsExactlyInAnyOrder("OWNER 6", "OWNER_PERSONAL 21",
+                "PARTNER 103");
         assertThat(report.get("totals").get("missing").asInt()).isEqualTo(3);
         assertThat(entries()).isEqualTo(before);
-        assertThat(externalRefs()).hasSize(23);
+        assertThat(externalRefs()).hasSize(21);
+        // The ledger keeps rows 2 and 21, which the file no longer moves: the check fails on them.
+        assertThat(report.get("reconciliation").get("passed").asBoolean()).isFalse();
+    }
+
+    /** D-256: a file of one month reports nothing missing outside it, and its movements reconcile. */
+    @Test
+    void aFileOfOneMonthReportsNothingOutsideIt() throws IOException {
+        run("false");
+        byte[] february = com.example.financetracker.ledger.importer.ImportFixtures.onlyRows(bytes("transactions.csv"), Set.of("16", "23"));
+        JsonNode report = run(february, null, "true");
+        assertThat(report.get("missing")).isEmpty();
+        // Row 16 a settlement as imported; row 23 one of D-84's, not imported.
+        assertThat(report.get("totals").get("unchanged").asInt()).isEqualTo(1);
+        assertThat(report.get("totals").get("notImported").asInt()).isEqualTo(1);
+        JsonNode reconciliation = report.get("reconciliation");
+        assertThat(reconciliation.get("from").asText()).isEqualTo("2024-02-03");
+        assertThat(reconciliation.get("cutoff").asText()).isEqualTo("2024-02-05");
+        // The partner's records of those days are his shares, which cancel out in the pool (D-255).
+        assertThat(reconciliation.get("passed").asBoolean()).isTrue();
     }
 
     /** D-150 and D-113: a row deleted in the app stays deleted and is a conflict. */
@@ -599,11 +633,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(importExport(owner, t, partnerRows(), family, ownerMember, null)).hasStatus(HttpStatus.CONFLICT);
         // A budget without a seat, or the partner's rows without a budget, is a bad request.
         assertThat(mvc.post().uri("/api/import").multipart()
-                .file(new org.springframework.mock.web.MockMultipartFile("accounts", "a.csv", "text/csv", t))
-                .file(new org.springframework.mock.web.MockMultipartFile("categories", "c.csv", "text/csv", t))
                 .file(new org.springframework.mock.web.MockMultipartFile("transactions", "t.csv", "text/csv", t))
-                .file(new org.springframework.mock.web.MockMultipartFile("dailyBalance", "b.csv", "text/csv", t))
-                .file(new org.springframework.mock.web.MockMultipartFile("dailyChange", "d.csv", "text/csv", t))
                 .param("familyLedgerId", String.valueOf(family)).with(member(owner)).exchange())
                 .hasStatus(HttpStatus.BAD_REQUEST);
         assertThat(importExport(owner, t, partnerRows(), null, null, null)).hasStatus(HttpStatus.BAD_REQUEST);
@@ -620,7 +650,190 @@ class ImportApiTests extends LedgerApiTest {
         JsonNode personal = ok(importWorkbook(owner, personalRows(), "false"));
         assertThat(personal.get("outcome").asText()).isEqualTo("COMMITTED");
         assertThat(personal.get("family").isNull()).isTrue();
-        assertThat(personal.get("totals").get("created").asInt()).isEqualTo(10);
+        assertThat(personal.get("totals").get("created").asInt()).isEqualTo(9);
+    }
+
+    // --- D4b: one file ------------------------------------------------------------------------------------------
+
+    private List<String> refused(byte[] transactions) throws IOException {
+        return violations(importExport(owner, transactions, partnerRows(), family, seat, "false"));
+    }
+
+    /** D4b: a file is recognised by D-235's header; any other is refused whole (422), naming it, and nothing written. */
+    @Test
+    void aFileWithAnotherHeaderIsRefusedWhole() throws IOException {
+        String old = "ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;"
+                + "CUR_CREDIT;SUM_CREDIT;LOAN_CA\r\n1;02.01.2024;Оклад;1000;EUR;;;A;B;;;;;;\r\n";
+        assertThat(refused(old.getBytes(StandardCharsets.UTF_8))).singleElement().asString()
+                .startsWith("the file isn't a transactions file").contains("ID;Date;Exp. Item;Sum;").contains("D-235");
+        assertThat(entries()).isZero();
+        assertThat(accountCodes()).doesNotContain("NORTH_CARD");
+    }
+
+    /** D-229: two names or two types of a code in the file, or a type the app's code hasn't, refuse it before any write. */
+    @Test
+    void codesThatDontFitTogetherRefuseTheFileBeforeAnyWrite() throws IOException {
+        byte[] t = bytes("transactions.csv");
+        assertThat(refused(withField(t, "17", 7, "Наличные"))).containsExactly(
+                "the account CASH has 2 names in the file, first in the IDs 7, 17 (D-229)");
+        assertThat(refused(withField(t, "2", 16, "INCOME"))).containsExactly(
+                "the category FOOD has the types INCOME and EXPENSE in the file, first in the IDs 2, 3 (D-229)");
+        assertThat(entries()).isZero();
+        assertThat(accountCodes()).doesNotContain("NORTH_CARD");
+        // A code the app has with another type: the starter ledger's CASH is an asset.
+        byte[] liability = withField(withField(withField(withField(t, "7", 19, "LIABILITIES"), "10", 19, "LIABILITIES"),
+                "17", 19, "LIABILITIES"), "25", 20, "LIABILITIES");
+        assertThat(refused(liability)).containsExactly("the account CASH is ASSET in the app and LIABILITIES in the "
+                + "file (D-229)");
+        assertThat(entries()).isZero();
+        assertThat(externalRefs()).isEmpty();
+    }
+
+    /**
+     * D-228, D-254: a code the app lacks is created and listed; the file's name is written to an account or category
+     * the app has under another name, and the rename listed; a family category keeps its first name.
+     */
+    @Test
+    void newCodesAreCreatedAndRenamesListed() throws IOException {
+        JsonNode first = run("false");
+        assertThat(first.get("chart").get("created")).anySatisfy(c -> {
+            assertThat(c.get("kind").asText()).isEqualTo("ACCOUNT");
+            assertThat(c.get("code").asText()).isEqualTo("NORTH_CARD");
+            assertThat(c.get("type").asText()).isEqualTo("ASSET");
+        });
+        assertThat(first.get("chart").get("created")).anySatisfy(c -> {
+            assertThat(c.get("kind").asText()).isEqualTo("FAMILY_CATEGORY");
+            assertThat(c.get("code").asText()).isEqualTo("FOOD");
+        });
+        assertThat(run("false").get("chart")).isEqualTo(Answers.json("{\"created\": [], \"renamed\": []}"));
+        // Rows 7, 10, 17 and 25 name the cash account otherwise; row 21's item too.
+        byte[] t = bytes("transactions.csv");
+        for (String id : List.of("7", "17")) {
+            t = withField(t, id, 7, "Кошелёк новый");
+        }
+        t = withField(withField(t, "10", 7, "Кошелёк новый"), "25", 8, "Кошелёк новый");
+        t = withField(t, "21", 2, "Комиссии банка");
+        JsonNode renamed = run(t, partnerRows(), "true");
+        assertThat(renamed.get("errors")).isEmpty();
+        assertThat(renamed.get("chart").get("renamed")).isEqualTo(Answers.json("""
+                [{"kind": "ACCOUNT", "code": "CASH", "from": "Кошелёк", "to": "Кошелёк новый"},
+                 {"kind": "CATEGORY", "code": "COMMISSION", "from": "Комиссия", "to": "Комиссии банка"}]"""));
+        // The family's category keeps its name, whatever the file calls it.
+        byte[] food = withField(bytes("transactions.csv"), "2", 2, "Еда");
+        for (String id : List.of("3", "5", "6", "8", "19", "25")) {
+            food = withField(food, id, 2, "Еда");
+        }
+        assertThat(run(food, partnerRows(), "true").get("chart").get("renamed")).isEmpty();
+    }
+
+    /** D-231 (c): the gaps in the Excel IDs are a warning, with the list. */
+    @Test
+    void gapsInTheIdsAreAWarningWithTheList() throws IOException {
+        JsonNode report = run(withoutRows(bytes("transactions.csv"), Set.of("4", "11", "12", "13")), partnerRows(),
+                "true");
+        assertThat(report.get("idGaps")).isEqualTo(Answers.json("[\"4\", \"11-13\"]"));
+        assertThat(report.get("warningSummary").findValuesAsText("message")).contains("the file's Excel IDs have 2 "
+                + "gap(s) between its lowest and highest ID (D-231): listed in the report");
+    }
+
+    /**
+     * D-231: the check passes on the clean file and fails on a Sum changed without its computed columns, on a middle row
+     * deleted, and on a row moved to another account by hand (its computed columns left as they were).
+     */
+    @Test
+    void theCheckFailsOnAChangedSumADeletedRowAndAMovedRow() throws IOException {
+        assertThat(run("false").get("reconciliation").get("passed").asBoolean()).isTrue();
+        byte[] t = bytes("transactions.csv");
+
+        JsonNode sum = run(withField(t, "21", 3, "2.5"), partnerRows(), "true").get("reconciliation");
+        assertThat(sum.get("passed").asBoolean()).isFalse();
+        assertThat(sum.get("rows").get("failures").findValuesAsText("excelId")).containsOnly("21");
+        assertThat(sum.get("rows").get("failures").findValuesAsText("what")).contains("DEBIT_CHANGE");
+
+        JsonNode deleted = run(withoutRows(t, Set.of("21")), partnerRows(), "true").get("reconciliation");
+        assertThat(deleted.get("passed").asBoolean()).isFalse();
+        assertThat(deleted.get("rows").get("failed").asInt()).isZero();
+        assertThat(deleted.get("failures").findValuesAsText("account")).contains("EURO_ACCOUNT");
+
+        // Row 25 from the wallet to the euro account: Credit and CODE_CREDIT changed, COUNT_CREDIT left as it was.
+        byte[] moved = withField(withField(t, "25", 8, "Евро-счёт"), "25", 18, "EURO_ACCOUNT");
+        JsonNode m = run(moved, partnerRows(), "true").get("reconciliation");
+        assertThat(m.get("passed").asBoolean()).isFalse();
+        assertThat(m.get("rows").get("failures").findValuesAsText("excelId")).containsOnly("25");
+        // Moved as Excel moves it, every column with it, it is an edit: written over, and the check passes.
+        byte[] edited = withField(moved, "25", 22, "EURO_ACCOUNT_EUR");
+        JsonNode e = run(edited, partnerRows(), "true");
+        assertThat(e.get("totals").get("updated").asInt()).isEqualTo(1);
+        assertThat(e.get("reconciliation").get("passed").asBoolean()).isTrue();
+    }
+
+    /**
+     * D-259 and D-256: the user's own export imported back changes nothing, the app's rows among it; an app row changed
+     * in the file, one that names nothing of the user's and one of another user's are listed, the same way, never
+     * written.
+     */
+    @Test
+    void theAppsRowsAreComparedAndNeverWritten() throws IOException {
+        run("false");
+        long cash = accountId(owner, "CASH");
+        long euro = accountId(owner, "EURO_ACCOUNT");
+        long made = body(post(owner, "/api/entries", """
+                {"kind": "MANUAL", "entryDate": "2024-02-20", "postings": [
+                  {"accountId": %d, "currency": "EUR", "amount": "-5"},
+                  {"accountId": %d, "currency": "EUR", "amount": "5"}]}""".formatted(euro, cash)),
+                HttpStatus.CREATED).get("id").asLong();
+        byte[] export = Answers.download(get(owner, "/api/export/transactions"));
+
+        JsonNode back = run(export, partnerRows(), "true");
+        assertThat(back.get("errors")).isEmpty();
+        assertThat(back.get("totals").get("created").asInt()).isZero();
+        assertThat(back.get("totals").get("updated").asInt()).isZero();
+        assertThat(back.get("totals").get("conflicts").asInt()).isZero();
+        assertThat(back.get("totals").get("missing").asInt()).isZero();
+        assertThat(back.get("sync").get("appRowsUnchanged").asInt()).isEqualTo(1);
+        assertThat(back.get("reconciliation").get("passed").asBoolean()).isTrue();
+
+        String bob = newUser();
+        long bobs = body(post(bob, "/api/entries", """
+                {"kind": "MANUAL", "entryDate": "2024-02-20", "postings": [
+                  {"accountId": %d, "currency": "EUR", "amount": "-5"},
+                  {"accountId": %d, "currency": "EUR", "amount": "5"}]}"""
+                .formatted(accountId(bob, "CASH"), accountId(bob, "UNALLOCATED"))), HttpStatus.CREATED)
+                .get("id").asLong();
+        byte[] changed = withField(export, "app-" + made, 3, "6");
+        changed = withLine(changed, lineWithId(export, "app-" + made, "app-" + (made + 1_000_000)));
+        changed = withLine(changed, lineWithId(export, "app-" + made, "app-" + bobs));
+        JsonNode listed = run(changed, partnerRows(), "false");
+        assertThat(listed.get("outcome").asText()).isEqualTo("COMMITTED");
+        assertThat(listed.get("totals").get("created").asInt()).isZero();
+        assertThat(listed.get("totals").get("updated").asInt()).isZero();
+        assertThat(refs(listed.get("sync").get("appRows"))).containsExactly("APP app-" + made,
+                "APP app-" + (made + 1_000_000), "APP app-" + bobs);
+        var reasons = listed.get("sync").get("appRows").findValuesAsText("reason");
+        assertThat(reasons.get(0)).isEqualTo("a row the app made, changed in the file: listed, never written (D-259)");
+        // Another user's entry gets the answer of one that doesn't exist (rule 11).
+        assertThat(reasons.get(2)).isEqualTo(reasons.get(1));
+        assertThat(ok(get(owner, "/api/entries/" + made)).get("postings").findValuesAsText("amount"))
+                .containsExactlyInAnyOrder("-5.00", "5.00");
+    }
+
+    /** The line of the file whose ID is {@code id}, with {@code newId} in its place. */
+    private static String lineWithId(byte[] csv, String id, String newId) {
+        return ImportFixturesLines.of(csv).stream().filter(l -> l.startsWith(id + ";")).findFirst().orElseThrow()
+                .replaceFirst(java.util.regex.Pattern.quote(id), newId);
+    }
+
+    /** The lines of a file, as ImportFixtures splits them. */
+    private static final class ImportFixturesLines {
+
+        static List<String> of(byte[] csv) {
+            return com.example.financetracker.ledger.importer.ImportFixtures.lines(csv);
+        }
+    }
+
+    private List<String> accountCodes() {
+        return jdbc.sql("SELECT code FROM account WHERE ledger_id = ?").param(personalLedger(owner))
+                .query(String.class).list();
     }
 
     private List<String> violations(org.springframework.test.web.servlet.assertj.MvcTestResult result)

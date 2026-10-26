@@ -24,14 +24,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
 
 /**
- * The command line of {@link ImportRunner}, run on the synthetic export in a temporary directory, with the partner's
- * raw transactions file, which it filters as the import page does (D-140). The runner is called directly: its
+ * The command line of {@link ImportRunner}, run on the synthetic transactions file in a temporary directory, with the
+ * partner's raw transactions file, which it filters as the import page does (D-140). The runner is called directly: its
  * {@code run} would exit the JVM.
  */
 class ImportRunnerTests extends IntegrationTest {
 
-    private static final List<String> FILES = List.of("accounts.csv", "categories.csv", "transactions.csv",
-            "daily-balance.csv", "daily-change.csv", "partner-transactions.csv");
+    private static final List<String> FILES = List.of("transactions.csv", "partner-transactions.csv");
 
     @Autowired
     private ImportService imports;
@@ -62,9 +61,7 @@ class ImportRunnerTests extends IntegrationTest {
 
     private String[] args(String... more) {
         List<String> all = new java.util.ArrayList<>(List.of("--user-sub=" + user,
-                "--accounts=" + dir.resolve("accounts.csv"), "--categories=" + dir.resolve("categories.csv"),
-                "--transactions=" + dir.resolve("transactions.csv"), "--daily-balance=" + dir.resolve("daily-balance.csv"),
-                "--daily-change=" + dir.resolve("daily-change.csv")));
+                "--transactions=" + dir.resolve("transactions.csv")));
         all.addAll(List.of(more));
         return all.toArray(String[]::new);
     }
@@ -77,14 +74,14 @@ class ImportRunnerTests extends IntegrationTest {
         assertThat(exitCode).isZero();
         String report = Files.readString(dir.resolve("import-report.md"));
         assertThat(report).startsWith("# Import report\n\n**Dry run:**")
-                .contains("| Created | 33 |")
-                .contains("| OWNER_LUMP | EXPENSE | 2 |")
+                .contains("| Created | 30 |")
+                .doesNotContain("OWNER_LUMP")
                 .contains("**Passed.**")
                 .contains("an FX gain with Sum 0")
                 .contains("partner's transactions: 7 rows")
                 // His comments, counterparties and personal rows never reach the import.
                 .doesNotContain("his note", "Кафе", "private", "Восток");
-        assertThat(out.toString(StandardCharsets.UTF_8)).isEqualTo(("Dry run, nothing saved: 33 created, 0 updated, "
+        assertThat(out.toString(StandardCharsets.UTF_8)).isEqualTo(("Dry run, nothing saved: 30 created, 0 updated, "
                 + "0 unchanged, 0 missing, 0 conflicts, 0 row errors, 2 warnings; reconciliation passed. Report: %s%n")
                 .formatted(dir.resolve("import-report.md")));
     }
@@ -100,6 +97,8 @@ class ImportRunnerTests extends IntegrationTest {
                 .contains("- Import up to: 2024-01-31 (D-165); rows after it, neither imported nor missing: OWNER 3 of "
                         + "25 PARTNER 7 of 7\n")
                 .contains("| Missing from the files (D-138) | 0 |");
+        // The partner's rows are filtered here with UNALLOCATED's name from the owner's own file (D-260).
+        assertThat(Files.readString(dir.resolve("import-report.md"))).contains("partner's transactions: 7 rows");
     }
 
     @Test
@@ -111,7 +110,7 @@ class ImportRunnerTests extends IntegrationTest {
 
         assertThat(execute(args("--commit", "--report=" + report))).isZero();
         assertThat(Files.readString(report)).startsWith("# Import report\n\n**Committed:**")
-                .contains("| OWNER_PERSONAL | OPENING_BALANCE | 1 |");
+                .contains("| Created | 9 |").doesNotContain("OPENING_BALANCE");
         assertThat(dir.resolve("import-report.md")).doesNotExist();
     }
 
@@ -122,9 +121,20 @@ class ImportRunnerTests extends IntegrationTest {
     }
 
     @Test
-    void wrongArgumentsAndRefusalsExitWithOne() {
-        assertThat(execute("--accounts=a.csv")).isEqualTo(1);
+    void wrongArgumentsAndRefusalsExitWithOne() throws IOException {
+        assertThat(execute("--user-sub=" + user)).isEqualTo(1);
         assertThat(err.toString(StandardCharsets.UTF_8)).startsWith("Missing --transactions\n" + ImportRunner.USAGE);
+
+        // The five files' options are gone (D4b).
+        err.reset();
+        assertThat(execute(args("--accounts=a.csv"))).isEqualTo(1);
+        assertThat(err.toString(StandardCharsets.UTF_8)).startsWith("Unknown option --accounts\n");
+
+        // Another file than a transactions file is refused whole, naming D-235's header.
+        err.reset();
+        Files.writeString(dir.resolve("accounts.csv"), "Статьи баланса;Актив/пассив;Line\r\nКошелёк;ASSET;CASH\r\n");
+        assertThat(execute("--user-sub=" + user, "--transactions=" + dir.resolve("accounts.csv"))).isEqualTo(1);
+        assertThat(err.toString(StandardCharsets.UTF_8)).startsWith("Refused: the file isn't a transactions file");
 
         err.reset();
         assertThat(execute(args("--commit=no"))).isEqualTo(1);

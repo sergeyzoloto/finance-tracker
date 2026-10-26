@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.api;
 
+import static com.example.financetracker.ledger.importer.ImportFixtures.line;
 import static com.example.financetracker.ledger.importer.ImportFixtures.seatRows;
 import static com.example.financetracker.ledger.importer.ImportFixtures.withField;
 import static com.example.financetracker.ledger.importer.ImportFixtures.withLine;
@@ -30,6 +31,11 @@ class MemberImportApiTests extends MemberImportApiTest {
 
     /** His rows refused by D-178 (a settlement without a counterpart) and D-179 (an expense from FAMILY_DEBT). */
     private static final Set<String> REFUSED = Set.of("111", "112");
+    /** The codes and types of the rows these tests add (D-235). */
+    private static final String CASH = "CASH:ASSET";
+    private static final String CARD = "PARTNER_CARD:ASSET";
+    private static final String DEBT = "FAMILY_DEBT:LIABILITIES";
+    private static final String NONE = "NULL:CASHFLOW";
 
     @AfterEach
     void theInvariantsHold() {
@@ -76,10 +82,18 @@ class MemberImportApiTests extends MemberImportApiTest {
                 .param(family).query().singleRow();
     }
 
-    /** D-177: the owner's upload of a place's family rows is the same from either layout of the partner's file. */
+    /**
+     * D-177: the owner's upload of a place's family rows is the same from either layout of the partner's file, but for
+     * the item's code and type that D-235's layout adds (D-260), which D-151's hash leaves out.
+     */
     @Test
     void theOwnersUploadIsTheSameFromEitherLayoutOfThePartnersFile() throws IOException {
-        assertThat(seatRows(his())).isEqualTo(seatRows(d3c("partner-transactions-old.csv")));
+        List<String> full = com.example.financetracker.ledger.importer.ImportFixtures.lines(seatRows(his()));
+        List<String> old = com.example.financetracker.ledger.importer.ImportFixtures.lines(
+                seatRows(d3c("partner-transactions-old.csv")));
+        assertThat(full.stream().map(l -> l.substring(0, l.lastIndexOf(';', l.lastIndexOf(';') - 1))).toList())
+                .isEqualTo(old);
+        assertThat(full.getFirst()).endsWith(";CODE_ITEM;TYPE");
     }
 
     /**
@@ -251,7 +265,8 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(count(report, "MEMBER_BENEFIT", "INCOME")).isEqualTo("c0 u0 n0 x0 e0 s0 i1");
         assertThat(report.get("outcome").asText()).isEqualTo("DRY_RUN");
         assertThat(rowsOf(partner).get("imported_family_side")).isZero();
-        assertThat(rowsOf(partner).get("family family_import_cutoff")).isEqualTo(2);
+        // D-267: no import stores a cutoff any more; the family debt waits for nobody (D-258).
+        assertThat(rowsOf(partner).get("family family_import_cutoff")).isZero();
     }
 
     /**
@@ -268,17 +283,19 @@ class MemberImportApiTests extends MemberImportApiTest {
         JsonNode reconciliation = committed.get("reconciliation");
         assertThat(reconciliation.get("failures")).isEmpty();
         assertThat(reconciliation.get("passed").asBoolean()).isTrue();
-        assertThat(reconciliation.get("explained").findValuesAsText("reason")).contains("CLAIM_OPENING",
-                "SETTLEMENT_DATE", "SHARES");
-        // D-180: his first family debt (10.01, two decimals) against the claim's opening (10.00, D-12's cut of 10.005),
-        // once: what D-12 doesn't explain of it.
+        // D-188's SETTLEMENT_DATE explains February's month-end (row 109 of 2 March against the settlement of 28
+        // February) and is back to 0 at the cutoff, where the explained amounts are listed.
+        assertThat(reconciliation.get("explained").findValuesAsText("reason")).contains("NO_ROW")
+                .doesNotContain("SETTLEMENT_DATE");
+        // His claim's opening balance (D-31), 10.00 of the family debt on his join date, which no row of his file
+        // stands for: NO_ROW, in place of D-180's comparison with his first daily balance.
         JsonNode opening = StreamSupport.stream(reconciliation.get("explained").spliterator(), false)
-                .filter(e -> e.get("reason").asText().equals("CLAIM_OPENING")).findFirst().orElseThrow();
+                .filter(e -> e.get("reason").asText().equals("NO_ROW")).findFirst().orElseThrow();
         assertThat(opening.get("account").asText() + " " + opening.get("currency").asText() + " "
-                + opening.get("amount").asText()).isEqualTo("FAMILY_DEBT EUR -0.005");
+                + opening.get("amount").asText()).isEqualTo("EQUITY+FAMILY_DEBT EUR 10.00");
         assertThat(committed.get("integrityViolations")).isEmpty();
-        assertThat(jdbc.sql("SELECT cutoff FROM family_import_cutoff WHERE ledger_id = ? AND member_id = ?")
-                .params(family, seat).query(LocalDate.class).single()).isEqualTo(LocalDate.of(2024, 3, 8));
+        assertThat(jdbc.sql("SELECT count(*) FROM family_import_cutoff WHERE ledger_id = ?").param(family)
+                .query(Long.class).single()).isZero();
 
         JsonNode again = ok(memberImport(hisWithoutTheRefused(), null, null));
         assertThat(again.get("errors")).isEmpty();
@@ -295,7 +312,6 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(owners.get("totals").get("updated").asInt()).isZero();
         assertThat(owners.get("totals").get("conflicts").asInt()).isZero();
         assertThat(owners.get("reconciliation").get("passed").asBoolean()).isTrue();
-        assertThat(owners.get("reconciliation").get("familyDebtUpTo").asText()).isEqualTo("2024-03-08");
     }
 
     /**
@@ -340,22 +356,23 @@ class MemberImportApiTests extends MemberImportApiTest {
                 "the settlement of 2024-02-10 in EUR of 40 has no side of yours: none of your rows matched it (D-178)");
     }
 
-    /** D-177: his CUR_FAMILY must be the record's currency; a file without the owner's columns is refused. */
+    /** D-177: his CUR_FAMILY must be the record's currency; a file without D-235's columns is refused whole. */
     @Test
     void hisFileIsCheckedAsTheOwnersIs() throws IOException {
         ownersFirstImport();
         claim();
-        JsonNode report = ok(memberImport(withField(hisWithoutTheRefused(), "101", 15, "USD"), null, null));
+        JsonNode report = ok(memberImport(withField(hisWithoutTheRefused(), "101", 25, "USD"), null, null));
         assertThat(errors(report)).singleElement().asString().startsWith("101: ").contains("CUR_FAMILY");
 
         String withoutColumn = Arrays.stream(new String(hisWithoutTheRefused(), StandardCharsets.UTF_8).split("\r\n"))
                 .map(line -> {
                     List<String> fields = new java.util.ArrayList<>(List.of(line.split(";", -1)));
-                    fields.remove(15);
+                    fields.remove(25);
                     return String.join(";", fields);
                 }).collect(Collectors.joining("\r\n", "", "\r\n"));
-        JsonNode refused = ok(memberImport(withoutColumn.getBytes(StandardCharsets.UTF_8), null, null));
-        assertThat(refused.get("errors").findValuesAsText("message")).contains("missing columns: CUR_FAMILY");
+        assertThat(body(memberImport(withoutColumn.getBytes(StandardCharsets.UTF_8), null, null),
+                HttpStatus.UNPROCESSABLE_ENTITY).get("violations").get(0).asText())
+                .startsWith("the file isn't a transactions file");
     }
 
     /**
@@ -367,7 +384,7 @@ class MemberImportApiTests extends MemberImportApiTest {
         ownersFirstImport();
         claim();
         byte[] withNoop = withLine(hisWithoutTheRefused(),
-                "117;14.02.2024;-;5;EUR;;;Наличные;Наличные;;;;;;;EUR;0;0;NULL;x");
+                line("117;14.02.2024;-;5;EUR;;;Наличные;Наличные;;;;;;", CASH, CASH, NONE));
         JsonNode report = ok(memberImport(withNoop, null, null));
         assertThat(report.get("errors")).isEmpty();
         assertThat(StreamSupport.stream(report.get("warnings").spliterator(), false)
@@ -377,7 +394,7 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(report.get("reconciliation").get("passed").asBoolean()).isTrue();
 
         byte[] flagged = withLine(hisWithoutTheRefused(),
-                "118;14.02.2024;-;5;EUR;;;Наличные;Наличные;да;;;;;;EUR;0;0;NULL;x");
+                line("118;14.02.2024;-;5;EUR;;;Наличные;Наличные;да;;;;;", CASH, CASH, NONE));
         assertThat(errors(ok(memberImport(flagged, null, null))))
                 .containsExactly("118: Debit and Credit are the same account, in one currency");
     }
@@ -392,8 +409,8 @@ class MemberImportApiTests extends MemberImportApiTest {
         ownersFirstImport();
         claim();
         byte[] split = withLine(withLine(withoutRows(hisWithoutTheRefused(), Set.of("106")),
-                "117;10.02.2024;-;25;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
-                "118;10.02.2024;-;15;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x");
+                line("117;10.02.2024;-;25;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;", CARD, DEBT, NONE)),
+                line("118;10.02.2024;-;15;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;", CARD, DEBT, NONE));
         JsonNode committed = ok(memberImport(split, null, "false"));
         assertThat(committed.get("errors")).isEmpty();
         assertThat(committed.get("member").get("tier2Many").asInt()).isEqualTo(1);
@@ -406,6 +423,13 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(again.get("totals").get("updated").asInt()).isZero();
         assertThat(again.get("totals").get("conflicts").asInt()).isZero();
         assertThat(count(again, "MEMBER_SETTLEMENT", "SETTLEMENT")).isEqualTo("c0 u0 n7 x0 e0 s0 i0");
+        // His export has no row for the side of rows 117 and 118 (D-248's SETTLEMENT_GROUP): imported back, what the
+        // side moves is NO_ROW, and the check passes.
+        JsonNode back = ok(memberImport(Answers.download(get(partner, "/api/export/transactions")), null, null));
+        assertThat(back.get("totals").get("created").asInt()).isZero();
+        assertThat(back.get("totals").get("updated").asInt()).isZero();
+        assertThat(back.get("reconciliation").get("failures")).isEmpty();
+        assertThat(back.get("reconciliation").get("passed").asBoolean()).isTrue();
     }
 
     @Test
@@ -413,8 +437,8 @@ class MemberImportApiTests extends MemberImportApiTest {
         ownersFirstImport();
         claim();
         byte[] split = withLine(withLine(withoutRows(hisWithoutTheRefused(), Set.of("106")),
-                "117;10.02.2024;-;25;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
-                "118;10.02.2024;-;15;EUR;;;Наличные;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x");
+                line("117;10.02.2024;-;25;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;", CARD, DEBT, NONE)),
+                line("118;10.02.2024;-;15;EUR;;;Наличные;Общий семейный бюджет;;;;;;", CASH, DEBT, NONE));
         JsonNode report = ok(memberImport(split, null, null));
         assertThat(errors(report)).hasSize(2).allSatisfy(e -> assertThat(e)
                 .contains("your rows 117, 118 add up to the settlement of 2024-02-10 in EUR of 40").contains("(D-198)"));
@@ -429,13 +453,13 @@ class MemberImportApiTests extends MemberImportApiTest {
     @Test
     void aTiedDateIsMatchedAsAWhole() throws IOException {
         byte[] owners = withLine(withField(d3c("owner-transactions.csv"), "5", 3, "25"),
-                "16;10.02.2024;-;15;EUR;;;Общий семейный бюджет;Евро-счёт;;;;;;;EUR;0;0;NULL;x");
+                line("16;10.02.2024;-;15;EUR;;;Общий семейный бюджет;Евро-счёт;;;;;;", DEBT, "EURO_ACCOUNT:ASSET", NONE));
         assertThat(ok(upload(owner, "owner", owners, seatRows(his()), seat, null, "false")).get("errors")).isEmpty();
         claim();
         byte[] split = withLine(withLine(withLine(withoutRows(hisWithoutTheRefused(), Set.of("106")),
-                "117;10.02.2024;-;10;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
-                "118;10.02.2024;-;15;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
-                "119;10.02.2024;-;15;EUR;;;Наличные;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x");
+                line("117;10.02.2024;-;10;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;", CARD, DEBT, NONE)),
+                line("118;10.02.2024;-;15;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;", CARD, DEBT, NONE)),
+                line("119;10.02.2024;-;15;EUR;;;Наличные;Общий семейный бюджет;;;;;;", CASH, DEBT, NONE));
         JsonNode report = ok(memberImport(split, null, null));
         assertThat(report.get("errors")).isEmpty();
         JsonNode member = report.get("member");
@@ -452,8 +476,8 @@ class MemberImportApiTests extends MemberImportApiTest {
         ownersFirstImport();
         claim();
         byte[] two = withLine(withLine(withoutRows(hisWithoutTheRefused(), Set.of("106")),
-                "117;10.02.2024;-;40;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x"),
-                "118;10.02.2024;-;40;EUR;;;Наличные;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x");
+                line("117;10.02.2024;-;40;EUR;;;Карта «Восток»;Общий семейный бюджет;;;;;;", CARD, DEBT, NONE)),
+                line("118;10.02.2024;-;40;EUR;;;Наличные;Общий семейный бюджет;;;;;;", CASH, DEBT, NONE));
         JsonNode report = ok(memberImport(two, null, null));
         assertThat(errors(report)).hasSize(2).allSatisfy(e -> assertThat(e).contains("AMBIGUOUS_SETTLEMENT")
                 .contains("your rows 117, 118 of 2024-02-10 in EUR").contains("the other member's Excel ID 5")
@@ -468,29 +492,23 @@ class MemberImportApiTests extends MemberImportApiTest {
         ownersFirstImport();
         claim();
         byte[] withSeatRow = withLine(d3c("owner-transactions.csv"),
-                "16;20.02.2024;Транспорт;6;EUR;;;Свободный остаток;Общий семейный бюджет;;;;;;;EUR;0;0;TRANSPORT;x");
+                line("16;20.02.2024;Транспорт;6;EUR;;;Свободный остаток;Общий семейный бюджет;;;;;;", "UNALLOCATED:LIABILITIES", DEBT, "TRANSPORT:EXPENSE"));
         JsonNode report = ok(upload(owner, "owner", withSeatRow, null, seat, null, null));
         assertThat(errors(report)).containsExactly("16: " + com.example.financetracker.ledger.importer.ImportFixtures.D73_AFTER_CLAIM);
     }
 
     /**
-     * D-219 (D3e): after the claim, the owner's D-73 rows (and the lumps before the partner's ledger, which this
-     * export has none of) are "can't be re-planned after the claim": listed, never written, and no error while they
-     * stay as imported.
+     * D-219 (D3e): after the claim, the owner's D-73 rows are "can't be re-planned after the claim": listed, never
+     * written, and no error while they stay as imported. No lump is read any more (D-232).
      */
     @Test
-    void theOwnersSeatRowsAndLumpsCantBeReplannedAfterTheClaim() throws IOException {
+    void theOwnersSeatRowsCantBeReplannedAfterTheClaim() throws IOException {
         byte[] withSeatRow = withLine(d3c("owner-transactions.csv"),
-                "16;20.02.2024;Транспорт;6;EUR;;;Свободный остаток;Общий семейный бюджет;;;;;;;EUR;0;0;TRANSPORT;x");
+                line("16;20.02.2024;Транспорт;6;EUR;;;Свободный остаток;Общий семейный бюджет;;;;;;", "UNALLOCATED:LIABILITIES", DEBT, "TRANSPORT:EXPENSE"));
         JsonNode first = ok(upload(owner, "owner", withSeatRow, seatRows(d3c("partner-transactions.csv")), seat, null,
                 "false"));
         assertThat(first.get("errors")).isEmpty();
         assertThat(first.get("sync").get("notReplannable")).isEmpty();
-        List<String> lumps = jdbc.sql("""
-                SELECT split_part(external_ref, ':', 3) || ':' || split_part(external_ref, ':', 4) || ':'
-                       || split_part(external_ref, ':', 5)
-                FROM family_record WHERE ledger_id = ? AND external_ref LIKE ? ORDER BY 1""")
-                .params(family, "xls:" + ownerMember + ":PL:%").query(String.class).list();
         claim();
 
         for (String dryRun : new String[] {null, "false"}) {
@@ -500,30 +518,31 @@ class MemberImportApiTests extends MemberImportApiTest {
             JsonNode group = report.get("sync").get("notReplannable");
             assertThat(StreamSupport.stream(group.spliterator(), false)
                     .map(r -> r.get("source").asText() + " " + r.get("excelId").asText()))
-                    .containsExactlyInAnyOrderElementsOf(java.util.stream.Stream.concat(
-                            java.util.stream.Stream.of("OWNER_SEAT 16"), lumps.stream().map(l -> "OWNER_LUMP " + l))
-                            .toList());
+                    .containsExactly("OWNER_SEAT 16");
             assertThat(group.findValuesAsText("reason")).containsOnly(
                     "can't be re-planned after the claim: the partner's place pays it (D-196, D-219)");
             assertThat(report.get("sync").get("replanned")).isEmpty();
         }
     }
 
-    /** D-175: the family debt waits for the other member's import beyond his latest committed cutoff. */
+    /**
+     * D-258: the owner's check doesn't depend on the partner's records, whose shares cancel out in his family debt and
+     * equity together (D-255): it passes with the partner's import up to an earlier date, as it does before any import
+     * of his; nothing waits for the other member's import any more.
+     */
     @Test
-    void theFamilyDebtWaitsForTheOtherMembersImport() throws IOException {
+    void theOwnersCheckNeedsNoImportOfTheOther() throws IOException {
         ownersFirstImport();
         claim();
+        assertThat(ok(ownerImport(null, null, null)).get("reconciliation").get("passed").asBoolean()).isTrue();
         ok(memberImport(hisWithoutTheRefused(), "2024-02-20", "false"));
-        JsonNode report = ok(ownerImport(null, null, null));
-        JsonNode reconciliation = report.get("reconciliation");
-        assertThat(reconciliation.get("familyDebtUpTo").asText()).isEqualTo("2024-02-20");
-        JsonNode debt = StreamSupport.stream(reconciliation.get("lines").spliterator(), false)
-                .filter(line -> line.get("account").asText().equals("FAMILY_DEBT")
-                        && line.get("currency").asText().equals("EUR"))
-                .findFirst().orElseThrow();
-        assertThat(debt.get("waiting").asInt()).isEqualTo(1);
-        assertThat(debt.get("failed").asInt()).isZero();
+        JsonNode reconciliation = ok(ownerImport(null, null, null)).get("reconciliation");
+        assertThat(reconciliation.get("failures")).isEmpty();
+        assertThat(reconciliation.get("passed").asBoolean()).isTrue();
+        assertThat(reconciliation.has("familyDebtUpTo")).isFalse();
+        // And his own check passes before the rest of his file, as after it.
+        assertThat(ok(memberImport(hisWithoutTheRefused(), null, "false")).get("reconciliation").get("passed")
+                .asBoolean()).isTrue();
     }
 
     /** Another user's budget answers like a missing one; a member who isn't an owner imports only his own place. */

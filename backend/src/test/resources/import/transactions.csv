@@ -1,26 +1,26 @@
-﻿ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;SUM_CREDIT;LOAN_CA;CUR_FAMILY;FAMILY_EXP;FAMILY_INC;CODE_ITEM;TYPE
-1;02.01.2024;Оклад;1 000.00 ;EUR;Работа;;Евро-счёт;Свободный остаток;;;;;;;EUR;0;0;PAYCHECK;x
-2;03.01.2024;Продукты;10.01;EUR;Лавка;на неделю;Свободный остаток;Евро-счёт;да;;;;;;EUR;-5.005;0;FOOD;x
-3;04.01.2024;Продукты;-4.00;EUR;Лавка;;Свободный остаток;Евро-счёт;да;;;;;;EUR;2.00;0;FOOD;x
-4;05.01.2024;Прочие поступления;100;EUR;;;Евро-счёт;Свободный остаток;да;;;;;;EUR;0;50;OTHERINC;x
-5;06.01.2024;Продукты;3.30;EUR;Рынок;;Свободный остаток;Евро-счёт;да;RUB;300.12345;;;;RUB;-150.061725;0;FOOD;x
-6;07.01.2024;Продукты;20;EUR;Магазин;;Свободный остаток;Долг перед банком;да;;;;;Банк;EUR;-10;0;FOOD;x
-7;08.01.2024;-;50;EUR;;;Кошелёк;Евро-счёт;да;;;;;;EUR;0;0;NULL;x
-8;09.01.2024;Продукты;0;EUR;;;Свободный остаток;Евро-счёт;да;;;;;;EUR;0;0;FOOD;x
-9;10.01.2024;-;30;EUR;;;Общий семейный бюджет;Евро-счёт;;;;;;;EUR;0;0;NULL;x
-10;11.01.2024;-;15;EUR;;;Кошелёк;Общий семейный бюджет;;;;;;;EUR;0;0;NULL;x
-11;12.01.2024;-;40;EUR;;;Займы друзьям;Общий семейный бюджет;;;;;;Друг;EUR;0;0;NULL;x
-12;14.01.2024;Подарки;500;RUB;;;Свободный остаток;Общий семейный бюджет;;;;;;;RUB;0;0;GIFTS;x
-13;15.01.2024;-;200;RUB;;;Общий семейный бюджет;Свободный остаток;;;;;;;RUB;0;0;NULL;x
-14;16.01.2024;-;11;EUR;;;Общий семейный бюджет;Общий семейный бюджет;;RUB;1000;;;;EUR;0;0;NULL;x
-15;17.01.2024;-;9;EUR;;;Общий семейный бюджет;Общий семейный бюджет;;;;USD;10;;EUR;0;0;NULL;x
-16;05.02.2024;-;10;USD;;;Общий семейный бюджет;Долларовый счёт;;;;;;;USD;0;0;NULL;x
-17;18.01.2024;-;-20;EUR;;;Кошелёк;Евро-счёт;;;;;;;EUR;0;0;NULL;x
-18;19.01.2024;Прибыль от курсовой разницы;0;RUB;;;Карта «Северная»;Свободный остаток;;;;;;;RUB;0;0;FX_GAIN;x
-19;20.01.2024;Продукты;123.456789;RUB;Лавка;;Свободный остаток;Карта «Северная»;;;;;;;RUB;0;0;FOOD;x
-20;21.01.2024;-;50;EUR;;;Займы друзьям;Евро-счёт;;;;;;Друг;EUR;0;0;NULL;x
-21;22.01.2024;Комиссия;1.5;EUR;Банк;;Свободный остаток;Евро-счёт;;;;;;;EUR;0;0;COMMISION;x
-22;23.01.2024;-;100;EUR;;;Фонд общины;Евро-счёт;;;;;;;EUR;0;0;NULL;x
-23;03.02.2024;Пособие;30;EUR;;;Общий семейный бюджет;Свободный остаток;;;;;;;EUR;0;0;BENEFIT;x
-24;24.01.2024;-;10;EUR;;;Евро-счёт;Евро-счёт;;RUB;900;;;;EUR;0;0;NULL;x
-25;05.03.2024;Продукты;7.00;EUR;Лавка;;Свободный остаток;Кошелёк;;;;;;;EUR;0;0;FOOD;x
+﻿ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;SUM_CREDIT;LOAN_CA;CODE_ITEM;TYPE;CODE_DEBIT;CODE_CREDIT;TYPE_DEBIT;TYPE_CREDIT;COUNT_DEBIT;COUNT_CREDIT;DEBIT_CHANGE;CREDIT_CHANGE;CUR_FAMILY;FAMILY_EXP;FAMILY_INC;CHECK_CORR;LOAN_SUM;LOAN_CUR;EXP_ITEM_CODE
+1;02.01.2024;Оклад;1 000.00 ;EUR;Работа;;Евро-счёт;Свободный остаток;;;;;;;PAYCHECK;INCOME;EURO_ACCOUNT;UNALLOCATED;ASSET;LIABILITIES;EURO_ACCOUNT_EUR;UNALLOCATED_EUR;1000;1000;EUR;0;0;0;0;;PAYCHECK
+2;03.01.2024;Продукты;10.01;EUR;Лавка;на неделю;Свободный остаток;Евро-счёт;да;;;;;;FOOD;EXPENSE;UNALLOCATED;EURO_ACCOUNT;LIABILITIES;ASSET;UNALLOCATED_EUR;EURO_ACCOUNT_EUR;-5.005;-10.01;EUR;-5.005;0;0;0;;FOOD
+3;04.01.2024;Продукты;-4.00;EUR;Лавка;;Свободный остаток;Евро-счёт;да;;;;;;FOOD;EXPENSE;UNALLOCATED;EURO_ACCOUNT;LIABILITIES;ASSET;UNALLOCATED_EUR;EURO_ACCOUNT_EUR;2;4;EUR;2;0;0;0;;FOOD
+4;05.01.2024;Прочие поступления;100;EUR;;;Евро-счёт;Свободный остаток;да;;;;;;OTHERINC;INCOME;EURO_ACCOUNT;UNALLOCATED;ASSET;LIABILITIES;EURO_ACCOUNT_EUR;UNALLOCATED_EUR;100;50;EUR;0;50;0;0;;OTHERINC
+5;06.01.2024;Продукты;3.30;EUR;Рынок;;Свободный остаток;Евро-счёт;да;RUB;300.12345;;;;FOOD;EXPENSE;UNALLOCATED;EURO_ACCOUNT;LIABILITIES;ASSET;UNALLOCATED_RUB;EURO_ACCOUNT_EUR;-150.061725;-3.3;RUB;-150.061725;0;296.82345;0;;FOOD
+6;07.01.2024;Продукты;20;EUR;Магазин;;Свободный остаток;Долг перед банком;да;;;;;Банк;FOOD;EXPENSE;UNALLOCATED;CREDITOR_DEBT;LIABILITIES;LIABILITIES;UNALLOCATED_EUR;CREDITOR_DEBT_EUR;-10;20;EUR;-10;0;0;20;EUR;FOOD
+7;08.01.2024;-;50;EUR;;;Кошелёк;Евро-счёт;да;;;;;;NULL;CASHFLOW;CASH;EURO_ACCOUNT;ASSET;ASSET;CASH_EUR;EURO_ACCOUNT_EUR;50;-50;EUR;0;0;0;0;;NULL
+8;09.01.2024;Продукты;0;EUR;;;Свободный остаток;Евро-счёт;да;;;;;;FOOD;EXPENSE;UNALLOCATED;EURO_ACCOUNT;LIABILITIES;ASSET;UNALLOCATED_EUR;EURO_ACCOUNT_EUR;0;0;EUR;0;0;0;0;;FOOD
+9;10.01.2024;-;30;EUR;;;Общий семейный бюджет;Евро-счёт;;;;;;;NULL;CASHFLOW;FAMILY_DEBT;EURO_ACCOUNT;LIABILITIES;ASSET;FAMILY_DEBT_EUR;EURO_ACCOUNT_EUR;-30;-30;EUR;0;0;0;0;;NULL
+10;11.01.2024;-;15;EUR;;;Кошелёк;Общий семейный бюджет;;;;;;;NULL;CASHFLOW;CASH;FAMILY_DEBT;ASSET;LIABILITIES;CASH_EUR;FAMILY_DEBT_EUR;15;15;EUR;0;0;0;0;;NULL
+11;12.01.2024;-;40;EUR;;;Займы друзьям;Общий семейный бюджет;;;;;;Друг;NULL;CASHFLOW;LOANS_ASSET;FAMILY_DEBT;ASSET;LIABILITIES;LOANS_ASSET_EUR;FAMILY_DEBT_EUR;40;40;EUR;0;0;0;-40;EUR;NULL
+12;14.01.2024;Подарки;500;RUB;;;Свободный остаток;Общий семейный бюджет;;;;;;;GIFTS;EXPENSE;UNALLOCATED;FAMILY_DEBT;LIABILITIES;LIABILITIES;UNALLOCATED_RUB;FAMILY_DEBT_RUB;-500;500;RUB;0;0;0;0;;GIFTS
+13;15.01.2024;-;200;RUB;;;Общий семейный бюджет;Свободный остаток;;;;;;;NULL;CASHFLOW;FAMILY_DEBT;UNALLOCATED;LIABILITIES;LIABILITIES;FAMILY_DEBT_RUB;UNALLOCATED_RUB;-200;200;RUB;0;0;0;0;;NULL
+14;16.01.2024;-;11;EUR;;;Общий семейный бюджет;Общий семейный бюджет;;RUB;1000;;;;NULL;CASHFLOW;FAMILY_DEBT;FAMILY_DEBT;LIABILITIES;LIABILITIES;FAMILY_DEBT_RUB;FAMILY_DEBT_EUR;-1000;11;RUB;0;0;989;0;;NULL
+15;17.01.2024;-;9;EUR;;;Общий семейный бюджет;Общий семейный бюджет;;;;USD;10;;NULL;CASHFLOW;FAMILY_DEBT;FAMILY_DEBT;LIABILITIES;LIABILITIES;FAMILY_DEBT_EUR;FAMILY_DEBT_USD;-9;10;EUR;0;0;-1;0;;NULL
+16;05.02.2024;-;10;USD;;;Общий семейный бюджет;Долларовый счёт;;;;;;;NULL;CASHFLOW;FAMILY_DEBT;USD_ACCOUNT;LIABILITIES;ASSET;FAMILY_DEBT_USD;USD_ACCOUNT_USD;-10;-10;USD;0;0;0;0;;NULL
+17;18.01.2024;-;-20;EUR;;;Кошелёк;Евро-счёт;;;;;;;NULL;CASHFLOW;CASH;EURO_ACCOUNT;ASSET;ASSET;CASH_EUR;EURO_ACCOUNT_EUR;-20;20;EUR;0;0;0;0;;NULL
+18;19.01.2024;Прибыль от курсовой разницы;0;RUB;;;Карта «Северная»;Свободный остаток;;;;;;;FX_GAIN;INCOME;NORTH_CARD;UNALLOCATED;ASSET;LIABILITIES;NORTH_CARD_RUB;UNALLOCATED_RUB;0;0;RUB;0;0;0;0;;FX_GAIN
+19;20.01.2024;Продукты;123.456789;RUB;Лавка;;Свободный остаток;Карта «Северная»;;;;;;;FOOD;EXPENSE;UNALLOCATED;NORTH_CARD;LIABILITIES;ASSET;UNALLOCATED_RUB;NORTH_CARD_RUB;-123.456789;-123.456789;RUB;0;0;0;0;;FOOD
+20;21.01.2024;-;50;EUR;;;Займы друзьям;Евро-счёт;;;;;;Друг;NULL;CASHFLOW;LOANS_ASSET;EURO_ACCOUNT;ASSET;ASSET;LOANS_ASSET_EUR;EURO_ACCOUNT_EUR;50;-50;EUR;0;0;0;-50;EUR;NULL
+21;22.01.2024;Комиссия;1.5;EUR;Банк;;Свободный остаток;Евро-счёт;;;;;;;COMMISION;EXPENSE;UNALLOCATED;EURO_ACCOUNT;LIABILITIES;ASSET;UNALLOCATED_EUR;EURO_ACCOUNT_EUR;-1.5;-1.5;EUR;0;0;0;0;;COMMISION
+22;23.01.2024;-;100;EUR;;;Фонд общины;Евро-счёт;;;;;;;NULL;CASHFLOW;GEMENTE_FUND;EURO_ACCOUNT;ASSET;ASSET;GEMENTE_FUND_EUR;EURO_ACCOUNT_EUR;100;-100;EUR;0;0;0;0;;NULL
+23;03.02.2024;Пособие;30;EUR;;;Общий семейный бюджет;Свободный остаток;;;;;;;BENEFIT;INCOME;FAMILY_DEBT;UNALLOCATED;LIABILITIES;LIABILITIES;FAMILY_DEBT_EUR;UNALLOCATED_EUR;-30;30;EUR;0;0;0;0;;BENEFIT
+24;24.01.2024;-;10;EUR;;;Евро-счёт;Евро-счёт;;RUB;900;;;;NULL;CASHFLOW;EURO_ACCOUNT;EURO_ACCOUNT;ASSET;ASSET;EURO_ACCOUNT_RUB;EURO_ACCOUNT_EUR;900;-10;RUB;0;0;890;0;;NULL
+25;05.03.2024;Продукты;7.00;EUR;Лавка;;Свободный остаток;Кошелёк;;;;;;;FOOD;EXPENSE;UNALLOCATED;CASH;LIABILITIES;ASSET;UNALLOCATED_EUR;CASH_EUR;-7;-7;EUR;0;0;0;0;;FOOD

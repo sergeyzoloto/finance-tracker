@@ -1,6 +1,0 @@
-﻿Статьи баланса;Актив/пассив;Line
-Наличные;ASSET;CASH
-Карта «Восток»;ASSET;PARTNER_CARD
-Общий семейный бюджет;LIABILITIES;FAMILY_DEBT
-Отложено;LIABILITIES;RESERVE
-Свободный остаток;LIABILITIES;UNALLOCATED

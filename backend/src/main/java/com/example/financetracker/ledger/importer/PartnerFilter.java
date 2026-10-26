@@ -23,8 +23,8 @@ final class PartnerFilter {
     /**
      * The filtered file, as CSV with semicolons.
      *
-     * @param unallocatedName the name of the UNALLOCATED account, as the owner's accounts file spells it (the partner's
-     *        is the same, in any case)
+     * @param unallocatedName the name of the UNALLOCATED account, as the owner's own file spells it (the partner's is
+     *        the same, in any case)
      * @throws IllegalArgumentException if the file can't be read as the partner's transactions
      */
     static byte[] filter(ImportFile partnerTransactions, String unallocatedName) {
@@ -37,8 +37,15 @@ final class PartnerFilter {
                     .collect(Collectors.joining("; ")));
         }
         String unallocated = unallocatedName.toLowerCase(Locale.ROOT);
+        // D-260: the item's code and type, where his file has D-235's columns.
+        boolean items = !table.rows().isEmpty() && table.rows().getFirst().columns().keySet()
+                .containsAll(PartnerRow.ITEM_COLUMNS) || table.header().containsAll(PartnerRow.ITEM_COLUMNS);
+        List<String> header = new ArrayList<>(PartnerRow.COLUMNS);
+        if (items) {
+            header.addAll(PartnerRow.ITEM_COLUMNS);
+        }
         List<String> lines = new ArrayList<>();
-        lines.add(String.join(";", PartnerRow.COLUMNS));
+        lines.add(String.join(";", header));
         for (CsvTable.Row row : table.rows()) {
             if (row.isBlank() || !TransactionRow.FAMILY_YES.equals(row.get(TransactionRow.FAMILY))
                     || EntryMapper.NO_CATEGORY.equals(row.get(TransactionRow.ITEM))) {
@@ -60,11 +67,32 @@ final class PartnerFilter {
                     sum = row.get(TransactionRow.SUM_CREDIT);
                 }
             }
-            lines.add(String.join(";", List.of(row.get(TransactionRow.ID), row.get(TransactionRow.DATE),
-                    row.get(TransactionRow.ITEM), TransactionRow.FAMILY_YES, side, currency, sum).stream()
-                    .map(PartnerFilter::quoted).toList()));
+            List<String> values = new ArrayList<>(List.of(row.get(TransactionRow.ID), row.get(TransactionRow.DATE),
+                    row.get(TransactionRow.ITEM), TransactionRow.FAMILY_YES, side, currency, sum));
+            if (items) {
+                values.add(row.get(TransactionRow.CODE_ITEM));
+                values.add(row.get(TransactionRow.TYPE));
+            }
+            lines.add(String.join(";", values.stream().map(PartnerFilter::quoted).toList()));
         }
         return (String.join("\r\n", lines) + "\r\n").getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The name of UNALLOCATED as the user's own transactions file spells it (D-260): Debit or Credit of a row whose
+     * CODE_DEBIT or CODE_CREDIT is UNALLOCATED; null if no row has it.
+     */
+    static String unallocatedName(ImportFile transactions) {
+        String code = com.example.financetracker.ledger.domain.AccountRole.UNALLOCATED.defaultCode();
+        for (TransactionRow row : Workbook.transactions(transactions).rows()) {
+            if (row.computed() != null && code.equals(row.computed().debitCode())) {
+                return row.debit();
+            }
+            if (row.computed() != null && code.equals(row.computed().creditCode())) {
+                return row.credit();
+            }
+        }
+        return null;
     }
 
     /** A CSV field: quoted where it holds a semicolon, a quote or a line break. */

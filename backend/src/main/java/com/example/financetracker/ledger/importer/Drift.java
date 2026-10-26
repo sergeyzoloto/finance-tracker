@@ -4,8 +4,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * What a rule of the import makes an account's displayed balance differ from Excel's on a date (D-68): the app's
- * change less Excel's, by the account's code and currency, with the rule. The reconciliation adds them up to each
+ * What a rule of the import makes an account's displayed balance differ from the file's on a date (D-68): the app's
+ * change less the file's, by the account's code and currency, with the rule. The reconciliation adds them up to each
  * month-end and reports the sum as explained.
  *
  * @param code the account's code as the ledger has it; UNALLOCATED for the equity side, FAMILY_DEBT for the family
@@ -21,16 +21,6 @@ record Drift(String code, String currency, LocalDate date, BigDecimal amount, Re
         /** An amount rounded half up to the 4 decimals a posting holds (an agent's choice, D3b). */
         FOUR_DECIMALS,
         /**
-         * D-169: the owner's D-84 rows of a month, typed by hand as half of the partner's family incomes rounded to a
-         * cent, less that exact half; within half a cent per income.
-         */
-        OWNER_HALF,
-        /**
-         * D-180: a member's family debt is compared as movement since his first day: his daily balance file's first
-         * balance, which the app doesn't have, and the opening balance his claim posted on the join date (D-31).
-         */
-        CLAIM_OPENING,
-        /**
          * D-188: a member's settlement row on its own date in Excel, and his side of the settlement it matches on the
          * settlement's date in the app (D-178).
          */
@@ -39,6 +29,16 @@ record Drift(String code, String currency, LocalDate date, BigDecimal amount, Re
          * D-223: a personal entry changed in the app while its row stayed as imported (D-219's "changed in the app,
          * the file unchanged"): what the ledger holds less what the row maps to, on each one's date.
          */
-        APP_EDITED
+        APP_EDITED,
+        /**
+         * D4b: an entry of the ledger that no row of the file stands for, as no single row can (D-248: the opening
+         * balances, a claim's opening balance, a return's correction, an entry of another shape): what it moves.
+         */
+        NO_ROW,
+        /**
+         * D-263: a typed amount the transactions file shows rounded (its cell formatted to fewer decimals), whose whole
+         * value the row's computed columns keep: what the import builds of the shown amount less what they move.
+         */
+        SHOWN_ROUNDED
     }
 }

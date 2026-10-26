@@ -96,8 +96,30 @@ public class ExportService {
         return new Run(personal, from == null ? EARLIEST : from, to == null ? LATEST : to, from == null).export();
     }
 
-    /** The rows of a period and what D4a's summary says of them. */
-    public record Export(List<ExcelRow> rows, ExportSummary summary) {
+    /**
+     * The rows of a period and what D4a's summary says of them.
+     *
+     * @param unwritten the personal entries of the period that no row stands for, as no single row can (D-248's
+     *        entries of another shape, a claim's opening balance, a return's correction, a side of several of his rows,
+     *        D-198), with what each moves: the import explains them in its check (D4b, NO_ROW)
+     */
+    public record Export(List<ExcelRow> rows, ExportSummary summary, List<Unwritten> unwritten) {
+    }
+
+    /**
+     * A personal entry no row stands for (D-248), and its postings' displayed changes by account code and currency.
+     *
+     * @param externalRef the entry's reference; for a side of several rows (D-198), theirs, {@code xls:65+66+67}
+     */
+    public record Unwritten(long entryId, String externalRef, String kind, LocalDate date, List<Effect> effects) {
+    }
+
+    /**
+     * A displayed change (rule 4).
+     *
+     * @param account the account's code; FAMILY_DEBT for a family budget's debt account
+     */
+    public record Effect(String account, String currency, BigDecimal amount) {
     }
 
     // --- What the ledger holds -------------------------------------------------------------------------------------
@@ -267,6 +289,8 @@ public class ExportService {
         private final Map<String, Integer> skipped = new TreeMap<>();
         /** Each family record's part in D-242's check, by id; one missing is another member's. */
         private final Map<Long, Part> recordParts = new HashMap<>();
+        /** The settlements a side of several of his rows stands for (D-198), skipped, by id: the side's reference. */
+        private final Map<Long, String> groupSides = new HashMap<>();
         private Map<Long, Account> accounts;
         private final Map<Long, Category> categories = new HashMap<>();
         private Account unallocated;
@@ -304,6 +328,7 @@ public class ExportService {
 
             Map<Key, BigDecimal[]> parts = new TreeMap<>(Comparator.comparing((Key k) -> code(k.accountId()))
                     .thenComparing(Key::currency));
+            List<Unwritten> unwritten = new ArrayList<>();
             for (Entry entry : entries) {
                 Link link = links.get(entry.id());
                 Part part;
@@ -324,8 +349,18 @@ public class ExportService {
                             k -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
                     sums[part.ordinal()] = sums[part.ordinal()].add(shown(line));
                 }
+                boolean groupSide = link != null && link.recordId() != null && groupSides.containsKey(link.recordId());
+                if (part == Part.SKIPPED && (link == null || link.recordId() == null || groupSide)) {
+                    unwritten.add(new Unwritten(entry.id(), groupSide ? groupSides.get(link.recordId())
+                            : entry.externalRef(), entry.kind(), entry.date(),
+                            entry.lines().stream().map(line -> {
+                                Account account = accounts.get(line.accountId());
+                                return new Effect(account.familyLedgerId() != null ? FAMILY_DEBT : account.code(),
+                                        line.currency(), shown(line));
+                            }).toList()));
+                }
             }
-            return new Export(sorted(), summary(parts));
+            return new Export(sorted(), summary(parts), List.copyOf(unwritten));
         }
 
         // --- Personal entries ------------------------------------------------------------------------------------
@@ -460,6 +495,9 @@ public class ExportService {
                 boolean several = id.contains(ImportService.GROUP);
                 ExcelRow row = several ? null : row(family, id, group, byRecord, shares, sideOf);
                 group.forEach(r -> recordParts.put(r.id(), row == null ? Part.SKIPPED : Part.EXPORTED));
+                if (several) {
+                    group.forEach(r -> groupSides.put(r.id(), key));
+                }
                 if (row == null) {
                     skip(several ? SETTLEMENT_GROUP : FAMILY_RECORD);
                     return;

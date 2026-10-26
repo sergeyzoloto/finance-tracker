@@ -3,6 +3,98 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-26 · D4b: the import from one transactions file, D-252 to D-272
+
+Three commits on `feature/family-budget` on top of `1fa5043`: `b3d04b6` "docs: D4a's deploy recorded, D-253 (D4b)",
+`fd2515e` "feat: the import from one transactions file, the check against the file, the app's rows compared (D4b)",
+and the commit of this entry, "docs: D-252 to D-272, D4b's rehearsal, step 12 and deploy checklist (D4b)". `main`
+fast-forwarded to it and both branches pushed. Not deployed; the server not touched. No migration. Nothing of
+`data/private/` committed: the rehearsal's files and reports are in `data/private/reports/d4b-*`.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions" and "Production now": D4a's deploy of `1fa5043` (run, dumps, images, the
+  suite, `finish`, `verify D4a`, the refused rollback acceptance, "CI on Ubuntu 26.04" #14, the owner's export), the
+  numbers with counterparties 1411, D-253.
+- The import takes one file (D-228 to D-234 as D-254 to D-259 amend them):
+  - `Workbook.transactions` recognises a transactions file by D-235's 32 columns in that order; any other header is
+    refused whole (422 `TransactionsFileRefused`), naming them. `TransactionRow` reads every column (`Computed`) and
+    the app's IDs `app-<id>` and `app-f<id>`.
+  - `Workbook.chart`: the accounts and categories from the rows' codes (`CODE_ALIASES` first), names and types; the
+    file is refused before any write for a code with two names or two types, a name of two codes, or a code the app
+    has with another type (D-229, D-261, D-262, D-270). New codes are created, personal names written from the rows,
+    a family category keeps its name (D-254); `ImportReport.chart` lists what is created and renamed.
+  - The accounts, categories and daily files are gone, with `DailyFile`, D-62's opening balances, D-83's lumps and
+    D-169's OWNER_HALF (D-232, D-233, D-255). The partner's filtered rows for a place without an account stay, now
+    with each row's CODE_ITEM and TYPE, UNALLOCATED's name taken from the owner's own file (D-260).
+  - `Reconciler` checks the ledger against the file alone (D-231, D-255, D-256): per row, the computed columns
+    against `ExcelRow` from the typed ones and what the import builds against them (D-263, SHOWN_ROUNDED); per
+    month-end from the first row date to the cutoff, movements, FAMILY_DEBT, UNALLOCATED and RESERVE as one sum per
+    currency, no tail (D-264), NO_ROW for what the ledger holds that no row stands for (D-265, from
+    `ExportService.Export.unwritten`, D-198's group sides included). D-175's waiting points and
+    `family_import_cutoff` are gone from the code (D-258, D-267).
+  - Missing rows only within the file's period, the lumps' records never (D-256, D-268); the ID gaps a warning
+    (`ImportReport.idGaps`); `app-` rows compared with the export's and never written (D-259, D-266, D-271);
+    a personal entry's kind ignored and a member's side compared by what the ledger holds (D-256, D-272).
+  - `ExcelRow`: a family row without an item has no family part, as Excel computes it (D-269).
+  - `ImportController`, `ImportRequest`, `ImportRunner` and `ImportReportMarkdown` for one file.
+- The page `/import`: one file input, its rows, highest ID and last row date before the check (D-257), a notice for
+  another header, the check's new form, what is created and renamed, the ID gaps, the app's rows.
+- Tests: `WorkbookTests`, `ReconcilerTests`, `ImportApiTests` (the header, D-229's refusals with nothing written,
+  created and renamed codes, the ID gaps, the check failing on a changed Sum, a deleted row and a row moved by hand,
+  a file of one month, the app's rows unchanged, changed, unknown and another user's), `MemberImportApiTests`
+  (D-258, a group's round trip), `ExportApiTests` (D3c's family: each member's export, whole period and one month,
+  imported back: 0 created, 0 updated, 0 conflicts, 0 missing, the check passing), `DemoRoundTripApiTests`,
+  `ImportRunnerTests`, the planners' tests; the fixtures regenerated with 32 columns by their `make-fixtures.py`,
+  which compute the computed columns independently of `ExcelRow`; `Import.test.tsx`, `importFilter.test.ts`.
+- End to end: `import` and `member import` on one file; `export-steps.ts` imports each export back as a dry run
+  (smoke and family F8, locally and in production, the e2e accounts only).
+- `deploy/checks/D4b.sql` and `D4b.expected` (6 lines), tried on D-251's dump; `deploy/RUNBOOK.md`: step 12 for one
+  file per member in the order owner, then partner (D-258), D4b's rehearsal figures, "D4b's deploy checklist with
+  the suite" with `<M>`; `scripts/rehearsal-db.sh`'s header.
+- `docs/family-budget/requirements.md`: D-252 confirmed, D-253 to D-259 (the PM's), D-260 to D-272 (the agent's), the
+  amendment line and the planned stage. `CLAUDE.md` and `e2e/README.md`.
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B -o clean verify`: exit status 0; Results: Tests run: 612, Failures: 0, Errors: 0,
+  Skipped: 0.
+- Frontend, `npm test`: exit status 0, Test Files 31 passed (31), Tests 396 passed (396); `npm run build`: exit
+  status 0.
+- End to end, in `e2e/`: `npm run typecheck` exit status 0; `npm run test:guards` exit status 0, tests 37, pass 37,
+  fail 0; `npm run e2e:local` exit status 0, 2 + 22 tests passed (every spec at 1280 and 375 px), `Result: PASSED`,
+  password search 0 hits. The prod project not run (CLAUDE.md, QA).
+- The deploy scripts' tests not run: no script changed; `D4b.sql` is read only by `deploy.sh`.
+- The rehearsal on D-251's dump (`scripts/rehearsal-db.sh`, the backend and Vite on the host, the dev users through
+  a scripted browser), every report under `data/private/reports/d4b-*`:
+  - (a) With the original transactions files up to 2026-09-30, both dry runs 0 created, 0 updated, 0 conflicts, 0
+    missing, the check **Passed** (the owner: 2782 month-ends, 7034 rows; the partner: 2378 and 12662). The owner's
+    211 and 2839 still "changed in the app, the file unchanged", APP_EDITED -2.50 RUB on EQUITY+FAMILY_DEBT and
+    LOANS_ASSET. Against D4a's baseline: the owner's unchanged 6992 to 6966 (the opening entry, D-233; the 25 lumps,
+    D-232), "can't be re-planned" 30 to 5; the partner's 20356 to 20355 (D-233); OWNER_HALF, D-147's line, the
+    family debt's date and CLAIM_OPENING gone (D-255, D-256, D-258), his claim's opening NO_ROW, SHARES 0 in the pool.
+  - (b) Each member's export, whole period and 2026-09, imported back: 0 created, 0 updated, 0 conflicts, 0 missing,
+    the check **Passed** (the owner's 25 `app-f` rows as the ledger holds them; the partner's 528 rewrites and the
+    owner's 2839 conflict of D4a gone).
+  - (c) On copies of the owner's file: a Sum changed by 1 is caught at the row level (row 3771's DEBIT_CHANGE and
+    CREDIT_CHANGE) and at the month-ends from 2022-03-31; a middle row deleted is missing (3806) and fails the
+    month-ends from 2022-04-30; an item's code switched to an income code is refused whole (422, D-229), nothing
+    written; export-2026-10-13's file gives 6 errors (older settlement amounts, D-28), 6 conflicts (deleted in the
+    app), 5 missing rows and a failing check. Each a dry run, so nothing written.
+  - (d) D-258 by the postings: each participant's entries for the other's records move the pooled sum by exactly 0
+    per currency and no other account; applied (step 12 is the owner, then the partner).
+  - (e) Step 12 end to end in that order, up to 2026-09-30, committed on the rehearsal database: every pass 0
+    created, 0 updated, 0 conflicts, the check **Passed**, the owner's before and after the partner's import; the
+    integrity check `[]` for both.
+- `D4b.sql` on D-251's dump printed `D4b.expected`.
+- This file compiled with `@mdx-js/mdx`.
+
+**Open**
+- The deploy, by D4b's checklist; after it, the owner's export by hand (its step 5).
+- October's step 12, rehearsed first from production's latest dump with D4b's code (D-212, D-220); at the owner's
+  commit his MONEYCARD_DEBIT takes his rows' spelling (D-261) and the three twins merge (D-224).
+- D-252's parity differences stay as they are (no migration).
+- A side the owner pays on his own record (D-111) is still compared without its account when the row's hash differs:
+  an Excel edit of only his paying account is re-stamped, not applied (as since D3e).
+
 ## 2026-10-25 · D4a: the export of a user's ledger in the import's format, D-227 to D-252
 
 Two commits on `feature/family-budget` on top of `434d09b`: `0f077d3` "feat: the export of a user's ledger as one

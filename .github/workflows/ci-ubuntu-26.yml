@@ -1,10 +1,10 @@
 # The same build as ci.yml, on GitHub's ubuntu-26.04 runner, which production's server matches (Ubuntu 26.04.1 LTS),
 # to try before ubuntu-latest moves there (from 2026-10-19). D-44 (OPS-2, decided by the PM).
 #
-# Started by hand only (workflow_dispatch): its check runs belong to the commit it runs on, and deploy.sh's gate
-# counts every check run of the commit to deploy (deploy/deploy.sh, ci_check), so one still running makes a deploy
-# wait and one that failed refuses it. Start it only on a commit that is deployed and finished, never between a push
-# and that commit's deploy.sh run (deploy/RUNBOOK.md, OPS-2's checklist).
+# Started by hand only (workflow_dispatch), on a commit that is deployed and finished, never between a push and that
+# commit's deploy.sh run (deploy/RUNBOOK.md, OPS-2's checklist): up to OPS-3 deploy.sh's gate counted every check run of
+# the commit, so one of these still running made a deploy wait and one that failed refused it. Since OPS-3 (D-280) the
+# gate counts only ci.yml's runs; the rule stays, as the deploys of OPS-3 itself run 9af167d's gate.
 name: CI on Ubuntu 26.04
 
 on:
@@ -120,6 +120,7 @@ jobs:
           deploy/deploy.sh deploy/rollback.sh deploy/common.sh
           deploy/tests/run.sh deploy/tests/mutate.sh deploy/tests/stubs/*
           .github/scripts/check-web-image.sh .github/scripts/tests/check-web-image-test.sh .github/scripts/tests/stubs/*
+          .github/scripts/monitor.sh .github/scripts/tests/monitor-test.sh
 
       # Against stubs of docker, systemctl, pg-restore-test, curl and install, in a temp folder: no container, no network.
       - name: Tests
@@ -127,3 +128,8 @@ jobs:
 
       - name: Mutations
         run: deploy/tests/mutate.sh
+
+      # The monitor (.github/workflows/monitor.yml, D-276) against HTTPS servers on loopback ports: each way it fails.
+      # A step here, so that each push keeps its 5 check runs (D-95).
+      - name: Monitor's tests
+        run: .github/scripts/tests/monitor-test.sh

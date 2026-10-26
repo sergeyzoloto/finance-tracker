@@ -429,6 +429,32 @@ mutation "drop verify's shutdown line" \
   heading "The read-only role"' \
   shutdown_lines_of_verify_finish_and_rollback
 
+# OPS-3 (D-280, D-281): the gate counts CI's own runs only, and the postgres guard covers x-logging.
+mutation "count every check run of the commit again, as before OPS-3" \
+  '  suites=$(github "actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=100" | python3 -c "$CI_SUITES_PY") || return 1
+  for id in $suites; do
+    github "check-suites/$id/check-runs?per_page=100" || return 1
+  done | python3 -c "$CI_JOIN_PY"' \
+  '  github "commits/$SHA/check-runs?per_page=100"' \
+  ci_counts_only_ci_runs refuse_no_ci_run
+mutation "read the runs of every workflow" \
+  'github "actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=100"' \
+  'github "actions/runs?head_sha=$SHA&per_page=100"' \
+  ci_counts_only_ci_runs
+mutation "take a list of CI's runs longer than its page" \
+  '    sys.exit("%s runs of ci.yml, more than one page holds" % d.get("total_count"))' \
+  '    pass' \
+  refuse_ci_runs_past_a_page
+mutation "take a run of another workflow as CI's" \
+  '        sys.exit("a run of another workflow: %s" % r.get("path"))' \
+  '        pass' \
+  refuse_ci_run_of_another_workflow
+mutation "leave the extension blocks out of the postgres guard" \
+  '    || [ "$(compose_extensions "$BASE")" != "$(compose_extensions "$SHA")" ] \
+' \
+  '' \
+  refuse_logging_changed
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

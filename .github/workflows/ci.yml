@@ -4,8 +4,9 @@
 # D-44 (OPS-2, decided by the PM): every job runs on ubuntu-24.04, named, so that nothing changes on its own when
 # ubuntu-latest moves to Ubuntu 26.04 (from 2026-10-19, runner-images issue 14748); the actions are at their majors
 # that run on Node 24 (checkout v7, setup-java v6, setup-node v7). The same build on ubuntu-26.04, which production
-# runs (26.04.1 LTS), is ci-ubuntu-26.yml, started by hand only. deploy.sh's gate counts every check run of the
-# commit (deploy/deploy.sh, ci_check), so this file's jobs must stay the same in number and always complete.
+# runs (26.04.1 LTS), is ci-ubuntu-26.yml, started by hand only. deploy.sh's gate counts every check run of this
+# workflow's runs of the commit (deploy/deploy.sh, ci_check; since OPS-3, D-280, those of no other workflow), so this
+# file's jobs must stay the same in number and always complete.
 name: CI
 
 on:
@@ -134,6 +135,7 @@ jobs:
           deploy/deploy.sh deploy/rollback.sh deploy/common.sh
           deploy/tests/run.sh deploy/tests/mutate.sh deploy/tests/stubs/*
           .github/scripts/check-web-image.sh .github/scripts/tests/check-web-image-test.sh .github/scripts/tests/stubs/*
+          .github/scripts/monitor.sh .github/scripts/tests/monitor-test.sh
 
       # Against stubs of docker, systemctl, pg-restore-test, curl and install, in a temp folder: no container, no network.
       - name: Tests
@@ -141,6 +143,11 @@ jobs:
 
       - name: Mutations
         run: deploy/tests/mutate.sh
+
+      # The monitor (.github/workflows/monitor.yml, D-276) against HTTPS servers on loopback ports: each way it fails.
+      # A step here, so that each push keeps its 5 check runs (D-95).
+      - name: Monitor's tests
+        run: .github/scripts/tests/monitor-test.sh
 
   dependencies:
     name: Dependency updates

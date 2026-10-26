@@ -55,7 +55,7 @@ describe('the privacy policy', () => {
   })
 
   it('has the new date, names the time zone among what is stored, and no longer says nobody else sees anything of yours', () => {
-    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 7 October 2026')
+    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 26 October 2026')
     const data = words(page.getElementById('data')!.parentElement!.textContent!)
     // D-101 (F8c): the time zone is stored with the settings, from the browser, changeable, and decides today's date.
     expect(data).toContain('Your settings include your time zone, such as Europe/Amsterdam, which the app takes from your browser the first time you use it and which you can change in Settings')
@@ -63,6 +63,20 @@ describe('the privacy policy', () => {
     expect(data).toContain('No other user of the app can see it, apart from what you record in a family budget, which its members see')
     expect(words(page.getElementById('retention')!.nextElementSibling!.textContent!))
       .toContain('The records of a family budget are kept as long as the family budget exists')
+  })
+
+  it('states every period as an upper bound, the copies in backups included (OPS-3, D-277)', () => {
+    const retention = words(page.getElementById('retention')!.nextElementSibling!.textContent!)
+    expect(retention).not.toContain('rotated by size')
+    expect(retention).not.toContain('several months')
+    expect(retention).toContain('are deleted after at most 15 days')
+    expect(retention).toContain('kept for 14 days on the server')
+    expect(retention).toContain('for 60 days on my own computer')
+    expect(retention).toContain('keeps the last 7 of these backups, so each for at most 8 days')
+    expect(retention).toContain('within 23 days and from my computer within 61 days')
+    expect(retention).toContain('login and account events within 91 days, administrative events within 151 days')
+    expect(words(page.getElementById('recipients')!.nextElementSibling!.textContent!))
+      .toContain('keeps the daily backups of the whole server in the same location')
   })
 
   it('keeps the draft’s open questions and its review note out of the page, and has no script', () => {

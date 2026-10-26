@@ -64,8 +64,10 @@ finance-tracker-api ──▶ https://auth.finance-nl.com (through the server's 
 | The database | Docker volume `finance-tracker-prod_postgres-data`: database `finance`, owned by the login `finance`, which is no superuser |
 | The site file | `/opt/caddy-sites/finance.caddy`, installed from `/root/finance.caddy`, a copy of `deploy/finance.caddy` |
 | The network between Caddy and the app | `edge`: created by the auth stack, owned by no stack. On it: Caddy, `finance-tracker-api` and `finance-tracker-web` |
-| Backups | `/var/backups/pg/finance/` on the server (14 days), pulled daily to `~/backups/finance-nl-server/finance/` on the laptop (60 days) |
+| Backups | `/var/backups/pg/finance/` on the server (14 days), pulled daily to `~/backups/finance-nl-server/finance/` on the laptop (60 days); since OPS-3 also Hetzner's 7 daily backups of the whole server ([Hetzner's backups of the server](#hetzners-backups-of-the-server)) |
 | Backup settings | `/etc/pg-backup/finance.conf`, from `deploy/pg-backup/finance.conf`; timer `pg-backup@finance.timer` |
+| Logs | the host's journal, 14 days, since OPS-3 for every container of both stacks ([Logs](#logs)) |
+| The external monitor | `.github/workflows/monitor.yml` in this repository, on GitHub, every 15 minutes ([Monitoring](#monitoring)) |
 
 Docker Compose also gives each container its service name on every network it joins, so `api` and
 `web` are names on `edge` too. The site file uses only the `finance-` names, as the auth server's
@@ -1421,6 +1423,604 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   2026-10-08 04:00Z), and the strict rule would block deploys for most of that day. `verify` and `finish` print the line
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
+
+## OPS-3's deploy checklist
+
+**One session, both repositories.** **Commit to deploy (M):** `feature/family-budget`'s head after OPS-3, the last
+commit OPS-3's report names in full; every block that takes it says `<M>`: type M's full hash (40 characters) there
+before pasting the block (D-226). Pasted as it is, bash reads `<M>` as a redirection from a file `M` that doesn't exist
+and runs nothing. **The auth server's commit:** `2f0d02cc25a9a3bbd6b6fbaf7a234d17dd577439` ("OPS-3: containers log to
+the journal, sync.sh --copy-only, pg-backup prints its dump's restore test"), on its `main`, pushed. **Stage:** `OPS-3`
+(`deploy/checks/OPS-3.sql` and `OPS-3.expected`, 26 lines: Flyway V15, the 24 numbers as `verify D4b` printed them,
+no unbalanced entry; tried on `finance-2026-10-26T0236Z.dump`, the state D4b's deploy kept). **Migration:** none. **It
+writes no data.** **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before, during and
+after. **The rollback target:** `9af167d` (D4b's code on V15), with no condition of its own. **The time (D-125):** no
+step between 03:30 and 04:30 UTC; the last block (a rollback for a site that is down) is the exception. This checklist
+is for this deploy only.
+
+OPS-3 (D-273 to D-291): Hetzner's backups of the server (D-275), the external monitor (D-276, D-280), the logs of the
+host and of every container kept 14 days (D-277), the privacy policy's periods, D-278's look at registrations, and
+`pg-backup`'s restore line (D-279). What changes, in this order:
+
+| Step | What | Outage |
+| --- | --- | --- |
+| 3 | Hetzner's Backups switched on, in the console | none |
+| 4 | the host's log settings (journald, logrotate, the run folders' dump copies) | none |
+| 5 | the auth server's files copied (`sync.sh --copy-only`, no container touched) and its backup scripts installed | none |
+| 6 | `main` pushed to M: CI on `main`, and the monitor's schedule starts | none |
+| 7 | `deploy.sh run`: api and web rebuilt and recreated, with the `journald` driver | `/api` and the sign-in about 20 to 40 s (the api's start; every session ends, as at every deploy); pages 1 to 2 s |
+| 8 | fresh dumps and restore tests of both databases | none |
+| 9a | the finance `postgres` recreated | `/api` about 5 to 15 s (the api's pool reconnects; no session ends) |
+| 9b | Keycloak stopped, the auth `postgres` and Keycloak recreated | sign-in, sign-up and token refreshes about 30 to 90 s (Keycloak's start; its restarts of 2026-09-28 took 14 s and 24 s); the app's pages and signed-in requests go on until a token needs refreshing |
+| 9c | Caddy recreated | both sites about 2 to 5 s (the certificates stay in `auth_caddy_data`) |
+
+Each recreation is its own block, after the fresh dumps, never an implicit `docker compose up -d` (D-277, D-286).
+`deploy.sh`'s preflight refuses a change of the postgres service, `x-logging` included since this commit (D-281); this
+deploy's `run` is `9af167d`'s, which compares the postgres block's own text only and lets the logging driver through,
+and recreates only api and web.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
+`cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it
+does nothing. A command that asks a question (`deploy.sh run`, `finish`, `rollback.sh`, `sync.sh --copy-only`, and on
+the laptop `npm run e2e:prod`) is alone in its block; type its answer on the keyboard, after the question, never paste
+it. Every laptop git command that can page runs as `git --no-pager`, and a dirty tree stops a chain (`test -z "$(git
+status --porcelain)"`), D-127. Read-only blocks say so. Each step closes with its output pasted, never a confirmation in
+words (D-222). Anything not as expected is a **STOP**: send it to the PM, change nothing more.
+
+**The gate (D-280, D-283).** Since this commit `deploy.sh`'s CI gate counts only the check runs of `ci.yml`'s runs, so
+the monitor's runs never touch it. This deploy's `run` is still `9af167d`'s (bash reads the clone's script before the
+merge), which counts every check run of M: the monitor's scheduled runs on M too. So OPS-3 pushed only
+`feature/family-budget`; `main` reaches M in step 6, which starts the schedule (GitHub runs schedules from the default
+branch only), and step 7 follows within a few hours: the monitor's runs on M then number a few (at four an hour, more
+than 90 would take over 22 hours and push the check runs past `9af167d`'s one page of 100), and each must have
+succeeded. A failed monitor run fails `9af167d`'s gate: re-run that run's job once on GitHub ("Re-run failed jobs"; the
+gate reads the newest attempt); if it fails again, production has a fault: STOP.
+
+**0. On the laptop, read only: where things stand.** Type M.
+
+```bash
+# On the laptop
+M=<M>; cd ~/dev/finance-tracker && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain && cd ~/dev/auth_server && git fetch origin && git --no-pager log -1 --format='auth HEAD %H %s' && git --no-pager log -1 --format='auth origin/main %H' origin/main && git status --porcelain
+```
+
+You should see `HEAD` M with OPS-3's last subject (on `feature/family-budget`); `origin/main`
+`9af167d00c04bdac874777d400ffc8d87e3dbf0e` (**not** M: step 6 pushes it, D-283); `origin/feature/family-budget` M;
+two lines from `git log --oneline origin/main..feature/family-budget`, M's and `8f1efd4 docs: D4b's deploy recorded,
+D-273 (OPS-3)`; `FF-OK`; nothing from `git status --porcelain`; then `auth HEAD 2f0d02cc25a9a3bbd6b6fbaf7a234d17dd577439
+OPS-3: containers log to the journal, sync.sh --copy-only, pg-backup prints its dump's restore test`, `auth origin/main`
+the same hash, and nothing from its `git status --porcelain`.
+
+**1. On the server, read only: the inventory**, two blocks, before any change. Send both outputs to the PM.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+grep -E '^(PRETTY_NAME|VERSION_ID)=' /etc/os-release; df -h / | tail -n 1; free -h | head -n 2
+docker version -f 'Docker server {{.Server.Version}}'; docker info -f 'Default log driver: {{.LoggingDriver}}'; ls /etc/docker/daemon.json 2>&1
+docker ps -a --format '{{.Names}} {{.State}}' | sort
+for c in auth-postgres-1 auth-keycloak-1 auth-caddy-1 finance-tracker-postgres finance-tracker-api finance-tracker-web; do docker inspect -f '{{.Name}} {{.HostConfig.LogConfig.Type}} {{json .HostConfig.LogConfig.Config}} started {{.State.StartedAt}}' "$c"; done
+for c in auth-postgres-1 auth-keycloak-1 auth-caddy-1 finance-tracker-postgres finance-tracker-api finance-tracker-web; do python3 -c 'import datetime, glob, json, sys
+name, path = sys.argv[1], sys.argv[2]
+old = sorted((f for f in glob.glob(path + ".*") if f.rsplit(".", 1)[1].isdigit()), key=lambda f: -int(f.rsplit(".", 1)[1]))
+size = lines = 0; first = None
+for f in old + [path]:
+    for raw in open(f, "rb"):
+        lines += 1; size += len(raw)
+        if first is None: first = json.loads(raw)["time"][:19]
+days = max((datetime.datetime.now(datetime.timezone.utc) - datetime.datetime.fromisoformat(first + "+00:00")).total_seconds() / 86400, 1 / 24) if first else 1
+print("%s: %d files, %d lines, %.1f MB since %s, %.0f lines and %.2f MB a day" % (name, len(old) + 1, lines, size / 1e6, first, lines / days, size / 1e6 / days))' "$c" "$(docker inspect -f '{{.LogPath}}' "$c")"; done
+systemd-analyze cat-config systemd/journald.conf | grep -E '^[A-Za-z]'; ls /etc/systemd/journald.conf.d 2>&1; ls -d /var/log/journal
+journalctl --disk-usage; echo "Oldest journal line: $(journalctl -q --no-pager -o short-iso | head -n 1 | cut -c1-25)"
+dpkg-query -W rsyslog fail2ban logrotate; systemctl is-active rsyslog fail2ban logrotate.timer
+sha256sum /etc/logrotate.d/rsyslog /etc/logrotate.d/fail2ban /etc/logrotate.d/btmp /etc/logrotate.d/wtmp
+ls -l --time-style=+%F /var/log | grep -E ' (syslog|auth\.log|kern\.log|mail\.log|user\.log|cron\.log|fail2ban\.log|btmp|wtmp)' | awk '{ print $6, $7 }'
+fail2ban-client get dbpurgeage; fail2ban-client get sshd journalmatch
+ls -1 /root
+}
+```
+
+You should see:
+
+- `Now:` outside 03:30 to 04:30 UTC, and `Scheduled shutdown: cat: /run/systemd/shutdown/scheduled: No such file or
+  directory` (a scheduled reboot: go on only if it is more than 3 hours away, the length of this session; else STOP).
+- `PRETTY_NAME="Ubuntu 26.04.1 LTS"`, `VERSION_ID="26.04"`; the root file system with at least 5 GB available;
+  `Mem:` about `3.7Gi`, `Swap:` about `2.0Gi`.
+- `Docker server 29.8.2` (or a later patch the PM knows of); `Default log driver: json-file`; `ls: cannot access
+  '/etc/docker/daemon.json': No such file or directory`. A `daemon.json`: STOP (it may set another driver or
+  options).
+- Exactly six containers, each `running`: `auth-caddy-1`, `auth-keycloak-1`, `auth-postgres-1`, `finance-tracker-api`,
+  `finance-tracker-postgres`, `finance-tracker-web`. Any other (an exited one keeps its `json-file` log): STOP.
+- Each of the six `json-file {"max-file":"5","max-size":"10m"}`; api and web started at D4b's run
+  (2026-10-26T19:2…Z), the others earlier (the last reboot, or 2026-10-02's Docker update).
+- The six measurements, today's volume (D-282). Add up the `lines a day`: **under 30 000**, so that 15 days in the
+  journal, at 1 KB an entry or less, stay under 450 MB, under half of `SystemMaxUse=1G`. More: STOP (the cap would be
+  reached; the PM decides it). A container with `5 files` has filled its 50 MB, so its older lines are gone: its rate
+  still holds.
+- `ForwardToSyslog=yes` and nothing else from `systemd-analyze` (rsyslog's drop-in; the journal's other settings are
+  the defaults); `ls: cannot access '/etc/systemd/journald.conf.d': No such file or directory`; `/var/log/journal`
+  (persistent); the journal's size, and its oldest line (about 2026-09-27, the host's setup: nothing removed it so
+  far).
+- `fail2ban 1.1.0-9`, `logrotate 3.22.0-1build1`, `rsyslog 8.2512.0-1ubuntu4…` (a later Ubuntu revision is fine);
+  `active` three times.
+- Exactly these four hashes, Ubuntu 26.04's packaged files (checked in a throwaway `ubuntu:26.04` container on
+  2026-10-26): `1e493ae5151c429d214d2f43e69da4431e6293abf755a7b3d367f7180f3f005e  /etc/logrotate.d/rsyslog`,
+  `c5e34a5dbd4955f5910c289dd2aa92338133581f142befd69766abbb838362d3  /etc/logrotate.d/fail2ban`,
+  `7f64bae051c1727236f9dabe11526f1d1aad26aa53c1d0b8425efee746f5fbe8  /etc/logrotate.d/btmp`,
+  `81eec3d3e01e4263ffc6aab6aeee74f3b260f1df4c692525312608f7a60db048  /etc/logrotate.d/wtmp`. Another hash: STOP (a
+  local change, or a newer package, which step 4 would overwrite).
+- The log files with their dates: `syslog`, `auth.log`, `kern.log`, `fail2ban.log` and their weekly `.1`, `.2.gz` …
+  `.4.gz`; `btmp`, `wtmp` and their `.1`.
+- fail2ban's purge age, 86400 seconds (a day; the package's default), and `_SYSTEMD_UNIT=ssh.service + _COMM=sshd`
+  (the sshd jail reads the journal, not `auth.log`). Anything else: STOP.
+- `/root`'s names; among them `keycloak-2026-09-27.sql` and `auth-config-2026-09-27` (D-287, listed), no
+  `ops3-before`. Send the list to the PM; a name you don't know isn't a stop by itself.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good; tail -n 3 /var/lib/finance-deploy/history
+echo "Run folders: $(ls /var/lib/finance-deploy/runs | wc -l); dump copies: $(find /var/lib/finance-deploy/runs -mindepth 2 -maxdepth 2 -type f -name 'finance-*.dump' | wc -l), older than 14 days: $(find /var/lib/finance-deploy/runs -mindepth 2 -maxdepth 2 -type f -name 'finance-*.dump' -mtime +13 | wc -l)"; du -sh /var/lib/finance-deploy/runs
+ls /etc/systemd/system/finance-deploy-dumps.* 2>&1
+echo "auth deployed: $(cat /opt/auth/.deployed-revision)"; ls -1 /root/auth-sync-backups | tail -n 1
+sha256sum /usr/local/sbin/pg-backup /usr/local/sbin/pg-restore-test /etc/systemd/system/pg-backup@.service /etc/systemd/system/pg-backup@.timer /etc/pg-backup/auth.conf
+systemctl list-timers --no-pager 'pg-backup@*'
+cat /var/backups/pg/auth/last-success /var/backups/pg/finance/last-success
+(cd /opt/auth && docker compose exec -T -e PGOPTIONS='-c default_transaction_read_only=on' postgres psql -X -q -t -A -v ON_ERROR_STOP=1 -U keycloak -d keycloak -c "SELECT 'events ' || r.events_enabled || ' kept ' || coalesce(r.events_expiration, 0) || ' s; admin events ' || r.admin_events_enabled || ' kept ' || coalesce((SELECT value FROM realm_attribute a WHERE a.realm_id = r.id AND a.name = 'adminEventsExpiration'), 'unset') || ' s' FROM realm r WHERE r.name = 'myapps'" </dev/null)
+}
+```
+
+You should see:
+
+- `Clone: 9af167d00c04bdac874777d400ffc8d87e3dbf0e docs: D-252 to D-272, D4b's rehearsal, step 12 and deploy
+  checklist (D4b)`, nothing from `git status --short`, `previous file: 1fa50439945cca356fcb9dd4abdcab1f2af82ac0`.
+- `last-good`: `commit=9af167d00c04bdac874777d400ffc8d87e3dbf0e`, `api_image=sha256:19b7921e…`,
+  `web_image=sha256:20e50515…`, the contents `sha256:d50572e9…` and `sha256:a15f3838…`, `source=deploy`,
+  `finish=passed 2026-10-26T19:36:44Z`; the history's last lines D4b's `good 9af167d…`.
+- The run folders and their dump copies (D-43): every one older than 14 days is what step 4's first run of
+  `finance-deploy-dumps.service` deletes (each is also among the laptop's 60 days of dumps); `ls: cannot access
+  '/etc/systemd/system/finance-deploy-dumps.*': No such file or directory`.
+- `auth deployed: caf47e2 2026…` (D4's sync of 2026-09-28; the auth repository's `deploy/` hasn't changed since) and
+  the newest folder of `/root/auth-sync-backups`.
+- Exactly these hashes, `caf47e2`'s files: `e579578536e7ca013bd401b177964378ecf16c458eae01648aa4e21e05f98559`
+  `pg-backup`, `fe83885fe0962067081699f6cc8810ba3ccc6228bcbf21020209260c3b26a6d3` `pg-restore-test`,
+  `5256ef72151dbc21857ff467d65cf8a8ba8297b3f8acb070e6164e7f07b17f4b` `pg-backup@.service`,
+  `678054b5be62ba40a96299cdbf9bd1d299b997d69c4e6399b037f6bd11d5c426` `pg-backup@.timer`,
+  `c7553cdb8cc9f5b74eef9c87c8119f06ddeb815b098397acc35024cc2534bd12` `auth.conf`. Another: STOP.
+- Both timers with a next run tonight at 02:30 UTC and more; both `last_success` from last night (or a deploy's).
+- `events true kept 2592000 s; admin events true kept 7776000 s` (30 and 90 days, D-287). Anything else: STOP.
+
+**2. On the server, read only: verify D4b**, with the running script.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify D4b
+```
+
+You should see `verify D4b at 9af167d …: OK`, its `Scheduled shutdown:` line, both images "the recorded image", the
+pages 5 of 5, Flyway V15, the D-25 line "on", `D4b.expected`'s 6 lines, and the 24 numbers of `OPS-3.expected`
+(`accounts=74` … `users=4`, the same as after D4b's deploy). A participant writing in the app since explains a
+difference in his own lines only: say so before going on; `OPS-3.expected` would then differ in step 7's 4.4 and in
+step 12, by the same lines, judged the same way.
+
+**3. Hetzner's Backups (D-275), in the Hetzner Console, by hand.** Sign in to <https://console.hetzner.com>, open the
+project that holds `auth-1`, then: **Backups** in the upper menu → **Enable Backups** → choose the server `auth-1` →
+read the price it shows → **Enable & Buy now**. (Or: the server `auth-1` → its **Backups** tab → enable.) Nothing on
+the server changes, and the server keeps running. Paste back, as text: the price shown at "Enable & Buy now" (about
+20% of the server's), and what the server's Backups tab says afterwards (Backups enabled, no backup yet). The first
+backup appears within a day, at a time Hetzner chooses: the day after, paste its line (date, time, size) from the
+same tab; the report of OPS-3's deploy records it ([Hetzner's backups of the server](#hetzners-backups-of-the-server)).
+
+**4. On the server: the host's log settings (D-277, D-282, D-284, D-285).** Four blocks, in this order.
+
+4a. The packages' files, kept first:
+
+```bash
+# On the server
+cd /opt/finance-tracker && { install -d -m 700 /root/ops3-before && cp -a /etc/logrotate.d/rsyslog /etc/logrotate.d/fail2ban /etc/logrotate.d/btmp /etc/logrotate.d/wtmp /root/ops3-before/ && sha256sum /root/ops3-before/*; }
+```
+
+You should see step 1's four hashes, now under `/root/ops3-before/` (`btmp`, `fail2ban`, `rsyslog`, `wtmp`).
+
+4b. The journal: 14 days, files of a day, 1 GB at most.
+
+```bash
+# On the server
+cd /opt/finance-tracker && {
+install -d -m 755 /etc/systemd/journald.conf.d
+printf '%s\n' '# OPS-3 (D-277, D-282): the journal keeps 14 days, in files of one day each, so nothing older than 15 days stays;' '# the size is a safety limit only (finance-tracker deploy/RUNBOOK.md, "Logs").' '[Journal]' 'Storage=persistent' 'MaxRetentionSec=14day' 'MaxFileSec=1day' 'SystemMaxUse=1G' >/etc/systemd/journald.conf.d/60-retention.conf
+chmod 644 /etc/systemd/journald.conf.d/60-retention.conf
+sha256sum /etc/systemd/journald.conf.d/60-retention.conf
+systemctl restart systemd-journald && systemctl is-active systemd-journald
+systemd-analyze cat-config systemd/journald.conf | grep -E '^[A-Za-z]'
+journalctl --rotate && journalctl --vacuum-time=15d 2>&1 | tail -n 1
+journalctl --disk-usage
+}
+```
+
+You should see `831b3768c60530637831eecd75790972a0c9087ffc2d233553aa49a3093c79d5
+/etc/systemd/journald.conf.d/60-retention.conf`, `active`, then `Storage=persistent`, `MaxRetentionSec=14day`,
+`MaxFileSec=1day`, `SystemMaxUse=1G` and `ForwardToSyslog=yes`, the vacuum's last line (`Vacuuming done, freed …`),
+and the journal's size. The vacuum removes the archived files holding nothing newer than 15 days; lines older than
+that in newer files go as those files age out, within 15 days ([Logs](#logs)).
+
+4c. rsyslog's files, fail2ban's log, `btmp` and `wtmp`: daily, 13 old files, at most 14 days.
+
+```bash
+# On the server
+cd /opt/finance-tracker && {
+printf '%s\n' '# OPS-3 (D-284): rotated daily, 13 old files, none older than 14 days (finance-tracker deploy/RUNBOOK.md, "Logs").' '/var/log/syslog' '/var/log/mail.log' '/var/log/kern.log' '/var/log/auth.log' '/var/log/user.log' '/var/log/cron.log' '{' '	daily' '	rotate 13' '	maxage 14' '	missingok' '	compress' '	delaycompress' '	sharedscripts' '	postrotate' '		/usr/lib/rsyslog/rsyslog-rotate' '	endscript' '}' >/etc/logrotate.d/rsyslog
+printf '%s\n' '# OPS-3 (D-284): rotated daily, 13 old files, none older than 14 days (finance-tracker deploy/RUNBOOK.md, "Logs").' '/var/log/fail2ban.log {' '    daily' '    rotate 13' '    maxage 14' '    compress' '    delaycompress' '    missingok' '    postrotate' '	fail2ban-client flushlogs 1>/dev/null' '    endscript' '    create 640 root adm' '}' >/etc/logrotate.d/fail2ban
+printf '%s\n' '# OPS-3 (D-284): rotated daily, 13 old files, none older than 14 days (finance-tracker deploy/RUNBOOK.md, "Logs").' '/var/log/btmp {' '    missingok' '    daily' '    create 0660 root utmp' '    rotate 13' '    maxage 14' '}' >/etc/logrotate.d/btmp
+printf '%s\n' '# OPS-3 (D-284): rotated daily, 13 old files, none older than 14 days (finance-tracker deploy/RUNBOOK.md, "Logs").' '/var/log/wtmp {' '    missingok' '    daily' '    create 0664 root utmp' '    rotate 13' '    maxage 14' '}' >/etc/logrotate.d/wtmp
+sha256sum /etc/logrotate.d/rsyslog /etc/logrotate.d/fail2ban /etc/logrotate.d/btmp /etc/logrotate.d/wtmp
+logrotate --debug /etc/logrotate.conf 2>&1 | grep -E 'error|rotating pattern: /var/log/(syslog|fail2ban\.log|btmp|wtmp)' | cut -c1-140
+}
+```
+
+The tabs inside the quotes are part of the file; a paste keeps them (logrotate reads spaces as well). You should see
+`5d078de47dd51b0054f003dd98462d90b9ca276fa267366afc197e61d8afcf79` `rsyslog`,
+`8c216d92d2de9ddfd16acfddc660bc25992c90a5564044c15632c53b1d1ca667` `fail2ban`,
+`a602ff89b03fa8732cfa803fbf04efbb532eba9b80248dcf4f160f7cdf191a81` `btmp` and
+`7b1ac75c896ab3b1385ba4f9e6d59161a846d0407679a75a2c5a911850d2ad92` `wtmp` (another hash for `rsyslog` or `fail2ban`
+only means the paste turned a tab into spaces: harmless, say so), then four `rotating pattern:` lines, each with
+`after 1 days`, `(13 rotations)` and `old logs are removed after 14 days`, and no `error` line. A dry run only
+(`--debug`): the files rotate at logrotate's next daily run.
+
+4d. The run folders' dump copies, deleted 14 days after their run: the timer, and its first run now.
+
+```bash
+# On the server
+cd /opt/finance-tracker && {
+printf '%s\n' '# OPS-3 (D-285): the copies of the before-dumps in the deploy run folders, deleted 14 days after their run.' '[Unit]' "Description=Delete the deploy run folders' before-dump copies older than 14 days (finance-tracker)" 'Documentation=file:///opt/finance-tracker/deploy/RUNBOOK.md' '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/bin/find /var/lib/finance-deploy/runs -mindepth 2 -maxdepth 2 -type f -name finance-*.dump -mtime +13 -print -delete' >/etc/systemd/system/finance-deploy-dumps.service
+printf '%s\n' '# OPS-3 (D-285): every day at 05:15 UTC, after the reboot window (D-125), and at the next boot if missed.' '[Unit]' "Description=Daily deletion of the deploy run folders' old before-dump copies (finance-tracker)" '' '[Timer]' 'OnCalendar=*-*-* 05:15:00 UTC' 'Persistent=true' '' '[Install]' 'WantedBy=timers.target' >/etc/systemd/system/finance-deploy-dumps.timer
+sha256sum /etc/systemd/system/finance-deploy-dumps.service /etc/systemd/system/finance-deploy-dumps.timer
+systemd-analyze verify /etc/systemd/system/finance-deploy-dumps.service /etc/systemd/system/finance-deploy-dumps.timer && systemctl daemon-reload
+systemctl enable --now finance-deploy-dumps.timer && systemctl start finance-deploy-dumps.service
+journalctl -u finance-deploy-dumps.service --since -5min -o cat --no-pager | grep -c '/finance-.*\.dump$'
+echo "dump copies left: $(find /var/lib/finance-deploy/runs -mindepth 2 -maxdepth 2 -type f -name 'finance-*.dump' | wc -l)"
+systemctl list-timers --no-pager finance-deploy-dumps.timer
+}
+```
+
+You should see `1e4ec6fbb0c3ca9ff5e538e3ea5faea7ef4245a362f22a64d491ca0d47ee3338` (`.service`) and
+`1dd72abdcd2c964bd7904200965f0a8b20ed1ce8d3d9c3c10e89c7af6c29a7bc` (`.timer`), no output from `systemd-analyze
+verify`, the number of copies deleted, which is step 1's "older than 14 days", the copies left (step 1's total less
+that), and the timer's next run at 05:15 UTC.
+
+**5. The auth server: its files and its backup scripts**, at `2f0d02c`, starting no container. First on the laptop,
+read only:
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s' && deploy/sync.sh --dry-run
+```
+
+You should see `2f0d02cc25a9a3bbd6b6fbaf7a234d17dd577439 OPS-3: …`, then `== Dry run: root@2.28.108.199:/opt/auth
+(revision 2f0d02c)` and exactly two files that would change, `docker-compose.yml` (the diff: `x-logging`'s `json-file`
+10m × 5 replaced by `journald` with the tag `{{.Name}}`, and its comment) and `sync.sh` (`--copy-only`); `== Checking
+docker-compose.yml against the server's .env` and `OK`; the Caddyfile validated with the site files. Any other file,
+or a failed check: STOP.
+
+Then the copy, alone in its block; answer `y` at its question:
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && deploy/sync.sh --copy-only
+```
+
+You should see the same checks, the question `Copy to root@2.28.108.199:/opt/auth, without starting or restarting
+anything? [y/N]`, the two files copied (the replaced ones kept in `/root/auth-sync-backups/<UTC time>/`),
+`Installed /usr/local/sbin/caddy-site`, `== Copied only (--copy-only): no container was started, recreated or
+restarted.`, the three services `running`, healthy, with their old creation times, and `Copied revision 2f0d02c.`
+
+Then the backup scripts, which serve both databases:
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && deploy/backup/install.sh server
+```
+
+You should see the four files and `/etc/pg-backup/auth.conf` installed, and both timers. Then, on the server, read
+only:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { echo "auth deployed: $(cat /opt/auth/.deployed-revision)"; ls -1 /root/auth-sync-backups | tail -n 1; sha256sum /usr/local/sbin/pg-backup /usr/local/sbin/pg-restore-test; grep -n 'driver:' /opt/auth/docker-compose.yml; for c in auth-postgres-1 auth-keycloak-1 auth-caddy-1; do docker inspect -f '{{.Name}} {{.HostConfig.LogConfig.Type}} started {{.State.StartedAt}}' "$c"; done; }
+```
+
+You should see `auth deployed: 2f0d02c …`, the new backup folder, `fa671510fb5cb31920c55ff4f6143f0a46d36436ff038f9fd7e4c6f3af1f6492`
+`pg-backup` and the unchanged `fe83885f…` `pg-restore-test`, `driver: journald` in `/opt/auth/docker-compose.yml`, and
+the three containers still `json-file`, started as in step 1: nothing recreated yet.
+
+**6. On the laptop: `main` to M, the push, and CI on M** (D-283). From here, start step 7 within a few hours.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see `Already up to date.` for the merge (OPS-3 fast-forwarded the laptop's `main` to M, D-283; if `main`
+were still at `9af167d`, `Updating 9af167d..` and M's 7 characters), the push `9af167d..<M's 7 characters>  main ->
+main`, and M in full with its parent and OPS-3's last subject. A dirty tree stops the chain before the merge, with no
+message: run `git status` and tell the PM. Don't start "CI on Ubuntu 26.04" (step 15) or the monitor by hand now.
+
+CI on M, read only, once the jobs have had time (about fifteen minutes). First the runs with their jobs; type M:
+
+```bash
+# On the laptop
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+```
+
+You should see `CI`, `push`, once on `feature/family-budget` (OPS-3's push) and once on `main` (this step's), attempt
+1, each `completed success` with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` (now with its step
+"Monitor's tests") and `Dependency updates`, `completed success`; and none, one or a few `Monitor #n schedule main`,
+each `completed success` with its job `Monitor`. No "CI on Ubuntu 26.04" run. Then the check runs, which `9af167d`'s
+gate counts (1.5):
+
+```bash
+# On the laptop
+M=<M>; curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see 10 plus the number of `Monitor` runs (far below 100), the five names twice each and `Monitor` that many
+times, each `completed success`. A failure of either Backend run is a real fault: stop. A failure only of a Frontend
+job may be re-run once (D-94). A failed `Monitor` run: "The gate" above. Anything else: stop; the gate would refuse
+anyway.
+
+**7. On the server: the deploy**, alone in its block, not between 03:30 and 04:30 UTC; type M's 7 characters at the
+confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> OPS-3
+```
+
+It prints (the clone's script, `9af167d`'s):
+
+- 1.1: `Scheduled shutdown: none (…)`. 1.2: `HEAD: 9af167d docs: D-252 to D-272, …`, `Last good deploy: 9af167d … (deploy)`,
+  status `good`, both images "the recorded image", the read-only role's line.
+- 1.3: the commits from `9af167d` to M: `8f1efd4` (D4b's deploy recorded, D-273) and M; `Migrations added: none`;
+  under `deploy/`: `RUNBOOK.md`, `app/docker-compose.yml`, `checks/OPS-3.expected`, `checks/OPS-3.sql`, `deploy.sh`,
+  `tests/mutate.sh`, `tests/run.sh`, `tests/stubs/curl`.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`: `9af167d`'s guard compares the postgres block's own
+  text, which `logging: *logging` keeps (`x-logging` changed; the new guard would refuse it, D-281). 1.5: `CI: <10 +
+  the Monitor runs> check runs, every one completed with success (Backend, Dependency updates, Deploy scripts,
+  Frontend, Monitor, Web image)` (without `Monitor` if none ran yet). 1.6: the OPS-3 files. 1.7: step 2's 24 numbers.
+- 1.8: a fresh dump, `PASS`, preserved with its SHA-256 (note its name).
+- 2: `Deploy <M's 7 characters> (<its subject>), stage OPS-3, over 9af167d.`; type the 7 characters.
+- 3.1: `Fast-forward`. 3.2: `9af167d`'s images kept as `:9af167d00c04bdac874777d400ffc8d87e3dbf0e` and `:previous`,
+  and `2cfeec0`'s tags removed (the tags of three revisions stay: `9af167d`, `1fa5043`, `b3013d2`). 3.3: api built (its context, `backend/`, is unchanged, so mostly cached), web built
+  (`privacy.html` changed). 3.4: api and web recreated, now with the `journald` driver. 3.5: `api: healthy, web:
+  healthy`. 3.6: `Pages: 5 of 5 as expected`.
+- 4.1: `Schema "app" is up to date. No migration necessary.`, `Latest row: 15 member import true; the highest migration
+  in <M>: V15`, `Started: …` (read from the journal through `docker compose logs`). 4.2: the D-25 line "on". 4.3: `The
+  same numbers`. 4.4: `OPS-3.expected`'s 26 lines. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump,
+  `PASS`.
+- 5: the summary, `Numbers: the same before and after (…)`, then `Left for you: … deploy/deploy.sh finish`.
+
+A FAILED line: stop, send it to the PM; the rollback command it prints isn't run (the last block).
+
+**8. On the server: fresh dumps and restore tests of both databases**, before the recreations (D-277).
+
+```bash
+# On the server
+cd /opt/finance-tracker && { systemctl start pg-backup@auth.service && journalctl -u pg-backup@auth.service -n 3 -o cat --no-pager && pg-restore-test auth </dev/null && systemctl start pg-backup@finance.service && journalctl -u pg-backup@finance.service -n 3 -o cat --no-pager && pg-restore-test finance </dev/null; }
+```
+
+You should see, for each, `Wrote /var/backups/pg/<name>/<name>-<UTC minute>.dump: …`, `Restore test of this dump:
+pg-restore-test <name> /var/backups/pg/<name>/<name>-<UTC minute>.dump` (D-279, the new line) and `OK: … dumps`, then
+its restore test's table and `PASS`. A `MISMATCH` (someone wrote between the dump and the test): run the block again.
+
+**9. On the server: the planned recreations** (D-277, D-286), each alone, in this order, the next only once the one
+before shows healthy. Not between 03:30 and 04:30 UTC.
+
+9a. The finance `postgres` (`/api` answers errors for about 5 to 15 s; no session ends):
+
+```bash
+# On the server
+cd /opt/finance-tracker/deploy/app && docker compose up -d --force-recreate --no-deps postgres && sleep 20 && docker compose ps --format 'table {{.Name}}\t{{.Status}}'
+```
+
+You should see `finance-tracker-postgres` recreated and started, then all three `Up … (healthy)`. If the api isn't
+healthy after a minute: `docker compose logs --tail 30 api`, and STOP.
+
+9b. Keycloak and its `postgres` (sign-in and token refreshes stop for about 30 to 90 s):
+
+```bash
+# On the server
+cd /opt/auth && docker compose stop keycloak && docker compose up -d --force-recreate --no-deps postgres && sleep 10 && docker compose up -d --force-recreate --no-deps keycloak && for i in $(seq 1 18); do s=$(docker inspect -f '{{.State.Health.Status}}' auth-keycloak-1); echo "keycloak: $s"; [ "$s" = healthy ] && break; sleep 10; done
+```
+
+You should see Keycloak stopped, `postgres` recreated and started, Keycloak recreated, then `keycloak: starting` a few
+times and `keycloak: healthy`. Not `healthy` after three minutes: `docker compose logs --tail 50 keycloak`, and STOP.
+
+9c. Caddy (both sites without HTTPS for about 2 to 5 s):
+
+```bash
+# On the server
+cd /opt/auth && docker compose up -d --force-recreate --no-deps caddy && sleep 5 && docker compose ps --format 'table {{.Name}}\t{{.Status}}'
+```
+
+You should see `auth-caddy-1` recreated, then the three `Up`, `postgres` and `keycloak` `(healthy)`.
+
+9d. Read only: every container on the journal, and the site:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+for c in auth-postgres-1 auth-keycloak-1 auth-caddy-1 finance-tracker-postgres finance-tracker-api finance-tracker-web; do docker inspect -f '{{.Name}} {{.HostConfig.LogConfig.Type}} {{json .HostConfig.LogConfig.Config}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} started {{.State.StartedAt}}' "$c"; done
+for c in auth-postgres-1 auth-keycloak-1 auth-caddy-1 finance-tracker-postgres finance-tracker-api finance-tracker-web; do echo "$c: $(journalctl -t "$c" --since -30min -q --no-pager | wc -l) journal lines in 30 minutes, $(docker logs --since 30m "$c" 2>&1 | wc -l) by docker logs"; done
+for u in https://app.finance-nl.com/ https://app.finance-nl.com/api/me https://auth.finance-nl.com/realms/myapps/.well-known/openid-configuration; do curl -s -o /dev/null -w "%{http_code} $u\n" "$u"; done
+curl -s https://app.finance-nl.com/privacy | grep -c 'are deleted after'
+docker ps -a --format '{{.Names}} {{.State}}' | sort
+}
+```
+
+You should see the six `journald {"tag":"{{.Name}}"} running`, the four with a health check `healthy`, each started in
+this session; for each a positive number of journal lines and of `docker logs` lines (the same reads, so about equal);
+`200 …/`, `401 …/api/me`, `200 …/openid-configuration`; `1` (the policy's new retention line); and the same six
+containers, no other. Send the output to the PM.
+
+**10. On the laptop: the auth server's smoke test, then the end-to-end suite** (D-51, D-56), not between 03:30 and
+04:30 UTC.
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && deploy/smoke-test.sh 2>&1 | tail -n 1
+```
+
+You should see `== Summary: 11 ok, 0 fail ==`. Its `LOGIN_ERROR` lands in Keycloak's journal, read only:
+
+```bash
+# On the server (read only)
+cd /opt/auth && docker compose logs --since 10m keycloak | grep -cE 'type="?LOGIN_ERROR'
+```
+
+You should see `1` or more: the auth runbook's log command reads the journal.
+
+Then the suite, from a clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. Then alone in its block; read its banner (https://app.finance-nl.com, `e2e-a`, `e2e-b`,
+`E2E_FAMILY: on`, M, "clean tree"), then type `E2E PROD` after the question:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary. You should see D4b's: `Commit:` M `(clean tree)`, `E2E_FAMILY: on`, `pages passed` (2 tests; the
+policy page is new, its title the same), `sign-in`, `smoke`, `family F7`, `family F8`, `export`, `family F8d`, `import`,
+`member import` passed, `new-family skipped` (D-163, local only), `time-zone passed` (2 tests), `cleanup passed`, both
+accounts signed in, their data deleted and signed out, `Password search over the artifacts: 0 hits`, `Result: PASSED`.
+D-58 and D-59 apply as in D4b's checklist. Nothing is left to check by hand here: the policy's text is step 9d's line,
+the logs are step 9d's and 10's.
+
+**11. On the server: finish**, only after step 10, alone in its block; `yes` to both only if step 10's summary says
+`Result: PASSED` with 0 password hits, otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 10 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-<M's 7 characters>`, its `Scheduled shutdown:`
+line, the pages 5 of 5, the two answers, the family lines as before the deploy, the images and "Done".
+
+**12. On the server: verify OPS-3, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-3
+```
+
+You should see `verify OPS-3 at <M's 7 characters> …: OK`, both images "the recorded image", the pages 5 of 5, Flyway
+V15, the D-25 line "on", `OPS-3.expected`'s 26 lines, and step 2's 24 numbers, the same. It is the new script's verify:
+its log reads are the journal's.
+
+**13. Acceptance: `rollback.sh 9af167d` goes to its question**, changing nothing; type `no`.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh 9af167d
+```
+
+You should see step 1 `Scheduled shutdown: none (…)`; step 2 `Target: 9af167d docs: D-252 to D-272, D4b's rehearsal,
+step 12 and deploy checklist (D4b), the commit HEAD's deploy replaced (…-<M's 7 characters>); its status, its newest
+line in the history: good`; step 3 the images accepted; step 4 `Flyway's latest row: 15 member import true; the
+target's highest migration: V15` and no condition line; then the question, and after `no`: `REFUSED at "5.
+Confirmation": not confirmed` and "Nothing changed." What a real rollback would do to the logs: api and web back on
+`json-file` (9af167d's compose file), `postgres` and the auth stack's containers on `journald` until recreated
+([Logs](#logs), D-291).
+
+**14. On the server, read only: D-278, registrations in realm `myapps`.**
+
+```bash
+# On the server (read only)
+cd /opt/auth && docker compose exec -T -e PGOPTIONS='-c default_transaction_read_only=on' postgres psql -X -q -t -A -v ON_ERROR_STOP=1 -U keycloak -d keycloak -c "WITH r AS (SELECT id FROM realm WHERE name = 'myapps'), t AS (SELECT (extract(epoch FROM now() - interval '30 days') * 1000)::bigint AS since, (extract(epoch FROM now() - interval '1 day') * 1000)::bigint AS day) SELECT 'users ' || count(*) || ', created in the last 30 days ' || count(*) FILTER (WHERE u.created_timestamp >= t.since) || ', email not verified ' || count(*) FILTER (WHERE NOT u.email_verified) || ' (created more than a day ago: ' || count(*) FILTER (WHERE NOT u.email_verified AND u.created_timestamp < t.day) || ')' FROM user_entity u, r, t WHERE u.realm_id = r.id AND u.service_account_client_link IS NULL" -c "WITH r AS (SELECT id FROM realm WHERE name = 'myapps'), t AS (SELECT (extract(epoch FROM now() - interval '30 days') * 1000)::bigint AS since), e AS (SELECT ip_address, type FROM event_entity, r, t WHERE realm_id = r.id AND event_time >= t.since AND type IN ('REGISTER', 'REGISTER_ERROR')) SELECT 'REGISTER events in the last 30 days ' || count(*) FILTER (WHERE type = 'REGISTER') || ', from ' || count(DISTINCT ip_address) FILTER (WHERE type = 'REGISTER') || ' addresses, at most ' || coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM e WHERE type = 'REGISTER' GROUP BY ip_address) m), 0) || ' from one; REGISTER_ERROR events ' || count(*) FILTER (WHERE type = 'REGISTER_ERROR') FROM e" </dev/null
+```
+
+It prints counts only, no address or email: the realm's users (service accounts left out), those created in the last
+30 days, those whose email isn't verified, and the `REGISTER` and `REGISTER_ERROR` events of the last 30 days, with
+how many addresses they came from (tried on the dev Keycloak's database). Compare with the accounts the owner knows
+(the owner, the partner, `e2e-a`, `e2e-b` and the older test accounts of D-184). **STOP** (D-278: the captcha becomes
+a stage of its own) if any looks like bots: an account the owner doesn't know created in the last 30 days, an email
+not verified for more than a day, more `REGISTER` events than new accounts the owner knows of, two or more from one
+address, or `REGISTER_ERROR` events beyond a handful. Otherwise send the two lines to the PM.
+
+**15. CI on Ubuntu 26.04 (D-44, D-124)**, on M deployed and finished: GitHub → Actions → "CI on Ubuntu 26.04" → "Run
+workflow" on `main`, exactly once, and wait for it to the end. Then, read only, type M:
+
+```bash
+# On the laptop
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], "id", r["id"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+```
+
+You should see `1 runs`, `workflow_dispatch main attempt 1 completed success`, and Backend, Frontend, Web image and
+Deploy scripts each `completed success`.
+
+**16. Last: the monitor's failure on purpose, and the email** (D-276). First check, on GitHub, that the account that
+pushed `main` (the owner's) has Settings → Notifications → "System" → "Actions" with **Email** on
+([Monitoring](#monitoring)). Then GitHub → Actions → "Monitor" → "Run workflow" on `main`, tick "Fail on purpose …",
+"Run workflow", once. Then, read only, type M:
+
+```bash
+# On the laptop
+M=<M>; curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/workflows/monitor.yml/runs?head_sha=$M&per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"], "runs"); [print(r["name"], "#%d" % r["run_number"], r["event"], r["status"], r["conclusion"], r["created_at"]) for r in d["workflow_runs"]]'
+```
+
+You should see the scheduled runs, `schedule completed success`, about four an hour since step 6, and the newest
+`workflow_dispatch completed failure`; its log ends with five `ok` lines, `FAIL  on purpose (--fail): the monitor's
+email test` and `1 check(s) failed.` **The only check by hand: the email arrived**, from GitHub, about the failed run
+of "Monitor" (its subject names the workflow and the run). Say "the email arrived", with its time, or that it didn't:
+then the settings above are wrong, and a real failure would go unseen. This failed run is on M; since OPS-3's commit no
+gate counts it (D-280).
+
+**The ways back**, each only when its part failed; the PM decides.
+
+- Hetzner's Backups: the console → the server → Backups → disable. Whether the backups taken so far are then kept
+  isn't documented.
+- The host's log settings: the block at the end of [Logs](#logs).
+- The auth server's files: the auth server's `PRODUCTION.md`, "Deploy a change", with the backup folder step 5 printed
+  (`/root/auth-sync-backups/<UTC time>/`, `docker-compose.yml` and `sync.sh`); its containers then go back to
+  `json-file` only when recreated, by steps like 9b and 9c.
+- The backup scripts: on the laptop, `git -C ~/dev/auth_server worktree add <scratch folder> caf47e2`, then that
+  folder's `deploy/backup/install.sh server`, then `git -C ~/dev/auth_server worktree remove <scratch folder>`.
+- The monitor: GitHub → Actions → "Monitor" → "Disable workflow" (no deploy needed; the gate never counts it).
+- This repository: the next block, only for a failed deploy.
+
+**17. Last, only for a failed deploy where the site is down: the rollback**, alone in its block, at any hour; type
+`ROLLBACK 9af167d` at its question. It goes to `9af167d`, D4b's code and deploy scripts on V15, with no condition of its
+own; api and web come back on `json-file`. A scheduled shutdown, however near, is only a warning here (D-126, D-131).
+
+```bash
+# On the server: only for a failed deploy where the site is down
+cd /opt/finance-tracker && deploy/rollback.sh 9af167d
+```
 
 ## D4b's deploy checklist with the suite
 
@@ -5332,8 +5932,8 @@ It prints each step under a `==` heading:
 | 1.1 | The tools it needs, and the terminal; since F8f (D-126) and F8f-fix (D-128, D-131) a scheduled shutdown (`/run/systemd/shutdown/scheduled`) less than 2 hours away, or whose time has passed, REFUSES the run here, as does that file when it can't be parsed; one at least 2 hours away is named with its distance and the run goes on | `Tools present: …`, then `Scheduled shutdown: none (/run/systemd/shutdown/scheduled doesn't exist)`, or `Scheduled shutdown: a reboot at …, in 21h 49m (…)` and `The scheduled shutdown is at least 2 hours away: the deploy goes on (D-131)` |
 | 1.2 | The clone on `main` without changes, `.env` present, the running images, the last good deploy (from F6c with its status, its newest line in `history`), and (from F6b) the read-only role of the checks. Since OPS-2 (defect 4) the image store, the platform and each image's content identity, compared with the last good deploy's by content: the same ID, or `INFO` for another ID with the same content (a rebuild); a content that can't be read is REFUSED, with nothing changed | `HEAD: …`, `Running images: …`, `Image store: containerd, platform linux/amd64; content: …`, `Last good deploy: …`, `Its status, its newest line in the history: …`, `api: the recorded image, …` (or `INFO api: another image ID with the recorded content: …`), `The running images are the last good deploy's content`, `The checks run as finance_checks: superuser=false read_all_data=true writes=0 read_only=true` |
 | 1.3 | `git fetch`; the commit must be `origin/main` and a fast-forward of `HEAD`; a commit the clone doesn't have says to push it from the laptop first. Since OPS-2 (D-42) the commit that already runs, after its clean finish, is REFUSED here, before CI, any backup and any image, naming `verify` and `switch`; after a stop or a finish that didn't pass it may run again, and step 3.2 then leaves `:previous` and `/root/finance-tracker.previous` as they are | the commits (`git log --oneline HEAD..<commit>`), the migrations added and the files changed under `deploy/`, as the checklist names them |
-| 1.4 | `deploy/finance.caddy`, the postgres service and `postgres-init.sh` unchanged | `deploy/finance.caddy and the postgres service unchanged` |
-| 1.5 | CI's check runs of the commit, through GitHub's API | one line per check run, then `CI: N check runs, every one completed with success (…)`; while CI runs, `CI still runs; checking again in 60 s` |
+| 1.4 | `deploy/finance.caddy`, the postgres service (since OPS-3 with the compose file's extension blocks, `x-logging`, which it merges in, D-281) and `postgres-init.sh` unchanged | `deploy/finance.caddy and the postgres service unchanged` |
+| 1.5 | CI's check runs of the commit, through GitHub's API: since OPS-3 (D-280) only those of the runs of `.github/workflows/ci.yml` (its list of runs of the commit, then each run's check suite), never the monitor's or "CI on Ubuntu 26.04"'s | one line per check run, then `CI: N check runs, every one completed with success (…)`; while CI runs, `CI still runs; checking again in 60 s` |
 | 1.6 | The stage's check files in the commit | `deploy/checks/<stage>.sql and <stage>.expected are in …` |
 | 1.7 | The numbers before (`deploy/checks/numbers.sql` of the running commit) | one `key=count` line per table, as before the last deploy unless users signed up or wrote since |
 | 1.8 | A fresh backup, then the restore test; since OPS-2 (D-43) a copy of that dump in the run folder, mode 600, its name, size and SHA-256 in the run's `meta` | `Dump finance-….dump, … bytes, written at …, SHA-256 …`, the restore test's table, `PASS`, `The before-dump preserved as /var/lib/finance-deploy/runs/…/finance-….dump (mode 600, … bytes, SHA-256 …)` |
@@ -6218,22 +6818,195 @@ were tried as they were written then, for an address and a `sub` nobody has: the
 `DELETE 0` and rolled back. `UserDataApiTests` runs the statements of the deleting block as they
 are written here.
 
+## Logs
+
+Since OPS-3 (D-277) everything on the host that keeps an IP address or a user's data keeps it for at most 15 days, or
+for the period listed here. The privacy policy (`frontend/public/privacy.html`, "How long it is kept") states these
+periods as upper bounds, the copies in backups included.
+
+| What | Where | Kept |
+| --- | --- | --- |
+| Every container's output: Caddy's access log (auth.finance-nl.com's requests with the client's address), nginx's (the app's pages, with `X-Forwarded-For`), the api's, Keycloak's (its error events with addresses), both PostgreSQLs' | the journal, `/var/log/journal`; driver `journald`, tag the container's name | 14 days (`MaxRetentionSec=14day`, files of one day, `MaxFileSec=1day`): nothing older than 15 days |
+| sshd (the address of every SSH attempt), fail2ban's sshd jail (it reads the journal), the kernel (ufw's blocked packets), every unit | the journal | the same |
+| rsyslog's copy of the journal (`ForwardToSyslog=yes`, the rsyslog package's setting): `/var/log/syslog`, `auth.log`, `kern.log`, `mail.log`, `user.log`, `cron.log` | `/var/log` | rotated daily, 13 old files, `maxage 14` (D-284): at most 14 days and the hour of logrotate's random delay |
+| fail2ban's own log (bans, with addresses) | `/var/log/fail2ban.log` | the same |
+| Failed and successful logins (`lastb`, `last`; SSH addresses) | `/var/log/btmp`, `/var/log/wtmp` | the same |
+| fail2ban's database (bans and the lines that caused them) | `/var/lib/fail2ban/fail2ban.sqlite3` | 1 day (`dbpurgeage`, the package's default; OPS-3's inventory reads it) |
+| The last login of each account (root: the admin's address) | `lastlog2`'s database, `/var/lib/lastlog/` | until the next login replaces it (D-287: listed, not changed) |
+| Keycloak's user events (sign-ins, registrations, with addresses) and admin events | Keycloak's database, realm `myapps` | 30 and 90 days (D-287: unchanged; D-278's look at registrations reads 30 days); in the dumps up to 61 days longer |
+| The deploys' copies of their before-dumps (D-43): whole databases | `/var/lib/finance-deploy/runs/*/finance-*.dump` | 14 days after their run (D-285: `finance-deploy-dumps.timer`, daily at 05:15 UTC); the run folders' other files hold no user data and stay |
+| The nightly dumps of both databases | `/var/backups/pg/{finance,auth}` | 14 days, deleted by the next night's run; on the laptop 60 days, deleted by its daily pull |
+| Hetzner's backups of the whole disk, all of the above included | Hetzner, the server's location | 7 daily backups, each at most about 8 days ([Hetzner's backups of the server](#hetzners-backups-of-the-server)) |
+| One-off copies from the auth server's setup: `/root/keycloak-2026-09-27.sql` (the realm on 2026-09-27, before any user but the owner) and `/root/auth-config-2026-09-27/` (its old `.env`) | `/root` | until deleted by hand (D-287: listed; the PM decides) |
+
+So the bounds the privacy policy states (D-289): logs 15 days on the server, 23 with Hetzner's backups; deleted data 23
+days on the server and in its backups, 61 on the laptop; Keycloak's events 91 and 151 days. Logs written before OPS-3's
+host settings are gone 15 days after them at the latest: the journal's and rsyslog's older files age out, and the
+containers' old `json-file` logs went with their recreation.
+
+**The files**, as OPS-3's checklist writes them (its step 4); each package's original is kept in `/root/ops3-before/`:
+
+- `/etc/systemd/journald.conf.d/60-retention.conf`:
+
+  ```text
+  # OPS-3 (D-277, D-282): the journal keeps 14 days, in files of one day each, so nothing older than 15 days stays;
+  # the size is a safety limit only (finance-tracker deploy/RUNBOOK.md, "Logs").
+  [Journal]
+  Storage=persistent
+  MaxRetentionSec=14day
+  MaxFileSec=1day
+  SystemMaxUse=1G
+  ```
+
+  `SystemMaxUse=1G` is a safety limit only: OPS-3's inventory (step 1) measures today's volume, and 15 days of it stay
+  under half of it.
+- `/etc/logrotate.d/rsyslog`, `fail2ban`, `btmp` and `wtmp`: the packages' files with `daily`, `rotate 13` and
+  `maxage 14` in place of `weekly` or `monthly` and `rotate 4` or `rotate 1`, and without `notifempty` and `minsize`,
+  so that an empty or small file still rotates and ages out.
+- `/etc/systemd/system/finance-deploy-dumps.service` and `.timer`: `find /var/lib/finance-deploy/runs -mindepth 2
+  -maxdepth 2 -type f -name finance-*.dump -mtime +13 -print -delete`, daily at 05:15 UTC, `Persistent=true`. For a
+  deploy whose copy is gone, `rollback.sh` says "which is gone: look in /var/backups/pg/finance"; after 14 days the
+  dump is the laptop's.
+
+**Reading logs.** `docker compose logs` and `docker logs` read the journal as before: `deploy.sh` and `rollback.sh`
+(Flyway, the D-25 line, `Started`), the auth server's commands and this runbook's; OPS-3 ran each of them against
+containers with the `journald` driver. They read only the current container's lines; the journal keeps those of a
+container that was recreated, for the same 14 days:
+
+```bash
+# On the server
+journalctl -t finance-tracker-api --since -1h --no-pager
+journalctl CONTAINER_NAME=finance-tracker-web -o cat --since today --no-pager
+journalctl -t auth-caddy-1 -o cat --since -10min --no-pager
+```
+
+**A container takes its logging driver when it is created.** `deploy.sh run` recreates the api and web every time; the
+finance `postgres` and the auth stack's three containers only a planned step (OPS-3's checklist, step 9). `deploy.sh`'s
+preflight treats a change of `x-logging` as a change of the postgres service, which stays manual (D-281). After
+`rollback.sh` to a commit before OPS-3 (`9af167d`), api and web run with `json-file` again, `postgres` keeps `journald`
+until something recreates it, and a plain `docker compose up -d` in `deploy/app` would: so the monthly routine runs
+`up -d --no-deps api web` (D-291).
+
+**The way back from the host's log settings**, alone in its block:
+
+```bash
+# On the server: only to undo OPS-3's log settings
+cd /opt/finance-tracker && {
+rm -f /etc/systemd/journald.conf.d/60-retention.conf && systemctl restart systemd-journald
+cp /root/ops3-before/rsyslog /root/ops3-before/fail2ban /root/ops3-before/btmp /root/ops3-before/wtmp /etc/logrotate.d/
+systemctl disable --now finance-deploy-dumps.timer && rm -f /etc/systemd/system/finance-deploy-dumps.service /etc/systemd/system/finance-deploy-dumps.timer && systemctl daemon-reload
+}
+```
+
+## Hetzner's backups of the server
+
+Since OPS-3 (D-275) Hetzner's Backups are on for the server `auth-1`. What Hetzner's documentation says (read on
+2026-10-26):
+
+- "Backups are automatic copies of a server's disk"; once enabled, daily backups run automatically, and each server has
+  seven slots: "If all slots are full, the oldest Backup will be deleted"
+  ([Enabling Backups](https://docs.hetzner.com/cloud/servers/getting-started/enabling-backups/),
+  [Backups and Snapshots, overview](https://docs.hetzner.com/cloud/servers/backups-snapshots/overview/)). So a backup
+  lives about 7 days; the privacy policy counts 8.
+- The time: "Our system will automatically select a timeframe in which the Backups will be created"; a user can no
+  longer choose it ([Backups and Snapshots, FAQ](https://docs.hetzner.com/cloud/servers/backups-snapshots/faq/)).
+- Consistency: Hetzner recommends powering the server off for a consistent disk; for backups "from a running system"
+  it can't guarantee data consistency (the FAQ). This server keeps running, so a backup is crash-consistent at best:
+  its databases are as after a power cut, which PostgreSQL recovers from by replaying its write-ahead log. **A database
+  is restored from its nightly dump** ([Restore from a backup](#restore-from-a-backup); the auth server's
+  `PRODUCTION.md`), which `pg-restore-test` checks; a Hetzner backup is for a lost or broken server.
+- What it holds: the server's disk; "Backups and Snapshots do not include any Volumes which are attached to your server"
+  (the overview; this server has none).
+- Where: "in the same location as the cloud server they were created from, but usually in a different data center"
+  (the FAQ): Falkenstein, in the EU. Backups are bound to their server and deleted with it; one can be converted into
+  a snapshot, which is never deleted automatically (the FAQ).
+- The price: about 20% of the server's price, as OPS-3's task states it; the documentation pages read don't give it,
+  and the console shows it when Backups are enabled ("Enable & Buy now"): OPS-3's step 3 records it.
+
+Not confirmed by the documentation: the time of day of this server's backups, so whether one can overlap the nightly
+dumps (02:30 UTC plus up to 10 minutes) or the reboot window (03:30 to 04:30 UTC, D-125); whether a backup runs while
+the server reboots; how long one takes; and what happens to the backups when Backups are switched off. The time shows
+in the console's list after the first backup, which OPS-3 records the day after its deploy. An overlap with the dumps
+is harmless: a dump being written is a temporary file that `pg-backup` deletes at its next run, and the night before's
+dump is complete. One with a reboot is Hetzner's to handle, and the next day's backup replaces it.
+
+**To restore the server from one** (only for a lost or broken server; it overwrites the disk, and everything written
+since that backup is lost): Hetzner Console → the project → the server `auth-1` → Backups → the backup's menu → rebuild
+the server from it (its disk replaced, its address kept), or create a new server from it (a copy with another address,
+to look without touching production; the FAQ). After a rebuild the containers start by their restart policy: check
+both stacks (`docker compose ps` in `/opt/auth` and in `/opt/finance-tracker/deploy/app`), run `pg-restore-test auth`
+and `pg-restore-test finance`, the auth server's smoke test and the end-to-end suite, and compare with the newest dumps
+on the laptop: data written after the backup is only in a newer dump, restored by
+[Restore from a backup](#restore-from-a-backup).
+
+## Monitoring
+
+Since OPS-3 (D-276) `.github/workflows/monitor.yml` checks production from outside every 15 minutes (cron
+`7,22,37,52 * * * *`), with `.github/scripts/monitor.sh`: `https://app.finance-nl.com/` answers 200 with
+`<div id="root">`; `/api/me` without a session answers 401, which only the api container gives (Caddy's 502, 503 or 504
+mean the api is down); the realm's discovery document answers 200 with the issuer
+`https://auth.finance-nl.com/realms/myapps`; both hosts' certificates verify and have at least 14 days left. Each check
+has a timeout (10 s to connect, 20 s in all) and one retry after 10 s. It holds no secret, reaches the server only as a
+browser does, and writes nothing.
+
+- **GitHub's schedule is best effort**: a run may start late, or be dropped when GitHub is busy, so an outage shorter
+  than the gap between two runs may go unseen.
+- **Who gets the email.** A failed run is notified by GitHub's notification settings: for a scheduled run, to the user
+  who created the workflow, later the user who last changed its `cron` line, or the user who enabled a disabled
+  schedule again; for a run started by hand, to the user who started it
+  ([Notifications for workflow runs](https://docs.github.com/en/actions/concepts/workflows-and-actions/notifications-for-workflow-runs)).
+  Here that is the account that pushes this repository, the owner's. That account must have, under GitHub → Settings →
+  Notifications → "System" → "Actions", **Email** on ("Only notify for failed workflows" if only failures should
+  arrive), and a verified address as its default for notifications
+  ([Managing GitHub Actions notifications](https://docs.github.com/en/subscriptions-and-notifications/how-tos/managing-github-actions-notifications)).
+  OPS-3's step 16 checks that the email arrives, with a run started by hand that fails on purpose.
+- **60 days.** "In a public repository, scheduled workflows are automatically disabled when no repository activity has
+  occurred in 60 days"
+  ([Disabling and enabling a workflow](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)).
+  This repository is public. The weekly check under [Regular checks](#regular-checks) reads the workflow's state
+  (`active`, or `disabled_inactivity`). To enable it again: GitHub → the repository → Actions → "Monitor" → "Enable
+  workflow"; whoever does it gets the emails from then on. Whether GitHub emails a warning before it disables a
+  schedule isn't in the documentation read.
+- **The deploy gate.** Scheduled runs attach to `main`'s head, the deployed commit. Since OPS-3 (D-280) `deploy.sh`'s
+  gate counts only the check runs of the workflow CI's runs (`.github/workflows/ci.yml`), read from GitHub's list of
+  that workflow's runs of the commit and each run's check suite: no monitor run, failed or still running, holds up or
+  refuses a deploy, and their number never pushes CI's check runs past one page. OPS-3's own deploy runs `9af167d`'s
+  gate, which counts every check run of the commit: there `main` reaches M only in its step 6, shortly before `run`
+  (D-283).
+- By hand: GitHub → Actions → "Monitor" → "Run workflow"; or on the laptop, read only, `.github/scripts/monitor.sh`
+  (exit status 0, or 1 with the failed check named).
+
 ## Regular checks
 
 Weekly:
 
 ```bash
 # On the server
-systemctl list-timers --no-pager 'pg-backup@*'
+systemctl list-timers --no-pager 'pg-backup@*' finance-deploy-dumps.timer
 cat /var/backups/pg/finance/last-success
 journalctl -u pg-backup@finance.service -p err --since -8d --no-pager
 df -h /
 docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}'
+journalctl --disk-usage; journalctl -q --no-pager -o short-iso | head -n 1
 ```
 
-You should see a next run tonight, a `last_success` from last night, no error lines, free disk
-space, and every container below its limit. The laptop's daily pull raises a desktop notification
-by itself when a dump is older than 36 hours.
+You should see a next run tonight for each timer, a `last_success` from last night, no error
+lines, free disk space, every container below its limit, the journal well under its 1 GB, and its
+oldest line at most 15 days old ([Logs](#logs)). The laptop's daily pull raises a desktop
+notification by itself when a dump is older than 36 hours.
+
+The monitor and Hetzner's backups, weekly too:
+
+```bash
+# On the laptop
+curl -fsS -H 'Accept: application/vnd.github+json' https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/workflows/monitor.yml | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["name"], d["state"])'
+curl -fsS -H 'Accept: application/vnd.github+json' 'https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/workflows/monitor.yml/runs?per_page=5' | python3 -c 'import json, sys; [print(r["created_at"], r["event"], r["status"], r["conclusion"]) for r in json.load(sys.stdin)["workflow_runs"]]'
+```
+
+You should see `Monitor active` and runs of the last hour, `schedule`, `completed success`.
+`disabled_inactivity` means GitHub stopped the schedule after 60 days without activity in the
+repository ([Monitoring](#monitoring)). In the Hetzner Console, the server's Backups tab lists 7
+backups, the newest from the last day.
 
 Monthly, with the auth server's monthly routine (its `PRODUCTION.md`), which updates the Docker
 packages:
@@ -6241,11 +7014,13 @@ packages:
 ```bash
 # On the server
 systemctl start pg-backup@finance.service && pg-restore-test finance </dev/null
-cd /opt/finance-tracker/deploy/app && docker compose build --pull api && docker compose build web && docker compose up -d
+cd /opt/finance-tracker/deploy/app && docker compose build --pull api && docker compose build web && docker compose up -d --no-deps api web
 ```
 
 You should see `PASS`, then the api rebuilt on the newest Java 21 runtime and `api` and `web`
-restarted.
+restarted. `--no-deps api web` since OPS-3 (D-291): a plain `up -d` would also recreate `postgres`
+whenever its settings in the compose file differ from the running container's (after a rollback
+past OPS-3, its logging driver), which is a planned step of its own ([Logs](#logs)).
 
 `postgres` and the nginx of `web` are pinned to an exact version and build
 (`deploy/app/docker-compose.yml`, `frontend/Dockerfile`), so `--pull` doesn't change them. For a
@@ -6279,15 +7054,17 @@ major version needs a dump and a restore, which this runbook doesn't cover.
 
 ## Not covered
 
-- **No copy beyond the laptop.** As for the auth server: if the server is lost, everything since
-  the laptop's last pull is lost too.
-- **No alerts** but the laptop pull's notification. A failed backup shows up as a failed unit and in
-  the journal.
+- **No copy beyond the laptop and Hetzner.** Since OPS-3 Hetzner keeps 7 daily backups of the
+  whole server, in the same location as the server; if both the server and its backups are lost,
+  everything since the laptop's last pull is lost too.
+- **Few alerts.** The external monitor ([Monitoring](#monitoring)) emails a failed check of the site,
+  the api, the realm or a certificate; the laptop pull notifies an old dump. A failed backup shows up
+  only as a failed unit and in the journal, and nothing watches the disk or the memory.
 - **One server and one api instance.** Sessions live in the api's memory, so a restart signs
   everyone out.
 - **No access log for app.finance-nl.com in Caddy**: the auth server's log block applies to its own
   site only. `docker compose logs web` shows the page requests nginx served, with Caddy's address
-  and the client's in `X-Forwarded-For`.
+  and the client's in `X-Forwarded-For`, for 14 days ([Logs](#logs)).
 - **Open registration.** Anyone can sign up, and a new user's first request gives them a starter
   ledger. Nothing removes the ledgers of users who never come back, and there is no rate limit or
   captcha (the auth server's `PRODUCTION.md`, "Spam registrations").

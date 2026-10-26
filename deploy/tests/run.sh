@@ -83,6 +83,14 @@ for f in deploy.sh rollback.sh common.sh; do
 done
 chmod +x "$VB6870F2"/*.sh 2>/dev/null || true
 
+# 9af167d's (D4b's), which run OPS-3's deploy and run in production now (OPS-3), taken the same way.
+V9AF167D=$WORK/v9af167d
+mkdir -p "$V9AF167D"
+for f in deploy.sh rollback.sh common.sh; do
+  git -C "$ROOT" show "9af167d:deploy/$f" >"$V9AF167D/$f" 2>/dev/null || rm -f "${V9AF167D:?}/${f:?}"
+done
+chmod +x "$V9AF167D"/*.sh 2>/dev/null || true
+
 # ---------------------------------------------------------------------------------------------------------------------
 # A case: its own copy of the repositories, the server's clone at D, the state of a good deploy of D, and the stubs.
 
@@ -195,6 +203,16 @@ new_target() {
         caddy) echo "# changed" >>deploy/finance.caddy ;;
         postgres) sed -i 's/mem_limit: 384m/mem_limit: 512m/' deploy/app/docker-compose.yml ;;
         postgres-init) echo "# changed" >>deploy/app/postgres-init.sh ;;
+        logging) sed -i 's/^  driver: journald$/  driver: local/' deploy/app/docker-compose.yml ;;
+        9af167d-logging)
+          git -C "$ROOT" show 9af167d:deploy/app/docker-compose.yml >deploy/app/docker-compose.yml.9af167d
+          python3 -c '
+import sys
+new, old = open(sys.argv[1]).read(), open(sys.argv[2]).read()
+block = lambda t: t[t.index("x-logging:"):t.index("services:")]
+open(sys.argv[1], "w").write(new.replace(block(new), block(old)))' deploy/app/docker-compose.yml deploy/app/docker-compose.yml.9af167d
+          rm deploy/app/docker-compose.yml.9af167d
+          ;;
         api) sed -i 's/mem_limit: 768m/mem_limit: 769m/' deploy/app/docker-compose.yml ;;
         conf) echo "# changed" >>deploy/pg-backup/finance.conf ;;
         privacy) mkdir -p frontend/public && echo '<h1>Privacy policy</h1>' >frontend/public/privacy.html ;;
@@ -371,7 +389,8 @@ case_happy_path() {
   check "exit code 0" rc_is 0
   check "says deployed" out_has "Deploy of ${SHA_E:0:7} (stage OPS-1): deployed"
   check "the checklist's order" in_order \
-    '^curl .*/commits/'"$SHA_E"'/check-runs' \
+    '^curl .*/actions/workflows/ci\.yml/runs\?head_sha='"$SHA_E"'&per_page=100$' \
+    '^curl .*/check-suites/101/check-runs\?per_page=100$' \
     '^docker compose exec -T -e PGOPTIONS=-c default_transaction_read_only=on postgres psql .* -f -$' \
     '^systemctl start pg-backup@finance.service$' \
     '^pg-restore-test finance$' \
@@ -473,6 +492,63 @@ case_refuse_ci_none() {
   refused "GitHub has no check run"
 }
 
+# OPS-3 (D-276): the gate reads the check runs of CI's own runs (.github/workflows/ci.yml) and of no other workflow.
+# The commit's check runs as a whole (fixtures/ci, which the gate before OPS-3 read) hold the monitor's failed runs.
+case_ci_counts_only_ci_runs() {
+  setup_case
+  new_target
+  printf '%s\n' '{"total_count": 2, "workflow_runs": [' \
+    '{"id": 7, "check_suite_id": 101, "path": ".github/workflows/ci.yml", "event": "push", "head_branch": "main"},' \
+    '{"id": 8, "check_suite_id": 102, "path": ".github/workflows/ci.yml", "event": "push", "head_branch": "feature/family-budget"}]}' \
+    >"$STUB_STATE/fixtures/runs"
+  cp "$HERE/fixtures/check-runs-success.json" "$STUB_STATE/fixtures/suite.101"
+  cp "$HERE/fixtures/check-runs-success.json" "$STUB_STATE/fixtures/suite.102"
+  monitor_runs failure 120 >"$STUB_STATE/fixtures/ci"
+  deploy_e
+  check "exit code 0" rc_is 0
+  check "both runs' check runs, and only theirs" out_has "CI: 12 check runs, every one completed with success (Backend, Dependency updates, Frontend)"
+  check "no monitor run among them" out_lacks "Monitor"
+  check "each suite read once" [ "$(count_calls '^curl .*/check-suites/10[12]/check-runs')" -eq 2 ]
+  check "the commit's check runs never read" calls_lack '/commits/[0-9a-f]+/check-runs'
+}
+# monitor_runs CONCLUSION N: a commit's check runs as GitHub lists them with N scheduled monitor runs: one page of 100.
+monitor_runs() {
+  python3 -c '
+import json, sys
+n = int(sys.argv[2])
+runs = [{"name": "Monitor", "status": "completed", "conclusion": sys.argv[1]} for _ in range(n)]
+print(json.dumps({"total_count": n, "check_runs": runs[:100]}))' "$1" "$2"
+}
+
+case_refuse_ci_runs_past_a_page() {
+  setup_case
+  new_target
+  printf '%s\n' '{"total_count": 101, "workflow_runs": [{"id": 7, "check_suite_id": 101, "path": ".github/workflows/ci.yml"}]}' \
+    >"$STUB_STATE/fixtures/runs"
+  deploy_e
+  refused "could not read CI's check runs"
+  check "says why" out_has "101 runs of ci.yml, more than one page holds"
+}
+
+case_refuse_ci_run_of_another_workflow() {
+  setup_case
+  new_target
+  printf '%s\n' '{"total_count": 1, "workflow_runs": [{"id": 7, "check_suite_id": 101, "path": ".github/workflows/monitor.yml"}]}' \
+    >"$STUB_STATE/fixtures/runs"
+  deploy_e
+  refused "could not read CI's check runs"
+  check "no suite read" calls_lack '/check-suites/'
+}
+
+case_refuse_no_ci_run() {
+  setup_case
+  new_target
+  printf '%s\n' '{"total_count": 0, "workflow_runs": []}' >"$STUB_STATE/fixtures/runs"
+  monitor_runs success 3 >"$STUB_STATE/fixtures/ci"
+  deploy_e
+  refused "GitHub has no check run"
+}
+
 case_refuse_not_origin_main() {
   setup_case
   new_target
@@ -507,6 +583,15 @@ case_refuse_caddy_changed() {
 case_refuse_postgres_changed() {
   setup_case
   new_target postgres
+  deploy_e
+  refused "the postgres service changes"
+}
+
+# OPS-3 (D-276): an extension block that the postgres service merges in, x-logging, is the postgres service's too.
+case_refuse_logging_changed() {
+  setup_case
+  new_target logging
+  check "the change is the logging driver" bash -c "git -C '$C/work' show HEAD -- deploy/app/docker-compose.yml | grep -q '^+  driver: local'"
   deploy_e
   refused "the postgres service changes"
 }
@@ -2564,6 +2649,55 @@ case_b6870f2_run_deploys_ops2b_same_api() {
   ops2b_scripts_after_it
 }
 
+need_9af167d() {
+  [ -x "$V9AF167D/deploy.sh" ] && return 0
+  echo "    9af167d's scripts not in this repository's history"
+  FAILS=$((FAILS + 1))
+  return 1
+}
+
+# OPS-3's deploy runs 9af167d's run (bash reads it before the merge), whose gate counts every check run of the commit
+# and whose guard compares the postgres service's own block only. E changes the logging driver of every service through
+# x-logging (here back to 9af167d's json-file, the same change in the other direction): that guard lets it through, and
+# api and web are recreated by run itself. Its gate goes on while the monitor's scheduled runs on the commit all
+# succeeded (D-283: main is pushed only in the checklist's step 6, so there are few of them).
+case_9af167d_run_deploys_ops3() {
+  need_9af167d || return
+  setup_case
+  new_target 9af167d-logging
+  check "E changes x-logging only" bash -c "git -C '$C/work' diff HEAD~1 HEAD --stat -- deploy/app | grep -q '1 file changed'"
+  monitor_runs success 4 | python3 -c '
+import json, sys
+m = json.load(sys.stdin); c = json.load(open(sys.argv[1]))
+runs = c["check_runs"] + m["check_runs"]
+print(json.dumps({"total_count": len(runs), "check_runs": runs}))' "$HERE/fixtures/check-runs-success.json" >"$STUB_STATE/fixtures/ci"
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$V9AF167D/deploy.sh" run "$SHA_E" OPS-1
+  check "deployed" rc_is 0
+  check "1.4: the postgres service taken as unchanged" out_has "deploy/finance.caddy and the postgres service unchanged"
+  check "1.5: CI's 6 and the monitor's 4" out_has "CI: 10 check runs, every one completed with success (Backend, Dependency updates, Frontend, Monitor)"
+  check "api and web started by run" calls_have '^docker compose up -d --no-deps api web$'
+  check "postgres never touched" calls_lack '^docker compose (up|restart|stop|rm).*postgres'
+  check "last-good: E" last_good_is "$SHA_E"
+}
+
+# The same with one of the monitor's runs failed: 9af167d's gate refuses, before any backup.
+case_9af167d_run_refused_by_a_failed_monitor_run() {
+  need_9af167d || return
+  setup_case
+  new_target 9af167d-logging
+  monitor_runs failure 1 | python3 -c '
+import json, sys
+m = json.load(sys.stdin); c = json.load(open(sys.argv[1]))
+runs = c["check_runs"] + m["check_runs"]
+print(json.dumps({"total_count": len(runs), "check_runs": runs}))' "$HERE/fixtures/check-runs-success.json" >"$STUB_STATE/fixtures/ci"
+  type_at_terminal "${SHA_E:0:7}"
+  run_script "$V9AF167D/deploy.sh" run "$SHA_E" OPS-1
+  check "refused" rc_not
+  check "says why" out_has "did not succeed"
+  check "before any backup" calls_lack '^systemctl start pg-backup'
+}
+
 # new_merge_target: E on a feature branch from D, pushed, and on origin's main M, GitHub's merge commit of a pull
 # request: first parent D, second parent E, E's tree (QA-1b, D-57: PR #13's 8d75f83 of b6870f2 and aade401). Sets SHA_E
 # and SHA_M.
@@ -2808,7 +2942,8 @@ case_shutdown_lines_of_verify_finish_and_rollback() {
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
-  refuse_not_fast_forward refuse_caddy_changed refuse_postgres_changed refuse_postgres_init_changed
+  refuse_not_fast_forward refuse_caddy_changed refuse_postgres_changed refuse_logging_changed refuse_postgres_init_changed
+  ci_counts_only_ci_runs refuse_ci_runs_past_a_page refuse_ci_run_of_another_workflow refuse_no_ci_run
   refuse_stage_files_missing refuse_restore_test_fails refuse_tool_missing refuse_without_terminal
   wrong_confirmation
   fail_never_healthy fail_flyway_below fail_switch_line_missing fail_switch_line_wrong fail_numbers_differ
@@ -2842,6 +2977,7 @@ CASES=(
   4510003_run_fails_on_a_gone_image 4510003_run_deploys_ops2 ops2_scripts_after_the_4510003_run
   b6870f2_scripts_on_production_now b6870f2_run_deploys_ops2b b6870f2_run_deploys_ops2b_same_api
   switch_off_without_the_numbers
+  9af167d_run_deploys_ops3 9af167d_run_refused_by_a_failed_monitor_run
   b6870f2_run_deploys_a_merge_commit
   shutdown_none_is_named run_refused_by_an_unparseable_shutdown_file shutdown_lines_of_verify_finish_and_rollback
   run_goes_on_with_a_reboot_hours_away run_refused_by_a_reboot_less_than_2_hours_away run_at_the_2_hour_boundary

@@ -3,6 +3,92 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-26 · OPS-3: Hetzner's backups, the external monitor, logs kept 14 days, D-273 to D-291
+
+Two commits on `feature/family-budget` on top of `9af167d`: `8f1efd4` "docs: D4b's deploy recorded, D-273 (OPS-3)",
+and the commit of this entry, "ops: Hetzner's backups, the external monitor, logs kept 14 days, D-274 to D-291
+(OPS-3)". `feature/family-budget` pushed; the laptop's `main` fast-forwarded to it but **not pushed** (D-283: the
+checklist's step 6 pushes it). In the auth server's repository, `2f0d02cc25a9a3bbd6b6fbaf7a234d17dd577439` on its
+`main`, pushed. Not deployed; the server, Hetzner and GitHub's settings not touched. No migration, no change to the
+import or the export.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions" and "Production now" (the first commit): D4b's deploy of `9af167d` (run
+  folder, both dumps with their SHA-256, images, `1fa5043` kept, the suite, `finish`, `verify D4b`, the refused
+  rollback acceptance, "CI on Ubuntu 26.04" #15, the owner's export), D-273; the rollback target `1fa5043`.
+- The deploy gate (D-280): `deploy.sh`'s `ci_check` reads GitHub's list of `ci.yml`'s runs of the commit and each
+  run's check suite, so the monitor's runs (and "CI on Ubuntu 26.04"'s) never hold up, fail or overflow it; a list
+  longer than its page or naming another workflow refuses.
+- The postgres guard (D-281): `deploy.sh`'s 1.4 compares the compose file's extension blocks (`x-logging`) too.
+- Logs (D-277, D-282, D-284, D-285): `deploy/app/docker-compose.yml`'s `x-logging` is `journald` with the tag
+  `{{.Name}}`; the runbook's new "Logs" lists what the host keeps and for how long, with the journal's drop-in, the
+  logrotate files of rsyslog, fail2ban, `btmp` and `wtmp`, `finance-deploy-dumps.timer` for the run folders' dump
+  copies, the log commands and the way back. The monthly routine starts api and web only (D-291).
+- The monitor (D-276, D-288): `.github/workflows/monitor.yml` (every 15 minutes and by hand, with "Fail on
+  purpose"), `.github/scripts/monitor.sh` (the page, `/api/me`'s 401, the realm's issuer, both certificates' 14 days;
+  a timeout and one retry each) and `.github/scripts/tests/monitor-test.sh`, a step of the "Deploy scripts" job in
+  `ci.yml` and `ci-ubuntu-26.yml` (ShellCheck covers both scripts). The runbook's "Monitoring": who gets the email and
+  what the account must have set, best effort, 60 days, the gate.
+- Hetzner's backups (D-275): the runbook's "Hetzner's backups of the server", from Hetzner's documentation (cited),
+  with what it doesn't confirm (the time of day, overlaps, switching off).
+- The privacy policy (`frontend/public/privacy.html`, D-289): "Last updated: 26 October 2026"; Hetzner keeps the
+  server's backups; the logs deleted after at most 15 days; the backups' periods and the bounds they give (23 days on
+  the server and in its backups, 61 on the owner's computer, the events 91 and 151 days); `privacy.test.ts`.
+- "OPS-3's deploy checklist" in the runbook: one session for both repositories, `<M>` and the auth commit in full,
+  read-only inventory blocks with their expected output, Hetzner's switch, the host's settings (each file's
+  SHA-256), the auth server's `sync.sh --copy-only` and `install.sh server`, `main`'s push, `run`, fresh dumps of
+  both databases, the three planned recreations with their outages, the smoke test and the suite, `finish`, `verify
+  OPS-3`, the rollback acceptance, D-278's look at registrations, "CI on Ubuntu 26.04", the monitor's failure on
+  purpose ("the email arrived", the only check by hand), the ways back, the rollback.
+- `deploy/checks/OPS-3.sql` and `OPS-3.expected` (26 lines: Flyway V15, the 24 numbers as `verify D4b` printed them,
+  no unbalanced entry).
+- Tests: `deploy/tests/run.sh` (the stub `curl` answers CI's runs and check suites; seven cases: CI's runs counted
+  alone, a list past its page, a run of another workflow, no CI run, `x-logging` refused, and `9af167d`'s `run` on
+  OPS-3's change with the monitor's runs succeeded and with one failed), `deploy/tests/mutate.sh` (five mutations).
+- `docs/family-budget/requirements.md`: D-273 to D-279 (the PM's), D-280 to D-291 (the agent's), the amendment line
+  and the planned stage. `CLAUDE.md`: the deployment at `9af167d`, the gate, the logs, the monitor, the tests.
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B clean verify`: exit status 0; Results: Tests run: 612, Failures: 0, Errors: 0,
+  Skipped: 0 (no backend change; run as usual).
+- Frontend, `npm test`: exit status 0, Test Files 31 passed (31), Tests 397 passed (397), no Errors line; `npm run
+  build`: exit status 0. `.github/scripts/check-web-image.sh frontend finance-tracker-web:ops3-check` (the web image
+  with the new `privacy.html`): exit status 0, every check passed; the image removed afterwards.
+- The deploy scripts: `deploy/tests/run.sh` exit status 0, 109 passed, 0 failed, of 109 cases; `deploy/tests/mutate.sh`
+  exit status 0, 80 mutations, every one caught. (A first full run had 3 cases fail with "No space left on device" in
+  `/tmp` while a rehearsal database sat on tmpfs; they passed on their own, then in the full run above.)
+- `.github/scripts/tests/monitor-test.sh`: exit status 0, 10 passed, 0 failed. `.github/scripts/monitor.sh` from the
+  laptop against production, read only: exit status 0, every check passed (the certificates end 2026-12-27 and
+  2026-12-21).
+- ShellCheck 0.11.0 on every script CI checks, the two new ones included: exit status 0. actionlint 1.7.7 (checksum
+  checked) on the three workflows: exit status 0.
+- Both dev stacks with the `journald` driver on the laptop: `deploy.sh`'s read (`docker compose logs --no-log-prefix
+  --timestamps --since <StartedAt> backend`, then its Flyway, D-25 and Started patterns) found all three lines; `docker
+  logs`, the auth dir's `docker compose logs --since`, and `journalctl -t` read every container. Then `cd e2e && npm run
+  e2e:local`: a first run exit status 1, `family F8d` failed at 1280 px on a blank page, because `privacy.html` was
+  edited (Vite's dev server reloads) while it ran; the second, with nothing edited, exit status 0, every spec at 1280 and
+  375 px passed (2 + 22 tests), `Result: PASSED`, password search 0 hits. The dev stacks were put back on `json-file`
+  afterwards. `npm run test:guards`: exit status 0, tests 37, pass 37, fail 0. The prod project not run.
+- `OPS-3.sql` on `finance-2026-10-26T0236Z.dump` restored by `scripts/rehearsal-db.sh` (the state D4b kept): exactly
+  `OPS-3.expected`; the database removed afterwards.
+- In throwaway `ubuntu:26.04` containers: the packages' defaults (rsyslog fed by `ForwardToSyslog=yes`, fail2ban's
+  sshd jail on the journal, `dbpurgeage = 1d`, the four logrotate files' hashes); the checklist's step-4 `printf` lines
+  give the seven SHA-256 it states; `logrotate --debug` reads each new file as daily, 13 rotations, 14 days, with no
+  error; `systemd-analyze verify` passes the two units; the prune's `find` deletes only a copy older than 14 days.
+- D-278's and the inventory's realm queries on the dev Keycloak's database, read only: exit status 0. `pg-backup` (a
+  copy, its config folder moved) on a throwaway `postgres:16` logging to the journal: the restore line, exit 0.
+- This file and the auth server's `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
+
+**Open**
+- The deploy, by "OPS-3's deploy checklist" (the PM): Hetzner's switch (step 3), the host's settings, the auth
+  server's files, `main`'s push, `run`, the recreations, the suite, D-278's look, the email (step 16).
+- The day after the deploy: the first Hetzner backup's time and size (step 3), and whether it overlaps 02:30 or
+  03:30 to 04:30 UTC.
+- Fifteen days after the host's settings: the journal's oldest line no older than 15 days (the runbook's weekly
+  check), which confirms D-282's bound on the server; until then older logs are still ageing out.
+- D-287: `/root/keycloak-2026-09-27.sql` and `/root/auth-config-2026-09-27/` stay until the PM decides.
+- October's step 12 in early November, then D4c (D-274).
+
 ## 2026-10-26 · D4b: the import from one transactions file, D-252 to D-272
 
 Three commits on `feature/family-budget` on top of `1fa5043`: `b3d04b6` "docs: D4a's deploy recorded, D-253 (D4b)",

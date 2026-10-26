@@ -1,0 +1,26 @@
+flyway latest 15 member import true
+accounts=74
+categories=95
+counterparties=1411
+entries=42124
+family_accounts=2
+family_import_cutoffs=2
+family_invites=1
+family_journal=12370
+family_ledgers=1
+family_links=35607
+family_members=2
+family_members_active=2
+family_members_former=0
+family_members_left=0
+family_records=12358
+family_shares=23460
+import_batches=8
+imported_entries_deleted=0
+imported_family_sides=8501
+outside_their_ledger=0
+personal_ledgers=4
+personal_members=4
+settings=4
+users=4
+unbalanced entries 0

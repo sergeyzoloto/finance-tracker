@@ -58,8 +58,8 @@ EOF
 
 TOOLS=(git docker flock curl python3 systemctl pg-restore-test install diff paste sha256sum)
 
-# The GitHub API's check runs of a commit, read by python3 (the server has no jq). Prints one line per check run, then
-# "NAMES <names>" and "VERDICT success|pending|failure|none".
+# The check runs of CI's own runs of a commit (ci_check_runs), read by python3 (the server has no jq). Prints one line
+# per check run, then "NAMES <names>" and "VERDICT success|pending|failure|none".
 CI_PY='
 import json, sys
 d = json.load(sys.stdin)
@@ -84,13 +84,59 @@ print("VERDICT " + verdict)
 # ---------------------------------------------------------------------------------------------------------------------
 # run
 
-# ci_check: every check run of SHA completed with success; waits up to CI_WAIT seconds while some are queued or in
-# progress. The F6a checklist read GitHub's API on the laptop; this reads the check runs of the commit.
+# The check suites of the runs of .github/workflows/ci.yml for a commit, one id per line, from GitHub's list of that
+# workflow's runs; fails when the list doesn't hold every run.
+CI_SUITES_PY='
+import json, sys
+d = json.load(sys.stdin)
+runs = d.get("workflow_runs") or []
+if d.get("total_count", len(runs)) != len(runs):
+    sys.exit("%s runs of ci.yml, more than one page holds" % d.get("total_count"))
+for r in runs:
+    if r.get("path") != ".github/workflows/ci.yml":
+        sys.exit("a run of another workflow: %s" % r.get("path"))
+    print(int(r["check_suite_id"]))
+'
+
+# The check runs of those suites, one answer each, joined into one in the shape of a commit's check runs.
+CI_JOIN_PY='
+import json, sys
+text, decoder, i, runs, total = sys.stdin.read(), json.JSONDecoder(), 0, [], 0
+while True:
+    while i < len(text) and text[i].isspace():
+        i += 1
+    if i == len(text):
+        break
+    d, i = decoder.raw_decode(text, i)
+    runs += d.get("check_runs") or []
+    total += d.get("total_count", len(d.get("check_runs") or []))
+print(json.dumps({"total_count": total, "check_runs": runs}))
+'
+
+# github PATH: one answer of GitHub's API for this repository.
+github() {
+  curl -fsS --max-time 30 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$GITHUB_API/$1"
+}
+
+# ci_check_runs: the check runs of SHA's runs of the workflow CI (.github/workflows/ci.yml) and of no other (D-276,
+# OPS-3): the monitor's scheduled runs (.github/workflows/monitor.yml) attach to main's head, the deployed commit,
+# every 15 minutes, and "CI on Ubuntu 26.04"'s to the commit it is started on; neither is CI's verdict on the commit.
+# Up to OPS-3 the gate read every check run of the commit (commits/SHA/check-runs), which those runs would have failed,
+# kept pending or pushed past one page.
+ci_check_runs() {
+  local suites id
+  suites=$(github "actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=100" | python3 -c "$CI_SUITES_PY") || return 1
+  for id in $suites; do
+    github "check-suites/$id/check-runs?per_page=100" || return 1
+  done | python3 -c "$CI_JOIN_PY"
+}
+
+# ci_check: every check run of CI's runs of SHA completed with success; waits up to CI_WAIT seconds while some are
+# queued or in progress. The F6a checklist read GitHub's API on the laptop; this reads the check runs of CI's runs.
 ci_check() {
   local deadline=$((SECONDS + CI_WAIT)) out verdict
   while :; do
-    out=$(curl -fsS --max-time 30 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
-      "$GITHUB_API/commits/$SHA/check-runs?per_page=100" | python3 -c "$CI_PY") \
+    out=$(ci_check_runs | python3 -c "$CI_PY") \
       || fail "could not read CI's check runs of $SHA from GitHub"
     verdict=${out##*VERDICT }
     printf '%s\n' "$out" | grep -Ev '^(VERDICT|NAMES) ' || true
@@ -120,6 +166,16 @@ compose_part() {
     $0 == start { inside = 1; print; next }
     inside && /^[^ \t#]/ { done = 1; next }
     inside && start ~ /^  / && /^  [^ \t#]/ { done = 1; next }
+    inside { print }'
+}
+
+# compose_extensions REV: every top-level extension block (x-…) of deploy/app/docker-compose.yml at REV, such as
+# x-logging, whose anchor the postgres service merges in (logging: *logging): a change there changes the postgres
+# service as much as one in its own block (OPS-3: the logging driver). Only compared, never run.
+compose_extensions() {
+  git show "$1:deploy/app/docker-compose.yml" | awk '
+    /^x-/ { inside = 1; print; next }
+    inside && /^[^ \t#]/ { inside = 0 }
     inside { print }'
 }
 
@@ -497,9 +553,10 @@ cmd_run() {
   out=$(compose_part "$BASE" '  postgres:')
   [ -n "$out" ] || fail "no postgres service in deploy/app/docker-compose.yml at ${BASE:0:7}"
   if [ "$out" != "$(compose_part "$SHA" '  postgres:')" ] \
+    || [ "$(compose_extensions "$BASE")" != "$(compose_extensions "$SHA")" ] \
     || [ "$(compose_part "$BASE" volumes:)" != "$(compose_part "$SHA" volumes:)" ] \
     || ! git diff --quiet "$BASE" "$SHA" -- deploy/app/postgres-init.sh; then
-    fail "the postgres service changes (its block, the volumes or postgres-init.sh): that stays manual"
+    fail "the postgres service changes (its block, the extension blocks it may merge in, the volumes or postgres-init.sh): that stays manual"
   fi
   say "deploy/finance.caddy and the postgres service unchanged"
 

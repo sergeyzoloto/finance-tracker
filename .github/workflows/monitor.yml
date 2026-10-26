@@ -1,0 +1,51 @@
+# The external monitor (D-276, OPS-3): production checked from outside every 15 minutes, by .github/scripts/monitor.sh
+# (the app's page, the api without a session, the realm's issuer, both certificates). A failed check fails the run, and
+# GitHub emails a failed run's notification (deploy/RUNBOOK.md, "Monitoring": who gets it and what they must have set).
+#
+# - GitHub runs a schedule on a best-effort basis: a run may start late, or be skipped when GitHub is busy. The minutes
+#   avoid the top of the hour, when most schedules start.
+# - In a public repository GitHub disables the schedule after 60 days without activity in the repository; the runbook's
+#   weekly check reads the workflow's state.
+# - "Run workflow" (workflow_dispatch) with "Fail on purpose" runs the checks and then fails, once after OPS-3's deploy,
+#   to see that the email arrives.
+# - No secret, no server access, nothing written anywhere: the token reads the repository and nothing else.
+# - Scheduled runs attach to main's head, the deployed commit. deploy.sh's gate counts the check runs of CI's own runs
+#   (.github/workflows/ci.yml) since OPS-3, so these runs never hold up or fail a deploy (D-280).
+name: Monitor
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      fail_on_purpose:
+        description: Fail on purpose after the checks, to test the email
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# No concurrency group: a run lasts at most 5 minutes, 15 apart, and a group would cancel a waiting run, whose
+# "cancelled" check run the gate of 9af167d, which runs OPS-3's deploy, reads as a failure (D-283).
+
+jobs:
+  monitor:
+    name: Monitor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Check production
+        env:
+          FAIL_ON_PURPOSE: ${{ inputs.fail_on_purpose && 'yes' || 'no' }}
+        run: |
+          if [ "$FAIL_ON_PURPOSE" = yes ]; then
+            .github/scripts/monitor.sh --fail
+          else
+            .github/scripts/monitor.sh
+          fi

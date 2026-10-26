@@ -10,11 +10,14 @@
 # this file (see .env.example), which exists only on the server.
 name: finance-tracker-prod
 
+# Every container logs to the host's journal (D-277, OPS-3), which keeps 14 days (deploy/RUNBOOK.md, "Logs"); the tag
+# is the journal's SYSLOG_IDENTIFIER, the container's name: journalctl -t finance-tracker-api. docker logs and docker
+# compose logs read it back. A container takes a new driver only when it is recreated: the api and web with every
+# deploy, postgres only by hand (deploy.sh's preflight treats a change here as a change of the postgres service).
 x-logging: &logging
-  driver: json-file
+  driver: journald
   options:
-    max-size: "10m"
-    max-file: "5"
+    tag: "{{.Name}}"
 
 services:
   postgres:

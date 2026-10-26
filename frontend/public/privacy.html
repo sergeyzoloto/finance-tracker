@@ -17,7 +17,7 @@
     </header>
     <main>
       <h1>Privacy policy</h1>
-      <p class="updated">Last updated: 7 October 2026</p>
+      <p class="updated">Last updated: 26 October 2026</p>
 
       <p>
         Finance Tracker, at app.finance-nl.com, is a personal, non-commercial portfolio project. This page explains
@@ -282,7 +282,7 @@
       <ul>
         <li>
           <strong>Hetzner Online GmbH</strong> hosts the app, the login service and their databases, in its data centre
-          in Falkenstein, Germany.
+          in Falkenstein, Germany, and keeps the daily backups of the whole server in the same location.
         </li>
         <li>
           <strong>Brevo</strong> sends the login service’s account emails, such as email verification and password
@@ -317,12 +317,16 @@
         </li>
         <li>Login and account events are kept for 30 days, administrative events for 90 days.</li>
         <li>
-          The logs of the web server and of the login server are rotated by size, not by time, so on this small server
-          they can be kept for several months.
+          The logs of the web server, of the app and of the login server, and the server’s other logs, are deleted after
+          at most 15 days.
         </li>
         <li>
-          Nightly database backups are kept for 14 days on the server and for up to 60 days on my own computer, so
-          deleted data disappears from the backups within 60 days.
+          Backups keep copies for a while after something is deleted. The databases are backed up every night; these
+          backups are kept for 14 days on the server, deleted at the latest the night after, and for 60 days on my own
+          computer, which deletes older ones each day it is in use. Hetzner also backs up the whole server every day,
+          logs included, and keeps the last 7 of these backups, so each for at most 8 days. So deleted data disappears
+          from the server and its backups within 23 days and from my computer within 61 days; logs disappear within
+          23 days; and login and account events within 91 days, administrative events within 151 days.
         </li>
       </ul>
 

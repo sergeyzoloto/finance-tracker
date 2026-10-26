@@ -1275,6 +1275,9 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-10-26 | `9af167d`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `9af167d`, run #15 (id `40389181918`): success. Its check runs belong to `9af167d`, deployed and finished, so they hold up no deploy. |
+| 2026-10-26 | `9af167d`; nothing changed | D4b's rollback acceptance: `deploy/rollback.sh 1fa5043`, run folder `/var/lib/finance-deploy/runs/2026-10-26T194203Z-rollback-1fa5043`, answered at its confirmation: REFUSED, nothing changed. No condition line (D4b has no migration). The state block before and after wasn't run again: `rollback.sh` printed "Nothing changed" (D-273). The rollback target is `1fa5043`. |
+| 2026-10-26 | `9af167d00c04bdac874777d400ffc8d87e3dbf0e` (docs: D-252 to D-272, D4b's rehearsal, step 12 and deploy checklist (D4b)), M; both images rebuilt and recreated | D4b (D-228 to D-234 as D-252 to D-272 amend them: the import from one transactions file, the accounts and categories from its rows, the check against the file alone, the app's rows compared and never written; with D4b's first commit, `b3d04b6`, D4a's deploy recorded), no migration (Flyway V15), the switch on. D-273 (the PM): checklist step 1 skipped, as `main` and `feature/family-budget` were already at M (`run`'s gate 1.5 checks CI on M); no separate pre-flight block and no checkpoint before `run`: `verify D4a`, then `run`, whose own pre-flight refuses on any mismatch that matters; the state block around the rollback acceptance not run again; D-163's first sign-in not checked (a one-time check of step 10.3). `deploy/deploy.sh run 9af167d00c04bdac874777d400ffc8d87e3dbf0e D4b`, run folder `/var/lib/finance-deploy/runs/2026-10-26T192503Z-9af167d`. Before-dump `finance-2026-10-26T1925Z.dump`, SHA-256 `b0ade837fc345618bdf68706db195ba21c171cadf85ffa331cbdb0d90f1b1ccc`, restore test PASS. 3.2: `1fa5043`'s images kept as `:1fa50439945cca356fcb9dd4abdcab1f2af82ac0` and `:previous`; `1d3b811`'s tags removed. After-dump `finance-2026-10-26T1926Z.dump`, SHA-256 `5da4fdab833f612abf8fd78ca9f43099ccdaa56a1063dc3613d91dfd9884b0ec`, restore test PASS. Images: api `sha256:19b7921e08299eedfdb9004cec9b1f6fa964679bf41549d4c69ce99dddef415e` (content `sha256:d50572e964441ad68936d85459b8609ec1c911cce3ac0e61a03894b798456acf`), web `sha256:20e505156ec07d967c01896b3e1a6b2222adfe2adb8e959f6f1db8936750a68d` (content `sha256:a15f3838704365403d625ed9c1b3dae48f13d5f52e2052472887a4eef19fc9be`). The 24 numbers as after D4a (counterparties 1411), the same before and after. The end-to-end suite (`E2E_FAMILY=on`), 19:31:53Z to 19:34:07Z: 11 passed, `new-family` skipped by design (D-171), password search 0 hits, `Result: PASSED`. `finish`: passed at 19:36:44Z. `verify D4b`: OK at 19:41:53Z. The owner's `/export` of the whole period: "6,989 rows, Nov 1, 2017 to Sep 29, 2026. Left out, as no single row stands for them: opening balances (1)." |
 | 2026-10-25 | `1fa5043`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `1fa5043`, run #14 (id `40216721982`): success. Its check runs belong to `1fa5043`, deployed and finished, so they hold up no deploy. |
 | 2026-10-25 | `1fa5043`; nothing changed | D4a's rollback acceptance: `deploy/rollback.sh b3013d2` at 17:28:52Z, answered at its confirmation: REFUSED, nothing changed. No condition line (D4a has no migration). The rollback target is `b3013d2`. |
 | 2026-10-25 | `1fa50439945cca356fcb9dd4abdcab1f2af82ac0` (docs: D-227 to D-252, D4a's rehearsal and deploy checklist (D4a)), M; both images rebuilt and recreated | D4a (D-227 to D-252: the export of a user's ledger as one transactions file in the import's format, the page `/export`; with D3e-doc's documentation commit), no migration (Flyway V15), the switch on. D-253 (the PM): checklist step 1 skipped, as `main` and `feature/family-budget` were already at M (`run`'s gate 1.5 checks CI on M); steps 2 and 3 run as one read-only block; the partner's own export not checked by hand (the rehearsal and the F8 spec cover it). The numbers before the deploy were D3e's but counterparties 1410 → 1411: the owner had set a few entries' payee to "UNIQLO" in the app (counterparty 3410, 0 postings, as a payee is `journal_entry.payee_id`); the same before and after the deploy. `deploy/deploy.sh run 1fa50439945cca356fcb9dd4abdcab1f2af82ac0 D4a`, run folder `/var/lib/finance-deploy/runs/2026-10-25T172144Z-1fa5043`. Before-dump `finance-2026-10-25T1721Z.dump`, SHA-256 `fd7dd899793f8532c7cf1853809dc27784ed7b7e056d59b56c5571e1c485de3d`, restore test PASS. 3.2: `b3013d2`'s images kept as `:b3013d2efdb2f6af2f54f1bcffe5a8fe16edaa03` and `:previous`; `694fa3f`'s tags removed. After-dump `finance-2026-10-25T1722Z.dump`, SHA-256 `024b6aa1dd2b9f04f690ddc76c02270a3a478535baa20bde94da4d74f84e3202`, restore test PASS. Images: api `sha256:474733ae7db6d3f4817a68de9140ed8762e37e940a7bfc116d6c65673603402a` (content `sha256:fd3ae97f53f1174ce4e450977a4b38001a31be69015f662a385e6881c74ae073`), web `sha256:d9104ed7f3d945ca8c26f099b98121b1cd25d07d00aaf7ce9ff4d51efb292a4a` (content `sha256:c1ec1b418bdd64259f1578f350b7c0c15459d98048c3b119f639bb7db2662eb6`). The end-to-end suite (`E2E_FAMILY=on`), 17:23:48Z to 17:25:59Z: 11 passed, `new-family` skipped by design (D-171), password search 0 hits, `Result: PASSED`. `finish`: passed at 17:26:34Z. `verify D4a`: OK at 17:27:43Z. The owner's `/export` of the whole period: "6,989 rows, Nov 1, 2017 to Sep 29, 2026. Left out, as no single row stands for them: opening balances (1)." |
@@ -1350,23 +1353,23 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-25, after D4a's deploy (`finish` passed at 17:26:34Z; `verify D4a` OK at 17:27:43Z; its rollback
-acceptance refused at its confirmation, nothing changed). D4a wrote no data:
+As of 2026-10-26, after D4b's deploy (`finish` passed at 19:36:44Z; `verify D4b` OK at 19:41:53Z; its rollback
+acceptance refused at its confirmation, nothing changed). D4b wrote no data:
 
-- `1fa50439945cca356fcb9dd4abdcab1f2af82ac0` (D4a, the export, on D3e, D3c with its fixes and acceptances,
-  D3b-accept, D3b, F8f, F8e, F8d, F8c, F8, QA-1 and QA-1b) on Flyway V15, `last-good` naming `1fa5043`. Family
-  budgets are switched on since 2026-10-03T09:25:40Z. The containers run api `sha256:474733ae…` (content
-  `sha256:fd3ae97f…`) and web `sha256:d9104ed7…` (content `sha256:c1ec1b41…`), "the recorded image" for `verify`.
+- `9af167d00c04bdac874777d400ffc8d87e3dbf0e` (D4b, the import from one transactions file, on D4a, D3e, D3c with its
+  fixes and acceptances, D3b-accept, D3b, F8f, F8e, F8d, F8c, F8, QA-1 and QA-1b) on Flyway V15, `last-good` naming
+  `9af167d`. Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api `sha256:19b7921e…`
+  (content `sha256:d50572e9…`) and web `sha256:20e50515…` (content `sha256:a15f3838…`), "the recorded image" for
+  `verify`.
 - **Both members' histories are imported up to 2026-09-30**: the owner's (D3b-run up to 2026-08-31, corrected in
   11.2a, and step 12) and the partner's (D3c-run from his claim of 2019-12-01, and step 12). Each imports only his own
-  file (D-175). The numbers are D3e's (categories 95, entries 42124, family_records 12358, family_shares 23460,
-  family_links 35607, family_journal 12370, imported_family_sides 8501, import_batches 8) but counterparties 1411: the
-  owner set a few entries' payee to "UNIQLO" in the app before the deploy (counterparty 3410, no postings). The
-  deploy's dumps: before `finance-2026-10-25T1721Z.dump` (SHA-256 `fd7dd899…`), after
-  `finance-2026-10-25T1722Z.dump` (SHA-256 `024b6aa1…`), both restore tests PASS. These numbers change whenever
-  either of them writes in the app: a checklist expects the numbers its own `verify` printed.
+  file (D-175). The numbers are D4a's (categories 95, counterparties 1411, entries 42124, family_records 12358,
+  family_shares 23460, family_links 35607, family_journal 12370, imported_family_sides 8501, import_batches 8). The
+  deploy's dumps: before `finance-2026-10-26T1925Z.dump` (SHA-256 `b0ade837…`), after `finance-2026-10-26T1926Z.dump`
+  (SHA-256 `5da4fdab…`), both restore tests PASS. These numbers change whenever either of them writes in the app: a
+  checklist expects the numbers its own `verify` printed.
 - **The owner's export of the whole period** (`/export`, after the deploy): 6,989 rows, Nov 1, 2017 to Sep 29, 2026,
-  the opening balances (1) left out as no single row stands for them, as D4a's rehearsal had it.
+  the opening balances (1) left out as no single row stands for them, as after D4a's deploy.
 - **The owner's 2.50 RUB is explained from the next import on**: his rows 211 and 2839, changed in the app on
   2026-10-14 while their file rows stayed as imported (D-218), are "changed in the app, the file unchanged" and their
   effect on EQUITY RUB and LOANS_ASSET RUB is APP_EDITED (D-219, D-223). Nothing has been imported on production
@@ -1374,20 +1377,22 @@ acceptance refused at its confirmation, nothing changed). D4a wrote no data:
 - **Three personal categories of the owner's share a family category's code** (OTHERINC, CASHBACK, CHARITY), unused.
   They merge into the family's at the commit of October's step 12 (D-224); nothing is done for them before.
 - **The next import with a later "Import up to"** (October 2026, planned for early November) is
-  [step 12](#12-monthly-import-two-participants), rehearsed first from production's latest dump (D-220, D-225,
-  `scripts/rehearsal-db.sh`) with the code that runs then.
-- The rollback state: the previous-commit file names `b3013d2` (D3e, V15). `rollback.sh`'s target is `b3013d2`, with
-  no condition of its own (D4a has no migration); `rollback.sh b3013d2` was refused at its confirmation in the
-  acceptance. That code has no export. **Below step 12's September** only by a restore of B1
+  [step 12](#12-monthly-import-two-participants) under D4b's code (one file each, the owner then the partner, D-258),
+  rehearsed first from production's latest dump (D-220, D-225, `scripts/rehearsal-db.sh`) with the code that runs then.
+- The rollback state: the previous-commit file names `1fa5043` (D4a, V15). `rollback.sh`'s target is `1fa5043`, with
+  no condition of its own (D4b has no migration); `rollback.sh 1fa5043` was refused at its confirmation in the
+  acceptance. That code imports five files, not one. **Below step 12's September** only by a restore of B1
   `finance-2026-10-24T1413Z.dump` (both participants' September) or B2 `finance-2026-10-24T1418Z.dump` (the
   partner's); **below the claim only by a restore**: `finance-2026-10-24T1123Z.dump` (11.2's); **below V14 only by a
-  restore**: `finance-2026-10-13T2054Z.dump` (10.2's), which loses both imports. The way back from the family budget
-  is `deploy/deploy.sh switch off`, which leaves the data.
-- The end-to-end suite from `1fa5043` passed on production after D4a's deploy (2026-10-25, 17:23:48Z to 17:25:59Z,
+  restore**: `finance-2026-10-13T2054Z.dump` (10.2's), which loses both imports. 10.2's dump leaves the
+  server's 14 days of dumps on 2026-10-27, the others on 2026-11-07; after that they are the laptop's copies (60
+  days). The way back from the family budget is
+  `deploy/deploy.sh switch off`, which leaves the data.
+- The end-to-end suite from `9af167d` passed on production after D4b's deploy (2026-10-26, 19:31:53Z to 19:34:07Z,
   `E2E_FAMILY=on`, 11 passed, `new-family` skipped by design, D-171, `Result: PASSED`).
-- "CI on Ubuntu 26.04" for `1fa5043`: run #14 (id `40216721982`), success.
-- `main` and `feature/family-budget` are at `1fa5043` (D-253: the checklist's step 1 had nothing to do).
-- D4a's, D3e's, D3c's, D3b-accept's, D3b's and F8f's checklists stay as their records and are used for no other
+- "CI on Ubuntu 26.04" for `9af167d`: run #15 (id `40389181918`), success.
+- `main` and `feature/family-budget` are at `9af167d` (D-273: the checklist's step 1 had nothing to do).
+- D4b's, D4a's, D3e's, D3c's, D3b-accept's, D3b's and F8f's checklists stay as their records and are used for no other
   deploy. A checklist keeps `<M>` (D-226); the PM gives its blocks with M filled in, in the chat.
   Step 12 runs from this runbook on the laptop; its server blocks need nothing from the clone.
 

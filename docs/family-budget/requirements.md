@@ -80,6 +80,8 @@ Amended in D4a on 2026-10-25: new D-227 to D-243 (decided by the PM, as D4a's ta
 
 Amended in D4b on 2026-10-26: D-252 confirmed by the PM; new D-253 to D-259 (the PM, as D4b's task states them), about the steps of D4a's checklist run as they were, the names and order of accounts and categories, the family debt reconciled with the equity, movements, the period of a file and the comparison with what the ledger holds, the file's highest ID and last date on the page, step 12's order and the app's rows; D-254 supersedes D-230; new D-260 to D-272, the agent's choices of D4b, which the PM may correct.
 
+Amended in OPS-3 on 2026-10-26: new D-273 (decided by the PM), about the steps of D4b's checklist run as they were.
+
 Amended in D3c-fix on 2026-10-15: D3c's choices confirmed by the PM; new D-192 to D-196 (the PM's proposals, which the owner may still correct) and D-197 (the PM), about rows that move nothing, the claim opening's limit, the four FAMILY_DEBT EUR month-ends of 2022, deleting one's data, the owner's D-73 rows after a claim and the fix list for the Excel ledgers; the agent's choices of D3c-fix.
 
 Amended in D3c on 2026-10-15: new D-174 to D-191 (D-174 to D-181 and D-184 decided by the owner, the others by the PM), about the partner's claim of his seat and his own import, what passes to him with the claim, who imports what afterwards, the reconciliation of his files, D3b-run's demo data and step 10's order, the safety of deleting and leaving, and D3c's local real-data run; the agent's choices of D3c; the planned stages (D3c, D3c-accept, D3c-run).
@@ -621,6 +623,9 @@ Added in D4b (2026-10-26)
 - D-270 (the agent, D4b). The type check of D-229 compares the workbook's types: rule 4 makes LIABILITIES a LIABILITY or an EQUITY account (OPENING_BALANCE, FX_EXCHANGE, an equity of the user's), so only ASSET against LIABILITIES is another type.
 - D-271 (the agent, D4b). A listed `app-` row (D-259) counts among the conflicts in the totals (source APP). The commit's semantics stay: a failing check doesn't hold a commit back (step 12's STOP rules decide), a row error does.
 - D-272 (the agent, D4b). A member's side is what the ledger holds when his own entry for the record has a line on the row's account in its currency, of its amount (either sign), with its counterparty, and for a payment the payee and note the row gives: then it is unchanged, written nothing, its stored hash left as it was (D-256).
+
+Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
+- D-273 (the PM, D4b's deploy). D4b's checklist ran with step 1 skipped, as `main` and `feature/family-budget` were already at M and `run`'s gate 1.5 checks CI on M; with no separate pre-flight block and no checkpoint before `run`: `verify D4a`, then `run`, whose own pre-flight refuses on any mismatch that matters; without the state block read again after the rollback acceptance, since `rollback.sh` prints "Nothing changed"; and without D-163's first sign-in, a one-time check of step 10.3.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

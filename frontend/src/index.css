@@ -96,9 +96,36 @@ table.accounts td, table.accounts th { vertical-align: middle; }
 .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1rem; align-items: start; }
 .card { border: 1px solid var(--border); border-radius: 6px; padding: 0 1rem 1rem; min-width: 0; }
 .card h3 { font-size: 1rem; margin: 0.75rem 0; }
-.tiles { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; }
-.tile .label { font-size: 0.85em; color: var(--muted); }
-.tile .value { font-size: 2rem; font-weight: 600; margin: 0.1rem 0 0.2rem; }
+/* The page's controls: one toggle group each for the period, the currency and the scope (D-296, D-297, D-302). */
+.page-title .as-of { display: inline-flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: flex-end; margin: 0.25rem 0 1rem; }
+.period-days { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+.period-days label { display: inline-flex; gap: 0.4rem; align-items: center; }
+.toggle-group { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.toggle-label { font-size: 0.85em; color: var(--muted); }
+.toggles { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.toggles button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: white; }
+.toggles button:focus-visible, .date-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The headline row (D-301): three figures of one size, "You have" never muted. */
+.headline { margin: 0 0 1rem; }
+.headline-row + .headline-row { margin-top: 0.75rem; }
+.headline-currency { font-weight: 600; color: var(--muted); flex-basis: 100%; }
+.figures { display: flex; flex-wrap: wrap; gap: 0.5rem 2.5rem; margin: 0; }
+.figure dt { font-size: 0.85em; color: var(--muted); }
+.figure dd { margin: 0; font-size: 1.75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.small-figures { gap: 0.25rem 2rem; }
+.small-figures .figure dd { font-size: 1.15rem; }
+.headline p { margin: 0.4rem 0 0; }
+/* Income and expenses: the scope, the period's totals (D-305), the chart and the table. */
+.card.flows { margin-bottom: 1rem; }
+.card.flows h3 .period { font-weight: normal; }
+.flows h4 { font-size: 0.95rem; margin: 1rem 0 0.5rem; }
+.flows .scope { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: flex-end; margin-bottom: 0.75rem; }
+.flows .whole-family { flex-basis: 100%; margin: 0; }
+.period-totals { display: flex; flex-direction: column; gap: 0.5rem; margin: 0 0 0.75rem; }
+.month-note { display: block; font-weight: normal; color: var(--muted); font-size: 0.8em; }
+table.loans .own-amounts { display: block; }
+/* A family budget's balance in words (Family.tsx, FamilyBalances.tsx). */
 .settlement p { margin: 0.2rem 0; }
 .settlement + .settlement { margin-top: 0.75rem; }
 .settlement .sentence { font-size: 1.15rem; }
@@ -123,8 +150,6 @@ figure.chart figcaption { font-weight: 600; color: var(--muted); }
 .badge.stale-rate { border-color: var(--stale); }
 .notice ul { margin: 0.25rem 0; }
 .notice p { margin: 0.25rem 0; }
-table.fx { width: auto; margin-top: 0.5rem; }
-table.fx th, table.fx td { border: none; padding: 0.1rem 1rem 0.1rem 0; font-weight: normal; }
 table.rates { width: auto; min-width: min(100%, 30rem); }
 section details { margin: 0.75rem 0; }
 section summary { cursor: pointer; }
@@ -133,6 +158,14 @@ section summary { cursor: pointer; }
   .card table { font-size: 0.9em; }
   .card th, .card td { padding: 0.3rem; }
 }
+
+/* A day date in the user's own pattern, with the browser's picker behind a button (D-304, DateInput). */
+.date-input { display: inline-flex; flex-direction: column; gap: 0.15rem; max-width: 100%; }
+.date-input-row { display: inline-flex; align-items: stretch; gap: 0.25rem; position: relative; }
+.date-input-row input:first-child { width: 7.5rem; min-width: 0; font: inherit; padding: 0.3rem; }
+.date-picker-button { display: inline-flex; align-items: center; padding: 0.1rem 0.45rem; }
+.date-native { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0;
+  pointer-events: none; }
 
 /* Footer of the app and of the landing page */
 .app-footer { margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85em; }

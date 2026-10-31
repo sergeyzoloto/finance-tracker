@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { api, ApiError, formatDate, sentence, useApi, type Entry, type FamilyRecord } from './api'
 import { AccountSelect, Errors, Field } from './components'
+import DateInput from './DateInput'
 import { paymentAccounts } from './expenseForm'
 import { newPayingSide, sidePatch, type PayingSideForm } from './currency'
 import { CounterpartyFields } from './FamilyCounterparties'
@@ -206,7 +207,7 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
       <form className="entry-form payment-entry" onSubmit={submit} noValidate>
         <div className="fields">
           <Field label="Date" errors={problems.date}>
-            <input type="date" value={date} required disabled={!mayChangeRecord} onChange={(e) => setDate(e.target.value)} />
+            <DateInput value={date} required disabled={!mayChangeRecord} onChange={(day) => setDate(day)} />
           </Field>
           <Field label={`Amount of the ${noun} (${recordCurrency ?? side.currency})`}
             errors={[...(shownAmount.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}

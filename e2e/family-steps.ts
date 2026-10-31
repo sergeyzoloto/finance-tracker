@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test'
+import { expectDate, fillDate } from './dates.ts'
 import { expect, ledgerIdOf, shot, today, type Session } from './fixtures.ts'
 
 // The steps of the family specs (F7's and F8's) that read the same in both: a budget created in EUR, an invite, the
@@ -9,7 +10,7 @@ export async function createTheBudget({ page }: Session, name: string, prefix: s
   await page.goto('/family/new')
   await page.getByLabel('Name', { exact: true }).fill(name)
   await expect(page.getByLabel('Base currency')).toHaveValue('EUR')
-  await expect(page.getByLabel('Start date')).toHaveValue(today())
+  await expectDate(page.getByLabel('Start date'), today())
   await page.getByRole('checkbox', { name: 'Groceries', exact: true }).check()
   await page.getByRole('checkbox', { name: 'Other income', exact: true }).check()
   await expect(page.getByRole('radio', { name: 'Equal shares' })).toBeChecked()
@@ -67,7 +68,7 @@ export async function joinThroughTheLink({ page }: Session, link: string, budget
 export async function inviteToTakeThePlace({ page }: Session, place: string, from: string, prefix: string): Promise<string> {
   await page.getByRole('navigation', { name: 'Family budget' }).getByRole('link', { name: 'Members' }).click()
   await page.getByRole('row', { name: new RegExp(`^${place}`) }).getByRole('button', { name: 'Invite to take this place' }).click()
-  await page.getByLabel(`Invite someone to take ${place}’s place, from`).fill(from)
+  await fillDate(page.getByLabel(`Invite someone to take ${place}’s place, from`), from)
   await page.getByRole('button', { name: 'Create the link' }).click()
   const link = page.getByRole('textbox', { name: 'Invite link' })
   await expect(link).toHaveValue(/\/invite#[A-Za-z0-9_-]{43}$/)

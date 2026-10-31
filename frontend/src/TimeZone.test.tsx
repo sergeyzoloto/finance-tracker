@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { Me } from './api'
+import { picker } from './testMe'
 import { dismissedHint, msUntilMidnight, zoneMatches } from './timeZone'
 
 // The user's time zone (D-100, D-101): the browser's zone saved on the first load, the Settings choice, the hint when
@@ -105,8 +106,8 @@ describe('the first load', () => {
     render(<MemoryRouter initialEntries={['/family/new']}><App me={user} /></MemoryRouter>)
 
     const start = await screen.findByLabelText(/^Start/)
-    expect((start as HTMLInputElement).value).toBe('2026-10-07')
-    expect(start.getAttribute('max')).toBe('2026-10-07')
+    expect((start as HTMLInputElement).value).toBe('10/07/2026')
+    expect(picker(start).max).toBe('2026-10-07')
   })
 
   it('leaves the start date out when it is the api’s today, and sends an earlier one', async () => {

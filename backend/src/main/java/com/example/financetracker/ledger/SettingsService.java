@@ -88,6 +88,35 @@ public class SettingsService {
         return new TimeZoneView(timeZone, today.date(ZoneId.of(timeZone)));
     }
 
+    /**
+     * The date formats {@link #setDateFormat} accepts (D-304), as V16's check lists them. The app shows and takes day
+     * dates in the one chosen; the API keeps ISO dates.
+     */
+    public static final List<String> DATE_FORMATS = List.of("DD.MM.YYYY", "DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD");
+
+    /** The user's date format as {@code /api/me} reports it: null for as the browser shows dates. */
+    public record DateFormatView(String dateFormat) {
+    }
+
+    /**
+     * Sets the user's date format (D-304).
+     *
+     * @param userId a user the request provisioned, who therefore has a settings row
+     * @param dateFormat one of {@link #DATE_FORMATS}, or null to show dates as the browser does again
+     * @throws RuleViolationException (422) for any other value
+     */
+    @Transactional
+    public DateFormatView setDateFormat(String userId, String dateFormat) {
+        if (dateFormat != null && !DATE_FORMATS.contains(dateFormat)) {
+            throw new RuleViolationException("'%s' is not a date format: use one of %s, or null for the browser's"
+                    .formatted(dateFormat, String.join(", ", DATE_FORMATS)));
+        }
+        if (!settings.updateDateFormat(userId, dateFormat)) {
+            throw new NotFoundException("Settings not found");
+        }
+        return new DateFormatView(dateFormat);
+    }
+
     private static SettingsView view(UserSettings settings) {
         return new SettingsView(settings.baseCurrency(), settings.sharedAccountId(),
                 Money.normalize(settings.defaultShareRatio()));

@@ -112,7 +112,7 @@ export function FamilyNotFound() {
     <>
       <h2>Family budget not found</h2>
       <p>This family budget doesn’t exist, or you aren’t a member of it.</p>
-      <p><Link className="button primary" to="/">Back to Personal</Link></p>
+      <p><Link className="button primary" to="/">Back to My finances</Link></p>
     </>
   )
 }

@@ -32,7 +32,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * included ({@link FamilyInvariants}), and the integrity check finds nothing for any of the four. A round ends early
  * when the family budget is gone: since F6b the last member with an account who leaves deletes it, as deleting their
  * data does (D-36), so it is never left without one. Records are dated in September 2026 or today, so that the seed draws the
- * same numbers on any day after September.
+ * same numbers on any day after September. Since UX-1 each ACTIVE member's cash flow scopes add up to the whole after
+ * every operation (D-302, {@link #checkCashFlowScopes}).
  */
 class FamilyLifecycleRandomTests extends LedgerApiTest {
 
@@ -165,6 +166,8 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
                 boolean member = now.stream().anyMatch(m -> user.equals(m.sub()) && m.status().equals("ACTIVE"));
                 if (member) {
                     checkFamilyReport(user, family, Map.of());
+                    // D-302: the user's scopes add up to the whole cash flow, detached shares of a return included.
+                    checkCashFlowScopes(user);
                 } else {
                     assertThat(get(user, uri + "/report")).as("the report for %s after operation %d (%s)",
                             names.get(user), i, what).hasStatus(HttpStatus.NOT_FOUND);

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
-import { deleteAllMyData, expect, shot, test, today, type Session } from '../fixtures.ts'
+import { fillDate } from '../dates.ts'
 import { HEADER, parse } from '../export-steps.ts'
+import { deleteAllMyData, expect, shot, test, today, type Session } from '../fixtures.ts'
 
 // D4a's export page (/export, D-243), with account A: the summary of the whole period and of this month, and the files
 // that Download saves, named for the period (D-241), as the import reads them (D-240). Locally, on the demo's ledger
@@ -17,7 +18,7 @@ test('export page', async ({ as, target }) => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Load demo data' }).click()
     await expect(page.getByText('Your ledger is empty. How would you like to start?')).toHaveCount(0, { timeout: 30_000 })
-    await expect(page.getByRole('heading', { name: /^Net worth on / })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'What you have and owe' }).getByText('Net worth')).toBeVisible()
   }
 
   await page.goto('/')
@@ -40,8 +41,8 @@ test('export page', async ({ as, target }) => {
   const month = today().slice(0, 7)
   const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10)
   await page.getByLabel('From–to').check()
-  await page.getByLabel('From', { exact: true }).fill(`${month}-01`)
-  await page.getByLabel('To', { exact: true }).fill(last)
+  await fillDate(page.getByLabel('From', { exact: true }), `${month}-01`)
+  await fillDate(page.getByLabel('To', { exact: true }), last)
   await expect(page.getByRole('link', { name: 'Download' })).toHaveAttribute('href', `/api/export/transactions?from=${month}-01&to=${last}`)
   await shot(page, 'export-02-this-month')
   const part = await download(a)

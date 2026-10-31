@@ -36,6 +36,15 @@ public interface UserSettingsRepository extends Repository<UserSettings, String>
     @Query("UPDATE user_settings SET time_zone = :timeZone WHERE user_id = :userId")
     boolean updateTimeZone(String userId, String timeZone);
 
+    /** The user's date format (D-304); empty when they have no row or show dates as the browser does. */
+    @Query("SELECT date_format FROM user_settings WHERE user_id = :userId")
+    Optional<String> findDateFormat(String userId);
+
+    /** Sets the date format of the user's row, which must exist, null for the browser's; {@code upsert} leaves it alone. */
+    @Modifying
+    @Query("UPDATE user_settings SET date_format = :dateFormat WHERE user_id = :userId")
+    boolean updateDateFormat(String userId, String dateFormat);
+
     /** Inserts or replaces the user's row. */
     default void save(UserSettings settings) {
         upsert(settings.userId(), settings.baseCurrency(), settings.sharedAccountId(), settings.defaultShareRatio());

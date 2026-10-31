@@ -11,7 +11,8 @@ function current(pathname: string) {
 }
 
 /**
- * The header's choice between the personal pages and the user's family budgets (ADR 0003, topic I; D-5): "Personal",
+ * The header's choice between the personal pages and the user's family budgets (ADR 0003, topic I; D-5): "My finances"
+ * (D-303: the user's own ledger, with their personal entries and their shares of family budgets),
  * each family budget by name, and "New family budget". Shown only while the family budget is switched on. A native
  * select, so it shows the current choice and stays usable on a narrow screen.
  *
@@ -32,7 +33,7 @@ export default function LedgerSwitcher({ families }: { families: FamilyLedger[] 
 
   return (
     <select className="ledger-switcher" aria-label="Budget" value={value} onChange={(e) => choose(e.target.value)}>
-      <option value={PERSONAL}>Personal</option>
+      <option value={PERSONAL}>My finances</option>
       {unlisted && <option value={value} disabled>Family budget</option>}
       {families && families.length > 0 && (
         <optgroup label="Family budgets">

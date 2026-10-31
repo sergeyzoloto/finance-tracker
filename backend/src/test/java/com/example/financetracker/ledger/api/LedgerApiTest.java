@@ -386,8 +386,75 @@ abstract class LedgerApiTest extends IntegrationTest {
             cashFlow.values().removeIf(total -> new BigDecimal(total).signum() == 0);
             assertThat(cashFlow).as("E3 (D-40): the family's lines of the personal cash flow of member " + me)
                     .isEqualTo(expected);
+            checkCashFlowScopes(user);
         }
         return report;
+    }
+
+    /** The period of {@link #checkCashFlowScopes}, which holds every date the tests write. */
+    private static final String SCOPE_PERIOD = "from=2025-01-01&to=2027-12-31";
+
+    /**
+     * D-302's partition of the user's cash flow: PERSONAL, FAMILY_MINE and FAMILY_OTHERS add up to ALL per month,
+     * category, family budget and currency, exactly in each currency, and in the base currency within 2 minor units
+     * per figure (each figure is rounded once); the exchange results are ALL's only.
+     */
+    protected void checkCashFlowScopes(String user) throws IOException {
+        String path = "/api/reports/cash-flow?" + SCOPE_PERIOD;
+        Map<String, BigDecimal> all = scopeRows(ok(get(user, path)), true);
+        Map<String, BigDecimal> parts = new TreeMap<>();
+        for (String scope : List.of("PERSONAL", "FAMILY_MINE", "FAMILY_OTHERS")) {
+            scopeRows(ok(get(user, path + "&scope=" + scope)), true)
+                    .forEach((key, total) -> parts.merge(key, total, BigDecimal::add));
+        }
+        all.values().removeIf(total -> total.signum() == 0);
+        parts.values().removeIf(total -> total.signum() == 0);
+        assertThat(parts).as("D-302: the scopes of %s's cash flow against ALL", user).isEqualTo(all);
+
+        JsonNode allInBase = ok(get(user, path + "&currency=BASE"));
+        BigDecimal tolerance = BigDecimal.valueOf(2, java.util.Currency.getInstance(allInBase.get("currency").asText())
+                .getDefaultFractionDigits());
+        Map<String, BigDecimal> base = scopeRows(allInBase.get("rows"), false);
+        Map<String, BigDecimal> baseParts = new TreeMap<>();
+        Set<String> missing = new java.util.HashSet<>(base.keySet());
+        base.forEach((key, total) -> {
+            if (total != null) {
+                missing.remove(key);
+            }
+        });
+        for (String scope : List.of("PERSONAL", "FAMILY_MINE", "FAMILY_OTHERS")) {
+            JsonNode part = ok(get(user, path + "&currency=BASE&scope=" + scope));
+            assertThat(part.get("exchangeResults")).as("the exchange results of " + scope).isEmpty();
+            scopeRows(part.get("rows"), false).forEach((key, total) -> {
+                if (total == null) {
+                    missing.add(key);
+                } else {
+                    baseParts.merge(key, total, BigDecimal::add);
+                }
+            });
+        }
+        Set<String> keys = new java.util.TreeSet<>(base.keySet());
+        keys.addAll(baseParts.keySet());
+        keys.removeAll(missing);
+        for (String key : keys) {
+            BigDecimal whole = base.getOrDefault(key, BigDecimal.ZERO);
+            BigDecimal sum = baseParts.getOrDefault(key, BigDecimal.ZERO);
+            assertThat(sum.subtract(whole).abs()).as("D-302 in the base currency: %s of %s, %s against %s", key,
+                    user, sum, whole).isLessThanOrEqualTo(tolerance);
+        }
+    }
+
+    /** Cash flow rows by month, category, family budget and (in each currency) currency; a missing total is null. */
+    private static Map<String, BigDecimal> scopeRows(JsonNode rows, boolean eachCurrency) {
+        Map<String, BigDecimal> totals = new TreeMap<>();
+        for (JsonNode row : rows) {
+            String key = row.get("month").asText() + " " + row.get("categoryCode").asText() + " "
+                    + row.path("familyLedgerId").asText("own") + (eachCurrency ? " " + row.get("currency").asText() : "");
+            BigDecimal total = row.get("total").isNull() ? null : new BigDecimal(row.get("total").asText());
+            assertThat(totals.containsKey(key)).as("one row per " + key).isFalse();
+            totals.put(key, total);
+        }
+        return totals;
     }
 
     /** The element of the array whose field has the value. */

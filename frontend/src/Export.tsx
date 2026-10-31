@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { formatDate, useApi, type ExportSummary } from './api'
 import { Errors } from './components'
+import DateInput from './DateInput'
 import { useToday } from './me'
 
 export type Period = 'whole' | 'range'
@@ -66,11 +67,11 @@ export default function Export() {
             <>
               <label className="field">
                 <span className="label">From</span>
-                <input type="date" name="from" value={from} required onChange={(e) => setFrom(e.target.value)} />
+                <DateInput name="from" value={from} required onChange={(day) => setFrom(day)} />
               </label>
               <label className="field">
                 <span className="label">To</span>
-                <input type="date" name="to" value={to} required onChange={(e) => setTo(e.target.value)} />
+                <DateInput name="to" value={to} required onChange={(day) => setTo(day)} />
               </label>
             </>
           )}

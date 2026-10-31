@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -109,7 +110,9 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         List<String> reads = List.of("/api/categories", "/api/accounts", "/api/counterparties", "/api/entries?size=200",
                 "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31",
                 "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31&currency=BASE",
-                "/api/reports/balances?asOf=2026-12-31", "/api/reports/net-worth?asOf=2026-12-31",
+                "/api/reports/balances?asOf=2026-12-31", "/api/reports/balances?asOf=2026-12-31&currency=BASE",
+                "/api/reports/counterparty-balances?accountCode=LOANS_ASSET&currency=BASE",
+                "/api/reports/net-worth?asOf=2026-12-31",
                 "/api/reports/integrity");
         SoftAssertions softly = new SoftAssertions();
         for (String read : reads) {
@@ -123,6 +126,44 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
         assertThat(ok(get(user, "/api/entries?size=200")).get("content").findValues("family"))
                 .allSatisfy(family -> assertThat(family.isNull()).isTrue());
+    }
+
+    /**
+     * UX-1: with the switch off, a debt account to a family budget (from a time the switch was on, written here with
+     * plain SQL) names no budget in either shape of the balances (D-299), and the cash flow's family scopes are a 400
+     * (D-302), while ALL and PERSONAL answer as ever.
+     */
+    @Test
+    void debtAccountsNameNoBudgetAndFamilyScopesAre400() throws IOException {
+        ok(get(user, "/api/accounts"));
+        long family = jdbc.sql("INSERT INTO ledger (type, name, base_currency, split_rule) "
+                + "VALUES ('SHARED', 'Home', 'EUR', 'EQUAL') RETURNING id").query(Long.class).single();
+        join(family, user, "Me", "OWNER", LocalDate.of(2026, 9, 1));
+        long personal = jdbc.sql("SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'")
+                .param(user).query(Long.class).single();
+        // The posting service's account, as it writes it, with app.writer set for this statement's transaction.
+        jdbc.sql("""
+                WITH writer AS (SELECT set_config('app.writer', 'family-posting', true))
+                INSERT INTO account (user_id, ledger_id, code, name, type, is_system, default_currency, family_ledger_id)
+                SELECT ?, ?, ?, 'Debt to family budget: Home', 'LIABILITY', true, 'EUR', ? FROM writer""")
+                .params(user, personal, "FAMILY_DEBT_" + family, family).update();
+        for (String shape : List.of("", "?currency=BASE")) {
+            JsonNode balances = ok(get(user, "/api/reports/balances" + shape));
+            assertThat(balances.findValuesAsText("accountCode")).contains("FAMILY_DEBT_" + family);
+            assertThat(Answers.mentions(balances, "familyLedgerId")).as(shape).isFalse();
+            assertThat(Answers.mentions(balances, "familyLedgerName")).as(shape).isFalse();
+        }
+        String period = "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31";
+        for (String shape : List.of("", "&currency=BASE")) {
+            for (String scope : List.of("FAMILY_MINE", "FAMILY_OTHERS")) {
+                assertThat(get(user, period + shape + "&scope=" + scope)).as(scope + shape)
+                        .hasStatus(HttpStatus.BAD_REQUEST);
+                assertThat(get(user, period + shape + "&scope=" + scope + "&familyLedgerId=" + family))
+                        .as(scope + shape).hasStatus(HttpStatus.BAD_REQUEST);
+            }
+            assertThat(get(user, period + shape + "&scope=PERSONAL")).hasStatus(HttpStatus.OK);
+            assertThat(get(user, period + shape + "&scope=ALL")).hasStatus(HttpStatus.OK);
+        }
     }
 
     /**

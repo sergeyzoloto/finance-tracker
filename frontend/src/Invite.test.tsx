@@ -6,7 +6,7 @@ import type { CreatedInvite, FamilyInvite, FamilyLedger, FamilyMember, InviteLoo
 import type { FamilyData } from './familyData'
 import { FamilyMembers } from './FamilyMembers'
 import { pendingInvite, savePendingInvite } from './invite'
-import { WithMe } from './testMe'
+import { picker, WithMe } from './testMe'
 
 // Invites in the interface (F5; D-17, D-18, D-11): the invite page and its outcomes, and the owners' side.
 
@@ -76,7 +76,7 @@ describe('the invite page', () => {
     expect(await screen.findByRole('heading', { name: 'Join the family budget “Home”' })).toBeDefined()
     const page = screen.getByRole('heading', { name: 'Join the family budget “Home”' }).closest('section')!
     expect(page.textContent).toContain('Mum invites you to the family budget “Home”, kept in EUR, to take the place of Sam.')
-    expect(page.textContent).toContain('From Sep 15, 2026, your share of each family expense and income appears in your personal budget.')
+    expect(page.textContent).toContain('From Sep 15, 2026, your share of each family expense and income appears in My finances.')
     expect(page.textContent).toContain('arrives as one opening balance on that day')
     expect(within(page).getByRole('heading', { name: 'What the other members will see' })).toBeDefined()
     expect(within(page).getByText('Your accounts, and which one you paid with')).toBeDefined()
@@ -165,7 +165,7 @@ describe('the invite page', () => {
 
     expect(await screen.findByRole('heading', { name: 'This invite can’t be used' })).toBeDefined()
     expect(screen.getByRole('alert').textContent).toBe((answer.body as { detail: string }).detail)
-    expect(screen.getByRole('link', { name: 'Back to Personal' }).getAttribute('href')).toBe('/')
+    expect(screen.getByRole('link', { name: 'Back to My finances' }).getAttribute('href')).toBe('/')
     expect(pendingInvite()).toBeNull()
   })
 
@@ -282,7 +282,7 @@ describe('the owners’ invites', () => {
     const samsRow = screen.getByText('Sam').closest('tr')!
     fireEvent.click(within(samsRow).getByRole('button', { name: 'Invite to take this place' }))
     const date = screen.getByLabelText(/Invite someone to take Sam’s place, from/) as HTMLInputElement
-    expect(date.min).toBe('2026-09-01')
+    expect(picker(date).min).toBe('2026-09-01')
     fireEvent.change(date, { target: { value: '2026-09-15' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create the link' }))
 

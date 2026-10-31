@@ -164,3 +164,28 @@ export function CurrencyInput({ currencies, value, onChange, ...rest }: {
 export function Amounts({ amounts, signed = false }: { amounts: { currency: string; amount: string }[]; signed?: boolean }) {
   return <>{amounts.map((m) => <div key={m.currency}>{formatMoney(m.amount, m.currency, { signed })}</div>)}</>
 }
+
+/**
+ * A row of toggle buttons for one choice (the dashboard's period, currency and scope): a group with a visible label,
+ * each button `aria-pressed`, the chosen one pressed and none while nothing is (a custom period). They wrap on a narrow
+ * screen.
+ */
+export function ToggleGroup<T extends string>({ label, options, value, onChange }: {
+  label: string
+  options: { value: T; label: ReactNode }[]
+  value: T | null
+  onChange: (value: T) => void
+}) {
+  const id = useId()
+  return (
+    <div className="toggle-group">
+      <span id={id} className="toggle-label">{label}</span>
+      <div role="group" aria-labelledby={id} className="toggles">
+        {options.map((option) => (
+          <button key={option.value} type="button" aria-pressed={option.value === value}
+            onClick={() => onChange(option.value)}>{option.label}</button>
+        ))}
+      </div>
+    </div>
+  )
+}

@@ -6,6 +6,7 @@ import {
 import { CurrencyInput, Errors, Field, Loading } from './components'
 import { parseRateInput } from './currency'
 import { missingDays } from './dashboard'
+import DateInput from './DateInput'
 import { useToday } from './me'
 import { formatRate } from './money'
 
@@ -137,7 +138,7 @@ function AddRate({ currencies, today, onSaved }: { currencies: string[]; today: 
   return (
     <form className="add add-rate" onSubmit={submit}>
       <Field label="Date" errors={fieldMessages(failure, 'date')} hint="It applies from this date until your next rate.">
-        <input type="date" value={date} required onChange={(e) => { setDate(e.target.value); save.clear() }} />
+        <DateInput value={date} required onChange={(day) => { setDate(day); save.clear() }} />
       </Field>
       <Field label="1 EUR =" errors={[...(problem ? [problem] : []), ...fieldMessages(failure, 'rate')]}>
         <input className="amount" inputMode="decimal" value={rate} required placeholder="95,50" aria-label="Rate"

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { fillDate } from '../dates.ts'
 import { claimThroughTheLink, inviteToTakeThePlace } from '../family-steps.ts'
 import { deleteAllMyData, expect, expectIntegrity, ledgerIdOf, shot, test } from '../fixtures.ts'
 
@@ -37,7 +38,7 @@ test('member import', async ({ as, family }) => {
   // 1. The budget, Sam's place, and A's first import with Sam's rows.
   await a.page.goto('/family/new')
   await a.page.getByLabel('Name', { exact: true }).fill(BUDGET)
-  await a.page.getByLabel('Start date').fill('2024-01-01')
+  await fillDate(a.page.getByLabel('Start date'), '2024-01-01')
   await a.page.getByLabel('Name of a member').fill('Sam')
   await a.page.getByRole('button', { name: 'Add member' }).click()
   await a.page.getByRole('button', { name: 'Create family budget' }).click()

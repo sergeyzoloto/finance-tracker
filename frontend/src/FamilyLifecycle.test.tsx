@@ -146,7 +146,7 @@ describe('the members page', () => {
     fireEvent.click(within(screen.getByText('You').closest('tr')!).getByRole('button', { name: 'Leave' }))
     const confirmation = screen.getByRole('region', { name: 'Leave the family budget' })
     expect(within(confirmation).getByRole('heading', { name: 'Leave “Home”?' })).toBeDefined()
-    expect(await within(confirmation).findByText(/You are owed €10.00. That stays in your personal budget, on “Debt to family budget: Home”/))
+    expect(await within(confirmation).findByText(/You are owed €10.00. That stays in My finances, on “Debt to family budget: Home”/))
       .toBeDefined()
     expect(within(confirmation).getByText(/stays there as your own entries/)).toBeDefined()
     expect(within(confirmation).getByText('The split rule goes back to equal shares.')).toBeDefined()
@@ -190,7 +190,7 @@ describe('the invite page (D-34, D-26)', () => {
     renderInvite({ ...claim, kind: 'NEW_MEMBER', seatName: null, joinDate: '2026-10-01', openingBalances: undefined,
       returning: true, corrections: [{ currency: 'EUR', amount: '-60.00' }, { currency: 'USD', amount: '20.00' }] })
     expect((await screen.findByTestId('correction')).textContent).toMatch(
-      /One correction on that day of €60.00, which takes from .* and of \$20.00, which adds to what your personal budget shows you owe/)
+      /One correction on that day of €60.00, which takes from .* and of \$20.00, which adds to what My finances shows you owe/)
     expect(screen.getByText(/where you were a member before: you come back in your earlier place/)).toBeDefined()
     expect(screen.queryByTestId('opening-balance')).toBeNull()
   })
@@ -212,7 +212,7 @@ describe('a claim’s join date at 23:30 UTC (F6a, D-101)', () => {
 
       fireEvent.click(within(screen.getByText('Kid').closest('tr')!).getByRole('button', { name: 'Invite to take this place' }))
       const date = screen.getByLabelText(/Invite someone to take Kid’s place, from/) as HTMLInputElement
-      expect(date.value).toBe('2026-07-16')
+      expect(date.value).toBe('07/16/2026')
       fireEvent.click(screen.getByRole('button', { name: 'Create the link' }))
       await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1))
 

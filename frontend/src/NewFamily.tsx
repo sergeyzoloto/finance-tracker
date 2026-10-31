@@ -6,6 +6,7 @@ import {
 } from './api'
 import { percentToBasisPoints, WHOLE } from './basisPoints'
 import { CurrencyInput, Errors, Field, Loading } from './components'
+import DateInput from './DateInput'
 import type { CreationState } from './familyData'
 import { equalValues, ShareTable, shareTotal, type ShareRow } from './FamilyMembers'
 import { useToday } from './me'
@@ -160,7 +161,7 @@ export default function NewFamily({ me, onCreated }: { me: Me; onCreated: () => 
           </Field>
           <Field label="Start date" errors={[...(startProblem ? [startProblem] : []), ...errorsOf('startDate'), ...startErrors]}
             hint="The first day expenses can have; it is also the day you join the budget.">
-            <input type="date" value={startDate} max={today} required onChange={(e) => setStartDate(e.target.value)} />
+            <DateInput value={startDate} max={today} required onChange={(day) => setStartDate(day)} />
           </Field>
           <Field label="Your name in this budget" errors={errorsOf('displayName')}
             hint="The other members see this name.">

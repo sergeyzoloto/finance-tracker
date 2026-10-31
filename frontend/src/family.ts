@@ -334,12 +334,12 @@ export function departureNotes({ member, me, balances, members, splitRule, budge
   if (balances !== undefined) {
     const settled = balances.every((b) => signOf(b.amount) === 0)
     notes.push(`${sentenceStart(balancesSentence(balances, self ? null : name))}.${settled ? ''
-      : self ? ` That stays in your personal budget, on “Debt to family budget: ${budget}”, which becomes an account of `
+      : self ? ` That stays in My finances, on “Debt to family budget: ${budget}”, which becomes an account of `
         + 'yours; after you leave, you and the others each record a settlement in your own budgets.'
         : member.hasAccount ? ' That stays in their personal budget, on an account of theirs.' : ''}`)
   }
   if (self) {
-    notes.push('What this family budget added to your personal budget stays there as your own entries, which you can '
+    notes.push('What this family budget added to My finances stays there as your own entries, which you can '
       + 'change or delete; the family categories they use become personal categories of yours.')
     if (!last) {
       notes.push('You won’t see this family budget any more. The others keep seeing your name in its records, which '

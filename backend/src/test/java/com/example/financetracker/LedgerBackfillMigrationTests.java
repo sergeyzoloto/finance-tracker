@@ -21,8 +21,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * V5's backfill, on rows as the code before it writes them: a database migrated to V4 gets the rows of several users,
  * each known to other tables, and then V5. Every sub gets one personal ledger with itself as its one owner, and every
  * row its user's ledger, whether or not the sub has a users or user_settings row. Then each later migration on those
- * rows, to V12's time zone (F8c), V13's refunds and sync fields (F8d), V14's sync of personal entries (D3b) and V15's
- * member import (D3c).
+ * rows, to V12's time zone (F8c), V13's refunds and sync fields (F8d), V14's sync of personal entries (D3b), V15's
+ * member import (D3c) and V16's date format (UX-1).
  */
 class LedgerBackfillMigrationTests {
 
@@ -293,13 +293,28 @@ class LedgerBackfillMigrationTests {
                     "e::text");
             String beforeV15 = strings(allOfIt).getFirst();
             Map<String, Long> rowsBeforeV15 = rows();
-            MigrateResult v15 = flyway(null).migrate();
+            MigrateResult v15 = flyway("15").migrate();
             assertThat(v15.success).isTrue();
             assertThat(v15.targetSchemaVersion).isEqualTo("15");
             assertThat(rows()).isEqualTo(rowsBeforeV15);
             assertThat(strings(allOfIt).getFirst()).isEqualTo(beforeV15);
             assertThat(strings("SELECT count(*) FROM family_import_cutoff")).containsExactly("0");
             assertThat(strings("SELECT count(*) FROM imported_family_side")).containsExactly("0");
+
+            // V16 (UX-1, D-304) adds the settings' date format, null for everyone, and changes nothing else.
+            String withoutFormat = """
+                    SELECT coalesce((SELECT string_agg((to_jsonb(s) - 'date_format')::text, '|' ORDER BY s.user_id)
+                            FROM user_settings s), '')
+                        || (%s)""".formatted(allOfIt);
+            String beforeV16 = strings(withoutFormat).getFirst();
+            Map<String, Long> rowsBeforeV16 = rows();
+            MigrateResult v16 = flyway(null).migrate();
+            assertThat(v16.success).isTrue();
+            assertThat(v16.targetSchemaVersion).isEqualTo("16");
+            assertThat(rows()).isEqualTo(rowsBeforeV16);
+            assertThat(strings(withoutFormat).getFirst()).isEqualTo(beforeV16);
+            assertThat(strings("SELECT count(*) FROM user_settings WHERE date_format IS NOT NULL"))
+                    .containsExactly("0");
         } finally {
             db.close();
         }

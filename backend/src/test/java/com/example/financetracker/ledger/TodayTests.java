@@ -157,6 +157,16 @@ class TodayTests {
         }
 
         @Override
+        public Optional<String> findDateFormat(String userId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean updateDateFormat(String userId, String dateFormat) {
+            return false;
+        }
+
+        @Override
         public void upsert(String userId, String baseCurrency, Long sharedAccountId, BigDecimal defaultShareRatio) {
         }
     }

@@ -127,6 +127,46 @@ class ReportApiTests extends LedgerApiTest {
                 .isTrue();
     }
 
+    /**
+     * D-298: open loans in the base currency, one row per counterparty, its currencies added up at the rate on the day
+     * with the rates used and the amounts in their own currencies; a currency without a rate leaves the row null.
+     */
+    @Test
+    void openLoansInTheBaseCurrency() throws IOException {
+        ok(post(alice, "/api/rates/manual", """
+                {"date": "2026-08-01", "base": "EUR", "quote": "USD", "rate": "1.25"}"""));
+        long current = accountId(alice, "CURRENT_ACCOUNT");
+        long friend = find(ok(get(alice, "/api/counterparties")), "name", "Friend").get("id").asLong();
+        newEntry(alice, """
+                {"kind": "LOAN_GIVEN", "entryDate": "2026-08-06", "fromAccountId": %d, "counterpartyId": %d,
+                 "currency": "USD", "amount": "50"}""".formatted(current, friend));
+        newEntry(alice, """
+                {"kind": "LOAN_GIVEN", "entryDate": "2026-08-07", "fromAccountId": %d, "counterpartyId": %d,
+                 "currency": "RUB", "amount": "1000"}""".formatted(current, newCounterparty(alice, "Neighbour")));
+
+        JsonNode loans = ok(get(alice, "/api/reports/counterparty-balances" + AS_OF
+                + "&accountCode=LOANS_ASSET&currency=BASE"));
+        assertThat(rows(loans, "counterpartyName", "currency", "balance"))
+                .containsExactly("Friend EUR 140.00", "Neighbour EUR null");
+        JsonNode friends = loans.get(0);
+        assertThat(rows(friends.get("amounts"), "currency", "balance")).containsExactly("EUR 100.00", "USD 50.00");
+        assertThat(rows(friends.get("rates"), "currency", "perEuro", "source"))
+                .containsExactly("USD 1.25 MANUAL");
+        assertThat(friends.get("missingRates")).isEmpty();
+        JsonNode neighbours = loans.get(1);
+        assertThat(rows(neighbours.get("amounts"), "currency", "balance")).containsExactly("RUB 1000.00");
+        assertThat(neighbours.get("missingRates")).isEqualTo(Answers.json("""
+                [{"currency":"RUB","from":"2026-08-31","to":"2026-08-31","days":1}]"""));
+        // The report per currency is as before, and the base currency's shape answers only to BASE.
+        assertThat(rows(ok(get(alice, "/api/reports/counterparty-balances" + AS_OF + "&accountCode=LOANS_ASSET")),
+                "counterpartyName", "currency", "balance"))
+                .containsExactly("Friend EUR 100.00", "Friend USD 50.00", "Neighbour RUB 1000.00");
+        assertThat(get(alice, "/api/reports/counterparty-balances" + AS_OF + "&accountCode=LOANS_ASSET&currency=EUR"))
+                .hasStatus(HttpStatus.BAD_REQUEST);
+        assertThat(ok(get(bob, "/api/reports/counterparty-balances" + AS_OF
+                + "&accountCode=LOANS_ASSET&currency=BASE"))).isEmpty();
+    }
+
     @Test
     void reportParametersAreChecked() throws IOException {
         assertThat(body(get(alice, "/api/reports/cash-flow?from=2026-08-01"), HttpStatus.BAD_REQUEST)

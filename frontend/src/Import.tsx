@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import {
-  api, useApi, useMutation, type FamilyLedger, type FamilyMember, type ImportMemberSummary, type ImportMessageCount,
+  api, formatDate, useApi, useMutation, type FamilyLedger, type FamilyMember, type ImportMemberSummary, type ImportMessageCount,
   type ImportReconciliation, type ImportReport, type ImportRowRef, type ImportSync,
 } from './api'
 import { Errors } from './components'
+import DateInput from './DateInput'
 import {
   fileFacts, filterPartnerRows, importForm, unallocatedName, type FileFacts, type PartnerUpload,
 } from './importFilter'
@@ -157,7 +158,7 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
           <p className="muted" data-testid="file-rows">
             Your transactions file: {rows(facts.rows)}, counted as the import counts them
             {facts.highestId !== null && <>; highest ID {facts.highestId}</>}
-            {facts.lastDate !== null && <>; last row dated {facts.lastDate}</>}.
+            {facts.lastDate !== null && <>; last row dated {formatDate(facts.lastDate)}</>}.
           </p>
         )}
         {facts !== undefined && !facts.header && (
@@ -168,8 +169,8 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
         <div className="fields">
           <label className="field">
             <span className="label">Import up to</span>
-            <input type="date" name="upTo" value={choice.upTo}
-              onChange={(e) => change({ ...choice, upTo: e.target.value })} />
+            <DateInput name="upTo" value={choice.upTo}
+              onChange={(day) => change({ ...choice, upTo: day })} />
             <small className="hint">
               Rows dated after it are left out, and the check stops there. Empty: every row. A later import with a later
               date adds the newer rows.
@@ -306,13 +307,13 @@ function Report({ report }: { report: ImportReport }) {
       </table>
       {report.upTo && (
         <p className="muted" data-testid="after-cutoff">
-          Imported up to {report.upTo}. After it, neither imported nor missing: {report.afterCutoff.map((c) =>
+          Imported up to {formatDate(report.upTo)}. After it, neither imported nor missing: {report.afterCutoff.map((c) =>
             `${rows(c.afterCutoff)} of ${c.rows} ${c.source === 'PARTNER' ? 'of the partner’s' : 'of yours'}`).join(', ')}.
         </p>
       )}
       {report.period && (
         <p className="muted">
-          Rows from {report.period.from} to {report.period.to}, in {report.currencies.join(', ')}.
+          Rows from {formatDate(report.period.from)} to {formatDate(report.period.to)}, in {report.currencies.join(', ')}.
           {report.family && (report.family.mode === 'MEMBER'
             ? ` Family budget “${report.family.ledgerName}”, your own place.`
             : ` Family budget “${report.family.ledgerName}”, the partner as “${report.family.seatName}”.`)}
@@ -375,8 +376,8 @@ function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconcili
     <section className="reconciliation">
       <h3>Your ledger against the file</h3>
       <p className={r.passed ? 'success' : 'error-box'} role={r.passed ? 'status' : 'alert'}>
-        {r.passed ? 'Passed' : 'Failed'}: {r.pointsCompared} month-end balances compared, from {r.from ?? '–'} to
-        {' '}{r.cutoff ?? '–'}, as movements since the day before the file’s first row; {r.rows.rows} rows checked,
+        {r.passed ? 'Passed' : 'Failed'}: {r.pointsCompared} month-end balances compared, from {r.from ? formatDate(r.from) : '–'} to
+        {' '}{r.cutoff ? formatDate(r.cutoff) : '–'}, as movements since the day before the file’s first row; {r.rows.rows} rows checked,
         {' '}{r.rows.failed} failing.
       </p>
       {failing.length > 0 && (
@@ -385,7 +386,7 @@ function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconcili
           <tbody>
             {failing.map((l) => (
               <tr key={`${l.account} ${l.currency}`}>
-                <td>{l.account} {l.currency}</td><td>{l.failed} of {l.compared}</td><td>{l.firstFailure}</td>
+                <td>{l.account} {l.currency}</td><td>{l.failed} of {l.compared}</td><td>{l.firstFailure && formatDate(l.firstFailure)}</td>
                 <td className="amount">{l.worstUnexplained}</td>
               </tr>
             ))}
@@ -465,7 +466,7 @@ function SyncGroups({ sync }: { sync: ImportSync }) {
           <tbody>
             {sync.appEdits.map((e) => (
               <tr key={`${e.excelId} ${e.account} ${e.currency}`}>
-                <td>{e.excelId}</td><td>{e.date}</td><td>{e.account} {e.currency}</td><td className="amount">{e.amount}</td>
+                <td>{e.excelId}</td><td>{formatDate(e.date)}</td><td>{e.account} {e.currency}</td><td className="amount">{e.amount}</td>
               </tr>
             ))}
           </tbody>

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { api, useApi, useMutation, type FamilyMemberships } from './api'
 import { Errors, Field } from './components'
+import DateFormatSettings from './DateFormatSettings'
 import { deletionNotes, ROLE_LABELS } from './family'
 import { CONTACT_EMAIL, PRIVACY_URL } from './links'
 import { TimeZoneSettings } from './TimeZone'
@@ -36,6 +37,7 @@ export default function Settings({ onDeleted = () => {}, familyOn = false }: {
     <>
       <h2>Settings</h2>
       <TimeZoneSettings />
+      <DateFormatSettings />
       <section className="card danger-zone">
         <h3>Delete all my data</h3>
         <p>
@@ -74,8 +76,8 @@ function FamilyBudgetsTouched({ memberships, error }: { memberships: FamilyMembe
     <div className="family-budgets-touched">
       {memberships.memberships.length > 0 && (
         <>
-          <p>You are in {memberships.memberships.length === 1 ? 'a family budget' : 'these family budgets'}. In each, your
-            personal budget’s entries go with the rest of your data, and:</p>
+          <p>You are in {memberships.memberships.length === 1 ? 'a family budget' : 'these family budgets'}. In each, the
+            entries in My finances go with the rest of your data, and:</p>
           <ul>
             {memberships.memberships.map((m) => (
               <li key={m.ledgerId}>

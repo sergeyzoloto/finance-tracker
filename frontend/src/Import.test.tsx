@@ -142,7 +142,7 @@ describe('the import page', () => {
     chooseOwnFile()
     fireEvent.change(date, { target: { value: '2026-08-31' } })
     check()
-    expect((await screen.findByTestId('after-cutoff')).textContent).toBe('Imported up to 2026-08-31. After it, '
+    expect((await screen.findByTestId('after-cutoff')).textContent).toBe('Imported up to Aug 31, 2026. After it, '
       + 'neither imported nor missing: 3 rows of 25 of yours, 1 row of 7 of the partner’s.')
     expect(sent[0].url).toBe('/api/import?dryRun=true&upTo=2026-08-31')
     expect(commit().disabled).toBe(false)
@@ -239,7 +239,7 @@ describe('the import page', () => {
     choose('transactions', `\ufeff${header}\r\n12;01.09.2026;-;5\r\n\r\n;; \r\n9;"30.09.2026";-;"1;5"\r\n`
       + 'app-77;02.10.2026;-;1\r\n')
     expect((await screen.findByTestId('file-rows')).textContent).toBe('Your transactions file: 3 rows, counted as the '
-      + 'import counts them; highest ID 12; last row dated 2026-10-02.')
+      + 'import counts them; highest ID 12; last row dated Oct 2, 2026.')
     expect(screen.queryByTestId('not-transactions')).toBeNull()
     // Another file's header is named before the check.
     choose('transactions', 'Статьи баланса;Актив/пассив;Line\r\nКошелёк;ASSET;CASH\r\n')
@@ -308,7 +308,7 @@ describe('the import page', () => {
     check()
     const groups = await screen.findByTestId('sync-groups')
     expect(groups.textContent).toContain('Changed in the app, the file unchanged: left as they are (2)')
-    expect(screen.getByTestId('app-edits').textContent).toContain('2112018-01-23EQUITY RUB-2.50')
+    expect(screen.getByTestId('app-edits').textContent).toContain('211Jan 23, 2018EQUITY RUB-2.50')
     expect(groups.textContent).toContain('As the ledger holds them, under an old hash: the hash stored again (1)')
     expect(groups.textContent).toContain('Can’t be re-planned after the claim: listed, never written (1)')
     expect(groups.textContent).not.toContain('Re-planned')
@@ -341,7 +341,7 @@ describe('the import page', () => {
     chooseOwnFile()
     check()
     const failed = await screen.findByRole('alert')
-    expect(failed.textContent).toBe('Failed: 6 month-end balances compared, from 2024-01-02 to 2024-03-05, as '
+    expect(failed.textContent).toBe('Failed: 6 month-end balances compared, from Jan 2, 2024 to Mar 5, 2024, as '
       + 'movements since the day before the file’s first row; 25 rows checked, 1 failing.')
     expect(screen.getByTestId('row-failures').textContent).toContain('21DEBIT_CHANGE-1.50-2.501.00')
     expect(screen.getByTestId('chart').textContent).toContain('New account NORTH_CARD “Карта” (ASSET)')

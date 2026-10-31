@@ -1,5 +1,5 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipContentProps } from 'recharts'
-import { MISSING, monthLabel, type CashFlowTable, type Cell } from './dashboard'
+import { MISSING, monthLabel, monthNote, type CashFlowTable, type Cell } from './dashboard'
 import { formatMoney, toChartNumber } from './money'
 
 // Categorical slots 1 and 2 of a colour-blind-safe palette, checked against the white page. The page's green and
@@ -10,6 +10,8 @@ const GRID = '#e6e8eb'
 
 interface MonthBars {
   label: string
+  /** "from Sep 16" for a month the period covers in part (D-296). */
+  note?: string
   income: Cell
   expense: Cell
   /** Bar heights only; the tooltip shows the decimal strings. */
@@ -19,14 +21,15 @@ interface MonthBars {
 
 /**
  * Income against expenses per month in one currency: the subtotals of the cash flow table, which is also the
- * chart's table view.
+ * chart's table view. With the period, the tooltip of a month it covers in part says so.
  */
-export default function IncomeExpenseChart({ table }: { table: CashFlowTable }) {
+export default function IncomeExpenseChart({ table, period }: { table: CashFlowTable; period?: { from: string; to: string } }) {
   const data: MonthBars[] = table.months.map((month, i) => {
     const income: Cell = table.income.subtotal.months[i]
     const expense: Cell = table.expense.subtotal.months[i]
     return {
       label: monthLabel(month),
+      note: period && monthNote(month, period.from, period.to),
       income,
       expense,
       incomeHeight: height(income),
@@ -64,7 +67,7 @@ function MonthTooltip({ active, payload, currency, rounded }: Partial<TooltipCon
   const series = [['Income', bars.income, INCOME], ['Expenses', bars.expense, EXPENSE]] as const
   return (
     <div className="chart-tooltip">
-      <div className="muted">{bars.label}</div>
+      <div className="muted">{bars.label}{bars.note && `, ${bars.note}`}</div>
       {series.map(([name, amount, color]) => (
         <div key={name}>
           <span className="key" style={{ background: color }} />

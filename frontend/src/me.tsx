@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, type Me } from './api'
+import { setDateFormat as applyDateFormat, type DateFormat } from './dates'
 import { isMe } from './guards'
 import { browserZone, msUntilMidnight } from './timeZone'
 
@@ -10,6 +11,8 @@ interface MeState {
   today: string
   /** Saves the zone, an IANA id; throws the api's refusal (422 for an id it doesn't know). */
   setZone: (zone: string) => Promise<void>
+  /** Saves how day dates are shown and typed (D-304), null for as the browser shows them; throws the api's refusal. */
+  setDateFormat: (format: DateFormat | null) => Promise<void>
   /** Asks `/api/me` again, such as after "Delete all my data", which takes the zone with the rest. */
   reload: () => Promise<void>
   /** The zone ids the api accepts (D-103); null if it couldn't say, so that nothing is offered on a guess. */
@@ -36,6 +39,8 @@ const MIN_WAIT_MS = 60_000
  */
 export function MeProvider({ initial, children }: { initial: Me; children: ReactNode }) {
   const [me, setMe] = useState(initial)
+  // Every date the screens show and take follows it (dates.ts); set before they render, so none shows the old one.
+  applyDateFormat(me.dateFormat)
   const askedAt = useRef(0)
   /** Whether the midnight timer fired while the tab was hidden, so that showing it asks, however recent the answer. */
   const missed = useRef(false)
@@ -53,6 +58,11 @@ export function MeProvider({ initial, children }: { initial: Me; children: React
   const setZone = useCallback(async (zone: string) => {
     const saved = await api<{ timeZone: string; today: string }>('/settings/time-zone', 'PUT', { timeZone: zone })
     setMe((current) => ({ ...current, timeZone: saved.timeZone, today: saved.today }))
+  }, [])
+
+  const setDateFormat = useCallback(async (format: DateFormat | null) => {
+    const saved = await api<{ dateFormat: string | null }>('/settings/date-format', 'PUT', { dateFormat: format })
+    setMe((current) => ({ ...current, dateFormat: saved.dateFormat }))
   }, [])
 
   // The zones the api accepts (D-103), asked once per page load and only when something offers a zone.
@@ -103,8 +113,8 @@ export function MeProvider({ initial, children }: { initial: Me; children: React
     return () => clearTimeout(timer)
   }, [me.timeZone, me.today, answers, reload])
 
-  const value = useMemo(() => ({ me, today: me.today, setZone, reload, acceptedZones }),
-    [me, setZone, reload, acceptedZones])
+  const value = useMemo(() => ({ me, today: me.today, setZone, setDateFormat, reload, acceptedZones }),
+    [me, setZone, setDateFormat, reload, acceptedZones])
   return <MeContext.Provider value={value}>{children}</MeContext.Provider>
 }
 

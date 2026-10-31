@@ -4,6 +4,7 @@ import {
   type FamilyMember,
 } from './api'
 import { Errors, Field, Loading } from './components'
+import DateInput from './DateInput'
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { useToday } from './me'
 
@@ -59,8 +60,8 @@ export function FamilyInvites({ family, seat, onSeatDone }: {
         <form className="add" onSubmit={claim}>
           <Field label={`Invite someone to take ${seat.displayName}’s place, from`} errors={joinDateErrors}
             hint={`What was recorded for ${seat.displayName} from this day on becomes theirs; before it, one opening balance.`}>
-            <input type="date" value={joinDate} min={family.ledger.startDate} max={today} required
-              onChange={(e) => { setJoinDate(e.target.value); create.clear() }} />
+            <DateInput value={joinDate} min={family.ledger.startDate} max={today} required
+              onChange={(day) => { setJoinDate(day); create.clear() }} />
           </Field>
           <button className="primary" disabled={create.pending}>Create the link</button>
           <button type="button" onClick={onSeatDone}>Cancel</button>

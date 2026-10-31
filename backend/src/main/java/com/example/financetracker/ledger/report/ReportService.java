@@ -22,6 +22,7 @@ import java.util.stream.Stream;
 import com.example.financetracker.ledger.Account;
 import com.example.financetracker.ledger.AccountNotFoundException;
 import com.example.financetracker.ledger.AccountRepository;
+import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.SettingsService;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
@@ -30,6 +31,7 @@ import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.family.FamilyBalances;
 import com.example.financetracker.ledger.family.FamilyRecordService;
+import com.example.financetracker.ledger.family.FamilySwitch;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.rates.ConvertedSum;
@@ -67,9 +69,11 @@ public class ReportService {
     private final RateService rates;
     private final LedgerAccess access;
     private final FamilyRecordService records;
+    private final FamilySwitch familySwitch;
 
     ReportService(JdbcClient jdbc, AccountRepository accounts, UserSettingsRepository settings,
-            SettingsService settingsService, RateService rates, LedgerAccess access, FamilyRecordService records) {
+            SettingsService settingsService, RateService rates, LedgerAccess access, FamilyRecordService records,
+            FamilySwitch familySwitch) {
         this.jdbc = jdbc;
         this.accounts = accounts;
         this.settings = settings;
@@ -77,12 +81,14 @@ public class ReportService {
         this.rates = rates;
         this.access = access;
         this.records = records;
+        this.familySwitch = familySwitch;
     }
 
     /**
      * The displayed balance of every account that isn't archived, in each currency it has postings in by
      * {@code asOf}, zero included, and in its default currency even before it has any. Ordered by account code and
-     * currency.
+     * currency. A member's debt account to a family budget of one of their ACTIVE memberships names that budget
+     * (D-299), by {@code account.family_ledger_id}, never by its code or name; with the family switch off none does.
      */
     public List<AccountBalance> balances(LedgerScope ledger, LocalDate asOf) {
         return jdbc.sql("""
@@ -98,14 +104,20 @@ public class ReportService {
                     WHERE ledger_id = :ledgerId AND default_currency IS NOT NULL
                 )
                 SELECT a.id AS account_id, a.code AS account_code, a.name AS account_name, a.type AS account_type,
-                       t.currency, CASE a.type WHEN 'ASSET' THEN sum(t.total) ELSE -sum(t.total) END AS balance
+                       t.currency, CASE a.type WHEN 'ASSET' THEN sum(t.total) ELSE -sum(t.total) END AS balance,
+                       f.id AS family_ledger_id, f.name AS family_ledger_name
                 FROM account a
                 JOIN amounts t ON t.account_id = a.id
+                LEFT JOIN ledger f ON :familyOn AND f.id = a.family_ledger_id AND f.type = 'SHARED'
+                    AND EXISTS (SELECT FROM ledger_member m
+                                WHERE m.ledger_id = f.id AND m.user_sub = :sub AND m.status = 'ACTIVE')
                 WHERE a.ledger_id = :ledgerId AND a.archived_at IS NULL
-                GROUP BY a.id, t.currency
+                GROUP BY a.id, t.currency, f.id
                 ORDER BY a.code, t.currency""")
                 .param("ledgerId", ledger.ledgerId())
                 .param("asOf", asOf)
+                .param("familyOn", familySwitch.enabled())
+                .param("sub", ledger.userId())
                 .query(AccountBalance.class)
                 .list();
     }
@@ -145,6 +157,33 @@ public class ReportService {
     }
 
     /**
+     * {@link #counterpartyBalances} in the base currency (D-298): one row per counterparty, each of its currencies
+     * converted at the rate on {@code asOf} and added up. Ordered by counterparty name.
+     *
+     * @throws AccountNotFoundException if the ledger has no account with this code
+     * @throws IllegalArgumentException if the account doesn't require a counterparty
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public List<ConvertedCounterpartyBalance> counterpartyBalancesInBase(LedgerScope ledger, String accountCode,
+            LocalDate asOf) {
+        List<CounterpartyBalance> balances = counterpartyBalances(ledger, accountCode, asOf);
+        String base = settingsService.get(ledger.userId()).baseCurrency();
+        RateBook book = rates.rateBook(ledger.userId(),
+                currencies(balances.stream().map(CounterpartyBalance::currency), base), asOf, asOf);
+        Map<Long, List<CounterpartyBalance>> byCounterparty = balances.stream().collect(
+                Collectors.groupingBy(CounterpartyBalance::counterpartyId, LinkedHashMap::new, Collectors.toList()));
+        return byCounterparty.values().stream().map(rows -> {
+            ConvertedSum balance = new ConvertedSum(book, base);
+            rows.forEach(row -> balance.add(row.balance(), row.currency(), asOf));
+            CounterpartyBalance counterparty = rows.getFirst();
+            return new ConvertedCounterpartyBalance(counterparty.counterpartyId(), counterparty.counterpartyName(),
+                    base, balance.total(), balance.missing().toList(), balance.rates(), rows.stream()
+                            .map(row -> new ConvertedCounterpartyBalance.Amount(row.currency(), row.balance()))
+                            .toList());
+        }).toList();
+    }
+
+    /**
      * Income and expenses per month, category and currency, from the categorized postings of entries dated
      * {@code from} to {@code to}. Postings without a category don't count: not the paying side of an expense, and not
      * transfers, loans, exchanges or opening balances. Ordered by month, category type, category code and currency.
@@ -152,12 +191,27 @@ public class ReportService {
      * @throws IllegalArgumentException if {@code from} is after {@code to}
      */
     public List<CashFlowRow> cashFlow(LedgerScope ledger, LocalDate from, LocalDate to) {
+        return cashFlow(ledger, from, to, CashFlowScope.ALL, null);
+    }
+
+    /**
+     * {@link #cashFlow(LedgerScope, LocalDate, LocalDate)} of the entries of one scope (D-302), and for a family scope
+     * optionally of one family budget's records only.
+     *
+     * @param familyLedgerId a family budget of the user's ACTIVE memberships, or null for all of them
+     * @throws IllegalArgumentException if {@code from} is after {@code to}, for a family scope with the family switch
+     *         off, and for a family budget with a scope that isn't a family one
+     * @throws NotFoundException if {@code familyLedgerId} isn't a family budget the user is an ACTIVE member of
+     */
+    public List<CashFlowRow> cashFlow(LedgerScope ledger, LocalDate from, LocalDate to, CashFlowScope scope,
+            Long familyLedgerId) {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("'from' must not be after 'to'");
         }
         // The date is truncated as a timestamp without time zone. A bare date would be cast to timestamptz, and the
         // month would then depend on the session's time zone.
         List<Long> families = families(ledger);
+        checkScope(scope, familyLedgerId, families);
         var statement = jdbc.sql("""
                 SELECT date_trunc('month', e.entry_date::timestamp)::date AS month,
                        c.code AS category_code, c.name AS category_name, c.type AS category_type, p.currency,
@@ -167,14 +221,19 @@ public class ReportService {
                 JOIN posting p ON p.entry_id = e.id
                 JOIN category c ON c.id = p.category_id
                 LEFT JOIN ledger f ON f.id = c.ledger_id AND f.type = 'SHARED'
-                WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to
+                %s
+                WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to AND %s
                 GROUP BY month, c.id, p.currency, f.id
-                ORDER BY month, c.type, c.code, p.currency, f.id NULLS FIRST""".formatted(categories(families)))
+                ORDER BY month, c.type, c.code, p.currency, f.id NULLS FIRST""".formatted(scopeJoins(scope),
+                        categories(families), scopeCondition(scope, familyLedgerId)))
                 .param("ledgerId", ledger.ledgerId())
                 .param("from", from)
                 .param("to", to);
         if (!families.isEmpty()) {
             statement = statement.param("families", families);
+        }
+        if (familyLedgerId != null) {
+            statement = statement.param("familyId", familyLedgerId);
         }
         return statement.query(ReportService::cashFlowRow).list();
     }
@@ -222,7 +281,8 @@ public class ReportService {
             rows.forEach(row -> balance.add(row.balance(), row.currency(), asOf));
             AccountBalance account = rows.getFirst();
             return new ConvertedBalance(account.accountId(), account.accountCode(), account.accountName(),
-                    account.accountType(), base, balance.total(), balance.missing().toList(), balance.rates());
+                    account.accountType(), base, balance.total(), balance.missing().toList(), balance.rates(),
+                    account.familyLedgerId(), account.familyLedgerName());
         }).toList();
     }
 
@@ -308,25 +368,28 @@ public class ReportService {
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ConvertedCashFlow cashFlowInBase(LedgerScope ledger, LocalDate from, LocalDate to) {
+        return cashFlowInBase(ledger, from, to, CashFlowScope.ALL, null);
+    }
+
+    /**
+     * {@link #cashFlowInBase(LedgerScope, LocalDate, LocalDate)} of one scope (D-302), as
+     * {@link #cashFlow(LedgerScope, LocalDate, LocalDate, CashFlowScope, Long)}. What exchange rates did is no one
+     * scope's: its {@code exchangeResults} are empty for every scope but {@link CashFlowScope#ALL}.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ConvertedCashFlow cashFlowInBase(LedgerScope ledger, LocalDate from, LocalDate to, CashFlowScope scope,
+            Long familyLedgerId) {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("'from' must not be after 'to'");
         }
+        boolean all = scope == CashFlowScope.ALL;
         String base = settingsService.get(ledger.userId()).baseCurrency();
         // Per day and currency: categorized postings (CATEGORY) as cashFlow adds them up, postings to FX_EXCHANGE
         // (EXCHANGE), and postings in other currencies than the base currency to ASSET and LIABILITY accounts
         // (HOLDING), which are what is revalued. HOLDING before the period is one sum per currency, without a day.
         List<Long> families = families(ledger);
-        var statement = jdbc.sql("""
-                SELECT 'CATEGORY' AS part, e.entry_date AS day, p.currency, c.code AS category_code,
-                       c.name AS category_name, c.type AS category_type,
-                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS amount,
-                       f.id AS family_ledger_id, f.name AS family_ledger_name
-                FROM journal_entry e
-                JOIN posting p ON p.entry_id = e.id
-                JOIN category c ON c.id = p.category_id
-                LEFT JOIN ledger f ON f.id = c.ledger_id AND f.type = 'SHARED'
-                WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to
-                GROUP BY e.entry_date, p.currency, c.id, f.id
+        checkScope(scope, familyLedgerId, families);
+        String exchange = !all ? "" : """
                 UNION ALL
                 SELECT CASE a.type WHEN 'EQUITY' THEN 'EXCHANGE' ELSE 'HOLDING' END,
                        CASE WHEN e.entry_date < :from THEN NULL ELSE e.entry_date END, p.currency, NULL, NULL, NULL,
@@ -337,14 +400,32 @@ public class ReportService {
                 WHERE e.ledger_id = :ledgerId AND a.ledger_id = :ledgerId AND e.entry_date <= :to
                   AND ((a.type IN ('ASSET', 'LIABILITY') AND p.currency <> :base)
                        OR (a.type = 'EQUITY' AND a.code = :fxExchange AND e.entry_date >= :from))
-                GROUP BY 1, 2, 3""".formatted(categories(families)))
+                GROUP BY 1, 2, 3""";
+        var statement = jdbc.sql("""
+                SELECT 'CATEGORY' AS part, e.entry_date AS day, p.currency, c.code AS category_code,
+                       c.name AS category_name, c.type AS category_type,
+                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS amount,
+                       f.id AS family_ledger_id, f.name AS family_ledger_name
+                FROM journal_entry e
+                JOIN posting p ON p.entry_id = e.id
+                JOIN category c ON c.id = p.category_id
+                LEFT JOIN ledger f ON f.id = c.ledger_id AND f.type = 'SHARED'
+                %s
+                WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to AND %s
+                GROUP BY e.entry_date, p.currency, c.id, f.id
+                %s""".formatted(scopeJoins(scope), categories(families), scopeCondition(scope, familyLedgerId),
+                        exchange))
                 .param("ledgerId", ledger.ledgerId())
                 .param("from", from)
-                .param("to", to)
-                .param("base", base)
-                .param("fxExchange", FX_EXCHANGE);
+                .param("to", to);
+        if (all) {
+            statement = statement.param("base", base).param("fxExchange", FX_EXCHANGE);
+        }
         if (!families.isEmpty()) {
             statement = statement.param("families", families);
+        }
+        if (familyLedgerId != null) {
+            statement = statement.param("familyId", familyLedgerId);
         }
         List<FlowSum> sums = statement.query(FlowSum.class).list();
         // The day before the period: where the first month's revaluation starts from.
@@ -387,7 +468,8 @@ public class ReportService {
                 .toList();
 
         List<ConvertedCashFlow.ExchangeResult> results = new ArrayList<>();
-        for (YearMonth month = YearMonth.from(from); !month.isAfter(YearMonth.from(to)); month = month.plusMonths(1)) {
+        for (YearMonth month = YearMonth.from(from); all && !month.isAfter(YearMonth.from(to));
+                month = month.plusMonths(1)) {
             LocalDate start = month.atDay(1).isBefore(from) ? from : month.atDay(1);
             LocalDate end = month.atEndOfMonth().isAfter(to) ? to : month.atEndOfMonth();
             ConvertedSum realized = new ConvertedSum(book, base);
@@ -567,6 +649,51 @@ public class ReportService {
             return List.of();
         }
         return access.families(ledger.userId()).stream().map(LedgerScope::ledgerId).toList();
+    }
+
+    /**
+     * Refuses a scope the request can't have (D-302): a family scope with the family switch off, a family budget with
+     * a scope that isn't a family one (400), and a family budget the user isn't an ACTIVE member of, answered like a
+     * missing ledger, as LedgerAccess answers it (404).
+     */
+    private void checkScope(CashFlowScope scope, Long familyLedgerId, List<Long> families) {
+        if (scope.family() && !familySwitch.enabled()) {
+            throw new IllegalArgumentException("The scope %s is about family budgets, which are switched off"
+                    .formatted(scope));
+        }
+        if (familyLedgerId == null) {
+            return;
+        }
+        if (!scope.family()) {
+            throw new IllegalArgumentException("'familyLedgerId' goes only with the scope FAMILY_MINE or FAMILY_OTHERS");
+        }
+        if (!families.contains(familyLedgerId)) {
+            throw new NotFoundException("Ledger %d not found".formatted(familyLedgerId));
+        }
+    }
+
+    /**
+     * The joins a scope needs over the entries {@code e}: the entry's SHARE link {@code l}, of any member's ledger,
+     * detached ones included, and its record {@code r}. An entry has at most one link ({@code entry_id} is unique).
+     */
+    private static String scopeJoins(CashFlowScope scope) {
+        return scope == CashFlowScope.ALL ? "" : """
+                LEFT JOIN family_entry_link l ON l.entry_id = e.id AND l.link_type = 'SHARE'
+                LEFT JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id""";
+    }
+
+    /**
+     * The condition of a scope on the joins of {@link #scopeJoins}: no SHARE link for a personal entry; for a share,
+     * whether the record's payer (its receiver, for an income) is the member the link is of, the user in that budget.
+     */
+    private static String scopeCondition(CashFlowScope scope, Long familyLedgerId) {
+        String family = familyLedgerId == null ? "" : " AND l.family_ledger_id = :familyId";
+        return switch (scope) {
+            case ALL -> "TRUE";
+            case PERSONAL -> "l.id IS NULL";
+            case FAMILY_MINE -> "l.id IS NOT NULL AND r.payer_member_id = l.member_id" + family;
+            case FAMILY_OTHERS -> "l.id IS NOT NULL AND r.payer_member_id <> l.member_id" + family;
+        };
     }
 
     /** The condition on a category {@code c} of the cash flow: the ledger's own, or of one of the families. */

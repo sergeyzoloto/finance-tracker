@@ -81,6 +81,7 @@ class ApiTests extends IntegrationTest {
                 new Object[] {GET, "/api/export/transactions?from=2026-01-01&to=2026-01-31", null},
                 new Object[] {GET, "/api/reports/cash-flow?from=2026-01-01&to=2026-01-31", null},
                 new Object[] {GET, "/api/reports/counterparty-balances?accountCode=LOANS_ASSET", null},
+                new Object[] {GET, "/api/reports/counterparty-balances?accountCode=LOANS_ASSET&currency=BASE", null},
                 new Object[] {GET, "/api/reports/net-worth", null},
                 new Object[] {GET, "/api/reports/shared-settlement", null},
                 new Object[] {GET, "/api/reports/integrity", null},
@@ -100,6 +101,8 @@ class ApiTests extends IntegrationTest {
                 new Object[] {GET, "/api/settings/time-zones", null},
                 new Object[] {PUT, "/api/settings/time-zone", """
                         {"timeZone": "Europe/Amsterdam"}"""},
+                new Object[] {PUT, "/api/settings/date-format", """
+                        {"dateFormat": "DD.MM.YYYY"}"""},
                 new Object[] {POST, "/api/demo-data", null},
                 new Object[] {DELETE, "/api/me/data", null},
                 new Object[] {GET, "/api/family-ledgers", null},
@@ -265,6 +268,7 @@ class ApiTests extends IntegrationTest {
         assertThat(operations).containsExactlyInAnyOrderEntriesOf(Map.ofEntries(
                 Map.entry("/api/me", List.of("get")),
                 Map.entry("/api/settings/time-zone", List.of("put")),
+                Map.entry("/api/settings/date-format", List.of("put")),
                 Map.entry("/api/settings/time-zones", List.of("get")),
                 Map.entry("/api/accounts", List.of("get", "post")),
                 Map.entry("/api/accounts/{id}", List.of("patch")),

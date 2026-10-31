@@ -1071,6 +1071,28 @@ class LedgerSchemaTests {
         db.rollback();
     }
 
+    /** V16 (UX-1, D-304): a user's date format is null, for the browser's, or one of the four patterns. */
+    @Test
+    void aDateFormatIsOneOfFour() throws SQLException {
+        String user = UUID.randomUUID().toString();
+        update("INSERT INTO user_settings (user_id, base_currency) VALUES (?, 'EUR')", user);
+        assertThat(strings("SELECT date_format FROM user_settings WHERE user_id = ?", user))
+                .containsExactly((String) null);
+        assertThat(strings("SELECT data_type FROM information_schema.columns WHERE table_schema = 'app' "
+                + "AND table_name = 'user_settings' AND column_name = 'date_format'")).containsExactly("text");
+        for (String format : List.of("DD.MM.YYYY", "DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD")) {
+            update("UPDATE user_settings SET date_format = ? WHERE user_id = ?", format, user);
+            db.commit();
+        }
+        update("UPDATE user_settings SET date_format = NULL WHERE user_id = ?", user);
+        db.commit();
+        for (String format : List.of("", "dd.mm.yyyy", "DD-MM-YYYY", "MEDIUM")) {
+            assertFails(() -> update("UPDATE user_settings SET date_format = ? WHERE user_id = ?", format, user),
+                    CHECK_VIOLATION, "user_settings_date_format_check");
+            db.rollback();
+        }
+    }
+
     /**
      * V9's invites (F5; D-17, D-18, D-20): a token's hash of 32 bytes, once; created by an ACTIVE owner with an account
      * of a family ledger, never of a personal one; a claim's seat an ACTIVE member without an account, with a join

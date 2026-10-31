@@ -1,3 +1,4 @@
+import { expectDate } from '../dates.ts'
 import { deleteAllMyData, expect, ledgerIdOf, test, todayIn, type Session } from '../fixtures.ts'
 
 // D-100, D-101: each user has a time zone, and the app's today is the date there, from /api/me. A browser in another
@@ -74,7 +75,7 @@ async function familyRecordOnToday(a: Session, zone: string, today: string) {
   await page.goto('/family/new')
   await page.getByLabel('Name', { exact: true }).fill(name)
   // The form offers the api's today, which isn't typed: the request leaves the start date out.
-  await expect(page.getByLabel('Start date')).toHaveValue(today)
+  await expectDate(page.getByLabel('Start date'), today)
   await page.getByRole('checkbox', { name: 'Groceries', exact: true }).check()
   const created = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/family-ledgers')
   await page.getByRole('button', { name: 'Create family budget' }).click()
@@ -86,7 +87,7 @@ async function familyRecordOnToday(a: Session, zone: string, today: string) {
 
   await page.goto(`/family/${ledgerId}/expenses/new`)
   await expect(page.getByRole('heading', { name: 'Add an expense' })).toBeVisible()
-  await expect(page.getByLabel(/^Date/)).toHaveValue(today)
+  await expectDate(page.getByLabel(/^Date/), today)
   await page.getByLabel('Category').selectOption({ label: 'Groceries' })
   await page.getByLabel('Amount (EUR)').fill('12.00')
   await page.getByLabel('Paid from').selectOption({ label: 'Specify later' })

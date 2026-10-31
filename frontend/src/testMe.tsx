@@ -9,3 +9,7 @@ export const TEST_ME: Me = { name: 'Anna', timeZone: 'UTC', today: '2026-09-30',
 export function WithMe({ me = TEST_ME, children }: { me?: Me; children: ReactNode }) {
   return <MeProvider initial={me}>{children}</MeProvider>
 }
+
+/** A `DateInput`'s native date input, which opens the browser's picker and holds the field's `min` and `max`. */
+export const picker = (field: HTMLElement) =>
+  field.parentElement!.querySelector('input[type="date"]') as HTMLInputElement

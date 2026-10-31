@@ -7,7 +7,7 @@ import type {
 } from './api'
 import NewFamily from './NewFamily'
 import { euroBalances, testLedger } from './testLedger'
-import { WithMe } from './testMe'
+import { picker, WithMe } from './testMe'
 
 // A family budget's expenses, balances and journal (F4b): the add form with its payment and split, the server's 409s
 // and 422s where they belong, an expense's page with what its reader may do, and the balances and journal in words.
@@ -122,8 +122,8 @@ describe('adding an expense', () => {
     renderApp('/family/7/expenses/new')
     await fillIn()
 
-    expect(screen.getByLabelText(/^Date/)).toHaveProperty('value', '2026-09-30')
-    expect(screen.getByLabelText(/^Date/).getAttribute('min')).toBe('2026-09-01')
+    expect(screen.getByLabelText(/^Date/)).toHaveProperty('value', '09/30/2026')
+    expect(picker(screen.getByLabelText(/^Date/)).min).toBe('2026-09-01')
     // The family's expense categories that aren't archived.
     expect(within(screen.getByLabelText('Category')).getAllByRole('option').map((o) => o.textContent))
       .toEqual(['Choose a category', 'Groceries', 'Rent'])
@@ -506,8 +506,8 @@ describe('creating a family budget', () => {
     renderNewFamily()
     fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Home' } })
     const start = screen.getByLabelText(/^Start date/)
-    expect(start).toHaveProperty('value', '2026-09-30')
-    expect(start.getAttribute('max')).toBe('2026-09-30')
+    expect(start).toHaveProperty('value', '09/30/2026')
+    expect(picker(start).max).toBe('2026-09-30')
     expect(field('Start date').textContent).toContain('The first day expenses can have; it is also the day you join the budget.')
 
     fireEvent.change(start, { target: { value: '2026-10-01' } })

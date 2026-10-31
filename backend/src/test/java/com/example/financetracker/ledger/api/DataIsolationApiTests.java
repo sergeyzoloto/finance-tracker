@@ -78,6 +78,9 @@ class DataIsolationApiTests extends LedgerApiTest {
             "/api/reports/cash-flow" + AUGUST,
             "/api/reports/cash-flow" + AUGUST + "&currency=BASE",
             "/api/reports/counterparty-balances" + AS_OF + "&accountCode=LOANS_ASSET",
+            "/api/reports/counterparty-balances" + AS_OF + "&accountCode=LOANS_ASSET&currency=BASE",
+            "/api/reports/cash-flow" + AUGUST + "&scope=PERSONAL",
+            "/api/reports/cash-flow" + AUGUST + "&currency=BASE&scope=PERSONAL",
             "/api/reports/net-worth" + AS_OF,
             "/api/reports/net-worth" + AS_OF + "&currency=BASE",
             "/api/reports/shared-settlement" + AS_OF,
@@ -381,6 +384,10 @@ class DataIsolationApiTests extends LedgerApiTest {
         ok(bobsRequest(HttpMethod.PUT, "/api/settings/time-zone", """
                 {"timeZone": "Asia/Kolkata", "userId": "%s"}""".formatted(alice)));
         assertThat(bobReads("/api/me").get("timeZone").asText()).isEqualTo("Asia/Kolkata");
+        // D-304: so is his date format.
+        ok(bobsRequest(HttpMethod.PUT, "/api/settings/date-format", """
+                {"dateFormat": "DD.MM.YYYY", "userId": "%s"}""".formatted(alice)));
+        assertThat(bobReads("/api/me").get("dateFormat").asText()).isEqualTo("DD.MM.YYYY");
         // D-103: the list of accepted ids is the same for everyone, and holds nothing of anyone.
         assertThat(bobReads("/api/settings/time-zones").get(0).asText()).isNotBlank();
         assertThat(bobReads("/api/counterparties").findValuesAsText("name")).contains("Planted");
@@ -506,6 +513,21 @@ class DataIsolationApiTests extends LedgerApiTest {
             for (long ledger : List.of(familyA, familyB, alicesPersonal)) {
                 answersAsIfMissingTo(softly, carol, request.method(), uri.formatted(ledger),
                         uri.formatted(MISSING), request.body());
+            }
+        }
+        // D-302: the cash flow's family scopes reach no budget but his own memberships', in either shape.
+        for (String query : List.of("", "&currency=BASE")) {
+            for (String scope : List.of("FAMILY_MINE", "FAMILY_OTHERS")) {
+                String uri = "/api/reports/cash-flow" + AUGUST + query + "&scope=" + scope + "&familyLedgerId=%d";
+                for (long ledger : List.of(familyB, alicesPersonal, bobsPersonal)) {
+                    answersAsIfMissing(softly, HttpMethod.GET, uri, ledger, null);
+                }
+                for (long ledger : List.of(familyA, familyB, alicesPersonal)) {
+                    answersAsIfMissingTo(softly, carol, HttpMethod.GET, uri.formatted(ledger), uri.formatted(MISSING),
+                            null);
+                }
+                softly.assertThat(bobsRequest(HttpMethod.GET, uri.formatted(familyA), null).getResponse().getStatus())
+                        .as("his own budget A").isEqualTo(200);
             }
         }
         // In a family ledger of his own, B's members and categories and Alice's personal ones are missing.

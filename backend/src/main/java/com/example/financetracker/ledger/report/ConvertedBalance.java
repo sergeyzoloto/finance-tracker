@@ -6,6 +6,8 @@ import java.util.List;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.rates.MissingRate;
 import com.example.financetracker.ledger.rates.RateBook;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
 
 /**
  * An account's displayed balance (rule 4) in the user's base currency: its balance in each currency, converted at
@@ -17,7 +19,16 @@ import com.example.financetracker.ledger.rates.RateBook;
  * @param missingRates why {@code balance} is null; empty otherwise
  * @param rates the rates {@code balance} used, each with its date, source and stale mark (D-49, D-90); empty for a
  *        balance in the base currency only, or a missing one
+ * @param familyLedgerId the family budget of a debt account, as {@link AccountBalance#familyLedgerId}
+ * @param familyLedgerName its name
  */
 public record ConvertedBalance(long accountId, String accountCode, String accountName, AccountType accountType,
-        String currency, BigDecimal balance, List<MissingRate> missingRates, List<RateBook.Rate> rates) {
+        String currency, BigDecimal balance, List<MissingRate> missingRates, List<RateBook.Rate> rates,
+        @JsonInclude(Include.NON_NULL) Long familyLedgerId, @JsonInclude(Include.NON_NULL) String familyLedgerName) {
+
+    /** The balance of an account that is no debt to a family budget. */
+    public ConvertedBalance(long accountId, String accountCode, String accountName, AccountType accountType,
+            String currency, BigDecimal balance, List<MissingRate> missingRates, List<RateBook.Rate> rates) {
+        this(accountId, accountCode, accountName, accountType, currency, balance, missingRates, rates, null, null);
+    }
 }

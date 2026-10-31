@@ -29,7 +29,8 @@ import org.springframework.http.HttpStatus;
  * each currency
  * ({@link FamilyInvariants}): the balances sum to zero, each debt account shows its member's family balance on every
  * record's date, and every posted entry balances; and since F6c the family report agrees with the balances and with each
- * member's personal cash flow (E1, E3; {@link #checkFamilyReport}).
+ * member's personal cash flow (E1, E3; {@link #checkFamilyReport}), and since UX-1 each member's cash flow scopes add up
+ * to the whole (D-302, {@link #checkCashFlowScopes}).
  */
 class FamilyRecordRandomTests extends LedgerApiTest {
 

@@ -75,7 +75,7 @@ function Shell() {
         {/* A page that can't read its answer shows an error with a reload link, and the header stays (F8c). */}
         <Safe what="this page" resetKey={location.pathname}>
         <Routes>
-          <Route path="/" element={<Dashboard familyOn={familyOn} onFamilyCreated={families.reload} />} />
+          <Route path="/" element={<Dashboard familyOn={familyOn} families={families.data} onFamilyCreated={families.reload} />} />
           <Route path="/entries" element={<Entries />} />
           <Route path="/entries/new" element={<EntryEditor key="new" families={familyOn ? families.data ?? [] : undefined} />} />
           <Route path="/entries/:id" element={<EntryEditor families={familyOn ? families.data ?? [] : undefined} />} />

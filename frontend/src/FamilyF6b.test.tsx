@@ -168,7 +168,7 @@ describe('the last member with an account leaving (D-36)', () => {
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'))
     const switcher = screen.getByLabelText('Budget')
-    expect(within(switcher).getAllByRole('option').map((o) => o.textContent)).toEqual(['Personal', 'New family budget…'])
+    expect(within(switcher).getAllByRole('option').map((o) => o.textContent)).toEqual(['My finances', 'New family budget…'])
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).toEqual(['/api/family-ledgers/7/members/me'])
   })
 })
@@ -249,6 +249,6 @@ describe('the switcher right after accepting an invite (F6b)', () => {
     const switcher = screen.getByLabelText('Budget') as HTMLSelectElement
     expect(switcher.value).toBe('7')
     expect(within(switcher).getAllByRole('option').map((o) => o.textContent))
-      .toEqual(['Personal', 'Home', 'New family budget…'])
+      .toEqual(['My finances', 'Home', 'New family budget…'])
   })
 })

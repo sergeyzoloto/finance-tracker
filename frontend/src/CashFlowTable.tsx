@@ -1,12 +1,13 @@
-import { MISSING, monthLabel, type CashFlowLine, type CashFlowTable as Table, type Cell } from './dashboard'
+import { MISSING, monthLabel, monthNote, type CashFlowLine, type CashFlowTable as Table, type Cell } from './dashboard'
 import { formatMoney, signOf } from './money'
 
 /**
  * One currency's income and expenses as the owner's Excel pivot: categories as rows, months as columns, a total
  * column, a subtotal per section and the net. A dash marks a month in which nothing was posted. In the base currency,
- * the results of exchange rates follow the net, and "rate missing" marks a figure that can't be converted.
+ * the results of exchange rates follow the net, and "rate missing" marks a figure that can't be converted. With the
+ * period, a month it covers only in part says so under its name ("from Sep 16", D-296).
  */
-export default function CashFlowTable({ table }: { table: Table }) {
+export default function CashFlowTable({ table, period }: { table: Table; period?: { from: string; to: string } }) {
   const width = table.months.length + 2
   const row = (line: CashFlowLine, className = '', signed = false) => (
     <tr key={line.key} className={className}>
@@ -25,7 +26,14 @@ export default function CashFlowTable({ table }: { table: Table }) {
         <thead>
           <tr>
             <th scope="col">{table.currency}</th>
-            {table.months.map((month) => <th key={month} scope="col" className="amount">{monthLabel(month)}</th>)}
+            {table.months.map((month) => {
+              const note = period && monthNote(month, period.from, period.to)
+              return (
+                <th key={month} scope="col" className="amount">
+                  {monthLabel(month)}{note && <small className="month-note">{note}</small>}
+                </th>
+              )
+            })}
             <th scope="col" className="amount">Total</th>
           </tr>
         </thead>

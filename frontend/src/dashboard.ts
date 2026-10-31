@@ -1,35 +1,56 @@
 import {
-  formatDate, isoDate, type CashFlowRow, type CategoryType, type ConvertedCashFlow, type CounterpartyBalance,
-  type MissingRate, type Rate, type SharedSettlement,
+  formatDate, isoDate, type AccountBalance, type AccountType, type CashFlowRow, type CategoryType, type ConvertedBalance,
+  type ConvertedCashFlow, type CounterpartyBalance, type MissingRate, type Rate,
 } from './api'
-import { abs, formatMoney, formatRate, isZero, negate, signOf, sum } from './money'
+import { abs, formatRate, isZero, negate, signOf, sum } from './money'
 
-// The dashboard without React: the period in the URL, the cash flow as a monthly pivot, and who owes whom. Every
-// figure comes from the report endpoints; amounts in different currencies are never added together. In the base
-// currency, the backend converts them, and a figure it can't convert for want of a rate stays missing: it is never
-// added up as if it were zero.
+// The dashboard without React: the period, the currency and the scope in the URL, the cash flow as a monthly pivot,
+// and who owes whom. Every figure comes from the report endpoints; amounts in different currencies are never added
+// together. In the base currency, the backend converts them, and a figure it can't convert for want of a rate stays
+// missing: it is never added up as if it were zero.
 
-export const PRESETS = ['this-month', 'last-3-months', 'this-year', 'last-year'] as const
+/** The period buttons, in their order on the page (D-296). */
+export const PRESETS = [
+  'past-month', 'previous-month', 'this-month', 'last-3-months', 'past-year', 'this-year', 'previous-year',
+] as const
 export type Preset = (typeof PRESETS)[number]
 export type PeriodChoice = Preset | 'custom'
 export const DEFAULT_PRESET: Preset = 'this-month'
 export const PERIOD_LABELS: Record<PeriodChoice, string> = {
+  'past-month': 'Past month',
+  'previous-month': 'Previous month',
   'this-month': 'This month',
   'last-3-months': 'Last 3 months',
+  'past-year': 'Past year',
   'this-year': 'This year',
-  'last-year': 'Last year',
+  'previous-year': 'Previous year',
   custom: 'Custom',
 }
+/** Names a bookmark may still use: "Previous year" was "Last year" (`period=last-year`). */
+const OLD_PRESETS: Record<string, Preset> = { 'last-year': 'previous-year' }
 
-/** A preset's first and last day, inclusive. "Last 3 months" is this month and the two before it. */
+/**
+ * A preset's first and last day, inclusive. "Last 3 months" is this month and the two before it. "Past month" and
+ * "Past year" end today and start the day after the same date a month or a year back, that date clamped to the end of a
+ * shorter month: on 31 March, 1 to 31 March; on 29 February 2028, from 1 March 2027.
+ */
 export function presetRange(preset: Preset, today: Date) {
   const y = today.getFullYear()
   const m = today.getMonth()
+  const d = today.getDate()
+  /** The same date `months` back, clamped to that month's last day; then the day after it. */
+  const dayAfterSameDate = (months: number) => {
+    const last = new Date(y, m - months + 1, 0).getDate()
+    return new Date(y, m - months, Math.min(d, last) + 1)
+  }
   const [from, to] = {
+    'past-month': [dayAfterSameDate(1), today],
+    'previous-month': [new Date(y, m - 1, 1), new Date(y, m, 0)],
     'this-month': [new Date(y, m, 1), new Date(y, m + 1, 0)],
     'last-3-months': [new Date(y, m - 2, 1), new Date(y, m + 1, 0)],
+    'past-year': [dayAfterSameDate(12), today],
     'this-year': [new Date(y, 0, 1), new Date(y, 11, 31)],
-    'last-year': [new Date(y - 1, 0, 1), new Date(y - 1, 11, 31)],
+    'previous-year': [new Date(y - 1, 0, 1), new Date(y - 1, 11, 31)],
   }[preset]
   return { from: isoDate(from), to: isoDate(to) }
 }
@@ -50,7 +71,8 @@ export interface Period {
 export function periodFromQuery(params: URLSearchParams, today: Date): Period {
   const from = validDate(params.get('from'))
   const to = validDate(params.get('to'))
-  const preset = PRESETS.find((p) => p === params.get('period')) ?? DEFAULT_PRESET
+  const named = params.get('period') ?? ''
+  const preset = PRESETS.find((p) => p === named) ?? OLD_PRESETS[named] ?? DEFAULT_PRESET
   const range = from && to ? { from, to } : presetRange(preset, today)
   const day = isoDate(today)
   return {
@@ -60,8 +82,59 @@ export function periodFromQuery(params: URLSearchParams, today: Date): Period {
   }
 }
 
-/** Whether the URL asks for amounts in the base currency (`currency=base`) rather than in each currency. */
-export const inBaseFromQuery = (params: URLSearchParams) => params.get('currency') === 'base'
+/**
+ * Whether the page is in the base currency (D-297): unless the URL asks for each currency (`currency=each`); an old
+ * link's `currency=base` means the base currency, as no `currency` does.
+ */
+export const inBaseFromQuery = (params: URLSearchParams) => params.get('currency') !== 'each'
+
+/** Which income and expenses the cash flow counts (D-302); the whole ledger's balances either way. */
+export const SCOPES = ['all', 'personal', 'family-mine', 'family-others'] as const
+export type Scope = (typeof SCOPES)[number]
+export const SCOPE_LABELS: Record<Scope, string> = {
+  all: 'All',
+  personal: 'Personal',
+  'family-mine': 'Family: my records',
+  'family-others': 'Family: others’ records',
+}
+const SCOPE_PARAMS: Record<Scope, string> = {
+  all: 'ALL', personal: 'PERSONAL', 'family-mine': 'FAMILY_MINE', 'family-others': 'FAMILY_OTHERS',
+}
+export const isFamilyScope = (scope: Scope) => scope === 'family-mine' || scope === 'family-others'
+
+/**
+ * The scope the URL asks for (`scope=personal|family-mine|family-others`, else All), and for a family scope the family
+ * budget (`family=<id>`, else all of them). Only where the family budget is switched on and the user is a member of
+ * one; otherwise All, whatever the URL says.
+ */
+export function scopeFromQuery(params: URLSearchParams, familyIds: number[] | null): { scope: Scope; family: number | null } {
+  const named = SCOPES.find((s) => s === params.get('scope')) ?? 'all'
+  const scope = familyIds === null || familyIds.length === 0 ? 'all' : named
+  const id = Number(params.get('family'))
+  const family = isFamilyScope(scope) && familyIds !== null && familyIds.includes(id) ? id : null
+  return { scope, family }
+}
+
+/** The cash flow report's parameters of a scope, for the API: "" for All. */
+export const scopeParams = ({ scope, family }: { scope: Scope; family: number | null }) =>
+  scope === 'all' ? '' : `&scope=${SCOPE_PARAMS[scope]}${family === null ? '' : `&familyLedgerId=${family}`}`
+
+/**
+ * What a month's column says when the period covers only part of it (D-296): "from Sep 16" for the first, "to Oct 15"
+ * for the last, both for a period within one month; nothing for a whole month.
+ */
+export function monthNote(month: string, from: string, to: string): string | undefined {
+  const first = `${month}-01`
+  const [year, m] = month.split('-').map(Number)
+  const last = isoDate(new Date(year, m, 0))
+  const day = (iso: string) => formatDate(iso, { day: 'numeric', month: 'short' })
+  const starts = from > first && from <= last
+  const ends = to < last && to >= first
+  if (starts && ends) return `${day(from)} to ${day(to)}`
+  if (starts) return `from ${day(from)}`
+  if (ends) return `to ${day(to)}`
+  return undefined
+}
 
 /** "2024-02-29" if it is a real day, else undefined. */
 function validDate(text: string | null) {
@@ -227,14 +300,6 @@ export function daysBetween(from: string, to: string) {
 }
 
 
-/** "You owe €30.00 to Family budget." or "Family budget owes you €30.00." */
-export function settlementSentence(settlement: SharedSettlement, accountName: string) {
-  const amount = formatMoney(abs(settlement.balance), settlement.currency)
-  return settlement.direction === 'USER_OWES'
-    ? `You owe ${amount} to ${accountName}.`
-    : `${accountName} owes you ${amount}.`
-}
-
 /** The accounts whose balances are kept per counterparty (rule 8), and which side a positive balance is on. */
 export const LOAN_ACCOUNTS = [
   { code: 'LOANS_ASSET', title: 'Money lent', positive: 'owesYou' },
@@ -245,11 +310,70 @@ export const LOAN_ACCOUNTS = [
  * Splits an open loan by who owes whom. A positive balance of money lent means the counterparty owes the user, and a
  * positive one of money borrowed that the user owes them; a negative one, such as an overpaid loan, is the reverse.
  */
-export function loanSides(balance: CounterpartyBalance, positive: 'owesYou' | 'youOwe') {
+export function loanSides(balance: { balance: string }, positive: 'owesYou' | 'youOwe') {
   const side = signOf(balance.balance) > 0 ? positive : positive === 'owesYou' ? 'youOwe' : 'owesYou'
   const amount = abs(balance.balance)
   return { owesYou: side === 'owesYou' ? amount : null, youOwe: side === 'youOwe' ? amount : null }
 }
+
+/**
+ * Which side a displayed balance (rule 4) of a debt between the user and others is on: a LIABILITY above 0, such as
+ * a family budget's debt account, is what the user owes, below 0 what they are owed; an ASSET the other way round.
+ */
+export const debtSides = (type: AccountType, balance: string) =>
+  loanSides({ balance }, type === 'ASSET' ? 'owesYou' : 'youOwe')
+
+/** A line of open loans' "Family budgets" group (D-299): a family budget's debt account, or the old shared account. */
+export interface FamilyDebt {
+  key: string
+  name: string
+  /** Where its name links: the budget's Balances page, or the shared account's entries. */
+  to: string
+  accountType: AccountType
+  /** Per currency, or in base mode the one converted figure (null with a missing rate). */
+  amounts: { currency: string; balance: string | null }[]
+  /** In base mode, the amounts in their own currencies, shown small when there is more than the base currency. */
+  own: { currency: string; balance: string }[]
+}
+
+/**
+ * The family group of open loans (D-299): each family budget's debt account, named by its budget (never found by its
+ * code or name: by `familyLedgerId`), and the settings' shared account of rule 7 when its balance isn't zero, under
+ * its own name. In base mode, from the converted balances, with the amounts in their own currencies beside them.
+ */
+export function familyDebts(balances: AccountBalance[], converted: ConvertedBalance[] | null,
+  sharedAccountId: number | null): FamilyDebt[] {
+  const debts: FamilyDebt[] = []
+  const own = (accountId: number) => balances.filter((b) => b.accountId === accountId)
+    .map((b) => ({ currency: b.currency, balance: b.balance }))
+  const add = (accountId: number, name: string, to: string, accountType: AccountType) => {
+    const amounts = converted === null ? own(accountId)
+      : converted.filter((b) => b.accountId === accountId).map((b) => ({ currency: b.currency, balance: b.balance }))
+    debts.push({ key: `account:${accountId}`, name, to, accountType, amounts, own: own(accountId) })
+  }
+  const seen = new Set<number>()
+  for (const b of balances) {
+    if (b.familyLedgerId === undefined || seen.has(b.accountId)) continue
+    seen.add(b.accountId)
+    add(b.accountId, b.familyLedgerName ?? b.accountName, `/family/${b.familyLedgerId}/balances`, b.accountType)
+  }
+  const shared = sharedAccountId === null ? undefined : balances.find((b) => b.accountId === sharedAccountId)
+  if (shared && !seen.has(shared.accountId) && own(shared.accountId).some((b) => !isZero(b.balance))) {
+    add(shared.accountId, shared.accountName, `/entries?accountId=${shared.accountId}`, shared.accountType)
+  }
+  return debts
+}
+
+/** Whether amounts in their own currencies say more than the base figure: another currency than the base, or several. */
+export const showsOwnCurrencies = (own: { currency: string }[], base: string) =>
+  own.length > 1 || own.some((a) => a.currency !== base)
+
+/** The period's totals (D-305): the table's own subtotals of income and expenses, and its net. */
+export const periodTotals = (table: CashFlowTable): { income: Cell; expense: Cell; net: Cell } => ({
+  income: table.income.subtotal.total,
+  expense: table.expense.subtotal.total,
+  net: table.net.total,
+})
 
 /**
  * A rate a figure in the base currency used, in words (D-49, D-90): "1 EUR = 95.5 RUB, manual rate of Aug 1, 2026 (rate

@@ -3,6 +3,80 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-10-31 · UX-1: the dashboard reworked, and the date format in Settings, D-295 to D-317
+
+One commit on `feature/family-budget` on top of `b899e3a`, the commit of this entry, "feat: the dashboard reworked
+and the date format in Settings, D-295 to D-317 (UX-1)". **Not pushed**; `main` not moved. Not deployed: the runbook's
+"UX-1's deploy checklist" is for after November's step 12 (D-307). Migration V16 (additive). No change to
+`ledger/importer/`, the export or their files (D-274).
+
+**Changes**
+- Investigation (1a): on `b899e3a` the base currency already gave one chart, one table and one row per account; the
+  header's Dashboard link and the switcher's "Personal" opened `/` without `currency=base`, so every return showed each
+  currency (a reload, the back button and a period change kept it). Open loans and the "Shared budget" card stayed per
+  currency in base mode by design. The base currency is now the default (D-297), so no link loses it.
+- Dashboard (`Dashboard.tsx`, `dashboard.ts`): the period buttons of D-296 (`past-month`, `previous-month`,
+  `past-year`, `previous-year`, the old `last-year` still taken) in a `ToggleGroup` (`components.tsx`) with From and
+  To, a custom period pressing none, a partial month noted ("from Sep 16") in the table and the chart's tooltip; the base
+  currency by default and `currency=each` for each currency, the toggle naming the code (D-297); the headline row "You
+  have", "You owe", "Net worth" of one size (D-301); "Income and expenses" with the scope control (D-302), a budget
+  selector for several budgets, "Whole family budget →", the period's totals (D-305), the chart and the table; then
+  "Balances" and "Open loans" side by side; no "Shared budget" card (D-300); choices in the URL only (D-306).
+- Open loans: in base mode one line per counterparty with its own currencies small below (D-298); a "Family budgets"
+  group with each ACTIVE membership's debt account, linking to its budget's Balances, and rule 7's shared account while
+  not zero (D-299, D-313, D-316, D-317).
+- API: `/api/reports/counterparty-balances?currency=BASE` (`ConvertedCounterpartyBalance`, with `amounts`, D-309);
+  `familyLedgerId` and `familyLedgerName` on a debt account in both shapes of the balances, never with the switch off;
+  `scope` (`ALL`, `PERSONAL`, `FAMILY_MINE`, `FAMILY_OTHERS`; `CashFlowScope`) and `familyLedgerId` on both cash flows,
+  by the entry's SHARE link and its record's payer, detached links included; 404 for a budget that isn't an ACTIVE
+  membership's, 400 for a family scope with the switch off and for `familyLedgerId` without a family scope (D-308); no
+  exchange results but under `ALL`.
+- Date format (D-304): V16 (`user_settings.date_format`, nullable, checked), `/api/me`'s `dateFormat`, PUT
+  `/api/settings/date-format` (422 for any other value, null for the browser's); `dates.ts`, `formatDate` and
+  `formatInstant` in the chosen pattern (month labels kept, D-315); `DateInput.tsx` in place of all 19 date inputs
+  (pattern as placeholder, one- or two-digit days and months, `.`, `/`, `-`, a whole ISO date too, the browser's picker
+  behind a button, errors and validity for text that isn't a date and for `min` and `max`, D-310); the import page's
+  dates (D-314); "Date format" in Settings (`DateFormatSettings.tsx`).
+- "My finances" (D-303, D-312): the switcher's first option, "Back to My finances" (`Family.tsx`, `Invite.tsx`), and the
+  reader's own "personal budget" in `family.ts`'s departure notes, `Invite.tsx` and `Settings.tsx`.
+- `frontend/src/assets/demo-dashboard.webp` retaken from the demo (1092 × 618), its alt text in `Landing.tsx`.
+- Tests: backend `FamilyCashFlowScopeApiTests` (the worked example), `LedgerApiTest.checkCashFlowScopes` after every
+  operation of both random tests (D-311), `ReportApiTests.openLoansInTheBaseCurrency`, `UserDateFormatApiTests`,
+  `FamilySwitchOffApiTests`, `LedgerSchemaTests`, `LedgerBackfillMigrationTests` (V16), `DataIsolationApiTests`,
+  `ApiTests`; frontend `dashboard.test.ts`, `Dashboard.test.tsx`, `DateInput.test.tsx` and the updated tests of the
+  date fields, the import page and "My finances"; e2e `dates.ts` (dates typed and read in the field's own pattern),
+  the specs that type dates, and `specs/07-dashboard.spec.ts` (in `playwright.config.ts`'s pattern).
+- `deploy/checks/UX-1.sql` and `UX-1.expected` (5 lines, structure only); the runbook's "UX-1's deploy checklist";
+  `docs/family-budget/requirements.md` (D-295 to D-307, the PM's; D-308 to D-317, the agent's; the stage; UX-2's two
+  items in "Later"); `CLAUDE.md`; `e2e/README.md`.
+
+**Verified**
+- Backend, `cd backend && ./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=1031`:
+  exit status 0; Results: Tests run: 624, Failures: 0, Errors: 0, Skipped: 0. (The first full run failed
+  `ApiTests.theOpenApiDescriptionListsEveryEndpoint`, which didn't list the new endpoint yet: 624 run, 1 failure; fixed,
+  then the run above.)
+- Frontend, `npm test`: exit status 0, Test Files 33 passed (33), Tests 435 passed (435), no Errors line; `npm run
+  build`: exit status 0.
+- e2e: `npm run typecheck` exit status 0; `npm run test:guards` exit status 0, tests 37, pass 37, fail 0;
+  `npm run e2e:local` against `./dev.sh` (V16 applied at the backend's start): exit status 0, every spec passed at 1280
+  and 375 px, `dashboard` included (22.1 s and 22.3 s), `new-family` passed, cleanup passed, 0 password hits, `Result:
+  PASSED` (the tree not clean: before this commit).
+- `deploy/checks/UX-1.sql` on a throwaway `postgres:17-alpine` migrated to V16 by the built jar: its output identical
+  to `UX-1.expected`; the container removed.
+- 1b, the dashboard's report calls on the rehearsal database (`scripts/rehearsal-db.sh` with
+  `finance-2026-10-31T0236Z.dump`, signed in as `testuser`), cold and warm (median of 5), before on `b899e3a` and after:
+  every call under 0.25 s warm, none twice as slow as before (net worth in BASE 0.18–0.23 s before, 0.21–0.22 s after;
+  the year's cash flow in BASE 0.19 s before, 0.22 s after; the new counterparty balances in BASE 0.07 s; the scopes 0.01
+  to 0.16 s). No fix proposed. The raw figures in `data/private/reports/UX-1/`; the database removed.
+- The demo's dashboard before and after, at 1280 and 375 px, in base mode and in each currency:
+  `data/private/ui/UX-1/before-*.png` and `after-*.png`; no sideways scroll in any.
+
+**Open**
+- Not deployed: the runbook's "UX-1's deploy checklist", after November's step 12 (D-307); its pre-flight values as
+  OPS-3's `finish` left them, for the PM to fill in from OPS-3's record (a separate docs task).
+- By hand at the deploy: the phone's own date picker (a test browser can't press it), and the owner's dashboard in words.
+- D-308 to D-317 for the PM to confirm or correct. UX-2: the entry list at 375 px and the buttons in the category lists.
+
 ## 2026-10-26 · OPS-3: Hetzner's backups, the external monitor, logs kept 14 days, D-273 to D-291
 
 Two commits on `feature/family-budget` on top of `9af167d`: `8f1efd4` "docs: D4b's deploy recorded, D-273 (OPS-3)",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { csrfToken, logIn } from './auth'
+import { chosenDay } from './dates'
 
 // The ledger's API (docs/adr/0001-double-entry-ledger.md). Amounts are decimal strings; see money.ts.
 
@@ -15,6 +16,8 @@ export interface Me {
   email?: string | null
   timeZone?: string | null
   today: string
+  /** How the user sees and types day dates (D-304): one of `DATE_FORMATS`, null for as the browser shows them. */
+  dateFormat?: string | null
   features?: { familyLedgers?: boolean }
 }
 
@@ -405,6 +408,9 @@ export interface AccountBalance {
   accountType: AccountType
   currency: string
   balance: string
+  /** A debt account to a family budget of the user's ACTIVE memberships (D-299): the budget. Left out otherwise. */
+  familyLedgerId?: number
+  familyLedgerName?: string
 }
 export interface CounterpartyBalance { counterpartyId: number; counterpartyName: string; currency: string; balance: string }
 export interface NetWorth { currency: string; assets: string; liabilities: string; netWorth: string }
@@ -463,6 +469,19 @@ export interface ConvertedBalance {
   missingRates: MissingRate[]
   /** The rates `balance` used (D-90). */
   rates?: Rate[]
+  familyLedgerId?: number
+  familyLedgerName?: string
+}
+/** A counterparty's balance on an account kept per counterparty, its currencies converted and added up (D-298). */
+export interface ConvertedCounterpartyBalance {
+  counterpartyId: number
+  counterpartyName: string
+  currency: string
+  balance: string | null
+  missingRates: MissingRate[]
+  rates: Rate[]
+  /** The balance in each currency, as the report per currency has it. */
+  amounts: { currency: string; balance: string }[]
 }
 export interface ConvertedNetWorth {
   currency: string
@@ -862,12 +881,28 @@ export function dateOfIso(iso: string): Date {
   return new Date(year, month - 1, day)
 }
 
-/** "2026-09-25" in the user's locale, without shifting the day by the time zone. */
+/**
+ * "2026-09-25" as the user chose to see day dates (D-304): "25.09.2026", or in the user's locale ("Sep 25, 2026")
+ * when they show dates as the browser does, without shifting the day by the time zone. Options naming no day, such as
+ * a month's label ("Sep 2026"), keep the locale's month names whatever is chosen; a long date keeps its weekday
+ * ("Friday, 25.09.2026").
+ */
 export function formatDate(iso: string, options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' }) {
   const [year, month, day] = iso.split('-').map(Number)
-  return new Date(year, month - 1, day).toLocaleDateString(undefined, options)
+  const date = new Date(year, month - 1, day)
+  const shown = options.day !== undefined || options.dateStyle !== undefined ? chosenDay(iso) : undefined
+  if (shown === undefined) return date.toLocaleDateString(undefined, options)
+  return options.dateStyle === 'full' || options.weekday !== undefined
+    ? `${date.toLocaleDateString(undefined, { weekday: 'long' })}, ${shown}` : shown
 }
 
-/** An instant, such as "2026-09-30T08:00:00Z", in the user's locale and time zone: "Sep 30, 2026, 10:00 AM". */
-export const formatInstant = (instant: string) =>
-  new Date(instant).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+/**
+ * An instant, such as "2026-09-30T08:00:00Z", in the user's locale and time zone: "Sep 30, 2026, 10:00 AM", its date
+ * as the user chose to see dates ("30.09.2026, 10:00 AM").
+ */
+export function formatInstant(instant: string) {
+  const at = new Date(instant)
+  const day = chosenDay(isoDate(at))
+  return day === undefined ? at.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : `${day}, ${at.toLocaleTimeString(undefined, { timeStyle: 'short' })}`
+}

@@ -20,9 +20,11 @@ class MeController {
      * @param timeZone the user's IANA time zone (D-100, D-101), null until it has been set
      * @param today the date in that zone (UTC while it is null), D-53's today, which the frontend uses for every
      *        default date and never works out from the browser's clock
+     * @param dateFormat how the user has the app show and take day dates (D-304): DD.MM.YYYY, DD/MM/YYYY, MM/DD/YYYY
+     *        or YYYY-MM-DD, null for as the browser shows them
      * @param features which features the app has switched on, so that the frontend shows only those
      */
-    record Me(String name, String email, String timeZone, LocalDate today, Features features) {
+    record Me(String name, String email, String timeZone, LocalDate today, String dateFormat, Features features) {
     }
 
     /** @param familyLedgers the family budget (D-25): off until F7 in production */
@@ -44,6 +46,7 @@ class MeController {
         Jwt jwt = (Jwt) authentication.getCredentials();
         String sub = jwt.getSubject();
         return new Me(CurrentUserResolver.displayName(jwt), jwt.getClaimAsString("email"),
-                settings.findTimeZone(sub).orElse(null), today.date(sub), new Features(family.enabled()));
+                settings.findTimeZone(sub).orElse(null), today.date(sub), settings.findDateFormat(sub).orElse(null),
+                new Features(family.enabled()));
     }
 }

@@ -160,7 +160,7 @@ describe('settling up', () => {
     expect(screen.getByLabelText('Paid by')).toHaveProperty('value', '71')
     expect(screen.getByLabelText('Received by')).toHaveProperty('value', '70')
     expect(screen.getByLabelText(/^Amount/)).toHaveProperty('value', '10.00')
-    expect(screen.getByLabelText(/^Date/)).toHaveProperty('value', '2026-09-30')
+    expect(screen.getByLabelText(/^Date/)).toHaveProperty('value', '09/30/2026')
     // Anna receives it: her account, or "Specify later", is hers to name.
     const into = screen.getByLabelText(/^Received into/)
     // Her accounts are a load of their own: wait for the one she picks.

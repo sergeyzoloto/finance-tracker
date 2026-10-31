@@ -259,9 +259,9 @@ describe('leaving, removal and Delete all my data (F6a)', () => {
   it('says what leaving does: the balance kept, the entries kept, the rule back to equal shares', () => {
     expect(departureNotes({ member: dad, me: 72, balances: [{ currency: 'EUR', amount: '-10.00' }], members: [mum, dad, kid],
       splitRule: 'CUSTOM', budget: 'Home' })).toEqual([
-      'You are owed €10.00. That stays in your personal budget, on “Debt to family budget: Home”, which becomes an '
+      'You are owed €10.00. That stays in My finances, on “Debt to family budget: Home”, which becomes an '
         + 'account of yours; after you leave, you and the others each record a settlement in your own budgets.',
-      'What this family budget added to your personal budget stays there as your own entries, which you can change or '
+      'What this family budget added to My finances stays there as your own entries, which you can change or '
         + 'delete; the family categories they use become personal categories of yours.',
       'You won’t see this family budget any more. The others keep seeing your name in its records, which can no longer '
         + 'be changed where they involve you.',

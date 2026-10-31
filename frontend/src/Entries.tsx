@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { dateOfIso, formatDate, isoDate, useApi, type EntryPage } from './api'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
+import DateInput from './DateInput'
 import { describeEntry, entryKindLabel, kindLabel, useLedger } from './ledger'
 import { useToday } from './me'
 import { formatMoney, negate } from './money'
@@ -91,8 +92,8 @@ export default function Entries() {
             <option value="custom" disabled={period !== 'custom'}>Custom</option>
           </select>
         </label>
-        <label>From <input type="date" value={filter.from} onChange={(e) => setFilter({ from: e.target.value })} /></label>
-        <label>To <input type="date" value={filter.to} onChange={(e) => setFilter({ to: e.target.value })} /></label>
+        <label>From <DateInput value={filter.from} onChange={(day) => setFilter({ from: day })} /></label>
+        <label>To <DateInput value={filter.to} onChange={(day) => setFilter({ to: day })} /></label>
         {ledger && (
           <>
             <label>

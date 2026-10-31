@@ -94,7 +94,7 @@ describe('the switcher', () => {
 
     const switcher = await screen.findByRole('combobox', { name: 'Budget' })
     await waitFor(() => expect(within(switcher).getAllByRole('option').map((o) => o.textContent))
-      .toEqual(['Personal', 'Allotment', 'Home', 'New family budget…']))
+      .toEqual(['My finances', 'Allotment', 'Home', 'New family budget…']))
     expect(switcher).toHaveProperty('value', 'personal')
 
     fireEvent.change(switcher, { target: { value: '7' } })
@@ -122,7 +122,7 @@ describe('the switcher', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete all my data' }))
 
     await waitFor(() => expect(within(switcher).getAllByRole('option').map((o) => o.textContent))
-      .toEqual(['Personal', 'New family budget…']))
+      .toEqual(['My finances', 'New family budget…']))
     expect(calls.filter((c) => c.url === '/api/family-ledgers')).toHaveLength(2)
   })
 
@@ -135,7 +135,7 @@ describe('the switcher', () => {
     renderApp(ON, '/family/9')
 
     expect(await screen.findByRole('heading', { name: 'Family budget not found' })).toBeDefined()
-    expect(screen.getByRole('link', { name: 'Back to Personal' }).getAttribute('href')).toBe('/')
+    expect(screen.getByRole('link', { name: 'Back to My finances' }).getAttribute('href')).toBe('/')
     await waitFor(() => expect(calls.filter((c) => c.url === '/api/family-ledgers')).toHaveLength(2))
   })
 })

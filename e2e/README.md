@@ -27,6 +27,7 @@ web.
 | member import | A, B | D3c (D-174 to D-191) on the synthetic export of `backend/src/test/resources/import/d3c/` (invented, both with D-235's 32 columns, D-177): A creates "Member import check" from 1 January 2024 with Sam, a place without an account, and imports A's one file with Sam's family rows (D-151); A invites someone to take Sam's place from 1 February 2024 (D-174, D-183), and B's invite page names the date and the 15 records the claim attaches; B accepts (D-182); B's own import (no place to choose, no partner's file, D-175) of B's one file without the two rows it refuses (D-178, D-179): the dry run attaches B's payment side to the 4 records of Sam's rows and B's side to the settlements by each of D-178's tiers and to the conversion, and reconciles; its commit; the same files again change nothing; A's own import, with no partner's file, changes nothing either; both integrity checks pass; Delete all my data for A keeps the budget, whose records B's ledger posts (D-186), and B's takes it (D-36), so nothing stays behind, in production too |
 | new-family | A | D-163 (D3b-accept): after Delete all my data, a browser without a session opens `/family/new`, signs in at Keycloak and, back at the app, picks "New family budget…" in the switcher at once; a budget with a member without an account, typed and added, and a second one typed in "Name of a member" without pressing Add member (D-170, D3b-accept-fix), is created with both members, on the page and in the api, and no creation problem is listed; the browser signs out. Locally only: production's accounts sign in once per run (D-52, guard 3), so it is `skipped` there with that reason. Run 20 times in D3b-accept, it never lost the member |
 | time zone | A | D-100, D-101 (F8c): twice, under the fixed titles `time zone: Los Angeles` and `time zone: a zone whose date isn't UTC's` (F8e: the zone is picked when the test runs, so a run that crosses 10:00 UTC still finds its tests), with the browser (Playwright's `timezoneId`) in America/Los_Angeles and in a zone whose date differs from UTC's at that moment whatever the hour (UTC+14 from 10:00 UTC, UTC-12 before): after Delete all my data the first load saves the browser's zone; `/api/me`'s `timeZone` and `today` are that zone and the date in it, which the test works out with `Intl` (read on both sides of the call, so that midnight can't fall between); Settings says so, with no hint; with the family budget on, a budget created with no start date typed starts that day and an expense dated on the form's date, that day, is accepted (where the browser's date is before UTC's, an omitted start date used to be "tomorrow", 409); ends with Delete all my data, which takes the zone. It runs last, since it leaves another zone for A than UTC while it runs |
+| dashboard | A (and B with `E2E_FAMILY=on`) | UX-1 (D-295 to D-307): after a personal expense, the dashboard in the base currency by default (no `currency` in the URL, the base currency's button pressed, every report asked in BASE), no "Shared budget" card; "Previous month" changing the URL and From and To; with the family budget on, A's family expense of 30.00 under "Family: my records" for A (and "Whole family budget →") and under "Family: others’ records" for B, under "Personal" for neither; DD.MM.YYYY chosen in Settings changing the entry list's date and the new entry's date field, a date typed in it and a wrong one's message, then "As the browser shows it" again; no sideways scroll at 375 px |
 
 Every spec starts and ends with "Delete all my data" for each account it uses (but the export page's in production,
 which only reads), and fails on any response of 400 or
@@ -139,7 +140,9 @@ Writing a spec (D-119): look for a number, an amount or a date in rendered text 
 32.105 too. `lib/spec-hygiene.test.ts` (part of `npm run test:guards`) fails on a number-like string given to
 `toContainText`, `toContain`, `toMatch` or `hasText`. A test title never holds a value that changes with the clock or the
 run: Playwright finds a test in each of its processes by title, and a title that differs between the runner and the
-worker loses the test ("Test not found in the worker process"); pick the value inside the test (`06-time-zone`).
+worker loses the test ("Test not found in the worker process"); pick the value inside the test (`06-time-zone`). Type
+and read a date only through `dates.ts` (UX-1, D-304): `fillDate` and `expectDate` use the field's own pattern, its
+placeholder, which is the account's date format; `shownDay` words a shown date for a format.
 
 ## Running it in production
 
@@ -213,6 +216,7 @@ cleanup failed. Keycloak keeps the two accounts, and its events log their sign-i
   fake values and the fake app; `npm run e2e:prod` itself can't be pointed elsewhere), and checks the fake app's
   request log.
 - `fixtures.ts`: the signed-in contexts, the watch on responses and errors, "Delete all my data", the integrity check.
+- `dates.ts`: dates typed and read in the account's format (UX-1, D-304).
 - `export-steps.ts`: D4a's export of an account: its file and summary through the API, the format and the balances
   checked (D-240 to D-242), and since D4b the file imported back as a dry run, which rolls everything back (D-256,
   D-259); smoke and family F8 call it.

@@ -1,0 +1,5 @@
+flyway latest 16 user date format true
+column user_settings.date_format text nullable YES
+constraint user_settings_date_format_check true
+column user_settings.time_zone text nullable YES
+unbalanced entries 0

@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { fillDate, shownDay } from '../dates.ts'
 import { deleteAllMyData, expect, expectIntegrity, ledgerIdOf, shot, test } from '../fixtures.ts'
 
 // D3b's import with A alone, on the synthetic transactions files of backend/src/test/resources/import/ (invented names
@@ -29,7 +30,7 @@ test('import', async ({ as, family }) => {
   // 1. The budget from 1 January 2024, and Sam's place without an account.
   await page.goto('/family/new')
   await page.getByLabel('Name', { exact: true }).fill(BUDGET)
-  await page.getByLabel('Start date').fill('2024-01-01')
+  await fillDate(page.getByLabel('Start date'), '2024-01-01')
   await page.getByLabel('Name of a member').fill('Sam')
   await page.getByRole('button', { name: 'Add member' }).click()
   await page.getByRole('button', { name: 'Create family budget' }).click()
@@ -41,7 +42,7 @@ test('import', async ({ as, family }) => {
   await expect(page.getByRole('heading', { name: 'Import', exact: true })).toBeVisible()
   await page.locator('input[name="transactions"]').setInputFiles(file('transactions.csv'))
   await expect(page.getByTestId('file-rows')).toHaveText('Your transactions file: 25 rows, counted as the import '
-    + 'counts them; highest ID 25; last row dated 2024-03-05.')
+    + `counts them; highest ID 25; last row dated ${shownDay('2024-03-05', null)}.`)
   await page.getByLabel('Family budget').selectOption({ label: BUDGET })
   await page.getByLabel('The partner’s place').selectOption({ label: 'Sam' })
   await page.locator('input[name="partnerTransactions"]').setInputFiles(file('partner-transactions.csv'))
@@ -50,7 +51,7 @@ test('import', async ({ as, family }) => {
 
   // 3. The dry run up to a date, its commit, the rest, and the same files again.
   const upTo = page.getByLabel(/^Import up to/)
-  await upTo.fill('2024-02-29')
+  await fillDate(upTo, '2024-02-29')
   const sent = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/import')
   await page.getByRole('button', { name: 'Check (dry run)' }).click()
   // The upload holds the partner's filtered rows only: none of his comments, shops or personal rows.
@@ -63,7 +64,7 @@ test('import', async ({ as, family }) => {
   await expect(verdict).toHaveText('Dry run: nothing was saved. No errors: committing would create 28 and update 0.',
     { timeout: 60_000 })
   await expect(page.getByTestId('report-kind')).toHaveText('Check (dry run): nothing was saved')
-  await expect(page.getByTestId('after-cutoff')).toHaveText('Imported up to 2024-02-29. After it, neither imported '
+  await expect(page.getByTestId('after-cutoff')).toHaveText(`Imported up to ${shownDay('2024-02-29', null)}. After it, neither imported `
     + 'nor missing: 1 row of 25 of yours, 1 row of 7 of the partner’s.')
   await expect(page.locator('.reconciliation [role="status"]')).toHaveText(/^Passed:/)
   await shot(page, 'import-02-dry-run')
@@ -75,7 +76,7 @@ test('import', async ({ as, family }) => {
   await shot(page, 'import-03-committed')
 
   // A new date asks for a check again before a commit.
-  await upTo.fill('')
+  await fillDate(upTo, '')
   await expect(page.getByRole('button', { name: 'Commit import' })).toBeDisabled()
   await page.getByRole('button', { name: 'Check (dry run)' }).click()
   await expect(verdict).toHaveText('Dry run: nothing was saved. No errors: committing would create 2 and update 0.',

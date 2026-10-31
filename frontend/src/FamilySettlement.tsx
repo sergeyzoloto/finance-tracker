@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { api, formatDate, useApi, type Account, type FamilyRecord } from './api'
 import { AccountSelect, Errors, Field } from './components'
+import DateInput from './DateInput'
 import { expenseProblems, inOpeningBalance, paymentAccounts } from './expenseForm'
 import { OpeningBalanceNote } from './FamilyExpenseForm'
 import { newPayingSide, payingCurrency, payingSideRequest, serverDefault, type PayingSideForm } from './currency'
@@ -152,7 +153,7 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
             onChange={(code) => { setCurrency(code); setPaying({ ...paying, amountText: '' }) }} />
           <Field label="Date" errors={[...(dateProblem ? [dateProblem] : []), ...problems.date]}
             hint={`The family budget starts on ${formatDate(ledger.startDate)}.`}>
-            <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
+            <DateInput value={date} min={ledger.startDate} required onChange={(day) => setDate(day)} />
           </Field>
           {opening && reader && <OpeningBalanceNote joinDate={reader.joinDate} noun="settlement" />}
           {mine && !opening && (

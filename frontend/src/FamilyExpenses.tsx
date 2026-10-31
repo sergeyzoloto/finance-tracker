@@ -6,6 +6,7 @@ import {
 } from './api'
 import { basisPointsToPercent } from './basisPoints'
 import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
+import DateInput from './DateInput'
 import {
   expenseProblems, formFromRecord, inOpeningBalance, paymentAccounts, previewSplit, sharers, splitRequest,
   type SplitContext, type SplitForm,
@@ -458,7 +459,7 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
         {record.canEditPayment && (
           <>
             <Field label="Date" errors={[...(dateProblem ? [dateProblem] : []), ...problems.date]}>
-              <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
+              <DateInput value={date} min={ledger.startDate} required onChange={(day) => setDate(day)} />
             </Field>
             <Field label={`Amount (${currency})`}
               errors={[...(amountText.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}>
@@ -592,7 +593,7 @@ function EditSettlement({ record, family, problems, pending, onSave }: EditProps
         {record.canEditPayment && (
           <>
             <Field label="Date" errors={[...(dateProblem ? [dateProblem] : []), ...problems.date]}>
-              <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
+              <DateInput value={date} min={ledger.startDate} required onChange={(day) => setDate(day)} />
             </Field>
             <Field label={`Amount (${currency})`}
               errors={[...(amountText.trim() !== '' && 'problem' in parsed ? [parsed.problem] : []), ...problems.amount]}>

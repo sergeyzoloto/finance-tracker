@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api, ApiError, errorMessage, fieldMessages, formatDate, sentence, type FamilyLedger, type InviteLookup } from './api'
+import { api, ApiError, errorMessage, fieldMessages, formatDate, formatInstant, sentence, type FamilyLedger, type InviteLookup } from './api'
 import { Errors, Field, Loading } from './components'
 import { balancesSentence } from './family'
 import { clearPendingInvite, pendingInvite } from './invite'
@@ -166,19 +166,19 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
       {claim && lookup.openingBalances != null && (
         <p data-testid="opening-balance">
           Before {formatDate(lookup.joinDate)}, <strong>{balancesSentence(lookup.openingBalances, lookup.seatName)}</strong>.
-          That becomes your opening balance in the family budget, and in your personal budget on that day
+          That becomes your opening balance in the family budget, and in My finances on that day
           {lookup.openingBalances.length > 1 ? ', in each currency' : ''}.
         </p>
       )}
       {lookup.returning && lookup.corrections != null && (
         <p data-testid="correction">
           {lookup.corrections.every((c) => signOf(c.amount) === 0)
-            ? 'Your personal budget already shows your balance with the family budget as it is: no correction is needed.'
+            ? 'My finances already shows your balance with the family budget as it is: no correction is needed.'
             : <>One correction on that day{' '}
               {lookup.corrections.filter((c) => signOf(c.amount) !== 0).map((c, i) => (
                 <span key={c.currency}>
                   {i > 0 ? ' and ' : ''}of <strong>{formatMoney(abs(c.amount), c.currency)}</strong>
-                  {signOf(c.amount) > 0 ? ', which adds to' : ', which takes from'} what your personal budget shows you owe
+                  {signOf(c.amount) > 0 ? ', which adds to' : ', which takes from'} what My finances shows you owe
                 </span>
               ))}{' '}
               the family budget, so that it matches the family budget again: for example, for entries of it you changed
@@ -212,8 +212,8 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
         </p>
       )}
       <p>
-        From <strong>{formatDate(lookup.joinDate)}</strong>, your share of each family expense and income appears in your
-        personal budget.
+        From <strong>{formatDate(lookup.joinDate)}</strong>, your share of each family expense and income appears in My
+        finances.
         {claim && <> What {lookup.seatName} paid, received or settled from that day appears there too, under “Payments
           without a specified account”, for you to put on your own accounts; what {lookup.seatName} owed or was owed
           before that day arrives as one opening balance on that day.</>}
@@ -224,7 +224,7 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
           {' '}{formatDate(lookup.joinDate)} on will be attached to your account, one by one.
         </p>
       )}
-      <p className="muted small">This invite works until {new Date(lookup.expiresAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.</p>
+      <p className="muted small">This invite works until {formatInstant(lookup.expiresAt)}.</p>
 
       <div className="choices">
         <div className="choice">
@@ -325,7 +325,7 @@ function Page({ title, children }: { title: string; children: ReactNode }) {
     <section>
       <h2>{title}</h2>
       {children}
-      <p><Link className="button primary" to="/">Back to Personal</Link></p>
+      <p><Link className="button primary" to="/">Back to My finances</Link></p>
     </section>
   )
 }

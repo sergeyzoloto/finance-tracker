@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from 'react-router'
 import { formatDate, type FamilyReport as Report } from './api'
 import { Errors, Field, Loading } from './components'
+import DateInput from './DateInput'
 import { useFamilyApi, type FamilyData } from './familyData'
 import { isReport } from './guards'
 import { contributionWords, netWords, reportMonths, reportQuery, tookPart, totalLines } from './familyReport'
@@ -31,10 +32,10 @@ export default function FamilyReport({ family }: { family: FamilyData }) {
       <h3>Report</h3>
       <div className="report-period">
         <Field label="From">
-          <input type="date" value={from} onChange={(e) => setPeriod({ from: e.target.value })} />
+          <DateInput value={from} onChange={(day) => setPeriod({ from: day })} />
         </Field>
         <Field label="To">
-          <input type="date" value={to} onChange={(e) => setPeriod({ to: e.target.value })} />
+          <DateInput value={to} onChange={(day) => setPeriod({ to: day })} />
         </Field>
         {(from || to) && <button type="button" onClick={() => setParams(new URLSearchParams(), { replace: true })}>All records</button>}
       </div>

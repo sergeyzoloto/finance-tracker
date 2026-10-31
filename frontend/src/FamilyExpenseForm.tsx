@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, formatDate, useApi, type Account, type Category, type Counterparty, type FamilyRecord } from './api'
 import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
+import DateInput from './DateInput'
 import {
   expenseProblems, inOpeningBalance, newSplit, paymentAccounts, previewSplit, splitRequest, type SplitContext, type SplitForm,
 } from './expenseForm'
@@ -155,7 +156,7 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
         <div className="fields">
           <Field label="Date" errors={[...(dateProblem ? [dateProblem] : []), ...problems.date]}
             hint={`The family budget starts on ${formatDate(ledger.startDate)}.`}>
-            <input type="date" value={date} min={ledger.startDate} required onChange={(e) => setDate(e.target.value)} />
+            <DateInput value={date} min={ledger.startDate} required onChange={(day) => setDate(day)} />
           </Field>
           <Field label="Category" errors={problems.category}
             hint={ofType.every((c) => c.archived)

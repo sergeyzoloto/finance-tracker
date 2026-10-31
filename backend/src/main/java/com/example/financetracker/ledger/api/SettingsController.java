@@ -5,6 +5,7 @@ import java.util.List;
 
 import com.example.financetracker.api.CurrencyCode;
 import com.example.financetracker.ledger.SettingsService;
+import com.example.financetracker.ledger.SettingsService.DateFormatView;
 import com.example.financetracker.ledger.SettingsService.TimeZoneView;
 import com.example.financetracker.ledger.SettingsView;
 import com.example.financetracker.ledger.access.LedgerScope;
@@ -61,11 +62,24 @@ class SettingsController {
 
     /**
      * Sets the user's time zone (D-100, D-101), from the browser's on the first load and from the Settings page after
-     * that; the answer holds the zone and today's date in it. The one thing that PUT of the settings leaves alone.
+     * that; the answer holds the zone and today's date in it. PUT of the settings leaves it alone.
      */
     @PutMapping("/time-zone")
     TimeZoneView setTimeZone(CurrentUser user, @Valid @RequestBody TimeZoneRequest request) {
         return settings.setTimeZone(user.id(), request.timeZone());
+    }
+
+    /** @param dateFormat one of DD.MM.YYYY, DD/MM/YYYY, MM/DD/YYYY and YYYY-MM-DD, or null for the browser's */
+    record DateFormatRequest(String dateFormat) {
+    }
+
+    /**
+     * Sets how the app shows and takes day dates for the user (D-304); any other value than the four or null is 422.
+     * Like the time zone, PUT of the settings leaves it alone.
+     */
+    @PutMapping("/date-format")
+    DateFormatView setDateFormat(CurrentUser user, @RequestBody DateFormatRequest request) {
+        return settings.setDateFormat(user.id(), request.dateFormat());
     }
 
     /** Replaces the settings. A shared account the user doesn't have is refused with 422. */

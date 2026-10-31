@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useApi, type Category, type FamilyLedger, type FamilyMember } from './api'
 import { AccountSelect, CategorySelect, CounterpartyInput, CurrencyInput, Errors, Field } from './components'
+import DateInput from './DateInput'
 import {
   accountChoices, blankPosting, isFamilyRecord, postingBalances, postingsBalance, postingWithAccount, sharePreview,
   switchTab, TABS, transferNeedsCounterparty, validate, withAccount, withPayee, type EntryForm, type FieldErrors,
@@ -156,7 +157,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
       {saved && <p className="success" role="status">Saved. Enter the next one.</p>}
       <div className="fields">
         <Field label="Date" errors={errors.date}>
-          <input type="date" value={form.date} required onChange={(e) => set({ date: e.target.value })} />
+          <DateInput value={form.date} required onChange={(day) => set({ date: day })} />
         </Field>
         {form.tab === 'expense' && <ExpenseFields {...fields} families={onSaveFamily ? families : undefined} family={family}
           oldSplit={!familyBudgets || initial.split} />}

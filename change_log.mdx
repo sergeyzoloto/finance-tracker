@@ -3,6 +3,57 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-05 · R-OCT: October's step 12 rehearsed, and its figures recorded, D-318 to D-326
+
+One docs commit on `feature/family-budget` on top of `6da6c4b`, the commit of this entry, "docs: October's step 12
+rehearsed, its figures and D-318 to D-326 (R-OCT)". **Not pushed**; `main` not moved. No code changed (D-274).
+Production read only: the server was never touched and `e2e:prod` never run.
+
+**Changes**
+- `deploy/RUNBOOK.md`: "Step 12's figures: October 2026", in September's form (files, before, participants, B1, phase 1,
+  B2, phase 2 with "Your family rows", B3, after, NO_ROW, the restore drill); September's stay as history. 12.0's gate:
+  `export-2026-11-05`, both hashes, 7092 and 12882 rows. 12.1: the expected commit `b899e3a`. Step 12's introduction, its
+  links and the counts in 12.3 and 12.6 follow the new export (D-325).
+- UX-1's checklist (D-321): `verify D4b` in its step 3 and its "When", in place of `verify OPS-3`, whose expected file
+  holds the 24 counts of 2026-10-27; and from UX-1's deploy on, 12.1 and 12.10 use `verify UX-1`, since `D3c.expected`
+  names Flyway V15 (D-326).
+- `docs/family-budget/requirements.md`: D-318 to D-322 (the PM's, D-322 confirming D-308 to D-317), D-323 to D-326 (the
+  agent's).
+
+**Verified**
+- The rehearsal, from `finance-2026-11-05T0238Z.dump` (4753881 bytes, SHA-256 `f82e9eac6fea…`) by
+  `scripts/rehearsal-db.sh`, `b899e3a`'s api and Vite from a scratch worktree, through the import page in a scripted
+  Chrome as `testuser` and `testuser2`, in step 12's order. Reports in `data/private/reports/r-oct-*`.
+- The owner's whole file (D-318; SHA-256 `be2ae496…`, 7092 rows): created 57, updated 0, unchanged 6966, missing 0,
+  conflicts 0, errors 0, skipped 18, not imported 53; **Passed**, 2808 month-ends, 7092 rows, 0 failing. The check again:
+  0 created, 0 updated, unchanged 7023.
+- The partner's file (`20cec960…`, 12882 rows, 27 after the date): created 186, updated 6, unchanged 20355, missing 0,
+  conflicts 0, errors 0, skipped 79, not imported 189; **Passed**, 2407 month-ends, 12855 rows, 0 failing; settlements
+  matched 6, same date and amount. The check again: 0 created, 0 updated, unchanged 20690.
+- Integrity `[]` for both after each commit. B1, B2 and B3 and the 24 numbers before and after are in the figures;
+  `D3c.sql` and `D4b.sql` equal their expected files on B2 and on B3, `OPS-3.sql` differs on both (D-321).
+- The restore drill: B2 over the database, every number B2's, the owner's dry run as after 12.4 and the partner's as
+  12.6, each page's text identical, integrity `[]` for both.
+- NO_ROW in October: none in either ledger.
+- The new 12.0 gate on the laptop: `GATE: export-2026-11-05 as rehearsed`.
+- e2e, **not completed**: `cd e2e && npm run e2e:local` against `./dev.sh` at `6da6c4b`, run twice, exit status 1 both
+  times, `Result: FAILED`. The laptop's disk ran out (`ENOSPC`, `net::ERR_INSUFFICIENT_RESOURCES`), as the failures say.
+  First run: pages, sign-in, smoke and export passed, family F7, F8 and F8d failed, stopped by hand. Second, with 546 MB
+  free and a guard: pages, sign-in and smoke passed, family F7 failed, stopped at under 150 MB (10 MB at the lowest). No
+  other spec ran, and no cleanup: `testuser`'s and `testuser2`'s local data stay until the next run. This commit
+  changes no code; the last whole run is UX-1's.
+- `change_log.mdx` compiled with `@mdx-js/mdx`. The rehearsal database and the worktree removed.
+
+**Open**
+- The local end-to-end suite: run it again once the laptop has room (about 550 MB wasn't enough; Docker holds 14 GB of
+  images and build cache, which the agent may not prune).
+- Step 12 itself, on `b899e3a`, then UX-1 (D-307). 12.1's `verify D3c` must print **before**'s numbers: anything written
+  in the app after `finance-2026-11-05T0238Z.dump` means rehearsing again (D-220).
+- Rows 1262, 2497 and 2973 (D-323): the owner should confirm that he edited them on 2026-10-25. Nothing else explains
+  them; they stay as they are either way.
+- IDs 7074 and 7092 to 7095: in no export and no entry. The file can't say what they were; the owner can.
+- OPS-3's deploy record (OPS-3-doc) and "Production now", which still names `9af167d`.
+
 ## 2026-10-31 · UX-1: the dashboard reworked, and the date format in Settings, D-295 to D-317
 
 One commit on `feature/family-budget` on top of `b899e3a`, the commit of this entry, "feat: the dashboard reworked

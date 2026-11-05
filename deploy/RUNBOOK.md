@@ -27,6 +27,10 @@ The auth server's rules for projects behind its Caddy apply throughout (its `PRO
   ```
 
 - "On the laptop" means a shell in `~/dev/finance-tracker`, unless the block changes directory.
+- A server block starts with `cd /opt/finance-tracker &&` (or is wrapped in `cd /opt/finance-tracker && {` … `}`), so
+  that pasted on the laptop it does nothing; since D-330 a new laptop block starts with `cd ~/dev/finance-tracker &&`
+  (or another folder that only the laptop has), or is wrapped in `cd ~/dev/finance-tracker && {` … `}` (D-334), so
+  that pasted on the server it does nothing. Older checklists stay as they were written.
 - No block needs editing. Where a value must be looked up, the block prints it or asks for it.
 - A block that starts with a `read` prompt: paste the block once, then type the answer at the
   prompt and press Enter. Don't paste the block again as the answer: `read` would take the block's
@@ -67,7 +71,7 @@ finance-tracker-api ──▶ https://auth.finance-nl.com (through the server's 
 | Backups | `/var/backups/pg/finance/` on the server (14 days), pulled daily to `~/backups/finance-nl-server/finance/` on the laptop (60 days); since OPS-3 also Hetzner's 7 daily backups of the whole server ([Hetzner's backups of the server](#hetzners-backups-of-the-server)) |
 | Backup settings | `/etc/pg-backup/finance.conf`, from `deploy/pg-backup/finance.conf`; timer `pg-backup@finance.timer` |
 | Logs | the host's journal, 14 days, since OPS-3 for every container of both stacks ([Logs](#logs)) |
-| The external monitor | `.github/workflows/monitor.yml` in this repository, on GitHub, every 15 minutes ([Monitoring](#monitoring)) |
+| The external monitor | `.github/workflows/monitor.yml` in this repository, on GitHub, scheduled every 15 minutes, run by GitHub every 3 to 10 hours (D-332, [Monitoring](#monitoring)) |
 
 Docker Compose also gives each container its service name on every network it joins, so `api` and
 `web` are names on `edge` too. The site file uses only the `finance-` names, as the auth server's
@@ -863,7 +867,9 @@ his own browser session, each with the same later **Import up to**; the accounts
 input any more (D-228, D-232, D-233). Step 12 is that monthly import. It is a task of its own, never part of a deploy, with both participants present. The procedure (12.0 to
 12.12) is the same every month; the numbers it expects are in [Step 12's figures](#step-12s-figures-october-2026),
 valid for one export and one date only (D-212). The first run was September 2026: `export-2026-10-21`, **Import up to
-2026-09-30**. The next is October 2026: `export-2026-11-05`, **Import up to 2026-10-31** (D-319).
+2026-09-30**; the second October 2026, on 2026-11-05: `export-2026-11-05`, **Import up to 2026-10-31** (D-319). The
+next is November 2026, rehearsed first on `9e7aa87`, whose page takes **Import up to** in the account's date format
+(D-304); its figures replace October's.
 
 **The order is fixed (D-204, D-258): (1) the owner's import, (2) the partner's import.** Since D4b neither's check
 depends on the other's records (D-255: another member's records move one's family debt and equity together by 0), so the
@@ -978,16 +984,17 @@ cat /var/lib/finance-deploy/last-good
 ```
 
 You should see `Now:` outside 03:30 to 04:30 UTC; `Scheduled shutdown: cat: …: No such file or directory` (a scheduled
-reboot: STOP, and start after it has happened); the clone and `last-good` at
-`b899e3a74b8febd5519a783f3b95cbab67947f05` (OPS-3, the code October's figures were rehearsed on, D-320; [Production
-now](#production-now) names it once OPS-3's record is in), `finish=passed`.
+reboot: STOP, and start after it has happened); the clone and `last-good` at the
+commit [Production now](#production-now) names, in full, the code the month's figures were rehearsed on (D-220; for
+November `9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c`), `finish=passed`.
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify D3c
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-1
 ```
 
-You should see `verify D3c at …: OK` and the 24 numbers of the figures' **before** list. **STOP** on any other number:
+You should see `verify UX-1 at …: OK` and the 24 numbers of the figures' **before** list (since UX-1's deploy
+`verify UX-1`, whose expected file holds no count; `D3c.expected` names Flyway V15, D-326, D-333). **STOP** on any other number:
 either participant has written in the app since the rehearsed state, and the rehearsal's figures no longer hold (rehearse
 again from production's current state).
 
@@ -1017,9 +1024,12 @@ STOP.
 
 **12.3 The owner's dry run**, in the owner's own browser: a private window, signed in fresh as the owner (the header
 shows his name, never `e2e-a` or `e2e-b`, D-173). Open <https://app.finance-nl.com/import>; choose his transactions
-file of the export of 12.0, the family budget and the partner's place (the page takes no partner's file: the place has
-an account); type the figures' **Import up to** date; click **Check (dry run)** and read the report against the
-figures' **phase 1** block:
+file of the export of 12.0 **by its whole path**: in the file picker press Ctrl+L and paste the path from `/home/` to
+`export-<the date of 12.0>/Transactions.csv` (the picker opens the folder it opened last: on 2026-11-05 the owner's
+first dry run took `export-2026-10-21`'s file, 7068 rows, 34 to create), and read "Your transactions file: N rows, …"
+against the figures before going on. Then the family budget and the partner's place (the page takes no partner's
+file: the place has an account); type the figures' **Import up to** date; click **Check (dry run)** and read the
+report against the figures' **phase 1** block:
 
 - before the check, as soon as the file is chosen, "Your transactions file: 7092 rows, counted as the import counts
   them; highest ID …; last row dated …." (D-221, D-257, since D4b);
@@ -1080,7 +1090,7 @@ cd /opt/finance-tracker && systemctl start pg-backup@finance.service && pg-resto
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify D3c
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-1
 ```
 
 ```bash
@@ -1088,7 +1098,7 @@ cd /opt/finance-tracker && deploy/deploy.sh verify D3c
 cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT line FROM (SELECT 0 AS n, '' AS r, 'family budgets ' || count(*) AS line FROM app.ledger WHERE type = 'SHARED' UNION ALL SELECT 1, m.role, m.role || ' ' || m.status || ', users with this email ' || (SELECT count(*) FROM app.users o WHERE lower(o.email) = lower(u.email)) || ', personal entries ' || (SELECT count(*) FROM app.journal_entry e JOIN app.ledger_member p ON p.ledger_id = e.ledger_id AND p.ledger_type = 'PERSONAL' WHERE p.user_sub = m.user_sub) FROM app.ledger_member m LEFT JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.user_sub IS NOT NULL) AS lines ORDER BY n, r DESC" </dev/null
 ```
 
-You should see `verify D3c at …: OK` with the figures' **after** numbers, and the **participants after** lines. **STOP**
+You should see `verify UX-1 at …: OK` with the figures' **after** numbers, and the **participants after** lines. **STOP**
 on any other number.
 
 **12.11 The end-to-end suite's checkout**, on the laptop, read only: a clean checkout of the deployed commit.
@@ -1136,6 +1146,10 @@ After a restore, step 12 starts again at the phase after that dump: from B1 at 1
 stays given), with the same figures; a cause that the rehearsal didn't show means rehearsing again first.
 
 ### Step 12's figures: October 2026
+
+**Used on 2026-11-05** by step 12's second run on `b899e3a` ("Deployed revisions" has what it showed); they stay as
+its history. The next month's figures are rehearsed from production's dump with the code then deployed (D-220,
+`9e7aa87`) and replace these.
 
 **For step 12's second run**, on `b899e3a` (OPS-3, whose import is D4b's; D-320). Valid only for `export-2026-11-05`'s
 two files (12.0's hashes) and **Import up to 2026-10-31** (D-212, D-319), on production as **before** below shows it.
@@ -1231,8 +1245,7 @@ and the partner's as 12.6, each page's text to the letter; integrity `[]` for bo
 ### Step 12's figures: September 2026
 
 **Used on 2026-10-24** by step 12's first run on `2cfeec0` ("Deployed revisions" has what it showed); they stay as its
-history, and [October's](#step-12s-figures-october-2026) are the ones step 12 expects. The next month's figures are
-rehearsed from production's dump with the code then deployed (D-220) and replace these; with D3e's code the
+history, as [October's](#step-12s-figures-october-2026) do since 2026-11-05. With D3e's code the
 report adds the sync groups ([D3e's rehearsal from B3](#d3es-rehearsal-from-b3-september-again) shows them on
 September's files).
 
@@ -1372,6 +1385,15 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-11-05 | `9e7aa87`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `9e7aa87`, run #17 (id `42088610351`): success. Its check runs belong to `9e7aa87`, deployed and finished, so they hold up no deploy. |
+| 2026-11-05 | `9e7aa87`; nothing changed | UX-1's rollback acceptance: `deploy/rollback.sh b899e3a`, run folder `/var/lib/finance-deploy/runs/2026-11-05T185243Z-rollback-b899e3a`, answered at its confirmation: REFUSED, nothing changed. It named Flyway 16 and the target's V15, with no condition line (V16 has no rollback condition). The rollback state wasn't read again afterwards: `rollback.sh` printed "Nothing changed" (D-329, as D-273). The rollback target is `b899e3a`. |
+| 2026-11-05 | `9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c` (docs: October's step 12 rehearsed, its figures and D-318 to D-326 (R-OCT)), M; both images rebuilt and recreated | UX-1 (D-295 to D-317: the dashboard reworked, the date format in Settings; with R-OCT's records), V16 (`V16__user_date_format.sql`), the switch on, by [UX-1's deploy checklist](#ux-1s-deploy-checklist-with-the-suite), after October's step 12 (D-307). D-328 (the PM): step 0 skipped (the PM read the laptop's refs); the pre-flight and `verify D4b` as one block; no separate CI check after the push (`run`'s 1.5 waits for CI). The pre-flight at 18:29:39Z: Docker 29.8.2, the containerd image store; the containers started 2026-11-05T04:00:20Z (the host's reboot); `verify D4b` OK with step 12's "after" numbers. `deploy/deploy.sh run 9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c UX-1`, run folder `/var/lib/finance-deploy/runs/2026-11-05T183342Z-9e7aa87`: commits `6da6c4b` and `9e7aa87`; `Migrations added: V16__user_date_format.sql`; under `deploy/` `RUNBOOK.md`, `checks/UX-1.expected` and `checks/UX-1.sql`; CI 10 check runs, success (the gate waited about three minutes). Before-dump `finance-2026-11-05T1836Z.dump`, 4809435 bytes, SHA-256 `771e071f2e2808645ed7b425ad7b8a1e40ca962cf9199978f04356d4f51925ed`, restore test PASS. 3.2: `b899e3a`'s images kept as `:b899e3a74b8febd5519a783f3b95cbab67947f05` and `:previous`; `b3013d2`'s tags removed. After-dump `finance-2026-11-05T1838Z.dump`, 4809680 bytes, SHA-256 `684a25876673a758b45368e9630f1dc308b3257856b82b89ee4423cf42fe7ff4`, restore test PASS. Images: api `sha256:894ce01e1f98959918e8f0008b073932b650c8f90587a987b5d67c0551b2da0c` (content `sha256:263f920710506ae34bca9f84c9e73ec541143cfd8a3e6b7f676bb1abc2fa9d53`), web `sha256:c89513682a24d5c6825256a040cc25a817488c05ebe40b9c0415b4661c5d52b3` (content `sha256:acce97dba9dc322e9a96f46de8dbd9e5c8e3c6b0579b78c8a93d0944ca04c585`). Flyway applied V16 at 18:38:39Z (0.022 s); the api started at 18:38:41Z; the D-25 line on; the 24 numbers the same before and after (step 12's "after"); `UX-1.sql` equal to `UX-1.expected`'s 5 lines. The end-to-end suite from `9e7aa87` (`E2E_FAMILY=on`), 18:41:23Z to 18:43:59Z: 12 passed (`dashboard` included), `new-family` skipped by design (D-171), password search 0 hits, `Result: PASSED`. By hand: on the owner's phone the date picker filled the field; the owner's dashboard as page text (D-329, D-222): "EUR (base)", the period buttons, one chart, one cash flow table, "Family budgets" in open loans, "Show" with its four scopes, "My finances" in the switcher, dates as DD.MM.YYYY. `finish`: passed at 18:51:34Z (answers at 18:51:21Z and 18:51:33Z), the family numbers as before. `verify UX-1`: OK at 18:51:48Z, the same 24 numbers. |
+| 2026-11-05 | `b899e3a`; the database: October 2026 imported by both participants | Step 12's second run, [step 12](#12-monthly-import-two-participants), October 2026, `export-2026-11-05`, **Import up to 2026-10-31**, in the browser, the owner and the partner, by [October's figures](#step-12s-figures-october-2026). Before it, D-327: the owner freed his laptop's disk (484 MB to 6.5 GB free). 12.0: `GATE: export-2026-11-05 as rehearsed`. 12.1: `b899e3a`, `finish=passed`, no scheduled shutdown (the host had rebooted by itself at 04:00 UTC); `verify D3c` OK with the figures' "before" numbers; the participants' personal entries 18685 and 23439. 12.2: B1 `finance-2026-11-05T1754Z.dump`, PASS, B1's numbers as rehearsed. 12.3: the owner's first dry run took `export-2026-10-21`'s `Transactions.csv` (7068 rows, 34 to create): the file picker had opened the old folder. A dry run, so nothing was saved; 12.3 now says how to avoid it. Again with the right file: as rehearsed (created 57, updated 0, unchanged 6966, not imported 53, skipped 18; Passed, 2808 month-ends, 7092 rows checked, 0 failing; the groups as rehearsed). 12.4: the commit, then the check again: created 0, updated 0, unchanged 7023. 12.5: B2 `finance-2026-11-05T1803Z.dump`, PASS: categories 92, counterparties 1412, entries 42271, postings 84911, family_records 12406, family_shares 23544, family_links 35745, family_journal 12418. 12.6 and 12.7, the partner: as rehearsed; the check again: created 0, updated 0, unchanged 20690, not imported 189, skipped 79, family records as imported before 8103; Passed, 2407 month-ends, 12855 rows checked, 0 failing. Integrity: one window's answer was reported, `[]`; the second window's wasn't. 12.9: B3 `finance-2026-11-05T1809Z.dump`, PASS, B3's numbers as rehearsed. 12.10: `verify D3c` OK, the nine numbers changed as rehearsed; the participants' personal entries 18927 and 23816. 12.12: the end-to-end suite from `b899e3a`, 18:12:41Z to 18:14:57Z, `E2E_FAMILY` on, 11 passed, `new-family` skipped by design (D-171), password search 0 hits, `Result: PASSED`. Not recorded: B1's, B2's and B3's sizes and SHA-256, and 12.11's output. |
+| 2026-11-05 | `b899e3a`; nothing of this app changed, the host rebooted | The host's automatic reboot at 04:00 UTC (D-125; [Automatic reboots](#automatic-reboots)): the containers started again at 04:00:20Z by their restart policy, as UX-1's pre-flight showed. When it was scheduled is not recorded. |
+| 2026-10-27 | `b899e3a`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `b899e3a`, run #16 (id `40506753003`, `workflow_dispatch` on `main`, attempt 1, 12:48:56Z to 12:59:50Z): success, its jobs Backend, Frontend, Web image and Deploy scripts `success` (read from GitHub's API by UX-1-doc). Its check runs belong to `b899e3a`, deployed and finished, so they hold up no deploy. |
+| 2026-10-27 | `b899e3a`; the host, the auth stack and Hetzner, not this app's images | OPS-3's steps outside `deploy.sh`, the same day: Hetzner's Backups enabled for `auth-1` (7 daily, 20 % of the plan's price); two blocks first skipped, then done the same day: the auth server's `deploy/backup/install.sh server` (step 5; `pg-backup` `fa671510…`) and Caddy recreated (step 9c); all six containers of both stacks on `journald`. Monitor #1 (`workflow_dispatch`, 15:30:03Z, success) and #2 (`workflow_dispatch` with the failure on purpose, 15:30:34Z, failure; step 16) and #2's email reached the owner. D-278: Keycloak's registrations, 6 accounts, all verified, from one address: no bots, so no captcha. Not run yet: the next morning's checks (the nightly dumps' restore line of D-279, the first daily log rotation, Hetzner's first backup) and the check 15 days on that the journal keeps nothing older than 15 days. |
+| 2026-10-27 | `9af167d`; nothing changed | OPS-3's rollback acceptance: `deploy/rollback.sh 9af167d`, run folder `/var/lib/finance-deploy/runs/2026-10-27T124754Z-rollback-9af167d`, answered at its confirmation: REFUSED, nothing changed. OPS-3 has no migration. The rollback target is `9af167d`. |
+| 2026-10-27 | `b899e3a74b8febd5519a783f3b95cbab67947f05` (ops: Hetzner's backups, the external monitor, logs kept 14 days, D-274 to D-291 (OPS-3)), M; both images rebuilt and recreated | OPS-3 (D-273 to D-291: Hetzner's backups, the external monitor, logs kept 14 days, D-278's look at registrations, `pg-backup`'s restore line), no migration (Flyway V15), the switch on, by [OPS-3's deploy checklist](#ops-3s-deploy-checklist). `deploy/deploy.sh run b899e3a74b8febd5519a783f3b95cbab67947f05 OPS-3`, run folder `/var/lib/finance-deploy/runs/2026-10-27T112235Z-b899e3a`, its `history` line at 11:57:07Z. 3.2: `9af167d`'s images kept as `:9af167d00c04bdac874777d400ffc8d87e3dbf0e` and `:previous`. Images: api `sha256:48de6432cd053ff99f57b00866638620dff0080f609d21c0e7f3f90ab5d9c5ee` (content `sha256:60897895f760a868168c04fc40e9a9eea916bd34a1ccbc7fbafef34450a4f602`), web `sha256:12c0b008bd282abb770ae0e8bc6ffc9b298c7af9524e46e186f9dc8eee85e756` (content `sha256:a159d2e0339f2f734caf6f81085b17ec23ddcd9bed19ad17cf5a6215edd1786d`). The end-to-end suite (`E2E_FAMILY=on`): `Result: PASSED`. `finish`: passed at 12:47:08Z. `verify OPS-3`: OK. Not recorded here (D-331): the before- and after-dump's names and SHA-256 and the suite's times, which are in the run folder's `summary.txt`. |
 | 2026-10-26 | `9af167d`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `9af167d`, run #15 (id `40389181918`): success. Its check runs belong to `9af167d`, deployed and finished, so they hold up no deploy. |
 | 2026-10-26 | `9af167d`; nothing changed | D4b's rollback acceptance: `deploy/rollback.sh 1fa5043`, run folder `/var/lib/finance-deploy/runs/2026-10-26T194203Z-rollback-1fa5043`, answered at its confirmation: REFUSED, nothing changed. No condition line (D4b has no migration). The state block before and after wasn't run again: `rollback.sh` printed "Nothing changed" (D-273). The rollback target is `1fa5043`. |
 | 2026-10-26 | `9af167d00c04bdac874777d400ffc8d87e3dbf0e` (docs: D-252 to D-272, D4b's rehearsal, step 12 and deploy checklist (D4b)), M; both images rebuilt and recreated | D4b (D-228 to D-234 as D-252 to D-272 amend them: the import from one transactions file, the accounts and categories from its rows, the check against the file alone, the app's rows compared and never written; with D4b's first commit, `b3d04b6`, D4a's deploy recorded), no migration (Flyway V15), the switch on. D-273 (the PM): checklist step 1 skipped, as `main` and `feature/family-budget` were already at M (`run`'s gate 1.5 checks CI on M); no separate pre-flight block and no checkpoint before `run`: `verify D4a`, then `run`, whose own pre-flight refuses on any mismatch that matters; the state block around the rollback acceptance not run again; D-163's first sign-in not checked (a one-time check of step 10.3). `deploy/deploy.sh run 9af167d00c04bdac874777d400ffc8d87e3dbf0e D4b`, run folder `/var/lib/finance-deploy/runs/2026-10-26T192503Z-9af167d`. Before-dump `finance-2026-10-26T1925Z.dump`, SHA-256 `b0ade837fc345618bdf68706db195ba21c171cadf85ffa331cbdb0d90f1b1ccc`, restore test PASS. 3.2: `1fa5043`'s images kept as `:1fa50439945cca356fcb9dd4abdcab1f2af82ac0` and `:previous`; `1d3b811`'s tags removed. After-dump `finance-2026-10-26T1926Z.dump`, SHA-256 `5da4fdab833f612abf8fd78ca9f43099ccdaa56a1063dc3613d91dfd9884b0ec`, restore test PASS. Images: api `sha256:19b7921e08299eedfdb9004cec9b1f6fa964679bf41549d4c69ce99dddef415e` (content `sha256:d50572e964441ad68936d85459b8609ec1c911cce3ac0e61a03894b798456acf`), web `sha256:20e505156ec07d967c01896b3e1a6b2222adfe2adb8e959f6f1db8936750a68d` (content `sha256:a15f3838704365403d625ed9c1b3dae48f13d5f52e2052472887a4eef19fc9be`). The 24 numbers as after D4a (counterparties 1411), the same before and after. The end-to-end suite (`E2E_FAMILY=on`), 19:31:53Z to 19:34:07Z: 11 passed, `new-family` skipped by design (D-171), password search 0 hits, `Result: PASSED`. `finish`: passed at 19:36:44Z. `verify D4b`: OK at 19:41:53Z. The owner's `/export` of the whole period: "6,989 rows, Nov 1, 2017 to Sep 29, 2026. Left out, as no single row stands for them: opening balances (1)." |
@@ -1450,48 +1472,61 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-10-26, after D4b's deploy (`finish` passed at 19:36:44Z; `verify D4b` OK at 19:41:53Z; its rollback
-acceptance refused at its confirmation, nothing changed). D4b wrote no data:
+As of 2026-11-05, after October's step 12 and UX-1's deploy (`finish` passed at 18:51:34Z; `verify UX-1` OK at
+18:51:48Z; its rollback acceptance refused at its confirmation, nothing changed):
 
-- `9af167d00c04bdac874777d400ffc8d87e3dbf0e` (D4b, the import from one transactions file, on D4a, D3e, D3c with its
-  fixes and acceptances, D3b-accept, D3b, F8f, F8e, F8d, F8c, F8, QA-1 and QA-1b) on Flyway V15, `last-good` naming
-  `9af167d`. Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api `sha256:19b7921e…`
-  (content `sha256:d50572e9…`) and web `sha256:20e50515…` (content `sha256:a15f3838…`), "the recorded image" for
-  `verify`.
-- **Both members' histories are imported up to 2026-09-30**: the owner's (D3b-run up to 2026-08-31, corrected in
-  11.2a, and step 12) and the partner's (D3c-run from his claim of 2019-12-01, and step 12). Each imports only his own
-  file (D-175). The numbers are D4a's (categories 95, counterparties 1411, entries 42124, family_records 12358,
-  family_shares 23460, family_links 35607, family_journal 12370, imported_family_sides 8501, import_batches 8). The
-  deploy's dumps: before `finance-2026-10-26T1925Z.dump` (SHA-256 `b0ade837…`), after `finance-2026-10-26T1926Z.dump`
-  (SHA-256 `5da4fdab…`), both restore tests PASS. These numbers change whenever either of them writes in the app: a
+- `9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c` (UX-1's `6da6c4b`, the dashboard reworked and the date format in
+  Settings, with R-OCT's records; on OPS-3's `b899e3a`, D4b, D4a, D3e, D3c with its fixes and acceptances, D3b-accept,
+  D3b, F8f, F8e, F8d, F8c, F8, QA-1 and QA-1b) on Flyway V16, `last-good` naming `9e7aa87`. Family budgets are switched
+  on since 2026-10-03T09:25:40Z. The containers run api `sha256:894ce01e…` (content `sha256:263f9207…`) and web
+  `sha256:c8951368…` (content `sha256:acce97db…`), "the recorded image" for `verify`. Since OPS-3 (2026-10-27) every
+  container of both stacks logs to the journal, Hetzner keeps 7 daily backups of the server, and the monitor runs from
+  GitHub ([Monitoring](#monitoring): its schedule runs every few hours, not every 15 minutes, D-332).
+- **Both members' histories are imported up to 2026-10-31**: the owner's (D3b-run up to 2026-08-31, corrected in
+  11.2a, and step 12 for September and October) and the partner's (D3c-run from his claim of 2019-12-01, and step 12
+  for September and October). Each imports only his own file (D-175). The 24 numbers are UX-1's, step 12's **after**
+  of [October's figures](#step-12s-figures-october-2026): `accounts=74`, `categories=92`, `counterparties=1413`,
+  `entries=42743`, `family_accounts=2`, `family_import_cutoffs=2`, `family_invites=1`, `family_journal=12561`,
+  `family_ledgers=1`, `family_links=36174`, `family_members=2`, `family_members_active=2`, `family_members_former=0`,
+  `family_members_left=0`, `family_records=12549`, `family_shares=23830`, `import_batches=10`,
+  `imported_entries_deleted=0`, `imported_family_sides=8650`, `outside_their_ledger=0`, `personal_ledgers=4`,
+  `personal_members=4`, `settings=4`, `users=4`. These numbers change whenever either of them writes in the app: a
   checklist expects the numbers its own `verify` printed.
-- **The owner's export of the whole period** (`/export`, after the deploy): 6,989 rows, Nov 1, 2017 to Sep 29, 2026,
-  the opening balances (1) left out as no single row stands for them, as after D4a's deploy.
-- **The owner's 2.50 RUB is explained from the next import on**: his rows 211 and 2839, changed in the app on
-  2026-10-14 while their file rows stayed as imported (D-218), are "changed in the app, the file unchanged" and their
-  effect on EQUITY RUB and LOANS_ASSET RUB is APP_EDITED (D-219, D-223). Nothing has been imported on production
-  since; the owner keeps the rows as edited.
-- **Three personal categories of the owner's share a family category's code** (OTHERINC, CASHBACK, CHARITY), unused.
-  They merge into the family's at the commit of October's step 12 (D-224); nothing is done for them before.
-- **The next import with a later "Import up to"** (October 2026, planned for early November) is
-  [step 12](#12-monthly-import-two-participants) under D4b's code (one file each, the owner then the partner, D-258),
-  rehearsed first from production's latest dump (D-220, D-225, `scripts/rehearsal-db.sh`) with the code that runs then.
-- The rollback state: the previous-commit file names `1fa5043` (D4a, V15). `rollback.sh`'s target is `1fa5043`, with
-  no condition of its own (D4b has no migration); `rollback.sh 1fa5043` was refused at its confirmation in the
-  acceptance. That code imports five files, not one. **Below step 12's September** only by a restore of B1
-  `finance-2026-10-24T1413Z.dump` (both participants' September) or B2 `finance-2026-10-24T1418Z.dump` (the
-  partner's); **below the claim only by a restore**: `finance-2026-10-24T1123Z.dump` (11.2's); **below V14 only by a
-  restore**: `finance-2026-10-13T2054Z.dump` (10.2's), which loses both imports. 10.2's dump leaves the
-  server's 14 days of dumps on 2026-10-27, the others on 2026-11-07; after that they are the laptop's copies (60
-  days). The way back from the family budget is
-  `deploy/deploy.sh switch off`, which leaves the data.
-- The end-to-end suite from `9af167d` passed on production after D4b's deploy (2026-10-26, 19:31:53Z to 19:34:07Z,
-  `E2E_FAMILY=on`, 11 passed, `new-family` skipped by design, D-171, `Result: PASSED`).
-- "CI on Ubuntu 26.04" for `9af167d`: run #15 (id `40389181918`), success.
-- `main` and `feature/family-budget` are at `9af167d` (D-273: the checklist's step 1 had nothing to do).
-- D4b's, D4a's, D3e's, D3c's, D3b-accept's, D3b's and F8f's checklists stay as their records and are used for no other
-  deploy. A checklist keeps `<M>` (D-226); the PM gives its blocks with M filled in, in the chat.
-  Step 12 runs from this runbook on the laptop; its server blocks need nothing from the clone.
+- The owner's three personal categories with a family category's code (OTHERINC, CASHBACK, CHARITY) were merged into
+  the family's at October's commit (D-224; categories 95 to 92). His rows 211 and 2839, changed in the app, stay as he
+  edited them, explained as APP_EDITED (D-218, D-223); so do 1262, 2497 and 2973 (D-323).
+- **The next step 12** (November 2026, early December) runs on `9e7aa87`'s import page, where **Import up to** is
+  typed in the account's date format (D-304). It is rehearsed first from production's latest dump with that code
+  (D-220), and its 12.1 and 12.10 use `verify UX-1` (D-326, D-333): `D3c.expected` names Flyway V15.
+- The rollback state: the previous-commit file names `b899e3a` (OPS-3, V15). `rollback.sh`'s target is `b899e3a`, with
+  no condition of its own (its code ignores V16's column); `rollback.sh b899e3a` was refused at its confirmation in the
+  acceptance. Below that, by restores only, each of which loses everything written after its dump:
+  - **below October's step 12**: B1 `finance-2026-11-05T1754Z.dump` (both participants' October) or B2
+    `finance-2026-11-05T1803Z.dump` (the partner's); B3 `finance-2026-11-05T1809Z.dump` is the state step 12 left.
+    UX-1's deploy dumps: before `finance-2026-11-05T1836Z.dump` (SHA-256 `771e071f…`), after
+    `finance-2026-11-05T1838Z.dump` (SHA-256 `684a2587…`). On the server until about 2026-11-19, on the laptop until
+    about 2027-01-04;
+  - **below September's step 12**: B1 `finance-2026-10-24T1413Z.dump` or B2 `finance-2026-10-24T1418Z.dump`; **below
+    the claim**: `finance-2026-10-24T1123Z.dump` (11.2's). Off the server since about 2026-11-07; on the laptop until
+    about 2026-12-23;
+  - **below V14**: `finance-2026-10-13T2054Z.dump` (10.2's), which loses both imports. Off the server since
+    2026-10-27; on the laptop until about 2026-12-12.
+
+  The server keeps 14 days of nightly dumps (`/var/backups/pg/finance/`), the laptop 60
+  (`~/backups/finance-nl-server/finance/`); a deploy's run folder keeps its before-dump 14 days. The way back from the
+  family budget is `deploy/deploy.sh switch off`, which leaves the data.
+- The end-to-end suite from `9e7aa87` passed on production after UX-1's deploy (2026-11-05, 18:41:23Z to 18:43:59Z,
+  `E2E_FAMILY=on`, 12 passed, `new-family` skipped by design, D-171, `Result: PASSED`).
+- "CI on Ubuntu 26.04" for `9e7aa87`: run #17 (id `42088610351`), success; for `b899e3a`: run #16 (id `40506753003`),
+  success.
+- `main` and `feature/family-budget` are at `9e7aa87` (UX-1-doc's commit is on `feature/family-budget` only, not
+  pushed).
+- OPS-3's open checks: the next morning's (the nightly dumps' restore line of D-279, the first daily log rotation,
+  Hetzner's first backup and its time) and the one 15 days on (the journal's oldest line at most 15 days old), none
+  recorded yet.
+- UX-1's, R-OCT's, OPS-3's, D4b's, D4a's, D3e's, D3c's, D3b-accept's, D3b's and F8f's checklists stay as their
+  records and are used for no other deploy. A checklist keeps `<M>` (D-226); the PM gives its blocks with M filled in,
+  in the chat. Step 12 runs from this runbook on the laptop; its server blocks need nothing from the clone.
 
 ### Automatic reboots
 
@@ -7364,6 +7399,10 @@ browser does, and writes nothing.
 
 - **GitHub's schedule is best effort**: a run may start late, or be dropped when GitHub is busy, so an outage shorter
   than the gap between two runs may go unseen.
+- **As GitHub ran it** (D-332, read from GitHub's API on 2026-11-05): after #1 and #2 by hand on 2026-10-27, scheduled
+  runs #3 (2026-10-27T16:43:48Z) to #42 (2026-11-05T17:36:56Z), 40 in 9 days, 3 to 10 hours apart (about 5½ on
+  average), every one `success`. So the monitor sees an outage that lasts some hours, not one of minutes; whether to
+  keep it so is open.
 - **Who gets the email.** A failed run is notified by GitHub's notification settings: for a scheduled run, to the user
   who created the workflow, later the user who last changed its `cron` line, or the user who enabled a disabled
   schedule again; for a run started by hand, to the user who started it
@@ -7416,7 +7455,8 @@ curl -fsS -H 'Accept: application/vnd.github+json' https://api.github.com/repos/
 curl -fsS -H 'Accept: application/vnd.github+json' 'https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/workflows/monitor.yml/runs?per_page=5' | python3 -c 'import json, sys; [print(r["created_at"], r["event"], r["status"], r["conclusion"]) for r in json.load(sys.stdin)["workflow_runs"]]'
 ```
 
-You should see `Monitor active` and runs of the last hour, `schedule`, `completed success`.
+You should see `Monitor active` and runs of the last day, `schedule`, `completed success` (GitHub starts one every
+3 to 10 hours, D-332, not four an hour).
 `disabled_inactivity` means GitHub stopped the schedule after 60 days without activity in the
 repository ([Monitoring](#monitoring)). In the Hetzner Console, the server's Backups tab lists 7
 backups, the newest from the last day.

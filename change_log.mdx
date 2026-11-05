@@ -3,6 +3,55 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-05 · UX-1-doc: OPS-3's and UX-1's deploys and October's step 12 recorded, D-327 to D-334
+
+One docs commit on `feature/family-budget` on top of `9e7aa87`, the commit of this entry, "docs: OPS-3's and UX-1's
+deploys and October's step 12 recorded, D-327 to D-334 (UX-1-doc)". **Not pushed**; `main` not moved. No code, no check file, no
+migration. Production read only: the server was never touched and `e2e:prod` never run. The facts are the PM's, from
+the owner's pasted output; what they don't give is "not recorded" (D-331).
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions": OPS-3's deploy of 2026-10-27 (`b899e3a`, its images, its rollback
+  acceptance, its steps outside `deploy.sh` and D-278's registrations, "CI on Ubuntu 26.04" run #16), the host's reboot
+  of 2026-11-05, October's step 12 in September's form, UX-1's deploy (`9e7aa87`, V16, both dumps, images, the suite,
+  the owner's page text, `finish`, `verify UX-1`), its rollback acceptance and "CI on Ubuntu 26.04" run #17.
+- "Production now" rewritten as of UX-1's deploy: `9e7aa87` on V16, both histories up to 2026-10-31, the 24 numbers,
+  the rollback target `b899e3a` with no condition, every older way back by restore with where its dumps are now, the
+  next step 12 on `9e7aa87` with `verify UX-1`, OPS-3's open checks.
+- Step 12: its introduction (October done, November next); 12.1 and 12.10 run `verify UX-1` and 12.1 expects the
+  commit "Production now" names (D-333); 12.3 chooses the file by its whole path (Ctrl+L) and reads the row count
+  before Check; "Used on 2026-11-05" at the top of October's figures.
+- "How to read this": D-330's and D-334's laptop blocks. "What runs where", "Monitoring" and "Regular checks": the
+  monitor's schedule as GitHub ran it (D-332).
+- `docs/family-budget/requirements.md`: D-327 to D-331 (the PM's), D-332 to D-334 (the agent's), the amendment note,
+  the planned stages, and three UX-2 proposals in "Later" (cents between "You have" and the assets total, balances
+  below a minor unit in open loans, "You owe -$120.00").
+- `CLAUDE.md`: the deployment (`9e7aa87`, V16, the rollback state), histories up to 2026-10-31, OPS-3 and UX-1
+  deployed, V16 applied, the decisions' range D-1 to D-334, and D-330's laptop blocks in "Deploy checklists".
+
+**Verified**
+- `git fetch origin`: `main`, `origin/main`, `feature/family-budget` and `origin/feature/family-budget` all at
+  `9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c` before the work.
+- GitHub's public API, read only: "CI on Ubuntu 26.04" for `b899e3a` is run #16 (id `40506753003`,
+  `workflow_dispatch` on `main`, 12:48:56Z to 12:59:50Z on 2026-10-27), `success`, its four jobs `success`. The
+  monitor: 42 runs, #1 by hand `success`, #2 by hand `failure` (the failure on purpose), #3 to #42 scheduled, all
+  `success`, from 2026-10-27T16:43:48Z to 2026-11-05T17:36:56Z, 3 to 10 hours apart (D-332).
+- Against the repository: `UX-1.expected` has 5 lines; `deploy.sh` removes tags "older than the last three
+  revisions", which at UX-1's run is `b3013d2`'s.
+- `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1. No test suite run (D-331: docs only).
+
+**Open**
+- The monitor runs every few hours, not every 15 minutes (D-332): keep it so, or add a check that runs on time? The
+  PM's.
+- OPS-3's next-morning checks (the nightly dumps' restore line of D-279, the first daily log rotation, Hetzner's first
+  backup and its time of day) and the check 15 days on that the journal keeps nothing older than 15 days: never run.
+- October's step 12: the second integrity window's answer wasn't reported; B1's, B2's and B3's sizes and SHA-256 not
+  recorded. OPS-3's dumps and suite times are in its run folder's `summary.txt` only (D-331).
+- November's step 12: rehearse on `9e7aa87` from production's latest dump (D-220) and replace October's figures.
+- UX-2: the entry list at 375 px, the category lists' buttons, and the PM's three proposals (the owner decides the
+  minor-unit one).
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-05 · R-OCT: October's step 12 rehearsed, and its figures recorded, D-318 to D-326
 
 One docs commit on `feature/family-budget` on top of `6da6c4b`, the commit of this entry, "docs: October's step 12

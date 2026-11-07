@@ -329,8 +329,9 @@ describe('the import page', () => {
     await screen.findByTestId('report-kind')
     fireEvent.click(screen.getByRole('button', { name: 'Commit import' }))
     await waitFor(() => expect(screen.getByTestId('report-kind').textContent).toBe('Commit refused: nothing was saved'))
+    // No decision number on the screen (D-353).
     expect(screen.getByTestId('refused-for').textContent).toBe('Nothing was saved: the check against your file doesn’t '
-      + 'pass (D-336).')
+      + 'pass.')
   })
 
   it('lists D-219’s groups and D-223’s amounts (D3e)', async () => {

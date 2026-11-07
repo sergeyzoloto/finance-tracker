@@ -68,7 +68,7 @@ export default function FamilyCategories({ family }: { family: FamilyData }) {
           <section key={type}>
             <h4>{title}</h4>
             {shown.length === 0 ? <p className="empty">No {title.toLowerCase()} categories yet.</p> : (
-              <table>
+              <table className="categories">
                 <tbody>
                   {shown.map((c) => (
                     <CategoryRow key={c.id} category={c} family={family} onChanged={categories.reload} />

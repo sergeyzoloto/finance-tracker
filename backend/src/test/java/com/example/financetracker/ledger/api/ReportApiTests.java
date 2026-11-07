@@ -112,6 +112,37 @@ class ReportApiTests extends LedgerApiTest {
                 .containsExactly("2026-08 0.00 0.00");
     }
 
+    /**
+     * UX-2, D-355: an archived account is listed, marked, in a currency it still holds money in, so that the balances
+     * of each type add up to net worth's assets, liabilities and net worth, which count archived accounts; an archived
+     * account without money is not listed.
+     */
+    @Test
+    void archivedAccountsWithMoneyAreListedAndMarked() throws IOException {
+        ok(patch(alice, "/api/accounts/" + accountId(alice, "CASH"), """
+                {"archived": true}"""));
+        ok(patch(alice, "/api/accounts/" + accountId(alice, "SAVINGS_ACCOUNT"), """
+                {"archived": true}"""));
+
+        JsonNode balances = ok(get(alice, "/api/reports/balances" + AS_OF));
+        assertThat(rows(balances, "accountCode", "currency", "balance", "archived")).containsExactly(
+                "CASH EUR 160.00 true", "CREDITOR_DEBT EUR 0.00 false", "CURRENT_ACCOUNT EUR 840.00 false",
+                "FAMILY_DEBT EUR -30.00 false", "LOANS_ASSET EUR 100.00 false", "OPENING_BALANCE EUR 200.00 false",
+                "RESERVE EUR 0.00 false", "UNALLOCATED EUR 930.00 false");
+        assertThat(rows(ok(get(alice, "/api/reports/balances" + AS_OF + "&currency=BASE")), "accountCode", "balance",
+                "archived")).containsExactly(
+                "CASH 160.00 true", "CREDITOR_DEBT 0.00 false", "CURRENT_ACCOUNT 840.00 false", "FAMILY_DEBT -30.00 false",
+                "LOANS_ASSET 100.00 false", "OPENING_BALANCE 200.00 false", "RESERVE 0.00 false",
+                "UNALLOCATED 930.00 false");
+        // Before the cash had any money, the archived account isn't listed.
+        assertThat(rows(ok(get(alice, "/api/reports/balances?asOf=2026-07-31")), "accountCode"))
+                .doesNotContain("CASH", "SAVINGS_ACCOUNT");
+        // Assets 160 + 840 + 100 and liabilities -30, as net worth has them.
+        JsonNode worth = ok(get(alice, "/api/reports/net-worth" + AS_OF + "&currency=BASE"));
+        assertThat(List.of(worth.get("assets").asText(), worth.get("liabilities").asText(),
+                worth.get("netWorth").asText())).containsExactly("1100.00", "-30.00", "1130.00");
+    }
+
     /** Alice has no rate for USD: the balance is missing, and says why. */
     @Test
     void aFigureWithoutARateIsNullInTheBaseCurrency() throws IOException {

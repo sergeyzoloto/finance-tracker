@@ -1,0 +1,5 @@
+flyway latest 16 user date format true
+column account.archived_at timestamp with time zone YES
+archived UNALLOCATED 0
+constraint user_settings_date_format_check CHECK ((date_format = ANY (ARRAY['DD.MM.YYYY'::text, 'DD/MM/YYYY'::text, 'MM/DD/YYYY'::text, 'YYYY-MM-DD'::text])))
+unbalanced entries 0

@@ -155,7 +155,8 @@ class ReportServiceTests extends IntegrationTest {
     }
 
     @Test
-    void balancesShowEveryAccountThatIsNotArchivedInEachCurrency() {
+    void balancesShowEveryAccountThatIsNotArchivedInEachCurrencyAndArchivedOnesThatHoldMoney() {
+        // UX-2, D-355: the archived OLD_WALLET still holds 300.00, which net worth counts, so it is listed, marked.
         assertThat(reports.balances(ledger, SEP_30)).containsExactly(
                 new AccountBalance(card, "CARD", "Card", ASSET, "EUR", money("1609.75")),
                 new AccountBalance(cash, "CASH", "Cash", ASSET, "RUB", money("45923.95")),
@@ -165,6 +166,8 @@ class ReportServiceTests extends IntegrationTest {
                 new AccountBalance(fxExchange, "FX_EXCHANGE", "Currency exchange", EQUITY, "EUR", money("100.00")),
                 new AccountBalance(fxExchange, "FX_EXCHANGE", "Currency exchange", EQUITY, "RUB", money("-9000.00")),
                 new AccountBalance(loans, "LOANS_ASSET", "Loans given", ASSET, "RUB", money("2000.00")),
+                new AccountBalance(oldWallet, "OLD_WALLET", "Old wallet", ASSET, "RUB", money("300.00"), null, null,
+                        true),
                 new AccountBalance(openingBalance, "OPENING_BALANCE", "Opening balance", EQUITY, "EUR",
                         money("500.00")),
                 new AccountBalance(openingBalance, "OPENING_BALANCE", "Opening balance", EQUITY, "RUB",

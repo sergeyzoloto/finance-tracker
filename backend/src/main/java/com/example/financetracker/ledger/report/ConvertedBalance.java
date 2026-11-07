@@ -21,14 +21,17 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  *        balance in the base currency only, or a missing one
  * @param familyLedgerId the family budget of a debt account, as {@link AccountBalance#familyLedgerId}
  * @param familyLedgerName its name
+ * @param archived whether the account is archived, as {@link AccountBalance#archived}
  */
 public record ConvertedBalance(long accountId, String accountCode, String accountName, AccountType accountType,
         String currency, BigDecimal balance, List<MissingRate> missingRates, List<RateBook.Rate> rates,
-        @JsonInclude(Include.NON_NULL) Long familyLedgerId, @JsonInclude(Include.NON_NULL) String familyLedgerName) {
+        @JsonInclude(Include.NON_NULL) Long familyLedgerId, @JsonInclude(Include.NON_NULL) String familyLedgerName,
+        boolean archived) {
 
     /** The balance of an account that is no debt to a family budget. */
     public ConvertedBalance(long accountId, String accountCode, String accountName, AccountType accountType,
             String currency, BigDecimal balance, List<MissingRate> missingRates, List<RateBook.Rate> rates) {
-        this(accountId, accountCode, accountName, accountType, currency, balance, missingRates, rates, null, null);
+        this(accountId, accountCode, accountName, accountType, currency, balance, missingRates, rates, null, null,
+                false);
     }
 }

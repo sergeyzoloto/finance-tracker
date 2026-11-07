@@ -61,7 +61,7 @@ export default function Categories() {
           <section key={type}>
             <h3>{title}</h3>
             {shown.length === 0 ? <p className="empty">No {title.toLowerCase()} categories yet.</p> : (
-              <table>
+              <table className="categories">
                 <tbody>
                   {shown.map((c) => <CategoryRow key={c.id} category={c} onChanged={categories.reload} />)}
                 </tbody>

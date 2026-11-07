@@ -24,7 +24,11 @@ function periods(today: string) {
   } as Record<string, [string, string]>
 }
 
-/** Entries, newest first, with filters and pages kept in the URL, so that Back and a reload keep them. */
+/**
+ * Entries, newest first, with filters and pages kept in the URL, so that Back and a reload keep them. Under 40rem each
+ * entry is a block of lines, date, payee, category, accounts, amount and the family line, so that nothing scrolls
+ * sideways at 375 px (D-351).
+ */
 export default function Entries() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
@@ -132,7 +136,7 @@ export default function Entries() {
       )}
       {data && ledger && data.content.length > 0 && (
         <>
-          <table className={`entries ${entries.loading ? 'stale' : ''}`}>
+          <table className={`entries entry-list ${entries.loading ? 'stale' : ''}`}>
             <thead>
               <tr><th>Date</th><th>Payee</th><th>Category</th><th>Accounts</th><th className="amount">Amount</th></tr>
             </thead>
@@ -142,23 +146,25 @@ export default function Entries() {
                 const tone = summary.direction < 0 ? 'expense' : summary.direction > 0 ? 'income' : ''
                 return (
                   <tr key={entry.id} className="clickable" onClick={() => open(entry.id)}>
-                    <td className="nowrap">
+                    <td className="date nowrap">
                       <Link to={`/entries/${entry.id}`} state={{ from: location.pathname + location.search }}
                         onClick={(e) => e.stopPropagation()}>{formatDate(entry.entryDate)}</Link>
                     </td>
-                    <td>
+                    <td className="payee">
                       {summary.payee || <span className="muted">—</span>}
                       {entry.memo && <div className="muted small">{entry.memo}</div>}
                     </td>
-                    <td>
-                      {summary.category || <span className="muted">{kindLabel(entry.kind)}</span>}
+                    <td className="category">
+                      <span className="category-name">
+                        {summary.category || <span className="muted">{kindLabel(entry.kind)}</span>}
+                      </span>
                       {entry.family && (
-                        <div className="muted small" title="It changes in the family budget">
+                        <div className="muted small family-line" title="It changes in the family budget">
                           {summary.category ? `${entryKindLabel(entry)}, ${entry.family.ledgerName}` : entry.family.ledgerName}
                         </div>
                       )}
                     </td>
-                    <td>{summary.flow}</td>
+                    <td className="flow">{summary.flow}</td>
                     <td className={`amount nowrap ${tone}`}>
                       {summary.amounts.map((m) => formatMoney(summary.direction < 0 ? negate(m.amount) : m.amount, m.currency,
                         { signed: summary.direction !== 0 })).join(' → ')}

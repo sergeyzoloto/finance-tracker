@@ -52,6 +52,8 @@ export const negate = (amount: string) => new Decimal(amount).neg().toFixed()
 export const abs = (amount: string) => new Decimal(amount).abs().toFixed()
 export const signOf = (amount: string) => new Decimal(amount).cmp('0')
 export const isZero = (amount: string) => new Decimal(amount).eq('0')
+/** Whether the amount rounds HALF_UP to 0 at `digits` decimal places: RUB 0.004 at 2 does, RUB 1.4626 doesn't. */
+export const roundsToZero = (amount: string, digits: number) => new Decimal(amount).round(digits, Big.roundHalfUp).eq('0')
 export const equal = (a: string, b: string) => new Decimal(a).eq(b)
 /** For sorting: negative if a < b, 0 if equal, positive if a > b. */
 export const compare = (a: string, b: string) => new Decimal(a).cmp(b)

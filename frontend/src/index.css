@@ -66,7 +66,8 @@ input.amount { text-align: right; }
 .split .share { margin: 0 0 0.4rem; }
 fieldset.choice { border: none; padding: 0; margin: 0; gap: 1.5rem; }
 fieldset.choice legend { font-size: 0.85em; color: var(--muted); padding: 0; margin-bottom: 0.2rem; }
-.actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
+/* A form's row of buttons; not a table's actions cell, whose buttons stay in a row (D-352). */
+.actions:not(td) { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
 .postings table td { vertical-align: top; }
 .postings select, .postings input { max-width: 100%; box-sizing: border-box; }
 .postings td small { display: block; }
@@ -76,12 +77,13 @@ fieldset.choice legend { font-size: 0.85em; color: var(--muted); padding: 0; mar
 .balances .unbalanced { background: var(--error-bg); color: var(--expense); }
 
 /* Lists */
-.filters { border: 1px solid var(--border); border-radius: 4px; }
+.filters { border: 1px solid var(--border); border-radius: 4px; min-width: 0; }
+.filters select, .filters input { max-width: 100%; }
 .filters legend { color: var(--muted); }
 table.entries tr.clickable { cursor: pointer; }
 table.entries tr.clickable:hover { background: #f6f8fa; }
 .stale { opacity: 0.6; }
-.pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1rem 0; }
+.pager { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; justify-content: center; margin: 1rem 0; }
 table.nested { margin: 0 0 0 1.5rem; width: calc(100% - 1.5rem); }
 tr.details > td { background: #fafbfc; }
 tfoot th, tfoot td { border-top: 2px solid var(--border); }
@@ -280,3 +282,28 @@ ul.report-totals li { padding: 0.4rem 0; border-bottom: 1px solid var(--border);
 .report-row { padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
 .report-category { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 0.75rem; }
 ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: anywhere; }
+
+/* The entry list and the category lists on a phone (UX-2): no sideways scroll at 375 px. Each entry is a block of
+   lines, in the order date, payee, category, accounts, amount and the family line (D-351; the personal list only,
+   not a family budget's activity, which shares the class `entries`); a category's name and its
+   buttons share a row, the buttons wrapping below the name when they don't fit (D-352). */
+@media (max-width: 40rem) {
+  table.entry-list thead { display: none; }
+  table.entry-list, table.entry-list tbody { display: block; }
+  table.entry-list tr { display: flex; flex-direction: column; padding: 0.5rem 0; border-bottom: 1px solid #ddd; }
+  table.entry-list td { border: none; padding: 0.1rem 0; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+  table.entry-list td.date { order: 1; }
+  table.entry-list td.payee { order: 2; }
+  table.entry-list td.category { display: contents; }
+  table.entry-list .category-name { order: 3; }
+  table.entry-list td.flow { order: 4; color: var(--muted); }
+  table.entry-list td.amount { order: 5; font-weight: 600; }
+  table.entry-list .family-line { order: 6; }
+  table.categories, table.categories tbody { display: block; }
+  table.categories tr { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 0.3rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
+  table.categories td { display: block; border: none; padding: 0; width: auto; }
+  table.categories td.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; white-space: normal; margin-left: auto; }
+  table.categories td.actions:empty { display: none; }
+  table.categories td.actions button { margin-left: 0; }
+}

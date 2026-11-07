@@ -303,7 +303,7 @@ function Report({ report }: { report: ImportReport }) {
         <p className="error-box" role="alert" data-testid="refused-for">
           Nothing was saved: {[
             ...(report.errors.length > 0 ? [`${rows(report.errors.length)} with errors`] : []),
-            ...(report.refusedFor?.includes('CHECK_FAILED') ? ['the check against your file doesn’t pass (D-336)'] : []),
+            ...(report.refusedFor?.includes('CHECK_FAILED') ? ['the check against your file doesn’t pass'] : []),
           ].join(', and ')}.
         </p>
       )}

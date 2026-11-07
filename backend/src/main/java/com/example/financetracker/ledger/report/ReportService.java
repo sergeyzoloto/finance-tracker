@@ -86,8 +86,10 @@ public class ReportService {
 
     /**
      * The displayed balance of every account that isn't archived, in each currency it has postings in by
-     * {@code asOf}, zero included, and in its default currency even before it has any. Ordered by account code and
-     * currency. A member's debt account to a family budget of one of their ACTIVE memberships names that budget
+     * {@code asOf}, zero included, and in its default currency even before it has any; and of every archived account
+     * in each currency whose balance on {@code asOf} isn't zero, marked {@code archived} (UX-2, D-355: archiving hides
+     * an account, it doesn't take its money away, so these are the accounts {@link #netWorth} counts). Ordered by
+     * account code and currency. A member's debt account to a family budget of one of their ACTIVE memberships names that budget
      * (D-299), by {@code account.family_ledger_id}, never by its code or name; with the family switch off none does.
      */
     public List<AccountBalance> balances(LedgerScope ledger, LocalDate asOf) {
@@ -105,14 +107,16 @@ public class ReportService {
                 )
                 SELECT a.id AS account_id, a.code AS account_code, a.name AS account_name, a.type AS account_type,
                        t.currency, CASE a.type WHEN 'ASSET' THEN sum(t.total) ELSE -sum(t.total) END AS balance,
-                       f.id AS family_ledger_id, f.name AS family_ledger_name
+                       f.id AS family_ledger_id, f.name AS family_ledger_name,
+                       a.archived_at IS NOT NULL AS archived
                 FROM account a
                 JOIN amounts t ON t.account_id = a.id
                 LEFT JOIN ledger f ON :familyOn AND f.id = a.family_ledger_id AND f.type = 'SHARED'
                     AND EXISTS (SELECT FROM ledger_member m
                                 WHERE m.ledger_id = f.id AND m.user_sub = :sub AND m.status = 'ACTIVE')
-                WHERE a.ledger_id = :ledgerId AND a.archived_at IS NULL
+                WHERE a.ledger_id = :ledgerId
                 GROUP BY a.id, t.currency, f.id
+                HAVING a.archived_at IS NULL OR sum(t.total) <> 0
                 ORDER BY a.code, t.currency""")
                 .param("ledgerId", ledger.ledgerId())
                 .param("asOf", asOf)
@@ -282,7 +286,7 @@ public class ReportService {
             AccountBalance account = rows.getFirst();
             return new ConvertedBalance(account.accountId(), account.accountCode(), account.accountName(),
                     account.accountType(), base, balance.total(), balance.missing().toList(), balance.rates(),
-                    account.familyLedgerId(), account.familyLedgerName());
+                    account.familyLedgerId(), account.familyLedgerName(), account.archived());
         }).toList();
     }
 

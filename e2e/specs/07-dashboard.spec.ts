@@ -1,5 +1,6 @@
 import { dateFormatOf, expectDate, fillDate, inPattern, shownDay } from '../dates.ts'
 import { createTheBudget, inviteSomeoneNew, joinThroughTheLink } from '../family-steps.ts'
+import type { Locator } from '@playwright/test'
 import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session } from '../fixtures.ts'
 
 // UX-1's dashboard with A (and B with the family budget on), every entry dated today:
@@ -12,6 +13,9 @@ import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session }
 // 4. A chooses DD.MM.YYYY in Settings (D-304): a date in the entry list and the new entry's date field follow it, a date
 //    typed in it is taken; A goes back to "As the browser shows it".
 // 5. At 375 px the dashboard doesn't scroll sideways.
+// 6. UX-2 (D-351, D-352, D-356): with the demo loaded (and "Demo household" with E2E_FAMILY=on), at 375 px the entry
+//    list, the categories and the family budget's categories don't scroll sideways; in the base currency the
+//    Balances' Assets total reads as "You have" (D-348), as it does in step 1.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -33,6 +37,7 @@ test('dashboard', async ({ as, family, target }) => {
   expect(new URL(page.url()).searchParams.has('currency')).toBe(false)
   await expect(page.getByRole('region', { name: 'What you have and owe' }).getByText('You have')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Shared budget' })).toHaveCount(0)
+  await expectAssetsTotalIsYouHave(a)
   await shot(page, 'dashboard-01-base')
 
   // 2. A preset: the URL and the range.
@@ -113,8 +118,52 @@ test('dashboard', async ({ as, family, target }) => {
   expect(scroll, 'the dashboard at 375 px is no wider than the screen').toBeLessThanOrEqual(client)
   await shot(page, 'dashboard-05-narrow')
 
+  // 6. The demo at a phone's width.
+  await deleteAllMyData(a)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Load demo data' }).click()
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 30_000 })
+  await expectAssetsTotalIsYouHave(a)
+  await expectNoSidewaysScroll(a, '/entries', page.getByRole('heading', { name: 'Entries' }))
+  if (family === 'on') {
+    await expect(page.locator('table.entries .family-line').first(), 'the demo’s family rows in the list').toBeVisible()
+  }
+  await shot(page, 'dashboard-06-entries-narrow')
+  await expectNoSidewaysScroll(a, '/categories', page.getByRole('button', { name: 'Rename' }).first())
+  await shot(page, 'dashboard-07-categories-narrow')
+  if (family === 'on') {
+    const id = /\/family\/(\d+)/.exec((await page.getByRole('link', { name: 'Change it in the family budget' }).first()
+      .getAttribute('href')) ?? '')![1]
+    await expectNoSidewaysScroll(a, `/family/${id}/categories`, page.getByRole('button', { name: 'Rename' }).first())
+    await shot(page, 'dashboard-08-family-categories-narrow')
+  }
+
   await deleteAllMyData(a)
 })
+
+/** In the base currency, the Balances card's Assets total reads as "You have" (D-348). */
+async function expectAssetsTotalIsYouHave({ page }: Session) {
+  if (new URL(page.url()).pathname !== '/') await page.goto('/')
+  const headline = page.getByRole('region', { name: 'What you have and owe' })
+  const youHave = headline.getByRole('term').filter({ hasText: /^You have$/ }).locator('xpath=following-sibling::dd')
+  const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Balances' }) })
+  const assets = balances.locator('table.by-type').filter({ has: page.getByRole('columnheader', { name: 'Assets' }) })
+    .locator('tfoot td')
+  await expect(youHave).not.toHaveText('')
+  await expect(assets).toHaveText((await youHave.textContent())!)
+  await expect(balances.getByText(/a total may differ slightly from the sum of its rows/)).toBeVisible()
+}
+
+/** At 375 px the page is no wider than the screen once `ready` shows. */
+async function expectNoSidewaysScroll({ page }: Session, path: string, ready: Locator) {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto(path)
+  await expect(ready).toBeVisible()
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, `${path} at 375 px is no wider than the screen`).toBeLessThanOrEqual(client)
+}
 
 async function addExpense({ page }: Session, amount: string, memo: string) {
   await page.goto('/entries/new')

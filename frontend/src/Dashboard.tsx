@@ -9,16 +9,16 @@ import CashFlowTable from './CashFlowTable'
 import { lazyWithReload } from './chunkReload'
 import { Amounts, ErrorBoundary, Errors, Loading, ToggleGroup } from './components'
 import {
-  cashFlowTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, familyDebts, inBaseFromQuery, isFamilyScope,
+  belowMinorUnit, cashFlowTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, familyDebts, inBaseFromQuery, isFamilyScope,
   LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING, missingDays, monthsBetween, PERIOD_LABELS, periodFromQuery,
-  periodTotals, PRESETS, SCOPE_LABELS, scopeFromQuery, scopeParams, SCOPES, showsOwnCurrencies, total, usedRateText,
+  periodTotals, PRESETS, SCOPE_LABELS, scopeFromQuery, scopeParams, SCOPES, showsOwnCurrencies, usedRateText,
   type CashFlowTable as Table, type Cell, type FamilyDebt, type PeriodChoice, type Scope,
 } from './dashboard'
 import DateInput from './DateInput'
 import EmptyLedger from './EmptyLedger'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
 import { useToday } from './me'
-import { formatMoney, isZero, signOf, sum } from './money'
+import { abs, formatMoney, signOf, sum } from './money'
 
 // Recharts is most of the app's code; loading it with the chart keeps it off every other page.
 const IncomeExpenseChart = lazyWithReload(() => import('./IncomeExpenseChart'))
@@ -227,7 +227,9 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
 
       <div className="dashboard">
         {inBase
-          ? <Card title="Balances" state={baseBalances}>{(rows) => <BaseBalancesByType balances={rows} />}</Card>
+          ? <Card title="Balances" state={both(baseBalances, baseNetWorth)}>
+            {([rows, worth]) => <BaseBalancesByType balances={rows} worth={worth} />}
+          </Card>
           : <Card title="Balances" state={balances}>{(rows) => <BalancesByType balances={rows} />}</Card>}
         <Card title="Open loans" state={loans}>
           {(groups) => <OpenLoans groups={groups} inBase={inBase} baseCurrency={baseCurrency ?? ''} />}
@@ -310,7 +312,8 @@ const cell = (amount: string | null): Cell => amount ?? MISSING
 
 /**
  * The headline row (D-301): what the user has, owes and is worth on the day, in that order, each as large as the
- * others, "You have" never muted.
+ * others, "You have" never muted. What the user owes below zero, as when others owe more than the user does, reads
+ * "Owed to you" with the amount above zero (D-350).
  */
 function HeadlineRow({ currency, assets, liabilities, netWorth, rounded, label }: {
   currency: string
@@ -320,12 +323,16 @@ function HeadlineRow({ currency, assets, liabilities, netWorth, rounded, label }
   rounded: boolean
   label?: string
 }) {
+  const owedToYou = typeof liabilities === 'string' && signOf(liabilities) < 0
   return (
     <div className="headline-row">
       {label && <div className="headline-currency">{label}</div>}
       <dl className="figures">
         <div className="figure"><dt>You have</dt><dd><Figure amount={assets} currency={currency} rounded={rounded} /></dd></div>
-        <div className="figure"><dt>You owe</dt><dd><Figure amount={liabilities} currency={currency} rounded={rounded} /></dd></div>
+        <div className="figure">
+          <dt>{owedToYou ? 'Owed to you' : 'You owe'}</dt>
+          <dd><Figure amount={owedToYou ? abs(liabilities as string) : liabilities} currency={currency} rounded={rounded} /></dd>
+        </div>
         <div className="figure"><dt>Net worth</dt><dd><Figure amount={netWorth} currency={currency} rounded={rounded} /></dd></div>
       </dl>
     </div>
@@ -404,9 +411,17 @@ function UsedRates({ rates }: { rates: Rate[] }) {
   )
 }
 
-/** The accounts that aren't archived by type, in the base currency, with a total per type. */
-function BaseBalancesByType({ balances }: { balances: ConvertedBalance[] }) {
+/**
+ * The accounts by type, in the base currency, with a total per type. The totals are net worth's figures (D-348): each
+ * the unrounded sum, rounded once (D-49), so Assets' total is "You have", Liabilities' "You owe" and Equity's net worth;
+ * the rows, each rounded on its own, may then differ from their total by a few minor units, which a note says. An
+ * archived account is listed while it holds money, which net worth counts (D-355).
+ */
+function BaseBalancesByType({ balances, worth }: { balances: ConvertedBalance[]; worth: ConvertedNetWorth }) {
   if (balances.length === 0) return <p className="empty">No accounts yet.</p>
+  const totals: Record<string, Cell> = {
+    ASSET: cell(worth.assets), LIABILITY: cell(worth.liabilities), EQUITY: cell(worth.netWorth),
+  }
   return (
     <>
       {ACCOUNT_TYPES.map((type) => {
@@ -419,7 +434,7 @@ function BaseBalancesByType({ balances }: { balances: ConvertedBalance[] }) {
             <tbody>
               {rows.map((b) => (
                 <tr key={b.accountId}>
-                  <td><Link to={`/entries?accountId=${b.accountId}`}>{b.accountName}</Link></td>
+                  <td><AccountName id={b.accountId} name={b.accountName} archived={b.archived === true} /></td>
                   <td className="amount nowrap"><Figure amount={cell(b.balance)} currency={currency} /></td>
                 </tr>
               ))}
@@ -427,17 +442,28 @@ function BaseBalancesByType({ balances }: { balances: ConvertedBalance[] }) {
             <tfoot>
               <tr>
                 <th scope="row">Total</th>
-                <td className="amount nowrap"><Figure amount={total(rows.map((b) => cell(b.balance)))} currency={currency} /></td>
+                <td className="amount nowrap"><Figure amount={totals[type]} currency={currency} /></td>
               </tr>
             </tfoot>
           </table>
         )
       })}
+      <p className="muted small rounding-note">
+        Each amount is rounded on its own and each total once, so a total may differ slightly from the sum of its rows.
+      </p>
     </>
   )
 }
 
-/** The accounts that aren't archived by type, with totals per currency. */
+/** An account's name, linking to its entries, marked when it is archived (D-355). */
+const AccountName = ({ id, name, archived }: { id: number; name: string; archived: boolean }) => (
+  <>
+    <Link to={`/entries?accountId=${id}`}>{name}</Link>
+    {archived && <span className="badge" title="Archived, but it still holds money">archived</span>}
+  </>
+)
+
+/** The accounts by type, with totals per currency; an archived one while it holds money (D-355). */
 function BalancesByType({ balances }: { balances: AccountBalance[] }) {
   if (balances.length === 0) return <p className="empty">No accounts yet.</p>
   return (
@@ -445,7 +471,7 @@ function BalancesByType({ balances }: { balances: AccountBalance[] }) {
       {ACCOUNT_TYPES.map((type) => {
         const rows = balances.filter((b) => b.accountType === type)
         if (rows.length === 0) return null
-        const accounts = [...new Map(rows.map((b) => [b.accountId, b.accountName]))]
+        const accounts = [...new Map(rows.map((b) => [b.accountId, b]))]
         const totals = [...new Set(rows.map((b) => b.currency))].sort().map((currency) => ({
           currency, amount: sum(rows.filter((b) => b.currency === currency).map((b) => b.balance)),
         }))
@@ -453,9 +479,9 @@ function BalancesByType({ balances }: { balances: AccountBalance[] }) {
           <table key={type} className="by-type">
             <thead><tr><th scope="colgroup" colSpan={2}>{TYPE_LABELS[type]}</th></tr></thead>
             <tbody>
-              {accounts.map(([id, name]) => (
+              {accounts.map(([id, account]) => (
                 <tr key={id}>
-                  <td><Link to={`/entries?accountId=${id}`}>{name}</Link></td>
+                  <td><AccountName id={id} name={account.accountName} archived={account.archived === true} /></td>
                   <td className="amount nowrap">
                     <Amounts amounts={rows.filter((b) => b.accountId === id).map((b) => ({ currency: b.currency, amount: b.balance }))} />
                   </td>
@@ -485,14 +511,15 @@ interface LoanLine { key: string; who: ReactNode; owesYou: ReactNode; youOwe: Re
 /** The amounts in their own currencies, shown small under a converted figure. */
 const OwnAmounts = ({ amounts }: { amounts: { currency: string; balance: string }[] }) => (
   <span className="muted small own-amounts">
-    {amounts.filter((a) => !isZero(a.balance)).map((a) => formatMoney(a.balance, a.currency)).join(' · ')}
+    {amounts.filter((a) => !belowMinorUnit(a.balance, a.currency)).map((a) => formatMoney(a.balance, a.currency)).join(' · ')}
   </span>
 )
 
 /**
  * What is open with each counterparty on the accounts kept per counterparty (rule 8), and with each family budget
  * (D-299): in each currency a line per currency, in the base currency one line per counterparty or budget, its own
- * currencies small below it when there is more than the base currency (D-298).
+ * currencies small below it when there is more than the base currency (D-298). A line whose amounts all round to 0
+ * in their own currency's minor unit is left out, and a group left without a line (D-349).
  */
 function OpenLoans({ groups, inBase, baseCurrency }: { groups: LoanGroups; inBase: boolean; baseCurrency: string }) {
   const sections = LOAN_ACCOUNTS.map((account) => {
@@ -501,7 +528,10 @@ function OpenLoans({ groups, inBase, baseCurrency }: { groups: LoanGroups; inBas
     const name = balance?.accountName ?? account.title
     const link = (counterpartyId: number, text: string) => balance === undefined ? text
       : <Link to={`/entries?accountId=${balance.accountId}&counterpartyId=${counterpartyId}`}>{text}</Link>
-    const lines: LoanLine[] = rows.map((b) => {
+    const open = rows.filter((b) => 'amounts' in b
+      ? b.amounts.some((a) => !belowMinorUnit(a.balance, a.currency))
+      : !belowMinorUnit(b.balance, b.currency))
+    const lines: LoanLine[] = open.map((b) => {
       if ('amounts' in b) {
         // The side of a figure that can't be converted is the side of its amounts.
         const sides = loanSides({ balance: b.balance ?? b.amounts[0]?.balance ?? '0' }, account.positive)
@@ -511,7 +541,8 @@ function OpenLoans({ groups, inBase, baseCurrency }: { groups: LoanGroups; inBas
         return {
           key: `${b.counterpartyId}`, who: link(b.counterpartyId, b.counterpartyName),
           owesYou: shown(sides.owesYou), youOwe: shown(sides.youOwe),
-          detail: showsOwnCurrencies(b.amounts, b.currency) ? <OwnAmounts amounts={b.amounts} /> : undefined,
+          detail: showsOwnCurrencies(b.amounts.filter((a) => !belowMinorUnit(a.balance, a.currency)), b.currency)
+            ? <OwnAmounts amounts={b.amounts} /> : undefined,
         }
       }
       const { owesYou, youOwe } = loanSides(b, account.positive)
@@ -524,7 +555,10 @@ function OpenLoans({ groups, inBase, baseCurrency }: { groups: LoanGroups; inBas
   })
   const family: LoanLine[] = groups.family.flatMap((debt) => {
     const who = <Link to={debt.to}>{debt.name}</Link>
-    const open = debt.amounts.filter((a) => a.balance === null || !isZero(a.balance))
+    // Settled when every amount in its own currency rounds to 0 (D-349); in base mode, then the converted figure is shown.
+    const settled = debt.own.every((o) => belowMinorUnit(o.balance, o.currency))
+    const open = settled ? [] : inBase ? debt.amounts
+      : debt.amounts.filter((a) => a.balance === null || !belowMinorUnit(a.balance, a.currency))
     if (open.length === 0) {
       return [{ key: debt.key, who, owesYou: null, youOwe: null, detail: <span className="muted small">Settled</span> }]
     }
@@ -535,7 +569,7 @@ function OpenLoans({ groups, inBase, baseCurrency }: { groups: LoanGroups; inBas
           : formatMoney(amount, a.currency, { rounded: inBase })
       return {
         key: `${debt.key}:${a.currency}`, who, owesYou: shown(sides.owesYou), youOwe: shown(sides.youOwe),
-        detail: inBase && showsOwnCurrencies(debt.own.filter((o) => !isZero(o.balance)), baseCurrency)
+        detail: inBase && showsOwnCurrencies(debt.own.filter((o) => !belowMinorUnit(o.balance, o.currency)), baseCurrency)
           ? <OwnAmounts amounts={debt.own} /> : undefined,
       }
     })

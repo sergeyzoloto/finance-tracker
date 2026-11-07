@@ -3,6 +3,71 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-07 · UX-2: totals, open loans and the headline; the entry list and the category lists on a phone, D-347 to D-363
+
+Two commits on `feature/family-budget` on top of `df402d0`: `68ea6c0` "docs: D4c's deploy recorded, D-347 (UX-2)", and
+the commit of this entry, "feat: the dashboard's totals as net worth's, open loans below a minor unit, the entry list
+and category lists at 375 px, D-348 to D-363 (UX-2)". **Not pushed**; `main` not moved. No migration (Flyway stays at
+V16) and no import or export code changed (D-354). Production read only: the server was never touched and `e2e:prod`
+never run.
+
+**Changes**
+- `68ea6c0`: D4c's deploy in the runbook's "Deployed revisions" (the run, its rollback acceptance, "CI on Ubuntu 26.04"
+  run #18) and "Production now" (`df402d0` on V16, rollback target `9e7aa87`, D4c's dumps, the owner's sides not stored
+  yet, UptimeRobot not reported yet); step 12's 12.1 and 12.10 on `verify D4c`; CLAUDE.md's "Deployment" line; D-347.
+- D-348, D-355: `/api/reports/balances` (both shapes) also lists an archived account in each currency whose balance on
+  the day isn't zero, with a new field `archived` (`AccountBalance`, `ConvertedBalance`; additive). In base mode the
+  Balances card's type totals are net worth's assets, liabilities and net worth, each rounded once, equal to the
+  headline by construction; a muted note under the card (D-362); an archived account marked "archived" in both modes.
+- D-349, D-358: open loans leave out a line whose amounts all round to 0 in their own currency's minor unit
+  (`dashboard.belowMinorUnit`, `money.roundsToZero`), in base mode a counterparty whose every own amount does, a group
+  left empty, and "No open loans." when nothing is left; a family budget's "Settled", the small own amounts and the old
+  shared account use the same test.
+- D-350: a negative "You owe" reads "Owed to you", the amount positive, in both modes.
+- D-351, D-357: the personal entry list (`table.entries.entry-list`) under 40rem is a block of lines per entry, date,
+  payee, category, accounts, amount and the family line; the filters (`min-width: 0`) and the pager wrap. A family
+  budget's activity table, also `table.entries`, is untouched.
+- D-352: `.actions:not(td)`, so a table's actions cell keeps its buttons in a row; the category lists
+  (`table.categories`) wrap the buttons below the name under 40rem.
+- D-353, D-363: the import page's refusal without "(D-336)"; the importer's own messages keep theirs (D-354).
+- Tests: backend `ReportApiTests.archivedAccountsWithMoneyAreListedAndMarked`, `ReportServiceTests`' balances with the
+  archived "Old wallet"; frontend `UX2.test.tsx` (16 tests), `Import.test.tsx`'s refusal text; end to end
+  `07-dashboard`: the Assets total against "You have" in steps 1 and 6, and step 6, the demo at 375 px on `/entries`,
+  `/categories` and the family budget's categories (D-356).
+- `deploy/checks/UX-2.sql` and `UX-2.expected` (5 lines, structure only), tried on a throwaway database at V16.
+- `deploy/RUNBOOK.md`: "UX-2's deploy checklist with the suite". `docs/family-budget/requirements.md`: D-348 to D-363,
+  the amendment note, UX-2 in the planned stages, five "Later" items closed. `CLAUDE.md`: the dashboard, the balances
+  report, the entry list, the category lists, the tests.
+- Screenshots before and after from the demo, at 1280 and 375 px, under `data/private/ui/UX-2/` (git-ignored).
+
+**Verified**
+- `git fetch origin`: `main` = `origin/main` = `feature/family-budget` = `origin/feature/family-budget` = `df402d0`,
+  the tree clean, before the work.
+- `cd backend && ./mvnw -B clean verify`: exit 0, "Tests run: 635, Failures: 0, Errors: 0, Skipped: 0", BUILD
+  SUCCESS.
+- `cd frontend && npm test`: exit 0, "Test Files 34 passed (34)", "Tests 454 passed (454)". `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, tests 37, pass 37, fail 0. `E2E_FAMILY=on npm run e2e:local` on `./dev.sh`
+  built from the working tree: exit 0, every spec passed at both widths (`new-family` included, locally), cleanup
+  passed, "Password search over the artifacts: 0 hits", "Result: PASSED". A first run had failed `family F7 at 375 px`
+  (the entry list's rules on `table.entries` hid the activity table's header, D-357); fixed, then the run above.
+- `deploy/tests/run.sh`: exit 0, "109 passed, 0 failed, of 109 cases" (scripts unchanged).
+- On production's dump `finance-2026-11-07T0236Z.dump` as `testuser`, as of 2025-12-31 in base mode (counts only): on
+  `df402d0`'s code the sum of the Assets rows differed from "You have" (Liabilities and Equity equal); 4 archived ASSET
+  accounts held a balance, 3 of them at least a cent; on UX-2's code all three type totals equal the headline, the 4
+  accounts listed, "archived"; open loans hide 3 lines (2 lent, 1 borrowed) in either mode and no family line; "You
+  owe" negative in no row, net worth negative in base and in 2 of 3 currency rows. The database removed.
+- The page widths at 375 px from the demo: `/entries` 662 px before, 375 after; `/categories` and the family budget's
+  categories 375 both, their buttons stacked before and in a row after.
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+
+**Open**
+- UX-2's deploy, by its checklist, when the PM chooses; the rollback target `df402d0`, no condition.
+- D-355 to D-363 are the agent's choices (D-355 the owner's answer), for the PM to confirm; D-361 (an archived account
+  below a minor unit listed) and D-359 (the cash flow's totals in base mode still sums of rounded figures) are the
+  PM's to decide on.
+- The importer's messages with decision numbers (D-363) wait for a stage that may change the import.
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-07 · D4c: no commit while the check fails, the owner's paying side compared, D-335 to D-346
 
 One commit on `feature/family-budget` on top of `dcd4c5b`, the commit of this entry, "feat: no commit while the check

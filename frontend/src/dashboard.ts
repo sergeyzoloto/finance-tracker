@@ -2,7 +2,8 @@ import {
   formatDate, isoDate, type AccountBalance, type AccountType, type CashFlowRow, type CategoryType, type ConvertedBalance,
   type ConvertedCashFlow, type CounterpartyBalance, type MissingRate, type Rate,
 } from './api'
-import { abs, formatRate, isZero, negate, signOf, sum } from './money'
+import { minorUnit } from './minorUnits'
+import { abs, formatRate, isZero, negate, roundsToZero, signOf, sum } from './money'
 
 // The dashboard without React: the period, the currency and the scope in the URL, the cash flow as a monthly pivot,
 // and who owes whom. Every figure comes from the report endpoints; amounts in different currencies are never added
@@ -300,6 +301,13 @@ export function daysBetween(from: string, to: string) {
 }
 
 
+/**
+ * Whether an amount is nothing in its own currency (D-349): it rounds to 0 in the currency's minor unit, such as the
+ * RUB 0.004 that the import's four decimals left. Open loans leave such a line out, and a family budget whose every
+ * amount is one reads "Settled".
+ */
+export const belowMinorUnit = (amount: string, currency: string) => roundsToZero(amount, minorUnit(currency))
+
 /** The accounts whose balances are kept per counterparty (rule 8), and which side a positive balance is on. */
 export const LOAN_ACCOUNTS = [
   { code: 'LOANS_ASSET', title: 'Money lent', positive: 'owesYou' },
@@ -358,7 +366,7 @@ export function familyDebts(balances: AccountBalance[], converted: ConvertedBala
     add(b.accountId, b.familyLedgerName ?? b.accountName, `/family/${b.familyLedgerId}/balances`, b.accountType)
   }
   const shared = sharedAccountId === null ? undefined : balances.find((b) => b.accountId === sharedAccountId)
-  if (shared && !seen.has(shared.accountId) && own(shared.accountId).some((b) => !isZero(b.balance))) {
+  if (shared && !seen.has(shared.accountId) && own(shared.accountId).some((b) => !belowMinorUnit(b.balance, b.currency))) {
     add(shared.accountId, shared.accountName, `/entries?accountId=${shared.accountId}`, shared.accountType)
   }
   return debts

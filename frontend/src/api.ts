@@ -411,6 +411,8 @@ export interface AccountBalance {
   /** A debt account to a family budget of the user's ACTIVE memberships (D-299): the budget. Left out otherwise. */
   familyLedgerId?: number
   familyLedgerName?: string
+  /** An archived account, listed only in a currency it still holds money in (UX-2, D-355). */
+  archived?: boolean
 }
 export interface CounterpartyBalance { counterpartyId: number; counterpartyName: string; currency: string; balance: string }
 export interface NetWorth { currency: string; assets: string; liabilities: string; netWorth: string }
@@ -471,6 +473,8 @@ export interface ConvertedBalance {
   rates?: Rate[]
   familyLedgerId?: number
   familyLedgerName?: string
+  /** As `AccountBalance.archived`. */
+  archived?: boolean
 }
 /** A counterparty's balance on an account kept per counterparty, its currencies converted and added up (D-298). */
 export interface ConvertedCounterpartyBalance {

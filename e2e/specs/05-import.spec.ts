@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { fillDate, shownDay } from '../dates.ts'
 import { deleteAllMyData, expect, expectIntegrity, ledgerIdOf, shot, test } from '../fixtures.ts'
@@ -9,17 +10,31 @@ import { deleteAllMyData, expect, expectIntegrity, ledgerIdOf, shot, test } from
 //    which the page filters in the browser: 7 of his 9 rows are family rows and leave it (D-140). A's file is counted
 //    as soon as it is chosen, as the import counts it: 25 rows, the highest ID 25, the last row of 2024-03-05 (D-221,
 //    D-257).
-// 3. A dry run "up to" 2024-02-29 (D-165): no error, 28 rows to create, one row of each file after the date, and the
+// 3. D-336 first: A's file with row 21's Sum changed by hand, its computed columns left as they were: the dry run's
+//    check fails and Commit stays off, with the line saying why. Then the right file.
+// 4. A dry run "up to" 2024-02-29 (D-165): no error, 28 rows to create, one row of each file after the date, and the
 //    ledger checks out against the file up to it (D-231, D-255, D-256); its commit; then the date cleared: a dry run
 //    creates the 2 rows after it, whose commit completes the import, and the same files again create and update
 //    nothing (D-139). The report's header names a check or a commit, and once the files are committed, Commit stays
 //    off for them, also after another check (D3e).
-// 4. The budget holds Sam's records; the integrity check passes. Delete all my data takes the budget with it (D-36), so
+// 5. The budget holds Sam's records; the integrity check passes. Delete all my data takes the budget with it (D-36), so
 //    the run leaves nothing behind, in production too.
 
 const BUDGET = 'Import check'
 const FIXTURES = fileURLToPath(new URL('../../backend/src/test/resources/import/', import.meta.url))
 const file = (name: string) => `${FIXTURES}${name}`
+
+/** The transactions file with row 21's Sum typed over by hand, as ImportFixtures.withField does (D-336). */
+function withSumChangedByHand(): Buffer {
+  const lines = readFileSync(file('transactions.csv'), 'utf8').split('\r\n')
+  const changed = lines.map((line) => {
+    const fields = line.split(';')
+    if (fields[0] !== '21') return line
+    fields[3] = '2.5'
+    return fields.join(';')
+  })
+  return Buffer.from(changed.join('\r\n'), 'utf8')
+}
 
 test('import', async ({ as, family }) => {
   test.skip(family === 'off', 'The family budget is switched off (E2E_FAMILY=off).')
@@ -48,8 +63,28 @@ test('import', async ({ as, family }) => {
   await page.locator('input[name="partnerTransactions"]').setInputFiles(file('partner-transactions.csv'))
   await expect(page.getByText('7 of his 9 rows are family rows and will be uploaded.')).toBeVisible()
   await shot(page, 'import-01-files')
+  // The report's own verdict (the filter's line above the buttons is a status too).
+  const verdict = page.locator('section.report > [role="status"]')
+  const commit = page.getByRole('button', { name: 'Commit import' })
 
-  // 3. The dry run up to a date, its commit, the rest, and the same files again.
+  // 3. A row's Sum changed by hand: the check fails, Commit stays off (D-336).
+  await page.locator('input[name="transactions"]').setInputFiles({ name: 'transactions.csv', mimeType: 'text/csv',
+    buffer: withSumChangedByHand() })
+  await expect(page.getByText('7 of his 9 rows are family rows and will be uploaded.')).toBeVisible()
+  await page.getByRole('button', { name: 'Check (dry run)' }).click()
+  await expect(verdict).toHaveText('Dry run: nothing was saved. No errors, but the check against your file fails; a '
+    + 'commit would save nothing.', { timeout: 60_000 })
+  await expect(page.locator('.reconciliation [role="alert"]')).toHaveText(/^Failed:/)
+  await expect(page.getByTestId('check-fails')).toHaveText('The check against your file doesn’t pass, so nothing can be '
+    + 'committed. Fix what it lists, in Excel or in the app, export again and check again.')
+  await expect(commit).toBeDisabled()
+  await shot(page, 'import-01b-check-fails')
+  // The right file.
+  await page.locator('input[name="transactions"]').setInputFiles(file('transactions.csv'))
+  await expect(page.getByText('7 of his 9 rows are family rows and will be uploaded.')).toBeVisible()
+  await expect(page.getByTestId('check-fails')).toHaveCount(0)
+
+  // 4. The dry run up to a date, its commit, the rest, and the same files again.
   const upTo = page.getByLabel(/^Import up to/)
   await fillDate(upTo, '2024-02-29')
   const sent = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/import')
@@ -59,10 +94,9 @@ test('import', async ({ as, family }) => {
   expect(body).not.toContain('his note')
   expect(body).not.toContain('Кафе')
   expect(body).not.toContain('Восток')
-  // The report's own verdict (the filter's line above the buttons is a status too).
-  const verdict = page.locator('section.report > [role="status"]')
   await expect(verdict).toHaveText('Dry run: nothing was saved. No errors: committing would create 28 and update 0.',
     { timeout: 60_000 })
+  await expect(commit).toBeEnabled()
   await expect(page.getByTestId('report-kind')).toHaveText('Check (dry run): nothing was saved')
   await expect(page.getByTestId('after-cutoff')).toHaveText(`Imported up to ${shownDay('2024-02-29', null)}. After it, neither imported `
     + 'nor missing: 1 row of 25 of yours, 1 row of 7 of the partner’s.')
@@ -93,7 +127,7 @@ test('import', async ({ as, family }) => {
   await expect(page.getByRole('button', { name: 'Commit import' })).toBeDisabled()
   await expect(page.getByTestId('committed-already')).toBeVisible()
 
-  // 4. Sam's records in the budget; the ledger adds up.
+  // 5. Sam's records in the budget; the ledger adds up.
   await page.goto(`/family/${ledgerId}/expenses`)
   await expect(page.getByRole('row').filter({ hasText: 'Транспорт' }).first()).toBeVisible()
   await expectIntegrity(a)

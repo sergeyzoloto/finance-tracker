@@ -290,6 +290,49 @@ describe('the import page', () => {
     await waitFor(() => expect(screen.getByTestId('report-kind').textContent).toBe('Commit refused: nothing was saved'))
   })
 
+  const checked = (passed: boolean): ImportReport['reconciliation'] => ({
+    passed, from: '2024-01-02', cutoff: '2024-03-05', pointsCompared: 6, lastCompared: '2024-03-05', lines: [],
+    failures: [], explained: [], appOnly: [],
+    rows: { rows: 25, built: 24, explainedRows: 0, failed: passed ? 0 : 1, explained: [], failures: [] },
+  })
+
+  it('keeps Commit off after a dry run whose check fails, and says why (D-336)', async () => {
+    stubApi([{ ...report(0), reconciliation: checked(false) }])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    chooseOwnFile()
+    check()
+    expect((await screen.findByTestId('check-fails')).textContent).toBe('The check against your file doesn’t pass, '
+      + 'so nothing can be committed. Fix what it lists, in Excel or in the app, export again and check again.')
+    expect((screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('Dry run: nothing was saved. No errors, but the check '
+      + 'against your file fails; a commit would save nothing.')
+    // The dry run shows everything as before: the check's own line.
+    expect(screen.getByRole('alert').textContent).toMatch(/^Failed: 6 month-end balances compared/)
+  })
+
+  it('lets a dry run whose check passes be committed (D-336)', async () => {
+    stubApi([{ ...report(0), reconciliation: checked(true) }])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    chooseOwnFile()
+    check()
+    await screen.findByText(/No errors: committing would create 3 and update 0/)
+    expect(screen.queryByTestId('check-fails')).toBeNull()
+    expect((screen.getByRole('button', { name: 'Commit import' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('names the check as the reason of a refused commit (D-336)', async () => {
+    stubApi([{ ...report(0), reconciliation: checked(true) },
+      { ...report(0, 'ABORTED'), refusedFor: ['CHECK_FAILED'], reconciliation: checked(false) }])
+    render(<MemoryRouter><Import /></MemoryRouter>)
+    chooseOwnFile()
+    check()
+    await screen.findByTestId('report-kind')
+    fireEvent.click(screen.getByRole('button', { name: 'Commit import' }))
+    await waitFor(() => expect(screen.getByTestId('report-kind').textContent).toBe('Commit refused: nothing was saved'))
+    expect(screen.getByTestId('refused-for').textContent).toBe('Nothing was saved: the check against your file doesn’t '
+      + 'pass (D-336).')
+  })
+
   it('lists D-219’s groups and D-223’s amounts (D3e)', async () => {
     const ref = (excelId: string, reason: string) => ({ source: 'OWNER_PERSONAL', excelId, reason })
     stubApi([{ ...report(0), sync: {

@@ -25,8 +25,12 @@ public final class ImportReportMarkdown {
         md.append(switch (report.outcome()) {
             case DRY_RUN -> "**Dry run:** everything was rolled back, nothing was saved. Run with `--commit` to save.";
             case COMMITTED -> "**Committed:** the rows below were saved.";
-            case ABORTED -> "**Aborted:** %d row error(s), so nothing was saved. Fix them and run again."
-                    .formatted(report.errors().size());
+            case ABORTED -> report.refusedFor().contains(ImportReport.ROW_ERRORS)
+                    ? "**Aborted:** %d row error(s)%s, so nothing was saved. Fix them and run again."
+                            .formatted(report.errors().size(), report.refusedFor().contains(ImportReport.CHECK_FAILED)
+                                    ? ", and the check against the file fails" : "")
+                    : "**Refused:** the check against your file doesn't pass (D-336), so nothing was saved. Fix what "
+                            + "it lists, in Excel or in the app, export again and check again.";
         }).append("\n\n");
         md.append("- Started: ").append(report.startedAt()).append('\n');
         if (report.period() != null) {
@@ -172,6 +176,8 @@ public final class ImportReportMarkdown {
         rows(md, "Re-planned: the current code maps it differently (D-219)", sync.replanned());
         rows(md, "Hash stored again (D-219)", sync.restamped());
         rows(md, "Can't be re-planned after the claim (D-196, D-219)", sync.notReplannable());
+        md.append("\nYour sides of your family records stored for the first time, as the ledger holds them (D-337): %d.\n"
+                .formatted(sync.sidesStamped()));
         md.append("\nRows the app made, as the ledger holds them (D-259): %d.\n".formatted(sync.appRowsUnchanged()));
         rows(md, "Rows the app made, listed and never written (D-259)", sync.appRows());
         md.append("\nPersonal categories merged into the family budget's (D-11): ")

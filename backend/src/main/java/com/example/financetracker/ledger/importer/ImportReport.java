@@ -23,6 +23,8 @@ import com.example.financetracker.ledger.report.IntegrityViolation;
  *        longer have (D-138): reported, never deleted
  * @param conflicts rows changed in the app since their last import, or deleted there (D-139, D-150, D-113): left alone
  * @param errors rows that can't be imported as they are. One or more of them abort a commit.
+ * @param refusedFor why a commit saved nothing (outcome ABORTED): {@code ROW_ERRORS}, {@code CHECK_FAILED} (D-336: the
+ *        reconciliation with the file doesn't pass), or both; empty otherwise
  * @param errorSummary, warningSummary, skippedSummary each distinct message with its count and the first Excel IDs
  * @param chart the accounts and categories the file's rows name that the import creates or renames (D-228, D-254)
  * @param idGaps the Excel IDs missing between the file's lowest and highest, as ranges (D-231 c): a warning
@@ -33,7 +35,8 @@ import com.example.financetracker.ledger.report.IntegrityViolation;
  * @param sync D-219's groups of rows known from an earlier import, and the personal categories merged into the family
  *        budget's (D-11, D3e)
  */
-public record ImportReport(String userId, boolean commit, Outcome outcome, Instant startedAt, List<FileSummary> files,
+public record ImportReport(String userId, boolean commit, Outcome outcome, List<String> refusedFor, Instant startedAt,
+        List<FileSummary> files,
         FamilyTarget family, Period period, LocalDate upTo, List<AfterCutoff> afterCutoff, List<String> currencies, List<Count> counts, Totals totals,
         List<RowRef> missing, List<RowRef> conflicts, List<Problem> errors, List<Problem> warnings,
         List<MessageCount> errorSummary, List<MessageCount> warningSummary, List<MessageCount> skippedSummary,
@@ -45,9 +48,13 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
         /** Everything was rolled back, as a dry run always is. */
         DRY_RUN,
         COMMITTED,
-        /** A commit with row errors: everything was rolled back. */
+        /** A commit with row errors, or whose check against the file fails (D-336): everything was rolled back. */
         ABORTED
     }
+
+    /** D-336: a commit is refused for row errors and for a check against the file that doesn't pass. */
+    public static final String ROW_ERRORS = "ROW_ERRORS";
+    public static final String CHECK_FAILED = "CHECK_FAILED";
 
     /** What a commit would write or wrote: created and updated entries and records. */
     public int written() {
@@ -120,8 +127,9 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
      * @param appEdited "changed in the app, the file unchanged": what the current code maps the row to isn't what the
      *        ledger holds, the row is as imported last, and the entry or record was changed in the app since. Left
      *        alone, never written over
-     * @param appEdits D-223: per row of {@code appEdited} that is a personal entry, account and currency, what the
-     *        ledger holds less what the row maps to, which the reconciliation explains as APP_EDITED
+     * @param appEdits D-223, D-338: per row of {@code appEdited}, account and currency, what the ledger holds less what
+     *        the row maps to (a personal entry's, or a family record's in the importer's own ledger: his share and his
+     *        side), which the reconciliation explains as APP_EDITED
      * @param replanned "re-planned: the current code maps it differently": the row is as imported last, nobody changed
      *        it in the app, and the current code maps it otherwise; written over as an edited row
      * @param restamped the ledger holds what the row maps to, but under another hash: the hash is stored again, nothing
@@ -133,9 +141,12 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, Insta
      * @param appRowsUnchanged the rows the app made ({@code app-…}) that are what the ledger holds (D-259)
      * @param appRows the rows the app made that aren't: changed in the file, or not a row of the user's; listed, never
      *        written (D-259)
+     * @param sidesStamped D-337: the owner's sides of his own records that the ledger holds as his rows map them, whose
+     *        hashes this run stored for the first time (a dry run counts them and keeps none)
      */
     public record Sync(List<RowRef> appEdited, List<AppEdit> appEdits, List<RowRef> replanned, List<RowRef> restamped,
-            List<RowRef> notReplannable, List<String> categoriesMerged, int appRowsUnchanged, List<RowRef> appRows) {
+            List<RowRef> notReplannable, List<String> categoriesMerged, int appRowsUnchanged, List<RowRef> appRows,
+            int sidesStamped) {
     }
 
     /**

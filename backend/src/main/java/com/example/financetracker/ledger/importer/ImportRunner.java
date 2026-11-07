@@ -113,12 +113,15 @@ class ImportRunner implements ApplicationRunner {
                     switch (report.outcome()) {
                         case DRY_RUN -> "Dry run, nothing saved";
                         case COMMITTED -> "Committed";
-                        case ABORTED -> "Aborted because of row errors, nothing saved";
+                        case ABORTED -> report.refusedFor().contains(ImportReport.ROW_ERRORS)
+                                ? "Aborted because of row errors, nothing saved"
+                                : "Refused because the check against the file fails (D-336), nothing saved";
                     },
                     totals.created(), totals.updated(), totals.unchanged(), totals.missing(), totals.conflicts(),
                     report.errors().size(), report.warnings().size(), report.reconciliation() == null ? "not run"
                             : report.reconciliation().passed() ? "passed" : "FAILED", reportFile);
-            return report.errors().isEmpty() ? 0 : 2;
+            // 2: nothing saved for row errors, or for a commit whose check fails (D-336).
+            return report.errors().isEmpty() && report.outcome() != ImportReport.Outcome.ABORTED ? 0 : 2;
         } catch (UsageException | IllegalArgumentException e) {
             err.println(e.getMessage());
             err.println(USAGE);

@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.api;
 
+import static com.example.financetracker.ledger.importer.ImportFixtures.edited;
 import static com.example.financetracker.ledger.importer.ImportFixtures.line;
 import static com.example.financetracker.ledger.importer.ImportFixtures.seatRows;
 import static com.example.financetracker.ledger.importer.ImportFixtures.withField;
@@ -270,6 +271,87 @@ class MemberImportApiTests extends MemberImportApiTest {
     }
 
     /**
+     * D-336 on the two paths after the claim: the owner's own file (OWNER_AFTER_CLAIM) and the member's own import
+     * (MEMBER), each with a personal row's Sum changed by hand. The dry run reports the failure as before; the commit
+     * saves nothing, for the check, and both members' rows stay as they were.
+     */
+    @Test
+    void aCommitIsRefusedWhileTheCheckFailsAfterTheClaim() throws IOException {
+        ownersFirstImport();
+        claim();
+        var owners = digestOf(owner);
+        var his = digestOf(partner);
+
+        byte[] ownersFile = withField(d3c("owner-transactions.csv"), "1", 3, "1001");
+        JsonNode ownersDry = ok(upload(owner, "owner", ownersFile, null, seat, null, "true"));
+        assertThat(ownersDry.get("family").get("mode").asText()).isEqualTo("OWNER_AFTER_CLAIM");
+        assertThat(ownersDry.get("reconciliation").get("passed").asBoolean()).isFalse();
+        JsonNode ownersCommit = ok(upload(owner, "owner", ownersFile, null, seat, null, "false"));
+        assertThat(ownersCommit.get("outcome").asText()).isEqualTo("ABORTED");
+        assertThat(ownersCommit.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
+        assertThat(ownersCommit.get("errors")).isEmpty();
+
+        byte[] hisFile = withField(hisWithoutTheRefused(), "104", 3, "13");
+        JsonNode hisDry = ok(memberImport(hisFile, null, "true"));
+        assertThat(hisDry.get("family").get("mode").asText()).isEqualTo("MEMBER");
+        assertThat(hisDry.get("errors")).isEmpty();
+        assertThat(hisDry.get("reconciliation").get("passed").asBoolean()).isFalse();
+        assertThat(hisDry.get("reconciliation").get("rows").get("failures").findValuesAsText("excelId"))
+                .containsOnly("104");
+        JsonNode hisCommit = ok(memberImport(hisFile, null, "false"));
+        assertThat(hisCommit.get("outcome").asText()).isEqualTo("ABORTED");
+        assertThat(hisCommit.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
+
+        assertThat(digestOf(owner)).isEqualTo(owners);
+        assertThat(digestOf(partner)).isEqualTo(his);
+        assertThat(ok(memberImport(hisWithoutTheRefused(), null, "false")).get("outcome").asText())
+                .isEqualTo("COMMITTED");
+    }
+
+    /**
+     * D-338 for a claimed member: his records changed in the app with his rows unchanged (101's amount by himself, the
+     * payer; 102's date by himself; 103's category by the owner) are listed, and what they move in his ledger (his share
+     * and his side) is explained as APP_EDITED; the check passes and his commit saves, leaving them as the app has them.
+     */
+    @Test
+    void hisRecordsChangedInTheAppWithHisRowsUnchangedAreExplained() throws IOException {
+        ownersFirstImport();
+        claim();
+        assertThat(ok(memberImport(hisWithoutTheRefused(), null, "false")).get("outcome").asText())
+                .isEqualTo("COMMITTED");
+        long food = body(post(owner, "/api/family-ledgers/" + family + "/categories", """
+                {"code": "OTHER_TRANSPORT", "name": "Other transport", "type": "EXPENSE"}"""), HttpStatus.CREATED)
+                .get("id").asLong();
+        changeAs(partner, "101", "{\"amount\": \"41.00\"}");
+        changeAs(partner, "102", "{\"date\": \"2024-02-10\"}");
+        changeAs(owner, "103", "{\"categoryId\": %d}".formatted(food));
+
+        for (String dryRun : new String[] {"true", "false", "false"}) {
+            JsonNode report = ok(memberImport(hisWithoutTheRefused(), null, dryRun));
+            assertThat(report.get("errors")).isEmpty();
+            assertThat(report.get("conflicts")).isEmpty();
+            assertThat(report.get("totals").get("updated").asInt()).isZero();
+            assertThat(report.get("sync").get("appEdited").findValuesAsText("excelId"))
+                    .containsExactlyInAnyOrder("101", "102", "103");
+            assertThat(StreamSupport.stream(report.get("sync").get("appEdits").spliterator(), false)
+                    .map(e -> e.get("excelId").asText() + " " + e.get("account").asText() + " "
+                            + e.get("currency").asText() + " " + e.get("amount").asText()))
+                    .containsExactlyInAnyOrder("101 EQUITY+FAMILY_DEBT EUR -0.98", "101 PARTNER_CARD EUR -0.98");
+            assertThat(report.get("reconciliation").get("failures")).isEmpty();
+            assertThat(report.get("reconciliation").get("passed").asBoolean()).isTrue();
+            assertThat(report.get("outcome").asText()).isEqualTo(dryRun.equals("true") ? "DRY_RUN" : "COMMITTED");
+        }
+        assertThat(ok(get(partner, records() + record("101"))).get("amount").asText()).isEqualTo("41.00");
+    }
+
+    /** A change of the record in the app by the user, at its current version. */
+    private void changeAs(String user, String excelId, String body) throws IOException {
+        long id = record(excelId);
+        int version = ok(get(user, records() + id)).get("version").asInt();
+        ok(patch(user, records() + id + "?version=" + version, body));
+    }
+
+    /**
      * D-189 in small: his file without the refused rows commits and reconciles, the same file again changes nothing,
      * and the owner's import then changes nothing either, his family debt compared up to the partner's cutoff.
      */
@@ -452,7 +534,7 @@ class MemberImportApiTests extends MemberImportApiTest {
      */
     @Test
     void aTiedDateIsMatchedAsAWhole() throws IOException {
-        byte[] owners = withLine(withField(d3c("owner-transactions.csv"), "5", 3, "25"),
+        byte[] owners = withLine(edited(d3c("owner-transactions.csv"), "5", 3, "25"),
                 line("16;10.02.2024;-;15;EUR;;;Общий семейный бюджет;Евро-счёт;;;;;;", DEBT, "EURO_ACCOUNT:ASSET", NONE));
         assertThat(ok(upload(owner, "owner", owners, seatRows(his()), seat, null, "false")).get("errors")).isEmpty();
         claim();

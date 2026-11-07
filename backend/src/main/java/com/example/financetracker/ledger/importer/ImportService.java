@@ -289,6 +289,32 @@ public class ImportService {
     private record SideRow(String ref, long recordId, String sideHash, String appHash) {
     }
 
+    /**
+     * D-337: the owner's side of one of his records as his row maps it.
+     *
+     * @param payment his payment or receipt, whose entry also has the payee and the note; else a settlement's side
+     * @param exchange a conversion's leg, on his FX_EXCHANGE (D-71)
+     */
+    private record OwnSide(String accountCode, String currency, BigDecimal amount, String counterparty, boolean payment,
+            String payee, String note, boolean exchange) {
+    }
+
+    /** D-337's four cases of the owner's side of a record known from an earlier import. */
+    private enum SideState {
+        /** The ledger holds what his row maps to. */
+        EQUAL,
+        /** Not equal, his row's side as last imported, or no side stored: changed in the app, left alone. */
+        APP_EDITED,
+        /** His row's side changed, the app's as the import left it: written over. */
+        WRITE,
+        /** Both changed: a conflict, left alone (D-139). */
+        CONFLICT
+    }
+
+    /** One posting of an entry the family budget posted for a record in the importer's ledger, as displayed. */
+    private record EffectLine(String code, String currency, LocalDate date, BigDecimal shown) {
+    }
+
     /** A record of a member's family rows, as the import reads it. */
     private record MemberRecord(long id, String currency, long payerId, int version, BigDecimal share) {
     }
@@ -345,6 +371,13 @@ public class ImportService {
         private final MemberTally memberTally = new MemberTally();
         private Map<String, MemberRecord> memberRecords = Map.of();
         private Map<Long, SideRow> sideRows = Map.of();
+        /** D-337: the owner's sides stored for the first time. */
+        private int sidesStamped;
+        /** D-338: the records whose effect is explained as APP_EDITED already, and those listed as changed in the app. */
+        private final Set<Long> driftedRecords = new HashSet<>();
+        private final Set<Long> listedRecords = new HashSet<>();
+        /** The file's account codes, which the reconciliation compares. */
+        private Set<String> fileAccounts = Set.of();
         /** D-219: what the ledger holds of the rows earlier imports wrote, to compare with what they map to now. */
         private Map<String, StoredEntry> personalStored = Map.of();
         private Map<Long, StoredRecord> familyStored = Map.of();
@@ -383,6 +416,7 @@ public class ImportService {
                 warnings.add(new Problem(transactionRows.file().name(), null, ("the file's Excel IDs have %d gap(s) "
                         + "between its lowest and highest ID (D-231): listed in the report").formatted(gaps.size())));
             }
+            fileAccounts = fileChart.accounts().stream().map(Workbook.AccountRow::code).collect(Collectors.toSet());
             List<TransactionRow> excelRows = transactionRows.rows().stream().filter(r -> !r.isApp()).toList();
             List<TransactionRow> appFileRows = transactionRows.rows().stream().filter(TransactionRow::isApp).toList();
             transactionRows.rows().forEach(row -> {
@@ -442,6 +476,7 @@ public class ImportService {
             if (family != null) {
                 familyKnown = familySync.known(family.scope(), familyItems.stream().map(FamilyItem::ref).toList());
                 familyStored = familyStored(family.scope());
+                sideRows = sideRows(personal);
             }
             snapshot = exports.export(personal, null, null);
             findMissing(excelRows, familyItems, partnerRows != null, after);
@@ -464,7 +499,8 @@ public class ImportService {
                         }
                     }
                     case ImportPlanner.Family f -> {
-                        f.items().forEach(item -> importFamily(file, item));
+                        String sideHash = MemberPlanner.sideHash(row);
+                        f.items().forEach(item -> importFamily(file, item, sideHash));
                         builtFamily(row, f.items());
                     }
                     case ImportPlanner.NotImported n -> {
@@ -487,7 +523,7 @@ public class ImportService {
                 PartnerRow row = e.getKey();
                 String file = partnerRows.file().name();
                 switch (e.getValue()) {
-                    case ImportPlanner.Family f -> f.items().forEach(item -> importFamily(file, item));
+                    case ImportPlanner.Family f -> f.items().forEach(item -> importFamily(file, item, null));
                     case ImportPlanner.Skipped s -> {
                         tally(Source.PARTNER, "ZERO").skipped++;
                         skipped.add(new Problem(file, row.row(), id(row.id()), s.reason()));
@@ -515,8 +551,18 @@ public class ImportService {
                 reconciliation.appOnly().forEach(a -> warnings.add(new Problem(null, null,
                         "an account of the app moved in the file's period in a currency that no row of the file has")));
             }
-            Outcome outcome = !commit ? Outcome.DRY_RUN : errors.isEmpty() ? Outcome.COMMITTED : Outcome.ABORTED;
-            ImportReport report = new ImportReport(personal.userId(), commit, outcome, startedAt, files,
+            // D-336: a commit saves nothing while a row has an error or the check against the file fails, no override.
+            // Every path runs the check; one without it (null) keeps the rule of row errors alone.
+            List<String> refusedFor = new ArrayList<>();
+            if (commit && !errors.isEmpty()) {
+                refusedFor.add(ImportReport.ROW_ERRORS);
+            }
+            if (commit && reconciliation != null && !reconciliation.passed()) {
+                refusedFor.add(ImportReport.CHECK_FAILED);
+            }
+            Outcome outcome = !commit ? Outcome.DRY_RUN : refusedFor.isEmpty() ? Outcome.COMMITTED : Outcome.ABORTED;
+            ImportReport report = new ImportReport(personal.userId(), commit, outcome, List.copyOf(refusedFor),
+                    startedAt, files,
                     family == null ? null : family.target(), from == null ? null : new Period(from, to),
                     after.upTo(), after.counts(partnerRead),
                     List.copyOf(currencies), counts(), totals(), missing, conflicts, errors, warnings,
@@ -527,7 +573,7 @@ public class ImportService {
                     List.copyOf(gaps), zeroFxRows, fxRows, reconciliation, reports.integrityCheck(personal), member,
                     new ImportReport.Sync(List.copyOf(appEdited), List.copyOf(appEdits), List.copyOf(replanned),
                             List.copyOf(restamped), List.copyOf(notReplannable), List.copyOf(twinsMerged),
-                            appRowsUnchanged, List.copyOf(appRows)));
+                            appRowsUnchanged, List.copyOf(appRows), sidesStamped));
             batches.save(new ImportBatch(batchId, personal.userId(), personal.ledgerId(), transactionsFile.name(),
                     transactionsFile.sha256(), !commit, null, WallClock.now(), summary(report)));
             return report;
@@ -598,33 +644,40 @@ public class ImportService {
             List<Drift> rowDrift = new ArrayList<>();
             for (FamilyItem item : items) {
                 rowDrift.addAll(item.drift());
-                switch (item) {
-                    case RecordSpec spec -> {
-                        if (!spec.ownerPays()) {
-                            continue;
-                        }
-                        boolean expense = spec.type().equals("EXPENSE");
-                        BigDecimal sign = BigDecimal.valueOf(spec.refund() ? -1 : 1);
-                        BigDecimal paid = (spec.accountAmount() == null ? spec.amount() : spec.accountAmount())
-                                .multiply(sign);
-                        side(effect, spec.accountCode(), spec.accountCurrency(), expense ? paid.negate() : paid);
-                        BigDecimal record = spec.amount().multiply(sign);
-                        effect.merge(Reconciler.key(Reconciler.FAMILY_DEBT, spec.currency()),
-                                expense ? record.negate() : record, BigDecimal::add);
+                itemEffect(item).forEach((key, amount) -> effect.merge(key, amount, BigDecimal::add));
+            }
+            built.add(new Reconciler.Built(row, effect, rowDrift));
+        }
+
+        /** What the import builds of one family item on the user's own side, as displayed ({@link #builtFamily}). */
+        private Map<Key, BigDecimal> itemEffect(FamilyItem item) {
+            Map<Key, BigDecimal> effect = new TreeMap<>();
+            switch (item) {
+                case RecordSpec spec -> {
+                    if (!spec.ownerPays()) {
+                        return effect;
                     }
-                    case SettlementSpec spec -> {
-                        BigDecimal amount = spec.ownerPays() ? spec.amount().negate() : spec.amount();
-                        effect.merge(Reconciler.key(Reconciler.FAMILY_DEBT, spec.currency()), amount,
-                                BigDecimal::add);
-                        if (!spec.throughExchange()) {
-                            BigDecimal side = spec.accountAmount() == null ? spec.amount() : spec.accountAmount();
-                            side(effect, spec.accountCode(), spec.accountCurrency(),
-                                    spec.ownerPays() ? side.negate() : side);
-                        }
+                    boolean expense = spec.type().equals("EXPENSE");
+                    BigDecimal sign = BigDecimal.valueOf(spec.refund() ? -1 : 1);
+                    BigDecimal paid = (spec.accountAmount() == null ? spec.amount() : spec.accountAmount())
+                            .multiply(sign);
+                    side(effect, spec.accountCode(), spec.accountCurrency(), expense ? paid.negate() : paid);
+                    BigDecimal record = spec.amount().multiply(sign);
+                    effect.merge(Reconciler.key(Reconciler.FAMILY_DEBT, spec.currency()),
+                            expense ? record.negate() : record, BigDecimal::add);
+                }
+                case SettlementSpec spec -> {
+                    BigDecimal amount = spec.ownerPays() ? spec.amount().negate() : spec.amount();
+                    effect.merge(Reconciler.key(Reconciler.FAMILY_DEBT, spec.currency()), amount,
+                            BigDecimal::add);
+                    if (!spec.throughExchange()) {
+                        BigDecimal side = spec.accountAmount() == null ? spec.amount() : spec.accountAmount();
+                        side(effect, spec.accountCode(), spec.accountCurrency(),
+                                spec.ownerPays() ? side.negate() : side);
                     }
                 }
             }
-            built.add(new Reconciler.Built(row, effect, rowDrift));
+            return effect;
         }
 
         /** A posting on the account in the currency, as its displayed change. */
@@ -1178,8 +1231,14 @@ public class ImportService {
 
         // --- The family budget's records and settlements ----------------------------------------------------------
 
-        /** Writes or keeps one family record or settlement by D-139's rules (ImportSync), under a savepoint. */
-        private void importFamily(String file, FamilyItem item) {
+        /**
+         * Writes or keeps one family record or settlement by D-139's rules (ImportSync), under a savepoint; and the
+         * owner's own side of it, his payment, his receipt or his side of a settlement, by D-337's ({@link #sideState}).
+         *
+         * @param rowSideHash the side's hash of the owner's row the item comes from ({@link MemberPlanner#sideHash});
+         *        null for the partner's rows, on which the owner has no side
+         */
+        private void importFamily(String file, FamilyItem item, String rowSideHash) {
             Tally tally = tally(item.source(), item.kind());
             Integer row = item.row() == 0 ? null : item.row();
             if (family == null) {
@@ -1201,23 +1260,42 @@ public class ImportService {
             StoredRecord stored = known == null || known.deleted() ? null : familyStored.get(known.recordId());
             ImportSync.Outcome outcome = ImportSync.recognise(known, item.hash(),
                     stored != null && stored.equals(planned(item)));
+            OwnSide own = rowSideHash == null ? null : ownSide(item);
+            SideState side = own == null || known == null || known.deleted() ? null
+                    : sideState(known.recordId(), own, rowSideHash);
             switch (outcome) {
-                case UNCHANGED -> {
-                    tally.unchanged++;
+                case UNCHANGED, RESTAMP, APP_EDITED -> {
+                    if (side == SideState.CONFLICT) {
+                        tally.conflicts++;
+                        conflicts.add(new RowRef(item.source().name(), item.excelId(), SIDE_CONFLICT));
+                        return;
+                    }
+                    if (side == SideState.WRITE && !writeOwnSide(file, row, item, own, known.recordId(), rowSideHash)) {
+                        tally.failed++;
+                        return;
+                    }
+                    if (outcome == ImportSync.Outcome.RESTAMP) {
+                        familySync.stamp(family.scope(), known.recordId(), item.ref(), item.hash());
+                        restamped.add(new RowRef(item.source().name(), item.excelId(), RESTAMPED));
+                    }
+                    if (side == SideState.EQUAL) {
+                        stampOwnSide(item, known.recordId(), rowSideHash);
+                    }
+                    if (outcome == ImportSync.Outcome.APP_EDITED) {
+                        appEdited.add(new RowRef(item.source().name(), item.excelId(), APP_EDITED));
+                    } else if (side == SideState.APP_EDITED) {
+                        appEdited.add(new RowRef(item.source().name(), item.excelId(), SIDE_APP_EDITED));
+                    }
+                    if (side == SideState.WRITE) {
+                        tally.updated++;
+                        wrote();
+                    } else {
+                        tally.unchanged++;
+                    }
                     drift.addAll(item.drift());
-                    return;
-                }
-                case RESTAMP -> {
-                    familySync.stamp(family.scope(), known.recordId(), item.ref(), item.hash());
-                    tally.unchanged++;
-                    restamped.add(new RowRef(item.source().name(), item.excelId(), RESTAMPED));
-                    drift.addAll(item.drift());
-                    return;
-                }
-                case APP_EDITED -> {
-                    tally.unchanged++;
-                    appEdited.add(new RowRef(item.source().name(), item.excelId(), APP_EDITED));
-                    drift.addAll(item.drift());
+                    if (outcome == ImportSync.Outcome.APP_EDITED || side == SideState.APP_EDITED) {
+                        familyAppEditedDrift(item, known.recordId());
+                    }
                     return;
                 }
                 case CONFLICT -> {
@@ -1233,6 +1311,21 @@ public class ImportService {
                     return;
                 }
                 case NEW, EDITED, REPLANNED -> {
+                    // D-337: a write of the record writes his side too, which only a side as the import left it (or as
+                    // the row has it) may take. Otherwise his side changed in the app: an edited row is a conflict
+                    // (D-139), and a re-planned one, the row as imported last, is changed in the app (D-339).
+                    if (side == SideState.APP_EDITED || side == SideState.CONFLICT) {
+                        if (outcome == ImportSync.Outcome.EDITED) {
+                            tally.conflicts++;
+                            conflicts.add(new RowRef(item.source().name(), item.excelId(), SIDE_CONFLICT));
+                            return;
+                        }
+                        tally.unchanged++;
+                        appEdited.add(new RowRef(item.source().name(), item.excelId(), SIDE_APP_EDITED));
+                        drift.addAll(item.drift());
+                        familyAppEditedDrift(item, known.recordId());
+                        return;
+                    }
                 }
             }
             if (family.mode() == Mode.OWNER_AFTER_CLAIM && item.source() == Source.OWNER_SEAT) {
@@ -1246,6 +1339,9 @@ public class ImportService {
                 savepoint.executeWithoutResult(status -> {
                     long id = known == null ? create(item, created) : update(item, known, created);
                     familySync.stamp(family.scope(), id, item.ref(), item.hash());
+                    if (own != null) {
+                        saveSide(personal, sideRef(item), id, rowSideHash, appHash(personal, family.scope(), id));
+                    }
                 });
             } catch (RuleViolationException e) {
                 tally.failed++;
@@ -1270,6 +1366,139 @@ public class ImportService {
             }
             drift.addAll(item.drift());
             wrote();
+        }
+
+        // --- D-337: the owner's own side of his records ------------------------------------------------------------
+
+        /**
+         * The owner's own side of an item of his rows, as his row maps it: his payment of an expense (a refund's the
+         * other way), his receipt of an income, or his side of a settlement, on its account (FX_EXCHANGE for a
+         * conversion's leg, D-71); null for a record the seat pays and for the partner's rows.
+         */
+        private OwnSide ownSide(FamilyItem item) {
+            return switch (item) {
+                case RecordSpec spec -> spec.ownerPays() && spec.source() == Source.OWNER_FAMILY
+                        ? new OwnSide(spec.accountCode(), spec.accountCurrency() == null ? spec.currency()
+                                : spec.accountCurrency(), spec.accountAmount() == null ? spec.amount()
+                                        : spec.accountAmount(), spec.counterparty(), true, spec.payee(), spec.note(),
+                                false)
+                        : null;
+                case SettlementSpec spec -> spec.source() != Source.OWNER_SETTLEMENT ? null
+                        : spec.throughExchange()
+                                ? new OwnSide(spec.accountCode(), spec.currency(), spec.amount(), null, false, null,
+                                        null, true)
+                                : new OwnSide(spec.accountCode(), spec.accountCurrency() == null ? spec.currency()
+                                        : spec.accountCurrency(), spec.accountAmount() == null ? spec.amount()
+                                                : spec.accountAmount(), spec.counterparty(), false, null, null, false);
+            };
+        }
+
+        /**
+         * D-337, as a member's side (D-181, D-256): equal to what his row maps to; else, his row's side as last imported
+         * (or no side stored, as for every record before D4c), changed in the app; else his row's side changed, and
+         * the app's is as the import left it, to be written; else both changed, a conflict.
+         */
+        private SideState sideState(long recordId, OwnSide own, String rowSideHash) {
+            if (sideHolds(recordId, own.accountCode(), own.currency(), own.amount(), own.counterparty(), own.payment(),
+                    own.payee(), own.note())) {
+                return SideState.EQUAL;
+            }
+            SideRow storedSide = sideRows.get(recordId);
+            if (storedSide == null || storedSide.sideHash().equals(rowSideHash)) {
+                return SideState.APP_EDITED;
+            }
+            return storedSide.appHash().equals(appHash(personal, family.scope(), recordId)) ? SideState.WRITE
+                    : SideState.CONFLICT;
+        }
+
+        /** Stores the side's hashes of a side the ledger holds as the row maps it, if they aren't already its row's. */
+        private void stampOwnSide(FamilyItem item, long recordId, String rowSideHash) {
+            SideRow storedSide = sideRows.get(recordId);
+            if (storedSide != null && storedSide.sideHash().equals(rowSideHash)) {
+                return;
+            }
+            saveSide(personal, sideRef(item), recordId, rowSideHash, appHash(personal, family.scope(), recordId));
+            if (storedSide == null) {
+                sidesStamped++;
+            }
+        }
+
+        /** His row's side written over his side as the import left it (D-337), without a new version (D-111). */
+        private boolean writeOwnSide(String file, Integer row, FamilyItem item, OwnSide own, long recordId,
+                String rowSideHash) {
+            Map<String, Long> created = new HashMap<>();
+            try {
+                savepoint.executeWithoutResult(status -> {
+                    Long party = own.exchange() ? null
+                            : counterparty(own.counterparty(), Counterparty.Kind.PERSON, created);
+                    FamilyRecordChanges changes = own.payment()
+                            ? new FamilyRecordChanges(null, false, null, null, null, null, null,
+                                    accountId(own.accountCode()), false, true, own.note(), null,
+                                    item instanceof RecordSpec spec ? spec.accountAmount() : null, own.currency(),
+                                    party, true, counterparty(own.payee(), Counterparty.Kind.MERCHANT, created))
+                            : new FamilyRecordChanges(null, false, null, null, null, null, null,
+                                    accountId(own.accountCode()), false, false, null, null,
+                                    own.exchange() ? null : ((SettlementSpec) item).accountAmount(), own.currency(),
+                                    party, false, null, own.exchange());
+                    records.updateForImport(family.scope(), personal, recordId, null, changes);
+                    saveSide(personal, sideRef(item), recordId, rowSideHash,
+                            appHash(personal, family.scope(), recordId));
+                });
+            } catch (RuleViolationException e) {
+                String reasons = e.details().isEmpty() ? String.join("; ", e.violations())
+                        : e.details().stream().map(v -> v.code() + ": " + v.message()).collect(Collectors.joining("; "));
+                errors.add(new Problem(file, row, item.excelId(), "your side: " + reasons));
+                return false;
+            } catch (RuntimeException e) {
+                errors.add(new Problem(file, row, item.excelId(), "your side can't go on the family record: "
+                        + message(e)));
+                return false;
+            }
+            counterpartyIds.putAll(created);
+            counterpartiesCreated += created.size();
+            return true;
+        }
+
+        /** The row a side stands for, {@code xls:<ID>} as a member's (D-181); a conversion's legs share their row's. */
+        private static String sideRef(FamilyItem item) {
+            String excelId = item.excelId();
+            int end = excelId.indexOf(':');
+            return EntryMapper.REFERENCE_PREFIX + (end < 0 ? excelId : excelId.substring(0, end));
+        }
+
+        /**
+         * D-338: what a family record changed in the app moves in the importer's own ledger, his share and his side,
+         * less what his row maps to, per account and currency on each one's date: explained as APP_EDITED and listed
+         * per account and currency, as a personal entry's (D-223). Once per record.
+         */
+        private void familyAppEditedDrift(FamilyItem item, long recordId) {
+            if (!driftedRecords.add(recordId)) {
+                return;
+            }
+            record Change(Key key, LocalDate date) {
+            }
+            Map<Change, BigDecimal> changes = new LinkedHashMap<>();
+            recordEffect(personal, family.scope(), recordId).forEach(line -> changes.merge(
+                    new Change(Reconciler.key(line.code(), line.currency()), line.date()), line.shown(),
+                    BigDecimal::add));
+            itemEffect(item).forEach((key, amount) -> changes.merge(new Change(key, item.date()), amount.negate(),
+                    BigDecimal::add));
+            Map<Key, BigDecimal> byAccount = new TreeMap<>();
+            changes.forEach((change, amount) -> {
+                Key key = change.key();
+                if (amount.signum() == 0 || !key.account().equals(Reconciler.POOL)
+                        && !fileAccounts.contains(key.account())) {
+                    return;
+                }
+                drift.add(new Drift(key.account(), key.currency(), change.date(), amount, Drift.Reason.APP_EDITED));
+                byAccount.merge(key, amount, BigDecimal::add);
+            });
+            byAccount.forEach((key, amount) -> {
+                if (amount.signum() != 0) {
+                    appEdits.add(new ImportReport.AppEdit(item.source().name(), item.excelId(), item.date(),
+                            key.account(), key.currency(), strip(amount)));
+                }
+            });
         }
 
         /**
@@ -1538,11 +1767,16 @@ public class ImportService {
                         restamped.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId, RESTAMPED));
                     } else {
                         appEdited.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId, APP_EDITED));
+                        listedRecords.add(known.recordId());
                     }
                     tally.unchanged++;
                     memberTally.recordsUnchanged++;
                     drift.addAll(spec.drift());
                     memberSide(file, number, excelId, row, known.recordId(), familyRow.sideHash(), spec);
+                    if (outcome == ImportSync.Outcome.APP_EDITED) {
+                        // D-338: what the change in the app moves in his ledger, after his side's own outcome.
+                        familyAppEditedDrift(spec, known.recordId());
+                    }
                     return;
                 }
                 case DELETED -> {
@@ -1557,6 +1791,9 @@ public class ImportService {
                     memberTally.recordConflicts++;
                     conflicts.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId,
                             "changed in the app since its last import (D-139)"));
+                    // A conflict is never explained: its side isn't listed or explained as changed in the app.
+                    listedRecords.add(known.recordId());
+                    driftedRecords.add(known.recordId());
                     memberSide(file, number, excelId, row, known.recordId(), familyRow.sideHash(), spec);
                     return;
                 }
@@ -1625,11 +1862,20 @@ public class ImportService {
             SideRow known = sideRows.get(recordId);
             // D-256: a side the ledger holds as the row has it is unchanged, whatever texts its row has that the
             // ledger doesn't keep.
-            if (known != null && (known.sideHash().equals(sideHash) || sideHolds(recordId, spec.accountCode(),
-                    spec.accountCurrency(), spec.accountAmount() == null ? spec.amount() : spec.accountAmount(),
-                    spec.counterparty(), true, spec.payee(), spec.note()))) {
+            boolean holds = known != null && sideHolds(recordId, spec.accountCode(), spec.accountCurrency(),
+                    spec.accountAmount() == null ? spec.amount() : spec.accountAmount(), spec.counterparty(), true,
+                    spec.payee(), spec.note());
+            if (known != null && (holds || known.sideHash().equals(sideHash))) {
                 tally.unchanged++;
                 memberTally.sidesUnchanged++;
+                if (!holds) {
+                    // D-338, D-340: his row's side as last imported, the ledger's changed in the app (or by the
+                    // record's change): left alone, and what it moves explained as APP_EDITED.
+                    if (listedRecords.add(recordId)) {
+                        appEdited.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId, SIDE_APP_EDITED));
+                    }
+                    familyAppEditedDrift(spec, recordId);
+                }
                 return;
             }
             if (known != null && !known.appHash().equals(appHash(personal, family.scope(), recordId))) {
@@ -2313,6 +2559,33 @@ public class ImportService {
         return ImportSync.contentHash(fields.toArray(String[]::new));
     }
 
+    /**
+     * D-338: every posting of the entries the family budget posted for the record in the member's personal ledger, his
+     * share and his side, by account code (his debt to the family budget as FAMILY_DEBT), displayed (rule 4).
+     */
+    private List<EffectLine> recordEffect(LedgerScope personal, LedgerScope family, long recordId) {
+        return jdbc.sql("""
+                SELECT CASE WHEN a.family_ledger_id IS NOT NULL THEN 'FAMILY_DEBT' ELSE a.code END AS code, a.type,
+                       p.currency, e.entry_date, p.amount
+                FROM family_entry_link l
+                JOIN journal_entry e ON e.id = l.entry_id
+                JOIN posting p ON p.entry_id = e.id
+                JOIN account a ON a.id = p.account_id
+                WHERE l.family_ledger_id = :familyId AND l.record_id = :recordId AND l.member_id = :memberId
+                  AND l.link_type IN ('SHARE', 'PAYMENT', 'SETTLEMENT') AND l.detached_at IS NULL
+                  AND e.ledger_id = :ledgerId AND a.ledger_id = :ledgerId
+                ORDER BY e.id, p.line_no""")
+                .param("familyId", family.ledgerId()).param("recordId", recordId)
+                .param("memberId", family.memberId()).param("ledgerId", personal.ledgerId())
+                .query((row, n) -> {
+                    BigDecimal amount = row.getBigDecimal("amount");
+                    return new EffectLine(row.getString("code"), row.getString("currency").strip(),
+                            row.getObject("entry_date", LocalDate.class),
+                            "ASSET".equals(row.getString("type")) ? amount : amount.negate());
+                })
+                .list();
+    }
+
     /** D-256: a member's own entry for a record, as the ledger holds it; counterparties by name in lower case. */
     private record StoredSide(String payee, String memo, List<StoredLine> lines) {
     }
@@ -2452,6 +2725,8 @@ public class ImportService {
 
     static final String RESTAMPED = "the ledger holds what the row maps to; its hash is stored again (D-219)";
     static final String APP_EDITED = "changed in the app, the file unchanged: left as it is (D-219)";
+    static final String SIDE_APP_EDITED = "your side changed in the app, the file unchanged: left as it is (D-337)";
+    static final String SIDE_CONFLICT = "your side changed in the app since its last import, and the row too (D-337)";
     static final String REPLANNED = "re-planned: the current code maps it differently (D-219)";
     static final String NOT_REPLANNABLE = "can't be re-planned after the claim: the partner's place pays it (D-196, "
             + "D-219)";

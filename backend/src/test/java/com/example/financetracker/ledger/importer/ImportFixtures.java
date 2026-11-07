@@ -104,6 +104,46 @@ public final class ImportFixtures {
     }
 
     /**
+     * The file with one typed field of the row with this ID replaced the way Excel changes it (D-336): its 17 computed
+     * columns computed again from the typed ones, with the row's own codes and types. {@link #withField} leaves them as
+     * they were, which the check against the file finds.
+     *
+     * @param column a typed column's index, Date (1) to LOAN_CA (14)
+     */
+    public static byte[] edited(byte[] csv, String id, int column, String value) {
+        return edited(csv, id, java.util.Map.of(column, value));
+    }
+
+    /**
+     * The file with fields of the row with this ID replaced the way Excel changes them: typed columns (1 to 14), and
+     * for a side moved to another account its CODE_DEBIT or CODE_CREDIT (17, 18) and TYPE_DEBIT or TYPE_CREDIT (19,
+     * 20), from which the computed columns are computed again.
+     */
+    public static byte[] edited(byte[] csv, String id, java.util.Map<Integer, String> changes) {
+        changes.keySet().forEach(column -> {
+            if (column < 1 || column > 20 || column == 15 || column == 16) {
+                throw new IllegalArgumentException("a typed column or a side's code or type, not " + column);
+            }
+        });
+        List<String> lines = new ArrayList<>(lines(csv));
+        boolean found = false;
+        for (int i = 1; i < lines.size(); i++) {
+            String[] fields = lines.get(i).split(";", -1);
+            if (fields[0].equals(id)) {
+                changes.forEach((column, value) -> fields[column] = value);
+                String typed = String.join(";", java.util.Arrays.copyOf(fields, 15));
+                lines.set(i, line(typed, fields[17] + ":" + fields[19], fields[18] + ":" + fields[20],
+                        fields[15] + ":" + fields[16]));
+                found = true;
+            }
+        }
+        if (!found) {
+            throw new IllegalArgumentException("no row " + id);
+        }
+        return join(lines);
+    }
+
+    /**
      * A row with D-235's 32 columns: its 15 typed ones as given, and the 17 Excel computes from them and from the codes
      * and types, as {@link ExcelRow} computes them (D-237).
      *

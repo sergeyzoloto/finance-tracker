@@ -71,7 +71,8 @@ finance-tracker-api ──▶ https://auth.finance-nl.com (through the server's 
 | Backups | `/var/backups/pg/finance/` on the server (14 days), pulled daily to `~/backups/finance-nl-server/finance/` on the laptop (60 days); since OPS-3 also Hetzner's 7 daily backups of the whole server ([Hetzner's backups of the server](#hetzners-backups-of-the-server)) |
 | Backup settings | `/etc/pg-backup/finance.conf`, from `deploy/pg-backup/finance.conf`; timer `pg-backup@finance.timer` |
 | Logs | the host's journal, 14 days, since OPS-3 for every container of both stacks ([Logs](#logs)) |
-| The external monitor | `.github/workflows/monitor.yml` in this repository, on GitHub, scheduled every 15 minutes, run by GitHub every 3 to 10 hours (D-332, [Monitoring](#monitoring)) |
+| The external monitor | `.github/workflows/monitor.yml` in this repository, on GitHub, scheduled every 15 minutes, run by GitHub every 3 to 10 hours (D-332, [Monitoring](#monitoring)): the certificates, `/api/me`'s 401, the realm's issuer |
+| The uptime monitor | since D4c (D-335), UptimeRobot's free plan, under the owner's own account, outside this repository: HTTP(S) monitors of the site and the realm's discovery document every 5 minutes, alerts by email to the owner ([Monitoring](#monitoring)) |
 
 Docker Compose also gives each container its service name on every network it joins, so `api` and
 `web` are names on `edge` too. The site file uses only the `finance-` names, as the auth server's
@@ -1045,7 +1046,13 @@ count that differs, or a check that doesn't pass. Since D4b the owner's check ha
 the partner's records of the new month, which only the partner's import writes, move his family debt and equity
 together by 0 (D-255, D-258); D-208's and D-209's lists are history.
 
-**12.4 The owner's commit**, with the same file and date still on the page: **Commit import**, confirm. You should see
+**12.4 The owner's commit**, with the same file and date still on the page: **Commit import**, confirm. Since D4c
+(D-336) the page refuses a commit that the check fails: after a dry run whose check doesn't pass, **Commit import** stays
+off, with the line "The check against your file doesn’t pass, so nothing can be committed. Fix what it lists, in Excel
+or in the app, export again and check again.", and the server itself refuses one ("Commit refused: nothing was saved:
+the check against your file doesn’t pass (D-336)"); 12.3's STOP comes first anyway. The first commit on D4c's code also
+stores the owner's sides of his family records (D-337): the sync groups' line "Your sides of your family records, as your
+ledger holds them, stored for the first time: N", with the figures' N; the check again has no such line. You should see
 the header **"Commit: the import was saved"** and **Imported** with 12.3's totals, the check **Passed**. Then **Check
 (dry run)** once more, never **Commit** again (since D3e Commit stays off for files just committed): the header
 "Check (dry run): nothing was saved", 0 created, 0 updated, no rename and no category merged, the check **Passed**. Then
@@ -1071,7 +1078,8 @@ differs, or a check that doesn't pass. Errors "no counterpart: no settlement of 
 (D-178)" mean the owner's import of the month isn't in: STOP and check 12.4 and 12.5.
 
 **12.7 The partner's commit**, the same file and date: **Commit import**, confirm: **Imported** with 12.6's totals, the
-check **Passed**. Then **Check (dry run)** once more: 0 created, 0 updated. Then the integrity check in his
+check **Passed**. As in 12.4, the page refuses a commit that the check fails (D-336): **Commit import** stays off after
+such a dry run, with its line, and 12.6's STOP comes first. Then **Check (dry run)** once more: 0 created, 0 updated. Then the integrity check in his
 window and in the owner's: `[]` for both. **STOP** on any difference; the way back is B2 (12.13).
 
 **12.8 (none since D4b).** The owner's final dry run of before waited for the partner's import (D-175); his check no
@@ -1377,6 +1385,43 @@ D-175's family debt up to a date and D-180's CLAIM_OPENING gone (D-255, D-256, D
 Each member's export, of the whole period and of 2026-09, imported back: 0 created, 0 updated, 0 conflicts, 0
 missing, **Passed** (D-256's round trip; the partner's D-198 groups explained as NO_ROW, D-265).
 
+### D4c's rehearsal from production's dump (October again)
+
+**Rehearsed by D4c on 2026-11-07** (D-346), on the laptop, as D-324: `finance-2026-11-07T0236Z.dump` (4809879 bytes,
+SHA-256 `6560c386965d2cd92ecf69c6f36e3b9e4497efc522f6d42abbe2bc126c09fabc`, the daily pull's newest) restored by
+`scripts/rehearsal-db.sh`, the api and Vite on the host, the import page in a scripted Chrome as `testuser` and
+`testuser2`, `export-2026-11-05`'s two files (12.0's hashes), **Import up to 2026-10-31**. Every page's text and report:
+`data/private/reports/d4c-*`. They are October's files again, so they are no figures for November's step 12: those are
+rehearsed from production's dump on D4c's deployed code once November's export exists (D-220).
+
+**Before** (24 numbers, `numbers.sql` on the restored dump): as October's figures' **after**: `accounts=74`,
+`categories=92`, `counterparties=1413`, `entries=42743`, `family_accounts=2`, `family_import_cutoffs=2`,
+`family_invites=1`, `family_journal=12561`, `family_ledgers=1`, `family_links=36174`, `family_members=2`,
+`family_members_active=2`, `family_members_former=0`, `family_members_left=0`, `family_records=12549`,
+`family_shares=23830`, `import_batches=10`, `imported_entries_deleted=0`, `imported_family_sides=8650`,
+`outside_their_ledger=0`, `personal_ledgers=4`, `personal_members=4`, `settings=4`, `users=4`.
+
+**The baseline on `dcd4c5b`'s code** (1c, the code production runs): the owner's dry run created 0, updated 0,
+unchanged 7023, not imported 53, skipped 18; "Passed: 2808 month-end balances compared, from 01.11.2017 to 31.10.2026,
+…; 7092 rows checked, 0 failing."; changed in the app 211, 1262, 2497, 2839, 2973 (211's APP_EDITED, EQUITY+FAMILY_DEBT
+RUB -2.50 and LOANS_ASSET RUB -2.50); can't be re-planned 752, 755, 756, 2122, 2257. The partner's: created 0, updated
+0, unchanged 20690, not imported 189, skipped 79; "Passed: 2407 month-end balances compared, from Dec 1, 2019 to Oct 31,
+2026, …; 12855 rows checked, 0 failing."; every sync group empty.
+
+**On D4c's code:**
+
+1. Both dry runs as the baseline, line for line, but the owner's sync groups' new line: **4410 sides stamped** (his
+   3593 expenses and refunds he paid, 191 incomes he received, 626 settlements and conversions' legs), **none changed in
+   the app**; the partner's 0 (his sides are stored since D3c).
+2. The owner's commit: `COMMITTED`, the same totals and check, 4410 stamped; Commit off after it. His dry run again: the
+   same, 0 stamped. The partner's commit: `COMMITTED`, the same totals and check; his dry run again the same. Nothing
+   was created or updated in either.
+3. The integrity check `[]` for both.
+4. **After**: the same 24 numbers but `imported_family_sides=13060` (+4410, the owner's sides) and `import_batches=12`
+   (+2, the batch record each commit writes, as every step 12 does). `D4c.expected` holds before and after.
+5. The owner's export (`/api/export/transactions`) byte for byte the same with his 4410 sides stored and without them
+   (D-342). Then `scripts/rehearsal-db.sh --remove`.
+
 ## Deployed revisions
 
 What runs on the server, newest first. The server's clone may be newer when only documentation
@@ -1553,6 +1598,320 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   2026-10-08 04:00Z), and the strict rule would block deploys for most of that day. `verify` and `finish` print the line
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
+
+## D4c's deploy checklist with the suite
+
+**Commit to deploy (M):** `feature/family-budget`'s head after D4c, the commit D4c's report names in full. M holds this
+checklist, so the checklist can't name M's hash itself: every block below that takes it says `<M>`; type M's full hash
+(40 characters) there before pasting the block (D-226). Pasted as it is, bash reads `<M>` as a redirection and runs
+nothing of the line. **Stage:** `D4c` (`deploy/checks/D4c.sql` and `D4c.expected`, 8 lines, structure and invariants
+only: Flyway V16, `imported_family_side`'s columns, key and trigger, no side of another form, outside a personal ledger
+or of a budget its member never joined, no unbalanced entry; no count, so nothing in it changes with an import; tried on
+the rehearsal's throwaway database at V16, before and after its commits). D4c is no commit while the check against the
+file fails (D-336), the owner's own side of his family records compared and stored as a member's (D-337, D-342), a
+family record changed in the app explained as APP_EDITED (D-338), and UptimeRobot in the runbook (D-335). **Migration:**
+none (Flyway stays at V16). **It writes no data**: the owner's sides are stored by his first commit on D4c's code, in
+November's step 12, not by the deploy. **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since
+2026-10-03T09:25:40Z) before, during and after. **The suite:** from a clean checkout of M, with `E2E_FAMILY=on`; it
+replaces the browser checks and the smoke test (D-51, D-56); its `import` spec now also checks D-336 (a Sum changed by
+hand: the check fails, Commit stays off; then the right file commits). **The rollback target:** `9e7aa87` (UX-1's code
+with R-OCT's records, on the same V16), with no condition of its own. **The time (D-125):** no step between 03:30 and
+04:30 UTC; the last block (a rollback for a site that is down) is the exception. This checklist is for this deploy
+only.
+
+**When.** Before November's step 12 (early December), which is rehearsed on M's code first (D-220): the figures of
+[D4c's rehearsal](#d4cs-rehearsal-from-productions-dump-october-again) are October's files on D4c's code, not
+November's. D4c changes the import (`ImportService`, the import page) and not the export or the files' formats.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
+`cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it
+does nothing; a laptop block starts with `cd ~/dev/finance-tracker &&` (or `cd ~/dev/finance-tracker/e2e &&`), or is
+wrapped in `cd ~/dev/finance-tracker && {` … `}`, so that pasted on the server it does nothing (D-330, D-334). A
+command that asks a question (`deploy.sh run`, `finish`, `rollback.sh`, and on the laptop `npm run e2e:prod`) is alone
+in its block; type its answer on the keyboard, after the question, never paste it. Every laptop git command that can
+page runs as `git --no-pager`, and a dirty tree stops a chain (`test -z "$(git status --porcelain)"`), D-127. Each step
+closes with its output pasted, never a confirmation in words (D-222). Don't start "CI on Ubuntu 26.04" before step 9.
+
+What runs and why:
+
+- `run` is the clone's script, `9e7aa87`'s (bash reads it, with `common.sh`, before the merge): its step 1.1 refuses a
+  scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-126, D-128, D-131); its gate
+  (1.5) counts only the check runs of `ci.yml`'s runs (D-280). Step 1.3 requires M to be `origin/main` after `git
+  fetch` and a fast-forward of `HEAD` (`9e7aa87`), lists the commits from `9e7aa87` to M (`dcd4c5b`, UX-1-doc, then
+  D4c's, the last of them M), `Migrations added: none`, and under `deploy/` three files: `RUNBOOK.md`,
+  `checks/D4c.expected` and `checks/D4c.sql`. `finance.caddy`, the postgres service and `pg-backup/finance.conf` don't
+  change.
+- Both images change (`backend/`, `frontend/`): both are rebuilt and recreated, and signed-in sessions end. The api
+  finds nothing to migrate (`Schema "app" is up to date. No migration necessary.`).
+- 1.7 and 4.3 count the numbers with `numbers.sql` (24 numbers, unchanged), the same before and after.
+- 3.2 keeps the running images (`9e7aa87`'s, as UX-1's `finish` left them) as
+  `:9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c` and `:previous`; `/root/finance-tracker.previous` then names `9e7aa87`.
+- 4.4 compares `D4c.sql`'s output with `D4c.expected`. A difference in any line is a fault: stop and send the diff.
+- **The rollback target after this deploy is `9e7aa87`**, with no condition of its own: the same schema, and its code
+  reads the owner's new rows of `imported_family_side` as it reads a member's: its export only checks a row's form with
+  them (D-342), and its import of the owner never reads the table.
+
+**0. On the laptop, read only: where things stand.** Before anything else; type M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
+```
+
+You should see `HEAD` M with D4c's subject (on `feature/family-budget`); `origin/main`
+`9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c` (R-OCT); `origin/feature/family-budget` M if D4c is pushed, else
+`dcd4c5b42f9aa4f92db43f46d7d3f9831a2ecb5d` (UX-1-doc); the commits of `origin/main..feature/family-budget`, `dcd4c5b`
+and D4c's, the last of them M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any line
+of `git status`: stop and tell the PM.
+
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted D4c
+and named M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see `Updating 9e7aa87..<M's 7 characters>` and `Fast-forward` for the merge (or `Already up to date.` if
+`main` is at M already), the push of both branches (or `Everything up-to-date`), and M in full with its parent and
+D4c's subject. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the PM. `Not
+possible to fast-forward`, or another hash: stop.
+
+CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about fifteen minutes). First the
+runs with their jobs; type M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `CI`, `push`, once on `main` and once on `feature/family-budget` (D-95), attempt 1, each `completed
+success`, each with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` and `Dependency updates`,
+`completed success`; and none or some `Monitor #n schedule main`, each with its job `Monitor` (D-276; `run`'s gate
+doesn't count them, D-280). No "CI on Ubuntu 26.04" run. Then the check runs:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && M=<M> && curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see 10 plus the number of `Monitor` runs, the five names twice each, each `completed success`. The two
+Backend runs ran the test classes in random order with their run numbers as seeds (D-99); a failure of either is a
+real fault: stop. A failure only of a Frontend job may be re-run once (D-94). A failed `Monitor` run is production's,
+not M's: send it to the PM, who decides whether to go on. Anything else: stop.
+
+**2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-web:previous finance-tracker-web:latest; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Successfully applied|Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+}
+```
+
+You should see:
+
+- `Now:` outside 03:30 to 04:30 UTC (D-125). `Scheduled shutdown: cat: /run/systemd/shutdown/scheduled: No such file
+  or directory`; a scheduled reboot isn't a stop by hand (`run` decides by D-131 in its step 1.1): start step 4 only if
+  it is at least 2 hours after the moment you start it. Send the line either way. `Reboot required:` either `No such
+  file or directory` or `*** System restart required ***`, neither a stop by itself.
+- Docker server 29.8.2, linux/amd64 (or a later patch the PM knows of); Compose; `Image store:
+  [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: 9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c docs: October's step 12 rehearsed, its figures and D-318 to D-326
+  (R-OCT)`; `git status --short` printing **nothing**; `previous file: b899e3a74b8febd5519a783f3b95cbab67947f05`.
+- `last-good`, `contents` and the history's last lines as UX-1's `finish` left them (the runbook's "Deployed revisions"
+  and "Production now"): `commit=9e7aa87…`, its two images and contents, `source=deploy`, `finish=passed
+  2026-11-05T18:51:34Z`; the history ending with UX-1's `good 9e7aa87…` and its refused rollback acceptance; the newest
+  run folders UX-1's run and that acceptance.
+- The containers on the images of `last-good` (and their contents), started at UX-1's run or at a later reboot (not a
+  stop, but say so); `:previous` and `:b899e3a…` as UX-1's 3.2 left them; `:latest` the running images.
+- The api's start: `Schema "app" is up to date. No migration necessary.` (or, at UX-1's own start, its
+  `Successfully applied 1 migration`), the D-25 line "on" and `Started FinanceTrackerApplication`; `1`; `600 root` for
+  `.env` and its copies.
+
+If anything differs, stop and send it to the PM: a difference in the images or `last-good` changes what 3.2 does.
+
+**3. On the server: verify, read only**, with the running script.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-1
+```
+
+You should see `verify UX-1 at 9e7aa87 …: OK`, its `Scheduled shutdown:` line, both images "the recorded image",
+`Image store: containerd, platform linux/amd64`, the pages 5 of 5, Flyway V16, the D-25 line "on", `UX-1.expected`'s 5
+lines, and the 24 numbers. Keep them: step 4 prints them again and step 7 compares with them. Before November's step 12
+they are October's figures' **after** numbers, which production's dump of 2026-11-07 held too (the
+[rehearsal](#d4cs-rehearsal-from-productions-dump-october-again)'s **before**); a participant writing in the app since
+explains a difference in his own lines only.
+
+**4. On the server: the deploy**, alone in its block, not between 03:30 and 04:30 UTC; type M's 7 characters at the
+confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> D4c
+```
+
+It prints ("Deploying with deploy.sh" lists the steps):
+
+- 1.1: `Tools present: …` and `Scheduled shutdown: none (…)` (or a reboot at least 2 hours away; less, and it refuses
+  here).
+- 1.2: `HEAD: 9e7aa87 docs: October's step 12 rehearsed, …`, the running images, `Last good deploy: 9e7aa87 …
+  (deploy)`, status `good`, both images "the recorded image", the read-only role's line.
+- 1.3: the fetch; the commits from `9e7aa87` to M, `dcd4c5b` then D4c's, the last of them M; `Migrations added: none`;
+  under `deploy/`: `RUNBOOK.md`, `checks/D4c.expected`, `checks/D4c.sql`.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`, CI's own only (D-280). 1.6: the D4c
+  files. 1.7: step 3's 24 numbers.
+- 1.8: a fresh dump, `PASS`, the before-dump preserved with its SHA-256. Note the dump's name.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage D4c, over 9e7aa87.`; type the 7 characters.
+- 3.1: `Fast-forward`. 3.2: `9e7aa87`'s images kept as `:9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c` and `:previous`,
+  the oldest kept revision's tags removed. 3.3: api built (Maven: a few minutes), web built. 3.4: both recreated. 3.5:
+  `api: healthy, web: healthy`. 3.6: `Pages: 5 of 5 as expected`.
+- 4.1: `Schema "app" is up to date. No migration necessary.`, `Latest row: 16 user date format true; the highest
+  migration in <M>: V16`, `Started: …`. 4.2: the D-25 line "on". 4.3: `The same numbers`. 4.4: `D4c.expected`'s 8
+  lines. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump, `PASS`.
+- 5: the summary, `Numbers: the same before and after (…)`, then `Left for you: … deploy/deploy.sh finish`: here, the
+  suite of step 5.
+
+A FAILED line: stop, send it to the PM; it prints the rollback command, which isn't run (the last block).
+
+**5. On the laptop: the end-to-end suite against production** (D-51, D-56), not between 03:30 and 04:30 UTC, from a
+clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. Nothing after the checkout means a dirty tree: stop. Another commit: stop.
+
+Then the suite, alone in its block. Read its banner (https://app.finance-nl.com, `e2e-a (e2e-a@finance-nl.com)`, `e2e-b
+(e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, M and "clean tree"), then type `E2E PROD` after the question.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary, from `===== E2E summary =====` to `=======================`. You should see `Commit:` M `(clean
+tree)`, `E2E_FAMILY: on`, `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`, `family F8
+passed`, `export passed`, `family F8d passed`, `import passed` (D4c: `e2e-a`'s file with row 21's Sum changed by hand
+fails the check with Commit off and its line, then the right file commits, D-336), `member import passed`,
+`new-family skipped` (D-163, local only), `time-zone passed` (2 tests), `dashboard passed`, `cleanup passed`, both
+accounts signed in, their data deleted and signed out, `Password search over the artifacts: 0 hits`, `Result: PASSED`.
+D-58 and D-59 apply as in D4b's checklist.
+
+Left to check by hand, before `finish`: nothing. The suite covers what D4c changes on the page (D-336) with `e2e-a`'s
+synthetic files; D-337 and D-338 change what the participants' imports report, which only their own files show, in
+November's step 12 (12.3 to 12.7), rehearsed on M's code first. UptimeRobot (D-335) is set up by the owner in his own
+account ([UptimeRobot](#uptimerobot-d-335)), at any time and not as a step of this deploy.
+
+**6. On the server: finish**, only after step 5, alone in its block; `yes` to both only if step 5's summary says
+`Result: PASSED` with 0 password hits; otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-<M's 7 characters>`, its `Scheduled shutdown:` line,
+the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before the deploy", the
+images and "Done". After `no`: `NOT PASSED: …`, exit status 3, and the rollback command, which isn't run.
+
+**7. On the server: verify D4c, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify D4c
+```
+
+You should see `verify D4c at <M's 7 characters> …: OK`, its `Scheduled shutdown:` line, both images "the recorded
+image", the pages 5 of 5, Flyway V16, the D-25 line "on", `D4c.expected`'s 8 lines, and step 3's 24 numbers, the same.
+A participant writing meanwhile explains a difference in his own lines only; judge it before going on. From D4c's
+deploy on, step 12's 12.1 and 12.10 use `verify D4c`.
+
+**8. Acceptance: `rollback.sh 9e7aa87` goes to its question**, changing nothing. The rollback state, before:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous finance-tracker-api:9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c finance-tracker-web:9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c; cat /var/lib/finance-deploy/last-good; }
+```
+
+You should see `9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c`; the api's and the web's previous images twice each (step
+2's running images, as UX-1's `finish` left them); and `last-good` with `commit=` M and `finish=passed …`.
+
+`rollback.sh 9e7aa87`, alone in its block; type `no` at its question.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh 9e7aa87
+```
+
+You should see in step 1 `Scheduled shutdown: none (…)` (a scheduled one would only be a `WARNING`) and the image store
+and platform; step 2 `Target: 9e7aa87 docs: October's step 12 rehearsed, …, the commit HEAD's deploy replaced
+(…-<M's 7 characters>); its status, its newest line in the history: good`; step 3 the images accepted; step 4
+`Flyway's latest row: 16 user date format true; the target's highest migration: V16` and no condition line (the
+conditions are for targets below V7, V11, V13 and V14); then the question, and after `no`: `REFUSED at "5.
+Confirmation": not confirmed` and "Nothing changed." Then the block above again: the same lines.
+
+**9. CI on Ubuntu 26.04 (D-44, D-124)**, last, only now, on M deployed and finished. On GitHub, Actions → "CI on Ubuntu
+26.04" → "Run workflow" on `main`, **exactly once**, and wait for it to the end. If `main` has moved past M by then, run
+it under D-60: a temporary branch at exactly M, deleted afterwards. Then, read only, type M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], "id", r["id"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `1 runs`: `CI on Ubuntu 26.04`, its number and id, `workflow_dispatch main attempt 1 completed success`,
+and Backend, Frontend, Web image and Deploy scripts each `completed success`. Two runs mean a second dispatch, which
+cancels the first (D-124): send both to the PM.
+
+**10. Last, only for a failed deploy where the site is down: the rollback**, alone in its block, at any hour; type
+`ROLLBACK 9e7aa87` at its question. It goes to `9e7aa87`, UX-1's code with R-OCT's records and its deploy scripts, on
+the same V16; no condition of its own. A scheduled shutdown, however near, is only a warning here (D-126, D-131).
+
+```bash
+# On the server: only for a failed deploy where the site is down
+cd /opt/finance-tracker && deploy/rollback.sh 9e7aa87
+```
 
 ## UX-1's deploy checklist with the suite
 
@@ -7428,6 +7787,33 @@ browser does, and writes nothing.
 - By hand: GitHub → Actions → "Monitor" → "Run workflow"; or on the laptop, read only, `.github/scripts/monitor.sh`
   (exit status 0, or 1 with the failed check named).
 
+### UptimeRobot (D-335)
+
+D-332's question (an outage of minutes goes unseen) is closed by D-335: the GitHub monitor stays as it is, for the
+certificates, `/api/me`'s 401 and the realm's issuer, whenever GitHub runs it; and the owner adds **UptimeRobot's free
+plan**, under his own account, outside the repository (nothing of it is in this repository, the server or the deploy
+scripts):
+
+| Monitor | Type | URL | Interval | Alert |
+| --- | --- | --- | --- | --- |
+| The site | HTTP(S) | <https://app.finance-nl.com/> | 5 minutes | email to the owner |
+| The login service | HTTP(S) | <https://auth.finance-nl.com/realms/myapps/.well-known/openid-configuration> | 5 minutes | email to the owner |
+
+- **What it sees.** Both answer 200 while the web container (through Caddy) and Keycloak are up; anything else, or no
+  answer, is "down" and emailed. UptimeRobot counts a 401 as down, so `/api/me` (whose 401 proves the api is up) stays
+  the GitHub monitor's alone; an api that is down while the site's page still loads shows only there, within GitHub's
+  3 to 10 hours.
+- **What it receives.** Only the answers of two public pages, as any browser gets them without signing in: no
+  visitor's data, no cookie, no secret. So the privacy policy needs no word for it (D-341): its "Who else processes your
+  data" names those who process a user's data, and UptimeRobot processes none.
+- **Set up once**, by the owner at <https://uptimerobot.com> (his own account; not a step for an agent): New monitor →
+  HTTP(S), the URL, a friendly name, interval 5 minutes, the owner's email as alert contact; the same for the second.
+  Then a test: pause and resume one, or point a third, temporary one at a URL that fails (such as
+  `https://app.finance-nl.com/api/me`, a 401) and wait for its email, then delete it.
+- **Planned downtime.** A deploy's restart of `api` and `web` lasts seconds, below one 5-minute check; the host's
+  reboots at 04:00 UTC (D-125) may give one "down" and one "up" email. Pause both monitors in UptimeRobot only for longer
+  work, and resume them after.
+
 ## Regular checks
 
 Weekly:
@@ -7456,7 +7842,9 @@ curl -fsS -H 'Accept: application/vnd.github+json' 'https://api.github.com/repos
 ```
 
 You should see `Monitor active` and runs of the last day, `schedule`, `completed success` (GitHub starts one every
-3 to 10 hours, D-332, not four an hour).
+3 to 10 hours, D-332, not four an hour). In UptimeRobot's dashboard (D-335), the owner's account: both monitors
+**Up** and not paused, each with its 5-minute interval, the last day's uptime, and any down period matched by the alert
+email it sent.
 `disabled_inactivity` means GitHub stopped the schedule after 60 days without activity in the
 repository ([Monitoring](#monitoring)). In the Hetzner Console, the server's Backups tab lists 7
 backups, the newest from the last day.

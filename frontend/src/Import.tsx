@@ -44,7 +44,7 @@ interface Choice { file?: File; ledgerId: string; seatId: string; partner?: File
  * budget and the partner’s seat (D-141), the family rows into the budget. For a place without an account the partner’s
  * file is filtered here, in the browser: only his family rows, and only what the import needs, are uploaded (D-140). A
  * dry run first, which writes everything, checks the ledger against the file, reports and rolls back; then, if no row
- * has an error, the same file for real. Running it again recognises the rows by their IDs: nothing is written twice.
+ * has an error and the check passes (D-336), the same file for real. Running it again recognises the rows by their IDs: nothing is written twice.
  * “Import up to” leaves out the rows dated after it, and the check stops there (D-165); Commit is only for the files,
  * the budget and the date its dry run read, and once they are committed, not again until a file or the date changes
  * (D3e). Your file's rows, highest ID and last date are shown as soon as it is chosen, before any check (D-221, D-257).
@@ -77,7 +77,9 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   const ready = ownerReady && familyReady && !filterError
   const checked = report?.outcome === 'DRY_RUN' && reported === choice
   const committedAlready = committed === choice
-  const canCommit = checked && report.errors.length === 0 && !pending && !committedAlready
+  // D-336: no commit while the check against the file fails; the server refuses one too.
+  const checkFails = checked && report.reconciliation !== null && !report.reconciliation.passed
+  const canCommit = checked && report.errors.length === 0 && !checkFails && !pending && !committedAlready
 
   function change(next: Choice) {
     setChoice(next)
@@ -253,6 +255,12 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
           {checked && report.errors.length > 0 && (
             <span className="error">Fix the {rows(report.errors.length)} with errors and check again to commit.</span>
           )}
+          {checkFails && (
+            <span className="error" data-testid="check-fails">
+              The check against your file doesn’t pass, so nothing can be committed. Fix what it lists, in Excel or in
+              the app, export again and check again.
+            </span>
+          )}
           {committedAlready && (
             <span className="muted" data-testid="committed-already">
               These files are committed. Commit is off until a file or the date changes.
@@ -278,9 +286,11 @@ function Report({ report }: { report: ImportReport }) {
       </h3>
       {report.outcome === 'DRY_RUN' && (
         <p className={report.errors.length === 0 ? 'success' : 'notice'} role="status">
-          Dry run: nothing was saved. {report.errors.length === 0
-            ? `No errors: committing would create ${t.created} and update ${t.updated}.`
-            : `${rows(report.errors.length)} with errors; a commit would save nothing.`}
+          Dry run: nothing was saved. {report.errors.length > 0
+            ? `${rows(report.errors.length)} with errors; a commit would save nothing.`
+            : report.reconciliation !== null && !report.reconciliation.passed
+              ? 'No errors, but the check against your file fails; a commit would save nothing.'
+              : `No errors: committing would create ${t.created} and update ${t.updated}.`}
         </p>
       )}
       {report.outcome === 'COMMITTED' && (
@@ -290,7 +300,12 @@ function Report({ report }: { report: ImportReport }) {
         </p>
       )}
       {report.outcome === 'ABORTED' && (
-        <p className="error-box" role="alert">Nothing was saved: {rows(report.errors.length)} with errors.</p>
+        <p className="error-box" role="alert" data-testid="refused-for">
+          Nothing was saved: {[
+            ...(report.errors.length > 0 ? [`${rows(report.errors.length)} with errors`] : []),
+            ...(report.refusedFor?.includes('CHECK_FAILED') ? ['the check against your file doesn’t pass (D-336)'] : []),
+          ].join(', and ')}.
+        </p>
       )}
 
       <table className="import-totals">
@@ -475,6 +490,11 @@ function SyncGroups({ sync }: { sync: ImportSync }) {
       <RowRefs title="Re-planned: the current code maps them differently, written over" refs={sync.replanned} />
       <RowRefs title="As the ledger holds them, under an old hash: the hash stored again" refs={sync.restamped} />
       <RowRefs title="Can’t be re-planned after the claim: listed, never written" refs={sync.notReplannable} />
+      {(sync.sidesStamped ?? 0) > 0 && (
+        <p className="muted" data-testid="sides-stamped">
+          Your sides of your family records, as your ledger holds them, stored for the first time: {sync.sidesStamped}.
+        </p>
+      )}
       {(sync.appRowsUnchanged ?? 0) > 0 && (
         <p className="muted" data-testid="app-rows-unchanged">
           Rows the app made, as your ledger holds them: {sync.appRowsUnchanged}.

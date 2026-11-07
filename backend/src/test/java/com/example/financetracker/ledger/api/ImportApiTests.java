@@ -1,6 +1,7 @@
 package com.example.financetracker.ledger.api;
 
 import static com.example.financetracker.ledger.importer.ImportFixtures.bytes;
+import static com.example.financetracker.ledger.importer.ImportFixtures.edited;
 import static com.example.financetracker.ledger.importer.ImportFixtures.partnerRows;
 import static com.example.financetracker.ledger.importer.ImportFixtures.withField;
 import static com.example.financetracker.ledger.importer.ImportFixtures.withLine;
@@ -145,6 +146,46 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(externalRefs()).isEmpty();
     }
 
+    /**
+     * D-336: a commit whose check against the file fails saves nothing, like one with row errors: ABORTED, for the
+     * check, with every row of the owner's and the partner's untouched; the dry run of the same file reports the
+     * failure as before. Row errors and a failing check are both named. The right file then commits.
+     */
+    @Test
+    void aCommitIsRefusedWhileTheCheckFails() throws IOException {
+        byte[] broken = withField(bytes("transactions.csv"), "21", 3, "2.5");
+        var before = digestOf(owner);
+
+        JsonNode dry = run(broken, partnerRows(), "true");
+        assertThat(dry.get("outcome").asText()).isEqualTo("DRY_RUN");
+        assertThat(dry.get("refusedFor")).isEmpty();
+        assertThat(dry.get("errors")).isEmpty();
+        assertThat(dry.get("totals").get("created").asInt()).isEqualTo(CREATED);
+        assertThat(dry.get("reconciliation").get("passed").asBoolean()).isFalse();
+        assertThat(dry.get("reconciliation").get("rows").get("failures").findValuesAsText("excelId"))
+                .containsOnly("21");
+
+        JsonNode refused = run(broken, partnerRows(), "false");
+        assertThat(refused.get("outcome").asText()).isEqualTo("ABORTED");
+        assertThat(refused.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
+        assertThat(refused.get("errors")).isEmpty();
+        assertThat(refused.get("reconciliation")).isEqualTo(dry.get("reconciliation"));
+        assertThat(digestOf(owner)).isEqualTo(before);
+        assertThat(entries()).isZero();
+        assertThat(externalRefs()).isEmpty();
+
+        // An error as well (no partner's rows with the budget, D-82): both named, nothing saved.
+        JsonNode both = run(broken, null, "false");
+        assertThat(both.get("outcome").asText()).isEqualTo("ABORTED");
+        assertThat(both.get("refusedFor")).isEqualTo(Answers.json("[\"ROW_ERRORS\", \"CHECK_FAILED\"]"));
+        assertThat(digestOf(owner)).isEqualTo(before);
+
+        JsonNode committed = run("false");
+        assertThat(committed.get("outcome").asText()).isEqualTo("COMMITTED");
+        assertThat(committed.get("refusedFor")).isEmpty();
+        assertThat(entries()).isPositive();
+    }
+
     /** D-144 in small: a commit, then the same export again creates, updates and conflicts with nothing. */
     @Test
     void aCommitSavesItAndTheSameExportAgainChangesNothing() throws IOException {
@@ -267,14 +308,15 @@ class ImportApiTests extends LedgerApiTest {
     }
 
     /**
-     * D-139: an edited row is written over the way the app changes it, unless it changed in the app since its last
-     * import; that is a conflict, left alone, and the commit still runs.
+     * D-139: an edited row (edited as Excel edits it, its computed columns with it) is written over the way the app
+     * changes it, unless it changed in the app since its last import; that is a conflict, left alone, and since D-336
+     * the commit is refused, as the ledger then differs from the file.
      */
     @Test
     void anEditedRowIsWrittenOverUnlessItChangedInTheApp() throws IOException {
         run("false");
-        byte[] transactions = withField(bytes("transactions.csv"), "2", 3, "12.00");
-        transactions = withField(transactions, "1", 3, "1001");
+        byte[] transactions = edited(bytes("transactions.csv"), "2", 3, "12.00");
+        transactions = edited(transactions, "1", 3, "1001");
         byte[] partner = withField(partnerRows(), "101", 6, "41.00");
         JsonNode edited = run(transactions, partner, "false");
         assertThat(edited.get("outcome").asText()).isEqualTo("COMMITTED");
@@ -288,8 +330,9 @@ class ImportApiTests extends LedgerApiTest {
         // Changed in the app: the owner's comment on the record. The next edit of its row is a conflict.
         ok(patch(owner, "/api/family-ledgers/%d/records/%d?version=1".formatted(family, recordOf2), """
                 {"comment": "checked"}"""));
-        JsonNode conflict = run(withField(transactions, "2", 3, "13.00"), partner, "false");
-        assertThat(conflict.get("outcome").asText()).isEqualTo("COMMITTED");
+        JsonNode conflict = run(edited(transactions, "2", 3, "13.00"), partner, "false");
+        assertThat(conflict.get("outcome").asText()).isEqualTo("ABORTED");
+        assertThat(conflict.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
         assertThat(refs(conflict.get("conflicts"))).containsExactly("OWNER_FAMILY 2");
         assertThat(conflict.get("conflicts").get(0).get("reason").asText())
                 .isEqualTo("changed in the app since its last import (D-139)");
@@ -304,7 +347,8 @@ class ImportApiTests extends LedgerApiTest {
                   {"accountId": %d, "currency": "EUR", "amount": "-1.50"},
                   {"accountId": %d, "currency": "EUR", "amount": "1.50"}]}"""
                         .formatted(accountId(owner, "EURO_ACCOUNT"), accountId(owner, "CASH"))));
-        JsonNode personal = run(withField(transactions, "21", 3, "1.75"), partner, "false");
+        JsonNode personal = run(edited(transactions, "21", 3, "1.75"), partner, "false");
+        assertThat(personal.get("outcome").asText()).isEqualTo("ABORTED");
         assertThat(refs(personal.get("conflicts"))).contains("OWNER_PERSONAL 21");
         assertThat(entryOf("xls:21").get("memo").asText()).isEqualTo("mine now");
     }
@@ -510,7 +554,8 @@ class ImportApiTests extends LedgerApiTest {
 
     /**
      * D-138 within the file's period (D-256): a row gone from the file between its first and last row date is reported,
-     * by its Excel ID, and nothing is deleted; one before or after the period is the file's to leave out.
+     * by its Excel ID, and nothing is deleted; one before or after the period is the file's to leave out. The ledger
+     * then differs from the file, so the commit is refused (D-336).
      */
     @Test
     void aRowGoneFromTheFileWithinItsPeriodIsReported() throws IOException {
@@ -518,7 +563,8 @@ class ImportApiTests extends LedgerApiTest {
         long before = entries();
         JsonNode report = run(withoutRows(bytes("transactions.csv"), Set.of("1", "6", "21")),
                 withoutRows(partnerRows(), Set.of("101", "103")), "false");
-        assertThat(report.get("outcome").asText()).isEqualTo("COMMITTED");
+        assertThat(report.get("outcome").asText()).isEqualTo("ABORTED");
+        assertThat(report.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
         // Row 1 (2024-01-02) was the file's first row and the partner's 101 his: the files now start after them.
         assertThat(refs(report.get("missing"))).containsExactlyInAnyOrder("OWNER 6", "OWNER_PERSONAL 21",
                 "PARTNER 103");
@@ -546,7 +592,10 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(reconciliation.get("passed").asBoolean()).isTrue();
     }
 
-    /** D-150 and D-113: a row deleted in the app stays deleted and is a conflict. */
+    /**
+     * D-150 and D-113: a row deleted in the app stays deleted and is a conflict; the ledger then differs from the file,
+     * so the commit is refused (D-336) until the row is deleted in Excel too.
+     */
     @Test
     void aRowDeletedInTheAppStaysDeleted() throws IOException {
         run("false");
@@ -559,7 +608,8 @@ class ImportApiTests extends LedgerApiTest {
         long before = entries();
 
         JsonNode report = run("false");
-        assertThat(report.get("outcome").asText()).isEqualTo("COMMITTED");
+        assertThat(report.get("outcome").asText()).isEqualTo("ABORTED");
+        assertThat(report.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
         assertThat(refs(report.get("conflicts"))).containsExactlyInAnyOrder("OWNER_PERSONAL 21", "PARTNER 102");
         assertThat(report.get("conflicts").findValuesAsText("reason")).containsExactlyInAnyOrder(
                 "deleted in the app after its import (D-150)", "deleted in the app after its import (D-113)");
@@ -803,8 +853,10 @@ class ImportApiTests extends LedgerApiTest {
         byte[] changed = withField(export, "app-" + made, 3, "6");
         changed = withLine(changed, lineWithId(export, "app-" + made, "app-" + (made + 1_000_000)));
         changed = withLine(changed, lineWithId(export, "app-" + made, "app-" + bobs));
+        // What the file says of those rows isn't what the ledger holds: the commit is refused (D-336).
         JsonNode listed = run(changed, partnerRows(), "false");
-        assertThat(listed.get("outcome").asText()).isEqualTo("COMMITTED");
+        assertThat(listed.get("outcome").asText()).isEqualTo("ABORTED");
+        assertThat(listed.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
         assertThat(listed.get("totals").get("created").asInt()).isZero();
         assertThat(listed.get("totals").get("updated").asInt()).isZero();
         assertThat(refs(listed.get("sync").get("appRows"))).containsExactly("APP app-" + made,

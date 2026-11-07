@@ -38,6 +38,8 @@ class ImportRunnerTests extends IntegrationTest {
     private LedgerAccess ledgers;
     @Autowired
     private FamilyLedgerService families;
+    @Autowired
+    private org.springframework.jdbc.core.simple.JdbcClient jdbc;
 
     @TempDir
     private Path dir;
@@ -112,6 +114,31 @@ class ImportRunnerTests extends IntegrationTest {
         assertThat(Files.readString(report)).startsWith("# Import report\n\n**Committed:**")
                 .contains("| Created | 9 |").doesNotContain("OPENING_BALANCE");
         assertThat(dir.resolve("import-report.md")).doesNotExist();
+    }
+
+    /** D-336: a commit whose check against the file fails saves nothing and exits with 2, naming the check. */
+    @Test
+    void aCommitWhoseCheckFailsSavesNothingAndExitsWithTwo() throws IOException {
+        // Row 21's Sum changed by hand, its computed columns left as they were.
+        Files.write(dir.resolve("transactions.csv"), ImportFixtures.withField(ImportFixtures.onlyRows(
+                bytes("transactions.csv"), ImportFixtures.PERSONAL_IDS), "21", 3, "2.5"));
+
+        assertThat(execute(args("--commit"))).isEqualTo(2);
+        assertThat(out.toString(StandardCharsets.UTF_8)).startsWith("Refused because the check against the file "
+                + "fails (D-336), nothing saved: 9 created, 0 updated,").contains("0 row errors")
+                .contains("reconciliation FAILED");
+        assertThat(Files.readString(dir.resolve("import-report.md"))).startsWith("# Import report\n\n**Refused:** the "
+                + "check against your file doesn't pass (D-336), so nothing was saved.");
+        assertThat(jdbc.sql("""
+                SELECT count(*) FROM journal_entry e JOIN ledger_member m ON m.ledger_id = e.ledger_id
+                WHERE m.user_sub = ? AND m.ledger_type = 'PERSONAL'""").param(user).query(Long.class).single())
+                .isZero();
+
+        // The same file as a dry run: the failure as before, exit 0 (no row errors).
+        out.reset();
+        assertThat(execute(args())).isZero();
+        assertThat(out.toString(StandardCharsets.UTF_8)).startsWith("Dry run, nothing saved: 9 created,")
+                .contains("reconciliation FAILED");
     }
 
     @Test

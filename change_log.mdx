@@ -3,6 +3,72 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-07 · D4c: no commit while the check fails, the owner's paying side compared, D-335 to D-346
+
+One commit on `feature/family-budget` on top of `dcd4c5b`, the commit of this entry, "feat: no commit while the check
+against the file fails, the owner's paying side compared, D-335 to D-346 (D4c)". **Not pushed**; `main` not moved. No
+migration (Flyway stays at V16). Production read only: the server was never touched and `e2e:prod` never run.
+
+**Changes**
+- D-336: `ImportService.finish` refuses a commit whose reconciliation doesn't pass, as one with row errors: `ABORTED`,
+  rolled back, `ImportReport.refusedFor` naming `ROW_ERRORS` and/or `CHECK_FAILED`, on every path (the owner's with
+  the partner's rows, after the claim, the member's, `ImportRunner`). `ImportRunner` exits 2 for any refused commit
+  and its line and Markdown report name the check. The import page keeps **Commit import** off after a dry run whose
+  check fails, with its line; the dry run's verdict says a commit would save nothing; a refused commit's box names its
+  reasons.
+- D-337, D-339, D-342: the owner's own side of his records (payment, receipt, settlement side, conversion legs) compared
+  as a member's: equal unchanged, and stamped in `imported_family_side` (`xls:<ID>`) where none was stored
+  (`sync.sidesStamped`); changed in the app with his row's side as last imported (or none stored) left, listed and
+  explained; his row's side changed with the app's as left written over without a new version; both changed a
+  conflict; a record to be written whose side changed in the app a conflict (or, re-planned, changed in the app).
+- D-338, D-340, D-344: a family record changed in the app with its row unchanged, and a member's side changed in the
+  app, explained as APP_EDITED from the record's linked entries in the importer's ledger less what his row maps to,
+  listed in `sync.appEdits`; for both participants. `builtFamily`'s per-item effect is `itemEffect`.
+- Tests: `OwnSideImportApiTests` (new), `ImportApiTests.aCommitIsRefusedWhileTheCheckFails`,
+  `MemberImportApiTests.aCommitIsRefusedWhileTheCheckFailsAfterTheClaim` and
+  `hisRecordsChangedInTheAppWithHisRowsUnchangedAreExplained`,
+  `ImportRunnerTests.aCommitWhoseCheckFailsSavesNothingAndExitsWithTwo`; four `ImportApiTests` that committed files the
+  check fails now expect `ABORTED` (D-345); `ImportFixtures.edited` edits a row as Excel does. Frontend: three tests in
+  `Import.test.tsx`. End to end: `05-import` first checks a file with row 21's Sum changed by hand (check fails,
+  Commit off), then the right file.
+- `deploy/checks/D4c.sql` and `D4c.expected` (8 lines, structure and invariants only).
+- `deploy/RUNBOOK.md`: UptimeRobot in "What runs where", "Monitoring" and "Regular checks" (D-335; the privacy policy
+  unchanged, D-341); 12.4 and 12.7 (D-336, the sides' first stamp); "D4c's rehearsal from production's dump (October
+  again)"; "D4c's deploy checklist with the suite".
+- `docs/family-budget/requirements.md`: D-335 to D-338 and D-339 to D-346, the amendment note, D4c in the planned
+  stages. `CLAUDE.md`: the import's refusal, the owner's sides and D-338, the exit codes, the tests, the monitoring.
+
+**Verified**
+- `git fetch origin`: `main` = `origin/main` = `9e7aa87`, `feature/family-budget` = `origin/feature/family-budget` =
+  `dcd4c5b`, the tree clean, before the work.
+- `cd backend && ./mvnw -B clean verify`: exit 0, "Tests run: 634, Failures: 0, Errors: 0, Skipped: 0", BUILD
+  SUCCESS. Again in random order (`-Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=1107`): exit 0, "Tests
+  run: 634, Failures: 0, Errors: 0, Skipped: 0".
+- `cd frontend && npm test`: exit 0, "Test Files 33 passed (33)", "Tests 438 passed (438)". `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, tests 37, pass 37, fail 0. `npm run e2e:local` on `./dev.sh` built from the
+  working tree: exit 0, every spec passed at both widths (`import` with D-336's step included), cleanup passed,
+  "Password search over the artifacts: 0 hits", "Result: PASSED".
+- `deploy/tests/run.sh`: exit 0, "109 passed, 0 failed, of 109 cases".
+- The rehearsal on `finance-2026-11-07T0236Z.dump` (SHA-256 `6560c386…09fabc`) with October's files, up to
+  2026-10-31: the baseline on `dcd4c5b` 0 created and 0 updated for both, both checks passing; on D4c's code the same,
+  4410 of the owner's sides stamped and none changed in the app; both commits `COMMITTED` and the checks again
+  unchanged; integrity `[]` for both; the 24 numbers the same but `imported_family_sides` 8650 to 13060 and
+  `import_batches` 10 to 12; `D4c.expected` held before and after; the owner's export the same bytes with and without
+  his sides. The database removed.
+- `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1.
+
+**Open**
+- D4c's deploy, by its checklist, before November's step 12; then November's step 12 rehearsed on D4c's deployed code
+  from production's latest dump (D-220), and its figures recorded. Its first commit stores the owner's sides.
+- Until that first commit, an Excel edit of one of the owner's records whose side has no stored hash and doesn't hold
+  what the row maps to is a conflict (D-339); none was found in October's files.
+- After a rollback to `9e7aa87`, an owner's import committed on that code changes records without his sides' hashes;
+  D4c's next import may then read such an edit as a conflict (D-337). Not tested; no rollback is planned.
+- The owner sets up UptimeRobot's two monitors in his own account and tests an alert (D-335): not a step for the
+  agent.
+- D-339 to D-346 are the agent's choices, for the PM to confirm.
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-05 · UX-1-doc: OPS-3's and UX-1's deploys and October's step 12 recorded, D-327 to D-334
 
 One docs commit on `feature/family-budget` on top of `9e7aa87`, the commit of this entry, "docs: OPS-3's and UX-1's

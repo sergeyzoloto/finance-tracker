@@ -1,0 +1,8 @@
+flyway latest 16 user date format true
+columns imported_family_side ledger_id:bigint:NO,external_ref:text:NO,record_id:bigint:NO,side_hash:character:NO,app_hash:character:NO,imported_at:timestamp with time zone:NO
+constraint imported_family_side_pkey PRIMARY KEY (ledger_id, record_id)
+trigger imported_family_side_check 1
+sides of another form 0
+sides outside a personal ledger 0
+sides of a budget their member never joined 0
+unbalanced entries 0

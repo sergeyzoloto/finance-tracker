@@ -636,6 +636,8 @@ export interface ExportSummary {
 export interface ImportReport {
   commit: boolean
   outcome: 'DRY_RUN' | 'COMMITTED' | 'ABORTED'
+  /** Why a commit saved nothing (ABORTED): row errors, a check that fails (D-336), or both; missing from an older server. */
+  refusedFor?: ('ROW_ERRORS' | 'CHECK_FAILED')[]
   files: { role: string; name: string; sha256: string; rows: number }[]
   family: {
     ledgerId: number; ledgerName: string; ownerMemberId: number; seatMemberId: number; seatName: string
@@ -689,7 +691,7 @@ export interface ImportReport {
 export interface ImportSync {
   /** Changed in the app while the file row stayed as imported: left alone, never a conflict by itself. */
   appEdited: ImportRowRef[]
-  /** What those personal entries move on each account, which the reconciliation explains as APP_EDITED. */
+  /** What those entries and records move on each account, which the reconciliation explains as APP_EDITED (D-223, D-338). */
   appEdits: { source: string; excelId: string; date: string; account: string; currency: string; amount: string }[]
   /** Untouched in the app, mapped otherwise by the current code: written over. */
   replanned: ImportRowRef[]
@@ -703,6 +705,8 @@ export interface ImportSync {
   appRowsUnchanged: number
   /** The rows the app made that aren't, listed and never written (D-259). */
   appRows: ImportRowRef[]
+  /** D-337: the owner's sides of his records stored for the first time; missing from an older server. */
+  sidesStamped?: number
 }
 
 /** What POST /api/demo-data created in an empty ledger. */

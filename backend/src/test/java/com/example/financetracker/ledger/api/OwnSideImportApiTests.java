@@ -124,10 +124,8 @@ class OwnSideImportApiTests extends LedgerApiTest {
         return edited(t, "9", Map.of(8, "Кошелёк", 18, "CASH", 20, "ASSET"));
     }
 
-    private static final String SIDE_APP_EDITED = "your side changed in the app, the file unchanged: left as it is "
-            + "(D-337)";
-    private static final String SIDE_CONFLICT = "your side changed in the app since its last import, and the row too "
-            + "(D-337)";
+    private static final String SIDE_APP_EDITED = "your side changed in the app, the file unchanged: left as it is";
+    private static final String SIDE_CONFLICT = "your side changed in the app since its last import, and the row too";
 
     /**
      * The first import stores every side of his; a record whose side has no stored hash (every record before D4c) and
@@ -306,7 +304,7 @@ class OwnSideImportApiTests extends LedgerApiTest {
             assertThat(report.get("errors")).isEmpty();
             assertThat(report.get("conflicts")).isEmpty();
             assertThat(report.get("totals").get("updated").asInt()).isZero();
-            String appEdited = "changed in the app, the file unchanged: left as it is (D-219)";
+            String appEdited = "changed in the app, the file unchanged: left as it is";
             assertThat(refs(report.get("sync").get("appEdited"))).containsExactlyInAnyOrder(
                     "OWNER_FAMILY 2: " + appEdited, "OWNER_FAMILY 3: " + appEdited, "OWNER_FAMILY 5: " + appEdited,
                     "OWNER_FAMILY 4: " + appEdited);

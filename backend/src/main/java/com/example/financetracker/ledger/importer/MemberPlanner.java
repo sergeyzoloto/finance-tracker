@@ -38,7 +38,7 @@ final class MemberPlanner {
 
     /** D-179: an expense paid straight from FAMILY_DEBT. */
     static final String EXPENSE_FROM_FAMILY_DEBT = "an expense paid straight from FAMILY_DEBT: split it in Excel into "
-            + "a settlement into an account of yours and the expense from that account (D-179)";
+            + "a settlement into an account of yours and the expense from that account";
 
     /** What a row of his is to the import. */
     sealed interface Plan permits Personal, FamilyRow, SettlementRow, ConversionRow, Benefit, Refused, Skipped {
@@ -107,7 +107,7 @@ final class MemberPlanner {
             return new Refused(row, List.of((debit == null ? "Debit" : "Credit") + " is none of the file's accounts"));
         }
         if (zero(row)) {
-            return new Skipped(row, "Sum is 0 (D-72)");
+            return new Skipped(row, "Sum is 0");
         }
         // D-178: the Family flag on a transfer is ignored.
         TransactionRow transfer = row.withoutFamily();

@@ -306,4 +306,22 @@ ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: any
   table.categories td.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; white-space: normal; margin-left: auto; }
   table.categories td.actions:empty { display: none; }
   table.categories td.actions button { margin-left: 0; }
+  /* The Accounts page (D-382): each account a wrapping line of name and balance, its buttons on a line below; a
+     refusal's row and a "By person" account's details across the width. Only the table's own rows, not the nested one. */
+  table.accounts, table.accounts > tbody, table.accounts > tfoot { display: block; }
+  table.accounts > thead { display: none; }
+  table.accounts > tbody > tr, table.accounts > tfoot > tr { display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: 0.3rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
+  table.accounts > tbody > tr > td, table.accounts > tfoot > tr > td, table.accounts > tfoot > tr > th { display: block;
+    border: none; padding: 0; width: auto; min-width: 0; overflow-wrap: anywhere; }
+  table.accounts > tbody > tr > td:first-child { flex: 1 1 10rem; }
+  table.accounts > tbody > tr > td.amount { margin-left: auto; }
+  table.accounts > tbody > tr > td.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem;
+    flex-basis: 100%; white-space: normal; }
+  table.accounts > tbody > tr > td.actions:empty, table.accounts > tfoot > tr > td:empty { display: none; }
+  table.accounts > tbody > tr > td.actions button { margin-left: 0; }
+  table.accounts > tbody > tr.details > td, table.accounts > tbody > tr.row-error > td { flex-basis: 100%; }
+  table.accounts form.inline { display: flex; flex-wrap: wrap; }
+  table.accounts form.inline input { min-width: 0; flex: 1 1 8rem; }
+  table.accounts table.nested { margin-left: 0.75rem; width: calc(100% - 0.75rem); }
 }

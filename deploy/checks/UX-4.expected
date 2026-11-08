@@ -1,0 +1,9 @@
+flyway latest 16 user date format true
+column family_record.content_hash character YES
+column family_record.imported_version integer YES
+column journal_entry.import_hash character YES
+column journal_entry.import_version integer YES
+personal entries with a hash but no version, or the other way 0
+family records with only some sync fields 0
+column account.archived_at timestamp with time zone YES
+unbalanced entries 0

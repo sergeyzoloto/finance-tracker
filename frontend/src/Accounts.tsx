@@ -4,6 +4,7 @@ import {
   api, fieldMessages, useApi, useMutation, type Account, type AccountBalance, type CounterpartyBalance,
 } from './api'
 import { Amounts, Errors, Loading } from './components'
+import { belowMinorUnit, listedInBalances } from './dashboard'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
 import { sum } from './money'
 
@@ -13,7 +14,11 @@ const TYPE_HINTS = {
   EQUITY: 'Your own money by purpose, and the ledger’s own accounts.',
 }
 
-/** The accounts by type with their balances per currency (rule 4), renamed and archived here. */
+/**
+ * The accounts by type with their balances per currency (rule 4), renamed and archived here. With "Show archived" off,
+ * an archived account is still listed while one of its amounts doesn't round to 0 at its currency's minor unit, as the
+ * dashboard lists it (D-382, D-364), so that each type's total, which counts every account, matches its rows.
+ */
 export default function Accounts() {
   const accounts = useApi<Account[]>('/accounts')
   const balances = useApi<AccountBalance[]>('/reports/balances')
@@ -35,7 +40,9 @@ export default function Accounts() {
       {!error && (!accounts.data || !balances.data) && <Loading what="accounts" />}
       {accounts.data?.length === 0 && <p className="empty">You have no accounts yet.</p>}
       {accounts.data && balances.data && ACCOUNT_TYPES.map((type) => {
-        const ofType = accounts.data!.filter((a) => a.type === type && (showArchived || !a.archived))
+        const ownOf = (id: number) => balances.data!.filter((b) => b.accountId === id)
+        const ofType = accounts.data!.filter((a) => a.type === type
+          && (showArchived || listedInBalances(ownOf(a.id), a.archived)))
         if (ofType.length === 0) return null
         const rows = balances.data!.filter((b) => b.accountType === type)
         const currencies = [...new Set(rows.map((b) => b.currency))].sort()
@@ -51,7 +58,7 @@ export default function Accounts() {
               <tbody>
                 {ofType.map((account) => (
                   <AccountRow key={account.id} account={account} onChanged={reload}
-                    balances={balances.data!.filter((b) => b.accountId === account.id)} />
+                    balances={ownOf(account.id)} />
                 ))}
               </tbody>
               {totals.length > 0 && (
@@ -88,6 +95,8 @@ function AccountRow({ account, balances, onChanged }: {
     void run(() => api(`/accounts/${account.id}`, 'PATCH', { archived }))
   }
 
+  // An archived account shows only its amounts that don't round to 0 at their minor unit (D-382, D-375).
+  const shown = account.archived ? balances.filter((b) => !belowMinorUnit(b.balance, b.currency)) : balances
   const nameErrors = fieldMessages(failure, 'name')
   const otherError = failure && nameErrors.length === 0 ? failure.message : undefined
   return (
@@ -112,9 +121,8 @@ function AccountRow({ account, balances, onChanged }: {
           )}
         </td>
         <td className="amount">
-          {account.archived ? <span className="muted" title="Balances are reported for open accounts only">—</span>
-            : balances.length > 0 ? <Amounts amounts={balances.map((b) => ({ currency: b.currency, amount: b.balance }))} />
-              : <span className="muted">—</span>}
+          {shown.length > 0 ? <Amounts amounts={shown.map((b) => ({ currency: b.currency, amount: b.balance }))} />
+            : <span className="muted">—</span>}
         </td>
         <td className="actions nowrap">
           {account.requiresCounterparty && !account.archived && (

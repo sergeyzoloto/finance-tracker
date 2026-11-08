@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.stream.StreamSupport;
 
 import com.example.financetracker.Answers;
+import com.example.financetracker.ScreenTexts;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
@@ -335,7 +336,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(conflict.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
         assertThat(refs(conflict.get("conflicts"))).containsExactly("OWNER_FAMILY 2");
         assertThat(conflict.get("conflicts").get(0).get("reason").asText())
-                .isEqualTo("changed in the app since its last import (D-139)");
+                .isEqualTo("changed in the app since its last import");
         assertThat(ok(get(owner, "/api/family-ledgers/" + family + "/records/" + recordOf2)).get("amount").asText())
                 .isEqualTo("12.00");
 
@@ -388,7 +389,7 @@ class ImportApiTests extends LedgerApiTest {
             JsonNode sync = report.get("sync");
             assertThat(refs(sync.get("appEdited"))).containsExactly("OWNER_PERSONAL 20", "OWNER_PERSONAL 21");
             assertThat(sync.get("appEdited").findValuesAsText("reason")).containsOnly(
-                    "changed in the app, the file unchanged: left as it is (D-219)");
+                    "changed in the app, the file unchanged: left as it is");
             assertThat(sync.get("appEdits")).isEqualTo(Answers.json("""
                     [{"source": "OWNER_PERSONAL", "excelId": "21", "date": "2024-01-22", "account": "CASH",
                       "currency": "EUR", "amount": "1.50"},
@@ -441,7 +442,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(refs(committed.get("sync").get("replanned"))).containsExactlyInAnyOrder("OWNER_PERSONAL 21",
                 "OWNER_FAMILY 2");
         assertThat(committed.get("sync").get("replanned").findValuesAsText("reason")).containsOnly(
-                "re-planned: the current code maps it differently (D-219)");
+                "re-planned: the current code maps it differently");
         JsonNode entry = entryOf("xls:21");
         assertThat(entry.get("memo").isNull()).isTrue();
         // The kind is only the interface's hint: row 7 stays MANUAL, unchanged.
@@ -512,7 +513,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(dry.get("sync").get("categoriesMerged")).isEqualTo(Answers.json("[\"FX_GAIN\"]"));
         assertThat(dry.get("referenceData").get("categoriesMerged").asInt()).isEqualTo(1);
         assertThat(dry.get("warningSummary").findValuesAsText("message")).contains("your personal category PAYCHECK "
-                + "has the family budget's code and 1 postings: not merged (D-11); its rows map to the family category");
+                + "has the family budget's code and 1 postings: not merged; its rows map to the family category");
         assertThat(refs(dry.get("sync").get("replanned"))).containsExactly("OWNER_PERSONAL 1");
         assertThat(categoryExists(fxGain)).isTrue();
 
@@ -612,7 +613,8 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(report.get("refusedFor")).isEqualTo(Answers.json("[\"CHECK_FAILED\"]"));
         assertThat(refs(report.get("conflicts"))).containsExactlyInAnyOrder("OWNER_PERSONAL 21", "PARTNER 102");
         assertThat(report.get("conflicts").findValuesAsText("reason")).containsExactlyInAnyOrder(
-                "deleted in the app after its import (D-150)", "deleted in the app after its import (D-113)");
+                "deleted in the app after its import", "deleted in the app after its import");
+        ScreenTexts.assertNoDecisionNumber(report);
         assertThat(report.get("totals").get("created").asInt()).isZero();
         assertThat(entries()).isEqualTo(before);
     }
@@ -696,7 +698,8 @@ class ImportApiTests extends LedgerApiTest {
         JsonNode report = ok(importWorkbook(owner, bytes("transactions.csv"), "false"));
         assertThat(report.get("outcome").asText()).isEqualTo("ABORTED");
         assertThat(report.get("errorSummary").findValuesAsText("message"))
-                .contains("a family row needs the family budget and the partner's seat: choose them (D-141)");
+                .contains("a family row needs the family budget and the partner's seat: choose them");
+        ScreenTexts.assertNoDecisionNumber(report);
         JsonNode personal = ok(importWorkbook(owner, personalRows(), "false"));
         assertThat(personal.get("outcome").asText()).isEqualTo("COMMITTED");
         assertThat(personal.get("family").isNull()).isTrue();
@@ -715,7 +718,7 @@ class ImportApiTests extends LedgerApiTest {
         String old = "ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;"
                 + "CUR_CREDIT;SUM_CREDIT;LOAN_CA\r\n1;02.01.2024;Оклад;1000;EUR;;;A;B;;;;;;\r\n";
         assertThat(refused(old.getBytes(StandardCharsets.UTF_8))).singleElement().asString()
-                .startsWith("the file isn't a transactions file").contains("ID;Date;Exp. Item;Sum;").contains("D-235");
+                .startsWith("the file isn't a transactions file").contains("ID;Date;Exp. Item;Sum;").doesNotContain("D-235");
         assertThat(entries()).isZero();
         assertThat(accountCodes()).doesNotContain("NORTH_CARD");
     }
@@ -725,16 +728,16 @@ class ImportApiTests extends LedgerApiTest {
     void codesThatDontFitTogetherRefuseTheFileBeforeAnyWrite() throws IOException {
         byte[] t = bytes("transactions.csv");
         assertThat(refused(withField(t, "17", 7, "Наличные"))).containsExactly(
-                "the account CASH has 2 names in the file, first in the IDs 7, 17 (D-229)");
+                "the account CASH has 2 names in the file, first in the IDs 7, 17");
         assertThat(refused(withField(t, "2", 16, "INCOME"))).containsExactly(
-                "the category FOOD has the types INCOME and EXPENSE in the file, first in the IDs 2, 3 (D-229)");
+                "the category FOOD has the types INCOME and EXPENSE in the file, first in the IDs 2, 3");
         assertThat(entries()).isZero();
         assertThat(accountCodes()).doesNotContain("NORTH_CARD");
         // A code the app has with another type: the starter ledger's CASH is an asset.
         byte[] liability = withField(withField(withField(withField(t, "7", 19, "LIABILITIES"), "10", 19, "LIABILITIES"),
                 "17", 19, "LIABILITIES"), "25", 20, "LIABILITIES");
         assertThat(refused(liability)).containsExactly("the account CASH is ASSET in the app and LIABILITIES in the "
-                + "file (D-229)");
+                + "file");
         assertThat(entries()).isZero();
         assertThat(externalRefs()).isEmpty();
     }
@@ -783,7 +786,8 @@ class ImportApiTests extends LedgerApiTest {
                 "true");
         assertThat(report.get("idGaps")).isEqualTo(Answers.json("[\"4\", \"11-13\"]"));
         assertThat(report.get("warningSummary").findValuesAsText("message")).contains("the file's Excel IDs have 2 "
-                + "gap(s) between its lowest and highest ID (D-231): listed in the report");
+                + "gap(s) between its lowest and highest ID: listed in the report");
+        ScreenTexts.assertNoDecisionNumber(report);
     }
 
     /**
@@ -862,7 +866,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(refs(listed.get("sync").get("appRows"))).containsExactly("APP app-" + made,
                 "APP app-" + (made + 1_000_000), "APP app-" + bobs);
         var reasons = listed.get("sync").get("appRows").findValuesAsText("reason");
-        assertThat(reasons.get(0)).isEqualTo("a row the app made, changed in the file: listed, never written (D-259)");
+        assertThat(reasons.get(0)).isEqualTo("a row the app made, changed in the file: listed, never written");
         // Another user's entry gets the answer of one that doesn't exist (rule 11).
         assertThat(reasons.get(2)).isEqualTo(reasons.get(1));
         assertThat(ok(get(owner, "/api/entries/" + made)).get("postings").findValuesAsText("amount"))

@@ -20,6 +20,10 @@ import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session, 
 //    the period" reads as the Net of "Income and expenses"; the equity lines ("Accumulated reserve", the result and
 //    the system accounts) add up to Equity's total; on the Accounts page, archiving "Current account", which holds
 //    money, is refused with its message by the account, and an empty account archives and is restored.
+// 8. UX-4 (D-382): on the demo, an account archived empty and then given €0.01 (entries may still post to an archived
+//    account, D-376) is listed with "Show archived" off, its €0.01 shown, and the Assets total matches the rows' cents;
+//    at 375 px, with "Show archived" on, a "By person" account's details open and the refusal's row shown, the
+//    Accounts page doesn't scroll sideways and every button is inside the screen.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -149,6 +153,11 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await expectArchivingAtZero(a, watch)
   await shot(page, 'dashboard-10-archive-refused')
 
+  // 8. The Accounts page's archived amounts and its width at 375 px (UX-4).
+  await expectArchivedAmounts(a, day)
+  await shot(page, 'dashboard-11-accounts-archived')
+  await expectAccountsAtANarrowWidth(a)
+
   await deleteAllMyData(a)
 })
 
@@ -225,6 +234,83 @@ async function expectArchivingAtZero({ page }: Session, watch: Watch) {
   await expect(empty.getByText('Archived', { exact: true })).toHaveCount(0)
   // The refusal stays shown for the next screenshot.
   await page.getByLabel(/^Show archived/).uncheck()
+}
+
+/** A request of the page's own session, with its CSRF token; the answer's status and body. */
+async function call({ page }: Session, method: string, path: string, body?: unknown) {
+  return page.evaluate(async ({ method, path, body }) => {
+    const xsrf = document.cookie.split('; ').find((c) => c.startsWith('XSRF-TOKEN='))?.split('=')[1] ?? ''
+    const response = await fetch(path, {
+      method, headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': decodeURIComponent(xsrf) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    return { status: response.status, body: await response.json().catch(() => null) as unknown }
+  }, { method, path, body })
+}
+
+/**
+ * UX-4 (D-382): an archived account that holds €0.01 is listed with "Show archived" off, its €0.01 shown, and the
+ * Assets total in euros is the sum of the rows shown. The account is archived empty and then given the cent, which an
+ * entry may still do (D-376), since an account that holds money can't be archived (D-366).
+ */
+async function expectArchivedAmounts(session: Session, day: string) {
+  const { page } = session
+  const created = await call(session, 'POST', '/api/accounts',
+    { code: 'UX4_CENT', name: 'Cent account', type: 'ASSET', defaultCurrency: 'EUR' })
+  expect(created.status, 'the account is created').toBe(201)
+  const id = (created.body as { id: number }).id
+  expect((await call(session, 'PATCH', `/api/accounts/${id}`, { archived: true })).status, 'archived empty').toBe(200)
+  const accounts = (await call(session, 'GET', '/api/accounts')).body as { id: number; code: string }[]
+  const current = accounts.find((a) => a.code === 'CURRENT_ACCOUNT')
+  expect(current, 'the demo’s current account').toBeDefined()
+  const cent = await call(session, 'POST', '/api/entries', {
+    kind: 'TRANSFER', entryDate: day, payeeId: null, memo: 'UX-4 cent', fromAccountId: current!.id, toAccountId: id,
+    currency: 'EUR', amount: '0.01', counterpartyId: null,
+  })
+  expect(cent.status, 'the cent is posted to the archived account').toBe(201)
+
+  await page.goto('/accounts')
+  await expect(page.getByLabel(/^Show archived/)).not.toBeChecked()
+  const assets = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Assets', exact: true }) })
+  const row = assets.getByRole('row').filter({ has: page.getByRole('link', { name: 'Cent account', exact: true }) })
+  await expect(row.getByText('Archived', { exact: true })).toBeVisible()
+  await expect(row.locator('td.amount')).toHaveText('€0.01')
+  // The euro total is the sum of the euro amounts its rows show.
+  const euros = (texts: string[]) => texts.map((t) => t.replace(/\u00a0/g, ' ').trim()).filter((t) => /€/.test(t))
+  const shown = euros(await assets.locator('tbody td.amount > div').allTextContents())
+  const total = euros(await assets.locator('tfoot td.amount > div').allTextContents())
+  expect(total, 'one euro total').toHaveLength(1)
+  expect(shown.map(cents).reduce((x, y) => x + y, 0n), 'the euro rows add up to the total').toBe(cents(total[0]))
+}
+
+/**
+ * UX-4 (D-382): at 375 px, with "Show archived" on, a "By person" account's details open and a refusal's row shown,
+ * the Accounts page is no wider than the screen and every button is inside it.
+ */
+async function expectAccountsAtANarrowWidth({ page }: Session) {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/accounts')
+  await page.getByLabel(/^Show archived/).check()
+  const byPerson = page.getByRole('button', { name: 'By person' }).first()
+  await byPerson.click()
+  await expect(byPerson).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('tr.details table.nested, tr.details .muted').first()).toBeVisible()
+  const current = page.getByRole('row').filter({ has: page.getByRole('link', { name: 'Current account', exact: true }) })
+  const refused = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname.startsWith('/api/accounts/'))
+  await current.getByRole('button', { name: 'Archive' }).click()
+  expect((await refused).status()).toBe(409)
+  await expect(page.locator('tr.row-error').getByRole('alert')).toBeVisible()
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, '/accounts at 375 px is no wider than the screen').toBeLessThanOrEqual(client)
+  const outside = await page.locator('main button, main [role="alert"]').evaluateAll((elements) => elements
+    .map((e) => ({ text: e.textContent, box: e.getBoundingClientRect() }))
+    .filter(({ box }) => box.width === 0 || box.left < 0 || box.right > document.documentElement.clientWidth)
+    .map(({ text }) => text))
+  expect(outside, 'buttons and messages inside the screen at 375 px').toEqual([])
+  await shot(page, 'dashboard-12-accounts-narrow')
+  await page.setViewportSize({ width: 1280, height: 900 })
 }
 
 /** In the base currency, the Balances card's Assets total reads as "You have" (D-348). */

@@ -408,13 +408,13 @@ public class ImportService {
             }
             family = family();
             if (family != null && family.mode() == Mode.OWNER && partnerRows == null) {
-                errors.add(new Problem(null, null, "with a family budget, the partner's family rows are needed too "
-                        + "(D-82): choose his transactions file"));
+                errors.add(new Problem(null, null, "with a family budget, the partner's family rows are needed too: "
+                        + "choose his transactions file"));
             }
             refuseOtherTypes(fileChart);
             if (!gaps.isEmpty()) {
                 warnings.add(new Problem(transactionRows.file().name(), null, ("the file's Excel IDs have %d gap(s) "
-                        + "between its lowest and highest ID (D-231): listed in the report").formatted(gaps.size())));
+                        + "between its lowest and highest ID: listed in the report").formatted(gaps.size())));
             }
             fileAccounts = fileChart.accounts().stream().map(Workbook.AccountRow::code).collect(Collectors.toSet());
             List<TransactionRow> excelRows = transactionRows.rows().stream().filter(r -> !r.isApp()).toList();
@@ -749,12 +749,12 @@ public class ImportService {
             String name = familyLedgers.get(scope).name();
             if (seat.id() == scope.memberId()) {
                 if (request.partnerTransactions() != null) {
-                    throw new ConflictException("You import your own files only (D-175): the partner's transactions "
+                    throw new ConflictException("You import your own files only: the partner's transactions "
                             + "file isn't taken");
                 }
                 if (!seat.claimedSeat()) {
                     throw new ConflictException("Your own import takes over the rows an import wrote for the place you "
-                            + "took, and you took no place in this family budget (D-175)");
+                            + "took, and you took no place in this family budget");
                 }
                 List<FamilyMemberView> others = members.stream()
                         .filter(m -> m.id() != seat.id() && m.status() == MemberStatus.ACTIVE).toList();
@@ -769,12 +769,12 @@ public class ImportService {
             }
             if (scope.role() != MemberRole.OWNER) {
                 throw new ConflictException("Only an owner of the family budget imports the rows of another place; "
-                        + "your own import names your own place (D-175)");
+                        + "your own import names your own place");
             }
             Mode mode = Mode.OWNER;
             if (seat.hasAccount()) {
                 if (request.partnerTransactions() != null) {
-                    throw new ConflictException(("%s has an account now and imports their own file (D-175): the "
+                    throw new ConflictException(("%s has an account now and imports their own file: the "
                             + "partner's transactions file is taken only for a place without an account. Leave it out")
                             .formatted(seat.displayName()));
                 }
@@ -797,7 +797,7 @@ public class ImportService {
                 Account existing = accountsByCode.get(row.code());
                 // Rule 4: the workbook's LIABILITIES is a LIABILITY or an EQUITY account, its ASSET an ASSET one.
                 if (existing != null && (existing.type() == AccountType.ASSET) != (row.type() == AccountType.ASSET)) {
-                    reasons.add("the account %s is %s in the app and %s in the file (D-229)".formatted(row.code(),
+                    reasons.add("the account %s is %s in the app and %s in the file".formatted(row.code(),
                             existing.type(), row.type() == AccountType.ASSET ? "ASSET" : "LIABILITIES"));
                 }
             }
@@ -809,7 +809,7 @@ public class ImportService {
             for (CategoryRow row : fileChart.categories()) {
                 LedgerCategory existing = categoriesByCode.get(row.code());
                 if (existing != null && existing.type() != row.type()) {
-                    reasons.add("the category %s is %s in the app and %s in the file (D-229)".formatted(row.code(),
+                    reasons.add("the category %s is %s in the app and %s in the file".formatted(row.code(),
                             existing.type(), row.type()));
                 }
             }
@@ -869,7 +869,7 @@ public class ImportService {
                 long used = categoryPostings(personal, twin.id());
                 if (used > 0) {
                     warnings.add(new Problem(file.name(), null, ("your personal category %s has the family budget's "
-                            + "code and %d postings: not merged (D-11); its rows map to the family category")
+                            + "code and %d postings: not merged; its rows map to the family category")
                             .formatted(row.code(), used)));
                     continue;
                 }
@@ -1016,7 +1016,7 @@ public class ImportService {
                 if (known.hash() != null && ref.matches("xls:[0-9]+") && !personalRefs.contains(ref)
                         && within(ownPeriod, known.date()) && !after.leftAlone(after.owner(), ref.substring(4), known.date())) {
                     missing.add(new RowRef(personalSource.name(), ref.substring(4),
-                            "no longer in the transactions file (D-138)"));
+                            "no longer in the transactions file"));
                 }
             });
             if (family == null) {
@@ -1040,7 +1040,7 @@ public class ImportService {
                             && within(owners ? ownPeriod : partnerPeriod, date)
                             && !after.leftAlone(owners ? after.owner() : after.partner(), excelId, date)) {
                         missing.add(new RowRef(owners ? family.mode() == Mode.MEMBER ? "MEMBER" : "OWNER"
-                                : Source.PARTNER.name(), excelId, "no longer in the files (D-138)"));
+                                : Source.PARTNER.name(), excelId, "no longer in the files"));
                     }
                 });
             }
@@ -1084,7 +1084,7 @@ public class ImportService {
             if (deletedInTheApp.contains(ref)) {
                 tally.conflicts++;
                 conflicts.add(new RowRef(personalSource.name(), excelId == null ? ref : excelId,
-                        "deleted in the app after its import (D-150)"));
+                        "deleted in the app after its import"));
                 return;
             }
             PersonalKnown known = personalKnown.get(ref);
@@ -1122,7 +1122,7 @@ public class ImportService {
                 case CONFLICT, DELETED -> {
                     tally.conflicts++;
                     conflicts.add(new RowRef(personalSource.name(), name,
-                            "changed in the app since its last import (D-139)"));
+                            "changed in the app since its last import"));
                     return;
                 }
                 case NEW, EDITED, REPLANNED -> {
@@ -1244,7 +1244,7 @@ public class ImportService {
             if (family == null) {
                 tally.failed++;
                 errors.add(new Problem(file, row, item.excelId(), "a family row needs the family budget and the "
-                        + "partner's seat: choose them (D-141)"));
+                        + "partner's seat: choose them"));
                 return;
             }
             ImportSync.Known known = familyKnown.get(item.ref());
@@ -1301,13 +1301,13 @@ public class ImportService {
                 case CONFLICT -> {
                     tally.conflicts++;
                     conflicts.add(new RowRef(item.source().name(), item.excelId(),
-                            "changed in the app since its last import (D-139)"));
+                            "changed in the app since its last import"));
                     return;
                 }
                 case DELETED -> {
                     tally.conflicts++;
                     conflicts.add(new RowRef(item.source().name(), item.excelId(),
-                            "deleted in the app after its import (D-113)"));
+                            "deleted in the app after its import"));
                     return;
                 }
                 case NEW, EDITED, REPLANNED -> {
@@ -1740,7 +1740,7 @@ public class ImportService {
             if (current != null) {
                 List<String> problems = new ArrayList<>();
                 if (!current.currency().equals(row.familyCurrency())) {
-                    problems.add("CUR_FAMILY isn't the family record's currency (D-177)");
+                    problems.add("CUR_FAMILY isn't the family record's currency");
                 }
                 if (current.payerId() != family.target().ownerMemberId()) {
                     problems.add("the family record's payer is no longer you: your payment side can't go on it");
@@ -1754,7 +1754,7 @@ public class ImportService {
                         && row.familyPart().abs().subtract(current.share().abs()).abs().compareTo(TOLERANCE) > 0) {
                     memberTally.shareWarnings++;
                     warnings.add(new Problem(file, number, excelId,
-                            "FAMILY_EXP or FAMILY_INC isn't your share of the family record (D-177)"));
+                            "FAMILY_EXP or FAMILY_INC isn't your share of the family record"));
                 }
             }
             StoredRecord stored = known == null || known.deleted() ? null : familyStored.get(known.recordId());
@@ -1783,14 +1783,14 @@ public class ImportService {
                     tally.conflicts++;
                     memberTally.recordConflicts++;
                     conflicts.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId,
-                            "deleted in the app after its import (D-113)"));
+                            "deleted in the app after its import"));
                     return;
                 }
                 case CONFLICT -> {
                     tally.conflicts++;
                     memberTally.recordConflicts++;
                     conflicts.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId,
-                            "changed in the app since its last import (D-139)"));
+                            "changed in the app since its last import"));
                     // A conflict is never explained: its side isn't listed or explained as changed in the app.
                     listedRecords.add(known.recordId());
                     driftedRecords.add(known.recordId());
@@ -1882,7 +1882,7 @@ public class ImportService {
                 tally.conflicts++;
                 memberTally.sideConflicts++;
                 conflicts.add(new RowRef(Source.MEMBER_FAMILY.name(), excelId,
-                        "your payment side changed in the app since its last import (D-181)"));
+                        "your payment side changed in the app since its last import"));
                 return;
             }
             Map<String, Long> created = new HashMap<>();
@@ -2023,7 +2023,7 @@ public class ImportService {
             candidates.stream().filter(c -> !matched.contains(c.id())).forEach(c -> {
                 memberTally.ownerSettlementsWithoutSide++;
                 warnings.add(new Problem(null, null, "settlement " + c.id(), ("the settlement of %s in %s of %s has no "
-                        + "side of yours: none of your rows matched it (D-178)").formatted(c.date(), c.currency(),
+                        + "side of yours: none of your rows matched it").formatted(c.date(), c.currency(),
                                 c.amount().toPlainString())));
             });
         }
@@ -2054,7 +2054,7 @@ public class ImportService {
                 tally(Source.MEMBER_SETTLEMENT, "SETTLEMENT").failed++;
                 errors.add(new Problem(file, rowsById.get(row.excelId()).row().row(), row.excelId(), ("AMBIGUOUS_SETTLEMENT: "
                         + "your rows %s of %s in %s and the settlements of that date %s match in more than one way, or "
-                        + "the date has more than %d of either (D-202): make the amounts or accounts tell them apart")
+                        + "the date has more than %d of either: make the amounts or accounts tell them apart")
                         .formatted(his, first.date(), first.currency(), theirs, SettlementMatcher.MOST_ON_A_DATE)));
             }
         }
@@ -2078,7 +2078,7 @@ public class ImportService {
                     memberTally.unmatched++;
                     errors.add(new Problem(file, row.row().row(), id(row.row().id()), ("your rows %s add up to the "
                             + "settlement of %s in %s of %s, but they aren't all on one account in %s: your side of a "
-                            + "settlement is one account; put them on one, or make them one row (D-198)").formatted(ids,
+                            + "settlement is one account; put them on one, or make them one row").formatted(ids,
                                     settlement.date(), settlement.currency(), settlement.amount().toPlainString(),
                                     settlement.currency())));
                 }
@@ -2131,7 +2131,7 @@ public class ImportService {
                 tally.conflicts += rows.size();
                 rows.forEach(row -> conflicts.add(new RowRef(Source.MEMBER_SETTLEMENT.name(), id(row.row().id()),
                         "the rows your side of the settlement was matched to have changed: not all of them are in "
-                                + "the file, or the settlement is gone (D-198)")));
+                                + "the file, or the settlement is gone")));
                 return;
             }
             if (side.sideHash().equals(groupHash(rows))) {
@@ -2142,7 +2142,7 @@ public class ImportService {
             if (!side.appHash().equals(appHash(personal, family.scope(), side.recordId()))) {
                 tally.conflicts += rows.size();
                 rows.forEach(row -> conflicts.add(new RowRef(Source.MEMBER_SETTLEMENT.name(), id(row.row().id()),
-                        "your side of the settlement changed in the app since its last import (D-181)")));
+                        "your side of the settlement changed in the app since its last import")));
                 return;
             }
             attachGroup(file, rows, settlement.getFirst(), true);
@@ -2153,8 +2153,8 @@ public class ImportService {
                 String currency, BigDecimal amount) {
             memberTally.unmatched++;
             tally(Source.MEMBER_SETTLEMENT, kind).failed++;
-            errors.add(new Problem(file, row.row(), excelId, ("no counterpart: no settlement of %s in %s of %s matches it "
-                    + "(D-178)").formatted(date, currency, amount.stripTrailingZeros().toPlainString())));
+            errors.add(new Problem(file, row.row(), excelId, "no counterpart: no settlement of %s in %s of %s matches it"
+                    .formatted(date, currency, amount.stripTrailingZeros().toPlainString())));
         }
 
         /** His side on the settlements a row of his matched: each in the settlement's currency, or a conversion's leg on FX_EXCHANGE. */
@@ -2167,7 +2167,7 @@ public class ImportService {
                 if (spec.accountAmount() != null) {
                     tally.failed++;
                     errors.add(new Problem(file, row.row(), excelId, "a row that matches several settlements is in "
-                            + "their currency on your account too (D-178)"));
+                            + "their currency on your account too"));
                     return;
                 }
             }
@@ -2287,7 +2287,7 @@ public class ImportService {
             if (appChanged) {
                 tally.conflicts++;
                 conflicts.add(new RowRef(Source.MEMBER_SETTLEMENT.name(), excelId,
-                        "your side of the settlement changed in the app since its last import (D-181)"));
+                        "your side of the settlement changed in the app since its last import"));
                 return;
             }
             int tier = settlements.size() > 1 ? 2 : kind.equals("CONVERSION") ? 0 : 1;
@@ -2351,7 +2351,7 @@ public class ImportService {
                         counts.getOrDefault(month, 0), strip(sum), strip(share), differs));
                 if (differs) {
                     warnings.add(new Problem(null, null, ("benefit rows of %s in %s: %s, your shares of the family "
-                            + "incomes the other members received: %s (D-179)").formatted(YearMonth.from(month.first()),
+                            + "incomes the other members received: %s").formatted(YearMonth.from(month.first()),
                                     month.currency(), strip(sum).toPlainString(), strip(share).toPlainString())));
                 }
             });
@@ -2410,8 +2410,8 @@ public class ImportService {
 
     /** D-196: the owner's D-73 row once the partner's place has an account. */
     static final String D73_AFTER_CLAIM = "a row on FAMILY_DEBT against UNALLOCATED is an expense the partner's place paid "
-            + "for you alone (D-73); the partner has taken his place and records it from his own file, so it can't come "
-            + "from yours any more: leave it out of your file, or ask him to record it (D-196)";
+            + "for you alone; the partner has taken his place and records it from his own file, so it can't come "
+            + "from yours any more: leave it out of your file, or ask him to record it";
 
     /** How many writes between two refreshes of the planner's statistics. */
     static final int ANALYZE_EVERY = 500;
@@ -2723,15 +2723,14 @@ public class ImportService {
 
     // --- D-219: what earlier imports wrote, as the ledger holds it now --------------------------------------------
 
-    static final String RESTAMPED = "the ledger holds what the row maps to; its hash is stored again (D-219)";
-    static final String APP_EDITED = "changed in the app, the file unchanged: left as it is (D-219)";
-    static final String SIDE_APP_EDITED = "your side changed in the app, the file unchanged: left as it is (D-337)";
-    static final String SIDE_CONFLICT = "your side changed in the app since its last import, and the row too (D-337)";
-    static final String REPLANNED = "re-planned: the current code maps it differently (D-219)";
-    static final String NOT_REPLANNABLE = "can't be re-planned after the claim: the partner's place pays it (D-196, "
-            + "D-219)";
-    static final String APP_ROW_CHANGED = "a row the app made, changed in the file: listed, never written (D-259)";
-    static final String APP_ROW_UNKNOWN = "names no entry or family record of yours: listed, never written (D-259)";
+    static final String RESTAMPED = "the ledger holds what the row maps to; its hash is stored again";
+    static final String APP_EDITED = "changed in the app, the file unchanged: left as it is";
+    static final String SIDE_APP_EDITED = "your side changed in the app, the file unchanged: left as it is";
+    static final String SIDE_CONFLICT = "your side changed in the app since its last import, and the row too";
+    static final String REPLANNED = "re-planned: the current code maps it differently";
+    static final String NOT_REPLANNABLE = "can't be re-planned after the claim: the partner's place pays it";
+    static final String APP_ROW_CHANGED = "a row the app made, changed in the file: listed, never written";
+    static final String APP_ROW_UNKNOWN = "names no entry or family record of yours: listed, never written";
     /** The Excel IDs of D-83's lumps, which D3b's import made from a daily file (D-232). */
     static final String LUMP = "PL:";
 

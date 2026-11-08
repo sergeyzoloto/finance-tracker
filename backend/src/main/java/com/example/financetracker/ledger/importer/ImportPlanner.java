@@ -189,7 +189,7 @@ final class ImportPlanner {
             return new Personal(row, List.of());
         }
         if (zero(row)) {
-            return new Skipped("Sum is 0 (D-72)", List.of());
+            return new Skipped("Sum is 0", List.of());
         }
         AccountRef debit = accountsByName.get(row.debit().toLowerCase(Locale.ROOT));
         AccountRef credit = accountsByName.get(row.credit().toLowerCase(Locale.ROOT));
@@ -323,7 +323,7 @@ final class ImportPlanner {
         CategoryRow category = noCategory ? categoryByCode(OTHER_INCOME) : categoriesByName.get(row.item());
         if (category == null) {
             return new Failed(List.of(noCategory ? "the file names no category %s, for a row on FAMILY_DEBT without a "
-                    .formatted(OTHER_INCOME) + "category (D-73)" : "Exp. Item is none of the file's categories"),
+                    .formatted(OTHER_INCOME) + "category" : "Exp. Item is none of the file's categories"),
                     warnings);
         }
         if (!currency.equals(otherCurrency)) {
@@ -332,7 +332,7 @@ final class ImportPlanner {
         boolean lowersTheDebt = debt.signum() < 0;
         if (currency.equals(CARRIED_CURRENCY) && lowersTheDebt && category.type() == CategoryType.INCOME
                 && CARRIED_BY_THE_PARTNER.contains(category.code())) {
-            return new NotImported("an income on FAMILY_DEBT that the partner's family rows carry (D-84)", warnings);
+            return new NotImported("an income on FAMILY_DEBT that the partner's family rows carry", warnings);
         }
         String type;
         boolean refund = false;
@@ -418,7 +418,7 @@ final class ImportPlanner {
 
     Planned partner(PartnerRow row) {
         if (row.amount().signum() == 0) {
-            return new Skipped("Sum is 0 (D-72)", List.of());
+            return new Skipped("Sum is 0", List.of());
         }
         // The owner's own name for the item first, else the code and type the partner's row brings (D-260).
         CategoryRow category = categoriesByName.get(row.item());

@@ -559,7 +559,7 @@ public class FamilyPostingService {
     /** A side on its member's own account that someone else's change would rewrite or delete: a bug (D-8, D-28). */
     private static IllegalStateException wouldChange(LedgerScope family, long recordId, long memberId) {
         return new IllegalStateException(("Record %d: member %d's side on an account of theirs would change through "
-                + "member %d's change; only they change it (D-8, D-28)").formatted(recordId, memberId,
+                + "member %d's change; only they change it").formatted(recordId, memberId,
                 family.memberId()));
     }
 

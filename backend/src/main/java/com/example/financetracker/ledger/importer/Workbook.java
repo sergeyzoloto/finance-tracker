@@ -75,7 +75,7 @@ final class Workbook {
         CsvTable table = CsvTable.read(file, List.of());
         if (table.problems().isEmpty() && !table.header().equals(ExcelRow.HEADER)) {
             throw new TransactionsFileRefused(List.of(("the file isn't a transactions file: its header has to be "
-                    + "exactly these %d columns, in this order: %s (D-235)").formatted(ExcelRow.HEADER.size(),
+                    + "exactly these %d columns, in this order: %s").formatted(ExcelRow.HEADER.size(),
                             String.join(";", ExcelRow.HEADER))));
         }
         Sheet<TransactionRow> sheet = new Sheet<>(file, table);
@@ -84,7 +84,7 @@ final class Workbook {
             List<String> errors = new ArrayList<>();
             TransactionRow transaction = TransactionRow.parse(row, errors);
             if (transaction != null && !ids.add(transaction.excelId())) {
-                errors.add("the ID is in an earlier row too (D-86)");
+                errors.add("the ID is in an earlier row too");
             }
             if (errors.isEmpty()) {
                 sheet.add(transaction);
@@ -173,7 +173,7 @@ final class Workbook {
         Map<String, Set<String>> codes = new TreeMap<>();
         names.forEach(e -> codes.computeIfAbsent(e.getKey(), k -> new java.util.TreeSet<>()).add(e.getValue()));
         codes.values().stream().filter(c -> c.size() > 1).forEach(c -> reasons.add(
-                "the %s %s have one name, and rows name them by it (D-262)".formatted(what, String.join(" and ", c))));
+                "the %s %s have one name, and rows name them by it".formatted(what, String.join(" and ", c))));
     }
 
     /** One code's spellings and types in a file, in the order of the rows' IDs. */
@@ -195,11 +195,11 @@ final class Workbook {
 
         void check(String what, String code, List<String> reasons) {
             if (names.size() > 1) {
-                reasons.add("the %s %s has %d names in the file, first in the IDs %s (D-229)".formatted(what, code,
+                reasons.add("the %s %s has %d names in the file, first in the IDs %s".formatted(what, code,
                         names.size(), String.join(", ", firstIdOfName.values())));
             }
             if (types.size() > 1) {
-                reasons.add("the %s %s has the types %s in the file, first in the IDs %s (D-229)".formatted(what,
+                reasons.add("the %s %s has the types %s in the file, first in the IDs %s".formatted(what,
                         code, String.join(" and ", types.keySet()), String.join(", ", types.values())));
             }
         }
@@ -269,7 +269,7 @@ final class Workbook {
             List<String> errors = new ArrayList<>();
             PartnerRow partner = PartnerRow.parse(row, errors);
             if (partner != null && !ids.add(partner.id())) {
-                errors.add("the ID is in an earlier row too (D-86)");
+                errors.add("the ID is in an earlier row too");
             }
             if (errors.isEmpty()) {
                 sheet.add(partner);

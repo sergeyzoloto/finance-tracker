@@ -19,6 +19,7 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import com.example.financetracker.Answers;
+import com.example.financetracker.ScreenTexts;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
@@ -212,7 +213,7 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(first.get("reconciliation").get("passed").asBoolean()).isTrue();
         claim();
         assertThat(body(ownerImport(seatRows(his()), null, null), HttpStatus.CONFLICT).get("detail").asText())
-                .contains("has an account now and imports their own file (D-175)");
+                .contains("has an account now and imports their own file");
 
         JsonNode report = ok(ownerImport(null, null, null));
         assertThat(report.get("errors")).isEmpty();
@@ -237,9 +238,10 @@ class MemberImportApiTests extends MemberImportApiTest {
 
         assertThat(report.get("family").get("mode").asText()).isEqualTo("MEMBER");
         assertThat(errors(report)).containsExactlyInAnyOrder(
-                "111: no counterpart: no settlement of 2024-02-25 in EUR of 77 matches it (D-178)",
+                "111: no counterpart: no settlement of 2024-02-25 in EUR of 77 matches it",
                 "112: an expense paid straight from FAMILY_DEBT: split it in Excel into a settlement into an account "
-                        + "of yours and the expense from that account (D-179)");
+                        + "of yours and the expense from that account");
+        ScreenTexts.assertNoDecisionNumber(report);
         JsonNode member = report.get("member");
         assertThat(member.get("familyRows").asInt()).isEqualTo(4);
         assertThat(member.get("recordsUnchanged").asInt()).isEqualTo(4);
@@ -422,7 +424,7 @@ class MemberImportApiTests extends MemberImportApiTest {
         JsonNode report = ok(memberImport(withField(hisWithoutTheRefused(), "105", 3, "49"), null, null));
         assertThat(report.get("warnings").findValuesAsText("message")).contains(
                 "benefit rows of 2024-02 in EUR: 49.00, your shares of the family incomes the other members received: "
-                        + "50.00 (D-179)");
+                        + "50.00");
         assertThat(report.get("member").get("benefitMonths").get(0).get("differs").asBoolean()).isTrue();
     }
 
@@ -435,7 +437,7 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(report.get("errors")).isEmpty();
         assertThat(report.get("member").get("ownerSettlementsWithoutSide").asInt()).isEqualTo(1);
         assertThat(report.get("warnings").findValuesAsText("message")).contains(
-                "the settlement of 2024-02-10 in EUR of 40 has no side of yours: none of your rows matched it (D-178)");
+                "the settlement of 2024-02-10 in EUR of 40 has no side of yours: none of your rows matched it");
     }
 
     /** D-177: his CUR_FAMILY must be the record's currency; a file without D-235's columns is refused whole. */
@@ -523,7 +525,8 @@ class MemberImportApiTests extends MemberImportApiTest {
                 line("118;10.02.2024;-;15;EUR;;;Наличные;Общий семейный бюджет;;;;;;", CASH, DEBT, NONE));
         JsonNode report = ok(memberImport(split, null, null));
         assertThat(errors(report)).hasSize(2).allSatisfy(e -> assertThat(e)
-                .contains("your rows 117, 118 add up to the settlement of 2024-02-10 in EUR of 40").contains("(D-198)"));
+                .contains("your rows 117, 118 add up to the settlement of 2024-02-10 in EUR of 40")
+                .endsWith("put them on one, or make them one row"));
         assertThat(report.get("member").get("tier2Many").asInt()).isZero();
     }
 
@@ -563,7 +566,7 @@ class MemberImportApiTests extends MemberImportApiTest {
         JsonNode report = ok(memberImport(two, null, null));
         assertThat(errors(report)).hasSize(2).allSatisfy(e -> assertThat(e).contains("AMBIGUOUS_SETTLEMENT")
                 .contains("your rows 117, 118 of 2024-02-10 in EUR").contains("the other member's Excel ID 5")
-                .contains("(D-202)"));
+                .contains("make the amounts or accounts tell them apart"));
         assertThat(report.get("member").get("ambiguous").asInt()).isEqualTo(2);
         assertThat(report.get("member").get("unmatched").asInt()).isZero();
     }
@@ -602,7 +605,7 @@ class MemberImportApiTests extends MemberImportApiTest {
                     .map(r -> r.get("source").asText() + " " + r.get("excelId").asText()))
                     .containsExactly("OWNER_SEAT 16");
             assertThat(group.findValuesAsText("reason")).containsOnly(
-                    "can't be re-planned after the claim: the partner's place pays it (D-196, D-219)");
+                    "can't be re-planned after the claim: the partner's place pays it");
             assertThat(report.get("sync").get("replanned")).isEmpty();
         }
     }

@@ -32,7 +32,7 @@ class WorkbookTests {
         var old = catchThrowableOfType(TransactionsFileRefused.class, () -> Workbook.transactions(csv("t.csv",
                 "ID;Date;Exp. Item;Sum;Currency;Counteragent;Comment;Debit;Credit;Family;CUR_DEBIT;SUM_DEBIT;CUR_CREDIT;"
                         + "SUM_CREDIT;LOAN_CA\r\n1;02.01.2024;Оклад;1;EUR;;;A;B;;;;;;\r\n")));
-        assertThat(old.violations()).singleElement().asString().contains(expected).contains("D-235");
+        assertThat(old.violations()).singleElement().asString().contains(expected).doesNotContain("D-235");
         // The same columns in another order are another header.
         List<String> swapped = new java.util.ArrayList<>(ExcelRow.HEADER);
         java.util.Collections.swap(swapped, 0, 1);
@@ -74,15 +74,15 @@ class WorkbookTests {
         // Row 17's Debit names the cash account otherwise: two names of CASH.
         byte[] twoNames = ImportFixtures.withField(csv, "17", 7, "Кошелёк-секрет");
         assertThat(refusal(twoNames)).containsExactly("the account CASH has 2 names in the file, first in the IDs "
-                + "7, 17 (D-229)");
+                + "7, 17");
         // Row 2's item typed as an income: two types of FOOD.
         byte[] twoTypes = ImportFixtures.withField(csv, "2", 16, "INCOME");
         assertThat(refusal(twoTypes)).containsExactly("the category FOOD has the types INCOME and EXPENSE in the "
-                + "file, first in the IDs 2, 3 (D-229)");
+                + "file, first in the IDs 2, 3");
         // Row 25's debit side named as the cash but coded otherwise: a name of two codes.
         byte[] sharedName = ImportFixtures.withField(csv, "25", 18, "WALLET");
         assertThat(refusal(sharedName)).contains("the accounts CASH and WALLET have one name, and rows name them by "
-                + "it (D-262)");
+                + "it");
         byte[] badType = ImportFixtures.withField(ImportFixtures.withField(csv, "25", 20, "EQUITY"), "25", 18, "X");
         assertThat(refusal(badType)).anySatisfy(r -> assertThat(r).startsWith("the account X has the type EQUITY"));
         assertThat(List.of(twoNames, twoTypes, sharedName)).allSatisfy(f -> assertThat(String.join(" ", refusal(f)))
@@ -105,7 +105,7 @@ class WorkbookTests {
                 .containsExactly("app-7", "app-f7");
         byte[] twice = ImportFixtures.withField(csv, "3", 0, "app-7");
         assertThat(Workbook.transactions(new ImportFile("t.csv", twice)).errors()).extracting(Problem::message)
-                .containsExactly("the ID is in an earlier row too (D-86)");
+                .containsExactly("the ID is in an earlier row too");
     }
 
     @Test
@@ -135,7 +135,7 @@ class WorkbookTests {
         var sheet = Workbook.transactions(new ImportFile("t.csv", broken));
         assertThat(sheet.errors()).extracting(Problem::row, Problem::message).containsExactly(
                 org.assertj.core.groups.Tuple.tuple(3, "ID: not a positive whole number"),
-                org.assertj.core.groups.Tuple.tuple(4, "the ID is in an earlier row too (D-86)"),
+                org.assertj.core.groups.Tuple.tuple(4, "the ID is in an earlier row too"),
                 org.assertj.core.groups.Tuple.tuple(5, "Sum: not a number"));
         assertThat(sheet.errors()).allSatisfy(p -> assertThat(p.message()).doesNotContain("secret", "x2"));
     }

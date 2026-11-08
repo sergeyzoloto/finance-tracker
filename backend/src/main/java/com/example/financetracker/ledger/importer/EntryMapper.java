@@ -35,7 +35,7 @@ final class EntryMapper {
      * it moves nothing, in Excel or in the app, and is skipped and named.
      */
     static final String SAME_ACCOUNT_NOOP = "SAME_ACCOUNT_NOOP: Debit and Credit are the same account, in one currency, "
-            + "and the row moves nothing: skipped (D-192)";
+            + "and the row moves nothing: skipped";
 
     /** Exp. Item of a row without a category. */
     static final String NO_CATEGORY = "-";
@@ -71,7 +71,7 @@ final class EntryMapper {
             return new RowResult.Skipped("an FX gain with Sum 0", true, warnings);
         }
         if (row.sum().signum() == 0 && row.debitAmount().signum() == 0 && row.creditAmount().signum() == 0) {
-            return new RowResult.Skipped("Sum is 0 (D-72)", false, warnings);
+            return new RowResult.Skipped("Sum is 0", false, warnings);
         }
 
         AccountRef debit = account(row.debit(), TransactionRow.DEBIT, errors);

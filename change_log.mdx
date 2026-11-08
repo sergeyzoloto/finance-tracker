@@ -3,6 +3,58 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-08 · UX-4: the Accounts page's archived accounts and 375 px; no decision number on a screen, D-381 to D-391
+
+Two commits on `feature/family-budget` on top of `7bacaf0`: `04a96fc` "docs: UX-3's deploy recorded, D-381 to D-385
+(UX-4)", and the commit of this entry, "feat: the Accounts page's archived amounts and 375 px, no decision number in a
+screen's text, D-386 to D-391 (UX-4)". **Not pushed**; `main` not moved. No migration (Flyway stays at V16), no stored
+entry changed, and in the importer only the wording of messages (D-385). Production read only: the server was never
+touched and `e2e:prod` never run.
+
+**Changes**
+- `04a96fc`: UX-3's deploy in the runbook's "Deployed revisions" (the run, its rollback acceptance, "CI on Ubuntu 26.04"
+  run #20) and "Production now" (`7bacaf0` on V16, rollback target `3b2206a`, UX-3's dumps); step 12's 12.1 and 12.10
+  on `verify UX-3`; CLAUDE.md's "Deployment" line; D-371 to D-379 confirmed, D-381 to D-385, D-370's cleanup closed.
+- D-382, D-386: the Accounts page shows an archived account's amounts that don't round to 0 at their minor unit, else
+  "—" (the tooltip gone), and with "Show archived" off lists such an account (`dashboard.listedInBalances`), so each
+  type's total matches its rows up to rounding.
+- D-382, D-387: under 40rem each account is a wrapping line, its buttons below, the refusal's row and "By person"'s
+  details across the width (`index.css`, `table.accounts`); at 1280 px unchanged.
+- D-384, D-388: "(D-n)" removed from the messages of `ImportService`, `Workbook`, `ImportPlanner`, `EntryMapper`,
+  `MemberPlanner` and `FamilyPostingService` (58 source lines), three joins reworded; `ImportReportMarkdown`,
+  `ImportRunner` and FamilySwitch's log line unchanged. No stored value, hash or comparison reads a message (D-385).
+- Tests (D-389): backend `ScreenTextTests` (every compiled class's string constants, `NO_SCREEN`, a fixture
+  `hygiene/fixtures/DecisionNumberMessage`) and `ScreenTexts.assertNoDecisionNumber` in four import tests; the import
+  tests' expected messages without numbers. Frontend `UX4.test.tsx` (8 tests) and `screenTexts.test.ts` (2 tests,
+  Vite's `parseSync`). End to end `07-dashboard`'s step 8 (D-390).
+- `deploy/checks/UX-4.sql` and `UX-4.expected` (9 lines, structure only). `deploy/RUNBOOK.md`: "UX-4's deploy checklist
+  with the suite". `docs/family-budget/requirements.md`: D-386 to D-391, UX-4 in the planned stages. `CLAUDE.md`: the
+  Accounts page, D-384's rule, the tests.
+
+**Verified**
+- `git fetch origin`: `main` = `origin/main` = `feature/family-budget` = `origin/feature/family-budget` = `7bacaf0`, the
+  tree clean, before the work.
+- `cd backend && ./mvnw -B clean verify`: exit 0, "Tests run: 639, Failures: 0, Errors: 0, Skipped: 0", BUILD SUCCESS.
+- `cd frontend && npm test`: exit 0, "Test Files 37 passed (37)", "Tests 476 passed (476)". `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, tests 37, pass 37, fail 0. `E2E_FAMILY=on npm run e2e:local` on `./dev.sh`
+  built from the working tree: exit 0, "24 passed", cleanup passed, "Password search over the artifacts: 0 hits",
+  "Result: PASSED" (run twice; the second after moving step 8's screenshot to 375 px).
+- `deploy/checks/UX-4.sql` on production's dump `finance-2026-11-07T0236Z.dump` restored into a throwaway database
+  (V16): its output equals `UX-4.expected`.
+- Section 4 on that dump (D-391, counts and yes or no only): the owner's Accounts page lists 3 of his 14 archived
+  accounts with "Show archived" off; every type's total equals its rows in every currency but Assets in RUB (0.0033,
+  a hidden residue below a minor unit); no sideways scroll at 375 px. Both participants' dry runs of
+  `export-2026-11-05` through the import page on `7bacaf0` and on UX-4: the same outcome, totals, check and sync
+  groups, and an empty diff once "(D-n)" is stripped. The database and the scratch worktree removed.
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+
+**Open**
+- UX-4's deploy, by its checklist, when the PM chooses; the rollback target `7bacaf0`, no condition.
+- D-386 to D-391 are the agent's choices and findings, for the PM to confirm.
+- The owner clears his two archived EUR accounts' €0.01 in his own file (D-381); the next import brings it.
+- `deploy/tests/run.sh` not run: the deploy scripts are unchanged.
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-08 · UX-3: equity by period, archiving at zero, and the archived accounts' cents, D-364 to D-380
 
 Two commits on `feature/family-budget` on top of `3b2206a`: `c1b4edb` "docs: UX-2's deploy recorded, D-364 and D-365

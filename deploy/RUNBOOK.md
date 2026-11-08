@@ -987,15 +987,15 @@ cat /var/lib/finance-deploy/last-good
 You should see `Now:` outside 03:30 to 04:30 UTC; `Scheduled shutdown: cat: …: No such file or directory` (a scheduled
 reboot: STOP, and start after it has happened); the clone and `last-good` at the
 commit [Production now](#production-now) names, in full, the code the month's figures were rehearsed on (D-220; for
-November, as of D4c's deploy, `df402d093fd406686f5cf7e30bfe964f9512dde3`), `finish=passed`.
+November, as of UX-2's deploy, `3b2206a990fcda1574a04d39b71e29cd99618a29`), `finish=passed`.
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify D4c
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-2
 ```
 
-You should see `verify D4c at …: OK` and the 24 numbers of the figures' **before** list (since D4c's deploy
-`verify D4c`, whose expected file holds no count, as UX-1's before it; `D3c.expected` names Flyway V15, D-326, D-333). **STOP** on any other number:
+You should see `verify UX-2 at …: OK` and the 24 numbers of the figures' **before** list (since UX-2's deploy
+`verify UX-2`, whose expected file holds no count, as D4c's and UX-1's before it; `D3c.expected` names Flyway V15, D-326, D-333). **STOP** on any other number:
 either participant has written in the app since the rehearsed state, and the rehearsal's figures no longer hold (rehearse
 again from production's current state).
 
@@ -1098,7 +1098,7 @@ cd /opt/finance-tracker && systemctl start pg-backup@finance.service && pg-resto
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify D4c
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-2
 ```
 
 ```bash
@@ -1106,7 +1106,7 @@ cd /opt/finance-tracker && deploy/deploy.sh verify D4c
 cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT line FROM (SELECT 0 AS n, '' AS r, 'family budgets ' || count(*) AS line FROM app.ledger WHERE type = 'SHARED' UNION ALL SELECT 1, m.role, m.role || ' ' || m.status || ', users with this email ' || (SELECT count(*) FROM app.users o WHERE lower(o.email) = lower(u.email)) || ', personal entries ' || (SELECT count(*) FROM app.journal_entry e JOIN app.ledger_member p ON p.ledger_id = e.ledger_id AND p.ledger_type = 'PERSONAL' WHERE p.user_sub = m.user_sub) FROM app.ledger_member m LEFT JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.user_sub IS NOT NULL) AS lines ORDER BY n, r DESC" </dev/null
 ```
 
-You should see `verify D4c at …: OK` with the figures' **after** numbers, and the **participants after** lines. **STOP**
+You should see `verify UX-2 at …: OK` with the figures' **after** numbers, and the **participants after** lines. **STOP**
 on any other number.
 
 **12.11 The end-to-end suite's checkout**, on the laptop, read only: a clean checkout of the deployed commit.
@@ -1430,6 +1430,9 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-11-07 | `3b2206a`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `3b2206a`, run #19 (id `42406145993`): success. Its check runs belong to `3b2206a`, deployed and finished, so they hold up no deploy. |
+| 2026-11-07 | `3b2206a`; nothing changed | UX-2's rollback acceptance: `deploy/rollback.sh df402d0`, run folder `/var/lib/finance-deploy/runs/2026-11-07T192441Z-rollback-df402d0`, answered at its confirmation: REFUSED, nothing changed. It named Flyway 16 and the target's V16, with no condition line. Not read again afterwards (D-365). The rollback target is `df402d0`. |
+| 2026-11-07 | `3b2206a990fcda1574a04d39b71e29cd99618a29` (feat: the dashboard's totals as net worth's, open loans below a minor unit, the entry list and category lists at 375 px, D-348 to D-363 (UX-2)), M; both images rebuilt and recreated | UX-2 (D-348 to D-363: the dashboard's totals in the base currency as net worth's, archived accounts that hold money listed, open loans below a minor unit hidden, "Owed to you", the entry list and the category lists at 375 px; with `68ea6c0`, D4c's deploy recorded), no migration (Flyway V16), the switch on, by [UX-2's deploy checklist](#ux-2s-deploy-checklist-with-the-suite) with D-365's differences, D-347's (step 0 skipped, no separate CI blocks, the pre-flight and `verify D4c` in one block with no stop, no second reading after the rollback acceptance). The pre-flight at 18:52:46Z: the containers on D4c's images, started at D4c's run (17:05:19Z); `verify D4c` OK, the 24 numbers as after October's step 12. `deploy/deploy.sh run 3b2206a990fcda1574a04d39b71e29cd99618a29 UX-2`, run folder `/var/lib/finance-deploy/runs/2026-11-07T185318Z-3b2206a`, over `df402d0`: commits `68ea6c0` and `3b2206a`; `Migrations added: none`; under `deploy/` `RUNBOOK.md`, `checks/UX-2.expected` and `checks/UX-2.sql`; CI 10 check runs, success. Before-dump `finance-2026-11-07T1902Z.dump`, 4809879 bytes, SHA-256 `72475d7d1a10a4ca61c7c91dd5bd9e1ca9287411a2a92c75916da2fe6faf996d`, restore test PASS. 3.2: `df402d0`'s images kept as `:df402d093fd406686f5cf7e30bfe964f9512dde3` and `:previous`; `9af167d`'s tags removed. After-dump `finance-2026-11-07T1916Z.dump`, 4809879 bytes, SHA-256 `1f4720c3839f6c067cc5c777c69f7f06aa810729b416569e55abccfdecac2514`, restore test PASS. Images: api `sha256:99f6576b5c98b0f36c24e616c32f77e66762bf0ecade3269367ad440b820e1ff` (content `sha256:73c7bb02434162100a85a13363a76bbbaf9c294a415edd3bf68c2714782683ab`), web `sha256:c15d8686350e9fdedbc624f830a96e3d4d67e82d8fb8908cd5c786ff1706edf4` (content `sha256:dbdf0c1ac7292b7327c8906e37d2ecd44b36dae08cb160f4b2ed11d7d708eaf7`). `Schema "app" is up to date` at 19:15:59Z; the api started at 19:16:01Z; the D-25 line on; the numbers the same before and after; `UX-2.sql` equal to `UX-2.expected`'s 5 lines. The end-to-end suite from `3b2206a` (`E2E_FAMILY=on`), 19:17:11Z to 19:19:50Z: 12 passed (`dashboard` with the Assets total and the 375 px checks), `new-family` skipped by design (D-171), password search 0 hits, `Result: PASSED`. `finish`: passed at 19:24:12Z (answers at 19:24:10Z and 19:24:12Z), the family numbers as before. `verify UX-2`: OK, the same 24 numbers. |
 | 2026-11-07 | `df402d0`; nothing on the server | "CI on Ubuntu 26.04" (D-44, D-124) for `df402d0`, run #18 (id `42395254498`): success. Its check runs belong to `df402d0`, deployed and finished, so they hold up no deploy. |
 | 2026-11-07 | `df402d0`; nothing changed | D4c's rollback acceptance: `deploy/rollback.sh 9e7aa87`, run folder `/var/lib/finance-deploy/runs/2026-11-07T171233Z-rollback-9e7aa87`, answered at its confirmation: REFUSED, nothing changed. It named Flyway 16 and the target's V16, with no condition line. Not read again afterwards (D-347). The rollback target is `9e7aa87`. |
 | 2026-11-07 | `df402d093fd406686f5cf7e30bfe964f9512dde3` (feat: no commit while the check against the file fails, the owner's paying side compared, D-335 to D-346 (D4c)), M; both images rebuilt and recreated | D4c (D-335 to D-346: no commit while the check against the file fails, the owner's own paying side compared, a family record changed in the app explained, UptimeRobot documented; with UX-1-doc's `dcd4c5b`), no migration (Flyway V16), the switch on, by [D4c's deploy checklist](#d4cs-deploy-checklist-with-the-suite) with D-347's differences (step 0 skipped, no separate CI blocks, the pre-flight and `verify UX-1` in one block with no stop, no second reading after the rollback acceptance). The pre-flight at 16:51:18Z: Docker 29.8.2, the containerd image store; the containers on UX-1's images, started at UX-1's run (2026-11-05T18:38:32Z, no reboot since); `verify UX-1` OK at 16:51:19Z, the 24 numbers as after October's step 12. `deploy/deploy.sh run df402d093fd406686f5cf7e30bfe964f9512dde3 D4c`, run folder `/var/lib/finance-deploy/runs/2026-11-07T165137Z-df402d0`, over `9e7aa87`: commits `dcd4c5b` and `df402d0`; `Migrations added: none`; under `deploy/` `RUNBOOK.md`, `checks/D4c.expected` and `checks/D4c.sql`; CI 10 check runs, success (the gate waited about ten minutes for Deploy scripts). Before-dump `finance-2026-11-07T1700Z.dump`, 4809879 bytes, SHA-256 `fde9d548a1cd416af3bd385bb44710c86afcc831d9ee461eeb44047bfed9b1cd`, restore test PASS. 3.2: `9e7aa87`'s images kept as `:9e7aa870930bad66ef2fb91d80d5b9c4ec831c7c` and `:previous`; `1fa5043`'s tags removed. After-dump `finance-2026-11-07T1705Z.dump`, 4809879 bytes, SHA-256 `75944e0b3cb97a679760d157b20c5b2d11c15975e7e8bba3d935c1a5259179ac`, restore test PASS. Images: api `sha256:f69fafaac1c9de0ea98a29925b56ac8b7640f63c3eba10d62aeec2e2575fa2bd` (content `sha256:21614966c2b5983cf24a902b1d0f3197c4a4bf73e72630d82d7a06c7e3da99a4`), web `sha256:07deb98782d0414d33aedf9806e9d9ffcb7c96e529a602bc0a902ae2c8cc4402` (content `sha256:3a4dc1b7c8f9e5c2cd1490440df8de0fd8fb1f332acda4a82c9b017c1baebeb1`). `Schema "app" is up to date` at 17:05:25Z; the api started at 17:05:28Z; the D-25 line on; the numbers the same before and after; `D4c.sql` equal to `D4c.expected`'s 8 lines. The end-to-end suite from `df402d0` (`E2E_FAMILY=on`), 17:08:42Z to 17:11:19Z: 12 passed (`import` with D-336's failing check), `new-family` skipped by design (D-171), password search 0 hits, `Result: PASSED`. `finish`: passed at 17:12:03Z (answers at 17:11:59Z and 17:12:03Z), the family numbers as before. `verify D4c`: OK at 17:12:22Z, the same 24 numbers. |
@@ -1520,21 +1523,22 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-11-07, after D4c's deploy (`finish` passed at 17:12:03Z; `verify D4c` OK at 17:12:22Z; its rollback
-acceptance refused at its confirmation, nothing changed):
+As of 2026-11-07, after UX-2's deploy (`finish` passed at 19:24:12Z; `verify UX-2` OK; its rollback acceptance
+refused at its confirmation, nothing changed):
 
-- `df402d093fd406686f5cf7e30bfe964f9512dde3` (D4c: no commit while the check against the file fails, the owner's own
-  paying side compared; with UX-1-doc's `dcd4c5b`; on UX-1's `9e7aa87`, OPS-3's `b899e3a`, D4b, D4a, D3e, D3c with its
+- `3b2206a990fcda1574a04d39b71e29cd99618a29` (UX-2: the dashboard's totals in the base currency as net worth's,
+  archived accounts that hold money listed, open loans below a minor unit hidden, the entry list and the category
+  lists at 375 px; with `68ea6c0`; on D4c's `df402d0`, UX-1's `9e7aa87`, OPS-3's `b899e3a`, D4b, D4a, D3e, D3c with its
   fixes and acceptances, D3b-accept, D3b, F8f, F8e, F8d, F8c, F8, QA-1 and QA-1b) on Flyway V16, `last-good` naming
-  `df402d0`. Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api `sha256:f69fafaa…`
-  (content `sha256:21614966…`) and web `sha256:07deb987…` (content `sha256:3a4dc1b7…`), "the recorded image" for
+  `3b2206a`. Family budgets are switched on since 2026-10-03T09:25:40Z. The containers run api `sha256:99f6576b…`
+  (content `sha256:73c7bb02…`) and web `sha256:c15d8686…` (content `sha256:dbdf0c1a…`), "the recorded image" for
   `verify`. Since OPS-3 (2026-10-27) every container of both stacks logs to the journal, Hetzner keeps 7 daily backups
   of the server, and the monitor runs from GitHub ([Monitoring](#monitoring): its schedule runs every few hours, not
   every 15 minutes, D-332). UptimeRobot (D-335): the owner's setup isn't reported yet.
 - **Both members' histories are imported up to 2026-10-31**: the owner's (D3b-run up to 2026-08-31, corrected in
   11.2a, and step 12 for September and October) and the partner's (D3c-run from his claim of 2019-12-01, and step 12
   for September and October). Each imports only his own file (D-175). The 24 numbers are UX-1's, step 12's **after**
-  of [October's figures](#step-12s-figures-october-2026), unchanged by D4c's deploy: `accounts=74`, `categories=92`, `counterparties=1413`,
+  of [October's figures](#step-12s-figures-october-2026), unchanged by D4c's and UX-2's deploys: `accounts=74`, `categories=92`, `counterparties=1413`,
   `entries=42743`, `family_accounts=2`, `family_import_cutoffs=2`, `family_invites=1`, `family_journal=12561`,
   `family_ledgers=1`, `family_links=36174`, `family_members=2`, `family_members_active=2`, `family_members_former=0`,
   `family_members_left=0`, `family_records=12549`, `family_shares=23830`, `import_batches=10`,
@@ -1545,13 +1549,14 @@ acceptance refused at its confirmation, nothing changed):
   the family's at October's commit (D-224; categories 95 to 92). His rows 211 and 2839, changed in the app, stay as he
   edited them, explained as APP_EDITED (D-218, D-223); so do 1262, 2497 and 2973 (D-323).
 - **The next step 12** (November 2026, early December) runs on the import page of the code production runs then
-  (`df402d0` today), where **Import up to** is typed in the account's date format (D-304). It is rehearsed first from
-  production's latest dump with that code (D-220), and its 12.1 and 12.10 use `verify D4c`. The owner's own sides
+  (`3b2206a` today), where **Import up to** is typed in the account's date format (D-304). It is rehearsed first from
+  production's latest dump with that code (D-220), and its 12.1 and 12.10 use `verify UX-2`. The owner's own sides
   aren't stored yet: his first commit on D4c's code stamps them (D-342), so `imported_family_sides` grows then.
-- The rollback state: the previous-commit file names `9e7aa87` (UX-1, V16). `rollback.sh`'s target is `9e7aa87`, with
-  no condition of its own (D4c has no migration); `rollback.sh 9e7aa87` was refused at its confirmation in the
-  acceptance. D4c's deploy dumps: before `finance-2026-11-07T1700Z.dump` (SHA-256 `fde9d548…`), after
-  `finance-2026-11-07T1705Z.dump` (SHA-256 `75944e0b…`). Below that, by restores only, each of which loses everything
+- The rollback state: the previous-commit file names `df402d0` (D4c, V16). `rollback.sh`'s target is `df402d0`, with
+  no condition of its own (UX-2 has no migration); `rollback.sh df402d0` was refused at its confirmation in the
+  acceptance. UX-2's deploy dumps: before `finance-2026-11-07T1902Z.dump` (SHA-256 `72475d7d…`), after
+  `finance-2026-11-07T1916Z.dump` (SHA-256 `1f4720c3…`); D4c's: before `finance-2026-11-07T1700Z.dump` (SHA-256
+  `fde9d548…`), after `finance-2026-11-07T1705Z.dump` (SHA-256 `75944e0b…`). Below that, by restores only, each of which loses everything
   written after its dump:
   - **below October's step 12**: B1 `finance-2026-11-05T1754Z.dump` (both participants' October) or B2
     `finance-2026-11-05T1803Z.dump` (the partner's); B3 `finance-2026-11-05T1809Z.dump` is the state step 12 left.
@@ -1567,15 +1572,15 @@ acceptance refused at its confirmation, nothing changed):
   The server keeps 14 days of nightly dumps (`/var/backups/pg/finance/`), the laptop 60
   (`~/backups/finance-nl-server/finance/`); a deploy's run folder keeps its before-dump 14 days. The way back from the
   family budget is `deploy/deploy.sh switch off`, which leaves the data.
-- The end-to-end suite from `df402d0` passed on production after D4c's deploy (2026-11-07, 17:08:42Z to 17:11:19Z,
+- The end-to-end suite from `3b2206a` passed on production after UX-2's deploy (2026-11-07, 19:17:11Z to 19:19:50Z,
   `E2E_FAMILY=on`, 12 passed, `new-family` skipped by design, D-171, `Result: PASSED`).
-- "CI on Ubuntu 26.04" for `df402d0`: run #18 (id `42395254498`), success; for `9e7aa87`: run #17 (id `42088610351`),
-  success.
-- `main` and `feature/family-budget` are at `df402d0`.
+- "CI on Ubuntu 26.04" for `3b2206a`: run #19 (id `42406145993`), success; for `df402d0`: run #18 (id
+  `42395254498`), success.
+- `main` and `feature/family-budget` are at `3b2206a`.
 - OPS-3's open checks: the next morning's (the nightly dumps' restore line of D-279, the first daily log rotation,
   Hetzner's first backup and its time) and the one 15 days on (the journal's oldest line at most 15 days old), none
   recorded yet.
-- D4c's, UX-1's, R-OCT's, OPS-3's, D4b's, D4a's, D3e's, D3c's, D3b-accept's, D3b's and F8f's checklists stay as their
+- UX-2's, D4c's, UX-1's, R-OCT's, OPS-3's, D4b's, D4a's, D3e's, D3c's, D3b-accept's, D3b's and F8f's checklists stay as their
   records and are used for no other deploy. A checklist keeps `<M>` (D-226); the PM gives its blocks with M filled in,
   in the chat. Step 12 runs from this runbook on the laptop; its server blocks need nothing from the clone.
 

@@ -389,3 +389,64 @@ export const periodTotals = (table: CashFlowTable): { income: Cell; expense: Cel
  */
 export const usedRateText = (r: Rate) =>
   `1 EUR = ${formatRate(r.perEuro)} ${r.currency}, ${r.source === 'MANUAL' ? 'manual' : 'ECB'} rate of ${formatDate(r.date)}${r.stale ? ' (rate stale)' : ''}`
+
+/**
+ * Whether the Balances card lists an account (D-364): an account that isn't archived always, an archived one only
+ * while one of its amounts in its own currencies doesn't round to 0 in that currency's minor unit (D-349's test). The
+ * type totals still count every account, as net worth does (D-355).
+ */
+export const listedInBalances = (own: { currency: string; balance: string }[], archived: boolean) =>
+  !archived || own.some((b) => !belowMinorUnit(b.balance, b.currency))
+
+/** The system equity accounts that keep their own lines in the Balances card (D-367). */
+export const SYSTEM_EQUITY = ['OPENING_BALANCE', 'FX_EXCHANGE'] as const
+export const isSystemEquity = (b: { accountType: AccountType; accountCode: string }) =>
+  b.accountType === 'EQUITY' && (SYSTEM_EQUITY as readonly string[]).includes(b.accountCode)
+/** The equity accounts D-367 shows as two lines, UNALLOCATED and RESERVE in the owner's ledger, whatever their names. */
+export const isReserveEquity = (b: { accountType: AccountType; accountCode: string }) =>
+  b.accountType === 'EQUITY' && !isSystemEquity(b)
+
+/**
+ * The days of "Result for the period" (D-367): from the period's From to "Balances on", or To if earlier; null when
+ * that ends before it starts (Balances on before From, or a period that ends before it starts), when the result is 0.
+ */
+export function resultRange(period: { from: string; to: string; asOf: string }): { from: string; to: string } | null {
+  const to = period.asOf < period.to ? period.asOf : period.to
+  return to < period.from ? null : { from: period.from, to }
+}
+
+/** One currency's two lines in place of the reserve accounts (D-367). */
+export interface EquitySplit { currency: string; reserve: string; result: string }
+
+/**
+ * D-367 in each currency: "Result for the period" is the Net of income and expenses, under All, from `resultRange`'s
+ * tables (null for none: 0); "Accumulated reserve" is the reserve accounts' balance on Balances on less that result,
+ * which is their balance on the day before From plus any transfer to or from them within the period. Sums within a
+ * currency only.
+ */
+export function equitySplits(balances: AccountBalance[], tables: CashFlowTable[] | null): EquitySplit[] {
+  const reserve = balances.filter(isReserveEquity)
+  const results = new Map((tables ?? []).map((t) => [t.currency, periodTotals(t).net]))
+  const currencies = [...new Set([...reserve.map((b) => b.currency), ...results.keys()])].sort()
+  return currencies.map((currency) => {
+    const net = results.get(currency)
+    const result = typeof net === 'string' ? net : '0'
+    const held = sum(reserve.filter((b) => b.currency === currency).map((b) => b.balance))
+    return { currency, result, reserve: sum([held, negate(result)]) }
+  })
+}
+
+/**
+ * D-367 and D-369 in the base currency: "Result for the period" is the cash flow's Net at each posting's own day's rate,
+ * the same figure as the Net of income and expenses (`table`'s; null for none: 0); "Accumulated reserve" is the rest of
+ * equity at the rate on Balances on: net worth less the system equity accounts' lines and the result, so that the lines
+ * add up to Equity's total, net worth, and the reserve includes the revaluation. MISSING when a figure lacks a rate.
+ */
+export function baseEquitySplit(converted: ConvertedBalance[], netWorth: Cell, table: CashFlowTable | null):
+  { reserve: Cell; result: Cell } {
+  const result: Cell = table === null ? '0' : (periodTotals(table).net ?? '0')
+  const system: Cell[] = converted.filter(isSystemEquity).map((b) => b.balance ?? MISSING)
+  if (netWorth === MISSING || result === MISSING || system.includes(MISSING)) return { reserve: MISSING, result }
+  const parts = (system as (string | null)[]).filter((s): s is string => s !== null)
+  return { result, reserve: sum([netWorth ?? '0', ...parts.map(negate), negate(result)]) }
+}

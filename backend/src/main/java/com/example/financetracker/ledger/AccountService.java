@@ -1,14 +1,20 @@
 package com.example.financetracker.ledger;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.Currency;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import com.example.financetracker.WallClock;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.AccountType;
+import com.example.financetracker.ledger.domain.Money;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.relational.core.conversion.DbActionExecutionException;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,9 +27,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountService {
 
     private final AccountRepository accounts;
+    private final JdbcClient jdbc;
 
-    AccountService(AccountRepository accounts) {
+    AccountService(AccountRepository accounts, JdbcClient jdbc) {
         this.accounts = accounts;
+        this.jdbc = jdbc;
     }
 
     /** All the ledger's accounts, archived ones included, by code. */
@@ -53,7 +61,8 @@ public class AccountService {
 
     /**
      * @throws AccountNotFoundException if the ledger has no such account
-     * @throws ConflictException if the changes rename or archive a system account, or archive UNALLOCATED
+     * @throws ConflictException if the changes rename or archive a system account, archive UNALLOCATED, or archive an
+     *         account that still holds money (D-366)
      */
     @Transactional
     public AccountView update(LedgerScope ledger, long accountId, AccountChanges changes) {
@@ -73,6 +82,9 @@ public class AccountService {
             throw new ConflictException("%s can be renamed, but not archived: a family budget posts its shares there"
                     .formatted(account.code()));
         }
+        if (Boolean.TRUE.equals(changes.archived()) && account.archivedAt() == null) {
+            refuseWhileItHoldsMoney(ledger, account);
+        }
         String name = changes.name() != null ? changes.name() : account.name();
         String defaultCurrency = changes.changesDefaultCurrency()
                 ? changes.defaultCurrency()
@@ -81,6 +93,46 @@ public class AccountService {
                 account.code(), name, account.type(),
                 defaultCurrency, account.requiresCounterparty(), account.isSystem(),
                 archivedAt(account.archivedAt(), changes.archived()), account.createdAt())));
+    }
+
+    /**
+     * D-366: an account is archived only at zero. Its balance in each currency, over all its postings whatever their
+     * date, must round to 0 at that currency's minor unit (HALF_UP, as D-349's test does on the dashboard), so that
+     * RUB 0.004 left by the import's four decimals doesn't keep an account open. The account's row is locked first:
+     * an entry being written to it holds the row FOR SHARE ({@code EntryService}), so it commits before the sum, which
+     * then counts it, or waits until the archive is done. Later entries may still post to it: D-366 is checked when
+     * the account is archived, as an archived account's entries stay editable.
+     */
+    private void refuseWhileItHoldsMoney(LedgerScope ledger, Account account) {
+        jdbc.sql("SELECT id FROM account WHERE ledger_id = :ledger AND id = :id FOR UPDATE")
+                .param("ledger", ledger.ledgerId()).param("id", account.id()).query(Long.class).single();
+        List<Remaining> remaining = jdbc.sql("""
+                SELECT p.currency, sum(p.amount) AS amount
+                FROM posting p JOIN journal_entry e ON e.id = p.entry_id
+                WHERE e.ledger_id = :ledger AND p.account_id = :id
+                GROUP BY p.currency ORDER BY p.currency""")
+                .param("ledger", ledger.ledgerId()).param("id", account.id())
+                .query((rs, n) -> new Remaining(rs.getString("currency"), rs.getBigDecimal("amount"))).list()
+                .stream().filter(r -> !roundsToZero(r.amount(), r.currency())).toList();
+        if (remaining.isEmpty()) {
+            return;
+        }
+        // Rule 4's displayed balance, as the screens show it.
+        boolean asset = account.type() == AccountType.ASSET;
+        String amounts = remaining.stream()
+                .map(r -> Money.normalize(asset ? r.amount() : r.amount().negate()).toPlainString() + " " + r.currency())
+                .collect(Collectors.joining(", "));
+        throw new ConflictException(("%s still holds %s. An account is archived only once it holds nothing: move what "
+                + "remains to another account first").formatted(account.name(), amounts));
+    }
+
+    private record Remaining(String currency, BigDecimal amount) {
+    }
+
+    /** Whether an amount is nothing in its currency: it rounds HALF_UP to 0 at the currency's minor unit. */
+    static boolean roundsToZero(BigDecimal amount, String currency) {
+        int digits = Math.max(Currency.getInstance(currency).getDefaultFractionDigits(), 0);
+        return amount.setScale(digits, RoundingMode.HALF_UP).signum() == 0;
     }
 
     /** When an object is archived after a change of its archived flag; an archived object keeps its time. */

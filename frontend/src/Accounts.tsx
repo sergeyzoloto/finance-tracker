@@ -110,7 +110,6 @@ function AccountRow({ account, balances, onChanged }: {
               {account.requiresCounterparty && <span className="badge">Per person</span>}
             </>
           )}
-          {otherError && <div><small className="error" role="alert">{otherError}</small></div>}
         </td>
         <td className="amount">
           {account.archived ? <span className="muted" title="Balances are reported for open accounts only">—</span>
@@ -131,6 +130,12 @@ function AccountRow({ account, balances, onChanged }: {
           )}
         </td>
       </tr>
+      {otherError && (
+        // Such as the refusal to archive an account that still holds money (D-366), across the row under the account.
+        <tr className="row-error">
+          <td colSpan={3}><small className="error" role="alert">{otherError}</small></td>
+        </tr>
+      )}
       {details && (
         <tr className="details">
           <td colSpan={3}><CounterpartyBalances account={account} /></td>

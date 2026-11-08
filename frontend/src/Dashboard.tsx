@@ -9,9 +9,10 @@ import CashFlowTable from './CashFlowTable'
 import { lazyWithReload } from './chunkReload'
 import { Amounts, ErrorBoundary, Errors, Loading, ToggleGroup } from './components'
 import {
-  belowMinorUnit, cashFlowTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, familyDebts, inBaseFromQuery, isFamilyScope,
-  LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING, missingDays, monthsBetween, PERIOD_LABELS, periodFromQuery,
-  periodTotals, PRESETS, SCOPE_LABELS, scopeFromQuery, scopeParams, SCOPES, showsOwnCurrencies, usedRateText,
+  baseEquitySplit, belowMinorUnit, cashFlowTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, equitySplits,
+  familyDebts, inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing,
+  MISSING, missingDays, monthsBetween, PERIOD_LABELS, periodFromQuery, periodTotals, PRESETS, resultRange, SCOPE_LABELS,
+  scopeFromQuery, scopeParams, SCOPES, showsOwnCurrencies, usedRateText,
   type CashFlowTable as Table, type Cell, type FamilyDebt, type PeriodChoice, type Scope,
 } from './dashboard'
 import DateInput from './DateInput'
@@ -88,6 +89,23 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
   const cashFlow = useApi<CashFlowRow[]>(cashFlowPath && each(cashFlowPath))
   const baseCashFlow = useApi<ConvertedCashFlow>(base(cashFlowPath))
   const months = monthsBetween(period.from, period.to)
+  // "Result for the period" in the Balances card (D-367): income and expenses under All, from From to Balances on or
+  // To, if earlier; the page's own load when that is the same request.
+  const range = resultRange(period)
+  const resultPath = range && `/reports/cash-flow?from=${range.from}&to=${range.to}`
+  const sameAsPage = resultPath !== null && resultPath === cashFlowPath
+  const ownResult = useApi<CashFlowRow[]>(sameAsPage ? null : resultPath && each(resultPath))
+  const ownBaseResult = useApi<ConvertedCashFlow>(sameAsPage ? null : base(resultPath))
+  const resultMonths = range === null ? [] : monthsBetween(range.from, range.to)
+  const noResult = { data: null, loading: false }
+  const result: Loaded<Table[] | null> = range === null ? noResult : (() => {
+    const load = sameAsPage ? cashFlow : ownResult
+    return { ...load, data: load.data && cashFlowTables(load.data, resultMonths) }
+  })()
+  const baseResult: Loaded<Table | null> = range === null ? noResult : (() => {
+    const load = sameAsPage ? baseCashFlow : ownBaseResult
+    return { ...load, data: load.data && convertedCashFlowTable(load.data, resultMonths) }
+  })()
   const tables: Loaded<Table[]> = backwards ? { error: 'The period ends before it starts.', loading: false }
     : inBase ? { ...baseCashFlow, data: baseCashFlow.data && nonEmpty([convertedCashFlowTable(baseCashFlow.data, months)]) }
       : { ...cashFlow, data: cashFlow.data && cashFlowTables(cashFlow.data, months) }
@@ -227,10 +245,12 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
 
       <div className="dashboard">
         {inBase
-          ? <Card title="Balances" state={both(baseBalances, baseNetWorth)}>
-            {([rows, worth]) => <BaseBalancesByType balances={rows} worth={worth} />}
+          ? <Card title="Balances" state={both(both(baseBalances, baseNetWorth), both(balances, baseResult))}>
+            {([[rows, worth], [own, flow]]) => <BaseBalancesByType balances={rows} worth={worth} own={own} result={flow} />}
           </Card>
-          : <Card title="Balances" state={balances}>{(rows) => <BalancesByType balances={rows} />}</Card>}
+          : <Card title="Balances" state={both(balances, result)}>
+            {([rows, flow]) => <BalancesByType balances={rows} result={flow} />}
+          </Card>}
         <Card title="Open loans" state={loans}>
           {(groups) => <OpenLoans groups={groups} inBase={inBase} baseCurrency={baseCurrency ?? ''} />}
         </Card>
@@ -411,27 +431,58 @@ function UsedRates({ rates }: { rates: Rate[] }) {
   )
 }
 
+/** The labels of D-367's two lines, the same for every user (D-368). */
+const RESERVE_LABEL = 'Accumulated reserve'
+const RESULT_LABEL = 'Result for the period'
+const RESERVE_HINT = 'Your equity accounts’ balance before the period, with what you moved to or from them in it'
+const RESULT_HINT = 'Income less expenses from the period’s start to Balances on: the Net of Income and expenses'
+
 /**
  * The accounts by type, in the base currency, with a total per type. The totals are net worth's figures (D-348): each
  * the unrounded sum, rounded once (D-49), so Assets' total is "You have", Liabilities' "You owe" and Equity's net worth;
  * the rows, each rounded on its own, may then differ from their total by a few minor units, which a note says. An
- * archived account is listed while it holds money, which net worth counts (D-355).
+ * archived account is listed while one of its own amounts doesn't round to 0 (D-355, D-364). Equity shows, in place of
+ * the accounts other than OPENING_BALANCE and FX_EXCHANGE, "Accumulated reserve" and "Result for the period" (D-367,
+ * D-369): the result at each posting's own day's rate, the reserve the rest at the rate on Balances on, so the lines
+ * add up to net worth and the reserve includes the revaluation, as a note says.
+ *
+ * @param own the balances in their own currencies, for D-364's test
+ * @param result the cash flow of the result's days, null for none
  */
-function BaseBalancesByType({ balances, worth }: { balances: ConvertedBalance[]; worth: ConvertedNetWorth }) {
+function BaseBalancesByType({ balances, worth, own, result }: {
+  balances: ConvertedBalance[]
+  worth: ConvertedNetWorth
+  own: AccountBalance[]
+  result: Table | null
+}) {
   if (balances.length === 0) return <p className="empty">No accounts yet.</p>
   const totals: Record<string, Cell> = {
     ASSET: cell(worth.assets), LIABILITY: cell(worth.liabilities), EQUITY: cell(worth.netWorth),
   }
+  const currency = worth.currency
+  const split = baseEquitySplit(balances, cell(worth.netWorth), result)
+  const listed = (b: ConvertedBalance) => listedInBalances(own.filter((o) => o.accountId === b.accountId), b.archived === true)
   return (
     <>
       {ACCOUNT_TYPES.map((type) => {
-        const rows = balances.filter((b) => b.accountType === type)
-        if (rows.length === 0) return null
-        const currency = rows[0].currency
+        const rows = balances.filter((b) => b.accountType === type && !isReserveEquity(b) && listed(b))
+        if (rows.length === 0 && type !== 'EQUITY') return null
         return (
           <table key={type} className="by-type">
             <thead><tr><th scope="colgroup" colSpan={2}>{TYPE_LABELS[type]}</th></tr></thead>
             <tbody>
+              {type === 'EQUITY' && (
+                <>
+                  <tr className="equity-line">
+                    <td title={RESERVE_HINT}>{RESERVE_LABEL}</td>
+                    <td className="amount nowrap"><Figure amount={split.reserve} currency={currency} /></td>
+                  </tr>
+                  <tr className="equity-line">
+                    <td title={RESULT_HINT}>{RESULT_LABEL}</td>
+                    <td className="amount nowrap"><Figure amount={split.result} currency={currency} /></td>
+                  </tr>
+                </>
+              )}
               {rows.map((b) => (
                 <tr key={b.accountId}>
                   <td><AccountName id={b.accountId} name={b.accountName} archived={b.archived === true} /></td>
@@ -450,6 +501,8 @@ function BaseBalancesByType({ balances, worth }: { balances: ConvertedBalance[];
       })}
       <p className="muted small rounding-note">
         Each amount is rounded on its own and each total once, so a total may differ slightly from the sum of its rows.
+        The accumulated reserve is at the rates on the day the balances are shown, so it includes the revaluation of
+        what is in other currencies.
       </p>
     </>
   )
@@ -463,30 +516,61 @@ const AccountName = ({ id, name, archived }: { id: number; name: string; archive
   </>
 )
 
-/** The accounts by type, with totals per currency; an archived one while it holds money (D-355). */
-function BalancesByType({ balances }: { balances: AccountBalance[] }) {
+/**
+ * The accounts by type, with totals per currency over every account, as net worth counts them; an archived one is
+ * listed while one of its amounts doesn't round to 0 (D-355, D-364), with those amounts. Equity shows "Accumulated
+ * reserve" and "Result for the period" per currency in place of the accounts other than OPENING_BALANCE and
+ * FX_EXCHANGE (D-367).
+ *
+ * @param result the tables of the result's days, null for none
+ */
+function BalancesByType({ balances, result }: { balances: AccountBalance[]; result: Table[] | null }) {
   if (balances.length === 0) return <p className="empty">No accounts yet.</p>
+  const splits = equitySplits(balances, result)
   return (
     <>
       {ACCOUNT_TYPES.map((type) => {
-        const rows = balances.filter((b) => b.accountType === type)
-        if (rows.length === 0) return null
-        const accounts = [...new Map(rows.map((b) => [b.accountId, b]))]
-        const totals = [...new Set(rows.map((b) => b.currency))].sort().map((currency) => ({
-          currency, amount: sum(rows.filter((b) => b.currency === currency).map((b) => b.balance)),
+        const all = balances.filter((b) => b.accountType === type)
+        const rows = all.filter((b) => !isReserveEquity(b))
+        const accounts = [...new Map(rows.map((b) => [b.accountId, b]))].filter(([id, account]) =>
+          listedInBalances(rows.filter((b) => b.accountId === id), account.archived === true))
+        const totals = [...new Set(all.map((b) => b.currency))].sort().map((currency) => ({
+          currency, amount: sum(all.filter((b) => b.currency === currency).map((b) => b.balance)),
         }))
+        const equity = type === 'EQUITY' && splits.length > 0
+        if (accounts.length === 0 && !equity) return null
         return (
           <table key={type} className="by-type">
             <thead><tr><th scope="colgroup" colSpan={2}>{TYPE_LABELS[type]}</th></tr></thead>
             <tbody>
-              {accounts.map(([id, account]) => (
-                <tr key={id}>
-                  <td><AccountName id={id} name={account.accountName} archived={account.archived === true} /></td>
-                  <td className="amount nowrap">
-                    <Amounts amounts={rows.filter((b) => b.accountId === id).map((b) => ({ currency: b.currency, amount: b.balance }))} />
-                  </td>
-                </tr>
-              ))}
+              {equity && (
+                <>
+                  <tr className="equity-line">
+                    <td title={RESERVE_HINT}>{RESERVE_LABEL}</td>
+                    <td className="amount nowrap">
+                      <Amounts amounts={splits.map((s) => ({ currency: s.currency, amount: s.reserve }))} />
+                    </td>
+                  </tr>
+                  <tr className="equity-line">
+                    <td title={RESULT_HINT}>{RESULT_LABEL}</td>
+                    <td className="amount nowrap">
+                      <Amounts amounts={splits.map((s) => ({ currency: s.currency, amount: s.result }))} />
+                    </td>
+                  </tr>
+                </>
+              )}
+              {accounts.map(([id, account]) => {
+                const amounts = rows.filter((b) => b.accountId === id)
+                  .filter((b) => !account.archived || !belowMinorUnit(b.balance, b.currency))
+                return (
+                  <tr key={id}>
+                    <td><AccountName id={id} name={account.accountName} archived={account.archived === true} /></td>
+                    <td className="amount nowrap">
+                      <Amounts amounts={amounts.map((b) => ({ currency: b.currency, amount: b.balance }))} />
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
             <tfoot><tr><th scope="row">Total</th><td className="amount nowrap"><Amounts amounts={totals} /></td></tr></tfoot>
           </table>

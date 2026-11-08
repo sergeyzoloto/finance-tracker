@@ -119,8 +119,8 @@ class ReportApiTests extends LedgerApiTest {
      */
     @Test
     void archivedAccountsWithMoneyAreListedAndMarked() throws IOException {
-        ok(patch(alice, "/api/accounts/" + accountId(alice, "CASH"), """
-                {"archived": true}"""));
+        // Archived with money before D-366 refused that (UX-3), as the owner's accounts were; such an account stays so.
+        jdbc.sql("UPDATE account SET archived_at = now() WHERE id = ?").param(accountId(alice, "CASH")).update();
         ok(patch(alice, "/api/accounts/" + accountId(alice, "SAVINGS_ACCOUNT"), """
                 {"archived": true}"""));
 

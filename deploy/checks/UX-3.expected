@@ -1,0 +1,5 @@
+flyway latest 16 user date format true
+OPENING_BALANCE or FX_EXCHANGE not a system equity account 0
+column account.archived_at timestamp with time zone YES
+archived UNALLOCATED 0
+unbalanced entries 0

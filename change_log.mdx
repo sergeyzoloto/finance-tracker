@@ -3,6 +3,64 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-08 · UX-3: equity by period, archiving at zero, and the archived accounts' cents, D-364 to D-380
+
+Two commits on `feature/family-budget` on top of `3b2206a`: `c1b4edb` "docs: UX-2's deploy recorded, D-364 and D-365
+(UX-3)", and the commit of this entry, "feat: equity by period on the dashboard, an account archived only at zero,
+D-366 to D-380 (UX-3)". **Not pushed**; `main` not moved. No migration (Flyway stays at V16), no import or export code
+changed and no stored entry changed (D-370). Production read only: the server was never touched and `e2e:prod` never
+run.
+
+**Changes**
+- `c1b4edb`: UX-2's deploy in the runbook's "Deployed revisions" (the run, its rollback acceptance, "CI on Ubuntu 26.04"
+  run #19) and "Production now" (`3b2206a` on V16, rollback target `df402d0`, UX-2's dumps); step 12's 12.1 and 12.10
+  on `verify UX-2`; CLAUDE.md's "Deployment" line; D-355 to D-363 confirmed, D-364 and D-365.
+- D-366, D-376: PATCH `/api/accounts/{id}` that archives an account answers 409 while a currency's balance over all its
+  postings, whatever their date, doesn't round to 0 at its minor unit; the message names what remains per currency
+  (`AccountService`, the account's row locked FOR UPDATE first). Restoring and the other rules unchanged.
+- D-377: the Accounts page shows that message in a row of its own under the account, across the table.
+- D-367 to D-369, D-371 to D-374: the Balances card's Equity shows "Accumulated reserve" and "Result for the period" in
+  place of the equity accounts other than OPENING_BALANCE and FX_EXCHANGE, in both modes, from the reports the page
+  already reads (`dashboard.resultRange`, `equitySplits`, `baseEquitySplit`; a cash flow request of the result's own
+  days when they aren't the page's); in base mode the reserve is net worth less the system lines and the result, with a
+  note that it includes the revaluation. No backend change for it.
+- D-364, D-375: an archived account is listed only while one of its own amounts doesn't round to 0
+  (`dashboard.listedInBalances`), in both modes; the type totals still count it.
+- Tests: backend `ReferenceDataApiTests.anAccountIsArchivedOnlyAtZero`, and `ReportApiTests`' archived account with
+  money now archived by SQL; frontend `UX3.test.tsx` (12 tests); end to end `07-dashboard`'s step 7 (D-378).
+- `deploy/checks/UX-3.sql` and `UX-3.expected` (5 lines, structure only).
+- `deploy/RUNBOOK.md`: "UX-3's deploy checklist with the suite". `docs/family-budget/requirements.md`: D-366 to D-380,
+  the amendment note, UX-3 in the planned stages, D-370's cleanup in "Later". `CLAUDE.md`: the accounts endpoint,
+  `AccountService`, the dashboard's equity and D-364, the tests.
+- Screenshots before and after from the demo, at 1280 and 375 px, under `data/private/ui/UX-3/` (git-ignored).
+
+**Verified**
+- `git fetch origin`: `main` = `origin/main` = `feature/family-budget` = `origin/feature/family-budget` = `3b2206a`,
+  the tree clean, before the work.
+- `cd backend && ./mvnw -B clean verify`: exit 0, "Tests run: 636, Failures: 0, Errors: 0, Skipped: 0", BUILD
+  SUCCESS.
+- `cd frontend && npm test`: exit 0, "Test Files 35 passed (35)", "Tests 466 passed (466)". `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, tests 37, pass 37, fail 0. `E2E_FAMILY=on npm run e2e:local` on `./dev.sh`
+  built from the working tree: exit 0, "24 passed", every spec passed at both widths, cleanup passed, "Password search
+  over the artifacts: 0 hits", "Result: PASSED".
+- `deploy/tests/run.sh`: exit 0, "109 passed, 0 failed, of 109 cases" (scripts unchanged).
+- `deploy/checks/UX-3.sql` on production's dump `finance-2026-11-07T0236Z.dump` restored into a throwaway database
+  (V16): its output equals `UX-3.expected`.
+- On that dump as `testuser` (counts and yes or no only, apart from section 2's residues): the owner's file and a dry
+  run of it as the import page sends it (the check passes); "This month" and "Previous year" in base mode: the reserve
+  plus the result equals UNALLOCATED plus RESERVE, the result equals the Net, D-364 hides 1 of the 4 archived lines;
+  D-369's revaluation on 2025 is not above €1. The database removed (`scripts/rehearsal-db.sh --remove`).
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+
+**Open**
+- UX-3's deploy, by its checklist, when the PM chooses; the rollback target `3b2206a`, no condition.
+- D-371 to D-380 are the agent's choices and findings, for the PM to confirm. D-370's cleanup waits for the owner: UX-3's
+  report proposes keeping both opening balances (D-379).
+- D-380: the Accounts page shows "—" for every archived account, contrary to D-355's text; the PM's to decide.
+- The Accounts page at 375 px is wider than the screen, its buttons cut off, as before UX-3 (D-377).
+- The importer's messages with decision numbers (D-363) still wait for a stage that may change the import.
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-07 · UX-2: totals, open loans and the headline; the entry list and the category lists on a phone, D-347 to D-363
 
 Two commits on `feature/family-budget` on top of `df402d0`: `68ea6c0` "docs: D4c's deploy recorded, D-347 (UX-2)", and

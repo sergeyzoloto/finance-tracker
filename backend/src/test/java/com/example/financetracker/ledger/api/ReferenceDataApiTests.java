@@ -44,6 +44,78 @@ class ReferenceDataApiTests extends LedgerApiTest {
         assertThat(find(ok(get(user, "/api/accounts")), "code", "BROKER")).isEqualTo(cleared);
     }
 
+    /**
+     * UX-3, D-366: an account is archived only at zero, in each currency over all its postings whatever their date; an
+     * amount that rounds to 0 at its currency's minor unit counts as nothing. Restoring is unchanged.
+     */
+    @Test
+    void anAccountIsArchivedOnlyAtZero() throws IOException {
+        long broker = body(post(user, "/api/accounts", """
+                {"code": "BROKER", "name": "Broker", "type": "ASSET", "defaultCurrency": "EUR"}"""), HttpStatus.CREATED)
+                .get("id").asLong();
+        long opening = accountId(user, "OPENING_BALANCE");
+        String uri = "/api/accounts/" + broker;
+        String archive = """
+                {"archived": true}""";
+        String restore = """
+                {"archived": false}""";
+
+        manual("2026-09-01", broker, opening, "EUR", "100.00");
+        assertThat(body(patch(user, uri, archive), HttpStatus.CONFLICT).get("detail").asText()).isEqualTo(
+                "Broker still holds 100.00 EUR. An account is archived only once it holds nothing: move what remains to "
+                        + "another account first.");
+
+        // Less than a minor unit is nothing: RUB 0.004 (2 decimals) and JPY 0.4 (none).
+        manual("2026-09-02", broker, opening, "EUR", "-100.00");
+        manual("2026-09-02", broker, opening, "RUB", "0.004");
+        manual("2026-09-02", broker, opening, "JPY", "0.4");
+        assertThat(ok(patch(user, uri, archive)).get("archived").asBoolean()).isTrue();
+        assertThat(ok(patch(user, uri, restore)).get("archived").asBoolean()).isFalse();
+
+        // Two currencies, each named; RUB 0.004 is still nothing, RUB 0.005 rounds to a kopek.
+        manual("2026-09-03", broker, opening, "USD", "5.00");
+        manual("2026-09-03", broker, opening, "EUR", "0.01");
+        assertThat(body(patch(user, uri, archive), HttpStatus.CONFLICT).get("detail").asText())
+                .startsWith("Broker still holds 0.01 EUR, 5.00 USD. ");
+        manual("2026-09-04", broker, opening, "USD", "-5.00");
+        manual("2026-09-04", broker, opening, "EUR", "-0.01");
+        manual("2026-09-04", broker, opening, "RUB", "0.001");
+        assertThat(body(patch(user, uri, archive), HttpStatus.CONFLICT).get("detail").asText())
+                .startsWith("Broker still holds 0.005 RUB. ");
+        manual("2026-09-04", broker, opening, "RUB", "-0.001");
+
+        // A posting dated after today counts too, and empties the account only once it is undone.
+        String later = utcToday().plusDays(40).toString();
+        manual(later, broker, opening, "EUR", "20.00");
+        assertThat(body(patch(user, uri, archive), HttpStatus.CONFLICT).get("detail").asText())
+                .startsWith("Broker still holds 20.00 EUR. ");
+        manual(later, broker, opening, "EUR", "-20.00");
+        assertThat(ok(patch(user, uri, archive)).get("archived").asBoolean()).isTrue();
+
+        // Restoring an account archived with money, as before D-366, is unchanged; so is renaming an archived one.
+        manual("2026-09-05", broker, opening, "EUR", "7.00");
+        assertThat(ok(patch(user, uri, """
+                {"name": "Old broker"}""")).get("archived").asBoolean()).isTrue();
+        assertThat(ok(patch(user, uri, restore)).get("archived").asBoolean()).isFalse();
+        // A liability's message has rule 4's sign: what is owed, above 0.
+        long card = body(post(user, "/api/accounts", """
+                {"code": "CARD", "name": "Card", "type": "LIABILITY", "defaultCurrency": "EUR"}"""), HttpStatus.CREATED)
+                .get("id").asLong();
+        manual("2026-09-06", opening, card, "EUR", "30.00");
+        assertThat(body(patch(user, "/api/accounts/" + card, archive), HttpStatus.CONFLICT).get("detail").asText())
+                .startsWith("Card still holds 30.00 EUR. ");
+    }
+
+    /** A manual entry of {@code amount} to {@code debit}, against {@code credit}. */
+    private void manual(String date, long debit, long credit, String currency, String amount) throws IOException {
+        String negated = amount.startsWith("-") ? amount.substring(1) : "-" + amount;
+        newEntry(user, """
+                {"kind": "MANUAL", "entryDate": "%s", "postings": [
+                  {"accountId": %d, "currency": "%s", "amount": "%s"},
+                  {"accountId": %d, "currency": "%s", "amount": "%s"}]}"""
+                .formatted(date, debit, currency, amount, credit, currency, negated));
+    }
+
     @Test
     void systemAccountsCanNeitherBeRenamedNorArchived() throws IOException {
         JsonNode openingBalance = find(ok(get(user, "/api/accounts")), "code", "OPENING_BALANCE");

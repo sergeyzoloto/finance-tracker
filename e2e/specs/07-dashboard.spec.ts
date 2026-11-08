@@ -1,7 +1,7 @@
 import { dateFormatOf, expectDate, fillDate, inPattern, shownDay } from '../dates.ts'
 import { createTheBudget, inviteSomeoneNew, joinThroughTheLink } from '../family-steps.ts'
 import type { Locator } from '@playwright/test'
-import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session, type Watch } from '../fixtures.ts'
 
 // UX-1's dashboard with A (and B with the family budget on), every entry dated today:
 // 1. A's personal expense of 12.34 on Groceries; the dashboard opens in the base currency (D-297): no currency in the
@@ -16,11 +16,15 @@ import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session }
 // 6. UX-2 (D-351, D-352, D-356): with the demo loaded (and "Demo household" with E2E_FAMILY=on), at 375 px the entry
 //    list, the categories and the family budget's categories don't scroll sideways; in the base currency the
 //    Balances' Assets total reads as "You have" (D-348), as it does in step 1.
+// 7. UX-3 (D-366, D-367), on the demo at 1280 px, in the base currency from the 1st of the month to today: "Result for
+//    the period" reads as the Net of "Income and expenses"; the equity lines ("Accumulated reserve", the result and
+//    the system accounts) add up to Equity's total; on the Accounts page, archiving "Current account", which holds
+//    money, is refused with its message by the account, and an empty account archives and is restored.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
 
-test('dashboard', async ({ as, family, target }) => {
+test('dashboard', async ({ as, family, target, watch }) => {
   const a = await as('A')
   await deleteAllMyData(a)
   const { page } = a
@@ -138,8 +142,90 @@ test('dashboard', async ({ as, family, target }) => {
     await shot(page, 'dashboard-08-family-categories-narrow')
   }
 
+  // 7. Equity by period and archiving at zero (UX-3).
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expectEquityByPeriod(a, `${day.slice(0, 8)}01`, day)
+  await shot(page, 'dashboard-09-equity')
+  await expectArchivingAtZero(a, watch)
+  await shot(page, 'dashboard-10-archive-refused')
+
   await deleteAllMyData(a)
 })
+
+/** "€1,234.56", "-€0.50" or "+€3.00" in cents. */
+function cents(text: string | null): bigint {
+  const shown = (text ?? '').replace(/\u00a0/g, ' ').trim()
+  const digits = shown.replace(/[^0-9.]/g, '')
+  expect(digits, `an amount in "${shown}"`).toMatch(/^\d+\.\d{2}$/)
+  const value = BigInt(digits.replace('.', ''))
+  return shown.startsWith('-') ? -value : value
+}
+
+/**
+ * UX-3 (D-367, D-369): in the base currency, "Result for the period" is the Net of "Income and expenses", and the
+ * equity lines add up to Equity's total. The period ends on Balances on, so the result's days are the Net's.
+ */
+async function expectEquityByPeriod({ page }: Session, from: string, to: string) {
+  await page.goto(`/?from=${from}&to=${to}`)
+  const totals = page.getByLabel('Totals in EUR')
+  const net = totals.getByRole('term').filter({ hasText: /^Net$/ }).locator('xpath=following-sibling::dd')
+  const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Balances' }) })
+  const equity = balances.locator('table.by-type').filter({ has: page.getByRole('columnheader', { name: 'Equity' }) })
+  const result = equity.locator('tr').filter({ has: page.getByRole('cell', { name: 'Result for the period', exact: true }) })
+    .locator('td.amount')
+  await expect(net).not.toHaveText('')
+  await expect(result).not.toHaveText('')
+  await expect(page.locator('.stale')).toHaveCount(0)
+  expect(cents(await result.textContent()), 'the result is the Net').toBe(cents(await net.textContent()))
+  await expect(equity.getByRole('cell', { name: 'Accumulated reserve', exact: true })).toBeVisible()
+  const lines = await equity.locator('tbody td.amount').allTextContents()
+  expect(lines.length, 'the reserve, the result and the system accounts').toBeGreaterThanOrEqual(2)
+  const total = await equity.locator('tfoot td').textContent()
+  expect(lines.map(cents).reduce((a, b) => a + b, 0n), 'the equity lines add up to its total').toBe(cents(total))
+  await expect(balances.getByText(/the accumulated reserve is at the rates/i)).toBeVisible()
+}
+
+/**
+ * UX-3 (D-366): archiving an account that holds money is refused, with the message by the account; an account that
+ * holds nothing archives, and is restored.
+ */
+async function expectArchivingAtZero({ page }: Session, watch: Watch) {
+  watch.expect({
+    method: 'PATCH', path: /^\/api\/accounts\/\d+$/, status: 409,
+    reason: 'D-366: archiving the demo’s current account, which holds money, is refused',
+  })
+  page.on('dialog', (dialog) => void dialog.accept())
+  // An empty account of its own, through the API with the page's session.
+  const created = await page.evaluate(async () => {
+    const xsrf = document.cookie.split('; ').find((c) => c.startsWith('XSRF-TOKEN='))?.split('=')[1] ?? ''
+    const response = await fetch('/api/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': decodeURIComponent(xsrf) },
+      body: JSON.stringify({ code: 'UX3_EMPTY', name: 'Empty account', type: 'ASSET', defaultCurrency: 'EUR' }),
+    })
+    return response.status
+  })
+  expect(created, 'the empty account is created').toBe(201)
+  await page.goto('/accounts')
+  const current = page.getByRole('row').filter({ has: page.getByRole('link', { name: 'Current account', exact: true }) })
+  const refused = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname.startsWith('/api/accounts/'))
+  await current.getByRole('button', { name: 'Archive' }).click()
+  expect((await refused).status()).toBe(409)
+  // In a row of its own right under the account's.
+  const message = current.locator('xpath=following-sibling::tr[1]').getByRole('alert')
+  await expect(message.filter({ hasText: 'An account is archived only once it holds nothing' })).toBeVisible()
+  await expect(message).toContainText('Current account still holds')
+  await expect(current.getByRole('button', { name: 'Archive' })).toBeVisible()
+
+  const empty = page.getByRole('row').filter({ has: page.getByRole('link', { name: 'Empty account', exact: true }) })
+  await empty.getByRole('button', { name: 'Archive' }).click()
+  await expect(empty).toHaveCount(0)
+  await page.getByLabel(/^Show archived/).check()
+  await expect(empty.getByText('Archived', { exact: true })).toBeVisible()
+  await empty.getByRole('button', { name: 'Restore' }).click()
+  await expect(empty.getByText('Archived', { exact: true })).toHaveCount(0)
+  // The refusal stays shown for the next screenshot.
+  await page.getByLabel(/^Show archived/).uncheck()
+}
 
 /** In the base currency, the Balances card's Assets total reads as "You have" (D-348). */
 async function expectAssetsTotalIsYouHave({ page }: Session) {

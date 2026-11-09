@@ -155,7 +155,7 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         }
         String period = "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31";
         for (String shape : List.of("", "&currency=BASE")) {
-            for (String scope : List.of("FAMILY_MINE", "FAMILY_OTHERS")) {
+            for (String scope : List.of("FAMILY", "FAMILY_MINE", "FAMILY_OTHERS")) {
                 assertThat(get(user, period + shape + "&scope=" + scope)).as(scope + shape)
                         .hasStatus(HttpStatus.BAD_REQUEST);
                 assertThat(get(user, period + shape + "&scope=" + scope + "&familyLedgerId=" + family))

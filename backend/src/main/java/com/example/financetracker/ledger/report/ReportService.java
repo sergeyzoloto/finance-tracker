@@ -669,7 +669,8 @@ public class ReportService {
             return;
         }
         if (!scope.family()) {
-            throw new IllegalArgumentException("'familyLedgerId' goes only with the scope FAMILY_MINE or FAMILY_OTHERS");
+            throw new IllegalArgumentException(
+                    "'familyLedgerId' goes only with the scope FAMILY, FAMILY_MINE or FAMILY_OTHERS");
         }
         if (!families.contains(familyLedgerId)) {
             throw new NotFoundException("Ledger %d not found".formatted(familyLedgerId));
@@ -695,6 +696,7 @@ public class ReportService {
         return switch (scope) {
             case ALL -> "TRUE";
             case PERSONAL -> "l.id IS NULL";
+            case FAMILY -> "l.id IS NOT NULL" + family;
             case FAMILY_MINE -> "l.id IS NOT NULL AND r.payer_member_id = l.member_id" + family;
             case FAMILY_OTHERS -> "l.id IS NOT NULL AND r.payer_member_id <> l.member_id" + family;
         };

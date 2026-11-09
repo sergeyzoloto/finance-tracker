@@ -41,9 +41,9 @@ class ReportController {
             + "on its own";
     /** The {@code scope} parameter of the cash flow (D-302). */
     private static final String SCOPE = "Which entries count: ALL (the default), PERSONAL (those no family record "
-            + "posted), FAMILY_MINE (the user's shares of records they paid or received), FAMILY_OTHERS (the user's "
-            + "shares of records another member paid or received). A family scope with the family budget switched "
-            + "off is a 400";
+            + "posted), FAMILY (the user's shares of every family record, whoever paid or received it), FAMILY_MINE "
+            + "(the user's shares of records they paid or received), FAMILY_OTHERS (the user's shares of records "
+            + "another member paid or received). A family scope with the family budget switched off is a 400";
     private static final String FAMILY = "With a family scope only: the records of this family budget of the user's "
             + "only; one the user isn't an ACTIVE member of is a 404, as a missing ledger";
 

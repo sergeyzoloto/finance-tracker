@@ -208,8 +208,10 @@ describe('the cash flow', () => {
 
     const c = comparisons({ from: '2026-09-01', to: '2026-09-30' }, '2026-10-05')!
     render(<CashFlowTable table={compareTable('EUR', compareColumns(c), [table, null, null], false)} />)
-    const familyLine = screen.getAllByRole('row').find((r) => within(r).queryByText('Home'))!
+    // D-419: the shared icon, named by the budget, and with one budget in the table no name after it.
+    const familyLine = screen.getByRole('img', { name: 'Shared: Home' }).closest('tr')!
     expect(within(familyLine).getByText('Groceries')).toBeDefined()
+    expect(within(familyLine).queryByText('Home')).toBeNull()
     expect(within(familyLine).getAllByRole('cell').map((c) => c.textContent)).toEqual(['€32.25', '—', '—', '—', '—'])
   })
 

@@ -12,10 +12,11 @@ import {
   baseEquitySplit, belowMinorUnit, cashFlowTables, changeText, chartByMonth, compareColumns, comparisons, compareTables,
   convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawable, drawnComparison, effectOf, equitySplits, familyDebts,
   inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING,
-  missingDays, monthPairs, monthsBetween, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, resultRange, SCOPE_LABELS,
-  scopeFromQuery, scopeParams, SCOPES, showsOwnCurrencies, totalChanges, usedRateText,
+  missingDays, monthPairs, monthsBetween, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
+  recordsOf, resultRange, scopeFromQuery, scopeParams, showOf, showOptions, showsOwnCurrencies, totalChanges,
+  usedRateText, withRecords, withShow,
   type CashFlowTable as Table, type Cell, type CompareLine, type CompareTable, type Comparisons, type DayRange,
-  type FamilyDebt, type PeriodChoice, type Scope,
+  type FamilyDebt, type PeriodChoice, type Records,
 } from './dashboard'
 import DateInput from './DateInput'
 import EmptyLedger from './EmptyLedger'
@@ -167,12 +168,8 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
   })
   const setAsOf = (day: string) => update((next) => (day ? next.set('asOf', day) : next.delete('asOf')))
   const setInBase = (on: boolean) => update((next) => (on ? next.delete('currency') : next.set('currency', 'each')))
-  const setScope = (scope: Scope) => update((next) => {
-    if (scope === 'all') next.delete('scope')
-    else next.set('scope', scope)
-    if (!isFamilyScope(scope)) next.delete('family')
-  })
-  const setFamily = (id: string) => update((next) => (id ? next.set('family', id) : next.delete('family')))
+  const setShow = (show: string) => setParams(withShow(params, show))
+  const setRecords = (records: Records) => setParams(withRecords(params, records))
   const setCompare = (role: string) => update((next) => (role === 'previous' ? next.set('compare', 'previous') : next.delete('compare')))
 
   const loans: Loaded<LoanGroups> = inBase
@@ -223,16 +220,10 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
         </h3>
         {families !== null && families.length > 0 && (
           <div className="scope">
-            <ToggleGroup label="Show" value={chosen.scope} onChange={setScope}
-              options={SCOPES.map((s) => ({ value: s, label: SCOPE_LABELS[s] }))} />
-            {isFamilyScope(chosen.scope) && families.length > 1 && (
-              <label>
-                Family budget{' '}
-                <select value={chosen.family ?? ''} onChange={(e) => setFamily(e.target.value)}>
-                  <option value="">All family budgets</option>
-                  {families.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-              </label>
+            <ToggleGroup label="Show" value={showOf(chosen)} onChange={setShow} options={showOptions(families)} />
+            {isFamilyScope(chosen.scope) && (
+              <ToggleGroup label="Records" value={recordsOf(chosen.scope)} onChange={setRecords}
+                options={RECORDS.map((r) => ({ value: r, label: RECORDS_LABELS[r] }))} />
             )}
             {isFamilyScope(chosen.scope) && (
               <p className="small whole-family">

@@ -1,0 +1,14 @@
+flyway latest 16 user date format true
+column category.type character varying NO
+column family_entry_link.entry_id bigint YES
+column family_entry_link.family_ledger_id bigint NO
+column family_entry_link.link_type character varying NO
+column family_entry_link.member_id bigint NO
+column family_entry_link.record_id bigint YES
+column family_record.payer_member_id bigint NO
+column journal_entry.entry_date date NO
+column posting.amount numeric NO
+column posting.currency character NO
+share links without a record and payer 0
+categorized postings outside equity 0
+unbalanced entries 0

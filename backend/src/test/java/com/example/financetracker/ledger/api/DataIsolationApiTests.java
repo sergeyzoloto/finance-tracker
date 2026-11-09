@@ -515,9 +515,9 @@ class DataIsolationApiTests extends LedgerApiTest {
                         uri.formatted(MISSING), request.body());
             }
         }
-        // D-302: the cash flow's family scopes reach no budget but his own memberships', in either shape.
+        // D-302 and D-421: the cash flow's family scopes reach no budget but his own memberships', in either shape.
         for (String query : List.of("", "&currency=BASE")) {
-            for (String scope : List.of("FAMILY_MINE", "FAMILY_OTHERS")) {
+            for (String scope : List.of("FAMILY", "FAMILY_MINE", "FAMILY_OTHERS")) {
                 String uri = "/api/reports/cash-flow" + AUGUST + query + "&scope=" + scope + "&familyLedgerId=%d";
                 for (long ledger : List.of(familyB, alicesPersonal, bobsPersonal)) {
                     answersAsIfMissing(softly, HttpMethod.GET, uri, ledger, null);

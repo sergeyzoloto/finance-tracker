@@ -101,31 +101,87 @@ export function periodFromQuery(params: URLSearchParams, today: Date): Period {
  */
 export const inBaseFromQuery = (params: URLSearchParams) => params.get('currency') !== 'each'
 
-/** Which income and expenses the cash flow counts (D-302); the whole ledger's balances either way. */
-export const SCOPES = ['all', 'personal', 'family-mine', 'family-others'] as const
+/**
+ * Which income and expenses the cash flow counts (D-302); the whole ledger's balances either way. `family` is every
+ * family record's share, whoever paid or received it (D-421), `family-mine` and `family-others` D-302's halves of it.
+ */
+export const SCOPES = ['all', 'personal', 'family', 'family-mine', 'family-others'] as const
 export type Scope = (typeof SCOPES)[number]
-export const SCOPE_LABELS: Record<Scope, string> = {
-  all: 'All',
-  personal: 'Personal',
-  'family-mine': 'Family: my records',
-  'family-others': 'Family: others’ records',
-}
 const SCOPE_PARAMS: Record<Scope, string> = {
-  all: 'ALL', personal: 'PERSONAL', 'family-mine': 'FAMILY_MINE', 'family-others': 'FAMILY_OTHERS',
+  all: 'ALL', personal: 'PERSONAL', family: 'FAMILY', 'family-mine': 'FAMILY_MINE', 'family-others': 'FAMILY_OTHERS',
 }
-export const isFamilyScope = (scope: Scope) => scope === 'family-mine' || scope === 'family-others'
+export const isFamilyScope = (scope: Scope) => scope === 'family' || scope === 'family-mine' || scope === 'family-others'
 
 /**
- * The scope the URL asks for (`scope=personal|family-mine|family-others`, else All), and for a family scope the family
- * budget (`family=<id>`, else all of them). Only where the family budget is switched on and the user is a member of
+ * The scope the URL asks for (`scope=personal|family|family-mine|family-others`, else All), and for a family scope the
+ * family budget (`family=<id>`, else all of them; D-420). With one family budget, no `family` means that budget, so an
+ * old link with `scope=family-mine` opens it. Only where the family budget is switched on and the user is a member of
  * one; otherwise All, whatever the URL says.
  */
 export function scopeFromQuery(params: URLSearchParams, familyIds: number[] | null): { scope: Scope; family: number | null } {
   const named = SCOPES.find((s) => s === params.get('scope')) ?? 'all'
   const scope = familyIds === null || familyIds.length === 0 ? 'all' : named
+  if (!isFamilyScope(scope) || familyIds === null) return { scope, family: null }
+  if (familyIds.length === 1) return { scope, family: familyIds[0] }
   const id = Number(params.get('family'))
-  const family = isFamilyScope(scope) && familyIds !== null && familyIds.includes(id) ? id : null
-  return { scope, family }
+  return { scope, family: familyIds.includes(id) ? id : null }
+}
+
+/**
+ * D-420's "Show": All, Personal, with two or more family budgets "All family budgets", then each family budget by its
+ * name. A value is `all`, `personal`, `families` or `family-<id>`.
+ */
+export function showOptions(families: { id: number; name: string }[]): { value: string; label: string }[] {
+  const budgets = [...families].sort((a, b) => a.name.localeCompare(b.name))
+    .map((f) => ({ value: `family-${f.id}`, label: f.name }))
+  return [
+    { value: 'all', label: 'All' },
+    { value: 'personal', label: 'Personal' },
+    ...(families.length > 1 ? [{ value: 'families', label: 'All family budgets' }] : []),
+    ...budgets,
+  ]
+}
+
+/** The "Show" button a chosen scope presses (D-420). */
+export function showOf({ scope, family }: { scope: Scope; family: number | null }): string {
+  if (!isFamilyScope(scope)) return scope
+  return family === null ? 'families' : `family-${family}`
+}
+
+/** D-420's "Records" of a family scope: every record, the user's own member's, or the others'. */
+export const RECORDS = ['all', 'mine', 'others'] as const
+export type Records = (typeof RECORDS)[number]
+export const RECORDS_LABELS: Record<Records, string> = {
+  all: 'All records', mine: 'My records', others: 'Others’ records',
+}
+const RECORDS_SCOPES: Record<Records, Scope> = { all: 'family', mine: 'family-mine', others: 'family-others' }
+export const recordsOf = (scope: Scope): Records =>
+  scope === 'family-mine' ? 'mine' : scope === 'family-others' ? 'others' : 'all'
+
+/**
+ * The URL after a "Show" button (D-420): All and Personal drop the family; a budget sets `family`, "All family
+ * budgets" removes it, and either keeps the records already chosen, or all records when no family scope was.
+ */
+export function withShow(params: URLSearchParams, show: string): URLSearchParams {
+  const next = new URLSearchParams(params)
+  if (show === 'all' || show === 'personal') {
+    if (show === 'all') next.delete('scope')
+    else next.set('scope', 'personal')
+    next.delete('family')
+    return next
+  }
+  const current = SCOPES.find((s) => s === params.get('scope'))
+  next.set('scope', current !== undefined && isFamilyScope(current) ? current : 'family')
+  if (show === 'families') next.delete('family')
+  else next.set('family', show.slice('family-'.length))
+  return next
+}
+
+/** The URL after a "Records" button (D-420): the scope changes, the family budget stays. */
+export function withRecords(params: URLSearchParams, records: Records): URLSearchParams {
+  const next = new URLSearchParams(params)
+  next.set('scope', RECORDS_SCOPES[records])
+  return next
 }
 
 /** The cash flow report's parameters of a scope, for the API: "" for All. */

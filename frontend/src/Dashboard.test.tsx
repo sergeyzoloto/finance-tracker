@@ -192,7 +192,7 @@ describe('the dashboard (UX-1)', () => {
     expect(screen.queryByRole('group', { name: 'Show' })).toBeNull()
   })
 
-  it('offers the scopes only with a family budget, and asks for the one chosen (D-302)', async () => {
+  it('offers the scopes only with a family budget, and asks for the one chosen (D-302, D-420)', async () => {
     stubApi(ON, [])
     renderAt('/')
     await screen.findByRole('table', { name: 'Cash flow in EUR' })
@@ -202,31 +202,72 @@ describe('the dashboard (UX-1)', () => {
     const seen = stubApi(ON, [home])
     renderAt('/?period=previous-month')
     const show = await screen.findByRole('group', { name: 'Show' })
-    expect(within(show).getAllByRole('button').map((b) => b.textContent))
-      .toEqual(['All', 'Personal', 'Family: my records', 'Family: others’ records'])
+    // One budget: its button alone, no "All family budgets", no selector.
+    expect(within(show).getAllByRole('button').map((b) => b.textContent)).toEqual(['All', 'Personal', 'Home'])
     expect(within(show).getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('group', { name: 'Records' })).toBeNull()
     // The scope sits in the income and expenses section, not in the page's controls.
     expect(show.closest('section')!.querySelector('h3')!.textContent).toMatch(/^Income and expenses/)
-    fireEvent.click(within(show).getByRole('button', { name: 'Family: my records' }))
+    fireEvent.click(within(show).getByRole('button', { name: 'Home' }))
     await waitFor(() => expect(seen).toContain(
-      '/api/reports/cash-flow?from=2026-08-01&to=2026-08-31&scope=FAMILY_MINE&currency=BASE'))
+      '/api/reports/cash-flow?from=2026-08-01&to=2026-08-31&scope=FAMILY&familyLedgerId=7&currency=BASE'))
+    expect(within(show).getByRole('button', { name: 'Home' }).getAttribute('aria-pressed')).toBe('true')
+    // "Records" appears below it, all records by default.
+    const records = screen.getByRole('group', { name: 'Records' })
+    expect(within(records).getAllByRole('button').map((b) => b.textContent))
+      .toEqual(['All records', 'My records', 'Others’ records'])
+    expect(within(records).getByRole('button', { name: 'All records' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(within(records).getByRole('button', { name: 'My records' }))
+    await waitFor(() => expect(seen).toContain(
+      '/api/reports/cash-flow?from=2026-08-01&to=2026-08-31&scope=FAMILY_MINE&familyLedgerId=7&currency=BASE'))
+    expect(within(show).getByRole('button', { name: 'Home' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('link', { name: 'Whole family budget →' }).getAttribute('href'))
       .toBe('/family/7/report?from=2026-08-01&to=2026-08-31')
-    // One budget: no selector.
-    expect(screen.queryByLabelText(/^Family budget/)).toBeNull()
+    expect(screen.queryByRole('combobox', { name: /Family budget/ })).toBeNull()
+    // Personal drops the budget and "Records".
+    fireEvent.click(within(show).getByRole('button', { name: 'Personal' }))
+    await waitFor(() => expect(seen).toContain(
+      '/api/reports/cash-flow?from=2026-08-01&to=2026-08-31&scope=PERSONAL&currency=BASE'))
+    expect(screen.queryByRole('group', { name: 'Records' })).toBeNull()
     // The balances stay the whole ledger's.
     expect(seen.filter((u) => u.startsWith('/api/reports/balances')).every((u) => !u.includes('scope'))).toBe(true)
   })
 
-  it('with two budgets gives the family scopes a budget selector', async () => {
+  it('opens an old link with scope=family-mine as the one budget pressed, with my records', async () => {
+    const seen = stubApi(ON, [home])
+    renderAt('/?scope=family-mine')
+    const show = await screen.findByRole('group', { name: 'Show' })
+    expect(within(show).getByRole('button', { name: 'Home' }).getAttribute('aria-pressed')).toBe('true')
+    const records = screen.getByRole('group', { name: 'Records' })
+    expect(within(records).getByRole('button', { name: 'My records' }).getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(seen).toContain(
+      '/api/reports/cash-flow?from=2026-09-01&to=2026-09-30&scope=FAMILY_MINE&familyLedgerId=7&currency=BASE'))
+  })
+
+  it('with two budgets offers "All family budgets" and each budget by name (D-420)', async () => {
     const seen = stubApi(ON, [home, cottage])
     renderAt('/?scope=family-others')
-    const select = await screen.findByLabelText(/^Family budget/)
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['All family budgets', 'Home', 'Cottage'])
-    fireEvent.change(select, { target: { value: '9' } })
+    const show = await screen.findByRole('group', { name: 'Show' })
+    expect(within(show).getAllByRole('button').map((b) => b.textContent))
+      .toEqual(['All', 'Personal', 'All family budgets', 'Cottage', 'Home'])
+    // An old link without a budget: all of them, others' records.
+    expect(within(show).getByRole('button', { name: 'All family budgets' }).getAttribute('aria-pressed')).toBe('true')
+    const records = screen.getByRole('group', { name: 'Records' })
+    expect(within(records).getByRole('button', { name: 'Others’ records' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getAllByRole('link', { name: /^Whole family budget: / }).map((l) => l.textContent))
+      .toEqual(['Whole family budget: Home →', 'Whole family budget: Cottage →'])
+    // A budget's button keeps the records chosen.
+    fireEvent.click(within(show).getByRole('button', { name: 'Cottage' }))
     await waitFor(() => expect(seen).toContain(
       '/api/reports/cash-flow?from=2026-09-01&to=2026-09-30&scope=FAMILY_OTHERS&familyLedgerId=9&currency=BASE'))
     expect(screen.getByRole('link', { name: 'Whole family budget: Cottage →' })).toBeDefined()
+    fireEvent.click(within(screen.getByRole('group', { name: 'Records' })).getByRole('button', { name: 'All records' }))
+    await waitFor(() => expect(seen).toContain(
+      '/api/reports/cash-flow?from=2026-09-01&to=2026-09-30&scope=FAMILY&familyLedgerId=9&currency=BASE'))
+    fireEvent.click(within(show).getByRole('button', { name: 'All family budgets' }))
+    await waitFor(() => expect(seen).toContain(
+      '/api/reports/cash-flow?from=2026-09-01&to=2026-09-30&scope=FAMILY&currency=BASE'))
+    expect(screen.queryByRole('combobox', { name: /Family budget/ })).toBeNull()
   })
 
   it('presses a period’s button, and none for a custom period', async () => {

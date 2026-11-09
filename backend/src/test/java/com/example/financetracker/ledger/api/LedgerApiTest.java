@@ -396,25 +396,37 @@ abstract class LedgerApiTest extends IntegrationTest {
 
     /**
      * D-302's partition of the user's cash flow: PERSONAL, FAMILY_MINE and FAMILY_OTHERS add up to ALL per month,
-     * category, family budget and currency, exactly in each currency, and in the base currency within 2 minor units
-     * per figure (each figure is rounded once); the exchange results are ALL's only.
+     * category, family budget and currency, and (D-421) FAMILY is FAMILY_MINE and FAMILY_OTHERS together, and PERSONAL
+     * and FAMILY add up to ALL; exactly in each currency, and in the base currency within 2 minor units per figure
+     * (each figure is rounded once); the exchange results are ALL's only.
      */
     protected void checkCashFlowScopes(String user) throws IOException {
         String path = "/api/reports/cash-flow?" + SCOPE_PERIOD;
-        Map<String, BigDecimal> all = scopeRows(ok(get(user, path)), true);
-        Map<String, BigDecimal> parts = new TreeMap<>();
-        for (String scope : List.of("PERSONAL", "FAMILY_MINE", "FAMILY_OTHERS")) {
-            scopeRows(ok(get(user, path + "&scope=" + scope)), true)
-                    .forEach((key, total) -> parts.merge(key, total, BigDecimal::add));
-        }
-        all.values().removeIf(total -> total.signum() == 0);
-        parts.values().removeIf(total -> total.signum() == 0);
-        assertThat(parts).as("D-302: the scopes of %s's cash flow against ALL", user).isEqualTo(all);
+        checkScopeSum(user, path, "ALL", List.of("PERSONAL", "FAMILY_MINE", "FAMILY_OTHERS"));
+        checkScopeSum(user, path, "FAMILY", List.of("FAMILY_MINE", "FAMILY_OTHERS"));
+        checkScopeSum(user, path, "ALL", List.of("PERSONAL", "FAMILY"));
+    }
 
-        JsonNode allInBase = ok(get(user, path + "&currency=BASE"));
-        BigDecimal tolerance = BigDecimal.valueOf(2, java.util.Currency.getInstance(allInBase.get("currency").asText())
-                .getDefaultFractionDigits());
-        Map<String, BigDecimal> base = scopeRows(allInBase.get("rows"), false);
+    /** The scopes {@code parts} add up to the scope {@code whole}, in each currency and in the base currency. */
+    private void checkScopeSum(String user, String path, String whole, List<String> parts) throws IOException {
+        String what = "%s's %s against %s".formatted(user, parts, whole);
+        Map<String, BigDecimal> wholeRows = scopeRows(ok(get(user, path + "&scope=" + whole)), true);
+        Map<String, BigDecimal> sum = new TreeMap<>();
+        for (String scope : parts) {
+            scopeRows(ok(get(user, path + "&scope=" + scope)), true)
+                    .forEach((key, total) -> sum.merge(key, total, BigDecimal::add));
+        }
+        wholeRows.values().removeIf(total -> total.signum() == 0);
+        sum.values().removeIf(total -> total.signum() == 0);
+        assertThat(sum).as("D-302 and D-421: the scopes of " + what).isEqualTo(wholeRows);
+
+        JsonNode wholeInBase = ok(get(user, path + "&currency=BASE&scope=" + whole));
+        if (!"ALL".equals(whole)) {
+            assertThat(wholeInBase.get("exchangeResults")).as("the exchange results of " + whole).isEmpty();
+        }
+        BigDecimal tolerance = BigDecimal.valueOf(2, java.util.Currency.getInstance(
+                wholeInBase.get("currency").asText()).getDefaultFractionDigits());
+        Map<String, BigDecimal> base = scopeRows(wholeInBase.get("rows"), false);
         Map<String, BigDecimal> baseParts = new TreeMap<>();
         Set<String> missing = new java.util.HashSet<>(base.keySet());
         base.forEach((key, total) -> {
@@ -422,9 +434,11 @@ abstract class LedgerApiTest extends IntegrationTest {
                 missing.remove(key);
             }
         });
-        for (String scope : List.of("PERSONAL", "FAMILY_MINE", "FAMILY_OTHERS")) {
+        for (String scope : parts) {
             JsonNode part = ok(get(user, path + "&currency=BASE&scope=" + scope));
-            assertThat(part.get("exchangeResults")).as("the exchange results of " + scope).isEmpty();
+            if (!"ALL".equals(scope)) {
+                assertThat(part.get("exchangeResults")).as("the exchange results of " + scope).isEmpty();
+            }
             scopeRows(part.get("rows"), false).forEach((key, total) -> {
                 if (total == null) {
                     missing.add(key);
@@ -437,10 +451,10 @@ abstract class LedgerApiTest extends IntegrationTest {
         keys.addAll(baseParts.keySet());
         keys.removeAll(missing);
         for (String key : keys) {
-            BigDecimal whole = base.getOrDefault(key, BigDecimal.ZERO);
-            BigDecimal sum = baseParts.getOrDefault(key, BigDecimal.ZERO);
-            assertThat(sum.subtract(whole).abs()).as("D-302 in the base currency: %s of %s, %s against %s", key,
-                    user, sum, whole).isLessThanOrEqualTo(tolerance);
+            BigDecimal figure = base.getOrDefault(key, BigDecimal.ZERO);
+            BigDecimal total = baseParts.getOrDefault(key, BigDecimal.ZERO);
+            assertThat(total.subtract(figure).abs()).as("in the base currency: %s of %s, %s against %s", key, what,
+                    total, figure).isLessThanOrEqualTo(tolerance);
         }
     }
 

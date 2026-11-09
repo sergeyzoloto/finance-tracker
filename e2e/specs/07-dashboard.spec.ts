@@ -8,8 +8,9 @@ import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session, 
 //    URL, the base currency's button pressed, and every report asked in BASE.
 // 2. A preset button (D-296) changes the URL and the range shown in From and To.
 // 3. With E2E_FAMILY=on: A creates "Dashboard check" (Groceries merged in), invites B, who joins; A pays a family expense
-//    of 30.00. A's share of 15.00 is under "Family: my records" and not under "Personal", which keeps A's own 12.34; B's
-//    share is under "Family: others' records", not under "Family: my records" nor "Personal" (D-302).
+//    of 30.00. Since UX-6 (D-420) "Show" chooses the budget and "Records" the records: A's share of 15.00 is under the
+//    budget's "All records" and "My records", and not under "Personal", which keeps A's own 12.34; B's share is under
+//    the budget's "Others' records", not under "My records" nor "Personal" (D-302).
 // 4. A chooses DD.MM.YYYY in Settings (D-304): a date in the entry list and the new entry's date field follow it, a date
 //    typed in it is taken; A goes back to "As the browser shows it".
 // 5. At 375 px the dashboard doesn't scroll sideways.
@@ -30,6 +31,11 @@ import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session, 
 //    change in % equal the test's own computation from those two ranges' `/api/reports/cash-flow` answers; "This
 //    month" says "to date" while it runs; "Last 3 months" offers "Compare with", whose "Previous period" sets
 //    `compare=previous` and changes the chart's legend.
+// 10. UX-6 (D-419, D-420), on the demo at 1280 px with E2E_FAMILY=on: "Demo household"'s categories in the cash flow
+//    table carry the shared icon, named "Shared: Demo household", with no name after it (one budget); choosing the
+//    budget in "Show" sets `scope=family&family=<id>` and shows "Records" at "All records"; "My records" and
+//    "Others’ records" change the scope and keep the budget; each asks the API for its scope; "Personal" hides
+//    "Records" again. A screenshot at 1280 px and at 375 px with the budget chosen.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -81,16 +87,17 @@ test('dashboard', async ({ as, family, target, watch }) => {
     await page.getByRole('button', { name: 'Add the expense' }).click()
     await expect(page.getByRole('heading', { name: /^Groceries, / })).toBeVisible()
 
-    await expectScope(a, 'Family: my records', '15.00', true)
+    await expectScope(a, BUDGET, '15.00', true)
+    await expectScope(a, BUDGET, '15.00', true, 'My records')
     await expectScope(a, 'Personal', '15.00', false)
     await expect(page.getByRole('table', { name: 'Cash flow in EUR' })).toContainText(wholeNumber('12.34'))
     await expect(page.getByRole('link', { name: 'Whole family budget →' })).toHaveCount(0)
-    await expectScope(a, 'Family: my records', '15.00', true)
+    await expectScope(a, BUDGET, '15.00', true, 'My records')
     await expect(page.getByRole('link', { name: 'Whole family budget →' }))
       .toHaveAttribute('href', new RegExp(`^/family/${ledgerId}/report\\?from=`))
     await shot(page, 'dashboard-02-family-mine')
-    await expectScope(b, 'Family: others’ records', '15.00', true)
-    await expectScope(b, 'Family: my records', '15.00', false)
+    await expectScope(b, BUDGET, '15.00', true, 'Others’ records')
+    await expectScope(b, BUDGET, '15.00', false, 'My records')
     await expectScope(b, 'Personal', '15.00', false)
     await shot(b.page, 'dashboard-03-family-others')
     await deleteAllMyData(b)
@@ -168,6 +175,9 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await expectComparisons(a, day)
   await shot(page, 'dashboard-13-compared')
 
+  // 10. The family budget chosen, and the shared icon (UX-6).
+  if (family === 'on') await expectBudgetChosen(a)
+
   await deleteAllMyData(a)
 })
 
@@ -234,10 +244,13 @@ async function expectComparisons(session: Session, day: string) {
   const chosen = now.rows.find((r) => r.categoryType === 'EXPENSE' && r.total !== null
     && before.rows.some((b) => key(b) === key(r) && b.total !== null))
   expect(chosen, 'an expense category of the demo in both months').toBeDefined()
-  const label = chosen!.categoryName + (chosen!.familyLedgerName ?? '')
-  const exactly = new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
-  const cells = await table.locator('tbody tr').filter({ has: page.locator('th[scope="row"]', { hasText: exactly }) })
-    .locator('td').allTextContents()
+  // A family budget's category is its name and the shared icon (D-419), whose title is part of the header's text.
+  const name = chosen!.categoryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const header = page.locator('th[scope="row"]', { hasText: new RegExp(`^${name}(Shared: .+)?$`) })
+  const shared = chosen!.familyLedgerName === undefined
+    ? header.filter({ hasNot: page.getByRole('img') })
+    : header.filter({ has: page.getByRole('img', { name: `Shared: ${chosen!.familyLedgerName}`, exact: true }) })
+  const cells = await table.locator('tbody tr').filter({ has: shared }).locator('td').allTextContents()
   const p = sumOf(now, key(chosen!))!
   const q = sumOf(before, key(chosen!))
   expect(cents(cells[0]), `${chosen!.categoryCode} in the period`).toBe(p)
@@ -451,16 +464,98 @@ async function addExpense({ page }: Session, amount: string, memo: string) {
   await expect(page).toHaveURL(/\/entries$/)
 }
 
-/** The dashboard of this month under a scope holds the amount, or doesn't. */
-async function expectScope({ page }: Session, scope: string, amount: string, holds: boolean) {
+/**
+ * The dashboard of this month under "Show" (All, Personal or a family budget's name) and, for a budget, "Records" (D-420)
+ * holds the amount, or doesn't.
+ */
+async function expectScope({ page }: Session, scope: string, amount: string, holds: boolean, records?: string) {
   if (new URL(page.url()).pathname !== '/') await page.goto('/')
   const show = page.getByRole('group', { name: 'Show' })
-  const answered = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/reports/cash-flow')
-  await show.getByRole('button', { name: scope, exact: true }).click()
-  await answered
-  await expect(show.getByRole('button', { name: scope, exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const button = show.getByRole('button', { name: scope, exact: true })
+  if (await button.getAttribute('aria-pressed') !== 'true') {
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/reports/cash-flow')
+    await button.click()
+    await answered
+  }
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  if (records !== undefined) {
+    const group = page.getByRole('group', { name: 'Records' })
+    const choice = group.getByRole('button', { name: records, exact: true })
+    if (await choice.getAttribute('aria-pressed') !== 'true') {
+      const answered = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/reports/cash-flow')
+      await choice.click()
+      await answered
+    }
+    await expect(choice).toHaveAttribute('aria-pressed', 'true')
+  }
   const flows = page.getByRole('region', { name: /^Income and expenses/ })
   await expect(flows.locator('.stale')).toHaveCount(0)
   if (holds) await expect(flows.getByRole('table', { name: 'Cash flow in EUR' })).toContainText(wholeNumber(amount))
   else await expect(flows).not.toContainText(wholeNumber(amount))
+}
+
+/**
+ * UX-6 (D-419, D-420) on the demo: "Demo household"'s rows carry the shared icon without the budget's name after it;
+ * the budget's button and "Records" set the URL and the API's scope.
+ */
+async function expectBudgetChosen({ page }: Session) {
+  const DEMO = 'Demo household'
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/?period=previous-month')
+  const flows = page.getByRole('region', { name: /^Income and expenses/ })
+  const table = flows.getByRole('table', { name: 'Cash flow in EUR' })
+  await expect(table).toBeVisible()
+  await expect(flows.locator('.stale')).toHaveCount(0)
+  const icon = table.getByRole('img', { name: `Shared: ${DEMO}`, exact: true }).first()
+  await expect(icon).toBeVisible()
+  await expect(icon.locator('title')).toHaveText(`Shared: ${DEMO}`)
+  await expect(table.locator('.shared-name'), 'one budget: no name after the icon').toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Records' })).toHaveCount(0)
+
+  const show = page.getByRole('group', { name: 'Show' })
+  await expect(show.getByRole('button')).toHaveText(['All', 'Personal', DEMO])
+  const asked = (scope: string) => page.waitForRequest((r) => {
+    const url = new URL(r.url())
+    return url.pathname === '/api/reports/cash-flow' && url.searchParams.get('scope') === scope
+      && url.searchParams.has('familyLedgerId')
+  })
+  let request = asked('FAMILY')
+  await show.getByRole('button', { name: DEMO, exact: true }).click()
+  await request
+  await expect(page).toHaveURL(/[?&]scope=family(&|$)/)
+  const id = new URL(page.url()).searchParams.get('family')
+  expect(id, 'the budget’s button sets family').toMatch(/^\d+$/)
+  const records = page.getByRole('group', { name: 'Records' })
+  await expect(records.getByRole('button')).toHaveText(['All records', 'My records', 'Others’ records'])
+  await expect(records.getByRole('button', { name: 'All records' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(flows.locator('.stale')).toHaveCount(0)
+  await expect(table.getByRole('img', { name: `Shared: ${DEMO}`, exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Whole family budget →' }))
+    .toHaveAttribute('href', new RegExp(`^/family/${id}/report\\?from=`))
+  await shot(page, 'dashboard-14-budget-chosen')
+
+  for (const [label, scope, param] of [['My records', 'FAMILY_MINE', 'family-mine'],
+    ['Others’ records', 'FAMILY_OTHERS', 'family-others'], ['All records', 'FAMILY', 'family']] as const) {
+    request = asked(scope)
+    await records.getByRole('button', { name: label, exact: true }).click()
+    await request
+    await expect(page).toHaveURL(new RegExp(`[?&]scope=${param}(&|$)`))
+    expect(new URL(page.url()).searchParams.get('family'), `${label} keeps the budget`).toBe(id)
+    await expect(records.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(show.getByRole('button', { name: DEMO, exact: true })).toHaveAttribute('aria-pressed', 'true')
+  }
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expect(records).toBeVisible()
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, 'the dashboard with the budget chosen at 375 px is no wider than the screen').toBeLessThanOrEqual(client)
+  await shot(page, 'dashboard-15-budget-chosen-narrow')
+  await page.setViewportSize({ width: 1280, height: 900 })
+
+  await show.getByRole('button', { name: 'Personal', exact: true }).click()
+  await expect(page).toHaveURL(/[?&]scope=personal(&|$)/)
+  expect(new URL(page.url()).searchParams.has('family')).toBe(false)
+  await expect(page.getByRole('group', { name: 'Records' })).toHaveCount(0)
 }

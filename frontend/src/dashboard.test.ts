@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { AccountBalance, ConvertedBalance, ConvertedCashFlow, CounterpartyBalance, MissingRate } from './api'
 import {
   cashFlowTables, convertedCashFlowTable, daysBetween, debtSides, familyDebts, inBaseFromQuery, loanSides,
-  mergeMissing, MISSING, monthNote, monthsBetween, periodFromQuery, periodTotals, presetRange, PRESETS, scopeFromQuery,
+  mergeMissing, MISSING, monthNote, monthsBetween, periodFromQuery, periodTotals, presetRange, PRESETS, recordsOf,
+  scopeFromQuery, showOf, showOptions, withRecords, withShow,
   scopeParams, showsOwnCurrencies, total, usedRateText, type Preset,
 } from './dashboard'
 
@@ -116,6 +117,7 @@ describe('the scope of income and expenses (D-302)', () => {
     expect(scope('')).toEqual({ scope: 'all', family: null })
     expect(scope('scope=personal')).toEqual({ scope: 'personal', family: null })
     expect(scope('scope=family-mine')).toEqual({ scope: 'family-mine', family: null })
+    expect(scope('scope=family')).toEqual({ scope: 'family', family: null })
     expect(scope('scope=family-others&family=9')).toEqual({ scope: 'family-others', family: 9 })
   })
 
@@ -131,6 +133,8 @@ describe('the scope of income and expenses (D-302)', () => {
   })
 
   it('asks the API for it', () => {
+    expect(scopeParams({ scope: 'family', family: null })).toBe('&scope=FAMILY')
+    expect(scopeParams({ scope: 'family', family: 9 })).toBe('&scope=FAMILY&familyLedgerId=9')
     expect(scopeParams({ scope: 'all', family: null })).toBe('')
     expect(scopeParams({ scope: 'personal', family: null })).toBe('&scope=PERSONAL')
     expect(scopeParams({ scope: 'family-mine', family: 7 })).toBe('&scope=FAMILY_MINE&familyLedgerId=7')
@@ -281,5 +285,55 @@ describe('the rates a figure used (D-49, D-90)', () => {
       .toBe('1 EUR = 1.1 USD, ECB rate of Sep 29, 2026')
     expect(usedRateText({ currency: 'RUB', date: '2026-08-01', perEuro: '95.5', source: 'MANUAL', stale: true }))
       .toBe('1 EUR = 95.5 RUB, manual rate of Aug 1, 2026 (rate stale)')
+  })
+})
+
+describe('the family budget chosen by "Show" and the records by "Records" (D-420)', () => {
+  const home = { id: 7, name: 'Home' }
+  const cottage = { id: 9, name: 'Cottage' }
+  const chosen = (query: string, families: number[]) => scopeFromQuery(new URLSearchParams(query), families)
+  const params = (query: string) => new URLSearchParams(query)
+
+  it('offers All, Personal, then each budget by name, with "All family budgets" only for two or more', () => {
+    expect(showOptions([home]).map((o) => o.label)).toEqual(['All', 'Personal', 'Home'])
+    expect(showOptions([home, cottage]).map((o) => o.label))
+      .toEqual(['All', 'Personal', 'All family budgets', 'Cottage', 'Home'])
+    expect(showOptions([home, cottage]).map((o) => o.value))
+      .toEqual(['all', 'personal', 'families', 'family-9', 'family-7'])
+  })
+
+  it('reads an old link with scope=family-mine as that budget with one, as all of them with two', () => {
+    expect(chosen('scope=family-mine', [7])).toEqual({ scope: 'family-mine', family: 7 })
+    expect(showOf(chosen('scope=family-mine', [7]))).toBe('family-7')
+    expect(recordsOf(chosen('scope=family-mine', [7]).scope)).toBe('mine')
+    expect(chosen('scope=family-mine', [7, 9])).toEqual({ scope: 'family-mine', family: null })
+    expect(showOf(chosen('scope=family-mine', [7, 9]))).toBe('families')
+    expect(showOf(chosen('scope=family-others&family=9', [7, 9]))).toBe('family-9')
+    expect(recordsOf(chosen('scope=family-others&family=9', [7, 9]).scope)).toBe('others')
+  })
+
+  it('reads scope=family as all records, of one budget or of all of them', () => {
+    expect(chosen('scope=family&family=9', [7, 9])).toEqual({ scope: 'family', family: 9 })
+    expect(chosen('scope=family', [7, 9])).toEqual({ scope: 'family', family: null })
+    expect(chosen('scope=family', [7])).toEqual({ scope: 'family', family: 7 })
+    expect(recordsOf('family')).toBe('all')
+    expect(showOf({ scope: 'all', family: null })).toBe('all')
+    expect(showOf({ scope: 'personal', family: null })).toBe('personal')
+  })
+
+  it('sets the family with a budget’s button, removes it with "All family budgets", and keeps the records', () => {
+    expect(withShow(params('period=this-year'), 'family-9').toString()).toBe('period=this-year&scope=family&family=9')
+    expect(withShow(params('scope=family-mine&family=9'), 'family-7').toString()).toBe('scope=family-mine&family=7')
+    expect(withShow(params('scope=family-others&family=9'), 'families').toString()).toBe('scope=family-others')
+    expect(withShow(params('scope=personal'), 'families').toString()).toBe('scope=family')
+    expect(withShow(params('scope=family-mine&family=9&period=this-year'), 'personal').toString())
+      .toBe('scope=personal&period=this-year')
+    expect(withShow(params('scope=family&family=9'), 'all').toString()).toBe('')
+  })
+
+  it('changes only the scope with "Records", the family budget kept', () => {
+    expect(withRecords(params('scope=family&family=9'), 'mine').toString()).toBe('scope=family-mine&family=9')
+    expect(withRecords(params('scope=family-mine'), 'others').toString()).toBe('scope=family-others')
+    expect(withRecords(params('scope=family-others&family=9'), 'all').toString()).toBe('scope=family&family=9')
   })
 })

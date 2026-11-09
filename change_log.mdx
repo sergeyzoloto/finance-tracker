@@ -3,6 +3,54 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-09 · UX-6: the scope chooses the family budget, a shared icon in the cash flow table, D-418 to D-428
+
+Two commits on `feature/family-budget` on top of `18b86d0`: `17f2a7e` "docs: UX-5's deploy recorded, D-418 (UX-6)",
+and the commit of this entry, "feat: the scope chooses the family budget, a shared icon in the cash flow table, the
+cash flow's scope FAMILY, D-419 to D-428 (UX-6)". **Not pushed**; `main` not moved. No migration (Flyway stays at V16),
+no stored data, import or export changed; the backend gains only the scope `FAMILY` (D-421). Production read only: the
+server was never touched and `e2e:prod` never run.
+
+**Changes**
+- `17f2a7e`: UX-5's deploy in the runbook's "Deployed revisions" (the run, its rollback acceptance, "CI on Ubuntu
+  26.04" run #22; UX-4's images in full with its containers' start) and "Production now" (`18b86d0` on V16, rollback
+  target `737af9d`); step 12's 12.1 and 12.10 on `verify UX-5`; CLAUDE.md's "Deployment" line; D-418.
+- D-421, D-422: the cash flow report's scope `FAMILY`, every entry with a SHARE link, in both shapes, with or without
+  `familyLedgerId`, under the family scopes' rules (`CashFlowScope`, `ReportService`, `ReportController`'s OpenAPI
+  text).
+- D-420, D-423, D-425: the dashboard's "Show" is All, Personal, "All family budgets" (two or more), then each budget by
+  name; "Records" (All records, My records, Others’ records) below it once a budget is chosen; the `<select>` removed
+  (`dashboard.ts`: `showOptions`, `showOf`, `withShow`, `recordsOf`, `withRecords`; `scopeFromQuery` reads no `family`
+  as the one budget).
+- D-419, D-424: `CashFlowTable.tsx`'s `SharedMark`, an inline SVG of two people named `Shared: <budget>`, the budget's
+  name after it only when the table holds two budgets' categories.
+- D-428: `demo-dashboard.webp` retaken from the demo (it showed the old "Show" buttons), its alt text updated.
+- Tests: `FamilyCashFlowScopeApiTests.theFamilyScopeIsEveryRecordsShare` and its detached share,
+  `LedgerApiTest.checkCashFlowScopes` (FAMILY against FAMILY_MINE and FAMILY_OTHERS, PERSONAL and FAMILY against ALL),
+  `FamilySwitchOffApiTests`, `DataIsolationApiTests`; `dashboard.test.ts`, `Dashboard.test.tsx`, `FamilyRows.test.tsx`,
+  `UX6.test.tsx`; end to end `07-dashboard`'s step 3, step 9's row by its icon and the new step 10 (D-426).
+- `deploy/checks/UX-6.sql` and `UX-6.expected` (14 lines); `deploy/RUNBOOK.md`, "UX-6's deploy checklist with the
+  suite"; `requirements.md` D-419 to D-428 and the planned stage; CLAUDE.md.
+
+**Verified**
+- `git fetch origin`: `main` = `origin/main` = `feature/family-budget` = `origin/feature/family-budget` = `18b86d0`,
+  the tree clean, before the work.
+- `cd backend && ./mvnw -B clean verify`: exit 0, Results "Tests run: 640, Failures: 0, Errors: 0, Skipped: 0", BUILD
+  SUCCESS (7:32 min).
+- `cd frontend && npm test`: exit 0, "Test Files 41 passed (41)", "Tests 522 passed (522)". `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, tests 37, pass 37, fail 0. `E2E_FAMILY=on npm run e2e:local` on `./dev.sh`
+  with the working tree (before D-428's alt text): exit 0, "24 passed (5.4m)", cleanup passed, "Password search over
+  the artifacts: 0 hits", "Result: PASSED".
+- D-427, on production's dump `finance-2026-11-08T1001Z.dump` through `scripts/rehearsal-db.sh` (removed afterwards):
+  October 2026 in EUR, Personal plus "All records" equals All and "My records" plus "Others’ records" equals "All
+  records" to the cent in income, expenses and net; no sideways scroll at 375 px; `UX-6.sql` equal to `UX-6.expected`.
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+
+**Open**
+- UX-6's deploy by its checklist, M this commit; both images rebuilt; the rollback target `18b86d0`, no condition.
+- D-422 to D-428 are the agent's choices and findings, for the PM to confirm.
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-09 · UX-5's third commit: the chart by range oldest first, its axis labels apart at 375 px, D-413 to D-417
 
 The commit of this entry, "fix: the chart by range oldest first and its axis labels apart at 375 px, D-413 to D-417

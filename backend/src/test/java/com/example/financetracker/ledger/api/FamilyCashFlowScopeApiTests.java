@@ -20,7 +20,8 @@ import org.springframework.http.HttpStatus;
  * <p>
  * Each scope's rows, then the parts against ALL in both shapes, the exchange results under ALL only, the family budget
  * filter, a detached link (Dad leaves) still counted by its record, and the refusals; and the debt accounts' family
- * budget on the balances (D-299).
+ * budget on the balances (D-299). D-421 (UX-6): FAMILY, the user's shares of every family record, in both shapes, with
+ * and without a family budget, and its refusals.
  */
 class FamilyCashFlowScopeApiTests extends FamilyApiTest {
 
@@ -120,7 +121,7 @@ class FamilyCashFlowScopeApiTests extends FamilyApiTest {
                         .isEqualTo("Ledger %d not found.".formatted(id));
             }
         }
-        // A family budget goes with a family scope only (D-308), and a scope is one of the four.
+        // A family budget goes with a family scope only (D-308), and a scope is one of the five.
         assertThat(get(alice, "/api/reports/cash-flow?" + SEPTEMBER + "&familyLedgerId=" + family))
                 .hasStatus(HttpStatus.BAD_REQUEST);
         assertThat(get(alice, "/api/reports/cash-flow?" + SEPTEMBER + "&scope=PERSONAL&familyLedgerId=" + family))
@@ -129,17 +130,62 @@ class FamilyCashFlowScopeApiTests extends FamilyApiTest {
                 .hasStatus(HttpStatus.BAD_REQUEST);
     }
 
+    /** D-421: FAMILY is FAMILY_MINE and FAMILY_OTHERS together, row by row, whoever paid or received the record. */
+    @Test
+    void theFamilyScopeIsEveryRecordsShare() throws IOException {
+        // Her groceries: 17.00 of her own records and 4.00 of Kid's; Dad's rent; her salary's third and Dad's.
+        assertThat(rows(alice, "&scope=FAMILY")).containsExactly(
+                "GROCERIES EUR 21.00", "RENT USD 30.00", "SALARY EUR 110.00");
+        assertThat(rows(bob, "&scope=FAMILY")).containsExactly(
+                "GROCERIES EUR 21.00", "RENT USD 30.00", "SALARY EUR 110.00");
+        assertThat(baseRows(alice, "&scope=FAMILY")).containsExactly("GROCERIES 21.00", "RENT 24.00", "SALARY 110.00");
+        assertThat(ok(get(alice, "/api/reports/cash-flow?" + SEPTEMBER + "&currency=BASE&scope=FAMILY"))
+                .get("exchangeResults")).isEmpty();
+        for (JsonNode row : ok(get(alice, "/api/reports/cash-flow?" + SEPTEMBER + "&scope=FAMILY"))) {
+            assertThat(row.get("familyLedgerId").asLong()).isEqualTo(family);
+        }
+
+        // With a family budget: this one's records, another of hers has none.
+        long cottage = newFamily(alice, """
+                {"name": "Cottage of Mum's", "baseCurrency": "EUR", "displayName": "Mum"}""").get("id").asLong();
+        assertThat(rows(alice, "&scope=FAMILY&familyLedgerId=" + family)).isEqualTo(rows(alice, "&scope=FAMILY"));
+        assertThat(baseRows(alice, "&scope=FAMILY&familyLedgerId=" + family))
+                .isEqualTo(baseRows(alice, "&scope=FAMILY"));
+        assertThat(rows(alice, "&scope=FAMILY&familyLedgerId=" + cottage)).isEmpty();
+        assertThat(baseRows(alice, "&scope=FAMILY&familyLedgerId=" + cottage)).isEmpty();
+        assertThat(ok(get(alice, "/api/reports/cash-flow?" + SEPTEMBER
+                + "&currency=BASE&scope=FAMILY&familyLedgerId=" + family)).get("exchangeResults")).isEmpty();
+
+        // Another user's family budget, a personal ledger and an unknown id: the answer for a missing ledger.
+        String carol = newUser();
+        long theirs = newFamily(carol, """
+                {"name": "Cottage", "baseCurrency": "EUR", "displayName": "Carol"}""").get("id").asLong();
+        long personal = jdbc.sql("SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'")
+                .param(alice).query(Long.class).single();
+        for (long id : List.of(theirs, personal, 999_999_999L)) {
+            for (String shape : List.of("", "&currency=BASE")) {
+                assertThat(detail(get(alice, "/api/reports/cash-flow?" + SEPTEMBER + shape
+                        + "&scope=FAMILY&familyLedgerId=" + id), HttpStatus.NOT_FOUND))
+                        .isEqualTo("Ledger %d not found.".formatted(id));
+            }
+        }
+        checkCashFlowScopes(alice);
+        checkCashFlowScopes(bob);
+    }
+
     /** A member who left keeps their shares, which still count by their records (D-302), whatever D-33 did. */
     @Test
     void aDetachedShareStillCountsByItsRecord() throws IOException {
         assertThat(totals(bob, "&scope=FAMILY_MINE")).containsExactly("EUR 10.00", "USD 30.00");
         assertThat(totals(bob, "&scope=FAMILY_OTHERS")).containsExactly("EUR 100.00", "EUR 21.00");
+        assertThat(totals(bob, "&scope=FAMILY")).containsExactly("EUR 110.00", "EUR 21.00", "USD 30.00");
         assertThat(delete(bob, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
 
         // D-33 moved his shares to personal copies of the family's categories (with D-30's codes where his own take
         // the family's), so the rows lose the budget's mark, and keep their amounts and scopes.
         assertThat(totals(bob, "&scope=FAMILY_MINE")).containsExactly("EUR 10.00", "USD 30.00");
         assertThat(totals(bob, "&scope=FAMILY_OTHERS")).containsExactly("EUR 100.00", "EUR 21.00");
+        assertThat(totals(bob, "&scope=FAMILY")).containsExactly("EUR 110.00", "EUR 21.00", "USD 30.00");
         assertThat(rows(bob, "&scope=PERSONAL")).isEmpty();
         assertThat(ok(get(bob, "/api/reports/cash-flow?" + SEPTEMBER + "&scope=FAMILY_MINE")).get(0)
                 .has("familyLedgerId")).isFalse();

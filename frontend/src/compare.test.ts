@@ -241,16 +241,43 @@ describe('the chart’s data (D-399)', () => {
   const row = (month: string, type: CashFlowRow['categoryType'], total: string): CashFlowRow =>
     ({ month, categoryCode: type, categoryName: type, categoryType: type, currency: 'EUR', total })
 
-  it('by range: a pair of bars per column, oldest first', () => {
+  it('by range: a pair of bars per column, oldest first (D-413)', () => {
     const c = comparisons({ from: '2026-10-01', to: '2026-10-31' }, '2026-11-09')!
     const t = compareTable('EUR', compareColumns(c), [
       cashFlowTables([row('2026-10', 'INCOME', '10.00')], ['2026-10'])[0],
       cashFlowTables([row('2025-10', 'EXPENSE', '7.00')], ['2025-10'])[0], null], false)
     expect(rangeBars(t)).toEqual([
-      { key: 'previous', role: 'Previous period', label: 'Sep 2026', income: null, expense: null },
       { key: 'year', role: 'Year earlier', label: 'Oct 2025', income: null, expense: '7' },
+      { key: 'previous', role: 'Previous period', label: 'Sep 2026', income: null, expense: null },
       { key: 'period', role: 'Period', label: 'Oct 2026', income: '10', expense: null },
     ])
+    // The table keeps D-393's order.
+    expect(t.columns.map((col) => col.key)).toEqual(['period', 'year', 'previous'])
+  })
+
+  it('by range with one comparison left: that one, then the period (D-413, D-406)', () => {
+    const c = comparisons({ from: '2026-10-01', to: '2026-10-31' }, '2026-11-09')!
+    const [period, year, previous] = compareColumns(c)
+    const october = cashFlowTables([row('2026-10', 'INCOME', '10.00')], ['2026-10'])[0]
+    const keys = (columns: typeof period[]) =>
+      rangeBars(compareTable('EUR', columns, columns.map((col) => (col === period ? october : null)), false))
+        .map((b) => b.key)
+    expect(keys([period, previous])).toEqual(['previous', 'period'])
+    expect(keys([period, year])).toEqual(['year', 'period'])
+    expect(keys([period])).toEqual(['period'])
+  })
+
+  it('by range: the year earlier starts before the previous period on every preset (D-395, D-413)', () => {
+    for (const preset of PRESETS) {
+      for (const today of ['2026-11-09', '2026-01-01', '2026-03-31', '2024-02-29', '2026-12-31']) {
+        const [y, m, d] = today.split('-').map(Number)
+        const c = comparisons(presetRange(preset, new Date(y, m - 1, d)), today)
+        if (!c) continue
+        const year = c.ranges.find((r) => r.role === 'year')
+        const previous = c.ranges.find((r) => r.role === 'previous')
+        if (year && previous) expect(year.from < previous.from, `${preset} on ${today}`).toBe(true)
+      }
+    }
   })
 
   it('by month: each month with the comparison’s month in the same place', () => {

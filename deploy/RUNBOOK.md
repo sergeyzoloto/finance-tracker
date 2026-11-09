@@ -1658,7 +1658,7 @@ What runs and why:
   scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-126, D-128, D-131); its gate
   (1.5) counts only the check runs of `ci.yml`'s runs (D-280). Step 1.3 requires M to be `origin/main` after `git
   fetch` and a fast-forward of `HEAD` (`737af9d`), lists the commits from `737af9d` to M (`4f83694`, UX-4's deploy
-  recorded, then UX-5's, the last of them M), `Migrations added: none`, and under `deploy/` three files: `RUNBOOK.md`,
+  recorded, `b16a1b7`, UX-5's, then M, its third commit), `Migrations added: none`, and under `deploy/` three files: `RUNBOOK.md`,
   `checks/UX-5.expected` and `checks/UX-5.sql`. `finance.caddy`, the postgres service and `pg-backup/finance.conf` don't
   change.
 - Only `frontend/` changes. Both images are built: the web image changes and its container is recreated; the api's is
@@ -1681,8 +1681,8 @@ cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 -
 
 You should see `HEAD` M with UX-5's subject (on `feature/family-budget`); `origin/main`
 `737af9d7db382ff26f292493ee4b2f4a10315039` (UX-4); `origin/feature/family-budget` M if UX-5 is pushed, else
-`737af9d7db382ff26f292493ee4b2f4a10315039` too; the commits of `origin/main..feature/family-budget`, `4f83694`
-and UX-5's, the last of them M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any line
+`737af9d7db382ff26f292493ee4b2f4a10315039` too; the commits of `origin/main..feature/family-budget`, three: `4f83694`,
+`b16a1b7` and M; `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any line
 of `git status`: stop and tell the PM.
 
 **1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted UX-5
@@ -1808,7 +1808,7 @@ It prints ("Deploying with deploy.sh" lists the steps):
   here).
 - 1.2: `HEAD: 737af9d feat: the Accounts page's archived amounts and 375 px, …`, the running images, `Last good
   deploy: 737af9d … (deploy)`, status `good`, both images "the recorded image", the read-only role's line.
-- 1.3: the fetch; the commits from `737af9d` to M, `4f83694` then UX-5's, the last of them M; `Migrations added:
+- 1.3: the fetch; the commits from `737af9d` to M, three: `4f83694`, `b16a1b7`, then M; `Migrations added:
   none`; under `deploy/`: `RUNBOOK.md`, `checks/UX-5.expected`, `checks/UX-5.sql`.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`, CI's own only (D-280). 1.6: the UX-5

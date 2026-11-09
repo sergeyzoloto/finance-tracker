@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
   Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
   type TooltipContentProps,
@@ -37,7 +38,7 @@ export type ChartData =
 export default function IncomeExpenseChart({ data, currency, rounded }: { data: ChartData; currency: string; rounded: boolean }) {
   const ticks = tickFormat(currency)
   const yAxis = (
-    <YAxis tickFormatter={(value: number) => ticks.format(value)} tickLine={false} axisLine={false} width={64}
+    <YAxis tickFormatter={(value: number) => ticks.format(value)} tickLine={false} axisLine={false} width={Y_AXIS_WIDTH}
       tick={{ fill: 'var(--muted)', fontSize: 12 }} />
   )
   const bars = [
@@ -47,20 +48,7 @@ export default function IncomeExpenseChart({ data, currency, rounded }: { data: 
   // In the marks' order, with the names in the text colour and the series colour on the swatch.
   const legend = <Legend iconSize={10} itemSorter={null} wrapperStyle={{ fontSize: 13 }} formatter={legendText} />
   if (data.form === 'ranges') {
-    const points = data.bars.map((b) => ({ ...b, incomeHeight: height(b.income), expenseHeight: height(b.expense) }))
-    return (
-      <ResponsiveContainer width="100%" height={280}>
-        <BarChart data={points} barGap={2} barCategoryGap="25%" margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-          <CartesianGrid vertical={false} stroke={GRID} />
-          <XAxis dataKey="key" tickLine={false} axisLine={{ stroke: GRID }} interval={0} height={42}
-            tick={<RangeTick bars={data.bars} />} />
-          {yAxis}
-          <Tooltip cursor={{ fill: '#f2f4f6' }} content={<RangeTooltip currency={currency} rounded={rounded} />} />
-          {legend}
-          {bars}
-        </BarChart>
-      </ResponsiveContainer>
-    )
+    return <RangeChart bars={data.bars} currency={currency} rounded={rounded} yAxis={yAxis} legend={legend} marks={bars} />
   }
   const behind = data.role && BEHIND[data.role]
   const points = data.months.map((m) => ({
@@ -73,7 +61,7 @@ export default function IncomeExpenseChart({ data, currency, rounded }: { data: 
   }))
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <ComposedChart data={points} barGap={2} barCategoryGap="25%" margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+      <ComposedChart data={points} barGap={2} barCategoryGap="25%" margin={MARGIN}>
         <CartesianGrid vertical={false} stroke={GRID} />
         <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: GRID }} tick={{ fill: 'var(--muted)', fontSize: 12 }} />
         {yAxis}
@@ -102,14 +90,110 @@ const legendText = (name: string) => <span className="muted">{name}</span>
 const shown = (amount: Cell, currency: string, rounded: boolean) =>
   amount === null ? '—' : amount === MISSING ? 'rate missing' : formatMoney(amount, currency, { rounded })
 
-/** A range's axis label: its role above its name. Recharts passes the tick's place and value. */
-function RangeTick({ x, y, payload, bars }: { x?: number; y?: number; payload?: { value: string }; bars: RangeBars[] }) {
-  const bar = bars.find((b) => b.key === payload?.value)
-  if (!bar) return null
+// The chart's margins and the value axis, which the ranges' axis labels share the width with.
+const MARGIN = { top: 8, right: 8, bottom: 0, left: 8 }
+const Y_AXIS_WIDTH = 64
+const TICK_FONT_SIZE = 12
+const TICK_LINE_HEIGHT = 15
+/** The least space between two neighbouring axis labels (D-414). */
+const TICK_GAP = 8
+
+function RangeChart({ bars, currency, rounded, yAxis, legend, marks }: {
+  bars: RangeBars[]; currency: string; rounded: boolean; yAxis: ReactNode; legend: ReactNode
+  marks: ReactNode
+}) {
+  const [box, width] = useWidth()
+  // Each range has an equal band of the plot's width; its label wraps to fit inside it, less the gap (D-414).
+  const band = width === 0 ? Infinity : (width - MARGIN.left - MARGIN.right - Y_AXIS_WIDTH) / bars.length
+  const lines = new Map(bars.map((b) => [b.key, axisLines(b, band - TICK_GAP, measureText)]))
+  const most = Math.max(2, ...[...lines.values()].map((l) => l.length))
+  const axisHeight = 12 + most * TICK_LINE_HEIGHT
+  const points = bars.map((b) => ({ ...b, incomeHeight: height(b.income), expenseHeight: height(b.expense) }))
   return (
-    <text x={x} y={y} textAnchor="middle" fontSize={12} fill="var(--muted)">
-      <tspan x={x} dy="0.9em">{bar.role}</tspan>
-      <tspan x={x} dy="1.2em">{bar.label}</tspan>
+    <div ref={box}>
+      <ResponsiveContainer width="100%" height={238 + axisHeight}>
+        <BarChart data={points} barGap={2} barCategoryGap="25%" margin={MARGIN}>
+          <CartesianGrid vertical={false} stroke={GRID} />
+          <XAxis dataKey="key" tickLine={false} axisLine={{ stroke: GRID }} interval={0} height={axisHeight}
+            tick={<RangeTick lines={lines} />} />
+          {yAxis}
+          <Tooltip cursor={{ fill: '#f2f4f6' }} content={<RangeTooltip currency={currency} rounded={rounded} />} />
+          {legend}
+          {marks}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** The width of the element the ref is on, kept up to date; 0 until measured (and where nothing measures, as in tests). */
+function useWidth(): [RefObject<HTMLDivElement | null>, number] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const element = ref.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  return [ref, width]
+}
+
+/**
+ * A range's axis label as lines (D-414): its role, then its name, each wrapped word by word so that no line is wider
+ * than `max`, a range's name after its dash first; a word wider than that stays whole on its own line. Breaks only at
+ * a space or a thin space, never at a no-break one. The tooltip and the table keep the role and the name on one line each.
+ */
+export function axisLines(bar: Pick<RangeBars, 'role' | 'label'>, max: number, measure: (text: string) => number): string[] {
+  return [...wrap(bar.role, max, measure), ...wrapRange(bar.label, max, measure)]
+}
+
+/** A range's name that doesn't fit breaks after its dash first, so each side of it stays whole where it can. */
+function wrapRange(text: string, max: number, measure: (text: string) => number): string[] {
+  const dash = text.indexOf('–')
+  if (dash < 0 || measure(text) <= max) return wrap(text, max, measure)
+  return [...wrap(text.slice(0, dash + 1), max, measure), ...wrap(text.slice(dash + 1).trimStart(), max, measure)]
+}
+
+function wrap(text: string, max: number, measure: (text: string) => number): string[] {
+  const words = text.split(/(?<=[ \u2009])/)
+  const lines: string[] = []
+  let line = ''
+  for (const word of words) {
+    if (line !== '' && measure((line + word).trimEnd()) > max) {
+      lines.push(line.trimEnd())
+      line = word
+    } else {
+      line += word
+    }
+  }
+  if (line.trim() !== '') lines.push(line.trimEnd())
+  return lines
+}
+
+let context: OffscreenCanvasRenderingContext2D | null | undefined
+/**
+ * A line's width in the axis's font, measured where the browser can (OffscreenCanvas), else a generous estimate of
+ * 0.6 of the font size a character.
+ */
+export function measureText(text: string): number {
+  if (context === undefined) {
+    context = typeof OffscreenCanvas === 'undefined' ? null : new OffscreenCanvas(1, 1).getContext('2d')
+    if (context) context.font = `${TICK_FONT_SIZE}px ${getComputedStyle(document.body).fontFamily || 'sans-serif'}`
+  }
+  return context ? context.measureText(text).width : text.length * TICK_FONT_SIZE * 0.6
+}
+
+/** A range's axis label, its lines centred under its bars. Recharts passes the tick's place and value. */
+export function RangeTick({ x, y, payload, lines }: {
+  x?: number; y?: number; payload?: { value: string }; lines: Map<string, string[]>
+}) {
+  const own = payload && lines.get(payload.value)
+  if (!own) return null
+  return (
+    <text x={x} y={y} textAnchor="middle" fontSize={TICK_FONT_SIZE} fill="var(--muted)">
+      {own.map((line, i) => <tspan key={i} x={x} dy={i === 0 ? '0.9em' : `${TICK_LINE_HEIGHT}px`}>{line}</tspan>)}
     </text>
   )
 }

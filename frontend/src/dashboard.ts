@@ -732,13 +732,23 @@ export function drawnComparison(c: Comparisons, params: URLSearchParams): Compar
     ?? can.find((r) => r.role !== 'previous') ?? can[0]
 }
 
-/** A pair of bars of the chart by range: income and expenses of one column, oldest first (D-399). */
+/**
+ * A pair of bars of the chart by range: income and expenses of one column, oldest first (D-399, D-413): by the
+ * range's start, so the year earlier, the previous period, then the period, and with one comparison left, that one,
+ * then the period. The table keeps D-393's order.
+ */
 export interface RangeBars { key: string; role: string; label: string; income: Cell; expense: Cell }
 export function rangeBars(table: CompareTable): RangeBars[] {
-  return table.columns.map((column, i): RangeBars => ({
-    key: column.key, role: column.role, label: column.label,
-    income: table.income.subtotal.amounts[i], expense: table.expense.subtotal.amounts[i],
-  })).reverse()
+  return table.columns
+    .map((column, i) => ({
+      from: column.range.from,
+      bars: {
+        key: column.key, role: column.role, label: column.label,
+        income: table.income.subtotal.amounts[i], expense: table.expense.subtotal.amounts[i],
+      } satisfies RangeBars,
+    }))
+    .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))
+    .map(({ bars }) => bars)
 }
 
 /** A month of the chart by month, with the comparison's month paired with it (D-399). */

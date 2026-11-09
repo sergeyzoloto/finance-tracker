@@ -25,7 +25,8 @@ import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session, 
 //    at 375 px, with "Show archived" on, a "By person" account's details open and the refusal's row shown, the
 //    Accounts page doesn't scroll sideways and every button is inside the screen.
 // 9. UX-5 (D-393, D-396, D-399), on the demo at 1280 px in the base currency: "Previous month" heads the cash flow
-//    table with the period, the year earlier and the previous period, and one category's period, previous period and
+//    table with the period, the year earlier and the previous period, its chart by range is oldest first (D-413),
+//    and one category's period, previous period and
 //    change in % equal the test's own computation from those two ranges' `/api/reports/cash-flow` answers; "This
 //    month" says "to date" while it runs; "Last 3 months" offers "Compare with", whose "Previous period" sets
 //    `compare=previous` and changes the chart's legend.
@@ -211,6 +212,14 @@ async function expectComparisons(session: Session, day: string) {
     [`${period.from} ${period.to}`, `${previous.from} ${previous.to}`, `${yearEarlier.from} ${yearEarlier.to}`].sort())
   const headers = (await table.locator('thead th .col-role').allTextContents())
   expect(headers).toEqual(['Period', 'Year earlier', 'Change', 'Previous period', 'Change'])
+  // The chart by range is oldest first (D-413), its labels wrapped to their bars at any width (D-414).
+  const ticks = page.locator('figure.chart .recharts-xAxis-tick-labels text')
+  await expect(ticks).toHaveCount(3)
+  const roles = await ticks.evaluateAll((texts) => texts
+    .map((t) => ({ x: t.getBoundingClientRect().left, text: [...t.querySelectorAll('tspan')].map((s) => s.textContent).join(' ') }))
+    .sort((a, b) => a.x - b.x)
+    .map(({ text }) => ['Year earlier', 'Previous period', 'Period'].find((role) => text.startsWith(role)) ?? text))
+  expect(roles, 'the chart by range, oldest first').toEqual(['Year earlier', 'Previous period', 'Period'])
 
   // One expense category of the demo in both months, from the API's own answers.
   type Flow = { rows: { categoryCode: string; categoryName: string; categoryType: string; total: string | null; familyLedgerName?: string }[] }

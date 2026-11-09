@@ -3,6 +3,47 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-09 · UX-5's third commit: the chart by range oldest first, its axis labels apart at 375 px, D-413 to D-417
+
+The commit of this entry, "fix: the chart by range oldest first and its axis labels apart at 375 px, D-413 to D-417
+(UX-5)", on `feature/family-budget` on top of `b16a1b7`; it is UX-5's M. **Not pushed**; `main` not moved. Frontend
+only, as D-401: no figure, request or API change, no migration. Production read only: the server was never touched and
+`e2e:prod` never run.
+
+**Changes**
+- D-413: `dashboard.rangeBars` orders the chart by range by each range's From: the year earlier, the previous period,
+  the period; with one comparison left, that one, then the period. The table's columns keep D-393's order.
+- D-414, D-415: the chart by range's axis labels wrap to their range's band of the plot, measured in the axis's font
+  (`OffscreenCanvas`, else an estimate), 8 px apart at least: the role, then the range's name, each on lines of their
+  own, a name broken after its dash first; the axis and the chart grow by a line's height for each line beyond two.
+  The tooltip and the table keep the full roles (`IncomeExpenseChart.axisLines`, `measureText`, `RangeTick`).
+- Tests: `compare.test.ts` (D-413's order, with one comparison left, and the year earlier before the previous period
+  on every preset and five days), `IncomeExpenseChart.test.tsx` (6: the wrapping, the dash, thin and no-break spaces,
+  the estimate, the ticks drawn). End to end `07-dashboard`'s step 9 reads "Previous month"'s axis left to right
+  (D-417).
+- `docs/family-budget/requirements.md`: D-413 to D-417, the planned stage. `deploy/RUNBOOK.md`, "UX-5's deploy
+  checklist with the suite": step 0's and step 4's 1.3 list three commits, `4f83694`, `b16a1b7` and M (also "What
+  runs and why"). `CLAUDE.md`: the chart, the tests.
+
+**Verified**
+- `git fetch origin`: `main` = `origin/main` = `origin/feature/family-budget` = `737af9d`, `feature/family-budget`
+  `b16a1b7`, the tree clean, before the work.
+- `cd frontend && npm test`: exit 0, "Test Files 40 passed (40)", "Tests 513 passed (513)" (a first run while the dev
+  stack and Chrome loaded the machine, load average 27, exited 1 with 17 tests timed out in 11 files; run again
+  unchanged, it passed). `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, tests 37, pass 37, fail 0. `E2E_FAMILY=on npm run e2e:local` on `./dev.sh`
+  with the working tree: exit 0, "24 passed (5.4m)", cleanup passed, "Password search over the artifacts: 0 hits",
+  "Result: PASSED".
+- D-416: on the demo at 375 px with today 2026-11-09, This week, Previous week, Past month, Previous month, This
+  month, This quarter and 2026-10-21 to 2026-11-03 have their axis labels at least 12.7 px apart, inside the chart and
+  above the legend, oldest first, no sideways scroll; screenshots `d414-*.png` in `data/private/reports/UX-5/`.
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+
+**Open**
+- UX-5's deploy by its checklist, M this commit; the rollback target `737af9d`, no condition.
+- D-415 to D-417 are the agent's choices and findings, for the PM to confirm.
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-09 · UX-5: income and expenses compared with a year earlier and the previous period, D-392 to D-412
 
 Two commits on `feature/family-budget` on top of `737af9d`: `4f83694` "docs: UX-4's deploy recorded, D-392 (UX-5)", and

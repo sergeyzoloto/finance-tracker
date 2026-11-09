@@ -29,9 +29,10 @@ export default function Landing() {
           {/* Screenshots of a local instance with the demo data, which is invented. */}
           <figure>
             <img src={dashboardScreenshot} width={1092} height={618} alt={'The dashboard with the demo data in '
-              + 'euros, the base currency: €16,974.88 held, €84.38 owed and a net worth of €16,890.50, with what '
-              + 'currency exchanges and rate changes did to it; then the income, expenses and net of May to October '
-              + '2026, with the choice of all, personal or family records, and a bar chart of each month.'} />
+              + 'euros, the base currency: €16,975.45 held, €84.31 owed and a net worth of €16,891.13, with what '
+              + 'currency exchanges and rate changes did to it; then the income, expenses and net of 1 May to 9 '
+              + 'November 2026, with the choice of all, personal or family records, and a bar chart of each month '
+              + 'with the same months a year earlier, empty in the demo, as dashed lines.'} />
             <figcaption>The dashboard with the demo data, in the base currency.</figcaption>
           </figure>
         </section>

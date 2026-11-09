@@ -1,0 +1,8 @@
+flyway latest 16 user date format true
+column category.type character varying NO
+column family_entry_link.link_type character varying NO
+column journal_entry.entry_date date NO
+column posting.amount numeric NO
+column posting.currency character NO
+categorized postings outside equity 0
+unbalanced entries 0

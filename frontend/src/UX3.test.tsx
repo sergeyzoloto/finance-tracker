@@ -191,7 +191,9 @@ describe('the Balances card in each currency', () => {
     renderAt('/?currency=each&from=2026-09-01&to=2026-09-30&asOf=2026-08-31')
     expect(await line('Result for the period')).toBe('€0.00$0.00')
     expect(await line('Accumulated reserve')).toBe('€1,200.00$100.00')
-    expect(calls.filter((c) => c.includes('to=2026-08-31'))).toEqual([])
+    // No result request; August is asked only as the previous period, with its own From (UX-5).
+    expect(calls.filter((c) => c.includes('from=2026-09-01&to=2026-08-31'))).toEqual([])
+    expect(calls).toContain('GET /api/reports/cash-flow?from=2026-08-01&to=2026-08-31')
   })
 
   it('hides an archived account whose amounts are all below a minor unit, and counts it in the total (D-364)', async () => {

@@ -3,6 +3,67 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-09 · UX-5: income and expenses compared with a year earlier and the previous period, D-392 to D-412
+
+Two commits on `feature/family-budget` on top of `737af9d`: `4f83694` "docs: UX-4's deploy recorded, D-392 (UX-5)", and
+the commit of this entry, "feat: income and expenses compared with a year earlier and the previous period, D-393 to
+D-412 (UX-5)". **Not pushed**; `main` not moved. Frontend only: no backend or API change, no migration (Flyway stays
+at V16), no stored data, import or export changed (D-401). Production read only: the server was never touched and
+`e2e:prod` never run.
+
+**Changes**
+- `4f83694`: UX-4's deploy in the runbook's "Deployed revisions" (the run, its rollback acceptance, "CI on Ubuntu 26.04"
+  run #21) and "Production now" (`737af9d` on V16, rollback target `7bacaf0`, UX-4's dumps); step 12's 12.1 and 12.10
+  on `verify UX-4`; CLAUDE.md's "Deployment" line; D-392.
+- D-393, D-402: "Cash flow by category" compares ranges, no month columns: the category, the period ("To date" while it
+  runs), the year earlier and its change, the previous period and its change, each a range's total; a category of a
+  comparison only listed with "—" in the period; one table per currency in each currency; the exchange lines amounts
+  only (`CashFlowTable.tsx`, `dashboard.compareTables`).
+- D-395, D-396, D-403: the comparison ranges and their names (`dashboard.comparisons`, `rangeShape`, `rangeLabel`); a
+  running period compared to date, the heading saying so.
+- D-397: "This week", "Previous week", "This quarter", "Previous quarter" (`presetRange`), in D-397's order.
+- D-398, D-400, D-404: the change in % (`money.percentChange`, `changeText`, `effectOf`), coloured by its effect on the
+  net; a line of changes under Income, Expenses and Net; the missing-rates notice counting the comparisons.
+- D-394, D-399, D-405, D-408: the chart in two forms (`IncomeExpenseChart.tsx`): a pair of bars per range under 3
+  calendar months, else bars per month with the paired comparison as dashed lines with dots, "Compare with" in the URL
+  (`compare=previous`) when both can be drawn, the tooltip with the comparison's month and %.
+- D-401, D-406, D-407: every range asked at once with the page's scope; the section waits for all, a failed comparison
+  shows its error and drops its columns; zero exchange figures of a comparison shown as such.
+- D-412: `frontend/src/assets/demo-dashboard.webp` retaken from the demo (1092 × 618), its alt text in `Landing.tsx`.
+- Tests: `compare.test.ts` (22: D-395's worked example and the task's other cases, the %, the table, the chart's data),
+  `UX5.test.tsx` (7), `CashFlowTable.test.tsx` rewritten (7); `dashboard.test.ts`, `Dashboard.test.tsx`,
+  `UX3.test.tsx` and `FamilyRows.test.tsx` updated for the presets, the requests and the table (D-409). End to end
+  `07-dashboard`'s step 9 (D-410), and step 7 reading the Net's first `dd`.
+- `deploy/checks/UX-5.sql` and `UX-5.expected` (8 lines, structure only). `deploy/RUNBOOK.md`: "UX-5's deploy checklist
+  with the suite". `docs/family-budget/requirements.md`: D-393 to D-412, UX-5 in the planned stages. `CLAUDE.md`: the
+  dashboard's presets, comparisons, table and chart, the tests.
+
+**Verified**
+- `git fetch origin`: `main` = `origin/main` = `feature/family-budget` = `origin/feature/family-budget` = `737af9d`, the
+  tree clean, before the work.
+- `cd frontend && npm test`: exit 0, "Test Files 39 passed (39)", "Tests 505 passed (505)". `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, tests 37, pass 37, fail 0. `E2E_FAMILY=on npm run e2e:local` on `./dev.sh`
+  built from the working tree: exit 0, "24 passed", cleanup passed, "Password search over the artifacts: 0 hits",
+  "Result: PASSED" (run twice, the second on the finished tree).
+- The backend unchanged: its suite not run here; CI runs it.
+- `deploy/checks/UX-5.sql` on production's dump `finance-2026-11-08T1001Z.dump` restored into a throwaway database
+  (V16): its output is `UX-5.expected`.
+- Section 5 on that dump (D-411; amounts only in the report): every column of "Previous month", "This year" and
+  "Previous year", in base and in each currency, equals `737af9d`'s table's Total for its dates (21 of 21); the
+  section's cash flow requests answer within 214 ms on production builds, against 189 to 254 ms for `737af9d`'s one;
+  no sideways scroll at 375 px. The databases and the scratch worktree removed.
+- The comparison colours through the dataviz palette validator (D-408).
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+
+**Open**
+- UX-5's deploy, by its checklist, when the PM chooses; the rollback target `737af9d`, no condition. Its pre-flight
+  prints UX-4's images in full for "Deployed revisions" (D-392).
+- D-402 to D-412 are the agent's choices and findings, for the PM to confirm.
+- How the chart looks (the dashed lines, their colours) is checked by screenshots only (`data/private/reports/UX-5/`),
+  not by a test.
+- `deploy/tests/run.sh` not run: the deploy scripts are unchanged.
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-08 · UX-4: the Accounts page's archived accounts and 375 px; no decision number on a screen, D-381 to D-391
 
 Two commits on `feature/family-budget` on top of `7bacaf0`: `04a96fc` "docs: UX-3's deploy recorded, D-381 to D-385

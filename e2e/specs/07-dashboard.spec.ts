@@ -24,6 +24,11 @@ import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session, 
 //    account, D-376) is listed with "Show archived" off, its €0.01 shown, and the Assets total matches the rows' cents;
 //    at 375 px, with "Show archived" on, a "By person" account's details open and the refusal's row shown, the
 //    Accounts page doesn't scroll sideways and every button is inside the screen.
+// 9. UX-5 (D-393, D-396, D-399), on the demo at 1280 px in the base currency: "Previous month" heads the cash flow
+//    table with the period, the year earlier and the previous period, and one category's period, previous period and
+//    change in % equal the test's own computation from those two ranges' `/api/reports/cash-flow` answers; "This
+//    month" says "to date" while it runs; "Last 3 months" offers "Compare with", whose "Previous period" sets
+//    `compare=previous` and changes the chart's legend.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -158,8 +163,97 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await shot(page, 'dashboard-11-accounts-archived')
   await expectAccountsAtANarrowWidth(a)
 
+  // 9. The period compared (UX-5).
+  await expectComparisons(a, day)
+  await shot(page, 'dashboard-13-compared')
+
   await deleteAllMyData(a)
 })
+
+/** "+12.3%", "−4.0%" or "0.0%" in tenths of a percent; null for "—". */
+function tenths(text: string | null): bigint | null {
+  const shown = (text ?? '').trim()
+  if (shown === '—') return null
+  expect(shown, `a change in "${shown}"`).toMatch(/^[+\u2212]?\d[\d,]*\.\d%$/)
+  const value = BigInt(shown.replace(/[^0-9]/g, ''))
+  return shown.startsWith('\u2212') ? -value : value
+}
+
+/** D-398's change in tenths of a percent from cents, rounded half away from zero; null with nothing to compare. */
+function changeInTenths(now: bigint, before: bigint | null): bigint | null {
+  if (before === null || before === 0n) return null
+  const scaled = (now - before) * 2000n / (before < 0n ? -before : before)
+  return (scaled + (scaled < 0n ? -1n : 1n)) / 2n
+}
+
+/** UX-5 on the demo: the table's columns and one category's figures, "to date", and "Compare with" (D-393 to D-399). */
+async function expectComparisons(session: Session, day: string) {
+  const { page } = session
+  const [year, month] = day.split('-').map(Number)
+  const iso = (d: Date) => d.toISOString().slice(0, 10)
+  const range = (m: number) => ({ from: iso(new Date(Date.UTC(year, m - 1, 1))), to: iso(new Date(Date.UTC(year, m, 0))) })
+  const period = range(month - 1)
+  const previous = range(month - 2)
+  const yearEarlier = { from: iso(new Date(Date.UTC(year - 1, month - 2, 1))), to: iso(new Date(Date.UTC(year - 1, month - 1, 0))) }
+
+  const asked = new Set<string>()
+  const listen = (r: { url: () => string }) => {
+    const url = new URL(r.url())
+    if (url.pathname === '/api/reports/cash-flow') asked.add(`${url.searchParams.get('from')} ${url.searchParams.get('to')}`)
+  }
+  page.on('request', listen)
+  await page.goto('/?period=previous-month')
+  const table = page.getByRole('table', { name: 'Cash flow in EUR' })
+  await expect(table).toBeVisible()
+  await expect(page.locator('.stale')).toHaveCount(0)
+  page.off('request', listen)
+  expect([...asked].sort(), 'the period and both comparisons are asked').toEqual(
+    [`${period.from} ${period.to}`, `${previous.from} ${previous.to}`, `${yearEarlier.from} ${yearEarlier.to}`].sort())
+  const headers = (await table.locator('thead th .col-role').allTextContents())
+  expect(headers).toEqual(['Period', 'Year earlier', 'Change', 'Previous period', 'Change'])
+
+  // One expense category of the demo in both months, from the API's own answers.
+  type Flow = { rows: { categoryCode: string; categoryName: string; categoryType: string; total: string | null; familyLedgerName?: string }[] }
+  const flow = async (r: { from: string; to: string }) =>
+    (await call(session, 'GET', `/api/reports/cash-flow?from=${r.from}&to=${r.to}&currency=BASE`)).body as Flow
+  const [now, before] = [await flow(period), await flow(previous)]
+  const key = (row: Flow['rows'][number]) => `${row.categoryCode}@${row.familyLedgerName ?? ''}`
+  const sumOf = (answer: Flow, k: string) => {
+    const rows = answer.rows.filter((r) => key(r) === k)
+    return rows.length === 0 ? null : rows.reduce((total, r) => total + cents(`€${r.total}`), 0n)
+  }
+  const chosen = now.rows.find((r) => r.categoryType === 'EXPENSE' && r.total !== null
+    && before.rows.some((b) => key(b) === key(r) && b.total !== null))
+  expect(chosen, 'an expense category of the demo in both months').toBeDefined()
+  const label = chosen!.categoryName + (chosen!.familyLedgerName ?? '')
+  const exactly = new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
+  const cells = await table.locator('tbody tr').filter({ has: page.locator('th[scope="row"]', { hasText: exactly }) })
+    .locator('td').allTextContents()
+  const p = sumOf(now, key(chosen!))!
+  const q = sumOf(before, key(chosen!))
+  expect(cents(cells[0]), `${chosen!.categoryCode} in the period`).toBe(p)
+  expect(cents(cells[3]), `${chosen!.categoryCode} in the previous period`).toBe(q)
+  expect(tenths(cells[4]), `${chosen!.categoryCode}'s change against the previous period`).toBe(changeInTenths(p, q))
+
+  // A running month is compared to date (D-396), unless today is its last day.
+  await page.goto('/?period=this-month')
+  const heading = page.getByRole('heading', { name: /^Income and expenses/ })
+  await expect(page.getByRole('table', { name: 'Cash flow in EUR' })).toBeVisible()
+  const lastDay = iso(new Date(Date.UTC(year, month, 0))) === day
+  if (lastDay) await expect(heading).not.toContainText('to date')
+  else await expect(heading).toContainText('to date')
+
+  // Three months or more: the chart by month, and "Compare with" in the URL (D-399).
+  await page.goto('/?period=last-3-months')
+  const compare = page.getByRole('group', { name: 'Compare with' })
+  await expect(compare.getByRole('button', { name: 'A year earlier' })).toHaveAttribute('aria-pressed', 'true')
+  const legend = page.locator('figure.chart .recharts-legend-wrapper')
+  await expect(legend).toContainText('Income, a year earlier')
+  await compare.getByRole('button', { name: 'Previous period' }).click()
+  await expect(page).toHaveURL(/[?&]compare=previous(&|$)/)
+  await expect(legend).toContainText('Income, previous period')
+  await expect(legend).not.toContainText('a year earlier')
+}
 
 /** "€1,234.56", "-€0.50" or "+€3.00" in cents. */
 function cents(text: string | null): bigint {
@@ -177,7 +271,8 @@ function cents(text: string | null): bigint {
 async function expectEquityByPeriod({ page }: Session, from: string, to: string) {
   await page.goto(`/?from=${from}&to=${to}`)
   const totals = page.getByLabel('Totals in EUR')
-  const net = totals.getByRole('term').filter({ hasText: /^Net$/ }).locator('xpath=following-sibling::dd')
+  // The first dd is the amount; a second holds its changes (D-400).
+  const net = totals.getByRole('term').filter({ hasText: /^Net$/ }).locator('xpath=following-sibling::dd[1]')
   const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Balances' }) })
   const equity = balances.locator('table.by-type').filter({ has: page.getByRole('columnheader', { name: 'Equity' }) })
   const result = equity.locator('tr').filter({ has: page.getByRole('cell', { name: 'Result for the period', exact: true }) })

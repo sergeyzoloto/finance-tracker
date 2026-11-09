@@ -160,3 +160,14 @@ export function formatMoney(amount: string, currency: string, { signed = false, 
   const text = format.format(amount as Intl.StringNumericLiteral)
   return format.resolvedOptions().style === 'currency' ? text : `${text} ${currency}`
 }
+
+/**
+ * The change from `before` to `now` in percent (D-398): (now − before) / |before| × 100, rounded HALF_UP to one decimal,
+ * as a decimal string ("12.3", "-4.0", "0.0"); undefined when `before` is 0, since nothing can be compared with it.
+ */
+export function percentChange(now: string, before: string): string | undefined {
+  const base = new Decimal(before)
+  if (base.eq('0')) return undefined
+  const change = new Decimal(now).minus(base).div(base.abs()).times('100').round(1, Big.roundHalfUp)
+  return change.eq('0') ? '0.0' : change.toFixed(1)
+}

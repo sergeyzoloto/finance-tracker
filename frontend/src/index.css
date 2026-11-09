@@ -136,6 +136,15 @@ table.loans .own-amounts { display: block; }
 table.cash-flow th[scope='row'], table.cash-flow thead th:first-child { position: sticky; left: 0; background: white; }
 table.cash-flow th[scope='row'] { font-weight: normal; min-width: 10rem; }
 table.cash-flow td.total { background: #fafbfc; }
+/* UX-5 (D-393, D-398, D-400): each column's role above its range, the change in %, coloured by its effect on the net. */
+.period-totals .changes { font-variant-numeric: tabular-nums; }
+table.cash-flow thead th { vertical-align: bottom; }
+.col-role { display: block; font-weight: normal; color: var(--muted); font-size: 0.8em; }
+table.cash-flow td.change { font-size: 0.9em; color: var(--muted); }
+table.cash-flow td.change.better, .changes .better { color: var(--income); }
+table.cash-flow td.change.worse, .changes .worse { color: var(--expense); }
+.figure dd.changes { font-size: 0.8rem; font-weight: normal; color: var(--muted); margin-top: 0.1rem; }
+.flows .toggle-group { margin-bottom: 0.5rem; }
 tr.section th { padding-top: 0.75rem; }
 tr.net th, tr.net td { border-top: 2px solid var(--border); }
 tr.subtotal th[scope='row'], tr.subtotal td, tr.net th[scope='row'], tr.net td { font-weight: 600; }
@@ -145,6 +154,8 @@ figure.chart figcaption { font-weight: 600; color: var(--muted); }
 .chart-tooltip { background: white; border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.9em;
   box-shadow: 0 2px 6px rgb(0 0 0 / 8%); }
 .chart-tooltip .key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 0.4rem; vertical-align: middle; }
+.chart-tooltip .key.dashed { height: 0; border-top: 2px dashed; border-radius: 0; }
+.chart-tooltip .tooltip-before { margin-top: 0.3rem; }
 .chart-placeholder { height: 260px; }
 /* Amounts in the base currency */
 .missing { color: var(--expense); font-style: italic; font-size: 0.9em; }

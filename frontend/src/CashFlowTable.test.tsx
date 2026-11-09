@@ -2,109 +2,127 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { CashFlowRow, CategoryType, ConvertedCashFlow } from './api'
 import CashFlowTable from './CashFlowTable'
-import { cashFlowTables, convertedCashFlowTable, monthLabel, monthsBetween } from './dashboard'
+import {
+  cashFlowTables, compareColumns, comparisons, compareTable, compareTables, convertedCashFlowTable, monthsBetween,
+  type DayRange,
+} from './dashboard'
 import { formatMoney } from './money'
+
+// UX-5 (D-393, D-398): the cash flow by category compares ranges; no month columns.
 
 afterEach(cleanup)
 
 const row = (month: string, categoryCode: string, categoryName: string, categoryType: CategoryType, currency: string,
   total: string): CashFlowRow => ({ month, categoryCode, categoryName, categoryType, currency, total })
 
-// The cash flow report for January to March 2024, as the backend sends it: nothing in January.
-const report: CashFlowRow[] = [
-  row('2024-02', 'GROCERIES', 'Groceries', 'EXPENSE', 'RUB', '100.10'),
-  row('2024-02', 'TRANSPORT', 'Transport', 'EXPENSE', 'RUB', '-0.10'), // a refund larger than the month's fares
-  row('2024-03', 'EATING_OUT', 'Eating out', 'EXPENSE', 'EUR', '25.80'),
-  row('2024-03', 'EATING_OUT', 'Eating out', 'EXPENSE', 'RUB', '422.78'),
-  row('2024-03', 'GROCERIES', 'Groceries', 'EXPENSE', 'RUB', '3114.50'),
-  row('2024-03', 'INTEREST', 'Interest', 'INCOME', 'EUR', '12.34'),
-  row('2024-03', 'INTEREST', 'Interest', 'INCOME', 'RUB', '26.97'),
-  row('2024-03', 'SALARY', 'Salary', 'INCOME', 'RUB', '85000.00'),
-]
+// October 2026, compared with October 2025 and September 2026, on 9 November 2026.
+const compared = comparisons({ from: '2026-10-01', to: '2026-10-31' }, '2026-11-09')!
+const columns = compareColumns(compared)
+const monthly = (range: DayRange, rows: CashFlowRow[]) => cashFlowTables(rows, monthsBetween(range.from, range.to))
+const [, year, previous] = columns.map((c) => c.range)
+const october = monthly(compared.section, [
+  row('2026-10', 'SALARY', 'Salary', 'INCOME', 'EUR', '2000.00'),
+  row('2026-10', 'GROCERIES', 'Groceries', 'EXPENSE', 'EUR', '330.00'),
+  row('2026-10', 'TRANSPORT', 'Transport', 'EXPENSE', 'EUR', '-0.10'), // a refund larger than the month's fares
+  row('2026-10', 'GROCERIES', 'Groceries', 'EXPENSE', 'RUB', '3114.50'),
+])
+const yearEarlier = monthly(year, [
+  row('2025-10', 'SALARY', 'Salary', 'INCOME', 'EUR', '1600.00'),
+  row('2025-10', 'GROCERIES', 'Groceries', 'EXPENSE', 'EUR', '300.00'),
+  row('2025-10', 'RENT', 'Rent', 'EXPENSE', 'EUR', '700.00'),
+])
+const september = monthly(previous, [
+  row('2026-09', 'SALARY', 'Salary', 'INCOME', 'EUR', '2000.00'),
+  row('2026-09', 'GROCERIES', 'Groceries', 'EXPENSE', 'EUR', '0.00'),
+])
 
-function renderReport() {
-  const tables = cashFlowTables(report, monthsBetween('2024-01-01', '2024-03-31'))
-  render(<>{tables.map((table) => <CashFlowTable key={table.currency} table={table} />)}</>)
+function renderTables() {
+  const tables = compareTables(columns, [october, yearEarlier, september], false)
+  render(<>{tables.map((t) => <CashFlowTable key={t.currency} table={t} />)}</>)
 }
 
 const table = (currency: string) => screen.getByRole('table', { name: `Cash flow in ${currency}` })
-
-/** A row's cells after its label: one per month, then the total. */
+/** A row's cells after its label: the period, then each comparison's amount and change. */
 function cells(currency: string, label: string) {
   const tr = within(table(currency)).getByRole('rowheader', { name: label }).closest('tr')!
   return within(tr).getAllByRole('cell').map((cell) => cell.textContent)
 }
-
-const rub = (amount: string) => formatMoney(amount, 'RUB')
 const eur = (amount: string) => formatMoney(amount, 'EUR')
+const rub = (amount: string) => formatMoney(amount, 'RUB')
+const minus = '−'
 
-describe('Cash flow table', () => {
-  it('has a column per month of the period, empty ones included, and a total column', () => {
-    renderReport()
-    const headers = within(table('RUB')).getAllByRole('columnheader').map((th) => th.textContent)
-    expect(headers).toEqual(['RUB', monthLabel('2024-01'), monthLabel('2024-02'), monthLabel('2024-03'), 'Total'])
+describe('the comparison table', () => {
+  it('heads each column with its role above its range', () => {
+    renderTables()
+    const headers = within(table('EUR')).getAllByRole('columnheader').map((th) => th.textContent)
+    expect(headers).toEqual(['EUR', 'Period Oct 2026', 'Year earlier Oct 2025', 'Change %',
+      'Previous period Sep 2026', 'Change %'])
   })
 
-  it('lists the categories alphabetically, each section with its subtotal, and the net last', () => {
-    renderReport()
-    expect(within(table('RUB')).getAllByRole('rowheader').map((th) => th.textContent)).toEqual([
-      'Income', 'Interest', 'Salary', 'Total income',
-      'Expenses', 'Eating out', 'Groceries', 'Transport', 'Total expenses',
+  it('lists every category of any range, alphabetically, with the subtotals and the net', () => {
+    renderTables()
+    expect(within(table('EUR')).getAllByRole('rowheader').map((th) => th.textContent)).toEqual([
+      'Income', 'Salary', 'Total income',
+      'Expenses', 'Groceries', 'Rent', 'Transport', 'Total expenses',
       'Net',
     ])
   })
 
-  it('adds up every category, both sections and the net, per month and in total', () => {
-    renderReport()
-    expect(cells('RUB', 'Groceries')).toEqual(['—', rub('100.10'), rub('3114.50'), rub('3214.60')])
-    expect(cells('RUB', 'Total income')).toEqual(['—', '—', rub('85026.97'), rub('85026.97')])
-    // February's refund outweighs its fares, so it lowers the month's expenses.
-    expect(cells('RUB', 'Transport')).toEqual(['—', rub('-0.10'), '—', rub('-0.10')])
-    expect(cells('RUB', 'Total expenses')).toEqual(['—', rub('100.00'), rub('3537.28'), rub('3637.28')])
-    expect(cells('RUB', 'Net')).toEqual(['—', rub('-100.00'), rub('81489.69'), rub('81389.69')])
+  it('gives each range’s total and the change in %, a dash with nothing or 0 to compare with', () => {
+    renderTables()
+    expect(cells('EUR', 'Salary')).toEqual([eur('2000.00'), eur('1600.00'), '+25.0%', eur('2000.00'), '0.0%'])
+    expect(cells('EUR', 'Groceries')).toEqual([eur('330.00'), eur('300.00'), '+10.0%', eur('0.00'), '—'])
+    // In a comparison only: a dash in the period, and −100.0% against it.
+    expect(cells('EUR', 'Rent')).toEqual(['—', eur('700.00'), `${minus}100.0%`, '—', '—'])
+    expect(cells('EUR', 'Total expenses')).toEqual([eur('329.90'), eur('1000.00'), `${minus}67.0%`, eur('0.00'), '—'])
+    expect(cells('EUR', 'Net')).toEqual([eur('1670.10'), eur('600.00'), '+178.4%', eur('2000.00'), `${minus}16.5%`])
   })
 
-  it('never adds amounts in different currencies together', () => {
-    renderReport()
-    expect(screen.getAllByRole('table').map((t) => t.getAttribute('aria-label')))
-      .toEqual(['Cash flow in EUR', 'Cash flow in RUB'])
-    expect(cells('EUR', 'Total income')).toEqual(['—', '—', eur('12.34'), eur('12.34')])
-    expect(cells('EUR', 'Total expenses')).toEqual(['—', '—', eur('25.80'), eur('25.80')])
-    expect(cells('EUR', 'Net')).toEqual(['—', '—', eur('-13.46'), eur('-13.46')])
+  it('colours a change by its effect on the net, the sign always shown', () => {
+    renderTables()
+    const change = (label: string, i: number) =>
+      within(table('EUR')).getByRole('rowheader', { name: label }).closest('tr')!.querySelectorAll('td.change')[i]
+    expect(change('Total income', 0)!.className).toContain('better')
+    expect(change('Total expenses', 0)!.className).toContain('better')
+    expect(change('Groceries', 0)!.className).toContain('worse')
+    expect(change('Salary', 1)!.className).not.toMatch(/better|worse/)
   })
 
-  it('shows an empty section with a dash for its subtotal', () => {
-    render(<CashFlowTable table={cashFlowTables([report[0]], ['2024-02'])[0]} />)
-    expect(cells('RUB', 'Total income')).toEqual(['—', '—'])
-    expect(cells('RUB', 'Net')).toEqual([rub('-100.10'), rub('-100.10')])
-  })
-})
-
-describe('Cash flow table in the base currency', () => {
-  const report: ConvertedCashFlow = {
-    currency: 'EUR',
-    rows: [
-      { month: '2024-03', categoryCode: 'GROCERIES', categoryName: 'Groceries', categoryType: 'EXPENSE', total: null,
-        missingRates: [{ currency: 'KZT', from: '2024-03-05', to: '2024-03-05', days: 1 }] },
-      { month: '2024-03', categoryCode: 'SALARY', categoryName: 'Salary', categoryType: 'INCOME', total: '2000.00', missingRates: [] },
-    ],
-    exchangeResults: [{ month: '2024-03', realized: '10.00', unrealized: '-2.50', missingRates: [] }],
-  }
-
-  it('marks what can’t be converted, and every total it is part of, instead of adding it up as zero', () => {
-    render(<CashFlowTable table={convertedCashFlowTable(report, ['2024-03'])} />)
-    expect(cells('EUR', 'Groceries')).toEqual(['rate missing', 'rate missing'])
-    expect(cells('EUR', 'Total expenses')).toEqual(['rate missing', 'rate missing'])
-    expect(cells('EUR', 'Total income')).toEqual([eur('2000.00'), eur('2000.00')])
-    expect(cells('EUR', 'Net')).toEqual(['rate missing', 'rate missing'])
+  it('keeps each currency in its own table, every column in it', () => {
+    renderTables()
+    expect(screen.getAllByRole('table').map((t) => t.getAttribute('aria-label'))).toEqual(['Cash flow in EUR', 'Cash flow in RUB'])
+    expect(cells('RUB', 'Groceries')).toEqual([rub('3114.50'), '—', '—', '—', '—'])
   })
 
-  it('shows what exchange rates did after the net, which leaves them out', () => {
-    render(<CashFlowTable table={convertedCashFlowTable(report, ['2024-03'])} />)
-    expect(within(table('EUR')).getAllByRole('rowheader').map((th) => th.textContent).slice(-4)).toEqual([
-      'Net', 'Exchange rates (not in the net)', 'Realized on exchanges', 'Revaluation of balances',
-    ])
-    expect(cells('EUR', 'Realized on exchanges')).toEqual([eur('10.00'), eur('10.00')])
-    expect(cells('EUR', 'Revaluation of balances')).toEqual([eur('-2.50'), eur('-2.50')])
+  it('in the base currency marks a missing figure and leaves its % empty; exchange lines have no %', () => {
+    const converted = (month: string, groceries: string | null, realized: string): ConvertedCashFlow => ({
+      currency: 'EUR',
+      rows: [{ month, categoryCode: 'GROCERIES', categoryName: 'Groceries', categoryType: 'EXPENSE', total: groceries,
+        missingRates: groceries === null ? [{ currency: 'KZT', from: `${month}-05`, to: `${month}-05`, days: 1 }] : [] }],
+      exchangeResults: [{ month, realized, unrealized: '0.00', missingRates: [] }],
+    })
+    const t = compareTable('EUR', columns, [
+      convertedCashFlowTable(converted('2026-10', null, '10.00'), ['2026-10']),
+      convertedCashFlowTable(converted('2025-10', '40.00', '0.00'), ['2025-10']),
+      convertedCashFlowTable(converted('2026-09', '50.00', '-2.50'), ['2026-09']),
+    ], true)
+    render(<CashFlowTable table={t} />)
+    expect(cells('EUR', 'Groceries')).toEqual(['rate missing', eur('40.00'), '', eur('50.00'), ''])
+    expect(cells('EUR', 'Net')).toEqual(['rate missing', eur('-40.00'), '', eur('-50.00'), ''])
+    expect(within(table('EUR')).getAllByRole('rowheader').map((th) => th.textContent).slice(-3)).toEqual([
+      'Exchange rates (not in the net)', 'Realized on exchanges', 'Revaluation of balances'])
+    expect(cells('EUR', 'Realized on exchanges')).toEqual([eur('10.00'), eur('0.00'), '', eur('-2.50'), ''])
+  })
+
+  it('has one comparison headed “Previous year” for a year-long period', () => {
+    const c = comparisons({ from: '2025-01-01', to: '2025-12-31' }, '2026-11-09')!
+    const t = compareTable('EUR', compareColumns(c), [
+      cashFlowTables([row('2025-03', 'SALARY', 'Salary', 'INCOME', 'EUR', '110.00')], monthsBetween('2025-01-01', '2025-12-31'))[0],
+      cashFlowTables([row('2024-03', 'SALARY', 'Salary', 'INCOME', 'EUR', '100.00')], monthsBetween('2024-01-01', '2024-12-31'))[0],
+    ], false)
+    render(<CashFlowTable table={t} />)
+    expect(within(table('EUR')).getAllByRole('columnheader').map((th) => th.textContent))
+      .toEqual(['EUR', 'Period 2025', 'Previous year 2024', 'Change %'])
+    expect(cells('EUR', 'Salary')).toEqual([eur('110.00'), eur('100.00'), '+10.0%'])
   })
 })

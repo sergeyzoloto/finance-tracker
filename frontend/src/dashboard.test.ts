@@ -45,12 +45,16 @@ describe('the period buttons (D-296)', () => {
   }))
 
   it('come in the page’s order', () => {
-    expect(PRESETS).toEqual(['past-month', 'previous-month', 'this-month', 'last-3-months', 'past-year', 'this-year',
-      'previous-year'])
+    expect(PRESETS).toEqual(['this-week', 'previous-week', 'past-month', 'previous-month', 'this-month', 'this-quarter',
+      'previous-quarter', 'last-3-months', 'past-year', 'this-year', 'previous-year'])
   })
 
   it('on 31 March: a month back clamps to the end of February', () => {
     expect(ranges(2026, 3, 31)).toEqual({
+      'this-week': '2026-03-30 2026-04-05',
+      'previous-week': '2026-03-23 2026-03-29',
+      'this-quarter': '2026-01-01 2026-03-31',
+      'previous-quarter': '2025-10-01 2025-12-31',
       'past-month': '2026-03-01 2026-03-31',
       'previous-month': '2026-02-01 2026-02-28',
       'this-month': '2026-03-01 2026-03-31',

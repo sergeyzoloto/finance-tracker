@@ -1,23 +1,36 @@
-import { MISSING, monthLabel, monthNote, type CashFlowLine, type CashFlowTable as Table, type Cell } from './dashboard'
+import {
+  changeOf, changeText, effectOf, MISSING, type Cell, type CompareLine, type CompareTable as Table,
+} from './dashboard'
 import { formatMoney, signOf } from './money'
 
 /**
- * One currency's income and expenses as the owner's Excel pivot: categories as rows, months as columns, a total
- * column, a subtotal per section and the net. A dash marks a month in which nothing was posted. In the base currency,
- * the results of exchange rates follow the net, and "rate missing" marks a figure that can't be converted. With the
- * period, a month it covers only in part says so under its name ("from Sep 16", D-296).
+ * One currency's income and expenses compared (D-393): the categories as rows; the period's total, then each
+ * comparison's total with the change in % (D-398), each column headed by its role above its range's name. A dash
+ * marks a range in which nothing was posted. In the base currency the results of exchange rates follow the net,
+ * amounts only, and "rate missing" marks a figure that can't be converted, its % left empty.
  */
-export default function CashFlowTable({ table, period }: { table: Table; period?: { from: string; to: string } }) {
-  const width = table.months.length + 2
-  const row = (line: CashFlowLine, className = '', signed = false) => (
+export default function CashFlowTable({ table }: { table: Table }) {
+  const [period, ...comparisons] = table.columns
+  const width = 2 + comparisons.length * 2
+  const row = (line: CompareLine, className = '', signed = false) => (
     <tr key={line.key} className={className}>
-      <th scope="row">{line.label}{line.family && <span className="badge" title={`A category of the family budget “${line.family}”`}>{line.family}</span>}</th>
-      {line.months.map((amount, i) => (
-        <Amount key={table.months[i]} amount={amount} currency={table.currency} rounded={table.converted}
-          className={signed ? sign(amount) : ''} />
-      ))}
-      <Amount amount={line.total} currency={table.currency} rounded={table.converted}
-        className={`total ${signed ? sign(line.total) : ''}`} />
+      <th scope="row">
+        {line.label}
+        {line.family && <span className="badge" title={`A category of the family budget “${line.family}”`}>{line.family}</span>}
+      </th>
+      <Amount amount={line.amounts[0]} currency={table.currency} rounded={table.converted} signed={signed} />
+      {comparisons.map((column, i) => {
+        const before = line.amounts[i + 1]
+        const change = changeOf(line.amounts[0], before)
+        const effect = line.good === null ? null : effectOf(change, line.good)
+        return [
+          <Amount key={column.key} amount={before} currency={table.currency} rounded={table.converted} signed={signed}
+            className="compared" />,
+          <td key={`${column.key}%`} className={`amount nowrap change ${effect ?? ''}`}>
+            {line.good === null ? '' : changeText(change)}
+          </td>,
+        ]
+      })}
     </tr>
   )
   return (
@@ -26,15 +39,15 @@ export default function CashFlowTable({ table, period }: { table: Table; period?
         <thead>
           <tr>
             <th scope="col">{table.currency}</th>
-            {table.months.map((month) => {
-              const note = period && monthNote(month, period.from, period.to)
-              return (
-                <th key={month} scope="col" className="amount">
-                  {monthLabel(month)}{note && <small className="month-note">{note}</small>}
-                </th>
-              )
-            })}
-            <th scope="col" className="amount">Total</th>
+            <th scope="col" className="amount"><span className="col-role">{period.role}</span> {period.label}</th>
+            {comparisons.map((column) => [
+              <th key={column.key} scope="col" className="amount compared">
+                <span className="col-role">{column.role}</span> {column.label}
+              </th>,
+              <th key={`${column.key}%`} scope="col" className="amount change">
+                <span className="col-role">Change</span> %
+              </th>,
+            ])}
           </tr>
         </thead>
         {([['Income', table.income], ['Expenses', table.expense]] as const).map(([title, section]) => (
@@ -58,9 +71,15 @@ export default function CashFlowTable({ table, period }: { table: Table; period?
 
 const sign = (amount: Cell) => (typeof amount !== 'string' ? '' : signOf(amount) < 0 ? 'expense' : 'income')
 
-function Amount({ amount, currency, rounded, className = '' }: { amount: Cell; currency: string; rounded: boolean; className?: string }) {
+function Amount({ amount, currency, rounded, signed, className = '' }: {
+  amount: Cell
+  currency: string
+  rounded: boolean
+  signed: boolean
+  className?: string
+}) {
   return (
-    <td className={`amount nowrap ${className}`}>
+    <td className={`amount nowrap ${className} ${signed ? sign(amount) : ''}`}>
       {amount === null ? <span className="muted">—</span>
         : amount === MISSING ? <span className="missing" title="No exchange rate for a currency on some day">rate missing</span>
           : formatMoney(amount, currency, { rounded })}

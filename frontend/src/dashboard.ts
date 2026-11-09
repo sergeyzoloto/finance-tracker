@@ -1,9 +1,9 @@
 import {
-  formatDate, isoDate, type AccountBalance, type AccountType, type CashFlowRow, type CategoryType, type ConvertedBalance,
+  dateOfIso, formatDate, isoDate, type AccountBalance, type AccountType, type CashFlowRow, type CategoryType, type ConvertedBalance,
   type ConvertedCashFlow, type CounterpartyBalance, type MissingRate, type Rate,
 } from './api'
 import { minorUnit } from './minorUnits'
-import { abs, formatRate, isZero, negate, roundsToZero, signOf, sum } from './money'
+import { abs, formatRate, isZero, negate, percentChange, roundsToZero, signOf, sum } from './money'
 
 // The dashboard without React: the period, the currency and the scope in the URL, the cash flow as a monthly pivot,
 // and who owes whom. Every figure comes from the report endpoints; amounts in different currencies are never added
@@ -12,12 +12,17 @@ import { abs, formatRate, isZero, negate, roundsToZero, signOf, sum } from './mo
 
 /** The period buttons, in their order on the page (D-296). */
 export const PRESETS = [
-  'past-month', 'previous-month', 'this-month', 'last-3-months', 'past-year', 'this-year', 'previous-year',
+  'this-week', 'previous-week', 'past-month', 'previous-month', 'this-month', 'this-quarter', 'previous-quarter',
+  'last-3-months', 'past-year', 'this-year', 'previous-year',
 ] as const
 export type Preset = (typeof PRESETS)[number]
 export type PeriodChoice = Preset | 'custom'
 export const DEFAULT_PRESET: Preset = 'this-month'
 export const PERIOD_LABELS: Record<PeriodChoice, string> = {
+  'this-week': 'This week',
+  'previous-week': 'Previous week',
+  'this-quarter': 'This quarter',
+  'previous-quarter': 'Previous quarter',
   'past-month': 'Past month',
   'previous-month': 'Previous month',
   'this-month': 'This month',
@@ -31,7 +36,8 @@ export const PERIOD_LABELS: Record<PeriodChoice, string> = {
 const OLD_PRESETS: Record<string, Preset> = { 'last-year': 'previous-year' }
 
 /**
- * A preset's first and last day, inclusive. "Last 3 months" is this month and the two before it. "Past month" and
+ * A preset's first and last day, inclusive. A week is Monday to Sunday and a quarter a calendar quarter (D-397). "Last
+ * 3 months" is this month and the two before it. "Past month" and
  * "Past year" end today and start the day after the same date a month or a year back, that date clamped to the end of a
  * shorter month: on 31 March, 1 to 31 March; on 29 February 2028, from 1 March 2027.
  */
@@ -44,7 +50,13 @@ export function presetRange(preset: Preset, today: Date) {
     const last = new Date(y, m - months + 1, 0).getDate()
     return new Date(y, m - months, Math.min(d, last) + 1)
   }
+  const monday = d - ((today.getDay() + 6) % 7)
+  const quarter = m - (m % 3)
   const [from, to] = {
+    'this-week': [new Date(y, m, monday), new Date(y, m, monday + 6)],
+    'previous-week': [new Date(y, m, monday - 7), new Date(y, m, monday - 1)],
+    'this-quarter': [new Date(y, quarter, 1), new Date(y, quarter + 3, 0)],
+    'previous-quarter': [new Date(y, quarter - 3, 1), new Date(y, quarter, 0)],
     'past-month': [dayAfterSameDate(1), today],
     'previous-month': [new Date(y, m - 1, 1), new Date(y, m, 0)],
     'this-month': [new Date(y, m, 1), new Date(y, m + 1, 0)],
@@ -189,6 +201,8 @@ export interface CashFlowTable {
    * held or owed. Not income or expenses, so not in the net. Empty where they are zero throughout.
    */
   exchange: CashFlowLine[]
+  /** The exchange-rate lines whatever their figures, zero ones too, for the comparison table (D-393). */
+  allExchange?: CashFlowLine[]
 }
 
 /** A cash flow row whose total is known, or MISSING. */
@@ -234,7 +248,7 @@ export function convertedCashFlowTable(report: ConvertedCashFlow, months: string
     line('exchange:unrealized', 'Revaluation of balances', columns.map((month) => result(month, 'unrealized'))),
   ]
   const shown = exchange.some((l) => l.months.some((cell) => cell === MISSING || (cell !== null && !isZero(cell))))
-  return { ...pivot(report.currency, rows, columns), converted: true, exchange: shown ? exchange : [] }
+  return { ...pivot(report.currency, rows, columns), converted: true, exchange: shown ? exchange : [], allExchange: exchange }
 }
 
 function pivot(currency: string, rows: PivotRow[], columns: string[]): CashFlowTable {
@@ -449,4 +463,316 @@ export function baseEquitySplit(converted: ConvertedBalance[], netWorth: Cell, t
   if (netWorth === MISSING || result === MISSING || system.includes(MISSING)) return { reserve: MISSING, result }
   const parts = (system as (string | null)[]).filter((s): s is string => s !== null)
   return { result, reserve: sum([netWorth ?? '0', ...parts.map(negate), negate(result)]) }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// UX-5: the period compared with the same period a year earlier and with the previous one (D-393 to D-399).
+
+/** Days from `from` to `to`, both included, as ISO dates. */
+export interface DayRange { from: string; to: string }
+
+const addDays = (iso: string, days: number) => {
+  const d = dateOfIso(iso)
+  return isoDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days))
+}
+/** The same date `months` back, clamped to that month's last day: 31 March back 1 is 28 or 29 February. */
+const monthsBack = (iso: string, months: number) => {
+  const d = dateOfIso(iso)
+  const last = new Date(d.getFullYear(), d.getMonth() - months + 1, 0).getDate()
+  return isoDate(new Date(d.getFullYear(), d.getMonth() - months, Math.min(d.getDate(), last)))
+}
+const endOfMonth = (iso: string) => {
+  const d = dateOfIso(iso)
+  return isoDate(new Date(d.getFullYear(), d.getMonth() + 1, 0))
+}
+/** 0 for Sunday … 6 for Saturday, as `Date.getDay`. */
+const weekday = (iso: string) => dateOfIso(iso).getDay()
+
+/**
+ * How D-395 reads a range, first rule that matches: whole months (From the 1st, To a month's last day), whole weeks
+ * (Monday to Sunday), a rolling span of months (From the day after To's date k months back, clamped as `presetRange`
+ * does), or a number of days.
+ */
+export type RangeShape =
+  | { kind: 'months'; count: number }
+  | { kind: 'weeks'; count: number }
+  | { kind: 'rolling'; count: number }
+  | { kind: 'days'; count: number }
+
+export function rangeShape({ from, to }: DayRange): RangeShape {
+  const days = daysBetween(from, to) + 1
+  if (from.endsWith('-01') && endOfMonth(to) === to) return { kind: 'months', count: monthsBetween(from, to).length }
+  if (weekday(from) === 1 && weekday(to) === 0) return { kind: 'weeks', count: days / 7 }
+  for (let k = 1; ; k++) {
+    const start = addDays(monthsBack(to, k), 1)
+    if (start === from) return { kind: 'rolling', count: k }
+    if (start < from) break
+  }
+  return { kind: 'days', count: days }
+}
+
+/** Which comparison a column is (D-395): "Previous year" where the year earlier and the previous period are one. */
+export type CompareRole = 'year' | 'previous' | 'previous-year'
+export const ROLE_LABELS: Record<CompareRole, string> = {
+  year: 'Year earlier',
+  previous: 'Previous period',
+  'previous-year': 'Previous year',
+}
+export interface ComparedRange extends DayRange { role: CompareRole }
+
+/** What the income and expenses section covers, and what it is compared with (D-395, D-396). */
+export interface Comparisons {
+  /** The days of income and expenses: the period, or From to today while it runs (D-396). */
+  section: DayRange
+  /** From ≤ today < To: the section ends today, and so does each comparison, moved by its own shift. */
+  running: boolean
+  /** Whether the period is whole months, so that the previous period pairs month by month (D-399). */
+  wholeMonths: boolean
+  /** In the table's order: the year earlier, then the previous period; one "Previous year" where they are one. */
+  ranges: ComparedRange[]
+}
+
+/**
+ * D-395 and D-396: the previous comparable period and the same period a year earlier of the period `from` to `to`,
+ * worked out from the whole period; while it runs (From ≤ today < To), the section ends today and each comparison at
+ * today moved by its own shift, within its range. No year earlier where it would overlap the period (a period longer
+ * than a year); one "Previous year" where it equals the previous period. Null for a period that ends before it starts.
+ */
+export function comparisons(period: DayRange, today: string): Comparisons | null {
+  const { from, to } = period
+  if (from > to) return null
+  const shape = rangeShape(period)
+  const k = shape.count
+  const previous: DayRange & { shift: (day: string) => string } = shape.kind === 'months'
+    ? { from: monthsBack(from, k), to: addDays(from, -1), shift: (day) => monthsBack(day, k) }
+    : shape.kind === 'weeks'
+      ? { from: addDays(from, -7 * k), to: addDays(from, -1), shift: (day) => addDays(day, -7 * k) }
+      : shape.kind === 'rolling'
+        ? { from: addDays(monthsBack(addDays(from, -1), k), 1), to: addDays(from, -1), shift: (day) => monthsBack(day, k) }
+        : { from: addDays(from, -k), to: addDays(from, -1), shift: (day) => addDays(day, -k) }
+  const year: DayRange & { shift: (day: string) => string } = shape.kind === 'months'
+    ? { from: monthsBack(from, 12), to: endOfMonth(monthsBack(to, 12)), shift: (day) => monthsBack(day, 12) }
+    : shape.kind === 'weeks'
+      ? { from: addDays(from, -364), to: addDays(to, -364), shift: (day) => addDays(day, -364) }
+      : { from: monthsBack(from, 12), to: monthsBack(to, 12), shift: (day) => monthsBack(day, 12) }
+  const running = from <= today && today < to
+  const cut = ({ from: start, to: end, shift }: DayRange & { shift: (day: string) => string }): DayRange => {
+    if (!running) return { from: start, to: end }
+    const day = shift(today)
+    return { from: start, to: day > end ? end : day < start ? start : day }
+  }
+  const before = cut(previous)
+  const earlier = year.to >= from ? null : cut(year)
+  const ranges: ComparedRange[] = earlier === null ? [{ ...before, role: 'previous' }]
+    : earlier.from === before.from && earlier.to === before.to ? [{ ...before, role: 'previous-year' }]
+      : [{ ...earlier, role: 'year' }, { ...before, role: 'previous' }]
+  return { section: { from, to: running ? today : to }, running, wholeMonths: shape.kind === 'months', ranges }
+}
+
+const dayRangeFormat = () => new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+const monthRangeFormat = () => new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' })
+
+/**
+ * A range's name (D-395): "Oct 2026", "Q3 2026" or "2025" for a whole month, quarter or year, "Sep – Nov 2026" for
+ * other whole months, else its days through `formatRange` in the browser's locale ("2–8 Nov 2026").
+ */
+export function rangeLabel(range: DayRange): string {
+  const { from, to } = range
+  const shape = rangeShape(range)
+  if (shape.kind === 'months') {
+    const [year, month] = from.split('-').map(Number)
+    if (shape.count === 1) return monthLabel(from.slice(0, 7))
+    if (shape.count === 3 && (month - 1) % 3 === 0) return `Q${(month + 2) / 3} ${year}`
+    if (shape.count === 12 && month === 1) return `${year}`
+    return monthRangeFormat().formatRange(dateOfIso(from), dateOfIso(to))
+  }
+  return from === to ? dayRangeFormat().format(dateOfIso(from))
+    : dayRangeFormat().formatRange(dateOfIso(from), dateOfIso(to))
+}
+
+/**
+ * The change from a comparison to the period (D-398): the percentage as a signed decimal string of one decimal,
+ * "none" where the comparison has nothing or 0, MISSING where either figure lacks a rate. A period with nothing
+ * against a comparison with something is −100.0%.
+ */
+export type Change = { percent: string } | 'none' | typeof MISSING
+export function changeOf(now: Cell, before: Cell): Change {
+  if (now === MISSING || before === MISSING) return MISSING
+  if (before === null) return 'none'
+  const percent = percentChange(now ?? '0', before)
+  return percent === undefined ? 'none' : { percent }
+}
+
+/** "+12.3%", "−4.0%" (a minus sign), "0.0%" in the user's locale; "—" for nothing to compare; "" for MISSING. */
+export function changeText(change: Change): string {
+  if (change === MISSING) return ''
+  if (change === 'none') return '—'
+  const sign = signOf(change.percent)
+  const digits = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    .format(abs(change.percent) as Intl.StringNumericLiteral)
+  return `${sign > 0 ? '+' : sign < 0 ? '−' : ''}${digits}%`
+}
+
+/** Which way is good for the net (D-398): income, Total income and Net up; expenses and Total expenses down. */
+export type GoodWay = 'up' | 'down'
+/** A change's effect on the net, for its colour: null for none, 0 and a missing figure. */
+export function effectOf(change: Change, good: GoodWay): 'better' | 'worse' | null {
+  if (typeof change !== 'object') return null
+  const sign = signOf(change.percent)
+  if (sign === 0) return null
+  return (sign > 0) === (good === 'up') ? 'better' : 'worse'
+}
+
+/** A column of the comparison table: the period's, then each comparison's. */
+export interface CompareColumn { key: 'period' | CompareRole; role: string; label: string; range: DayRange }
+/** A line of the comparison table: one total per column. */
+export interface CompareLine {
+  key: string
+  label: string
+  amounts: Cell[]
+  /** Which way is good for the net; null for the exchange-rate lines, which have no %. */
+  good: GoodWay | null
+  family?: string
+}
+export interface CompareSection { lines: CompareLine[]; subtotal: CompareLine }
+/** D-393: one currency's income and expenses, each column a range's total. */
+export interface CompareTable {
+  currency: string
+  columns: CompareColumn[]
+  income: CompareSection
+  expense: CompareSection
+  net: CompareLine
+  exchange: CompareLine[]
+  converted: boolean
+}
+
+/** The columns of a comparison: the period, then the ranges of `comparisons`, each with its role and name. */
+export function compareColumns(c: Comparisons): CompareColumn[] {
+  return [
+    { key: 'period', role: c.running ? 'To date' : 'Period', label: rangeLabel(c.section), range: c.section },
+    ...c.ranges.map((r): CompareColumn => ({ key: r.role, role: ROLE_LABELS[r.role], label: rangeLabel(r), range: r })),
+  ]
+}
+
+/**
+ * D-393: the comparison table of one currency from each column's own monthly table (null where that range has
+ * nothing in the currency): each category's total per column, a category of a comparison only included with "—" in
+ * the period, the subtotals and the net from the lines, and the exchange-rate lines after them, amounts only.
+ */
+export function compareTable(currency: string, columns: CompareColumn[], parts: (CashFlowTable | null)[],
+  converted: boolean): CompareTable {
+  const section = (pick: (t: CashFlowTable) => CashFlowSection, label: string, good: GoodWay): CompareSection => {
+    const seen = new Map<string, CashFlowLine>()
+    for (const part of parts) for (const l of part ? pick(part).lines : []) if (!seen.has(l.key)) seen.set(l.key, l)
+    const lines = [...seen.values()]
+      .sort((a, b) => a.label.localeCompare(b.label) || (a.family ?? '').localeCompare(b.family ?? ''))
+      .map((l): CompareLine => ({
+        key: l.key, label: l.label, good,
+        amounts: parts.map((part) => (part ? pick(part).lines.find((x) => x.key === l.key)?.total ?? null : null)),
+        ...(l.family === undefined ? {} : { family: l.family }),
+      }))
+    const subtotal = { key: 'subtotal', label, good, amounts: columns.map((_, i) => total(lines.map((l) => l.amounts[i]))) }
+    return { lines, subtotal }
+  }
+  const income = section((t) => t.income, 'Total income', 'up')
+  const expense = section((t) => t.expense, 'Total expenses', 'down')
+  const net: CompareLine = {
+    key: 'net', label: 'Net', good: 'up', amounts: columns.map((_, i) => {
+      const earned = income.subtotal.amounts[i]
+      const spent = expense.subtotal.amounts[i]
+      if (earned === null && spent === null) return null
+      if (earned === MISSING || spent === MISSING) return MISSING
+      return sum([earned ?? '0', negate(spent ?? '0')])
+    }),
+  }
+  // Shown where any range has a figure other than 0; then a range whose figures are 0 shows its 0s.
+  const exchangeKeys = [...new Map(parts.flatMap((p) => p?.exchange ?? []).map((l) => [l.key, l.label]))]
+  const exchange = exchangeKeys.map(([key, label]): CompareLine => ({
+    key, label, good: null,
+    amounts: parts.map((p) => (p?.allExchange ?? p?.exchange)?.find((l) => l.key === key)?.total ?? null),
+  }))
+  return { currency, columns, income, expense, net, exchange, converted }
+}
+
+/** The comparison tables of the page, one per currency, from each column's monthly tables (D-393). */
+export function compareTables(columns: CompareColumn[], parts: CashFlowTable[][], converted: boolean): CompareTable[] {
+  const currencies = [...new Set(parts.flat().map((t) => t.currency))].sort()
+  return currencies.map((currency) => compareTable(currency, columns,
+    parts.map((tables) => tables.find((t) => t.currency === currency) ?? null), converted))
+    .filter((t) => t.income.lines.length + t.expense.lines.length + t.exchange.length > 0)
+}
+
+/** D-400: a total's changes, as the totals show them, the previous period's first, then the year earlier's. */
+export function totalChanges(table: CompareTable, line: CompareLine): { change: Change; label: string; good: GoodWay }[] {
+  const order: CompareRole[] = ['previous', 'previous-year', 'year']
+  return order.flatMap((role) => {
+    const i = table.columns.findIndex((c) => c.key === role)
+    return i < 0 ? [] : [{ change: changeOf(line.amounts[0], line.amounts[i]), label: table.columns[i].label, good: line.good ?? 'up' }]
+  })
+}
+
+/** D-399: the chart by range for a section of fewer than 3 calendar months, by month otherwise. */
+export const chartByMonth = (c: Comparisons) => monthsBetween(c.section.from, c.section.to).length >= 3
+
+/**
+ * The comparisons the monthly chart can draw behind the period (D-399): those whose months pair one-to-one with the
+ * period's (as many, in order); the previous period only when the period is whole months.
+ */
+export function drawable(c: Comparisons): ComparedRange[] {
+  const months = monthsBetween(c.section.from, c.section.to).length
+  return c.ranges.filter((r) => (r.role !== 'previous' || c.wholeMonths)
+    && monthsBetween(r.from, r.to).length === months)
+}
+
+/** The comparison the monthly chart draws: `compare=previous` when both can be, else the one that can (D-399). */
+export function drawnComparison(c: Comparisons, params: URLSearchParams): ComparedRange | null {
+  const can = drawable(c)
+  if (can.length === 0) return null
+  return (params.get('compare') === 'previous' ? can.find((r) => r.role === 'previous') : undefined)
+    ?? can.find((r) => r.role !== 'previous') ?? can[0]
+}
+
+/** A pair of bars of the chart by range: income and expenses of one column, oldest first (D-399). */
+export interface RangeBars { key: string; role: string; label: string; income: Cell; expense: Cell }
+export function rangeBars(table: CompareTable): RangeBars[] {
+  return table.columns.map((column, i): RangeBars => ({
+    key: column.key, role: column.role, label: column.label,
+    income: table.income.subtotal.amounts[i], expense: table.expense.subtotal.amounts[i],
+  })).reverse()
+}
+
+/** A month of the chart by month, with the comparison's month paired with it (D-399). */
+export interface MonthPair {
+  month: string
+  note?: string
+  income: Cell
+  expense: Cell
+  before?: { month: string; income: Cell; expense: Cell }
+}
+/**
+ * The period's months with their income and expenses and, where a comparison is drawn, its months paired in order:
+ * the `before` table's months from `range`, the first with the first.
+ */
+export function monthPairs(table: CashFlowTable | null, section: DayRange, before: CashFlowTable | null,
+  range: DayRange | null): MonthPair[] {
+  const theirs = range === null ? [] : monthsBetween(range.from, range.to)
+  return monthsBetween(section.from, section.to).map((month, i) => {
+    const at = (t: CashFlowTable | null, m: string, which: 'income' | 'expense'): Cell => {
+      if (t === null) return null
+      const j = t.months.indexOf(m)
+      return j < 0 ? null : t[which].subtotal.months[j]
+    }
+    const note = monthNote(month, section.from, section.to)
+    return {
+      month, income: at(table, month, 'income'), expense: at(table, month, 'expense'),
+      ...(note === undefined ? {} : { note }),
+      ...(range === null ? {} : {
+        before: {
+          month: theirs[i],
+          income: at(before, theirs[i], 'income'),
+          expense: at(before, theirs[i], 'expense'),
+        },
+      }),
+    }
+  })
 }

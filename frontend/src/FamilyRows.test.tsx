@@ -5,7 +5,7 @@ import type { CashFlowRow, Category, ConvertedCashFlow, Entry, EntryPage } from 
 import CashFlowTable from './CashFlowTable'
 import Categories from './Categories'
 import { CategorySelect } from './components'
-import { cashFlowTables, convertedCashFlowTable } from './dashboard'
+import { cashFlowTables, compareColumns, compareTable, comparisons, convertedCashFlowTable } from './dashboard'
 import Entries from './Entries'
 import EntryEditor from './EntryEditor'
 import { categoryLabel, kindLabel } from './ledger'
@@ -206,10 +206,11 @@ describe('the cash flow', () => {
     expect(table.expense.subtotal.total).toBe('36.25')
     expect(table.net.total).toBe('63.75')
 
-    render(<CashFlowTable table={table} />)
+    const c = comparisons({ from: '2026-09-01', to: '2026-09-30' }, '2026-10-05')!
+    render(<CashFlowTable table={compareTable('EUR', compareColumns(c), [table, null, null], false)} />)
     const familyLine = screen.getAllByRole('row').find((r) => within(r).queryByText('Home'))!
     expect(within(familyLine).getByText('Groceries')).toBeDefined()
-    expect(within(familyLine).getAllByRole('cell').map((c) => c.textContent)).toEqual(['€32.25', '€32.25'])
+    expect(within(familyLine).getAllByRole('cell').map((c) => c.textContent)).toEqual(['€32.25', '—', '—', '—', '—'])
   })
 
   it('does the same in the base currency', () => {

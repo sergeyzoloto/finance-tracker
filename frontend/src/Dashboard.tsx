@@ -9,17 +9,20 @@ import CashFlowTable from './CashFlowTable'
 import { lazyWithReload } from './chunkReload'
 import { Amounts, ErrorBoundary, Errors, Loading, ToggleGroup } from './components'
 import {
-  baseEquitySplit, belowMinorUnit, cashFlowTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, equitySplits,
-  familyDebts, inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing,
-  MISSING, missingDays, monthsBetween, PERIOD_LABELS, periodFromQuery, periodTotals, PRESETS, resultRange, SCOPE_LABELS,
-  scopeFromQuery, scopeParams, SCOPES, showsOwnCurrencies, usedRateText,
-  type CashFlowTable as Table, type Cell, type FamilyDebt, type PeriodChoice, type Scope,
+  baseEquitySplit, belowMinorUnit, cashFlowTables, changeText, chartByMonth, compareColumns, comparisons, compareTables,
+  convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawable, drawnComparison, effectOf, equitySplits, familyDebts,
+  inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING,
+  missingDays, monthPairs, monthsBetween, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, resultRange, SCOPE_LABELS,
+  scopeFromQuery, scopeParams, SCOPES, showsOwnCurrencies, totalChanges, usedRateText,
+  type CashFlowTable as Table, type Cell, type CompareLine, type CompareTable, type Comparisons, type DayRange,
+  type FamilyDebt, type PeriodChoice, type Scope,
 } from './dashboard'
 import DateInput from './DateInput'
 import EmptyLedger from './EmptyLedger'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
 import { useToday } from './me'
 import { abs, formatMoney, signOf, sum } from './money'
+import type { ChartData } from './IncomeExpenseChart'
 
 // Recharts is most of the app's code; loading it with the chart keeps it off every other page.
 const IncomeExpenseChart = lazyWithReload(() => import('./IncomeExpenseChart'))
@@ -65,10 +68,16 @@ export default function Dashboard({ familyOn = false, families, onFamilyCreated 
  */
 function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
   const [params, setParams] = useSearchParams()
-  const period = periodFromQuery(params, dateOfIso(useToday()))
+  const today = useToday()
+  const period = periodFromQuery(params, dateOfIso(today))
   const inBase = inBaseFromQuery(params)
   const chosen = scopeFromQuery(params, families && families.map((f) => f.id))
   const backwards = period.from > period.to
+  // What income and expenses cover and what they are compared with (D-395, D-396): asked all at once, with the page's
+  // scope (D-401).
+  const compared = comparisons(period, today)
+  const flowPath = (range: DayRange | undefined) =>
+    range === undefined ? null : `/reports/cash-flow?from=${range.from}&to=${range.to}${scopeParams(chosen)}`
 
   const asOf = `asOf=${period.asOf}`
   const each = (path: string) => (inBase ? null : path)
@@ -85,10 +94,17 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
   const borrowed = useApi<CounterpartyBalance[]>(each(loanPath('CREDITOR_DEBT')))
   const baseLent = useApi<ConvertedCounterpartyBalance[]>(base(loanPath('LOANS_ASSET')))
   const baseBorrowed = useApi<ConvertedCounterpartyBalance[]>(base(loanPath('CREDITOR_DEBT')))
-  const cashFlowPath = backwards ? null : `/reports/cash-flow?from=${period.from}&to=${period.to}${scopeParams(chosen)}`
+  const cashFlowPath = flowPath(compared?.section)
   const cashFlow = useApi<CashFlowRow[]>(cashFlowPath && each(cashFlowPath))
   const baseCashFlow = useApi<ConvertedCashFlow>(base(cashFlowPath))
-  const months = monthsBetween(period.from, period.to)
+  const [first, second] = compared?.ranges ?? []
+  const firstPath = flowPath(first)
+  const secondPath = flowPath(second)
+  const firstFlow = useApi<CashFlowRow[]>(firstPath && each(firstPath))
+  const firstBase = useApi<ConvertedCashFlow>(base(firstPath))
+  const secondFlow = useApi<CashFlowRow[]>(secondPath && each(secondPath))
+  const secondBase = useApi<ConvertedCashFlow>(base(secondPath))
+  const months = compared ? monthsBetween(compared.section.from, compared.section.to) : []
   // "Result for the period" in the Balances card (D-367): income and expenses under All, from From to Balances on or
   // To, if earlier; the page's own load when that is the same request.
   const range = resultRange(period)
@@ -106,15 +122,26 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
     const load = sameAsPage ? baseCashFlow : ownBaseResult
     return { ...load, data: load.data && convertedCashFlowTable(load.data, resultMonths) }
   })()
+  // Each range's own monthly tables: the period's, then each comparison's.
+  const monthly = (range: DayRange | undefined, rows: Loaded<CashFlowRow[]>, converted: Loaded<ConvertedCashFlow>):
+    Loaded<Table[]> => {
+    const own = range ? monthsBetween(range.from, range.to) : []
+    return inBase ? { ...converted, data: converted.data && nonEmpty([convertedCashFlowTable(converted.data, own)]) }
+      : { ...rows, data: rows.data && cashFlowTables(rows.data, own) }
+  }
   const tables: Loaded<Table[]> = backwards ? { error: 'The period ends before it starts.', loading: false }
-    : inBase ? { ...baseCashFlow, data: baseCashFlow.data && nonEmpty([convertedCashFlowTable(baseCashFlow.data, months)]) }
-      : { ...cashFlow, data: cashFlow.data && cashFlowTables(cashFlow.data, months) }
+    : monthly(compared?.section, cashFlow, baseCashFlow)
+  const comparedTables = [monthly(first, firstFlow, firstBase), monthly(second, secondFlow, secondBase)]
+    .slice(0, compared?.ranges.length ?? 0)
   const missing = inBase ? mergeMissing([
     baseNetWorth.data?.missingRates ?? [],
     ...(baseBalances.data ?? []).map((b) => b.missingRates),
     ...[...(baseLent.data ?? []), ...(baseBorrowed.data ?? [])].map((b) => b.missingRates),
-    ...(baseCashFlow.data?.rows ?? []).map((r) => r.missingRates),
-    ...(baseCashFlow.data?.exchangeResults ?? []).map((r) => r.missingRates),
+    // The comparisons' figures too (D-398).
+    ...[baseCashFlow, firstBase, secondBase].flatMap((load) => [
+      ...(load.data?.rows ?? []).map((r) => r.missingRates),
+      ...(load.data?.exchangeResults ?? []).map((r) => r.missingRates),
+    ]),
   ]) : []
   const baseCurrency = baseNetWorth.data?.currency ?? settings.data?.baseCurrency
 
@@ -146,6 +173,7 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
     if (!isFamilyScope(scope)) next.delete('family')
   })
   const setFamily = (id: string) => update((next) => (id ? next.set('family', id) : next.delete('family')))
+  const setCompare = (role: string) => update((next) => (role === 'previous' ? next.set('compare', 'previous') : next.delete('compare')))
 
   const loans: Loaded<LoanGroups> = inBase
     ? { ...both(both(baseLent, baseBorrowed), both(balances, both(shared, baseBalances))),
@@ -188,7 +216,10 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
       <section className="card flows" aria-labelledby="flows-title">
         <h3 id="flows-title">
           Income and expenses{' '}
-          <span className="muted period">{backwards ? '' : `${formatDate(period.from)} – ${formatDate(period.to)}`}</span>
+          <span className="muted period">
+            {compared === null ? ''
+              : `${formatDate(compared.section.from)} – ${formatDate(compared.section.to)}${compared.running ? ', to date' : ''}`}
+          </span>
         </h3>
         {families !== null && families.length > 0 && (
           <div className="scope">
@@ -218,29 +249,11 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
             )}
           </div>
         )}
-        {tables.error ? <Errors messages={[tables.error]} />
-          : tables.data === undefined ? <Loading />
-            : (
-              <div className={tables.loading ? 'stale' : undefined}>
-                {tables.data.length === 0 ? <NoCashFlow /> : (
-                  <>
-                    <PeriodTotals tables={tables.data} />
-                    {tables.data.map((table) => (
-                      <figure key={table.currency} className="chart" aria-label={`Income and expenses in ${table.currency}`}>
-                        {tables.data!.length > 1 && <figcaption>{table.currency}</figcaption>}
-                        <ErrorBoundary fallback={<p className="error">The chart couldn’t load. Reload the page to try again.</p>}>
-                          <Suspense fallback={<div className="chart-placeholder"><Loading what="chart" /></div>}>
-                            <IncomeExpenseChart table={table} period={period} />
-                          </Suspense>
-                        </ErrorBoundary>
-                      </figure>
-                    ))}
-                    <h4>Cash flow by category</h4>
-                    {tables.data.map((table) => <CashFlowTable key={table.currency} table={table} period={period} />)}
-                  </>
-                )}
-              </div>
-            )}
+        {tables.error || compared === null ? <Errors messages={[tables.error ?? '']} />
+          : (
+            <Flows compared={compared} period={tables} comparisons={comparedTables} inBase={inBase} params={params}
+              onCompare={setCompare} />
+          )}
       </section>
 
       <div className="dashboard">
@@ -296,7 +309,66 @@ function Body<T>({ state, children }: { state: Loaded<T>; children: (data: T) =>
       : <div className={state.loading ? 'stale' : undefined}>{children(state.data)}</div>
 }
 
-const NoCashFlow = () => <p className="empty">No income or expenses in this period.</p>
+const NoCashFlow = () => <p className="empty">No income or expenses in this period or the ones it is compared with.</p>
+
+/**
+ * Income and expenses compared (D-393 to D-400): the totals with their changes, the chart of each currency and the
+ * comparison table of each. Shown once the period and every comparison have answered or failed; a comparison that
+ * failed shows its error and leaves the period's figures and the other comparison (D-401).
+ */
+function Flows({ compared, period, comparisons: loads, inBase, params, onCompare }: {
+  compared: Comparisons
+  period: Loaded<Table[]>
+  comparisons: Loaded<Table[]>[]
+  inBase: boolean
+  params: URLSearchParams
+  onCompare: (role: string) => void
+}) {
+  if (period.data === undefined || loads.some((l) => l.data === undefined && !l.error)) return <Loading />
+  const all = compareColumns(compared)
+  const errors = loads.flatMap((l, i) => (l.error ? [`${all[i + 1].role} (${all[i + 1].label}): ${l.error}`] : []))
+  const kept = compared.ranges.map((range, i) => ({ range, load: loads[i] })).filter(({ load }) => !load.error)
+  const columns = [all[0], ...all.slice(1).filter((_, i) => !loads[i].error)]
+  const tables = compareTables(columns, [period.data, ...kept.map(({ load }) => load.data!)], inBase)
+  const stale = period.loading || loads.some((l) => l.loading)
+  const shown: Comparisons = { ...compared, ranges: kept.map(({ range }) => range) }
+  const byMonth = chartByMonth(shown)
+  const drawn = byMonth ? drawnComparison(shown, params) : null
+  const choices = byMonth ? drawable(shown) : []
+  const chart = (table: CompareTable): ChartData => {
+    if (!byMonth) return { form: 'ranges', bars: rangeBars(table) }
+    const own = period.data!.find((t) => t.currency === table.currency) ?? null
+    const i = drawn === null ? -1 : kept.findIndex(({ range }) => range.role === drawn.role)
+    const before = i < 0 ? null : kept[i].load.data!.find((t) => t.currency === table.currency) ?? null
+    return { form: 'months', months: monthPairs(own, compared.section, before, drawn), role: drawn?.role ?? null }
+  }
+  return (
+    <div className={stale ? 'stale' : undefined}>
+      {errors.length > 0 && <Errors messages={errors} />}
+      {tables.length === 0 ? <NoCashFlow /> : (
+        <>
+          <PeriodTotals tables={tables} />
+          {choices.length > 1 && (
+            <ToggleGroup label="Compare with" value={drawn?.role === 'previous' ? 'previous' : 'year'} onChange={onCompare}
+              options={[{ value: 'year', label: 'A year earlier' }, { value: 'previous', label: 'Previous period' }]} />
+          )}
+          {tables.map((table) => (
+            <figure key={table.currency} className="chart" aria-label={`Income and expenses in ${table.currency}`}>
+              {tables.length > 1 && <figcaption>{table.currency}</figcaption>}
+              <ErrorBoundary fallback={<p className="error">The chart couldn’t load. Reload the page to try again.</p>}>
+                <Suspense fallback={<div className="chart-placeholder"><Loading what="chart" /></div>}>
+                  <IncomeExpenseChart data={chart(table)} currency={table.currency} rounded={table.converted} />
+                </Suspense>
+              </ErrorBoundary>
+            </figure>
+          ))}
+          <h4>Cash flow by category</h4>
+          {tables.map((table) => <CashFlowTable key={table.currency} table={table} />)}
+        </>
+      )}
+    </div>
+  )
+}
 
 /** A converted table with nothing in it is no table. */
 const nonEmpty = (tables: Table[]) => tables.filter((t) =>
@@ -393,19 +465,41 @@ function Headlines({ rows }: { rows: NetWorth[] }) {
   )
 }
 
-/** The period's income, expenses and net (D-305), from each table's own subtotals. */
-function PeriodTotals({ tables }: { tables: Table[] }) {
+/**
+ * The period's income, expenses and net (D-305), from each table's own subtotals, each with a small line of its
+ * changes (D-400): "+12.3% vs Oct 2026 · −4.0% vs Oct 2025", coloured by the effect on the net. A comparison with
+ * nothing to compare, or a figure without a rate, is left out of the line.
+ */
+function PeriodTotals({ tables }: { tables: CompareTable[] }) {
   return (
     <div className="period-totals">
       {tables.map((table) => {
-        const totals = periodTotals(table)
         const shown = { currency: table.currency, rounded: table.converted }
+        const figure = (title: string, line: CompareLine, className: string, signed = false) => {
+          const changes = totalChanges(table, line).filter((c) => typeof c.change === 'object')
+          return (
+            <div className="figure">
+              <dt>{title}</dt>
+              <dd className={className}><Figure amount={line.amounts[0]} {...shown} signed={signed} /></dd>
+              {changes.length > 0 && (
+                <dd className="changes">
+                  {changes.map((c, i) => (
+                    <span key={c.label}>
+                      {i > 0 && ' · '}
+                      <span className={effectOf(c.change, c.good) ?? undefined}>{changeText(c.change)}</span> vs {c.label}
+                    </span>
+                  ))}
+                </dd>
+              )}
+            </div>
+          )
+        }
         return (
           <dl key={table.currency} className="figures small-figures" aria-label={`Totals in ${table.currency}`}>
             {tables.length > 1 && <div className="headline-currency">{table.currency}</div>}
-            <div className="figure"><dt>Income</dt><dd className="income"><Figure amount={totals.income} {...shown} /></dd></div>
-            <div className="figure"><dt>Expenses</dt><dd className="expense"><Figure amount={totals.expense} {...shown} /></dd></div>
-            <div className="figure"><dt>Net</dt><dd><Figure amount={totals.net} {...shown} signed /></dd></div>
+            {figure('Income', table.income.subtotal, 'income')}
+            {figure('Expenses', table.expense.subtotal, 'expense')}
+            {figure('Net', table.net, '', true)}
           </dl>
         )
       })}

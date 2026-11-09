@@ -108,8 +108,11 @@ describe('the dashboard (UX-1)', () => {
     const seen = stubApi(ON, [home])
     renderAt('/')
     await screen.findByRole('table', { name: 'Cash flow in EUR' })
+    // September, compared with September 2025 and August (D-395), asked at once (D-401).
     expect(seen.filter((u) => u.startsWith('/api/reports/cash-flow'))).toEqual([
-      '/api/reports/cash-flow?from=2026-09-01&to=2026-09-30&currency=BASE'])
+      '/api/reports/cash-flow?from=2026-09-01&to=2026-09-30&currency=BASE',
+      '/api/reports/cash-flow?from=2025-09-01&to=2025-09-30&currency=BASE',
+      '/api/reports/cash-flow?from=2026-08-01&to=2026-08-31&currency=BASE'])
     expect(seen.some((u) => u.startsWith('/api/reports/net-worth') && u.endsWith('currency=BASE'))).toBe(true)
     expect(seen.some((u) => u.includes('accountCode=LOANS_ASSET') && u.endsWith('currency=BASE'))).toBe(true)
     const amounts = screen.getByRole('group', { name: 'Amounts' })
@@ -230,13 +233,16 @@ describe('the dashboard (UX-1)', () => {
     stubApi(ON, [home])
     renderAt('/')
     const period = await screen.findByRole('group', { name: 'Period' })
-    expect(within(period).getAllByRole('button').map((b) => b.textContent)).toEqual(['Past month', 'Previous month',
-      'This month', 'Last 3 months', 'Past year', 'This year', 'Previous year'])
+    expect(within(period).getAllByRole('button').map((b) => b.textContent)).toEqual(['This week', 'Previous week',
+      'Past month', 'Previous month', 'This month', 'This quarter', 'Previous quarter', 'Last 3 months', 'Past year',
+      'This year', 'Previous year'])
     expect(within(period).getByRole('button', { name: 'This month' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-16' } })
     await waitFor(() => expect(within(period).getAllByRole('button')
       .every((b) => b.getAttribute('aria-pressed') === 'false')).toBe(true))
-    // The partial first month says so.
-    expect(await screen.findByText('from Sep 16')).toBeDefined()
+    // A range that isn't whole months is named by its days in the table (D-395).
+    const table = await screen.findByRole('table', { name: 'Cash flow in EUR' })
+    await waitFor(() => expect(within(table).getAllByRole('columnheader')[1].textContent?.replace(/[\u2009\u202f]/g, ' '))
+      .toBe('Period Sep 16 – 30, 2026'))
   })
 })

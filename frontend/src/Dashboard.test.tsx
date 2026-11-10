@@ -118,6 +118,8 @@ describe('the dashboard (UX-1)', () => {
     const amounts = screen.getByRole('group', { name: 'Amounts' })
     expect(within(amounts).getByRole('button', { name: 'EUR (base)' }).getAttribute('aria-pressed')).toBe('true')
     expect(within(amounts).getByRole('button', { name: 'Each currency' }).getAttribute('aria-pressed')).toBe('false')
+    // The main menu's Dashboard (D-433).
+    fireEvent.click(screen.getByRole('button', { name: 'My finances' }))
     expect(screen.getByRole('link', { name: 'Dashboard' }).getAttribute('href')).toBe('/')
   })
 
@@ -270,17 +272,28 @@ describe('the dashboard (UX-1)', () => {
     expect(screen.queryByRole('combobox', { name: /Family budget/ })).toBeNull()
   })
 
-  it('presses a period’s button, and none for a custom period', async () => {
-    stubApi(ON, [home])
+  it('chooses a period from the Period list, and shows Custom for a custom period (D-432)', async () => {
+    const seen = stubApi(ON, [home])
     renderAt('/')
-    const period = await screen.findByRole('group', { name: 'Period' })
-    expect(within(period).getAllByRole('button').map((b) => b.textContent)).toEqual(['This week', 'Previous week',
+    const period = await screen.findByRole('combobox', { name: 'Period' }) as HTMLSelectElement
+    expect([...period.options].map((o) => o.textContent)).toEqual(['This week', 'Previous week',
       'Past month', 'Previous month', 'This month', 'This quarter', 'Previous quarter', 'Last 3 months', 'Past year',
-      'This year', 'Previous year'])
-    expect(within(period).getByRole('button', { name: 'This month' }).getAttribute('aria-pressed')).toBe('true')
+      'This year', 'Previous year', 'Custom'])
+    expect(period.value).toBe('this-month')
+    // Custom can't be chosen.
+    expect([...period.options].filter((o) => o.disabled).map((o) => o.value)).toEqual(['custom'])
+    expect(screen.queryByRole('group', { name: 'Period' })).toBeNull()
+    // A choice does what its button did: the preset by name in the URL, its From and To, its requests.
+    fireEvent.change(period, { target: { value: 'previous-month' } })
+    await waitFor(() => expect(period.value).toBe('previous-month'))
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('08/01/2026')
+    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('08/31/2026')
+    await waitFor(() => expect(seen).toContain('/api/reports/cash-flow?from=2026-08-01&to=2026-08-31&currency=BASE'))
+    expect(seen).toContain('/api/reports/balances?asOf=2026-08-31&currency=BASE')
+    fireEvent.change(period, { target: { value: 'this-month' } })
+    await waitFor(() => expect(period.value).toBe('this-month'))
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-16' } })
-    await waitFor(() => expect(within(period).getAllByRole('button')
-      .every((b) => b.getAttribute('aria-pressed') === 'false')).toBe(true))
+    await waitFor(() => expect(period.value).toBe('custom'))
     // A range that isn't whole months is named by its days in the table (D-395).
     const table = await screen.findByRole('table', { name: 'Cash flow in EUR' })
     await waitFor(() => expect(within(table).getAllByRole('columnheader')[1].textContent?.replace(/[\u2009\u202f]/g, ' '))

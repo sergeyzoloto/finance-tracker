@@ -237,7 +237,11 @@ describe('Delete all my data', () => {
   ] }
 
   function renderSettings(familyOn: boolean) {
-    render(<WithMe><MemoryRouter><Settings familyOn={familyOn} /></MemoryRouter></WithMe>)
+    render(
+      <WithMe><MemoryRouter initialEntries={['/settings/delete']}>
+        <Routes><Route path="/settings/*" element={<Settings familyOn={familyOn} />} /></Routes>
+      </MemoryRouter></WithMe>,
+    )
   }
 
   it('lists every family budget the user is in, and what happens to it, before they confirm', async () => {

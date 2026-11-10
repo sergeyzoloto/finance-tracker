@@ -45,7 +45,7 @@ test('member import', async ({ as, family }) => {
   await expect(a.page.getByRole('heading', { level: 2, name: BUDGET })).toBeVisible()
   const ledgerId = ledgerIdOf(a.page)
 
-  await a.page.goto('/import')
+  await a.page.goto('/settings/import')
   await a.page.locator('input[name="transactions"]').setInputFiles(file('owner-transactions.csv'))
   await a.page.getByLabel('Family budget').selectOption({ label: BUDGET })
   await a.page.getByLabel('The partner’s place').selectOption({ label: 'Sam' })
@@ -65,7 +65,7 @@ test('member import', async ({ as, family }) => {
   await claimThroughTheLink(b, link, BUDGET, ledgerId, 'Feb 1, 2024', 15, 'Sam B', 'member-import-03')
 
   // 3. B's own file: no place to choose and no partner's file; the dry run, its commit, the same again.
-  await b.page.goto('/import')
+  await b.page.goto('/settings/import')
   await b.page.locator('input[name="transactions"]').setInputFiles(bsTransactions())
   await b.page.getByLabel('Family budget').selectOption({ label: BUDGET })
   await expect(b.page.getByTestId('member-import')).toBeVisible()
@@ -96,7 +96,7 @@ test('member import', async ({ as, family }) => {
   await shot(b.page, 'member-import-05-again')
 
   // 4. A's own file only, now: nothing to change.
-  await a.page.goto('/import')
+  await a.page.goto('/settings/import')
   await a.page.locator('input[name="transactions"]').setInputFiles(file('owner-transactions.csv'))
   await a.page.getByLabel('Family budget').selectOption({ label: BUDGET })
   await a.page.getByLabel('The partner’s place').selectOption({ label: 'Sam B' })

@@ -242,7 +242,7 @@ describe('Settings', () => {
       'GET /api/me': { status: 200, body: { name: 'Anna', timeZone: null, today: '2026-10-07', features: OFF } },
       'PUT /api/settings/time-zone': { status: 200, body: { timeZone: 'America/Los_Angeles', today: '2026-10-06' } },
     })
-    renderApp(me())
+    renderApp(me(), '/settings/delete')
     fireEvent.change(await screen.findByLabelText(/to confirm/), { target: { value: 'DELETE' } })
     fireEvent.click(screen.getByRole('button', { name: 'Delete all my data' }))
 

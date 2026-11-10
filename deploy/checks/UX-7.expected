@@ -1,0 +1,9 @@
+flyway latest 16 user date format true
+column account.code character varying NO
+column account.family_ledger_id bigint YES
+column account.is_system boolean NO
+column family_entry_link.entry_id bigint YES
+column family_entry_link.family_ledger_id bigint NO
+debt accounts not named by their family budget 0
+categorized postings outside equity 0
+unbalanced entries 0

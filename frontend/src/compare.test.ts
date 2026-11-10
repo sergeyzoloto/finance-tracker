@@ -169,9 +169,39 @@ describe('the change in % (D-398)', () => {
     expect(text('5.00', MISSING)).toBe('')
   })
 
-  it('reads a sign change against the comparison’s size', () => {
-    expect(text('50.00', '-100.00')).toBe('+150.0%')
-    expect(text('-50.00', '100.00')).toBe('−150.0%')
+  it('is a dash when the two figures have opposite signs (D-440)', () => {
+    // A category whose refunds outweigh its spending in one of the two ranges.
+    expect(text('50.00', '-100.00')).toBe('—')
+    expect(text('-50.00', '100.00')).toBe('—')
+    expect(effectOf(changeOf('-50.00', '100.00'), 'down')).toBeNull()
+    // The same sign either way is a percentage.
+    // Against the comparison's size, as before: a refund-heavy category that grew more negative went down.
+    expect(text('-150.00', '-100.00')).toBe('−50.0%')
+    expect(text('-50.00', '-100.00')).toBe('+50.0%')
+    // Something against 0 stays "—", and 0 against something −100.0%, as before.
+    expect(text('-5.00', '0.00')).toBe('—')
+    expect(text('0.00', '5.00')).toBe('−100.0%')
+    // Against a negative comparison by the same rule as before: back to 0 from −5 is +100.0%.
+    expect(text('0.00', '-5.00')).toBe('+100.0%')
+    expect(text(MISSING, '-5.00')).toBe('')
+  })
+
+  it('for the net is a dash across 0: opposite signs, or 0 on either side, and never coloured (D-439)', () => {
+    const net = (now: string | null | typeof MISSING, before: string | null | typeof MISSING) =>
+      changeText(changeOf(now, before, true))
+    expect(net('800.00', '-250.00')).toBe('—')
+    expect(net('-800.00', '250.00')).toBe('—')
+    expect(net('0.00', '250.00')).toBe('—')
+    expect(net(null, '250.00')).toBe('—')
+    expect(net('250.00', '0.00')).toBe('—')
+    expect(net('250.00', null)).toBe('—')
+    expect(effectOf(changeOf('0.00', '250.00', true), 'up')).toBeNull()
+    expect(effectOf(changeOf('800.00', '-250.00', true), 'up')).toBeNull()
+    // The same sign is a percentage, as for any line.
+    expect(net('800.00', '400.00')).toBe('+100.0%')
+    expect(net('-300.00', '-200.00')).toBe('−50.0%')
+    expect(net(MISSING, '250.00')).toBe('')
+    expect(net('250.00', MISSING)).toBe('')
   })
 
   it('is coloured by its effect on the net', () => {
@@ -215,7 +245,8 @@ describe('the comparison table (D-393)', () => {
     const [eur] = compareTables(columns, [period, year, previous], false)
     expect(totalChanges(eur, eur.expense.subtotal).map((t) => [changeText(t.change), t.label]))
       .toEqual([['−20.0%', 'Sep 2026'], ['−60.0%', 'Oct 2025']])
-    expect(totalChanges(eur, eur.net).map((t) => changeText(t.change))).toEqual(['+420.0%', '+100.0%'])
+    // 800 against the previous period's −250 is "—" (D-439); against the year earlier's 400, +100.0%.
+    expect(totalChanges(eur, eur.net).map((t) => changeText(t.change))).toEqual(['—', '+100.0%'])
   })
 
   it('in the base currency marks a missing figure in every sum, and keeps the exchange lines without a %', () => {

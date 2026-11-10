@@ -259,7 +259,10 @@ describe('the error boundaries', () => {
     render(<MemoryRouter initialEntries={['/entries']}><App me={{ ...ON, features: { familyLedgers: false } }} /></MemoryRouter>)
 
     expect(await screen.findByText(/Couldn’t show this page/)).toBeDefined()
-    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeDefined()
+    // The header's menus (D-433).
+    expect(screen.getByRole('button', { name: 'My finances' })).toBeDefined()
+    expect(screen.getByRole('link', { name: 'New entry' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Anna' }))
     expect(screen.getByRole('button', { name: 'Log out' })).toBeDefined()
     expect(document.body.textContent).not.toBe('')
   })

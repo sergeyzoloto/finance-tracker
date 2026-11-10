@@ -11,8 +11,32 @@
 }
 body { font-family: system-ui, sans-serif; max-width: 72rem; margin: 0 auto; padding: 1rem; }
 header { display: flex; gap: 1rem; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
-header nav { display: flex; gap: 1rem; flex: 1; flex-wrap: wrap; }
 nav a.active { font-weight: bold; }
+/* The app's header (D-433 to D-436): one row at any width, the main menu or "← My finances" on the left, "New entry"
+   and the user's menu on the right; a long name is cut with an ellipsis. */
+header.app-header { flex-wrap: nowrap; justify-content: space-between; gap: 0.5rem; }
+.header-start, .header-end { display: flex; gap: 0.5rem; align-items: center; min-width: 0; }
+.header-start { flex: 0 0 auto; }
+.header-end { flex: 0 1 auto; justify-content: flex-end; }
+.header-end > .button { flex: 0 0 auto; white-space: nowrap; }
+.disclosure { position: relative; min-width: 0; }
+.menu-button { display: inline-flex; align-items: center; gap: 0.4rem; max-width: 100%; white-space: nowrap; }
+.menu-button .icon { flex: 0 0 auto; }
+.user-menu { max-width: 16rem; min-width: 3rem; }
+.user-menu .user-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.menu-panel { position: absolute; top: calc(100% + 0.25rem); left: 0; z-index: 10; min-width: 12rem;
+  max-width: calc(100vw - 2rem); box-sizing: border-box; padding: 0.4rem 0; background: white;
+  border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); }
+.menu-panel.end { left: auto; right: 0; }
+.menu-panel[hidden] { display: none; }
+.menu-panel ul { list-style: none; margin: 0; padding: 0; }
+.menu-panel li a, .menu-panel li button.link { display: block; width: 100%; box-sizing: border-box; padding: 0.4rem 0.9rem;
+  text-align: left; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+.menu-panel li a:hover, .menu-panel li button.link:hover { background: #f6f8fa; }
+.menu-panel a[aria-current="page"] { font-weight: bold; }
+.menu-panel .menu-group { margin: 0.4rem 0 0; padding: 0.4rem 0.9rem 0.2rem; border-top: 1px solid var(--border);
+  font-size: 0.85em; color: var(--muted); }
+
 form, fieldset { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 1rem 0; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 0.3rem 0.5rem; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
@@ -129,6 +153,9 @@ table.accounts td, table.accounts th { vertical-align: middle; }
 .shared-mark { margin-left: 0.35rem; color: var(--muted); white-space: nowrap; }
 .shared-mark svg { vertical-align: -0.125em; }
 .shared-name { margin-left: 0.2rem; font-size: 0.8em; }
+/* D-442: in the Entries list the family line names the budget once, after the icon, in the line's own size. */
+.family-line .shared-mark { margin-left: 0; }
+.family-line .shared-name { font-size: inherit; }
 .period-totals { display: flex; flex-direction: column; gap: 0.5rem; margin: 0 0 0.75rem; }
 .month-note { display: block; font-weight: normal; color: var(--muted); font-size: 0.8em; }
 table.loans .own-amounts { display: block; }
@@ -216,7 +243,6 @@ section summary { cursor: pointer; }
 .danger-zone form { align-items: end; }
 
 /* Family budgets */
-select.ledger-switcher { font: inherit; padding: 0.25rem; max-width: 100%; }
 nav.subnav { display: flex; gap: 1rem; flex-wrap: wrap; padding-bottom: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1.5rem; margin: 1rem 0; }
 dl.facts dt { color: var(--muted); }

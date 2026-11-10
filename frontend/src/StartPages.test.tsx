@@ -80,9 +80,9 @@ describe('Settings', () => {
 
   function renderSettings() {
     render(
-      <WithMe><MemoryRouter initialEntries={['/settings']}>
+      <WithMe><MemoryRouter initialEntries={['/settings/delete']}>
         <Routes>
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/*" element={<Settings />} />
           <Route path="*" element={<Where />} />
         </Routes>
       </MemoryRouter></WithMe>,

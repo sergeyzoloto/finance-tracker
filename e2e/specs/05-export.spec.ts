@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fillDate } from '../dates.ts'
 import { HEADER, parse } from '../export-steps.ts'
-import { deleteAllMyData, expect, shot, test, today, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, openSettings, shot, test, today, type Session } from '../fixtures.ts'
 
 // D4a's export page (/export, D-243), with account A: the summary of the whole period and of this month, and the files
 // that Download saves, named for the period (D-241), as the import reads them (D-240). Locally, on the demo's ledger
@@ -21,10 +21,10 @@ test('export page', async ({ as, target }) => {
     await expect(page.getByRole('region', { name: 'What you have and owe' }).getByText('Net worth')).toBeVisible()
   }
 
+  // Export is a part of Settings (D-437, D-438), reached through the user's menu.
   await page.goto('/')
-  await page.getByRole('navigation').getByRole('link', { name: 'Export' }).click()
-  await expect(page).toHaveURL(/\/export$/)
-  await expect(page.getByRole('heading', { name: 'Export' })).toBeVisible()
+  await openSettings(page, 'Export')
+  await expect(page).toHaveURL(/\/settings\/export$/)
   const summary = page.getByTestId('export-summary')
   await expect(summary).toBeVisible()
   await shot(page, 'export-01-whole-period')

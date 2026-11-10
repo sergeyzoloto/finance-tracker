@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import { expectDate, fillDate } from './dates.ts'
-import { expect, ledgerIdOf, shot, today, type Session } from './fixtures.ts'
+import { expect, ledgerIdOf, mainMenu, shot, today, type Session } from './fixtures.ts'
 
 // The steps of the family specs (F7's and F8's) that read the same in both: a budget created in EUR, an invite, the
 // other account joining, leaving, and the facts of a record's page.
@@ -109,7 +109,11 @@ export async function leave({ page }: Session, budgetPath: string, budget: strin
   await shot(page, `${prefix}-14-${button.replace(/[^a-z0-9]+/gi, '-')}`)
   await confirmation.getByRole('button', { name: button }).click()
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByRole('combobox', { name: 'Budget' }).getByRole('option', { name: budget })).toHaveCount(0)
+  // The main menu lists it no more (D-433).
+  const menu = await mainMenu(page)
+  await expect(menu.getByRole('link', { name: 'New family budget…' })).toBeVisible()
+  await expect(menu.getByRole('link', { name: budget, exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 }
 
 /** A member's share on a record's page: the row whose header starts with their name (it also says who changed it). */

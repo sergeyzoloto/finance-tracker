@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { Account, AccountBalance, CashFlowRow, ConvertedBalance, ConvertedCashFlow, Me } from './api'
-import { baseEquitySplit, equitySplits, listedInBalances, resultRange, type CashFlowTable } from './dashboard'
+import { balancesDay, baseEquitySplit, equitySplits, listedInBalances, resultRange, type CashFlowTable } from './dashboard'
 
 // UX-3: an archived account below a minor unit not listed (D-364), the refusal to archive an account with money on the
 // Accounts page (D-366), and equity by period in the Balances card (D-367 to D-369).
@@ -85,10 +85,10 @@ function stubApi({ patchAnswer }: { patchAnswer?: { status: number; body: unknow
   }))
 }
 
-const renderAt = (path: string) => render(<MemoryRouter initialEntries={[path]}><App me={ME} /></MemoryRouter>)
+const renderAt = (path: string, me: Me = ME) => render(<MemoryRouter initialEntries={[path]}><App me={me} /></MemoryRouter>)
 
 async function balancesCard() {
-  return (await screen.findByRole('heading', { name: 'Balances' })).closest('section')!
+  return (await screen.findByRole('heading', { name: /^Balances on / })).closest('section')!
 }
 /** A line of the Balances card, by its first cell's text, as shown. */
 async function line(label: string) {
@@ -127,12 +127,18 @@ describe('the logic', () => {
     expect(listedInBalances([{ currency: 'EUR', balance: '0.00' }], false)).toBe(true)
   })
 
-  it('takes the result from From to Balances on, or To if earlier, and none before From (D-367)', () => {
-    expect(resultRange({ from: '2026-09-01', to: '2026-09-30', asOf: '2026-09-30' })).toEqual({ from: '2026-09-01', to: '2026-09-30' })
-    expect(resultRange({ from: '2026-09-01', to: '2026-09-30', asOf: '2026-09-15' })).toEqual({ from: '2026-09-01', to: '2026-09-15' })
-    expect(resultRange({ from: '2026-09-01', to: '2026-09-30', asOf: '2026-10-20' })).toEqual({ from: '2026-09-01', to: '2026-09-30' })
-    expect(resultRange({ from: '2026-09-01', to: '2026-09-30', asOf: '2026-08-31' })).toBeNull()
-    expect(resultRange({ from: '2026-09-01', to: '2026-08-15', asOf: '2026-09-30' })).toBeNull()
+  it('takes the balances as of To, or today while the period runs (D-430, D-443)', () => {
+    expect(balancesDay({ to: '2026-09-30' }, '2026-11-10')).toBe('2026-09-30')
+    expect(balancesDay({ to: '2026-11-10' }, '2026-11-10')).toBe('2026-11-10')
+    expect(balancesDay({ to: '2026-11-30' }, '2026-11-10')).toBe('2026-11-10')
+  })
+
+  it('takes the result from From to the balances’ day, and none before From (D-367, D-430, D-443)', () => {
+    expect(resultRange({ from: '2026-09-01', to: '2026-09-30' }, '2026-11-10')).toEqual({ from: '2026-09-01', to: '2026-09-30' })
+    expect(resultRange({ from: '2026-11-01', to: '2026-11-30' }, '2026-11-10')).toEqual({ from: '2026-11-01', to: '2026-11-10' })
+    // A period that starts after today, and one that ends before it starts.
+    expect(resultRange({ from: '2026-12-01', to: '2026-12-31' }, '2026-11-10')).toBeNull()
+    expect(resultRange({ from: '2026-09-01', to: '2026-08-15' }, '2026-11-10')).toBeNull()
   })
 
   it('splits each currency’s reserve accounts into the reserve and the result, which add up to them', () => {
@@ -178,22 +184,44 @@ describe('the Balances card in each currency', () => {
     expect(await total('Equity')).toBe('€1,405.01$100.00')
   })
 
-  it('takes the result to Balances on when that is before To, and asks for those days', async () => {
+  it('ignores an old link’s asOf: the result runs from From to To, every balance as of To (D-430)', async () => {
     stubApi()
     renderAt('/?currency=each&from=2026-09-01&to=2026-09-30&asOf=2026-09-15')
-    expect(await line('Result for the period')).toBe('€1,000.00$0.00')
-    expect(await line('Accumulated reserve')).toBe('€200.00$100.00')
-    expect(calls).toContain('GET /api/reports/cash-flow?from=2026-09-01&to=2026-09-15')
+    expect(await line('Result for the period')).toBe('€599.75-$20.00')
+    expect(await line('Accumulated reserve')).toBe('€600.25$120.00')
+    expect(calls.filter((c) => c.includes('2026-09-15'))).toEqual([])
+    expect(calls).toContain('GET /api/reports/balances?asOf=2026-09-30')
+    expect(calls).toContain('GET /api/reports/net-worth?asOf=2026-09-30')
+    expect(calls).toContain('GET /api/reports/shared-settlement?asOf=2026-09-30')
+    expect(calls).toContain('GET /api/reports/counterparty-balances?accountCode=LOANS_ASSET&asOf=2026-09-30')
   })
 
-  it('has no result with Balances on before From: the reserve is the accounts’ balance', async () => {
+  it('in a running period asks the balances as of today and the result to today, no day after it (D-443)', async () => {
     stubApi()
-    renderAt('/?currency=each&from=2026-09-01&to=2026-09-30&asOf=2026-08-31')
-    expect(await line('Result for the period')).toBe('€0.00$0.00')
-    expect(await line('Accumulated reserve')).toBe('€1,200.00$100.00')
-    // No result request; August is asked only as the previous period, with its own From (UX-5).
-    expect(calls.filter((c) => c.includes('from=2026-09-01&to=2026-08-31'))).toEqual([])
-    expect(calls).toContain('GET /api/reports/cash-flow?from=2026-08-01&to=2026-08-31')
+    // Today is 2026-09-30: income and expenses, the balances and the result all run to today, in one cash flow.
+    renderAt('/?currency=each&from=2026-09-01&to=2026-10-31')
+    expect(await line('Result for the period')).toBe('€599.75-$20.00')
+    expect(calls).toContain('GET /api/reports/balances?asOf=2026-09-30')
+    expect(calls).toContain('GET /api/reports/net-worth?asOf=2026-09-30')
+    expect(calls.filter((c) => c.includes('2026-10-31'))).toEqual([])
+    expect(calls.filter((c) => c.startsWith('GET /api/reports/cash-flow?from=2026-09-01&to=2026-09-30'))).toHaveLength(1)
+  })
+
+  it('names its day in its title, in the user’s date format, in both modes (D-431)', async () => {
+    stubApi()
+    renderAt('/?currency=each&from=2026-09-01&to=2026-10-31')
+    const card = await balancesCard()
+    const title = within(card).getByRole('heading', { level: 3 })
+    // Without a format of the user's, as the browser shows dates, as "Income and expenses" shows its period; while
+    // the period runs, today (D-443).
+    expect(title.textContent).toBe('Balances on Sep 30, 2026')
+    expect(title.querySelector('.muted.period')!.textContent).toBe('on Sep 30, 2026')
+    cleanup()
+    stubApi()
+    renderAt('/?period=previous-month', { ...ME, dateFormat: 'DD.MM.YYYY' })
+    expect((await balancesCard()).querySelector('h3')!.textContent).toBe('Balances on 31.08.2026')
+    // No "Balances on" field any more (D-430).
+    expect(screen.queryByLabelText(/Balances on/)).toBeNull()
   })
 
   it('hides an archived account whose amounts are all below a minor unit, and counts it in the total (D-364)', async () => {
@@ -223,19 +251,13 @@ describe('the Balances card in the base currency', () => {
     expect(within(card).getByRole('link', { name: 'Old savings' })).toBeDefined()
   })
 
-  it('with Balances on before To, the result has its own days and isn’t the Net of the period', async () => {
+  it('ignores an old link’s asOf: the result is the Net of the period, the balances as of To (D-430)', async () => {
     stubApi()
     renderAt('/?from=2026-09-01&to=2026-09-30&asOf=2026-09-15')
-    expect(await line('Result for the period')).toBe('€1,000.00')
-    expect(await line('Accumulated reserve')).toBe('€280.00')
-    expect(calls).toContain('GET /api/reports/cash-flow?from=2026-09-01&to=2026-09-15&currency=BASE')
-  })
-
-  it('with Balances on before From, the result is 0 and the reserve all of it', async () => {
-    stubApi()
-    renderAt('/?from=2026-09-01&to=2026-09-30&asOf=2026-08-31')
-    expect(await line('Result for the period')).toBe('€0.00')
-    expect(await line('Accumulated reserve')).toBe('€1,280.00')
+    expect(await line('Result for the period')).toBe('€583.62')
+    expect(await line('Accumulated reserve')).toBe('€696.38')
+    expect(calls.filter((c) => c.includes('2026-09-15'))).toEqual([])
+    expect(calls).toContain('GET /api/reports/balances?asOf=2026-09-30&currency=BASE')
   })
 })
 

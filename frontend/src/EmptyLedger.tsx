@@ -49,7 +49,7 @@ export default function EmptyLedger({ onLoaded, deleted = false, familyOn = fals
           <p className="actions">
             <Link className="button primary" to="/entries/new">Add an entry</Link>
             <Link className="button" to="/accounts">See your accounts</Link>
-            <Link className="button" to="/import">Import a spreadsheet</Link>
+            <Link className="button" to="/settings/import">Import a spreadsheet</Link>
           </p>
         </section>
       </div>

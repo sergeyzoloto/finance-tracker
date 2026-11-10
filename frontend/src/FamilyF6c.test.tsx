@@ -2,13 +2,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { menuBudgets } from './testHeader'
 import type { DemoLedger, Entry, FamilyLedger, FamilyMember, Me } from './api'
 import { formatMoney } from './money'
 import { workedReport } from './testFamilyReport'
 import { testLedger } from './testLedger'
 
 // F6c in the interface: the family report (E1), the old shared expense no longer created with the switch on (H4), and
-// the demo's family budget in the switcher right after loading it (H1).
+// the demo's family budget in the main menu right after loading it (H1).
 
 type Answer = { status: number; body?: unknown }
 type Call = { method: string; url: string; body: unknown }
@@ -175,7 +176,7 @@ describe('the demo’s family budget (H1)', () => {
   const demo: DemoLedger = { entriesByKind: { EXPENSE: 73 }, accounts: 2, categories: 3, counterparties: 10, from: '2026-04-01', to: '2026-10-02' }
   const household: FamilyLedger = { ...home, id: 9, name: 'Demo household', startDate: '2026-04-01' }
 
-  it('says the demo comes with a family budget, and lists it in the switcher at once', async () => {
+  it('says the demo comes with a family budget, and lists it in the main menu at once', async () => {
     const calls = stubApi({
       'GET /api/entries?size=1': empty,
       'GET /api/family-ledgers': [{ status: 200, body: [] }, { status: 200, body: [household] }],
@@ -186,9 +187,9 @@ describe('the demo’s family budget (H1)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Load demo data' }))
 
-    await waitFor(() => expect(within(screen.getByRole('combobox', { name: 'Budget' })).getByRole('option', { name: 'Demo household' })).toBeDefined())
-    expect(calls.filter((c) => c.method === 'GET' && c.url === '/api/family-ledgers')).toHaveLength(2)
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?from=2026-04-01&to=2026-10-02'))
+    await waitFor(() => expect(menuBudgets()).toEqual(['Demo household', 'New family budget…']))
+    expect(calls.filter((c) => c.method === 'GET' && c.url === '/api/family-ledgers')).toHaveLength(2)
   })
 
   it('says nothing of a family budget with the switch off', async () => {

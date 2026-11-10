@@ -46,7 +46,7 @@ export default function Export() {
 
   return (
     <>
-      <h2>Export</h2>
+      <h3>Export</h3>
       <p className="muted">
         Your ledger as one transactions file in the format the import reads: your personal entries and your own family
         rows, each with its Excel ID, or an ID starting with <code>app-</code> for one made here. Another member’s

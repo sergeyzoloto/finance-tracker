@@ -10,7 +10,7 @@ import { abs, formatRate, isZero, negate, percentChange, roundsToZero, signOf, s
 // together. In the base currency, the backend converts them, and a figure it can't convert for want of a rate stays
 // missing: it is never added up as if it were zero.
 
-/** The period buttons, in their order on the page (D-296). */
+/** The period's presets, in their order in the Period list (D-296, D-432). */
 export const PRESETS = [
   'this-week', 'previous-week', 'past-month', 'previous-month', 'this-month', 'this-quarter', 'previous-quarter',
   'last-3-months', 'past-year', 'this-year', 'previous-year',
@@ -68,18 +68,20 @@ export function presetRange(preset: Preset, today: Date) {
   return { from: isoDate(from), to: isoDate(to) }
 }
 
-/** What the dashboard shows: income and expenses from `from` to `to`, and balances as of `asOf`. */
+/**
+ * What the dashboard shows: income and expenses from `from` to `to`, and balances, net worth, loans and the family
+ * settlement as of `balancesDay` (D-430, D-443).
+ */
 export interface Period {
   choice: PeriodChoice
   from: string
   to: string
-  asOf: string
 }
 
 /**
  * The period the URL's query string selects: a custom range as `from` and `to`, or else a preset as
- * `period=this-year`, or else this month. Presets are kept by name, so a bookmark stays current. Balances are shown
- * as of `asOf`, which defaults to the period's last day, or to today while the period is still running.
+ * `period=this-year`, or else this month. Presets are kept by name, so a bookmark stays current. An old link's `asOf`
+ * is ignored (D-430): the balances' day is `balancesDay`'s.
  */
 export function periodFromQuery(params: URLSearchParams, today: Date): Period {
   const from = validDate(params.get('from'))
@@ -87,12 +89,7 @@ export function periodFromQuery(params: URLSearchParams, today: Date): Period {
   const named = params.get('period') ?? ''
   const preset = PRESETS.find((p) => p === named) ?? OLD_PRESETS[named] ?? DEFAULT_PRESET
   const range = from && to ? { from, to } : presetRange(preset, today)
-  const day = isoDate(today)
-  return {
-    choice: from && to ? 'custom' : preset,
-    ...range,
-    asOf: validDate(params.get('asOf')) ?? (range.to < day ? range.to : day),
-  }
+  return { choice: from && to ? 'custom' : preset, ...range }
 }
 
 /**
@@ -477,11 +474,19 @@ export const isReserveEquity = (b: { accountType: AccountType; accountCode: stri
   b.accountType === 'EQUITY' && !isSystemEquity(b)
 
 /**
- * The days of "Result for the period" (D-367): from the period's From to "Balances on", or To if earlier; null when
- * that ends before it starts (Balances on before From, or a period that ends before it starts), when the result is 0.
+ * The day the dashboard's balances, net worth, loans and family settlement are as of (D-430, D-443): the period's To,
+ * or today while the period runs. A day after today would be converted at no rate in the base currency, since an ECB
+ * rate counts only up to 7 days after its date (D-49), so the figures would read "rate missing".
  */
-export function resultRange(period: { from: string; to: string; asOf: string }): { from: string; to: string } | null {
-  const to = period.asOf < period.to ? period.asOf : period.to
+export const balancesDay = (period: { to: string }, today: string) => (period.to < today ? period.to : today)
+
+/**
+ * The days of "Result for the period" (D-367, D-430, D-443): the period's From to the balances' day, so that the equity
+ * lines add up; null when that ends before it starts (a period that starts after today, or ends before it starts),
+ * when the result is 0.
+ */
+export function resultRange(period: { from: string; to: string }, today: string): { from: string; to: string } | null {
+  const to = balancesDay(period, today)
   return to < period.from ? null : { from: period.from, to }
 }
 
@@ -490,7 +495,7 @@ export interface EquitySplit { currency: string; reserve: string; result: string
 
 /**
  * D-367 in each currency: "Result for the period" is the Net of income and expenses, under All, from `resultRange`'s
- * tables (null for none: 0); "Accumulated reserve" is the reserve accounts' balance on Balances on less that result,
+ * tables (null for none: 0); "Accumulated reserve" is the reserve accounts' balance on the balances' day less that result,
  * which is their balance on the day before From plus any transfer to or from them within the period. Sums within a
  * currency only.
  */
@@ -509,7 +514,7 @@ export function equitySplits(balances: AccountBalance[], tables: CashFlowTable[]
 /**
  * D-367 and D-369 in the base currency: "Result for the period" is the cash flow's Net at each posting's own day's rate,
  * the same figure as the Net of income and expenses (`table`'s; null for none: 0); "Accumulated reserve" is the rest of
- * equity at the rate on Balances on: net worth less the system equity accounts' lines and the result, so that the lines
+ * equity at the rate on the balances' day: net worth less the system equity accounts' lines and the result, so that the lines
  * add up to Equity's total, net worth, and the reserve includes the revaluation. MISSING when a figure lacks a rate.
  */
 export function baseEquitySplit(converted: ConvertedBalance[], netWorth: Cell, table: CashFlowTable | null):
@@ -647,15 +652,21 @@ export function rangeLabel(range: DayRange): string {
 }
 
 /**
- * The change from a comparison to the period (D-398): the percentage as a signed decimal string of one decimal,
- * "none" where the comparison has nothing or 0, MISSING where either figure lacks a rate. A period with nothing
- * against a comparison with something is −100.0%.
+ * The change from a comparison to the period (D-398), one rule for the table, the totals and the chart's tooltip: the
+ * percentage as a signed decimal string of one decimal; MISSING where either figure lacks a rate; "none" ("—") where
+ * the comparison has nothing or 0, and where the two figures have opposite signs (D-440: a category whose refunds
+ * outweigh its spending), since a percentage across 0 means nothing. A period with nothing against a comparison with
+ * something is −100.0%, except for the net (`net`), which shows "—" when either figure is 0 (D-439).
  */
 export type Change = { percent: string } | 'none' | typeof MISSING
-export function changeOf(now: Cell, before: Cell): Change {
+export function changeOf(now: Cell, before: Cell, net = false): Change {
   if (now === MISSING || before === MISSING) return MISSING
   if (before === null) return 'none'
-  const percent = percentChange(now ?? '0', before)
+  const current = now ?? '0'
+  const [a, b] = [signOf(current), signOf(before)]
+  if (a * b < 0) return 'none'
+  if (net && a === 0) return 'none'
+  const percent = percentChange(current, before)
   return percent === undefined ? 'none' : { percent }
 }
 
@@ -763,7 +774,10 @@ export function totalChanges(table: CompareTable, line: CompareLine): { change: 
   const order: CompareRole[] = ['previous', 'previous-year', 'year']
   return order.flatMap((role) => {
     const i = table.columns.findIndex((c) => c.key === role)
-    return i < 0 ? [] : [{ change: changeOf(line.amounts[0], line.amounts[i]), label: table.columns[i].label, good: line.good ?? 'up' }]
+    return i < 0 ? [] : [{
+      change: changeOf(line.amounts[0], line.amounts[i], line.key === 'net'), label: table.columns[i].label,
+      good: line.good ?? 'up',
+    }]
   })
 }
 

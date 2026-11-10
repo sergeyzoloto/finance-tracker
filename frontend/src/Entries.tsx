@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { dateOfIso, formatDate, isoDate, useApi, type EntryPage } from './api'
+import { SharedMark } from './CashFlowTable'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
 import DateInput from './DateInput'
 import { describeEntry, entryKindLabel, kindLabel, useLedger } from './ledger'
@@ -132,7 +133,7 @@ export default function Entries() {
       {(!data || !ledger) && !(ledgerError ?? entries.error) && <Loading what="entries" />}
       {data && ledger && data.content.length === 0 && (
         filtered ? <p className="empty">No entries match these filters.</p>
-          : <p className="empty">No entries yet. <Link to="/entries/new">Add the first one</Link> or <Link to="/import">import your ledger</Link>.</p>
+          : <p className="empty">No entries yet. <Link to="/entries/new">Add the first one</Link> or <Link to="/settings/import">import your ledger</Link>.</p>
       )}
       {data && ledger && data.content.length > 0 && (
         <>
@@ -142,7 +143,7 @@ export default function Entries() {
             </thead>
             <tbody>
               {data.content.map((entry) => {
-                const summary = describeEntry(entry, ledger)
+                const summary = describeEntry(entry, ledger, true)
                 const tone = summary.direction < 0 ? 'expense' : summary.direction > 0 ? 'income' : ''
                 return (
                   <tr key={entry.id} className="clickable" onClick={() => open(entry.id)}>
@@ -159,8 +160,10 @@ export default function Entries() {
                         {summary.category || <span className="muted">{kindLabel(entry.kind)}</span>}
                       </span>
                       {entry.family && (
+                        // D-442: the row names its family budget here, once: the kind, then the shared icon and the name.
                         <div className="muted small family-line" title="It changes in the family budget">
-                          {summary.category ? `${entryKindLabel(entry)}, ${entry.family.ledgerName}` : entry.family.ledgerName}
+                          {summary.category && `${entryKindLabel(entry)} · `}
+                          <SharedMark budget={entry.family.ledgerName} named />
                         </div>
                       )}
                     </td>

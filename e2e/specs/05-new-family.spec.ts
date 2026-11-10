@@ -1,5 +1,5 @@
 import { LOCAL_PASSWORD } from '../lib/accounts.ts'
-import { deleteAllMyData, expect, ledgerIdOf, test } from '../fixtures.ts'
+import { deleteAllMyData, expect, ledgerIdOf, mainMenu, test } from '../fixtures.ts'
 
 // D-163: "a member typed on /family/new right after a first sign-in is not created with the budget", reproduced as the
 // owner met it, with A alone:
@@ -41,7 +41,7 @@ test('a new family budget right after a first sign-in', async ({ as, family, tar
     await me
     // Straight to a new family budget, without waiting for anything else.
     if (new URL(page.url()).pathname !== '/family/new') {
-      await page.getByRole('combobox', { name: 'Budget' }).selectOption({ label: 'New family budget…' })
+      await (await mainMenu(page)).getByRole('link', { name: 'New family budget…' }).click()
     }
     await expect(page).toHaveURL(/\/family\/new$/)
 

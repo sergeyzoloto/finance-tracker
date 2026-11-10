@@ -87,19 +87,92 @@ describe('labels', () => {
 })
 
 describe('the entries', () => {
-  it('lists a family budget’s entries with its name and labels', async () => {
+  /** An element's text as the eye reads it: the icon's name, a tooltip only, left out. */
+  const seen = (element: Element) => {
+    const copy = element.cloneNode(true) as Element
+    copy.querySelectorAll('svg').forEach((svg) => svg.remove())
+    return copy.textContent ?? ''
+  }
+  /** A row's cells by column, as shown; the family line is the category cell's second line. */
+  const cells = (row: HTMLElement) => {
+    const [, payee, category, flow, amount] = within(row).getAllByRole('cell')
+    const line = category.querySelector('.family-line')
+    return {
+      payee: payee.textContent, category: category.querySelector('.category-name')!.textContent,
+      family: line ? seen(line) : null, flow: flow.textContent, amount: amount.textContent,
+    }
+  }
+  /** How many times `text` shows in a row. */
+  const shown = (row: HTMLElement, text: string) => seen(row).split(text).length - 1
+
+  it('names the row’s family budget once, under the category, after the shared icon (D-441, D-442)', async () => {
     const page: EntryPage = { content: [share, payment, own], page: 0, size: 50, totalElements: 3, totalPages: 1 }
     stubApi({ ...reference, '/entries': page })
     renderAt('/entries', <Entries />)
 
-    const rows = await screen.findAllByRole('row')
-    const shareRow = rows.find((r) => r.textContent?.includes('Family share, Home'))!
-    expect(within(shareRow).getByText('Groceries · Home')).toBeDefined()
-    const paymentRow = rows.find((r) => r.textContent?.includes('Family payment'))!
-    expect(within(paymentRow).getByText('Home')).toBeDefined()
-    expect(paymentRow.textContent).not.toContain('Family payment, Home')
-    const ownRow = rows.find((r) => r.textContent?.includes('Market'))!
+    const rows = (await screen.findAllByRole('row')).slice(1)
+    const [shareRow, paymentRow, ownRow] = rows
+    // The category without " · Home", the kind and the budget on the line under it, the debt account's short name.
+    expect(cells(shareRow)).toMatchObject({
+      category: 'Groceries', family: 'Family share · Home', flow: 'Debt to family budget → Groceries',
+    })
+    expect(within(shareRow).getByRole('img', { name: 'Shared: Home' })).toBeDefined()
+    expect(shown(shareRow, 'Home')).toBe(1)
+    // Without a category: the kind in its place, the line the icon and the name; Cash keeps its name.
+    expect(cells(paymentRow)).toMatchObject({
+      category: 'Family payment', family: 'Home', flow: 'Cash → Debt to family budget',
+    })
+    expect(shown(paymentRow, 'Home')).toBe(1)
+    expect(cells(ownRow)).toMatchObject({ category: 'Groceries', family: null })
     expect(ownRow.textContent).not.toContain('Home')
+  })
+
+  it('shortens only the row’s own budget’s debt account, its code with a suffix too, with two budgets', async () => {
+    const trip: Category = { ...familyGroceries, id: 53, code: 'TRAVEL', name: 'Travel', familyLedgerId: 8, familyLedgerName: 'Trip' }
+    // A second debt account of budget 8, as `CrossLedgerWriter.debtAccount` names one when its code is taken.
+    const tripDebt = { ...debt, id: 31, code: 'FAMILY_DEBT_8_2', name: 'Debt to family budget: Trip' }
+    // Not a debt account: a user's account whose code only looks like one.
+    const lookalike = { ...debt, id: 32, code: 'FAMILY_DEBT_8_X', name: 'Savings for the trip', system: false, type: 'ASSET' as const }
+    const tripShare: Entry = {
+      ...share, id: 93,
+      postings: [
+        { accountId: 6, currency: 'EUR', amount: '20.00', categoryId: 53, counterpartyId: null },
+        { accountId: 31, currency: 'EUR', amount: '-20.00', categoryId: null, counterpartyId: null },
+      ],
+      family: { ledgerId: 8, ledgerName: 'Trip', recordId: 4, link: 'SHARE', readOnly: true },
+    }
+    const tripPayment: Entry = {
+      ...payment, id: 94,
+      postings: [
+        { accountId: 32, currency: 'EUR', amount: '-40.00', categoryId: null, counterpartyId: null },
+        { accountId: 31, currency: 'EUR', amount: '40.00', categoryId: null, counterpartyId: null },
+      ],
+      family: { ledgerId: 8, ledgerName: 'Trip', recordId: 4, link: 'PAYMENT', readOnly: true },
+    }
+    // A row of Home that also touches Trip's debt account keeps that one's full name: only its own is shortened.
+    const odd: Entry = {
+      ...share, id: 95,
+      postings: [
+        { accountId: 30, currency: 'EUR', amount: '5.00', categoryId: null, counterpartyId: null },
+        { accountId: 31, currency: 'EUR', amount: '-5.00', categoryId: null, counterpartyId: null },
+      ],
+      family: { ...share.family!, link: 'CORRECTION' }, kind: 'FAMILY_CORRECTION',
+    }
+    const page: EntryPage = { content: [share, tripShare, tripPayment, odd], page: 0, size: 50, totalElements: 4, totalPages: 1 }
+    stubApi({ ...reference, '/accounts': [...accounts, tripDebt, lookalike], '/categories': [...categories, trip], '/entries': page })
+    renderAt('/entries', <Entries />)
+
+    const [homeRow, tripRow, tripPaymentRow, oddRow] = (await screen.findAllByRole('row')).slice(1)
+    expect(cells(homeRow)).toMatchObject({ category: 'Groceries', family: 'Family share · Home' })
+    expect(cells(tripRow)).toMatchObject({
+      category: 'Travel', family: 'Family share · Trip', flow: 'Debt to family budget → Travel',
+    })
+    expect(shown(tripRow, 'Trip')).toBe(1)
+    expect(cells(tripPaymentRow)).toMatchObject({ family: 'Trip', flow: 'Savings for the trip → Debt to family budget' })
+    expect(cells(oddRow).flow).toBe('Debt to family budget: Trip → Debt to family budget')
+    // The filters keep the budget's name: two budgets' categories told apart (D-442).
+    const filter = screen.getByLabelText(/^Category/) as HTMLSelectElement
+    expect([...filter.options].map((o) => o.textContent)).toEqual(expect.arrayContaining(['Groceries · Home', 'Travel · Trip']))
   })
 
   it('opens a posted share read-only: no form, no save, no delete', async () => {

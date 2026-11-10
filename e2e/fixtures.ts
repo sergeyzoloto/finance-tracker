@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs'
-import { test as base, expect, type BrowserContext, type Page, type Request, type Response } from '@playwright/test'
+import { test as base, expect, type BrowserContext, type Locator, type Page, type Request, type Response } from '@playwright/test'
 import type { Account, Role } from './lib/accounts.ts'
 import { checkMe, familyFrom, type Family } from './lib/identity.ts'
 import { aborted, isVerified, sessionDir, statePath } from './lib/session.ts'
@@ -158,12 +158,41 @@ async function finish(contexts: BrowserContext[], watch: Watch) {
  */
 export async function deleteAllMyData({ page, account }: Session) {
   if (!account || !isVerified(sessionDir(), account.label)) throw new Error('Delete all my data only for a checked account.')
-  await page.goto('/settings')
+  await page.goto('/settings/delete')
   await page.getByLabel('Type DELETE to confirm').fill('DELETE')
   const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE' && new URL(r.url()).pathname === '/api/me/data')
   await page.getByRole('button', { name: 'Delete all my data' }).click()
   expect((await deleted).status()).toBe(204)
   await expect(page.getByRole('status')).toHaveText('All your data has been deleted.')
+}
+
+/**
+ * The header's main menu in My finances (D-433, D-434): opens it, unless it is open, and returns its panel. Inside a
+ * family budget there is none: "← My finances" leads back (D-435).
+ */
+export async function mainMenu(page: Page) {
+  return openMenu(page.locator('header .main-menu'))
+}
+
+/** The header's user menu (D-433): Settings and Log out; opens it and returns its panel. */
+export async function userMenu(page: Page) {
+  return openMenu(page.locator('header .user-menu'))
+}
+
+async function openMenu(menu: Locator) {
+  const button = menu.locator('button.menu-button')
+  if (await button.getAttribute('aria-expanded') !== 'true') await button.click()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+  return menu.locator('.menu-panel')
+}
+
+/** A part of Settings (D-438), through the user's menu and Settings' own navigation, as a user gets there. */
+export async function openSettings(page: Page, part: 'Time zone' | 'Date format' | 'Import' | 'Export' | 'Delete all my data') {
+  if (!new URL(page.url()).pathname.startsWith('/settings')) {
+    await (await userMenu(page)).getByRole('link', { name: 'Settings' }).click()
+  }
+  await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: part, exact: true }).click()
+  await expect(page.getByRole('heading', { level: 3, name: part, exact: true })).toBeVisible()
 }
 
 /**

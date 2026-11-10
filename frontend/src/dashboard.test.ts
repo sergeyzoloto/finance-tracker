@@ -11,26 +11,32 @@ describe('periodFromQuery', () => {
   const today = new Date(2026, 0, 15)
   const period = (query: string) => periodFromQuery(new URLSearchParams(query), today)
 
-  it('is this month without a query, with balances as of today while the month runs', () => {
-    expect(period('')).toEqual({ choice: 'this-month', from: '2026-01-01', to: '2026-01-31', asOf: '2026-01-15' })
+  it('is this month without a query, with no day of the balances of its own (D-430)', () => {
+    expect(period('')).toEqual({ choice: 'this-month', from: '2026-01-01', to: '2026-01-31' })
   })
 
   it('reaches into the year before for the last 3 months', () => {
     expect(period('period=last-3-months')).toMatchObject({ from: '2025-11-01', to: '2026-01-31' })
   })
 
-  it('shows balances as of the last day of a period that is over', () => {
-    expect(period('period=previous-year'))
-      .toEqual({ choice: 'previous-year', from: '2025-01-01', to: '2025-12-31', asOf: '2025-12-31' })
+  it('is a period that is over by its preset', () => {
+    expect(period('period=previous-year')).toEqual({ choice: 'previous-year', from: '2025-01-01', to: '2025-12-31' })
   })
 
   it('still takes an old bookmark’s “last-year” as the previous year (D-296)', () => {
     expect(period('period=last-year')).toEqual(period('period=previous-year'))
   })
 
-  it('takes a custom range and the day of the balances from the URL', () => {
-    expect(period('from=2024-02-29&to=2024-03-31&asOf=2024-03-15'))
-      .toEqual({ choice: 'custom', from: '2024-02-29', to: '2024-03-31', asOf: '2024-03-15' })
+  it('takes a custom range from the URL', () => {
+    expect(period('from=2024-02-29&to=2024-03-31'))
+      .toEqual({ choice: 'custom', from: '2024-02-29', to: '2024-03-31' })
+  })
+
+  it('ignores an old link’s asOf, with a custom range and with a preset (D-430)', () => {
+    expect(period('from=2024-02-29&to=2024-03-31&asOf=2024-03-15')).toEqual(period('from=2024-02-29&to=2024-03-31'))
+    expect(period('period=previous-year&asOf=2025-06-30')).toEqual(period('period=previous-year'))
+    expect(period('asOf=2025-06-30')).toEqual(period(''))
+    expect(period('asOf=2025-06-30')).not.toHaveProperty('asOf')
   })
 
   it('ignores days that do not exist and unknown presets', () => {
@@ -95,7 +101,7 @@ describe('the period buttons (D-296)', () => {
 
   it('end today, so balances are as of today', () => {
     expect(periodFromQuery(new URLSearchParams('period=past-year'), new Date(2026, 9, 31)))
-      .toEqual({ choice: 'past-year', from: '2025-11-01', to: '2026-10-31', asOf: '2026-10-31' })
+      .toEqual({ choice: 'past-year', from: '2025-11-01', to: '2026-10-31' })
   })
 })
 

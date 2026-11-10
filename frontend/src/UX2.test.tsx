@@ -90,7 +90,7 @@ const renderAt = (path: string) => render(<MemoryRouter initialEntries={[path]}>
 
 /** The Balances card's total of a type, as shown. */
 async function typeTotal(type: string) {
-  const card = (await screen.findByRole('heading', { name: 'Balances' })).closest('section')!
+  const card = (await screen.findByRole('heading', { name: /^Balances on / })).closest('section')!
   const table = await within(card).findByRole('columnheader', { name: type })
   return table.closest('table')!.querySelector('tfoot td')!.textContent
 }
@@ -115,14 +115,14 @@ describe('the Balances card’s totals in the base currency (D-348)', () => {
     expect(await headline('You have')).toBe('€205.03')
     expect(await typeTotal('Liabilities')).toBe(await headline('You owe'))
     expect(await typeTotal('Equity')).toBe(await headline('Net worth'))
-    const card = screen.getByRole('heading', { name: 'Balances' }).closest('section')!
+    const card = screen.getByRole('heading', { name: /^Balances on / }).closest('section')!
     expect(within(card).getByText(/a total may differ slightly from the sum of its rows/)).toBeDefined()
   })
 
   it('lists an archived account that holds money, marked (D-355)', async () => {
     stubApi()
     renderAt('/')
-    const card = (await screen.findByRole('heading', { name: 'Balances' })).closest('section')!
+    const card = (await screen.findByRole('heading', { name: /^Balances on / })).closest('section')!
     const row = (await within(card).findByRole('link', { name: 'Old wallet' })).closest('tr')!
     expect(within(row).getByText('archived')).toBeDefined()
     expect(within(card).getByRole('link', { name: 'Cash' }).closest('tr')!.textContent).not.toContain('archived')

@@ -1,18 +1,15 @@
 import { startTransition, useCallback } from 'react'
-import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
+import { Navigate, Route, Routes, useLocation } from 'react-router'
 import Accounts from './Accounts'
 import { familyLedgersOn, useApi, type FamilyLedger, type Me } from './api'
-import { logOut } from './auth'
 import Categories from './Categories'
 import { Safe } from './components'
 import Dashboard from './Dashboard'
 import Entries from './Entries'
 import EntryEditor from './EntryEditor'
-import Export from './Export'
 import Family from './Family'
-import Import from './Import'
 import InvitePage from './Invite'
-import LedgerSwitcher from './LedgerSwitcher'
+import Header from './Header'
 import { MeProvider, useMe } from './me'
 import { PRIVACY_URL, SOURCE_URL } from './links'
 import NewFamily from './NewFamily'
@@ -54,22 +51,7 @@ function Shell() {
   }, [update, reload])
   return (
     <>
-      <header>
-        {familyOn && <LedgerSwitcher families={families.data} />}
-        <nav>
-          <NavLink to="/" end>Dashboard</NavLink>
-          <NavLink to="/entries">Entries</NavLink>
-          <NavLink to="/accounts">Accounts</NavLink>
-          <NavLink to="/categories">Categories</NavLink>
-          <NavLink to="/rates">Rates</NavLink>
-          <NavLink to="/import">Import</NavLink>
-          <NavLink to="/export">Export</NavLink>
-          <NavLink to="/settings">Settings</NavLink>
-        </nav>
-        <Link className="button primary" to="/entries/new">New entry</Link>
-        <span>{me.name ?? me.email}</span>
-        <button onClick={logOut}>Log out</button>
-      </header>
+      <Header families={familyOn ? families.data : null} name={me.name ?? me.email ?? ''} />
       <main>
         <ZoneHint />
         {/* A page that can't read its answer shows an error with a reload link, and the header stays (F8c). */}
@@ -82,9 +64,11 @@ function Shell() {
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/categories" element={<Categories />} />
           <Route path="/rates" element={<Rates />} />
-          <Route path="/import" element={<Import families={familyOn ? families.data ?? [] : undefined} />} />
-          <Route path="/export" element={<Export />} />
-          <Route path="/settings" element={<Settings onDeleted={() => { families.reload(); void reloadMe() }} familyOn={familyOn} />} />
+          <Route path="/import" element={<Moved to="/settings/import" />} />
+          <Route path="/export" element={<Moved to="/settings/export" />} />
+          <Route path="/settings/*" element={
+            <Settings onDeleted={() => { families.reload(); void reloadMe() }} familyOn={familyOn}
+              families={familyOn ? families.data ?? [] : undefined} />} />
           {familyOn && <Route path="/family/new" element={<NewFamily me={me} onCreated={families.reload} />} />}
           {familyOn && <Route path="/family/:ledgerId/*" element={<Family onChanged={families.reload} onLeft={left} />} />}
           {familyOn && <Route path="/invite" element={<InvitePage onJoined={joined} />} />}
@@ -98,4 +82,10 @@ function Shell() {
       </footer>
     </>
   )
+}
+
+/** A page that moved (D-438): to its new path, with the query it was opened with, replacing the address. */
+function Moved({ to }: { to: string }) {
+  const { search } = useLocation()
+  return <Navigate to={`${to}${search}`} replace />
 }

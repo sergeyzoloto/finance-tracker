@@ -1,6 +1,6 @@
 import {
-  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, shot, test, today, wholeNumber,
-  type Session, type Watch,
+  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, mainMenu, shot, test, today,
+  wholeNumber, type Session, type Watch,
 } from '../fixtures.ts'
 import { expectExport } from '../export-steps.ts'
 
@@ -17,7 +17,9 @@ test('smoke', async ({ as, family, watch }) => {
   // Signed in; the family switch as expected (as() checked /api/me's familyLedgers too).
   const me = await (await context.request.get('/api/me')).json() as { features: { familyLedgers: boolean } }
   expect(me.features.familyLedgers).toBe(family === 'on')
-  await expect(page.getByRole('combobox', { name: 'Budget' })).toHaveCount(family === 'on' ? 1 : 0)
+  // The main menu lists family budgets only with them on (D-434).
+  await expect((await mainMenu(page)).getByRole('link', { name: 'New family budget…' })).toHaveCount(family === 'on' ? 1 : 0)
+  await page.keyboard.press('Escape')
   await expect(page.getByText('Your ledger is empty. How would you like to start?')).toBeVisible()
   await shot(page, 'smoke-01-empty-dashboard')
 
@@ -90,9 +92,10 @@ async function theDemoWithItsFamilyBudget(session: Session, watch: Watch) {
   const { page } = session
   await loadTheDemo(session, true)
 
-  const switcher = page.getByRole('combobox', { name: 'Budget' })
-  await expect(switcher.getByRole('option', { name: 'Demo household' })).toHaveCount(1)
-  await switcher.selectOption({ label: 'Demo household' })
+  // The budget from the main menu (D-433).
+  const menu = await mainMenu(page)
+  await expect(menu.getByRole('link', { name: 'Demo household', exact: true })).toHaveCount(1)
+  await menu.getByRole('link', { name: 'Demo household', exact: true }).click()
   await expect(page.getByRole('heading', { level: 2, name: 'Demo household' })).toBeVisible()
   const subnav = page.getByRole('navigation', { name: 'Family budget' })
   await expect(page.getByText('Latest activity')).toBeVisible()
@@ -127,5 +130,8 @@ async function theDemoWithItsFamilyBudget(session: Session, watch: Watch) {
   await shot(page, 'smoke-09-leave-and-delete')
   await confirmation.getByRole('button', { name: 'Leave and delete the family budget' }).click()
   await expect(page).toHaveURL(/\/$/)
-  await expect(switcher.getByRole('option', { name: 'Demo household' })).toHaveCount(0)
+  const after = await mainMenu(page)
+  await expect(after.getByRole('link', { name: 'New family budget…' })).toBeVisible()
+  await expect(after.getByRole('link', { name: 'Demo household', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 }

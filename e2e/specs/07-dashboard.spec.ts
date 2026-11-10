@@ -1,12 +1,15 @@
 import { dateFormatOf, expectDate, fillDate, inPattern, shownDay } from '../dates.ts'
 import { createTheBudget, inviteSomeoneNew, joinThroughTheLink } from '../family-steps.ts'
 import type { Locator } from '@playwright/test'
-import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session, type Watch } from '../fixtures.ts'
+import {
+  deleteAllMyData, expect, mainMenu, openSettings, shot, test, today, userMenu, wholeNumber, type Session, type Watch,
+} from '../fixtures.ts'
 
 // UX-1's dashboard with A (and B with the family budget on), every entry dated today:
 // 1. A's personal expense of 12.34 on Groceries; the dashboard opens in the base currency (D-297): no currency in the
 //    URL, the base currency's button pressed, and every report asked in BASE.
-// 2. A preset button (D-296) changes the URL and the range shown in From and To.
+// 2. A preset of the Period list (D-296, D-432) changes the URL and the range shown in From and To; the Balances card
+//    names its day, To (D-430, D-431).
 // 3. With E2E_FAMILY=on: A creates "Dashboard check" (Groceries merged in), invites B, who joins; A pays a family expense
 //    of 30.00. Since UX-6 (D-420) "Show" chooses the budget and "Records" the records: A's share of 15.00 is under the
 //    budget's "All records" and "My records", and not under "Personal", which keeps A's own 12.34; B's share is under
@@ -36,6 +39,11 @@ import { deleteAllMyData, expect, shot, test, today, wholeNumber, type Session, 
 //    budget in "Show" sets `scope=family&family=<id>` and shows "Records" at "All records"; "My records" and
 //    "Others’ records" change the scope and keep the budget; each asks the API for its scope; "Personal" hides
 //    "Records" again. A screenshot at 1280 px and at 375 px with the budget chosen.
+// 11. UX-7 (D-433 to D-438), on the demo: the main menu to Entries, which closes it; the user's menu to Settings, which
+//    opens Time zone, and each of Settings' parts by its own navigation; an old `/export` link lands on its part; with
+//    E2E_FAMILY=on, "Demo household" from the main menu, whose header has no main menu and no "New entry", and
+//    "← My finances" back. At 375 px the header is one row, each open panel inside the screen, nothing scrolls
+//    sideways; screenshots of both menus open.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -60,18 +68,26 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await expectAssetsTotalIsYouHave(a)
   await shot(page, 'dashboard-01-base')
 
-  // 2. A preset: the URL and the range.
-  const period = page.getByRole('group', { name: 'Period' })
-  await period.getByRole('button', { name: 'Previous month' }).click()
+  // 2. A preset: the URL and the range, and the day of the balances.
+  const period = page.getByRole('combobox', { name: 'Period' })
+  await expect(period).toHaveValue('this-month')
+  await period.selectOption({ label: 'Previous month' })
   await expect(page).toHaveURL(/[?&]period=previous-month(&|$)/)
-  await expect(period.getByRole('button', { name: 'Previous month' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(period).toHaveValue('previous-month')
   const [year, month] = day.split('-').map(Number)
   const first = new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 10)
   const last = new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10)
   await expectDate(page.getByLabel('From', { exact: true }), first)
   await expectDate(page.getByLabel('To', { exact: true }), last)
-  await period.getByRole('button', { name: 'This month' }).click()
+  await expect(page.getByRole('heading', { name: `Balances on ${shownDay(last, null)}`, exact: true })).toBeVisible()
+  await expect(page.getByLabel(/Balances on/)).toHaveCount(0)
+  await period.selectOption({ label: 'This month' })
   await expect(page).not.toHaveURL(/period=/)
+  await fillDate(page.getByLabel('From', { exact: true }), `${day.slice(0, 8)}02`)
+  await expect(period).toHaveValue('custom')
+  await expect(page).toHaveURL(/[?&]from=/)
+  await period.selectOption({ label: 'This month' })
+  await expect(page).not.toHaveURL(/[?&](from|period)=/)
 
   // 3. The scopes, with a family budget.
   if (family === 'on') {
@@ -104,7 +120,7 @@ test('dashboard', async ({ as, family, target, watch }) => {
   }
 
   // 4. The date format, shown and typed.
-  await page.goto('/settings')
+  await page.goto('/settings/date-format')
   const format = page.getByLabel(/^Show and type dates as/)
   await format.selectOption('DD.MM.YYYY')
   await expect(page.getByRole('status').filter({ hasText: 'Saved. Today shows as' }))
@@ -122,7 +138,7 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await date.fill('31.02.2026')
   await expect(page.getByRole('alert').filter({ hasText: 'Type a date as DD.MM.YYYY.' })).toBeVisible()
   await shot(page, 'dashboard-04-typed-date')
-  await page.goto('/settings')
+  await page.goto('/settings/date-format')
   await format.selectOption('browser')
   await expect(page.getByRole('status').filter({ hasText: 'Saved. Today shows as' }))
     .toHaveText(`Saved. Today shows as ${shownDay(day, null)}.`)
@@ -178,6 +194,9 @@ test('dashboard', async ({ as, family, target, watch }) => {
   // 10. The family budget chosen, and the shared icon (UX-6).
   if (family === 'on') await expectBudgetChosen(a)
 
+  // 11. The header's menus and Settings' parts (UX-7).
+  await expectHeaderMenus(a, family === 'on')
+
   await deleteAllMyData(a)
 })
 
@@ -190,9 +209,13 @@ function tenths(text: string | null): bigint | null {
   return shown.startsWith('\u2212') ? -value : value
 }
 
-/** D-398's change in tenths of a percent from cents, rounded half away from zero; null with nothing to compare. */
+/**
+ * D-398's change in tenths of a percent from cents, rounded half away from zero; null with nothing to compare, and
+ * (D-440) when the two figures have opposite signs.
+ */
 function changeInTenths(now: bigint, before: bigint | null): bigint | null {
   if (before === null || before === 0n) return null
+  if (now !== 0n && (now < 0n) !== (before < 0n)) return null
   const scaled = (now - before) * 2000n / (before < 0n ? -before : before)
   return (scaled + (scaled < 0n ? -1n : 1n)) / 2n
 }
@@ -288,14 +311,15 @@ function cents(text: string | null): bigint {
 
 /**
  * UX-3 (D-367, D-369): in the base currency, "Result for the period" is the Net of "Income and expenses", and the
- * equity lines add up to Equity's total. The period ends on Balances on, so the result's days are the Net's.
+ * equity lines add up to Equity's total. The period ends today, its To, the balances' day, so the result's days are the
+ * Net's (D-430).
  */
 async function expectEquityByPeriod({ page }: Session, from: string, to: string) {
   await page.goto(`/?from=${from}&to=${to}`)
   const totals = page.getByLabel('Totals in EUR')
   // The first dd is the amount; a second holds its changes (D-400).
   const net = totals.getByRole('term').filter({ hasText: /^Net$/ }).locator('xpath=following-sibling::dd[1]')
-  const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Balances' }) })
+  const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: /^Balances on / }) })
   const equity = balances.locator('table.by-type').filter({ has: page.getByRole('columnheader', { name: 'Equity' }) })
   const result = equity.locator('tr').filter({ has: page.getByRole('cell', { name: 'Result for the period', exact: true }) })
     .locator('td.amount')
@@ -435,7 +459,7 @@ async function expectAssetsTotalIsYouHave({ page }: Session) {
   if (new URL(page.url()).pathname !== '/') await page.goto('/')
   const headline = page.getByRole('region', { name: 'What you have and owe' })
   const youHave = headline.getByRole('term').filter({ hasText: /^You have$/ }).locator('xpath=following-sibling::dd')
-  const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Balances' }) })
+  const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: /^Balances on / }) })
   const assets = balances.locator('table.by-type').filter({ has: page.getByRole('columnheader', { name: 'Assets' }) })
     .locator('tfoot td')
   await expect(youHave).not.toHaveText('')
@@ -558,4 +582,77 @@ async function expectBudgetChosen({ page }: Session) {
   await expect(page).toHaveURL(/[?&]scope=personal(&|$)/)
   expect(new URL(page.url()).searchParams.has('family')).toBe(false)
   await expect(page.getByRole('group', { name: 'Records' })).toHaveCount(0)
+}
+
+/**
+ * UX-7 (D-433 to D-438): the main menu and the user's menu, Settings' parts, a family budget's header, and the header at
+ * 375 px: one row, each open panel inside the screen, no sideways scroll.
+ */
+async function expectHeaderMenus({ page }: Session, family: boolean) {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/')
+  const header = page.locator('header')
+  let menu = await mainMenu(page)
+  await expect(menu.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page')
+  if (family) await expect(menu.getByRole('link', { name: 'Demo household', exact: true })).toBeVisible()
+  await shot(page, 'dashboard-16-main-menu')
+  await menu.getByRole('link', { name: 'Entries' }).click()
+  await expect(page).toHaveURL(/\/entries$/)
+  await expect(page.getByRole('heading', { level: 2, name: 'Entries' })).toBeVisible()
+  await expect(header.locator('.menu-panel:visible')).toHaveCount(0)
+
+  // The user's menu to Settings, which opens Time zone; then each part by Settings' own navigation (D-438).
+  const user = await userMenu(page)
+  await expect(user.getByRole('button', { name: 'Log out' })).toBeVisible()
+  await shot(page, 'dashboard-17-user-menu')
+  await user.getByRole('link', { name: 'Settings' }).click()
+  await expect(page).toHaveURL(/\/settings\/time-zone$/)
+  await expect(page.getByRole('heading', { level: 3, name: 'Time zone' })).toBeVisible()
+  for (const [part, path] of [['Date format', 'date-format'], ['Import', 'import'], ['Export', 'export'],
+    ['Delete all my data', 'delete'], ['Time zone', 'time-zone']] as const) {
+    await openSettings(page, part)
+    await expect(page).toHaveURL(new RegExp(`/settings/${path}$`))
+    await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Settings'])
+  }
+  // An old link to Export lands on its part, with its query (D-438).
+  await page.goto('/export?from=2026-01-01')
+  await expect(page).toHaveURL(/\/settings\/export\?from=2026-01-01$/)
+  await expect(page.getByTestId('export-summary')).toBeVisible()
+
+  if (family) {
+    await page.goto('/')
+    await (await mainMenu(page)).getByRole('link', { name: 'Demo household', exact: true }).click()
+    await expect(page.getByRole('heading', { level: 2, name: 'Demo household' })).toBeVisible()
+    // Inside the budget (D-435, D-436): "← My finances", no main menu, no "New entry"; the user's menu stays.
+    await expect(header.locator('.main-menu')).toHaveCount(0)
+    await expect(header.getByRole('link', { name: 'New entry' })).toHaveCount(0)
+    await expect(header.locator('.user-menu')).toBeVisible()
+    await shot(page, 'dashboard-18-family-header')
+    await header.getByRole('link', { name: '← My finances' }).click()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(header.locator('.main-menu')).toBeVisible()
+  }
+
+  // At a phone's width: one row, each panel inside the screen, nothing sideways.
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/')
+  await expect(page.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeVisible()
+  const tops = await header.locator('.main-menu > button, .header-end > a, .user-menu > button')
+    .evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().top)))
+  expect(tops, 'the header is one row: the main button, "New entry", the user’s button').toHaveLength(3)
+  expect(new Set(tops).size, 'the header is one row').toBe(1)
+  for (const [open, name] of [[mainMenu, 'main'], [userMenu, 'user']] as const) {
+    menu = await open(page)
+    const box = (await menu.boundingBox())!
+    const width = await page.evaluate(() => document.documentElement.clientWidth)
+    expect(box.x, `the ${name} menu's left edge on the screen`).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width, `the ${name} menu's right edge on the screen`).toBeLessThanOrEqual(width)
+    const { scroll, client } = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+    }))
+    expect(scroll, `the page with the ${name} menu open at 375 px`).toBeLessThanOrEqual(client)
+    await shot(page, `dashboard-19-${name}-menu-narrow`)
+    await page.keyboard.press('Escape')
+  }
+  await page.setViewportSize({ width: 1280, height: 900 })
 }

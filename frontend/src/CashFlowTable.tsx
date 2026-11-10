@@ -23,7 +23,7 @@ export default function CashFlowTable({ table }: { table: Table }) {
       <Amount amount={line.amounts[0]} currency={table.currency} rounded={table.converted} signed={signed} />
       {comparisons.map((column, i) => {
         const before = line.amounts[i + 1]
-        const change = changeOf(line.amounts[0], before)
+        const change = changeOf(line.amounts[0], before, line.key === 'net')
         const effect = line.good === null ? null : effectOf(change, line.good)
         return [
           <Amount key={column.key} amount={before} currency={table.currency} rounded={table.converted} signed={signed}

@@ -137,15 +137,15 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
 
   return (
     <>
-      <h2>Import</h2>
+      <h3>Import</h3>
       <p className="muted">
-        Import your transactions file: the Excel ledger’s CSV export, or this app’s own (<Link to="/export">Export</Link>).
+        Import your transactions file: the Excel ledger’s CSV export, or this app’s own (<Link to="/settings/export">Export</Link>).
         {' '}<strong>Check</strong> runs the whole import, checks your ledger against the file, and then undoes it, so you
         can see what it would do. <strong>Commit</strong> saves it, all or nothing. Rows imported before are recognised by
         their IDs and never written twice.
       </p>
       <form className="import" onSubmit={(e) => { e.preventDefault(); void send(true) }}>
-        <h3>Your file</h3>
+        <h4>Your file</h4>
         <div className="fields">
           <label className="field">
             <span className="label">Transactions</span>
@@ -181,7 +181,7 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
         </div>
         {families && (
           <>
-            <h3>Family budget</h3>
+            <h4>Family budget</h4>
             <p className="muted">
               Your family rows go into a family budget. Its owner imports his rows with the partner’s, into the place of a
               member without an account, until someone takes that place; then each of you imports his own files.
@@ -279,11 +279,11 @@ function Report({ report }: { report: ImportReport }) {
   const refs = report.referenceData
   return (
     <section className="report">
-      <h3 data-testid="report-kind" className={report.outcome === 'COMMITTED' ? 'success' : ''}>
+      <h4 data-testid="report-kind" className={report.outcome === 'COMMITTED' ? 'success' : ''}>
         {report.outcome === 'DRY_RUN' ? 'Check (dry run): nothing was saved'
           : report.outcome === 'COMMITTED' ? 'Commit: the import was saved'
             : 'Commit refused: nothing was saved'}
-      </h3>
+      </h4>
       {report.outcome === 'DRY_RUN' && (
         <p className={report.errors.length === 0 ? 'success' : 'notice'} role="status">
           Dry run: nothing was saved. {report.errors.length > 0
@@ -389,7 +389,7 @@ function Reconciliation({ reconciliation: r }: { reconciliation: ImportReconcili
   const failing = r.lines.filter((l) => l.failed > 0)
   return (
     <section className="reconciliation">
-      <h3>Your ledger against the file</h3>
+      <h4>Your ledger against the file</h4>
       <p className={r.passed ? 'success' : 'error-box'} role={r.passed ? 'status' : 'alert'}>
         {r.passed ? 'Passed' : 'Failed'}: {r.pointsCompared} month-end balances compared, from {r.from ? formatDate(r.from) : '–'} to
         {' '}{r.cutoff ? formatDate(r.cutoff) : '–'}, as movements since the day before the file’s first row; {r.rows.rows} rows checked,
@@ -515,7 +515,7 @@ function MemberRows({ member: m }: { member: ImportMemberSummary }) {
   const differing = m.benefitMonths.filter((b) => b.differs)
   return (
     <section className="member-import" data-testid="member-summary">
-      <h3>Your family rows</h3>
+      <h4>Your family rows</h4>
       <table className="import-totals">
         <tbody>
           <tr><td>Family records as imported before</td><td className="amount">{m.recordsUnchanged}</td></tr>

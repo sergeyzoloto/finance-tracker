@@ -9,8 +9,9 @@ import CashFlowTable from './CashFlowTable'
 import { lazyWithReload } from './chunkReload'
 import { Amounts, ErrorBoundary, Errors, Loading, ToggleGroup } from './components'
 import {
-  baseEquitySplit, belowMinorUnit, cashFlowTables, changeText, chartByMonth, compareColumns, comparisons, compareTables,
-  convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawable, drawnComparison, effectOf, equitySplits, familyDebts,
+  balancesDay, baseEquitySplit, belowMinorUnit, cashFlowTables, changeText, chartByMonth, compareColumns, comparisons,
+  compareTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawable, drawnComparison, effectOf, equitySplits,
+  familyDebts,
   inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING,
   missingDays, monthPairs, monthsBetween, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
   recordsOf, resultRange, scopeFromQuery, scopeParams, showOf, showOptions, showsOwnCurrencies, totalChanges,
@@ -80,7 +81,9 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
   const flowPath = (range: DayRange | undefined) =>
     range === undefined ? null : `/reports/cash-flow?from=${range.from}&to=${range.to}${scopeParams(chosen)}`
 
-  const asOf = `asOf=${period.asOf}`
+  // Balances, net worth, loans and the family settlement as of the period's To, or today while it runs (D-430, D-443).
+  const day = balancesDay(period, today)
+  const asOf = `asOf=${day}`
   const each = (path: string) => (inBase ? null : path)
   const base = (path: string | null) => (inBase && path !== null ? `${path}&currency=BASE` : null)
   const settings = useApi<Settings>('/settings')
@@ -106,9 +109,9 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
   const secondFlow = useApi<CashFlowRow[]>(secondPath && each(secondPath))
   const secondBase = useApi<ConvertedCashFlow>(base(secondPath))
   const months = compared ? monthsBetween(compared.section.from, compared.section.to) : []
-  // "Result for the period" in the Balances card (D-367): income and expenses under All, from From to Balances on or
-  // To, if earlier; the page's own load when that is the same request.
-  const range = resultRange(period)
+  // "Result for the period" in the Balances card (D-367, D-430, D-443): income and expenses under All, from From to the
+  // balances' day; the page's own load when that is the same request.
+  const range = resultRange(period, today)
   const resultPath = range && `/reports/cash-flow?from=${range.from}&to=${range.to}`
   const sameAsPage = resultPath !== null && resultPath === cashFlowPath
   const ownResult = useApi<CashFlowRow[]>(sameAsPage ? null : resultPath && each(resultPath))
@@ -151,7 +154,7 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
     change(next)
     setParams(next)
   }
-  // A new period shows balances as of its end again.
+  // A choice of the Period list (D-432); an old link's `asOf` goes with it (D-430).
   const choose = (choice: PeriodChoice) => update((next) => {
     next.delete('asOf')
     next.delete('from')
@@ -166,7 +169,6 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
     next.set('to', period.to)
     next.set(key, day)
   })
-  const setAsOf = (day: string) => update((next) => (day ? next.set('asOf', day) : next.delete('asOf')))
   const setInBase = (on: boolean) => update((next) => (on ? next.delete('currency') : next.set('currency', 'each')))
   const setShow = (show: string) => setParams(withShow(params, show))
   const setRecords = (records: Records) => setParams(withRecords(params, records))
@@ -183,18 +185,18 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
         lent: lent.data, borrowed: borrowed.data, accounts: balances.data,
         family: familyDebts(balances.data, null, shared.data[0]?.accountId ?? null),
       } }
+  // D-431: the Balances card names its day, as "Income and expenses" names its period.
+  const balancesTitle = <>Balances <span className="muted period">on {formatDate(day)}</span></>
   const scopeFamilies = chosen.family === null ? families ?? [] : (families ?? []).filter((f) => f.id === chosen.family)
 
   return (
     <>
       <div className="page-title">
         <h2>Dashboard</h2>
-        <label className="as-of">Balances on <DateInput value={period.asOf} onChange={setAsOf} /></label>
       </div>
       <div className="controls">
-        <ToggleGroup label="Period" value={period.choice === 'custom' ? null : period.choice} onChange={choose}
-          options={PRESETS.map((p) => ({ value: p, label: PERIOD_LABELS[p] }))} />
         <div className="period-days">
+          <PeriodList choice={period.choice} onChoose={choose} />
           <label>From <DateInput value={period.from} onChange={(day) => setDay('from', day)} /></label>
           <label>To <DateInput value={period.to} onChange={(day) => setDay('to', day)} /></label>
         </div>
@@ -249,10 +251,10 @@ function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
 
       <div className="dashboard">
         {inBase
-          ? <Card title="Balances" state={both(both(baseBalances, baseNetWorth), both(balances, baseResult))}>
+          ? <Card title={balancesTitle} state={both(both(baseBalances, baseNetWorth), both(balances, baseResult))}>
             {([[rows, worth], [own, flow]]) => <BaseBalancesByType balances={rows} worth={worth} own={own} result={flow} />}
           </Card>
-          : <Card title="Balances" state={both(balances, result)}>
+          : <Card title={balancesTitle} state={both(balances, result)}>
             {([rows, flow]) => <BalancesByType balances={rows} result={flow} />}
           </Card>}
         <Card title="Open loans" state={loans}>
@@ -272,6 +274,25 @@ function both<A, B>(a: Loaded<A>, b: Loaded<B>): Loaded<[A, B]> {
     error: a.error ?? b.error,
     loading: a.loading || b.loading,
   }
+}
+
+/**
+ * The period as a native list (D-432): the presets in D-296's order, then "Custom", which can't be chosen and is shown
+ * chosen while From and To are a custom range, as on the Entries page. A choice does what its button did.
+ */
+function PeriodList({ choice, onChoose }: { choice: PeriodChoice; onChoose: (choice: PeriodChoice) => void }) {
+  return (
+    <label>
+      Period{' '}
+      <select value={choice} onChange={(e) => {
+        const value = e.target.value as PeriodChoice
+        if (value !== 'custom') onChoose(value)
+      }}>
+        {PRESETS.map((p) => <option key={p} value={p}>{PERIOD_LABELS[p]}</option>)}
+        <option value="custom" disabled>{PERIOD_LABELS.custom}</option>
+      </select>
+    </label>
+  )
 }
 
 /** A widget. While it reloads, the previous figures stay, dimmed, so nothing jumps. */
@@ -520,7 +541,7 @@ function UsedRates({ rates }: { rates: Rate[] }) {
 const RESERVE_LABEL = 'Accumulated reserve'
 const RESULT_LABEL = 'Result for the period'
 const RESERVE_HINT = 'Your equity accounts’ balance before the period, with what you moved to or from them in it'
-const RESULT_HINT = 'Income less expenses from the period’s start to Balances on: the Net of Income and expenses'
+const RESULT_HINT = 'Income less expenses from the period’s start to the balances’ day: the Net of Income and expenses'
 
 /**
  * The accounts by type, in the base currency, with a total per type. The totals are net worth's figures (D-348): each
@@ -528,7 +549,7 @@ const RESULT_HINT = 'Income less expenses from the period’s start to Balances 
  * the rows, each rounded on its own, may then differ from their total by a few minor units, which a note says. An
  * archived account is listed while one of its own amounts doesn't round to 0 (D-355, D-364). Equity shows, in place of
  * the accounts other than OPENING_BALANCE and FX_EXCHANGE, "Accumulated reserve" and "Result for the period" (D-367,
- * D-369): the result at each posting's own day's rate, the reserve the rest at the rate on Balances on, so the lines
+ * D-369): the result at each posting's own day's rate, the reserve the rest at the rate on the balances' day, so the lines
  * add up to net worth and the reserve includes the revaluation, as a note says.
  *
  * @param own the balances in their own currencies, for D-364's test

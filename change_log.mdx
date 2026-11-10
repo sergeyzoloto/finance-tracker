@@ -3,6 +3,64 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-10 · UX-7: the header's two menus, Settings in parts, the period as a list, balances as of To, D-429 to D-451
+
+Two commits on `feature/family-budget` on top of `628a255`: `e0a1830` "docs: UX-6's deploy recorded, D-429 (UX-7)",
+and the commit of this entry, "feat: the header's two menus, Settings in parts, the period as a list, balances as of
+To, the net's % across 0, the family budget named once in Entries, D-430 to D-451 (UX-7)". **Not pushed**; `main` not moved. Frontend only: no backend or API change, no migration (Flyway stays at V16), no stored
+data, import or export changed. Production read only: the server was never touched and `e2e:prod` never run.
+
+**Changes**
+- `e0a1830`: UX-6's deploy in the runbook's "Deployed revisions" (the run, its rollback acceptance, "CI on Ubuntu 26.04"
+  run #23) and "Production now" (`628a255` on V16, rollback target `18b86d0`), the images and dumps to 8 characters
+  as the PM's notes kept them (D-429); step 12's 12.1 and 12.10 on `verify UX-6`; CLAUDE.md's "Deployment" line; D-429.
+- D-433 to D-436, D-445: `Header.tsx` in place of `LedgerSwitcher`: the main menu (the pages, then the family budgets
+  and "New family budget…"), "New entry" and the user's menu (Settings, Log out); inside a family budget only
+  "← My finances" and the user's menu. One `Disclosure` (`aria-expanded`, `aria-controls`; Escape, a click outside, an
+  item and a route change close it; one open at a time); one row at 375 px.
+- D-437, D-438, D-446: Settings in parts, each its own page under `/settings/` (Time zone, Date format, Import, Export,
+  Delete all my data) with a `nav.subnav`; `/settings` opens Time zone; `/import` and `/export` redirect with their
+  query; Import's and Export's headings step down to one `h2` a page; EmptyLedger's, the Entries page's and Import's
+  links follow; the runbook's step 12 (12.3, 12.6) and `e2e/README.md` name the new place.
+- D-430, D-431, D-443: no "Balances on"; balances, net worth, loans and the family settlement as of To, or today while
+  the period runs (`dashboard.balancesDay`; an ECB rate counts only up to 7 days after its date, D-49, so a later day
+  would read "rate missing" in the base currency: the owner's answer to the agent's question); "Result for the period"
+  to that day; the Balances card names its day; an old link's `asOf` ignored.
+- D-432, D-444: the Period as a native list (`PeriodList`), "Custom" disabled and shown chosen for a custom range.
+- D-439, D-440, D-448: `changeOf(now, before, net)`: "—" where the two figures have opposite signs, and for the Net also
+  where either is 0; shared by the table, the totals and the chart's tooltip.
+- D-441, D-442, D-447: the Entries list names a row's family budget once, on the line under the category, after the
+  shared icon; categories without the budget's suffix and the row's own debt account as "Debt to family budget"
+  (`describeEntry`'s `inList`, `ledger.isDebtAccountOf`).
+- Tests: `UX7.test.tsx` (new), `testHeader.ts`; `dashboard.test.ts`, `compare.test.ts`, `Dashboard.test.tsx`,
+  `UX3.test.tsx`, `UX5.test.tsx`, `FamilyRows.test.tsx` and the tests that went through the switcher, the header's
+  links or Settings. End to end (D-449): `fixtures.ts`'s `mainMenu`, `userMenu` and `openSettings`; every spec through
+  the menus and Settings' parts; `07-dashboard`'s step 2 on the Period list and its new step 11.
+- `deploy/checks/UX-7.sql` and `UX-7.expected` (9 lines, D-450); `deploy/RUNBOOK.md`, "UX-7's deploy checklist with the
+  suite"; `requirements.md` D-429 to D-451 and the planned stage; CLAUDE.md.
+- `demo-dashboard.webp` unchanged: it starts at the headline row and shows none of the controls UX-7 changes.
+
+**Verified**
+- `git fetch origin`: `main` = `origin/main` = `feature/family-budget` = `origin/feature/family-budget` = `628a255`,
+  the tree clean, before the work.
+- `cd frontend && npm test`: exit 0, "Test Files 42 passed (42)", "Tests 548 passed (548)". `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, tests 37, pass 37, fail 0; `npx tsc --noEmit`: exit 0.
+  `E2E_FAMILY=on npm run e2e:local` on `./dev.sh` with the working tree: exit 0, every spec passed at 1280 and 375 px
+  (26 tests), cleanup passed, "Password search over the artifacts: 0 hits", "Result: PASSED".
+- The backend's suite wasn't run: nothing under `backend/` changed.
+- Section 4, on production's dump `finance-2026-11-10T0231Z.dump` through `scripts/rehearsal-db.sh` (removed
+  afterwards), on `628a255` and on the working tree: the owner's family rows of 2026-10-30 and 2026-10-31 name the
+  budget once (four or two times before); eight presets' Net "—" where it crossed 0, none "rate missing" (D-451);
+  `UX-7.sql` equal to `UX-7.expected`; screenshots in `data/private/reports/UX-7/`.
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+
+**Open**
+- UX-7's deploy by its checklist, M this commit; the web image new, the api from cache; the rollback target `628a255`,
+  no condition. Its pre-flight prints UX-6's images in full, for UX-6's row (D-429).
+- D-443 changes D-430 for a running period, on the owner's answer; D-444 to D-451 are the agent's, for the PM to
+  confirm. D-451: the Entries filter's selects scroll sideways at 375 px on the owner's names, before and after UX-7.
+- Push `feature/family-budget` (and `main`) when the PM says so.
+
 ## 2026-11-09 · UX-6: the scope chooses the family budget, a shared icon in the cash flow table, D-418 to D-428
 
 Two commits on `feature/family-budget` on top of `18b86d0`: `17f2a7e` "docs: UX-5's deploy recorded, D-418 (UX-6)",

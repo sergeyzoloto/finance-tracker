@@ -102,21 +102,36 @@ export interface EntrySummary {
   direction: -1 | 0 | 1
 }
 
+/** The short name of an entry's own debt account in the Entries list (D-442). */
+export const DEBT_SHORT_NAME = 'Debt to family budget'
+
+/**
+ * Whether an account is the debt account of family budget `ledgerId` (D-442): the system account whose code is
+ * `FAMILY_DEBT_<ledgerId>`, or that code with `_2`, `_3`…, as the backend's `CrossLedgerWriter.debtAccount` names it.
+ */
+export const isDebtAccountOf = (account: { code: string; system: boolean }, ledgerId: number) =>
+  account.system && new RegExp(`^FAMILY_DEBT_${ledgerId}(?:_[0-9]+)?$`).test(account.code)
+
 /**
  * Reads an entry from its postings alone, whatever its kind (rule 6). Categorized postings stand for the income or
  * expense they record, so an expense reads "account → category" and an income "category → account". Postings to
  * FX_EXCHANGE, which only let each currency of an exchange balance, are left out.
+ *
+ * @param inList for the Entries list, whose row names its family budget once, on the line under the category (D-442):
+ * categories without " · <budget>", and the row's own debt account as "Debt to family budget"
  */
-export function describeEntry(entry: Entry, ledger: Ledger): EntrySummary {
+export function describeEntry(entry: Entry, ledger: Ledger, inList = false): EntrySummary {
   const fx = accountWithCode(ledger, FX_EXCHANGE)?.id
   const shown = entry.postings.some((p) => p.accountId !== fx)
     ? entry.postings.filter((p) => p.accountId !== fx) : entry.postings
   const label = (p: Entry['postings'][number]) => {
     if (p.categoryId !== null) {
       const category = categoryById(ledger, p.categoryId)
-      return category ? categoryLabel(category) : 'Unknown category'
+      return category ? (inList ? category.name : categoryLabel(category)) : 'Unknown category'
     }
-    const account = accountById(ledger, p.accountId)?.name ?? 'Unknown account'
+    const found = accountById(ledger, p.accountId)
+    const ownDebt = inList && found && entry.family && isDebtAccountOf(found, entry.family.ledgerId)
+    const account = ownDebt ? DEBT_SHORT_NAME : found?.name ?? 'Unknown account'
     const counterparty = counterpartyById(ledger, p.counterpartyId)?.name
     return counterparty ? `${account} (${counterparty})` : account
   }

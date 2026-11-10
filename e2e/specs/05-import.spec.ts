@@ -53,7 +53,7 @@ test('import', async ({ as, family }) => {
   const ledgerId = ledgerIdOf(page)
 
   // 2. The file, the budget, the place, and the partner's file filtered here.
-  await page.goto('/import')
+  await page.goto('/settings/import')
   await expect(page.getByRole('heading', { name: 'Import', exact: true })).toBeVisible()
   await page.locator('input[name="transactions"]').setInputFiles(file('transactions.csv'))
   await expect(page.getByTestId('file-rows')).toHaveText('Your transactions file: 25 rows, counted as the import '

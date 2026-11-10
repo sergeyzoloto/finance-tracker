@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { menuBudgets } from './testHeader'
 import type { Account, Category, FamilyLedger, FamilyMember, FamilyRecord, InviteLookup, Me } from './api'
 import { inOpeningBalance, sharers, takesPart } from './expenseForm'
 import { savePendingInvite } from './invite'
@@ -145,11 +146,11 @@ describe('a claimed seat in the record form (D-35)', () => {
 })
 
 describe('the last member with an account leaving (D-36)', () => {
-  it('says the budget and its records will be deleted, and leaves the switcher without it at once', async () => {
+  it('says the budget and its records will be deleted, and leaves the main menu without it at once', async () => {
     const owner: FamilyLedger = { ...home, role: 'OWNER', memberId: 70 }
     const kid: FamilyMember = { ...gran, id: 71, displayName: 'Kid', joinDate: '2026-09-01' }
     const calls = budget([anna, kid], {
-      // The switcher's list: Home, then never again, so that what it shows after leaving is the app's own.
+      // The main menu's list: Home, then never again, so that what it shows after leaving is the app's own.
       'GET /api/family-ledgers': [{ status: 200, body: [owner] }, 'pending'],
       'GET /api/family-ledgers/7/balances': { status: 200, body: euroBalances([
         { memberId: 70, displayName: 'Anna', status: 'ACTIVE', hasAccount: true, balance: '0.00', you: true },
@@ -167,8 +168,8 @@ describe('the last member with an account leaving (D-36)', () => {
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Leave and delete the family budget' }))
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'))
-    const switcher = screen.getByLabelText('Budget')
-    expect(within(switcher).getAllByRole('option').map((o) => o.textContent)).toEqual(['My finances', 'New family budget…'])
+    // The list's second load never answers, so this is the app's own update (a transition, D-36).
+    await waitFor(() => expect(menuBudgets()).toEqual(['New family budget…']))
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).toEqual(['/api/family-ledgers/7/members/me'])
   })
 })
@@ -226,7 +227,7 @@ describe('a return with entries of its own after it (D-37)', () => {
   })
 })
 
-describe('the switcher right after accepting an invite (F6b)', () => {
+describe('the main menu right after accepting an invite (F6b)', () => {
   it('lists the family budget at once, with no placeholder', async () => {
     savePendingInvite(TOKEN)
     const joined: FamilyLedger = { ...home, memberId: 72 }
@@ -239,16 +240,15 @@ describe('the switcher right after accepting an invite (F6b)', () => {
       'GET /api/family-ledgers/7/records?page=0&size=5': EMPTY_PAGE,
     })
     renderApp({ ...ON, name: 'Ben' }, '/invite')
-    // The page's own list has been answered (a user sees the switcher before they accept); a late answer would
+    // The page's own list has been answered (a user sees the menu before they accept); a late answer would
     // otherwise replace what accepting added.
     await waitFor(() => expect(calls.some((c) => c.url === '/api/family-ledgers')).toBe(true))
-    await screen.findByLabelText('Budget')
+    await waitFor(() => expect(menuBudgets()).toEqual(['New family budget…']))
     fireEvent.click(await screen.findByRole('button', { name: 'Accept' }))
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7'))
-    const switcher = screen.getByLabelText('Budget') as HTMLSelectElement
-    expect(switcher.value).toBe('7')
-    expect(within(switcher).getAllByRole('option').map((o) => o.textContent))
-      .toEqual(['My finances', 'Home', 'New family budget…'])
+    // Inside the budget its header has "← My finances" (D-435); back in My finances, the menu lists it.
+    fireEvent.click(screen.getByRole('link', { name: '← My finances' }))
+    expect(menuBudgets()).toEqual(['Home', 'New family budget…'])
   })
 })

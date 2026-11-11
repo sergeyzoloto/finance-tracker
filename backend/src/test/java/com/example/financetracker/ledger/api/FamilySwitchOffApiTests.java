@@ -3,6 +3,7 @@ package com.example.financetracker.ledger.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -22,6 +23,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
@@ -37,6 +40,9 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
 
     @Autowired
     private ApplicationContext context;
+
+    @Autowired
+    private PlatformTransactionManager transactions;
 
     private final String user = newUser();
 
@@ -234,5 +240,66 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
             }
         }
         return endpoints;
+    }
+    /**
+     * UX-8 (D-457): with family budgets off, New entry's similar entries hold no family row, here a payment of a family
+     * expense from a time the switch was on (written with plain SQL as the posting service writes it), and the old
+     * shared expense counts as an expense.
+     */
+    @Test
+    void similarEntriesHoldNoFamilyRowAndTheOldSharedExpense() throws IOException {
+        ok(get(user, "/api/accounts"));
+        long cash = find(ok(get(user, "/api/accounts")), "code", "CASH").get("id").asLong();
+        long eatingOut = categoryId(user, "EATING_OUT");
+        long shared = newEntry(user, """
+                {"kind": "SHARED_EXPENSE", "entryDate": "2026-09-02", "accountId": %d, "currency": "EUR",
+                 "total": "40.01", "categoryId": %d}""".formatted(cash, eatingOut)).get("id").asLong();
+        long own = newEntry(user, """
+                {"kind": "EXPENSE", "entryDate": "2026-09-03", "accountId": %d, "currency": "EUR",
+                 "amount": "40.02", "categoryId": %d}""".formatted(cash, eatingOut)).get("id").asLong();
+
+        long family = jdbc.sql("INSERT INTO ledger (type, name, base_currency, split_rule, start_date) "
+                + "VALUES ('SHARED', 'Home', 'EUR', 'EQUAL', DATE '2026-09-01') RETURNING id").query(Long.class).single();
+        long member = join(family, user, "Me", "OWNER", LocalDate.of(2026, 9, 1));
+        long personal = jdbc.sql("SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'")
+                .param(user).query(Long.class).single();
+        long payment = new TransactionTemplate(transactions).execute(status -> {
+            jdbc.sql("SELECT set_config('app.writer', 'family-posting', true), "
+                    + "set_config('app.own_ledger', ?, true)").param(String.valueOf(personal)).query().listOfRows();
+            long category = jdbc.sql("INSERT INTO category (ledger_id, code, name, type) "
+                    + "VALUES (?, 'HOME_FOOD', 'Food', 'EXPENSE') RETURNING id").param(family).query(Long.class)
+                    .single();
+            long debt = jdbc.sql("""
+                    INSERT INTO account (user_id, ledger_id, code, name, type, is_system, default_currency,
+                                         family_ledger_id)
+                    VALUES (?, ?, ?, 'Debt to family budget: Home', 'LIABILITY', true, 'EUR', ?) RETURNING id""")
+                    .params(user, personal, "FAMILY_DEBT_" + family, family).query(Long.class).single();
+            long record = jdbc.sql("""
+                    INSERT INTO family_record (ledger_id, type, record_date, category_id, payer_member_id,
+                        original_amount, original_currency, base_amount, split_method, author_member_id,
+                        updated_by_member_id)
+                    VALUES (?, 'EXPENSE', DATE '2026-09-10', ?, ?, 40.03, 'EUR', 40.03, 'EQUAL', ?, ?) RETURNING id""")
+                    .params(family, category, member, member, member).query(Long.class).single();
+            jdbc.sql("INSERT INTO family_share (ledger_id, record_id, member_id, amount, updated_by_member_id) "
+                    + "VALUES (?, ?, ?, 40.03, ?)").params(family, record, member, member).update();
+            long entry = jdbc.sql("INSERT INTO journal_entry (user_id, ledger_id, entry_date, kind) "
+                    + "VALUES (?, ?, DATE '2026-09-10', 'FAMILY_PAYMENT') RETURNING id").params(user, personal)
+                    .query(Long.class).single();
+            jdbc.sql("INSERT INTO posting (entry_id, line_no, account_id, currency, amount) VALUES (?, 0, ?, 'EUR', ?)")
+                    .params(entry, cash, new BigDecimal("-40.03")).update();
+            jdbc.sql("INSERT INTO posting (entry_id, line_no, account_id, currency, amount) VALUES (?, 1, ?, 'EUR', ?)")
+                    .params(entry, debt, new BigDecimal("40.03")).update();
+            jdbc.sql("INSERT INTO family_entry_link (entry_id, family_ledger_id, member_id, record_id, link_type, "
+                    + "system_owned) VALUES (?, ?, ?, ?, 'PAYMENT', false)").params(entry, family, member, record)
+                    .update();
+            return entry;
+        });
+
+        JsonNode answer = ok(get(user, "/api/entries/matches?type=EXPENSE&amount=40&currency=EUR"));
+        List<Long> ids = new ArrayList<>();
+        answer.get("content").forEach(item -> ids.add(item.get("entry").get("id").asLong()));
+        assertThat(ids).containsExactly(own, shared).doesNotContain(payment);
+        assertThat(ok(get(user, "/api/entries/matches?type=EXPENSE&accountId=" + cash)).get("totalElements")
+                .asLong()).isEqualTo(2);
     }
 }

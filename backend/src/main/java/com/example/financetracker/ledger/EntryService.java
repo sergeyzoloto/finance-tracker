@@ -224,7 +224,7 @@ public class EntryService {
     }
 
     /** An entry's own columns, without its postings; {@link #withPostings} adds them. */
-    private static EntryView header(ResultSet row, int rowNum) throws SQLException {
+    static EntryView header(ResultSet row, int rowNum) throws SQLException {
         String kind = row.getString("kind");
         return new EntryView(row.getLong("id"), row.getInt("version"), row.getObject("entry_date", LocalDate.class),
                 kind == null ? null : EntryKind.valueOf(kind), row.getObject("payee_id", Long.class),
@@ -232,7 +232,7 @@ public class EntryService {
     }
 
     /** The entries of the ledger with their postings in order, which are read in one query for all of them. */
-    private List<EntryView> withPostings(LedgerScope ledger, List<EntryView> headers) {
+    List<EntryView> withPostings(LedgerScope ledger, List<EntryView> headers) {
         if (headers.isEmpty()) {
             return headers;
         }

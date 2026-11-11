@@ -89,7 +89,12 @@ class DataIsolationApiTests extends LedgerApiTest {
             "/api/rates/manual",
             "/api/settings",
             "/api/export/summary",
-            "/api/export/summary" + AUGUST);
+            "/api/export/summary" + AUGUST,
+            // UX-8 (D-463): an amount of "0" in EUR finds every amount under 1 and every amount written with a 0.
+            "/api/entries/matches?type=EXPENSE&amount=0&currency=EUR&size=50",
+            "/api/entries/matches?type=INCOME&amount=0&currency=EUR&size=50",
+            "/api/entries/matches?type=EXPENSE&payee=landlord",
+            "/api/entries/matches?type=EXPENSE&memo=shop");
 
     /** The mapped endpoints that hold nothing of any user's, so that there is nothing to isolate, with the reason. */
     private static final Map<String, String> NOT_USER_SCOPED = Map.of(
@@ -309,6 +314,15 @@ class DataIsolationApiTests extends LedgerApiTest {
             JsonNode found = bobReads("/api/entries?" + filter.formatted(id));
             softly.assertThat(found.get("totalElements").asLong()).as(filter).isZero();
             softly.assertThat(found).as(filter).isEqualTo(ok(get(bob, "/api/entries?" + filter.formatted(MISSING))));
+            if (!filter.startsWith("counterparty")) {
+                // UX-8: and as a criterion of the similar entries, of either type.
+                for (String type : List.of("EXPENSE", "INCOME")) {
+                    String matches = "/api/entries/matches?type=" + type + "&" + filter;
+                    JsonNode similar = bobReads(matches.formatted(id));
+                    softly.assertThat(similar.get("totalElements").asLong()).as(matches).isZero();
+                    softly.assertThat(similar).as(matches).isEqualTo(ok(get(bob, matches.formatted(MISSING))));
+                }
+            }
         }
         softly.assertThat(body(bobsRequest(HttpMethod.GET, "/api/reports/counterparty-balances?accountCode=ALICE_LOANS",
                 null), HttpStatus.NOT_FOUND).get("detail").asText()).isEqualTo("Account ALICE_LOANS not found.");
@@ -824,6 +838,14 @@ class DataIsolationApiTests extends LedgerApiTest {
             Answers.assertNoneMention(read, ok(get(alice, inA + read)), "ALICE_PRIVATE");
         }
         assertThat(ok(get(alice, inA + "/records")).get("content").findValues("yourPayment")).hasSize(2);
+        // UX-8 (D-457): her payments are her similar entries, never Bob's, by her note, its amount or her account.
+        assertThat(ok(get(alice, "/api/entries/matches?type=EXPENSE&memo=ALICE_PRIVATE")).get("totalElements")
+                .asLong()).isEqualTo(2);
+        for (String criterion : List.of("memo=ALICE_PRIVATE", "amount=65.43", "amount=60&currency=EUR",
+                "accountId=" + alicesBank, "categoryId=" + groceriesInA)) {
+            assertThat(bobReads("/api/entries/matches?type=EXPENSE&" + criterion).get("totalElements").asLong())
+                    .as(criterion).isZero();
+        }
         assertThat(paid.get("yourPayment").get("amount").asText() + " " + paid.get("yourPayment").get("currency")
                 .asText()).isEqualTo("65.43 USD");
 

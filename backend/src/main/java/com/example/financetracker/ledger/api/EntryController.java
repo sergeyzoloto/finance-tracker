@@ -4,10 +4,14 @@ import java.net.URI;
 import java.time.LocalDate;
 
 import com.example.financetracker.ledger.EntryFilter;
+import com.example.financetracker.ledger.EntryMatchFilter;
+import com.example.financetracker.ledger.EntryMatchPage;
+import com.example.financetracker.ledger.EntryMatchService;
 import com.example.financetracker.ledger.EntryPage;
 import com.example.financetracker.ledger.EntryService;
 import com.example.financetracker.ledger.EntryView;
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.domain.EntryCommand;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -35,9 +39,11 @@ import org.springframework.web.bind.annotation.RestController;
 class EntryController {
 
     private final EntryService entries;
+    private final EntryMatchService matches;
 
-    EntryController(EntryService entries) {
+    EntryController(EntryService entries, EntryMatchService matches) {
         this.entries = entries;
+        this.matches = matches;
     }
 
     /**
@@ -61,6 +67,32 @@ class EntryController {
             @RequestParam(defaultValue = "50") @Min(1) @Max(200) int size) {
         return entries.search(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q), page,
                 size);
+    }
+
+    /**
+     * The user's earlier expenses or incomes like the one being typed on New entry (UX-8, D-463), newest first. Every
+     * criterion given must match, and at least one is needed (400 otherwise); a text counts from 2 characters.
+     *
+     * @param type EXPENSE or INCOME
+     * @param payee words that must all appear in the entry's payee's name, in any case
+     * @param memo words that must all appear in the entry's memo, in any case
+     * @param accountId entries with a line on this account
+     * @param categoryId entries whose categorized line, or family record, has this category
+     * @param amount a plain decimal at or above 0: an amount whose characters contain it, or within 1 of it in
+     *        {@code currency}
+     * @param currency the form's currency; without it only the amount's characters count
+     */
+    @GetMapping("/matches")
+    EntryMatchPage matches(LedgerScope ledger, @RequestParam CategoryType type,
+            @RequestParam(required = false) @Size(max = 100) String payee,
+            @RequestParam(required = false) @Size(max = 100) String memo,
+            @RequestParam(required = false) Long accountId, @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) @Size(max = 20) String amount,
+            @RequestParam(required = false) @Size(max = 3) String currency,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(50) int size) {
+        return matches.matches(ledger, EntryMatchFilter.of(type, payee, memo, accountId, categoryId, amount, currency),
+                page, size);
     }
 
     @GetMapping("/{id}")

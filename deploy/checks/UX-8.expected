@@ -1,0 +1,23 @@
+flyway latest 16 user date format true
+case folded for Latin, Cyrillic and yo true, yo read as ye true
+column account.type character varying NO
+column category.type character varying NO
+column counterparty.name character varying NO
+column family_entry_link.detached_at timestamp with time zone YES
+column family_entry_link.link_type character varying NO
+column family_entry_link.member_id bigint NO
+column family_record.base_amount numeric NO
+column family_record.category_id bigint YES
+column family_record.currency character NO
+column family_record.deleted_at timestamp with time zone YES
+column family_record.type character varying NO
+column journal_entry.kind character varying YES
+column journal_entry.memo character varying YES
+column journal_entry.payee_id bigint YES
+column posting.amount numeric NO
+column posting.category_id bigint YES
+column posting.currency character NO
+column posting.line_no smallint NO
+payment links of a settlement 0
+categorized postings outside equity 0
+unbalanced entries 0

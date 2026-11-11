@@ -6,7 +6,7 @@ import {
   formFromEntry, newCounterpartyNames, newForm, serverErrors, TABS, tabOf, toCommand, type EntryForm, type Tab,
 } from './entryForm'
 import { EntryFormView } from './EntryForms'
-import { describeEntry, entryKindLabel, useLedger, type Ledger } from './ledger'
+import { counterpartyNamed, describeEntry, entryKindLabel, useLedger, type Ledger } from './ledger'
 import { useToday } from './me'
 import { formatMoney } from './money'
 import PaymentEntry from './PaymentEntry'
@@ -45,11 +45,13 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
   const tab = TABS.some((t) => t.tab === params.get('tab')) ? params.get('tab') as Tab : 'expense'
   const { form, simple } = entry.data ? formFromEntry(entry.data, ledger) : { form: newForm(ledger, today, tab), simple: true }
 
+  /** The ledger with the counterparties this page created that the reloaded list doesn't have yet. */
+  const withCreated = (): Ledger => ({
+    ...ledger!,
+    counterparties: [...ledger!.counterparties, ...created.current.filter((c) => !ledger!.counterparties.some((k) => k.id === c.id))],
+  })
+
   async function save(form: EntryForm, andNew: boolean) {
-    const withCreated = (): Ledger => ({
-      ...ledger!,
-      counterparties: [...ledger!.counterparties, ...created.current.filter((c) => !ledger!.counterparties.some((k) => k.id === c.id))],
-    })
     let current = withCreated()
     try {
       // Payees and borrowers typed for the first time become counterparties first.
@@ -74,10 +76,15 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
   }
 
   /** A family expense or income (C2), created through the family budget's endpoint as the family pages create one. */
-  async function saveFamily(ledgerId: number, request: object, andNew: boolean, newPayee?: string) {
-    // A payee typed for the first time becomes a counterparty first, as for any entry (D-81).
-    const payee = newPayee === undefined ? undefined : await api<Counterparty>('/counterparties', 'POST', { name: newPayee })
-    if (payee) reloadCounterparties()
+  async function saveFamily(ledgerId: number, request: object, andNew: boolean, payeeName: string) {
+    // A payee typed for the first time becomes a counterparty first, as for any entry (D-81), and is the one the next
+    // save of the same payee takes, before the reloaded list has it (D-462).
+    let payee = payeeName === '' ? undefined : counterpartyNamed(withCreated(), payeeName)
+    if (payeeName !== '' && !payee) {
+      payee = await api<Counterparty>('/counterparties', 'POST', { name: payeeName })
+      created.current.push(payee)
+      reloadCounterparties()
+    }
     await api(`/family-ledgers/${ledgerId}/records`, 'POST', payee ? { ...request, payeeId: payee.id } : request)
     if (!andNew) navigate(back)
   }
@@ -104,6 +111,7 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
         families={entry.data ? undefined : families}
         onSaveFamily={entry.data || !families ? undefined : saveFamily}
         familyBudgets={families !== undefined}
+        similar={!entry.data}
         notice={!simple && (
           <p className="notice">
             This entry doesn’t fit the {TABS.find((t) => t.tab === tabOf(entry.data!.kind))?.label} form, so it opens

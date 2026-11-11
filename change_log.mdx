@@ -3,6 +3,61 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-11 · UX-8: similar entries on New entry, Copy, "Save and add another" keeping the form, two fixes at 375 px, D-452 to D-474
+
+Two commits on `feature/family-budget` on top of `3d1fcb0`: `625405e` "docs: UX-7's deploy recorded, D-452 (UX-8)",
+and the commit of this entry, "feat: similar entries on New entry, Copy, Save and add another keeping the form, two
+fixes at 375 px, D-453 to D-474 (UX-8)". **Not pushed**; `main` not moved. One new read-only endpoint; no migration
+(Flyway stays at V16), no existing endpoint's answer, stored data, import or export changed. Production read only: the
+server was never touched and `e2e:prod` never run.
+
+**Changes**
+- `625405e`: UX-7's deploy in the runbook's "Deployed revisions" (the run, its rollback acceptance, "CI on Ubuntu 26.04"
+  run #24) and "Production now" (`3d1fcb0` on V16, rollback target `628a255`); UX-6's row completed with its images in
+  full from UX-7's pre-flight; step 12's 12.1 and 12.10 on `verify UX-7`; CLAUDE.md's "Deployment" line; D-452.
+- D-457 to D-459, D-463, D-465 to D-468: `GET /api/entries/matches` (`EntryController`, `EntryMatchService`,
+  `EntryMatchFilter`, `EntryMatch`, `EntryMatchPage`): the user's personal expenses or incomes and his own PAYMENT
+  links of live records while family budgets are on, each criterion given matching (payee and memo by words, case and
+  ё folded with `strpos`; the account; the categorized line's or the record's category; the amount by its characters
+  as written with its currency's decimals, or within 1 in `currency`), newest first, 10 a page; `EntryService.header`
+  and `withPostings` package-private for it.
+- D-453 to D-456, D-460, D-469: `similar.ts` (the form's criteria) and `SimilarEntries.tsx` ("Similar entries · n"
+  under New entry's form, 400 ms after the last change, an older answer dropped, "Show 10 more", the family line with
+  the shared icon, one muted line on a failure).
+- D-461, D-470: Copy (`copyPersonal`, `copyFamily`, `copySplit`): the form's date, and its amount and currency when
+  valid, kept; a family row with its budget, category, comment, refund, account, payee, note and split as a new
+  record's; an archived account or category left empty with a line; Advanced with its notice for an entry that
+  doesn't fit; no new search after it; focus on Amount.
+- D-462, D-471: "Save and add another" keeps every field, says so, focuses and selects Amount, and asks "Save the same
+  entry again?" for an unchanged form; `EntryEditor.saveFamily` reuses a payee the page created.
+- D-464, D-472: the Entries page's filter labels capped at the fieldset's width; under 40rem the user's button a person
+  icon (inline SVG), its accessible name and `title` the whole name, the name the panel's first line.
+- Tests: `EntryMatchApiTests` (new), `FamilySwitchOffApiTests.similarEntriesHoldNoFamilyRowAndTheOldSharedExpense`,
+  `DataIsolationApiTests` (four reads, Alice's ids and payments as criteria), `ApiTests` (the 401 list and the OpenAPI
+  paths); `UX8.test.tsx` (new, 34 tests); end to end `08-new-entry` (new, D-473), the specs' pattern `0[2-8]`,
+  `e2e/README.md`.
+- `deploy/checks/UX-8.sql` and `UX-8.expected` (23 lines, with the case-folding line D-458 relies on);
+  `deploy/RUNBOOK.md`, "UX-8's deploy checklist with the suite"; `requirements.md` D-453 to D-474 and the planned
+  stage; CLAUDE.md.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: exit 0, `Tests run: 650, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- `cd frontend && npm test`: exit 0, `Test Files 43 passed (43)`, `Tests 582 passed (582)`, no Errors line;
+  `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, 37 tests, 37 pass, 0 fail.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local`: exit 0, every spec passed at 1280 and 375 px (`dashboard` and
+  `new-entry` included), cleanup passed, 0 password hits, `Result: PASSED`. Its first run found two faults that the
+  unit tests had missed, both fixed before the second: the amount's SQL clause, a text block, lost its leading space,
+  so a payee or memo with an amount answered 500 (`EntryMatchApiTests` now covers that pair); and the icon-only user
+  button was shorter than the header's others, which `07-dashboard`'s one-row check caught.
+- Section 4 on `finance-2026-11-10T0231Z.dump` (D-474): six searches, medians 68 to 191 ms; the copy's fields; no
+  sideways scroll at 375 px; `UX-8.sql` equal to `UX-8.expected`. Screenshots in `data/private/reports/UX-8/`.
+
+**Open**
+- The PM's review and acceptance; then the push, and the deploy by "UX-8's deploy checklist with the suite".
+- Typos in a search aren't forgiven (D-458): `pg_trgm` would be a later stage, with a migration.
+- Transfer, Loan, Currency exchange and Advanced show no similar entries (D-456): a later stage if the owner asks.
+
 ## 2026-11-10 · UX-7: the header's two menus, Settings in parts, the period as a list, balances as of To, D-429 to D-451
 
 Two commits on `feature/family-budget` on top of `628a255`: `e0a1830` "docs: UX-6's deploy recorded, D-429 (UX-7)",

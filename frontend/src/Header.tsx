@@ -40,8 +40,10 @@ export default function Header({ families, name }: { families: FamilyLedger[] | 
       </div>
       <div className="header-end">
         {!inside && <Link className="button primary" to="/entries/new">New entry</Link>}
+        {/* Under 40rem a person icon stands for the name, which the panel's first line gives (D-464). */}
         <Disclosure open={open === 'user'} onToggle={toggle('user')} onClose={close} className="user-menu" end
-          title={name} label={<><span className="user-name">{name}</span><ChevronIcon /></>}>
+          title={name} name={name} label={<><PersonIcon /><span className="user-name">{name}</span><ChevronIcon /></>}>
+          <p className="menu-user-name">{name}</p>
           <ul>
             <li><NavLink to="/settings">Settings</NavLink></li>
             <li><button type="button" className="link" onClick={logOut}>Log out</button></li>
@@ -84,12 +86,14 @@ function MainPanel({ families }: { families: FamilyLedger[] | undefined | null }
  *
  * @param end the panel's right edge under the button's, for a menu at the header's right
  */
-function Disclosure({ open, onToggle, onClose, label, title, className, end = false, children }: {
+function Disclosure({ open, onToggle, onClose, label, title, name, className, end = false, children }: {
   open: boolean
   onToggle: () => void
   onClose: () => void
   label: ReactNode
   title?: string
+  /** The button's accessible name, where its label may show an icon in place of its text. */
+  name?: string
   className: string
   end?: boolean
   children: ReactNode
@@ -119,7 +123,7 @@ function Disclosure({ open, onToggle, onClose, label, title, className, end = fa
   return (
     <div className={`disclosure ${className}`} ref={root}>
       <button ref={button} type="button" className="menu-button" aria-expanded={open} aria-controls={panelId}
-        title={title} onClick={onToggle}>
+        title={title} aria-label={name} onClick={onToggle}>
         {label}
       </button>
       <div id={panelId} className={`menu-panel${end ? ' end' : ''}`} hidden={!open}
@@ -139,6 +143,17 @@ function MenuIcon() {
   return (
     <svg className="icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <path d="M2 3.5h12M2 8h12M2 12.5h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+    </svg>
+  )
+}
+
+/** A person, head and shoulders, drawn for the app (D-464): the user's button under 40rem. */
+function PersonIcon() {
+  return (
+    <svg className="icon person" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <circle cx="8" cy="5.2" r="2.7" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M2.8 14c0-2.9 2.3-4.8 5.2-4.8s5.2 1.9 5.2 4.8" stroke="currentColor" strokeWidth="1.5"
+        strokeLinecap="round" fill="none" />
     </svg>
   )
 }

@@ -1,10 +1,10 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
-import { useApi, type Category, type FamilyLedger, type FamilyMember } from './api'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { api, ApiError, formatDate, useApi, type Category, type FamilyLedger, type FamilyMember, type FamilyRecord } from './api'
 import { AccountSelect, CategorySelect, CounterpartyInput, CurrencyInput, Errors, Field } from './components'
 import DateInput from './DateInput'
 import {
   accountChoices, blankPosting, isFamilyRecord, postingBalances, postingsBalance, postingWithAccount, sharePreview,
-  switchTab, TABS, transferNeedsCounterparty, validate, withAccount, withPayee, type EntryForm, type FieldErrors,
+  switchTab, TABS, tabOf, transferNeedsCounterparty, validate, withAccount, withPayee, type EntryForm, type FieldErrors,
   type PostingDraft,
 } from './entryForm'
 import { newSplit, previewSplit, type SplitContext, type SplitPreview } from './expenseForm'
@@ -14,6 +14,8 @@ import {
 import { SplitEditor } from './FamilySplit'
 import { accountById, counterpartyNamed, knownCurrencies, sharedAccount, type Ledger } from './ledger'
 import { amountProblem, formatMoney, parseAmount, rate } from './money'
+import SimilarEntries from './SimilarEntries'
+import { copyFamily, copyPersonal, criteriaOf, type Copied, type CopyNotes, type EntryMatch } from './similar'
 
 export type SaveResult = FieldErrors | void
 
@@ -31,14 +33,20 @@ interface Props {
    * family budget is switched off, and for an entry that exists.
    */
   families?: FamilyLedger[]
-  /** Creates a family expense or income in the budget with the request; rejects with the server's answer. */
+  /**
+   * Creates a family expense or income in the budget with the request; rejects with the server's answer. `payee` is the
+   * typed payee's name, '' for none: the caller finds it among the counterparties, those it created included, or
+   * creates it (D-81, D-462).
+   */
   onSaveFamily?: (ledgerId: number, request: ReturnType<typeof familyRequest>, andNew: boolean,
-    newPayee?: string) => Promise<void>
+    payee: string) => Promise<void>
   /**
    * Whether the family budget is switched on (D-25). Then the form no longer creates the old shared expense (H4, F6c):
    * "Split with family" stays only for an entry that is one already, which opens and saves as before (D-21).
    */
   familyBudgets?: boolean
+  /** Whether the form shows "Similar entries" under its buttons: only on New entry (UX-8, D-456). */
+  similar?: boolean
 }
 
 /** A family expense's or income's budget as the form has chosen it, with what its split needs. */
@@ -69,24 +77,54 @@ function useFamilyExpense(form: EntryForm, families?: FamilyLedger[]): FamilyExp
 }
 
 /** The entry form with its tabs. It checks what it can before saving, and shows the server's messages at the fields. */
-export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, notice, families, onSaveFamily, familyBudgets = false }: Props) {
+export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, notice, families, onSaveFamily, familyBudgets = false, similar = false }: Props) {
   const [form, setForm] = useState(initial)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState(false)
+  /** The line under the tabs after "Save and add another" or a copy (D-461, D-462). */
+  const [status, setStatus] = useState<string>()
+  /** Whether the category is the user's choice, not the payee's last one that `withPayee` put in (D-456). */
+  const [categoryPicked, setCategoryPicked] = useState(initial.categoryId !== '')
+  /** The form as "Save and add another" last saved it: saving it again unchanged asks first (D-462). */
+  const [savedForm, setSavedForm] = useState<string>()
+  /** After a copy: the criteria it put in, which start no new search (D-456), and why a field stayed empty. */
+  const [hold, setHold] = useState<string>()
+  const [notes, setNotes] = useState<CopyNotes>({})
+  const [copiedAdvanced, setCopiedAdvanced] = useState<string>()
+  /** Each save of "Save and add another" asks for the similar entries again (D-460). */
+  const [refresh, setRefresh] = useState(0)
+  /** Moves the focus to Amount, its text selected, after a copy and after "Save and add another". */
+  const [focusAmount, setFocusAmount] = useState(0)
+  const formElement = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    if (focusAmount === 0) return
+    const amount = formElement.current?.querySelector<HTMLInputElement>('.fields input.amount')
+    amount?.focus()
+    amount?.select()
+  }, [focusAmount])
 
   /** Takes the changed form and drops the messages about the fields that changed. */
   const change = (next: EntryForm, fields: string[]) => {
     setForm(next)
-    setSaved(false)
+    setStatus(undefined)
     setErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) =>
       !fields.some((f) => field === f || field.startsWith(`${f}.`)))))
+    setNotes((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !fields.includes(field))))
+    if (next.tab !== form.tab) setCopiedAdvanced(undefined)
+    // The payee's last category, put in by withPayee, is no criterion until the user picks one (D-456).
+    if (fields.includes('payee')) {
+      if (next.categoryId !== form.categoryId) setCategoryPicked(false)
+    } else if (fields.includes('categoryId')) {
+      setCategoryPicked(next.categoryId !== '')
+    }
   }
   const set = (patch: Partial<EntryForm>) => change({ ...form, ...patch }, Object.keys(patch))
   const balanced = form.tab !== 'advanced' || postingsBalance(form.postings)
   const family = useFamilyExpense(form, families)
 
   async function save(andNew: boolean) {
+    // A second click, or Enter again, doesn't make the same entry twice unasked (D-462).
+    if (savedForm === JSON.stringify(form) && !confirm('Save the same entry again?')) return
     const problems = validate(form, ledger)
     if (isFamilyRecord(form)) {
       if (!family?.preview) (problems[''] ??= []).push(family?.error ?? 'The family budget is still loading.')
@@ -106,21 +144,54 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
     if (failed) {
       setErrors(failed)
     } else if (andNew) {
-      // The next entry is often like this one: same day, account and currency.
-      setForm({ ...form, payee: '', memo: '', amount: '', toAmount: '', categoryId: '', refund: false, counterparty: '',
-        postings: [blankPosting(form.currency), blankPosting(form.currency)], familyCategoryId: '', familyComment: '' })
-      setSaved(true)
+      // Every field stays as saved, the tab too: the next entry needs only what differs (D-462).
+      setSavedForm(JSON.stringify(form))
+      setStatus('Saved. The form keeps its values: change what differs.')
+      setHold(undefined)
+      setRefresh((n) => n + 1)
+      if (form.tab !== 'advanced') setFocusAmount((n) => n + 1)
     }
+  }
+
+  /**
+   * Copy (D-461): fills the form from a similar entry, keeping its date, and its amount and currency when Amount holds a
+   * valid amount. A family row reads its record and the budget's members first. What it puts in starts no new search.
+   */
+  async function copy(match: EntryMatch) {
+    let copied: Copied
+    const link = match.entry.family
+    try {
+      const budget = link?.recordId != null ? families?.find((f) => f.id === link.ledgerId) : undefined
+      if (link && link.recordId != null && budget) {
+        const [record, members] = await Promise.all([
+          api<FamilyRecord>(`/family-ledgers/${budget.id}/records/${link.recordId}`),
+          api<FamilyMember[]>(`/family-ledgers/${budget.id}/members`),
+        ])
+        copied = copyFamily(form, match, record, budget, members, ledger)
+      } else {
+        copied = copyPersonal(form, match.entry, ledger)
+      }
+    } catch (e) {
+      setErrors({ '': [`Couldn’t copy the entry: ${e instanceof ApiError || e instanceof Error ? e.message : 'unknown error'}`] })
+      return
+    }
+    const picked = copied.form.categoryId !== ''
+    setForm(copied.form)
+    setErrors({})
+    setNotes(copied.notes)
+    setCategoryPicked(picked)
+    const criteria = criteriaOf(copied.form, picked)
+    setHold(criteria ? JSON.stringify(criteria) : undefined)
+    setCopiedAdvanced(copied.simple ? undefined : TABS.find((t) => t.tab === tabOf(match.entry.kind))?.label)
+    setStatus(`Copied from the entry of ${formatDate(match.entry.entryDate)}. Check the date and the amount.`)
+    if (copied.form.tab !== 'advanced') setFocusAmount((n) => n + 1)
   }
 
   /** Creates the family expense or income (C2) through the family budget's endpoint; the messages if it failed. */
   async function saveFamily(chosen: FamilyLedger, preview: SplitPreview, andNew: boolean): Promise<FieldErrors | undefined> {
     try {
-      const payee = form.payee.trim()
-      const known = payee === '' ? undefined : counterpartyNamed(ledger, payee)
       await onSaveFamily!(chosen.id, familyRequest(form, chosen, preview,
-        accountById(ledger, Number(form.accountId))?.defaultCurrency ?? null, known?.id ?? null), andNew,
-      payee !== '' && !known ? payee : undefined)
+        accountById(ledger, Number(form.accountId))?.defaultCurrency ?? null), andNew, form.payee.trim())
       return undefined
     } catch (e) {
       return familyServerErrors(e, preview, chosen.memberId)
@@ -140,12 +211,13 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
     void save(false)
   }
 
-  const fields = { form, ledger, errors, set, change }
+  const fields = { form, ledger, errors, set, change, notes }
   const familyOn = isFamilyRecord(form)
   const byMember = new Map(Object.entries(errors).filter(([field]) => field.startsWith('familyMember.'))
     .map(([field, messages]) => [Number(field.slice('familyMember.'.length)), messages]))
   return (
-    <form className="entry-form" onSubmit={submit} noValidate>
+    <>
+    <form className="entry-form" onSubmit={submit} noValidate ref={formElement}>
       <div className="tabs" role="tablist" aria-label="Kind of entry">
         {TABS.map(({ tab, label }) => (
           <button key={tab} type="button" role="tab" aria-selected={form.tab === tab}
@@ -153,8 +225,14 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
         ))}
       </div>
       {notice}
+      {copiedAdvanced && (
+        <p className="notice">
+          This entry doesn’t fit the {copiedAdvanced} form, so it opens as raw postings. Saving it keeps the postings as
+          they are here.
+        </p>
+      )}
       <Errors messages={errors['']} />
-      {saved && <p className="success" role="status">Saved. Enter the next one.</p>}
+      {status && <p className="success" role="status">{status}</p>}
       <div className="fields">
         <Field label="Date" errors={errors.date}>
           <DateInput value={form.date} required onChange={(day) => set({ date: day })} />
@@ -188,6 +266,11 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
         {busy && <span className="muted">Saving…</span>}
       </div>
     </form>
+    {similar && (
+      <SimilarEntries criteria={criteriaOf(form, categoryPicked)} hold={hold} refresh={refresh} ledger={ledger}
+        onCopy={(match) => void copy(match)} />
+    )}
+    </>
   )
 }
 
@@ -206,6 +289,8 @@ interface FieldsProps {
   errors: FieldErrors
   set: (patch: Partial<EntryForm>) => void
   change: (next: EntryForm, fields: string[]) => void
+  /** Why a copied field stayed empty (D-461), shown under it. */
+  notes?: CopyNotes
 }
 
 function PayeeField({ form, ledger, errors, change, label = 'Payee' }: FieldsProps & { label?: string }) {
@@ -218,12 +303,12 @@ function PayeeField({ form, ledger, errors, change, label = 'Payee' }: FieldsPro
   )
 }
 
-function AccountField({ form, ledger, errors, change, field, label }: FieldsProps & {
+function AccountField({ form, ledger, errors, change, field, label, notes }: FieldsProps & {
   field: 'accountId' | 'toAccountId'
   label: string
 }) {
   return (
-    <Field label={label} errors={errors[field]}>
+    <Field label={label} errors={errors[field]} hint={field === 'accountId' ? notes?.accountId : undefined}>
       <AccountSelect accounts={accountChoices(ledger, form, field)} value={form[field]}
         onChange={(id) => change(withAccount(form, field, id, ledger), [field, 'currency', 'toCurrency'])} />
     </Field>
@@ -254,7 +339,7 @@ function AmountFields({ form, ledger, errors, set, amount = 'amount', currency =
  *        switched off, and with it on only for an entry that is a shared expense already (H4, F6c)
  */
 function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?: FamilyExpense; oldSplit: boolean }) {
-  const { form, ledger, errors, set, families, family, oldSplit } = props
+  const { form, ledger, errors, set, families, family, oldSplit, notes } = props
   const parts = sharePreview(form)
   const shared = sharedAccount(ledger)
   const familyOn = isFamilyRecord(form)
@@ -265,7 +350,7 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
       <AccountField {...props} field="accountId" label={familyOn && form.refund ? 'Received into' : 'Paid from'} />
       <AmountFields {...props} label={form.split ? 'Total paid' : 'Amount'} />
       {!familyOn && (
-        <Field label="Category" errors={errors.categoryId}>
+        <Field label="Category" errors={errors.categoryId} hint={notes?.categoryId}>
           <CategorySelect categories={ledger.categories} type="EXPENSE" value={form.categoryId}
             onChange={(categoryId) => set({ categoryId })} />
         </Field>
@@ -332,7 +417,7 @@ function FamilyOption({ form, set, families, reason }: FieldsProps & { families:
  * a family category of the record's type, and the comment every member sees. The split follows the fields, and the
  * memo becomes the user's note.
  */
-function FamilyRecordFields({ form, errors, change, families, family }: FieldsProps & {
+function FamilyRecordFields({ form, errors, change, families, family, notes }: FieldsProps & {
   families: FamilyLedger[]
   family: FamilyExpense
 }) {
@@ -349,7 +434,7 @@ function FamilyRecordFields({ form, errors, change, families, family }: FieldsPr
           </select>
         </Field>
       )}
-      <Field label="Family category" errors={errors.familyCategoryId}>
+      <Field label="Family category" errors={errors.familyCategoryId} hint={notes?.familyCategoryId}>
         <CategorySelect categories={ofType} type={type} value={form.familyCategoryId}
           onChange={(familyCategoryId) => change({ ...form, familyCategoryId }, ['familyCategoryId'])} />
       </Field>
@@ -363,7 +448,7 @@ function FamilyRecordFields({ form, errors, change, families, family }: FieldsPr
 }
 
 function IncomeFields(props: FieldsProps & { families?: FamilyLedger[]; family?: FamilyExpense }) {
-  const { form, ledger, errors, set, families, family } = props
+  const { form, ledger, errors, set, families, family, notes } = props
   const familyOn = isFamilyRecord(form)
   const reason = families && families.length > 0 ? unavailable(families, form.currency, family?.ledger, 'income') : undefined
   return (
@@ -372,7 +457,7 @@ function IncomeFields(props: FieldsProps & { families?: FamilyLedger[]; family?:
       <AccountField {...props} field="accountId" label="Received into" />
       <AmountFields {...props} />
       {!familyOn && (
-        <Field label="Category" errors={errors.categoryId}>
+        <Field label="Category" errors={errors.categoryId} hint={notes?.categoryId}>
           <CategorySelect categories={ledger.categories} type="INCOME" value={form.categoryId}
             onChange={(categoryId) => set({ categoryId })} />
         </Field>

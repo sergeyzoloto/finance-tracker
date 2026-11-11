@@ -49,12 +49,13 @@ public class FamilyLedgerService {
     public static final String START_DATE = "START_DATE";
 
     private static final String LEDGER = """
-            SELECT l.id, l.name, l.base_currency, l.split_rule, m.role, m.id AS member_id, l.created_at, l.start_date
+            SELECT l.id, l.name, l.base_currency, l.split_rule, m.role, m.id AS member_id, l.created_at, l.start_date,
+                   m.shows_payees
             FROM ledger l JOIN ledger_member m ON m.ledger_id = l.id
             WHERE l.id = :ledgerId AND m.id = :memberId""";
     private static final String MEMBERS = """
             SELECT id, display_name, role, status, join_date, user_sub IS NOT NULL AS has_account, share_bp, left_date,
-                   claimed_seat
+                   claimed_seat, shows_payees
             FROM ledger_member WHERE ledger_id = :ledgerId""";
 
     private final JdbcClient jdbc;
@@ -196,7 +197,8 @@ public class FamilyLedgerService {
                 .query((row, n) -> new FamilyLedgerView(row.getLong("id"), row.getString("name"),
                         row.getString("base_currency"), SplitRule.valueOf(row.getString("split_rule")),
                         MemberRole.valueOf(row.getString("role")), row.getLong("member_id"),
-                        row.getTimestamp("created_at").toInstant(), row.getObject("start_date", LocalDate.class)))
+                        row.getTimestamp("created_at").toInstant(), row.getObject("start_date", LocalDate.class),
+                        row.getBoolean("shows_payees")))
                 .single();
     }
 
@@ -284,6 +286,24 @@ public class FamilyLedgerService {
                 .param("ledgerId", self.ledgerId())
                 .update();
         return member(self, self.memberId());
+    }
+
+    /**
+     * Whether the other members of the family ledger see the payees of the scope's own member's family payments (UX-9,
+     * D-479 to D-483): each member decides for their own payees, in each budget, whatever their role; nobody sets it
+     * for anyone else. The scope is an ACTIVE member with an account, which is what {@code LedgerAccess.member} lets in;
+     * leaving, removal and "Delete all my data" turn it off (V17's trigger).
+     *
+     * @param self the ledger, as the member who decides for their own payees
+     * @return the ledger as that member sees it, with their new choice
+     */
+    @Transactional
+    public FamilyLedgerView setShowsPayees(LedgerScope self, boolean showsPayees) {
+        lock(self);
+        jdbc.sql("UPDATE ledger_member SET shows_payees = :shows WHERE id = :memberId AND ledger_id = :ledgerId")
+                .param("shows", showsPayees).param("memberId", self.memberId()).param("ledgerId", self.ledgerId())
+                .update();
+        return get(self);
     }
 
     /**
@@ -394,6 +414,7 @@ public class FamilyLedgerService {
         return new FamilyMemberView(row.getLong("id"), row.getString("display_name"),
                 MemberRole.valueOf(row.getString("role")), MemberStatus.valueOf(row.getString("status")),
                 row.getObject("join_date", LocalDate.class), row.getBoolean("has_account"),
-                row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class), row.getBoolean("claimed_seat"));
+                row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class), row.getBoolean("claimed_seat"),
+                row.getBoolean("shows_payees"));
     }
 }

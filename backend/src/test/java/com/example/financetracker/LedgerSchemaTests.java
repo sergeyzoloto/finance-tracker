@@ -1094,6 +1094,44 @@ class LedgerSchemaTests {
     }
 
     /**
+     * V17 (UX-9, D-480, D-483): whether a member shows their payees is false by default, may be true only for an ACTIVE
+     * member with an account of a family ledger, and turns false by itself when a row stops being one (leaving,
+     * removal, a FORMER member), whichever code writes it; a statement that sets it for anyone else is refused.
+     */
+    @Test
+    void onlyAnActiveMemberWithAnAccountShowsPayees() throws SQLException {
+        long family = sharedLedger();
+        long owner = member(family, "SHARED", user, "OWNER");
+        long other = member(family, "SHARED", UUID.randomUUID().toString(), "MEMBER");
+        long seat = seat(family);
+        db.commit();
+        String shows = "SELECT shows_payees::text FROM ledger_member WHERE id = ?";
+        assertThat(strings(shows, owner)).containsExactly("false");
+        update("UPDATE ledger_member SET shows_payees = TRUE WHERE id = ?", other);
+        db.commit();
+        assertThat(strings(shows, other)).containsExactly("true");
+
+        long personalMember = number("SELECT id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'",
+                user);
+        for (long member : List.of(seat, personalMember)) {
+            assertFails(() -> update("UPDATE ledger_member SET shows_payees = TRUE WHERE id = ?", member),
+                    CHECK_VIOLATION, "ledger_member_shows_payees_check");
+            db.rollback();
+        }
+        // Leaving turns it off; a LEFT member can't have it on; nor can a FORMER one.
+        update("UPDATE ledger_member SET status = 'LEFT', left_date = DATE '2026-03-01' WHERE id = ?", other);
+        assertThat(strings(shows, other)).containsExactly("false");
+        assertFails(() -> update("UPDATE ledger_member SET shows_payees = TRUE WHERE id = ?", other),
+                CHECK_VIOLATION, "ledger_member_shows_payees_check");
+        db.rollback();
+        update("UPDATE ledger_member SET shows_payees = TRUE WHERE id = ?", owner);
+        update("UPDATE ledger_member SET user_sub = NULL, display_name = 'Former member', status = 'FORMER', "
+                + "role = 'MEMBER', left_date = DATE '2026-03-01' WHERE id = ?", owner);
+        assertThat(strings(shows, owner)).containsExactly("false");
+        db.rollback();
+    }
+
+    /**
      * V9's invites (F5; D-17, D-18, D-20): a token's hash of 32 bytes, once; created by an ACTIVE owner with an account
      * of a family ledger, never of a personal one; a claim's seat an ACTIVE member without an account, with a join
      * date from the start date to today; at most seven days; revoked, used or declined once, for good, and nothing else

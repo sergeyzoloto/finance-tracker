@@ -144,6 +144,8 @@ export default function Entries() {
             <tbody>
               {data.content.map((entry) => {
                 const summary = describeEntry(entry, ledger, true)
+                // UX-9: a payment or a receipt reads with its record's category, as a share does; display only.
+                const category = summary.category || entry.family?.recordCategory?.name || ''
                 const tone = summary.direction < 0 ? 'expense' : summary.direction > 0 ? 'income' : ''
                 return (
                   <tr key={entry.id} className="clickable" onClick={() => open(entry.id)}>
@@ -157,12 +159,12 @@ export default function Entries() {
                     </td>
                     <td className="category">
                       <span className="category-name">
-                        {summary.category || <span className="muted">{kindLabel(entry.kind)}</span>}
+                        {category || <span className="muted">{kindLabel(entry.kind)}</span>}
                       </span>
                       {entry.family && (
                         // D-442: the row names its family budget here, once: the kind, then the shared icon and the name.
                         <div className="muted small family-line" title="It changes in the family budget">
-                          {summary.category && `${entryKindLabel(entry)} · `}
+                          {category && `${entryKindLabel(entry)} · `}
                           <SharedMark budget={entry.family.ledgerName} named />
                         </div>
                       )}

@@ -11,7 +11,9 @@ import com.example.financetracker.ledger.access.MemberRole;
  * @param role the member's role in it
  * @param memberId the member's own membership, as the members list names it
  * @param startDate the first day a record may be dated (D-27)
+ * @param showsPayees whether the member who reads shows the payees of their own family payments to the other members
+ *        (UX-9, D-479; additive)
  */
 public record FamilyLedgerView(long id, String name, String baseCurrency, SplitRule splitRule, MemberRole role,
-        long memberId, Instant createdAt, LocalDate startDate) {
+        long memberId, Instant createdAt, LocalDate startDate, boolean showsPayees) {
 }

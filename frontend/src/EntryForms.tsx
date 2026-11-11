@@ -15,6 +15,7 @@ import { SplitEditor } from './FamilySplit'
 import { accountById, counterpartyNamed, knownCurrencies, sharedAccount, type Ledger } from './ledger'
 import { amountProblem, formatMoney, parseAmount, rate } from './money'
 import SimilarEntries from './SimilarEntries'
+import { payeeLabel } from './payees'
 import { copyFamily, copyPersonal, criteriaOf, type Copied, type CopyNotes, type EntryMatch } from './similar'
 
 export type SaveResult = FieldErrors | void
@@ -346,7 +347,7 @@ function ExpenseFields(props: FieldsProps & { families?: FamilyLedger[]; family?
   const reason = families && families.length > 0 ? unavailable(families, form.currency, family?.ledger) : undefined
   return (
     <>
-      <PayeeField {...props} label={familyOn ? 'Payee (only you see it)' : 'Payee'} />
+      <PayeeField {...props} label={familyOn ? payeeLabel(family?.ledger.showsPayees === true) : 'Payee'} />
       <AccountField {...props} field="accountId" label={familyOn && form.refund ? 'Received into' : 'Paid from'} />
       <AmountFields {...props} label={form.split ? 'Total paid' : 'Amount'} />
       {!familyOn && (

@@ -70,6 +70,11 @@ export interface FamilyLedger {
   createdAt: string
   /** The first day an expense may be dated, and the creator's join date (D-27). */
   startDate: string
+  /**
+   * Whether the reader shows the payees of their own family payments to the other members of this budget (UX-9).
+   * Missing counts as false.
+   */
+  showsPayees?: boolean
 }
 /** A member as every member sees them; never a login or an email address (D-3). */
 export interface FamilyMember {
@@ -89,6 +94,8 @@ export interface FamilyMember {
    * their joinDate is the claim's, from which records post to them. Missing counts as false.
    */
   claimedSeat?: boolean
+  /** Whether the member shows the payees of their family payments to the others (UX-9). Missing counts as false. */
+  showsPayees?: boolean
 }
 
 /**
@@ -252,6 +259,11 @@ export interface FamilyRecord {
   /** Who imported it, when an import wrote it (D-48); missing for a record entered in the app. */
   importedBy?: MemberRef
   importedAt?: string
+  /**
+   * The payee on the payer's own payment entry of an expense, a refund or an income's receipt (UX-9): for the payer,
+   * and for the other members while the payer shows their payees in this budget; missing otherwise.
+   */
+  paymentPayee?: string
 }
 /** The payer's own view of their payment: their payment entry, and the account, or "Specify later" with none. */
 export interface YourPayment {
@@ -378,6 +390,12 @@ export interface EntryFamily {
   readOnly: boolean
   /** The record's type: a PAYMENT of an INCOME is what the user received. Missing without a record. */
   recordType?: FamilyRecordType
+  /**
+   * The record's family category as the budget names it now, archived included (UX-9): the payment's and the
+   * receipt's Category cell in the entry list. Display only; missing for a settlement, an opening balance and a
+   * correction.
+   */
+  recordCategory?: { id: number; name: string }
 }
 export interface Posting {
   accountId: number

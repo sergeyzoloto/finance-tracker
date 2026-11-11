@@ -27,7 +27,9 @@ Everyone who is a member of a family budget sees, for that budget:
 - the family report: the family's expenses and incomes by month and category, with each member's
   share and what they paid or received;
 - the change journal: who added, changed or deleted which record, when, and what the values were
-  before and after.
+  before and after;
+- where a member paid (the payee) for the family expenses and incomes they paid or received, only if
+  that member chooses to show it in the budget's settings.
 
 ## What other members never see
 
@@ -37,6 +39,7 @@ Other members never see anything of your personal budget:
 - your personal categories;
 - your personal entries, including the entries a family budget adds to your personal budget;
 - your private notes on your own payments;
+- where you paid (the payee), unless you choose to show it in the budget's settings;
 - your email address and your account id.
 
 ## Invite links

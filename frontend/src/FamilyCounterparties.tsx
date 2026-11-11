@@ -1,5 +1,6 @@
 import type { Account, Counterparty } from './api'
 import { Field } from './components'
+import { payeeHint } from './payees'
 
 // The reader's own counterparties on their payment (F8d; D-80, D-81): the counterparty of an account that requires one
 // and the payee. Both are counterparties of their personal ledger, and only they see them: no other member's answer
@@ -17,9 +18,11 @@ function options(counterparties: Counterparty[], chosen: string) {
  *
  * @param account the account the reader pays with, or undefined for "Specify later" and the like
  * @param showPayee whether the payee is offered: for a payer with an account, not for a settlement's side
+ * @param payeesShown whether the reader shows their payees to the other members of the budget (UX-9), which the hint
+ *        says
  */
 export function CounterpartyFields({ account, counterparties, counterpartyId, payeeId, onCounterparty, onPayee, showPayee,
-  errors }: {
+  payeesShown = false, errors }: {
   account: Account | undefined
   counterparties: Counterparty[] | undefined
   counterpartyId: string
@@ -27,6 +30,7 @@ export function CounterpartyFields({ account, counterparties, counterpartyId, pa
   onCounterparty: (id: string) => void
   onPayee: (id: string) => void
   showPayee: boolean
+  payeesShown?: boolean
   errors: string[]
 }) {
   return (
@@ -42,7 +46,7 @@ export function CounterpartyFields({ account, counterparties, counterpartyId, pa
       )}
       {showPayee && (
         <Field label="Payee (optional)" errors={account?.requiresCounterparty ? [] : errors}
-          hint="Where it was paid, such as a shop. It stays on your own entry; the other members never see it.">
+          hint={payeeHint(payeesShown)}>
           <select value={payeeId} onChange={(e) => onPayee(e.target.value)}>
             <option value="">None</option>
             {options(counterparties ?? [], payeeId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}

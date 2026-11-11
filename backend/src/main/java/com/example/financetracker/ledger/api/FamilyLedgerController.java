@@ -83,6 +83,10 @@ class FamilyLedgerController {
     record MemberName(@NotBlank @Size(max = 100) String displayName) {
     }
 
+    /** @param showsPayees whether the other members see the payees of the caller's own family payments (D-479) */
+    record OwnMembership(@NotNull Boolean showsPayees) {
+    }
+
     private final LedgerAccess access;
     private final FamilyLedgerService families;
     private final CategoryService categories;
@@ -158,6 +162,17 @@ class FamilyLedgerController {
     @PatchMapping("/{ledgerId}/members/me")
     FamilyMemberView renameSelf(CurrentUser user, @PathVariable long ledgerId, @Valid @RequestBody MemberName member) {
         return families.renameSelf(access.member(user.id(), ledgerId), member.displayName().strip());
+    }
+
+    /**
+     * Any member with an account, whatever their role, for their own membership only (UX-9, D-480, D-483): whether the
+     * other members see the payees of their family payments. The path names no member, so nobody sets it for anyone
+     * else; anyone but an ACTIVE member gets the missing ledger's 404.
+     */
+    @PatchMapping("/{ledgerId}/me")
+    FamilyLedgerView updateOwnMembership(CurrentUser user, @PathVariable long ledgerId,
+            @Valid @RequestBody OwnMembership membership) {
+        return families.setShowsPayees(access.member(user.id(), ledgerId), membership.showsPayees());
     }
 
     /** Owners only, for a member without an account. */

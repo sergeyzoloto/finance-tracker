@@ -1895,6 +1895,10 @@ public class FamilyRecordService {
                 .filter(row -> (row.payerId() == family.memberId() || Objects.equals(row.payeeId(), family.memberId()))
                         && members.get(family.memberId()).hasAccount())
                 .map(RecordRow::id).toList());
+        // The payees of the payers' payment entries that the caller may see (D-481): their own, and those of payers who
+        // show theirs.
+        Map<Long, String> payees = posting.shownPayees(family, rows.stream()
+                .filter(row -> !row.type().equals(SETTLEMENT)).map(RecordRow::id).toList());
         // The settlements locked by their other side (D-28), for who would otherwise change them.
         Map<Long, Long> placed = placedSides(family, rows.stream()
                 .filter(row -> row.type().equals(SETTLEMENT) && maySettle(family, row)).map(RecordRow::id).toList());
@@ -1927,7 +1931,7 @@ public class FamilyRecordService {
                             payment.accountName(), payment.later(), inMinorUnits(payment.amount(), payment.currency()),
                             payment.currency(), payment.counterpartyId(), payment.payeeId()),
                     ref(members, row.payeeId()), lockedBy == null ? null : ref(members, lockedBy), row.refund(),
-                    ref(members, row.importedById()), row.importedAt());
+                    ref(members, row.importedById()), row.importedAt(), payees.get(row.id()));
         }).toList();
     }
 

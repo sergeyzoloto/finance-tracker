@@ -51,8 +51,8 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         List<String[]> endpoints = familyEndpoints();
         // 22 until F4c; POST /settlements since F4d; GET /conversion from F4e until F8b; six for invites since F5;
         // leaving (DELETE /members/me), making an owner and what "Delete all my data" touches since F6a; the report
-        // since F6c.
-        assertThat(endpoints).hasSize(33);
+        // since F6c; the member's own PATCH /me (their payees) since UX-9.
+        assertThat(endpoints).hasSize(34);
         assertThat(context.getBeanNamesForType(FamilyLedgerController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyRecordController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(FamilyPaymentController.class)).isEmpty();

@@ -22,7 +22,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * each known to other tables, and then V5. Every sub gets one personal ledger with itself as its one owner, and every
  * row its user's ledger, whether or not the sub has a users or user_settings row. Then each later migration on those
  * rows, to V12's time zone (F8c), V13's refunds and sync fields (F8d), V14's sync of personal entries (D3b), V15's
- * member import (D3c) and V16's date format (UX-1).
+ * member import (D3c), V16's date format (UX-1) and V17's payees switch (UX-9).
  */
 class LedgerBackfillMigrationTests {
 
@@ -308,13 +308,27 @@ class LedgerBackfillMigrationTests {
                         || (%s)""".formatted(allOfIt);
             String beforeV16 = strings(withoutFormat).getFirst();
             Map<String, Long> rowsBeforeV16 = rows();
-            MigrateResult v16 = flyway(null).migrate();
+            MigrateResult v16 = flyway("16").migrate();
             assertThat(v16.success).isTrue();
             assertThat(v16.targetSchemaVersion).isEqualTo("16");
             assertThat(rows()).isEqualTo(rowsBeforeV16);
             assertThat(strings(withoutFormat).getFirst()).isEqualTo(beforeV16);
             assertThat(strings("SELECT count(*) FROM user_settings WHERE date_format IS NOT NULL"))
                     .containsExactly("0");
+
+            // V17 (UX-9, D-483) adds whether a member shows their payees, false for everyone, and changes nothing else.
+            String withoutShows = """
+                    SELECT coalesce((SELECT string_agg((to_jsonb(m) - 'shows_payees')::text, '|' ORDER BY m.id)
+                            FROM ledger_member m), '')
+                        || (%s)""".formatted(withoutFormat);
+            String beforeV17 = strings(withoutShows).getFirst();
+            Map<String, Long> rowsBeforeV17 = rows();
+            MigrateResult v17 = flyway(null).migrate();
+            assertThat(v17.success).isTrue();
+            assertThat(v17.targetSchemaVersion).isEqualTo("17");
+            assertThat(rows()).isEqualTo(rowsBeforeV17);
+            assertThat(strings(withoutShows).getFirst()).isEqualTo(beforeV17);
+            assertThat(strings("SELECT count(*) FROM ledger_member WHERE shows_payees")).containsExactly("0");
         } finally {
             db.close();
         }

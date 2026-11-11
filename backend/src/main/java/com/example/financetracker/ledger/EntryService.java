@@ -191,7 +191,13 @@ public class EntryService {
             params.put("accountId", filter.accountId());
         }
         if (filter.categoryId() != null) {
-            where.append(" AND EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.category_id = :categoryId)");
+            // A categorized line, or (UX-9, D-478) for an entry without one a family link whose record has the
+            // category, read as families() reads links: exactly the entries whose Category cell shows it.
+            where.append(" AND (EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.category_id = :categoryId)"
+                    + " OR (NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.category_id IS NOT NULL)"
+                    + " AND EXISTS (SELECT FROM family_entry_link l JOIN family_record r ON r.id = l.record_id"
+                    + " AND r.ledger_id = l.family_ledger_id WHERE l.entry_id = e.id AND l.detached_at IS NULL"
+                    + " AND r.category_id = :categoryId)))");
             params.put("categoryId", filter.categoryId());
         }
         if (filter.counterpartyId() != null) {
@@ -267,18 +273,23 @@ public class EntryService {
             return families;
         }
         jdbc.sql("""
-                SELECT l.entry_id, l.family_ledger_id, f.name, l.record_id, l.link_type, r.type AS record_type
+                SELECT l.entry_id, l.family_ledger_id, f.name, l.record_id, l.link_type, r.type AS record_type,
+                       c.id AS category_id, c.name AS category_name
                 FROM family_entry_link l
                 JOIN journal_entry e ON e.id = l.entry_id
                 JOIN ledger f ON f.id = l.family_ledger_id
                 LEFT JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
+                LEFT JOIN category c ON c.id = r.category_id AND c.ledger_id = r.ledger_id
                 WHERE e.ledger_id = :ledgerId AND l.entry_id IN (:entryIds) AND l.detached_at IS NULL""")
                 .param("ledgerId", ledger.ledgerId())
                 .param("entryIds", entryIds)
                 .query(row -> {
                     families.put(row.getLong("entry_id"), new EntryFamily(row.getLong("family_ledger_id"),
                             row.getString("name"), row.getObject("record_id", Long.class),
-                            row.getString("link_type"), true, row.getString("record_type")));
+                            row.getString("link_type"), true, row.getString("record_type"),
+                            row.getObject("category_id", Long.class) == null ? null
+                                    : new EntryFamily.RecordCategory(row.getLong("category_id"),
+                                            row.getString("category_name"))));
                 });
         return families;
     }

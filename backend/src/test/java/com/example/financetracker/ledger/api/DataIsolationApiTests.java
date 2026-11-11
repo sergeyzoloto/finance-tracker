@@ -797,6 +797,110 @@ class DataIsolationApiTests extends LedgerApiTest {
     }
 
     /**
+     * UX-9 (D-479 to D-483): Alice's payee on her payment is hers until she shows it, in one budget at a time. Off, no
+     * answer of Bob's names it. On in A, Bob reads its name in A's records list and on the record, and nothing else of
+     * her side; Carol, a member of B only, never reads it, in B or anywhere. PATCH /me answers Bob outside A and Carol
+     * everywhere like a missing ledger, and in A changes Bob's own membership and nobody else's. Bob's personal answers
+     * are as they were.
+     */
+    @Test
+    void aPayeeIsShownOnlyByItsPayersChoice() throws IOException {
+        String carol = newUser();
+        ok(get(carol, "/api/accounts"));
+        long familyA = newFamily(alice, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01",
+                 "categoryIds": [%d]}""".formatted(categoryId(alice, "GROCERIES"))).get("id").asLong();
+        long bobInA = join(familyA, bob, "Dad", "MEMBER", LocalDate.of(2026, 8, 1));
+        String inA = "/api/family-ledgers/" + familyA;
+        long groceriesInA = find(ok(get(alice, inA + "/categories")), "code", "GROCERIES").get("id").asLong();
+        long mumInA = find(ok(get(alice, inA + "/members")), "displayName", "Mum").get("id").asLong();
+        JsonNode familyB = newFamily(alice, """
+                {"name": "Trips", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-08-01"}""");
+        String inB = "/api/family-ledgers/" + familyB.get("id").asLong();
+        join(familyB.get("id").asLong(), carol, "Carol", "MEMBER", LocalDate.of(2026, 8, 1));
+        long travel = body(post(alice, inB + "/categories", """
+                {"code": "TRAVEL", "name": "Travel", "type": "EXPENSE"}"""), HttpStatus.CREATED).get("id").asLong();
+        String payee = "Corner payee UX9";
+        long shop = newCounterparty(alice, payee);
+        JsonNode paid = body(post(alice, inA + "/records", """
+                {"date": "2026-08-20", "categoryId": %d, "amount": "60", "payerMemberId": %d, "paymentAccountId": %d,
+                 "accountAmount": "65.43", "privateNote": "ALICE_PRIVATE_NOTE", "payeeId": %d}""".formatted(
+                groceriesInA, mumInA, alicesBank, shop)), HttpStatus.CREATED);
+        String record = inA + "/records/" + paid.get("id").asLong();
+        long tripRecord = body(post(alice, inB + "/records", """
+                {"date": "2026-08-20", "categoryId": %d, "amount": "12", "payerMemberId": %d, "paymentAccountId": %d,
+                 "accountAmount": "13.07", "payeeId": %d}""".formatted(travel, familyB.get("memberId").asLong(), alicesBank, shop)),
+                HttpStatus.CREATED).get("id").asLong();
+        String trip = inB + "/records/" + tripRecord;
+        assertThat(paid.get("paymentPayee").asText()).isEqualTo(payee);
+
+        List<String> reads = List.of(inA + "/records", record, inA + "/journal", inA + "/balances", inA + "/members",
+                inA, inA + "/report?from=2026-08-01&to=2026-08-31", "/api/entries?size=200",
+                "/api/entries/matches?type=EXPENSE&categoryId=" + groceriesInA);
+        for (String read : reads) {
+            JsonNode bobs = bobReads(read);
+            Answers.assertNoneMention(read, bobs, payee);
+            assertThat(fieldNames(bobs)).as(read).doesNotContain("paymentPayee");
+        }
+        assertThat(fieldNames(ok(get(carol, trip)))).doesNotContain("paymentPayee");
+        Map<String, JsonNode> bobsViewWithRecords = bobsView();
+        Answers.Csv bobsFile = Answers.csv(bobsRequest(HttpMethod.GET, "/api/export/transactions", null));
+
+        SoftAssertions softly = new SoftAssertions();
+        String own = "/api/family-ledgers/%d/me";
+        String shows = """
+                {"showsPayees": true}""";
+        for (long ledger : List.of(familyB.get("id").asLong(), personalLedger(alice), personalLedger(bob))) {
+            answersAsIfMissing(softly, HttpMethod.PATCH, own, ledger, shows);
+        }
+        for (long ledger : List.of(familyA, personalLedger(alice))) {
+            answersAsIfMissingTo(softly, carol, HttpMethod.PATCH, own.formatted(ledger), own.formatted(MISSING), shows);
+        }
+        softly.assertAll();
+
+        // Bob's switch is his own: it changes his membership and nobody else's, and shows nothing of Alice's.
+        String theOthers = membershipsBut(bobInA);
+        // His own row is among Alice's family's members, so this goes past bobsRequest's digest, as a rename does.
+        JsonNode bobsSwitch = ok(call(bob, HttpMethod.PATCH, own.formatted(familyA), shows));
+        assertThat(bobsSwitch.get("memberId").asLong()).isEqualTo(bobInA);
+        assertThat(bobsSwitch.get("showsPayees").asBoolean()).isTrue();
+        assertThat(membershipsBut(bobInA)).isEqualTo(theOthers);
+        Answers.assertNoneMention(bobReads(record), payee);
+        ok(call(bob, HttpMethod.PATCH, own.formatted(familyA), """
+                {"showsPayees": false}"""));
+
+        // Alice shows hers in A: Bob reads its name there, and nothing else of her side.
+        assertThat(ok(patch(alice, own.formatted(familyA), shows)).get("showsPayees").asBoolean()).isTrue();
+        for (JsonNode answer : List.of(bobReads(record),
+                find(bobReads(inA + "/records").get("content"), "id", paid.get("id").asText()))) {
+            assertThat(answer.get("paymentPayee").asText()).isEqualTo(payee);
+            assertThat(fieldNames(answer)).doesNotContain("yourPayment", "privateNote", "memo", "entryId", "accountId",
+                    "accountName", "counterpartyId", "payeeId");
+            assertThat(Answers.numbers(answer)).doesNotContain("65.43");
+            Answers.assertNoneMention(answer, "USD");
+        }
+        for (String read : List.of(inA + "/journal", inA + "/balances", inA + "/members", inA,
+                inA + "/report?from=2026-08-01&to=2026-08-31", "/api/entries?size=200",
+                "/api/entries/matches?type=EXPENSE&categoryId=" + groceriesInA)) {
+            JsonNode bobs = bobReads(read);
+            Answers.assertNoneMention(read, bobs, payee);
+            assertThat(fieldNames(bobs)).as(read).doesNotContain("paymentPayee");
+        }
+        assertThat(Answers.csv(bobsRequest(HttpMethod.GET, "/api/export/transactions", null))).isEqualTo(bobsFile);
+        // Carol, of B only: nothing in B, where Alice hides it, and A is a missing ledger to her.
+        Answers.assertNoneMention(ok(get(carol, trip)), payee);
+        Answers.assertNoneMention(ok(get(carol, inB + "/records")), payee);
+        assertThat(fieldNames(ok(get(carol, trip)))).doesNotContain("paymentPayee");
+        assertThat(get(carol, record)).hasStatus(HttpStatus.NOT_FOUND);
+
+        // Hidden again: gone from Bob's answers at once.
+        ok(patch(alice, own.formatted(familyA), """
+                {"showsPayees": false}"""));
+        assertThat(fieldNames(bobReads(record))).doesNotContain("paymentPayee");
+        assertThat(bobsView()).isEqualTo(bobsViewWithRecords);
+    }
+
+    /**
      * The payer's side (F4c): Alice pays two expenses of A, with her account and "Specify later", each with a private
      * note. Only her answers hold {@code yourPayment}; Bob's raw answers in A have no such field, and nobody's family
      * answer holds a note. Her payment entry is missing to Bob and Carol through the payment endpoint and to Bob's
@@ -1592,7 +1696,7 @@ class DataIsolationApiTests extends LedgerApiTest {
             assertThat(find(members, "displayName", "Carol").get("claimedSeat").asBoolean()).as(user).isTrue();
             assertThat(find(members, "displayName", "Mum").get("claimedSeat").asBoolean()).as(user).isFalse();
             assertThat(fieldNames(members)).as(user).containsExactlyInAnyOrder("id", "displayName", "role", "status",
-                    "joinDate", "hasAccount", "share", "leftDate", "claimedSeat");
+                    "joinDate", "hasAccount", "share", "leftDate", "claimedSeat", "showsPayees");
             Answers.assertNoneMention(user, members, alice, bob, carol, "@example.com", "BOB_");
         }
     }

@@ -65,9 +65,11 @@ export function paymentProblems(failure: Error | undefined, noun = 'expense'): P
  * confirmation that names the family budget. A settlement's date and amount change here only for the side who recorded
  * it, who alone deletes it; a settlement takes no note.
  */
-export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
+export default function PaymentEntry({ entry, ledger, onSaved, onDeleted, payeesShown = false }: {
   entry: Entry
   ledger: Ledger
+  /** Whether the user shows their payees to the other members of the entry's family budget (UX-9). */
+  payeesShown?: boolean
   onSaved: () => void
   onDeleted: () => void
 }) {
@@ -226,7 +228,7 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted }: {
           {!settlement && (
             <CounterpartyFields account={chosen} counterparties={ledger.counterparties} counterpartyId={counterpartyId}
               payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee
-              errors={problems.counterparty} />
+              payeesShown={payeesShown} errors={problems.counterparty} />
           )}
           {settlement && <Errors messages={problems.counterparty} />}
           {chosen && recordCurrency && (

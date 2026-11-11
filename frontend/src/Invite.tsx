@@ -239,6 +239,7 @@ function Acceptance({ token, lookup, onProblem, onDeclined, onRecheck, onJoined 
           <h3>What they never see</h3>
           <ul>
             <li>Your accounts, and which one you paid with</li>
+            <li>Where you paid (the payee), unless you choose to show it in the budget’s settings</li>
             <li>Your personal categories and entries</li>
             <li>Your private notes, your email address and your account</li>
           </ul>

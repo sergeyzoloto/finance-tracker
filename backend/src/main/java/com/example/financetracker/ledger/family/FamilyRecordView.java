@@ -40,6 +40,10 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  *        reports and balances, and its shares are what each member gets back
  * @param importedBy who imported it, when an import wrote it (D-48, additive); left out for a record entered in the app
  * @param importedAt when the import wrote it last; left out with {@code importedBy}
+ * @param paymentPayee the payee's name on the payer's own payment entry of an expense, a refund or an income's receipt
+ *        (D-81 as D-479 to D-482 amend it): for the payer themself, and for the other ACTIVE members while the payer is
+ *        an ACTIVE member with an account who shows their payees in this budget; left out for everyone else, for a
+ *        settlement, and when the entry has no payee (UX-9, additive)
  * @param lockedBy for a settlement, the other side, who has put their part on an account of theirs, so that its date
  *        and amount don't change and it isn't deleted until they move it back to "Specify later" (D-28, additive);
  *        only in the answers of who would otherwise change it, and left out for everyone else and every other record
@@ -50,7 +54,8 @@ public record FamilyRecordView(long id, String type, LocalDate date, CategoryRef
         boolean canEdit, boolean canDelete, boolean canEditPayment,
         @JsonInclude(Include.NON_NULL) YourPayment yourPayment, @JsonInclude(Include.NON_NULL) MemberRef payee,
         @JsonInclude(Include.NON_NULL) MemberRef lockedBy, boolean refund,
-        @JsonInclude(Include.NON_NULL) MemberRef importedBy, @JsonInclude(Include.NON_NULL) Instant importedAt) {
+        @JsonInclude(Include.NON_NULL) MemberRef importedBy, @JsonInclude(Include.NON_NULL) Instant importedAt,
+        @JsonInclude(Include.NON_NULL) String paymentPayee) {
 
     /**
      * The payer's own view of their payment (D-16): their payment entry in their personal ledger, and the account they

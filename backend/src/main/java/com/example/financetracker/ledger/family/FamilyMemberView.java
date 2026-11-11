@@ -15,7 +15,10 @@ import com.example.financetracker.ledger.access.MemberRole;
  * @param claimedSeat whether the member took a seat by a claim (and hasn't left and returned since): they take part in
  *        records from the family ledger's start date, and their {@code joinDate} is the claim's, from which records
  *        are posted to them (D-35; additive, F6b)
+ * @param showsPayees whether the member shows the payees of their family payments to the other members (UX-9, D-479;
+ *        additive); only an ACTIVE member with an account may, so false for everyone else
  */
 public record FamilyMemberView(long id, String displayName, MemberRole role, MemberStatus status, LocalDate joinDate,
-        boolean hasAccount, Integer share, LocalDate leftDate, boolean claimedSeat) {
+        boolean hasAccount, Integer share, LocalDate leftDate, boolean claimedSeat,
+        boolean showsPayees) {
 }

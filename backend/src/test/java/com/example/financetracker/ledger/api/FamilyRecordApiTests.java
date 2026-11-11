@@ -59,8 +59,8 @@ class FamilyRecordApiTests extends FamilyApiTest {
         JsonNode posted = ok(get(bob, "/api/entries")).get("content").get(0);
         assertThat(posted.get("family")).isEqualTo(json.readTree("""
                 {"ledgerId": %d, "ledgerName": "Home", "recordId": %d, "link": "SHARE", "readOnly": true,
-                 "recordType": "EXPENSE"}"""
-                .formatted(family, record.get("id").asLong())));
+                 "recordType": "EXPENSE", "recordCategory": {"id": %d, "name": "Groceries"}}"""
+                .formatted(family, record.get("id").asLong(), groceries)));
         assertThat(posted.get("memo").isNull()).isTrue();
 
         assertThat(balances(alice)).containsExactly("Mum -50.00 you", "Dad 50.00", "Kid 0.00");

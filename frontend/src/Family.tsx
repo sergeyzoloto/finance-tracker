@@ -14,6 +14,7 @@ import FamilyJournal from './FamilyJournal'
 import FamilyReport from './FamilyReport'
 import { FamilyMembers, FamilySplitRule } from './FamilyMembers'
 import NewSettlement from './FamilySettlement'
+import YourPayees from './FamilyPayees'
 import { useFamilyApi, useFamilyMutation, type CreationState, type FamilyData } from './familyData'
 import { isBalances, isRecordPage } from './guards'
 
@@ -179,6 +180,7 @@ function FamilySettings({ family }: { family: FamilyData }) {
           <dt>Base currency</dt><dd>{ledger.baseCurrency}</dd>
         </dl>
         <p className="muted">Only an owner of the family budget changes its name and base currency.</p>
+        <YourPayees family={family} />
       </section>
     )
   }
@@ -206,6 +208,7 @@ function FamilySettings({ family }: { family: FamilyData }) {
       </form>
       {saved && <p className="success" role="status">Saved.</p>}
       <Errors messages={[save.message ? sentence(save.message) : undefined]} />
+      <YourPayees family={family} />
     </section>
   )
 }

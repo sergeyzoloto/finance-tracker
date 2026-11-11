@@ -207,7 +207,8 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
           )}
           {payerIsMe && !opening && (
             <CounterpartyFields account={account} counterparties={counterparties.data} counterpartyId={counterpartyId}
-              payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee errors={problems.counterparty} />
+              payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee
+              payeesShown={family.ledger.showsPayees === true} errors={problems.counterparty} />
           )}
           <Field label="Comment (optional)" errors={problems.comment} className="wide"
             hint="Every member of the family budget sees it.">

@@ -52,10 +52,13 @@ describe('the privacy policy', () => {
     // E1 and H1.
     expect(section).toContain('the family report')
     expect(section).toContain('"Demo household"')
+    // UX-9: payees only by the member's own choice, in both lists.
+    expect(section).toContain("only if that member chooses to show it in the budget's settings")
+    expect(section).toContain("where you paid (the payee), unless you choose to show it in the budget's settings")
   })
 
   it('has the new date, names the time zone among what is stored, and no longer says nobody else sees anything of yours', () => {
-    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 26 October 2026')
+    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 11 November 2026')
     const data = words(page.getElementById('data')!.parentElement!.textContent!)
     // D-101 (F8c): the time zone is stored with the settings, from the browser, changeable, and decides today's date.
     expect(data).toContain('Your settings include your time zone, such as Europe/Amsterdam, which the app takes from your browser the first time you use it and which you can change in Settings')

@@ -13,6 +13,7 @@ import {
 } from './expenseForm'
 import { newPayingSide, recordAmount, sidePatch, type PayingSideForm } from './currency'
 import { CounterpartyFields } from './FamilyCounterparties'
+import { ownPayeeNote, shownByNote } from './payees'
 import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCurrency'
 import { OpeningBalanceNote } from './FamilyExpenseForm'
 import { RECORD_NOUNS, recordTitle, recordWho, settlementSentence, shownAmount } from './family'
@@ -51,7 +52,11 @@ export function RecordTable({ records, family }: { records: FamilyRecord[]; fami
                 <Link to={to} onClick={(e) => e.stopPropagation()}>{recordTitle(r)}</Link>
                 {r.type === 'INCOME' && <span className="badge">Income</span>}
                 {r.frozen && <span className="badge" title="A member it involves has left; nobody can change it">Frozen</span>}
-                <div className="small muted">{recordWho(r, me)}</div>
+                <div className="small muted">
+                  {recordWho(r, me)}
+                  {/* UX-9: the payer's payee, for them and while they show it to the others. */}
+                  {r.paymentPayee && <> · {r.paymentPayee}</>}
+                </div>
               </td>
               <td className="amount nowrap">
                 {recordAmount(r)}
@@ -213,7 +218,19 @@ export function RecordDetail({ family }: { family: FamilyData }) {
         {r.payee && <><dt>Received by</dt><dd>{r.payee.memberId === me ? `${r.payee.displayName} (you)` : r.payee.displayName}</dd></>}
         {r.yourPayment && (
           <YourSide payment={r.yourPayment} currency={r.currency} counterparties={counterparties.data}
+            payeeNote={r.paymentPayee === undefined ? ownPayeeNote(family.ledger.showsPayees === true) : undefined}
             label={settlement ? sideLabel(r.payer.memberId === me) : r.type === 'INCOME' || r.refund ? 'Received into' : 'Paid from'} />
+        )}
+        {r.paymentPayee !== undefined && (
+          <>
+            <dt>Payee</dt>
+            <dd>
+              {r.paymentPayee}
+              <small className="muted block">
+                {r.payer.memberId === me ? ownPayeeNote(family.ledger.showsPayees === true) : shownByNote(r.payer.displayName)}
+              </small>
+            </dd>
+          </>
         )}
         <dt>Comment</dt><dd>{r.comment ?? <span className="muted">None</span>}</dd>
         <dt>{settlement ? 'Recorded' : 'Added'}</dt><dd>by {r.author.displayName}, {formatInstant(r.createdAt)}</dd>
@@ -297,8 +314,10 @@ export function RecordDetail({ family }: { family: FamilyData }) {
  * The account of the reader's own side, for their eyes only: the other members never see it (D-16). The record's
  * answer carries it for them alone (`yourPayment`), with their entry in their own ledger.
  */
-function YourSide({ payment, label, currency, counterparties }: {
+function YourSide({ payment, label, currency, counterparties, payeeNote }: {
   payment: YourPayment; label: string; currency: string; counterparties: Counterparty[] | undefined
+  /** The note under the reader's payee, or undefined when the record's own "Payee" line shows it (UX-9). */
+  payeeNote?: string
 }) {
   const named = (id: number | undefined) => id === undefined ? undefined
     : counterparties?.find((c) => c.id === id)?.name ?? 'a counterparty of yours'
@@ -316,7 +335,7 @@ function YourSide({ payment, label, currency, counterparties }: {
           Only you see which account it is.
         </small>
       </dd>
-      {payee && <><dt>Payee</dt><dd>{payee}<small className="muted block">Only you see it.</small></dd></>}
+      {payee && payeeNote && <><dt>Payee</dt><dd>{payee}<small className="muted block">{payeeNote}</small></dd></>}
     </>
   )
 }
@@ -487,7 +506,7 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
             {payerIsMe && !opening && (record.yourPayment || ownSide || payerChanged) && (
               <CounterpartyFields account={account} counterparties={counterparties.data} counterpartyId={counterpartyId}
                 payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee
-                errors={problems.counterparty} />
+                payeesShown={family.ledger.showsPayees === true} errors={problems.counterparty} />
             )}
             {account && (
               <PayingSideFields account={account} recordCurrency={currency} side={side} onChange={setSide}

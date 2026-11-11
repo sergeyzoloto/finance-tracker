@@ -178,13 +178,14 @@ public class FamilyMembershipService {
     private FamilyMemberView member(LedgerScope family, long memberId) {
         return jdbc.sql("""
                 SELECT id, display_name, role, status, join_date, user_sub IS NOT NULL AS has_account, share_bp, left_date,
-                       claimed_seat
+                       claimed_seat, shows_payees
                 FROM ledger_member WHERE ledger_id = :ledgerId AND id = :memberId""")
                 .param("ledgerId", family.ledgerId()).param("memberId", memberId)
                 .query((row, n) -> new FamilyMemberView(row.getLong("id"), row.getString("display_name"),
                         MemberRole.valueOf(row.getString("role")), MemberStatus.valueOf(row.getString("status")),
                         row.getObject("join_date", LocalDate.class), row.getBoolean("has_account"),
-                        row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class), row.getBoolean("claimed_seat")))
+                        row.getObject("share_bp", Integer.class), row.getObject("left_date", LocalDate.class), row.getBoolean("claimed_seat"),
+                        row.getBoolean("shows_payees")))
                 .optional()
                 .orElseThrow(() -> new NotFoundException("Member " + memberId + " not found"));
     }

@@ -3,6 +3,67 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-11 · UX-9: a family payment's category in Entries, payees a member chooses to show in a family budget, D-475 to D-493
+
+One commit on `feature/family-budget` on top of `2e34237`, the commit of this entry, "feat: a family payment's category
+in Entries, payees a member chooses to show in a family budget, D-475 to D-493 (UX-9)". **Not pushed**; `main` not
+moved. Migration V17 (one
+column of `ledger_member`, its check and a trigger), one endpoint (`PATCH /api/family-ledgers/{id}/me`) and additive
+fields; no stored entry, record, amount, report, import or export changed. Production read only: the server was never
+touched and `e2e:prod` never run. UX-8's deploy is not recorded here (D-475).
+
+**Changes**
+- D-477, D-478, D-487: `EntryFamily.recordCategory` (`id`, the family category's current `name`) for every non-detached
+  link whose record has a category; the Entries list shows it in a payment's or receipt's Category cell, not muted,
+  with the kind and `SharedMark` on the family line; `GET /api/entries?categoryId=` also finds an entry without a
+  categorized line by its non-detached link's record's category.
+- D-479 to D-486: `V17__member_shows_payees.sql` (`ledger_member.shows_payees`, false for everyone, the check, the
+  trigger `ledger_member_shows_payees` turning it off when a row stops being an ACTIVE member with an account);
+  `PATCH /api/family-ledgers/{ledgerId}/me` (`FamilyLedgerService.setShowsPayees`); `showsPayees` on
+  `FamilyLedgerView` and `FamilyMemberView`; `paymentPayee` on `FamilyRecordView`, read by
+  `FamilyPostingService.shownPayees` for the payer and, while the payer shows them, the other ACTIVE members.
+- D-482, D-488 to D-491: `FamilyPayees.tsx` ("Your payees" on a budget's Settings tab, with `confirm`, "Saved.", the box
+  put back on a failure, "Who shows payees"), `payees.ts` (the texts); the Activity line "Paid by you · Odido"; the
+  record page's "Payee" line with "Only you see it.", "The other members see it." or "Shown by" and the payer's name; the payee
+  hints of the payment forms, New entry's family path and the payment's page by the reader's switch; the invite page's
+  "What they never see"; the privacy policy's two family lists and its date (11 November 2026), and
+  `docs/family-budget/privacy-draft.md`.
+- Tests: `FamilyEntryCategoryApiTests` and `FamilyPayeeApiTests` (new), `DataIsolationApiTests` (the new endpoint and
+  `aPayeeIsShownOnlyByItsPayersChoice`), `LedgerSchemaTests.onlyAnActiveMemberWithAnAccountShowsPayees`,
+  `LedgerBackfillMigrationTests` (V17 changes no row), `FamilySwitchOffApiTests` (34 endpoints), `ApiTests` (the 401
+  list and the OpenAPI paths), `FamilyRecordApiTests` (the share's `family` with `recordCategory`); `UX9.test.tsx`
+  (new, 12 tests), `privacy.test.ts`; end to end `09-payees` (new), the specs' pattern `0[2-9]`, `e2e/README.md`.
+- `deploy/checks/UX-9.sql` and `UX-9.expected`; `deploy/RUNBOOK.md`, "UX-9's deploy checklist with the suite";
+  `requirements.md` D-475 to D-493, D-81's line and the planned stage; CLAUDE.md.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: first run exit 1, `Tests run: 661, Failures: 2, Errors: 0, Skipped: 0`:
+  `ApiTests.theOpenApiDescriptionListsEveryEndpoint` (its list lacked `PATCH /me`) and
+  `FamilyRecordApiTests.anExpenseIsPostedAsD7Says` (an exact `family` object without `recordCategory`); both tests
+  updated (and `ApiTests`' 401 list given the new endpoint). Second run: exit 0,
+  `Tests run: 661, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- `cd frontend && npm test`: exit 0, `Test Files 44 passed (44)`, `Tests 594 passed (594)`, no Errors line;
+  `npm run build`: exit 0.
+- `cd e2e && npm run test:guards`: exit 0, 37 tests, 37 pass, 0 fail.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local`, first run: exit 1, `Result: FAILED`, every spec passed at 1280 and 375
+  px but `payees` (both widths), at its Entries step: the family line's text holds the shared icon's title ("Family
+  payment · Shared: UX-9 checkUX-9 check"), which the spec's expected text left out; the page was right. The spec now
+  expects the title and checks the icon by its name. Second run (the local api restarted for D-29's limit): exit 0,
+  every spec passed at 1280 and 375 px (`payees` included, `new-family` passed locally), cleanup passed, 0 password
+  hits, `Result: PASSED`.
+- Section 3 on `finance-2026-11-11T0234Z.dump` (SHA-256 `6c2d020f…`), D-493: Odido's payments read "Связь, интернет,
+  приложения" with "Family payment · Family Budget"; Электроника finds 151 entries (31 payments); with every switch off
+  the partner reads 8103 payees on 12543 records, all his own; the owner's €10.00 expense of 2024-07-30 shows the
+  partner "Odido" only while the owner's switch is on; medians 22 to 35 ms both ways; both exports' SHA-256 the same
+  off and on; `UX-9.sql` equal to `UX-9.expected` (9 lines). Screenshots in `data/private/reports/UX-9/`.
+
+**Open**
+- The PM's review and acceptance; then the push, and the deploy by "UX-9's deploy checklist with the suite", after
+  UX-8's deploy is done and finished (D-475); the next stage records both deploys.
+- D-488: the Activity line reads "Paid by Sergey Zolotko · Odido", not D-481's example "Sergey Zolotko paid · Odido";
+  the PM may ask for the example's word order.
+- Both participants' switches stay off after the deploy; each turns his own on in the app if he wants.
+
 ## 2026-11-11 · UX-8: similar entries on New entry, Copy, "Save and add another" keeping the form, two fixes at 375 px, D-452 to D-474
 
 Two commits on `feature/family-budget` on top of `3d1fcb0`: `625405e` "docs: UX-7's deploy recorded, D-452 (UX-8)",

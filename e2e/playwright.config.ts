@@ -17,10 +17,10 @@ const quiet = { trace: 'off', screenshot: 'off', video: 'off' } as const
 /**
  * Smoke, family F7, family F8, the export page (D4a), family F8d, the import, the member's import, the time zone (which
  * saves another zone for A; every other spec starts with Delete all my data, which takes the zone along), the
- * dashboard (UX-1, which sets A's date format and back), then New entry (UX-8), in this order (workers 1, files in
- * order); the guards' tests run a probe instead.
+ * dashboard (UX-1, which sets A's date format and back), New entry (UX-8), then the payees (UX-9), in this order
+ * (workers 1, files in order); the guards' tests run a probe instead.
  */
-const specs = t === 'test' ? /guards-probe\.spec\.ts$/ : /0[2-8]-[a-z0-9-]+\.spec\.ts$/
+const specs = t === 'test' ? /guards-probe\.spec\.ts$/ : /0[2-9]-[a-z0-9-]+\.spec\.ts$/
 
 const projects: Project[] = [
   // Pages without signing in: run first, on their own.

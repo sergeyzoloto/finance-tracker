@@ -1,0 +1,9 @@
+flyway latest 17 member shows payees true
+column ledger_member.shows_payees boolean NO default false
+check ledger_member_shows_payees_check CHECK (((NOT shows_payees) OR (((ledger_type)::text = 'SHARED'::text) AND ((status)::text = 'ACTIVE'::text) AND (user_sub IS NOT NULL))))
+trigger ledger_member_shows_payees enabled true before update true function ledger_member_shows_payees
+payment links outside their member's personal ledger 0
+payment links of a settlement 0
+records with a category of another ledger 0
+categorized postings outside equity 0
+unbalanced entries 0

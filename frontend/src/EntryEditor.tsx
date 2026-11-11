@@ -36,6 +36,7 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
   if (!ledger || (id && !entry.data)) return <>{title}<Loading /></>
   if ((entry.data?.family?.link === 'PAYMENT' || entry.data?.family?.link === 'SETTLEMENT') && families) {
     return <PaymentEntry key={`${entry.data.id}:${entry.data.version}`} entry={entry.data} ledger={ledger}
+      payeesShown={families.find((f) => f.id === entry.data?.family?.ledgerId)?.showsPayees === true}
       onSaved={entry.reload} onDeleted={() => navigate(back)} />
   }
   if (entry.data?.family?.readOnly) {

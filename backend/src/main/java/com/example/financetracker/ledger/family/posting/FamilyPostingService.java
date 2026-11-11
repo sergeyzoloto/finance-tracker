@@ -600,6 +600,42 @@ public class FamilyPostingService {
     }
 
     /**
+     * The payee's name on the payer's own payment entry of each of these records that the caller may see (UX-9, D-479
+     * to D-482): of an expense, a refund or an income's receipt, read when asked and never copied, so a renamed payee
+     * reads with its new name and a removed one gives nothing. The caller sees their own payees, and another member's
+     * only while that member is ACTIVE, has an account and shows their payees ({@code ledger_member.shows_payees}).
+     * Only the name: never the account, the account line's counterparty, the note or the paying amount (D-481), and
+     * nothing of a settlement's sides.
+     *
+     * @param family the caller's family scope; the caller is an ACTIVE member of it
+     */
+    public Map<Long, String> shownPayees(LedgerScope family, List<Long> recordIds) {
+        Map<Long, String> payees = new HashMap<>();
+        if (recordIds.isEmpty()) {
+            return payees;
+        }
+        jdbc.sql("""
+                SELECT r.id AS record_id, c.name
+                FROM family_record r
+                JOIN ledger_member m ON m.ledger_id = r.ledger_id AND m.id = r.payer_member_id
+                JOIN family_entry_link l ON l.family_ledger_id = r.ledger_id AND l.record_id = r.id
+                     AND l.member_id = m.id AND l.link_type = 'PAYMENT' AND l.detached_at IS NULL
+                JOIN journal_entry e ON e.id = l.entry_id
+                JOIN ledger_member own ON own.ledger_id = e.ledger_id AND own.ledger_type = 'PERSONAL'
+                     AND own.user_sub = m.user_sub
+                JOIN counterparty c ON c.id = e.payee_id AND c.ledger_id = e.ledger_id
+                WHERE r.ledger_id = :familyId AND r.id IN (:recordIds) AND r.type IN ('EXPENSE', 'INCOME')
+                  AND m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
+                  AND (m.id = :memberId OR m.shows_payees)""")
+                .param("familyId", family.ledgerId()).param("memberId", family.memberId())
+                .param("recordIds", recordIds)
+                .query(row -> {
+                    payees.put(row.getLong("record_id"), row.getString("name"));
+                });
+        return payees;
+    }
+
+    /**
      * A member's share: UNALLOCATED +share with the family category, the debt account −share; an income's share comes
      * negative, so income on UNALLOCATED and the debt account +share.
      */

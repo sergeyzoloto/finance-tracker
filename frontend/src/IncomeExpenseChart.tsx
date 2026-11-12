@@ -8,15 +8,16 @@ import {
 } from './dashboard'
 import { formatMoney, toChartNumber } from './money'
 
-// Categorical slots 1 and 2 of a colour-blind-safe palette, checked against the white page. The page's green and
-// red text colours would be hard to tell apart for many readers. The comparison drawn behind the months is the same
-// hue, lighter, as a dashed line with dots (D-399); below 3:1 against the page, so the legend names it and the
-// table and the tooltip give its figures.
-const INCOME = '#2a78d6'
-const EXPENSE = '#eb6834'
-const INCOME_BEFORE = '#7aaae6'
-const EXPENSE_BEFORE = '#f29b74'
-const GRID = '#e6e8eb'
+// The theme's chart tokens (D-501), as var() so that a change of theme recolours the chart without a render: SVG's
+// presentation attributes (fill, stroke) take var() in the browsers the app supports. The comparison drawn behind the
+// months is the same hue, lighter, as a dashed line with dots (D-399); the legend names it and the table and the
+// tooltip give its figures.
+const INCOME = 'var(--chart-income)'
+const EXPENSE = 'var(--chart-expense)'
+const INCOME_BEFORE = 'var(--chart-income-before)'
+const EXPENSE_BEFORE = 'var(--chart-expense-before)'
+const GRID = 'var(--chart-grid)'
+const CURSOR = { fill: 'var(--surface-raised)' }
 
 /** How the legend names a comparison drawn behind the months. */
 export const BEHIND: Record<CompareRole, string> = {
@@ -39,7 +40,7 @@ export default function IncomeExpenseChart({ data, currency, rounded }: { data: 
   const ticks = tickFormat(currency)
   const yAxis = (
     <YAxis tickFormatter={(value: number) => ticks.format(value)} tickLine={false} axisLine={false} width={Y_AXIS_WIDTH}
-      tick={{ fill: 'var(--muted)', fontSize: 12 }} />
+      tick={{ fill: 'var(--muted)', fontSize: 12, fontFamily: 'var(--font-mono)' }} />
   )
   const bars = [
     <Bar key="income" dataKey="incomeHeight" name="Income" fill={INCOME} maxBarSize={24} radius={[4, 4, 0, 0]} />,
@@ -63,18 +64,18 @@ export default function IncomeExpenseChart({ data, currency, rounded }: { data: 
     <ResponsiveContainer width="100%" height={260}>
       <ComposedChart data={points} barGap={2} barCategoryGap="25%" margin={MARGIN}>
         <CartesianGrid vertical={false} stroke={GRID} />
-        <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: GRID }} tick={{ fill: 'var(--muted)', fontSize: 12 }} />
+        <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: GRID }} tick={{ fill: 'var(--muted)', fontSize: 12, fontFamily: 'var(--font-mono)' }} />
         {yAxis}
-        <Tooltip cursor={{ fill: '#f2f4f6' }}
+        <Tooltip cursor={CURSOR}
           content={<MonthTooltip currency={currency} rounded={rounded} behind={behind ?? null} />} />
         {legend}
         {bars}
         {behind && [
           <Line key="income-before" dataKey="incomeBefore" name={`Income, ${behind}`} stroke={INCOME_BEFORE}
-            strokeWidth={2} strokeDasharray="5 4" dot={{ r: 4, fill: INCOME_BEFORE, stroke: 'white', strokeWidth: 2 }}
+            strokeWidth={2} strokeDasharray="5 4" dot={{ r: 4, fill: INCOME_BEFORE, stroke: 'var(--surface)', strokeWidth: 2 }}
             activeDot={{ r: 5 }} isAnimationActive={false} legendType="plainline" />,
           <Line key="expense-before" dataKey="expenseBefore" name={`Expenses, ${behind}`} stroke={EXPENSE_BEFORE}
-            strokeWidth={2} strokeDasharray="5 4" dot={{ r: 4, fill: EXPENSE_BEFORE, stroke: 'white', strokeWidth: 2 }}
+            strokeWidth={2} strokeDasharray="5 4" dot={{ r: 4, fill: EXPENSE_BEFORE, stroke: 'var(--surface)', strokeWidth: 2 }}
             activeDot={{ r: 5 }} isAnimationActive={false} legendType="plainline" />,
         ]}
       </ComposedChart>
@@ -117,7 +118,7 @@ function RangeChart({ bars, currency, rounded, yAxis, legend, marks }: {
           <XAxis dataKey="key" tickLine={false} axisLine={{ stroke: GRID }} interval={0} height={axisHeight}
             tick={<RangeTick lines={lines} />} />
           {yAxis}
-          <Tooltip cursor={{ fill: '#f2f4f6' }} content={<RangeTooltip currency={currency} rounded={rounded} />} />
+          <Tooltip cursor={CURSOR} content={<RangeTooltip currency={currency} rounded={rounded} />} />
           {legend}
           {marks}
         </BarChart>
@@ -180,7 +181,9 @@ let context: OffscreenCanvasRenderingContext2D | null | undefined
 export function measureText(text: string): number {
   if (context === undefined) {
     context = typeof OffscreenCanvas === 'undefined' ? null : new OffscreenCanvas(1, 1).getContext('2d')
-    if (context) context.font = `${TICK_FONT_SIZE}px ${getComputedStyle(document.body).fontFamily || 'sans-serif'}`
+    // The ticks are Plex Mono (D-500); a canvas doesn't read var(), so the token's value.
+    const mono = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim()
+    if (context) context.font = `${TICK_FONT_SIZE}px ${mono || getComputedStyle(document.body).fontFamily || 'monospace'}`
   }
   return context ? context.measureText(text).width : text.length * TICK_FONT_SIZE * 0.6
 }
@@ -192,7 +195,7 @@ export function RangeTick({ x, y, payload, lines }: {
   const own = payload && lines.get(payload.value)
   if (!own) return null
   return (
-    <text x={x} y={y} textAnchor="middle" fontSize={TICK_FONT_SIZE} fill="var(--muted)">
+    <text x={x} y={y} textAnchor="middle" fontSize={TICK_FONT_SIZE} fill="var(--muted)" fontFamily="var(--font-mono)">
       {own.map((line, i) => <tspan key={i} x={x} dy={i === 0 ? '0.9em' : `${TICK_LINE_HEIGHT}px`}>{line}</tspan>)}
     </text>
   )

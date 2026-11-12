@@ -188,7 +188,7 @@ describe('the demo’s family budget (H1)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load demo data' }))
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?from=2026-04-01&to=2026-10-02'))
-    await waitFor(() => expect(menuBudgets()).toEqual(['Demo household', 'New family budget…']))
+    await waitFor(() => expect(menuBudgets()).toEqual(['Demo household', 'New family budget']))
     expect(calls.filter((c) => c.method === 'GET' && c.url === '/api/family-ledgers')).toHaveLength(2)
   })
 

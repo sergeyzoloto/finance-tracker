@@ -5,9 +5,9 @@ import App from './App'
 import type { FamilyLedger, Me } from './api'
 import CashFlowTable from './CashFlowTable'
 import type { CompareTable } from './dashboard'
-import { mainMenu, userMenu } from './testHeader'
+import { currentLinks, userMenu } from './testHeader'
 
-// UX-7: the header's two menus (D-433 to D-436), Settings in parts (D-437, D-438), and the net's % across 0 (D-439).
+// UX-7: the header's user menu (D-433, D-434; its main menu superseded by D-498), Settings in parts (D-437, D-438), and the net's % across 0 (D-439).
 
 const ON: Me = { name: 'Anna', timeZone: 'UTC', today: '2026-11-10', features: { familyLedgers: true } }
 const OFF: Me = { ...ON, features: { familyLedgers: false } }
@@ -54,111 +54,83 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('the header in My finances (D-433)', () => {
-  it('has the main menu, “New entry” and the user’s menu, and no other link', async () => {
+// The main menu of D-433 and D-436 went with UX-10 (D-498): row 2's tests are in Header.test.tsx. The user's menu stays.
+
+describe('the user’s menu (D-433, D-464; restyled by D-498)', () => {
+  it('holds Settings and Log out, its button the name with an icon and a title; Import and Export are in Settings', () => {
     stubApi()
     renderApp('/accounts')
-    const controls = within(header()).getAllByRole('button').map((b) => b.textContent)
-    expect(controls).toEqual(['My finances', 'Anna'])
-    expect(within(header()).getAllByRole('link').map((a) => [a.textContent, a.getAttribute('href')]))
-      .toEqual([['New entry', '/entries/new']])
-    expect(button('My finances').querySelector('svg')).not.toBeNull()
+    expect(within(header()).getAllByRole('button').map((b) => b.textContent)).toEqual(['Anna'])
     expect(button('Anna').querySelector('svg')).not.toBeNull()
     // A long name is cut by CSS; the whole name is its title.
     expect(button('Anna').getAttribute('title')).toBe('Anna')
-
-    const menu = mainMenu()
-    await waitFor(() => expect(within(menu).getAllByRole('link').map((a) => a.textContent)).toEqual([
-      'Dashboard', 'Entries', 'Accounts', 'Categories', 'Rates', 'Allotment', 'Home', 'New family budget…']))
-    expect(within(menu).getByRole('list', { name: 'Family budgets' })).toBeDefined()
     expect(within(userMenu('Anna')).getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings')
     expect(within(userMenu('Anna')).getByRole('button', { name: 'Log out' })).toBeDefined()
-    // Import and Export moved into Settings (D-437).
     expect(screen.queryByRole('link', { name: 'Import' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Export' })).toBeNull()
   })
 
-  it('with family budgets off, the main menu holds the pages only', () => {
-    stubApi()
-    renderApp('/accounts', OFF)
-    expect(within(mainMenu()).getAllByRole('link').map((a) => a.textContent))
-      .toEqual(['Dashboard', 'Entries', 'Accounts', 'Categories', 'Rates'])
-    expect(screen.queryByText(/family budget/i)).toBeNull()
-  })
-
-  it('keeps My finances’ header on /family/new and /invite, which aren’t inside a budget (D-436)', () => {
-    for (const path of ['/family/new', '/invite']) {
-      stubApi()
-      renderApp(path)
-      expect(button('My finances')).toBeDefined()
-      expect(within(header()).getByRole('link', { name: 'New entry' })).toBeDefined()
-      cleanup()
-    }
-  })
-})
-
-describe('the header inside a family budget (D-435, D-436)', () => {
-  it('has “← My finances” on the left and the user’s menu, no main menu and no “New entry”', () => {
+  it('stays inside a family budget, with Settings alone as its link', () => {
     stubApi()
     renderApp('/family/7/members')
-    expect(within(header()).getAllByRole('link').map((a) => [a.textContent, a.getAttribute('href')]))
-      .toEqual([['← My finances', '/']])
     expect(within(header()).getAllByRole('button').map((b) => b.textContent)).toEqual(['Anna'])
-    expect(within(header()).getByRole('link', { name: '← My finances' }).className).toBe('button')
     expect(within(userMenu('Anna')).getAllByRole('link').map((a) => a.textContent)).toEqual(['Settings'])
-    fireEvent.click(within(header()).getByRole('link', { name: '← My finances' }))
-    expect(where()).toBe('/')
-    expect(button('My finances')).toBeDefined()
+  })
+
+  it('gives the name as the panel’s first line, for the person icon under 40rem (D-464)', () => {
+    stubApi()
+    renderApp('/accounts')
+    expect(button('Anna').querySelector('.icon.person')).not.toBeNull()
+    expect(userMenu('Anna').querySelector('.menu-user-name')?.textContent).toBe('Anna')
   })
 })
 
-describe('the menus (D-434)', () => {
-  it('is a disclosure: a button with aria-expanded and aria-controls, its panel under it, not role="menu"', () => {
+describe('the user’s menu as a disclosure (D-434)', () => {
+  it('is a button with aria-expanded and aria-controls, its panel under it, not role="menu"', () => {
     stubApi()
     renderApp('/accounts')
-    const main = button('My finances')
-    expect(main.getAttribute('aria-expanded')).toBe('false')
-    const panel = document.getElementById(main.getAttribute('aria-controls')!)!
+    const user = button('Anna')
+    expect(user.getAttribute('aria-expanded')).toBe('false')
+    const panel = document.getElementById(user.getAttribute('aria-controls')!)!
     expect(panel.hidden).toBe(true)
-    fireEvent.click(main)
-    expect(main.getAttribute('aria-expanded')).toBe('true')
+    // Items only while it is open.
+    expect(within(panel).queryAllByRole('link')).toEqual([])
+    fireEvent.click(user)
+    expect(user.getAttribute('aria-expanded')).toBe('true')
     expect(panel.hidden).toBe(false)
     expect(document.querySelector('[role="menu"], [role="menuitem"]')).toBeNull()
-    fireEvent.click(main)
-    expect(main.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(user)
+    expect(user.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('closes on Escape and puts the focus back on its button', () => {
     stubApi()
     renderApp('/accounts')
-    for (const name of ['My finances', 'Anna']) {
-      const panel = name === 'Anna' ? userMenu(name) : mainMenu()
-      within(panel).getAllByRole(name === 'Anna' ? 'button' : 'link')[0].focus()
-      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
-      expect(button(name).getAttribute('aria-expanded')).toBe('false')
-      expect(document.activeElement).toBe(button(name))
-    }
+    within(userMenu('Anna')).getByRole('button', { name: 'Log out' }).focus()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(button('Anna').getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(button('Anna'))
   })
 
   it('closes on a click outside, but not on one inside its panel', () => {
     stubApi()
     renderApp('/accounts')
-    const panel = mainMenu()
+    const panel = userMenu('Anna')
     fireEvent.mouseDown(panel)
-    expect(button('My finances').getAttribute('aria-expanded')).toBe('true')
+    expect(button('Anna').getAttribute('aria-expanded')).toBe('true')
     fireEvent.mouseDown(document.querySelector('main')!)
-    expect(button('My finances').getAttribute('aria-expanded')).toBe('false')
+    expect(button('Anna').getAttribute('aria-expanded')).toBe('false')
     userMenu('Anna')
     fireEvent.mouseDown(document.body)
     expect(button('Anna').getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('closes on choosing an item, and on any route change', () => {
+  it('closes on choosing an item, and on any route change', async () => {
     stubApi()
     renderApp('/accounts')
-    fireEvent.click(within(mainMenu()).getByRole('link', { name: 'Entries' }))
-    expect(where()).toBe('/entries')
-    expect(button('My finances').getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(within(userMenu('Anna')).getByRole('link', { name: 'Settings' }))
+    await waitFor(() => expect(where()).toBe('/settings/time-zone'))
+    expect(button('Anna').getAttribute('aria-expanded')).toBe('false')
     userMenu('Anna')
     // A route change from anywhere else, with no click in the page (no mousedown).
     fireEvent.click(screen.getByRole('button', { name: 'Go elsewhere' }))
@@ -166,36 +138,21 @@ describe('the menus (D-434)', () => {
     expect(button('Anna').getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('has one open at a time', () => {
+  it('marks Settings on each of its parts, and no page of row 2 then', async () => {
     stubApi()
     renderApp('/accounts')
-    mainMenu()
-    fireEvent.click(button('Anna'))
-    expect(button('Anna').getAttribute('aria-expanded')).toBe('true')
-    expect(button('My finances').getAttribute('aria-expanded')).toBe('false')
-    fireEvent.click(button('My finances'))
-    expect(button('Anna').getAttribute('aria-expanded')).toBe('false')
-    expect(document.querySelectorAll('.menu-panel:not([hidden])')).toHaveLength(1)
-  })
-
-  it('marks the current page, and Settings on each of its parts', async () => {
-    stubApi()
-    renderApp('/accounts')
-    const current = (panel: HTMLElement) =>
-      within(panel).queryAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)
-    expect(current(mainMenu())).toEqual(['Accounts'])
-    fireEvent.click(within(mainMenu()).getByRole('link', { name: 'Dashboard' }))
-    expect(current(mainMenu())).toEqual(['Dashboard'])
+    expect(currentLinks()).toEqual(['Accounts'])
     fireEvent.click(within(userMenu('Anna')).getByRole('link', { name: 'Settings' }))
     await waitFor(() => expect(where()).toBe('/settings/time-zone'))
-    expect(current(userMenu('Anna'))).toEqual(['Settings'])
-    expect(current(mainMenu())).toEqual([])
+    expect(currentLinks(userMenu('Anna'))).toEqual(['Settings'])
+    expect(currentLinks()).toEqual([])
   })
 })
 
 describe('Settings in parts (D-437, D-438)', () => {
   const parts = [
-    ['Time zone', '/settings/time-zone'], ['Date format', '/settings/date-format'], ['Import', '/settings/import'],
+    ['Time zone', '/settings/time-zone'], ['Date format', '/settings/date-format'],
+    ['Appearance', '/settings/appearance'], ['Import', '/settings/import'],
     ['Export', '/settings/export'], ['Delete all my data', '/settings/delete'],
   ]
 
@@ -214,7 +171,8 @@ describe('Settings in parts (D-437, D-438)', () => {
     expect(within(nav).getAllByRole('link').map((a) => [a.textContent, a.getAttribute('href')])).toEqual(parts)
     expect(within(nav).getByRole('link', { name: label }).getAttribute('aria-current')).toBe('page')
     expect([...container.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Settings'])
-    expect(screen.getByRole('heading', { level: 3, name: label })).toBeDefined()
+    // Appearance's one heading is its Theme (D-499).
+    expect(screen.getByRole('heading', { level: 3, name: label === 'Appearance' ? 'Theme' : label })).toBeDefined()
     expect(where()).toBe(path)
   })
 

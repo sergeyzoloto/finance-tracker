@@ -189,3 +189,17 @@ export function ToggleGroup<T extends string>({ label, options, value, onChange 
     </div>
   )
 }
+
+/** The shared icon: two people (D-419). Named where it stands alone, decorative beside a name (the header, D-498). */
+export function SharedIcon({ label }: { label?: string }) {
+  return (
+    <svg role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true}
+      focusable="false" viewBox="0 0 16 16" width="1em" height="1em" fill="currentColor">
+      {label && <title>{label}</title>}
+      <circle cx="5.5" cy="4.75" r="2.4" />
+      <path d="M1 13.5c0-2.7 2-4.6 4.5-4.6s4.5 1.9 4.5 4.6z" />
+      <circle cx="11.25" cy="5.5" r="2" />
+      <path d="M10.4 9.1a4 4 0 0 1 .85-.1c2.1 0 3.75 1.7 3.75 4.1v.4h-3.9c0-1.75-.25-3.2-.7-4.4z" />
+    </svg>
+  )
+}

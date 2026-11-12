@@ -7,6 +7,8 @@ import { finishLogin, logIn, loginResult, logOut } from './auth'
 import { isMe } from './guards'
 import { captureInvite, inviteRedirect, watchInviteLinks } from './invite'
 import Landing from './Landing'
+import { startTheme } from './theme'
+import './fonts.css'
 import './index.css'
 
 /** How long the start page waits for the backend before it shows the landing page anyway. */
@@ -17,6 +19,8 @@ const BACKEND_WAIT_MS = 8000
 createRoot(document.getElementById('root')!).render(await start())
 
 async function start(): Promise<ReactNode> {
+  // The landing page and the notices take the theme too (D-497).
+  startTheme()
   // An invite link's token leaves the address bar before anything else happens (D-17), also for a link opened later in
   // a tab that shows /invite already.
   captureInvite()

@@ -169,7 +169,7 @@ describe('the last member with an account leaving (D-36)', () => {
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'))
     // The list's second load never answers, so this is the app's own update (a transition, D-36).
-    await waitFor(() => expect(menuBudgets()).toEqual(['New family budget…']))
+    await waitFor(() => expect(menuBudgets()).toEqual(['New family budget']))
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).toEqual(['/api/family-ledgers/7/members/me'])
   })
 })
@@ -243,12 +243,11 @@ describe('the main menu right after accepting an invite (F6b)', () => {
     // The page's own list has been answered (a user sees the menu before they accept); a late answer would
     // otherwise replace what accepting added.
     await waitFor(() => expect(calls.some((c) => c.url === '/api/family-ledgers')).toBe(true))
-    await waitFor(() => expect(menuBudgets()).toEqual(['New family budget…']))
+    await waitFor(() => expect(menuBudgets()).toEqual(['New family budget']))
     fireEvent.click(await screen.findByRole('button', { name: 'Accept' }))
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/family/7'))
-    // Inside the budget its header has "← My finances" (D-435); back in My finances, the menu lists it.
-    fireEvent.click(screen.getByRole('link', { name: '← My finances' }))
-    expect(menuBudgets()).toEqual(['Home', 'New family budget…'])
+    // Row 2 lists it at once, current inside it (D-498).
+    expect(menuBudgets()).toEqual(['Home', 'New family budget'])
   })
 })

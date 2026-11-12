@@ -1,70 +1,182 @@
-:root {
-  --border: #d0d7de;
-  --muted: #59636e;
-  --accent: #0b5cad;
-  --income: #1a7f37;
-  --expense: #c62828;
-  --notice-bg: #fff8e1;
-  --success-bg: #e8f5e9;
-  --error-bg: #fdecea;
-  --stale: #9a5b00;
+/* The three themes (D-495, D-496): every colour of the app is one of these tokens, and no hex or rgb() appears outside
+   these three blocks (themeGuards.test.ts). theme.js and theme.ts set data-theme on <html>; color-scheme makes the
+   browser's own controls (the date picker, selects, scrollbars) follow. A page without data-theme reads as Light. */
+:root[data-theme="blue"], .theme-preview[data-theme="blue"] {
+  color-scheme: dark;
+  --bg: #18212F;
+  --surface: #1F2A3B;
+  --surface-raised: #26344A;
+  --border: #33435C;
+  --border-control: #6B82A8;
+  --text: #E3E9F2;
+  --muted: #9AA8BD;
+  --accent: #A99BFF;
+  --on-accent: #16122E;
+  --income: #6BB8F2;
+  --expense: #F2A65A;
+  --danger: #F49A9A;
+  --danger-bg: #3A2630;
+  --notice-bg: #3A3424;
+  --success: #7FD6B8;
+  --success-bg: #1D3A36;
+  --stale: #E8C36A;
+  --chart-income: #4A9BE0;
+  --chart-expense: #F2A65A;
+  --chart-income-before: #8CC3F0;
+  --chart-expense-before: #F7C795;
+  --chart-grid: #2E3C52;
 }
-body { font-family: system-ui, sans-serif; max-width: 72rem; margin: 0 auto; padding: 1rem; }
-header { display: flex; gap: 1rem; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
-nav a.active { font-weight: bold; }
-/* The app's header (D-433 to D-436): one row at any width, the main menu or "← My finances" on the left, "New entry"
-   and the user's menu on the right; a long name is cut with an ellipsis. */
-header.app-header { flex-wrap: nowrap; justify-content: space-between; gap: 0.5rem; }
-.header-start, .header-end { display: flex; gap: 0.5rem; align-items: center; min-width: 0; }
-.header-start { flex: 0 0 auto; }
-.header-end { flex: 0 1 auto; justify-content: flex-end; }
+:root[data-theme="light"], :root:not([data-theme]), .theme-preview[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F4F6F9;
+  --surface: #FFFFFF;
+  --surface-raised: #EEF1F6;
+  --border: #D5DCE6;
+  --border-control: #7A8599;
+  --text: #1B2433;
+  --muted: #566173;
+  --accent: #5B48D6;
+  --on-accent: #FFFFFF;
+  --income: #0B6E99;
+  --expense: #A55A0F;
+  --danger: #B42318;
+  --danger-bg: #FDECEA;
+  --notice-bg: #FFF3D1;
+  --success: #1C6A4D;
+  --success-bg: #E4F3EC;
+  --stale: #875200;
+  --chart-income: #1D64A6;
+  --chart-expense: #D9782A;
+  --chart-income-before: #1D64A6;
+  --chart-expense-before: #D9782A;
+  --chart-grid: #E3E8EF;
+}
+:root[data-theme="dark"], .theme-preview[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #17181B;
+  --surface: #1F2024;
+  --surface-raised: #292A2F;
+  --border: #393B41;
+  --border-control: #787B84;
+  --text: #E8E8EB;
+  --muted: #A4A6AD;
+  --accent: #B3A8FF;
+  --on-accent: #17142E;
+  --income: #74B9EE;
+  --expense: #F0A860;
+  --danger: #F49A9A;
+  --danger-bg: #3B2427;
+  --notice-bg: #37311F;
+  --success: #82D3B5;
+  --success-bg: #1E3530;
+  --stale: #E3BE66;
+  --chart-income: #4A9BE0;
+  --chart-expense: #F0A860;
+  --chart-income-before: #8CC3F0;
+  --chart-expense-before: #F5C690;
+  --chart-grid: #2C2D32;
+}
+/* Type (D-500): Plex Sans for text, Plex Mono with tabular figures for amounts. */
+:root {
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --page-side: 24px;
+}
+
+html { background: var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
+/* The page at most 1440px wide with its sides (D-502); the header spans the whole width. */
+main, .app-footer, .landing > main, .landing > header .header-row { max-width: 1440px; margin-left: auto; margin-right: auto;
+  padding-left: var(--page-side); padding-right: var(--page-side); box-sizing: border-box; }
+a { color: var(--accent); }
+h2 { font-size: 20px; line-height: 28px; font-weight: 600; }
+h3 { font-size: 14px; line-height: 20px; font-weight: 600; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::placeholder { color: var(--muted); opacity: 1; }
+input[type='checkbox'], input[type='radio'] { accent-color: var(--accent); }
+
+/* The header (D-498): two rows, both always shown. Row 1: the wordmark; "New entry" and the user's menu. Row 2: the
+   pages, then with family budgets on each budget and "New family budget". */
+header.app-header, .landing > header { background: var(--surface); border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px;
+  max-width: 1440px; margin: 0 auto; padding: 0 var(--page-side); box-sizing: border-box; }
+/* As high as the buttons beside it, so that row 1 shares one top (D-498). */
+.wordmark { display: inline-flex; align-items: center; min-height: 36px; color: var(--text); font-size: 16px; line-height: 24px;
+  font-weight: 600; text-decoration: none; white-space: nowrap; }
+.header-end { display: flex; gap: 8px; align-items: center; min-width: 0; justify-content: flex-end; }
 .header-end > .button { flex: 0 0 auto; white-space: nowrap; }
+nav.main-nav { position: relative; display: flex; align-items: stretch; gap: 4px; max-width: 1440px; margin: 0 auto;
+  padding: 0 var(--page-side); box-sizing: border-box; overflow-x: auto; scrollbar-width: thin; }
+nav.main-nav a, nav.subnav a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px;
+  color: var(--muted); text-decoration: none; white-space: nowrap; flex: 0 0 auto; }
+nav.main-nav a:hover, nav.subnav a:hover { color: var(--text); }
+nav.main-nav a[aria-current='page'], nav.subnav a[aria-current='page'] { color: var(--text); font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent); }
+nav.main-nav a:focus-visible, nav.subnav a:focus-visible { outline-offset: -2px; }
+nav.main-nav .nav-divider { flex: 0 0 1px; align-self: center; height: 20px; margin: 0 8px; background: var(--border); }
+nav.main-nav .shared-mark { margin-left: 0; color: inherit; }
 .disclosure { position: relative; min-width: 0; }
-.menu-button { display: inline-flex; align-items: center; gap: 0.4rem; max-width: 100%; white-space: nowrap; }
+.menu-button { max-width: 100%; white-space: nowrap; }
 .menu-button .icon { flex: 0 0 auto; }
 .user-menu { max-width: 16rem; min-width: 3rem; }
 .user-menu .user-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.menu-panel { position: absolute; top: calc(100% + 0.25rem); left: 0; z-index: 10; min-width: 12rem;
-  max-width: calc(100vw - 2rem); box-sizing: border-box; padding: 0.4rem 0; background: white;
-  border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); }
+.menu-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; min-width: 12rem;
+  max-width: calc(100vw - 2rem); box-sizing: border-box; padding: 4px 0; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-control); border-radius: 8px; }
 .menu-panel.end { left: auto; right: 0; }
 .menu-panel[hidden] { display: none; }
 .menu-panel ul { list-style: none; margin: 0; padding: 0; }
-.menu-panel li a, .menu-panel li button.link { display: block; width: 100%; box-sizing: border-box; padding: 0.4rem 0.9rem;
-  text-align: left; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
-.menu-panel li a:hover, .menu-panel li button.link:hover { background: #f6f8fa; }
-.menu-panel a[aria-current="page"] { font-weight: bold; }
+.menu-panel li a, .menu-panel li button.link { display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 40px;
+  box-sizing: border-box; padding: 0 14px; text-align: left; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+.menu-panel li a:hover, .menu-panel li button.link:hover { background: var(--surface-raised); }
+.menu-panel a[aria-current='page'] { color: var(--accent); font-weight: 600; }
 /* The user's button under 40rem (D-464): a person icon and the chevron in place of the cut name, which the panel's first
    line gives, muted; from 40rem the name, and no such line. */
 .user-menu .icon.person, .menu-panel .menu-user-name { display: none; }
-.menu-panel .menu-group { margin: 0.4rem 0 0; padding: 0.4rem 0.9rem 0.2rem; border-top: 1px solid var(--border);
-  font-size: 0.85em; color: var(--muted); }
 
 form, fieldset { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 1rem 0; }
+fieldset { border: 1px solid var(--border); border-radius: 6px; }
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.3rem 0.5rem; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
-.amount { text-align: right; font-variant-numeric: tabular-nums; }
+th, td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+thead th { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--muted); }
+/* Amounts, figures, totals and dates in Plex Mono with tabular figures (D-500). */
+.amount, .figure dd, .period-totals .changes, td.total, tr.subtotal td, tr.net td, tfoot td, .chart-tooltip strong,
+table.entry-list td.date, .date-input-row input:first-child, .recharts-cartesian-axis-tick text {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.amount { text-align: right; }
+/* A column's heading is a label, not an amount. */
+thead th.amount { font-family: var(--font-sans); }
 .income { color: var(--income); }
-.expense, .error { color: var(--expense); }
+.expense { color: var(--expense); }
+.error { color: var(--danger); }
 
 /* Shared bits */
 .muted { color: var(--muted); }
 .small { font-size: 0.85em; }
 .nowrap { white-space: nowrap; }
 .empty { color: var(--muted); font-style: italic; }
-.badge { display: inline-block; margin-left: 0.4rem; padding: 0 0.4rem; border: 1px solid var(--border); border-radius: 0.6rem;
+.badge { display: inline-block; margin-left: 0.4rem; padding: 0 0.4rem; border: 1px solid var(--border); border-radius: 4px;
   font-size: 0.75em; color: var(--muted); }
 .page-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-.notice { background: var(--notice-bg); padding: 0.5rem 0.75rem; border-radius: 4px; }
-.success { background: var(--success-bg); padding: 0.5rem 0.75rem; border-radius: 4px; }
-.error-box { background: var(--error-bg); color: var(--expense); padding: 0.25rem 0.75rem; border-radius: 4px; }
+.notice { background: var(--notice-bg); color: var(--text); padding: 0.5rem 0.75rem; border-radius: 6px; }
+.success { background: var(--success-bg); color: var(--success); padding: 0.5rem 0.75rem; border-radius: 6px; }
+.error-box { background: var(--danger-bg); color: var(--danger); padding: 0.25rem 0.75rem; border-radius: 6px; }
 .error-box p { margin: 0.4rem 0; }
-button, .button { font: inherit; padding: 0.3rem 0.8rem; border: 1px solid var(--border); border-radius: 4px; background: #f6f8fa;
-  color: inherit; cursor: pointer; text-decoration: none; display: inline-block; }
+/* Buttons (D-502): default, primary, danger and link; 36px high, 44px under 40rem. */
+button, .button { font: inherit; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; padding: 0 12px; box-sizing: border-box; border: 1px solid var(--border-control); border-radius: 6px;
+  background: var(--surface); color: var(--text); cursor: pointer; text-decoration: none; }
 button:disabled { cursor: not-allowed; opacity: 0.55; }
-button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: white; }
-button.danger { color: var(--expense); border-color: var(--expense); background: white; }
-button.link { padding: 0; border: none; background: none; color: var(--accent); text-decoration: underline; cursor: pointer; }
+button.primary, .button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+button.danger, .button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+button.link { display: inline; min-height: 0; padding: 0; border: none; border-radius: 0; background: none; color: var(--accent);
+  text-decoration: underline; cursor: pointer; }
+/* Fields (D-502): input, select, textarea and DateInput's text field. */
+input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']), select, textarea { font: inherit;
+  min-height: 36px; padding: 0 8px; box-sizing: border-box; background: var(--surface-raised); color: var(--text);
+  border: 1px solid var(--border-control); border-radius: 6px; }
+textarea { padding: 6px 8px; }
+input[type='file'] { font: inherit; color: var(--text); }
 tr.archived td { color: var(--muted); }
 td.actions { text-align: right; }
 td.actions button { margin-left: 0.3rem; }
@@ -74,10 +186,10 @@ label.check { display: inline-flex; gap: 0.35rem; align-items: center; }
 /* Labelled fields with their messages */
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.75rem 1rem; width: 100%; align-items: start; }
 .field { display: flex; flex-direction: column; gap: 0.2rem; }
-.field .label { font-size: 0.85em; color: var(--muted); }
+.field .label { font-size: 12px; line-height: 16px; color: var(--muted); }
 .field .hint { color: var(--muted); }
-.field input, .field select { padding: 0.3rem; font: inherit; min-width: 0; }
-.field.invalid input, .field.invalid select, [aria-invalid='true'] { border-color: var(--expense); outline-color: var(--expense); }
+.field input, .field select { min-width: 0; }
+.field.invalid input, .field.invalid select, [aria-invalid='true'] { border-color: var(--danger); outline-color: var(--danger); }
 .wide { grid-column: 1 / -1; }
 .narrow input { max-width: 6rem; }
 input.currency { width: 4.5rem; text-transform: uppercase; }
@@ -85,14 +197,17 @@ input.amount { text-align: right; }
 
 /* Entry form */
 .entry-form { display: block; }
-.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; flex-wrap: wrap; }
-.tabs [role='tab'] { border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; background: none; margin-bottom: -1px; }
-.tabs [role='tab'][aria-selected='true'] { border-color: var(--border); background: white; font-weight: bold; }
+/* The entry form's tabs and a page's subnav look like the header's row 2, 40px high (D-502). */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 1rem; flex-wrap: wrap; }
+.tabs [role='tab'] { min-height: 40px; padding: 0 10px; border: none; border-radius: 0; background: none; color: var(--muted); }
+.tabs [role='tab']:hover { color: var(--text); }
+.tabs [role='tab'][aria-selected='true'] { color: var(--text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.tabs [role='tab']:focus-visible { outline-offset: -2px; }
 .options { display: flex; gap: 1.5rem; flex-wrap: wrap; }
 .split { display: flex; gap: 1rem; align-items: end; flex-wrap: wrap; }
 .split .share { margin: 0 0 0.4rem; }
 fieldset.choice { border: none; padding: 0; margin: 0; gap: 1.5rem; }
-fieldset.choice legend { font-size: 0.85em; color: var(--muted); padding: 0; margin-bottom: 0.2rem; }
+fieldset.choice legend { font-size: 12px; line-height: 16px; color: var(--muted); padding: 0; margin-bottom: 0.2rem; }
 /* A form's row of buttons; not a table's actions cell, whose buttons stay in a row (D-352). */
 .actions:not(td) { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
 .postings table td { vertical-align: top; }
@@ -100,8 +215,8 @@ fieldset.choice legend { font-size: 0.85em; color: var(--muted); padding: 0; mar
 .postings td small { display: block; }
 .balances { list-style: none; padding: 0; display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .balances li { padding: 0.2rem 0.6rem; border-radius: 1rem; }
-.balances .balanced { background: var(--success-bg); color: var(--income); }
-.balances .unbalanced { background: var(--error-bg); color: var(--expense); }
+.balances .balanced { background: var(--success-bg); color: var(--success); }
+.balances .unbalanced { background: var(--danger-bg); color: var(--danger); }
 
 /* Lists */
 .filters { border: 1px solid var(--border); border-radius: 4px; min-width: 0; }
@@ -111,11 +226,11 @@ fieldset.choice legend { font-size: 0.85em; color: var(--muted); padding: 0; mar
 .filters select, .filters input { max-width: 100%; }
 .filters legend { color: var(--muted); }
 table.entries tr.clickable { cursor: pointer; }
-table.entries tr.clickable:hover { background: #f6f8fa; }
+table.entries tr.clickable:hover, tr.clickable:hover { background: var(--surface-raised); }
 .stale { opacity: 0.6; }
 .pager { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; justify-content: center; margin: 1rem 0; }
 table.nested { margin: 0 0 0 1.5rem; width: calc(100% - 1.5rem); }
-tr.details > td { background: #fafbfc; }
+tr.details > td { background: var(--surface-raised); }
 tfoot th, tfoot td { border-top: 2px solid var(--border); }
 section.report details { margin: 0.75rem 0; }
 section.report summary { cursor: pointer; font-weight: bold; }
@@ -126,27 +241,35 @@ table.accounts td, table.accounts th { vertical-align: middle; }
 
 /* Dashboard */
 .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1rem; align-items: start; }
-.card { border: 1px solid var(--border); border-radius: 6px; padding: 0 1rem 1rem; min-width: 0; }
-.card h3 { font-size: 1rem; margin: 0.75rem 0; }
+/* A panel (D-502). */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.card > :first-child { margin-top: 0; }
+.card > :last-child { margin-bottom: 0; }
+.card h3 { font-size: 14px; line-height: 20px; font-weight: 600; margin: 0 0 12px; }
 /* The page's controls: one toggle group each for the period, the currency and the scope (D-296, D-297, D-302). */
 .page-title .as-of { display: inline-flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
 .controls { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: flex-end; margin: 0.25rem 0 1rem; }
 .period-days { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
 .period-days label { display: inline-flex; gap: 0.4rem; align-items: center; }
 .toggle-group { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
-.toggle-label { font-size: 0.85em; color: var(--muted); }
-.toggles { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-.toggles button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: white; }
-.toggles button:focus-visible, .date-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toggle-label { font-size: 12px; line-height: 16px; color: var(--muted); }
+/* Joined segments in one frame (D-502): the pressed one raised, with the accent's line inside its bottom. */
+.toggles { display: inline-flex; flex-wrap: wrap; align-self: flex-start; max-width: 100%; gap: 0; border: 1px solid var(--border-control);
+  border-radius: 6px; overflow: hidden; background: var(--surface); }
+.toggles button { min-height: 34px; border: none; border-radius: 0; background: var(--surface); color: var(--muted);
+  box-shadow: inset 1px 0 0 var(--border-control); margin-left: -1px; }
+.toggles button[aria-pressed='true'] { background: var(--surface-raised); color: var(--text); font-weight: 600;
+  box-shadow: inset 1px 0 0 var(--border-control), inset 0 -2px 0 var(--accent); }
+.toggles button:focus-visible { outline-offset: -2px; }
 /* The headline row (D-301): three figures of one size, "You have" never muted. */
 .headline { margin: 0 0 1rem; }
 .headline-row + .headline-row { margin-top: 0.75rem; }
 .headline-currency { font-weight: 600; color: var(--muted); flex-basis: 100%; }
 .figures { display: flex; flex-wrap: wrap; gap: 0.5rem 2.5rem; margin: 0; }
-.figure dt { font-size: 0.85em; color: var(--muted); }
-.figure dd { margin: 0; font-size: 1.75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.figure dt { font-size: 12px; line-height: 16px; color: var(--muted); }
+.figure dd { margin: 0; font-size: 24px; line-height: 32px; font-weight: 500; }
 .small-figures { gap: 0.25rem 2rem; }
-.small-figures .figure dd { font-size: 1.15rem; }
+.small-figures .figure dd { font-size: 16px; line-height: 24px; }
 .headline p { margin: 0.4rem 0 0; }
 /* Income and expenses: the scope, the period's totals (D-305), the chart and the table. */
 .card.flows { margin-bottom: 1rem; }
@@ -171,9 +294,9 @@ table.loans .own-amounts { display: block; }
 .settlement .sentence { font-size: 1.15rem; }
 .scroll-x { overflow-x: auto; }
 .scroll-x + .scroll-x, figure.chart + figure.chart { margin-top: 1.25rem; }
-table.cash-flow th[scope='row'], table.cash-flow thead th:first-child { position: sticky; left: 0; background: white; }
+table.cash-flow th[scope='row'], table.cash-flow thead th:first-child { position: sticky; left: 0; background: var(--surface); }
 table.cash-flow th[scope='row'] { font-weight: normal; min-width: 10rem; }
-table.cash-flow td.total { background: #fafbfc; }
+table.cash-flow td.total, td.total { background: var(--surface-raised); }
 /* UX-5 (D-393, D-398, D-400): each column's role above its range, the change in %, coloured by its effect on the net. */
 .period-totals .changes { font-variant-numeric: tabular-nums; }
 table.cash-flow thead th { vertical-align: bottom; }
@@ -181,7 +304,7 @@ table.cash-flow thead th { vertical-align: bottom; }
 table.cash-flow td.change { font-size: 0.9em; color: var(--muted); }
 table.cash-flow td.change.better, .changes .better { color: var(--income); }
 table.cash-flow td.change.worse, .changes .worse { color: var(--expense); }
-.figure dd.changes { font-size: 0.8rem; font-weight: normal; color: var(--muted); margin-top: 0.1rem; }
+.figure dd.changes { font-size: 12px; line-height: 16px; font-weight: normal; color: var(--muted); margin-top: 0.1rem; }
 .flows .toggle-group { margin-bottom: 0.5rem; }
 tr.section th { padding-top: 0.75rem; }
 tr.net th, tr.net td { border-top: 2px solid var(--border); }
@@ -189,14 +312,14 @@ tr.subtotal th[scope='row'], tr.subtotal td, tr.net th[scope='row'], tr.net td {
 table.by-type + table.by-type { margin-top: 1rem; }
 figure.chart { margin: 0; }
 figure.chart figcaption { font-weight: 600; color: var(--muted); }
-.chart-tooltip { background: white; border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.9em;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 8%); }
+.chart-tooltip { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.4rem 0.6rem; font-size: 0.9em; }
 .chart-tooltip .key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 0.4rem; vertical-align: middle; }
 .chart-tooltip .key.dashed { height: 0; border-top: 2px dashed; border-radius: 0; }
 .chart-tooltip .tooltip-before { margin-top: 0.3rem; }
 .chart-placeholder { height: 260px; }
 /* Amounts in the base currency */
-.missing { color: var(--expense); font-style: italic; font-size: 0.9em; }
+.missing { color: var(--danger); font-style: italic; font-size: 0.9em; }
 .stale-rate { color: var(--stale); }
 .badge.stale-rate { border-color: var(--stale); }
 .notice ul { margin: 0.25rem 0; }
@@ -205,7 +328,7 @@ table.rates { width: auto; min-width: min(100%, 30rem); }
 section details { margin: 0.75rem 0; }
 section summary { cursor: pointer; }
 @media (max-width: 30rem) {
-  .card { padding: 0 0.75rem 0.75rem; }
+  .card { padding: 12px; }
   .card table { font-size: 0.9em; }
   .card th, .card td { padding: 0.3rem; }
 }
@@ -213,19 +336,19 @@ section summary { cursor: pointer; }
 /* A day date in the user's own pattern, with the browser's picker behind a button (D-304, DateInput). */
 .date-input { display: inline-flex; flex-direction: column; gap: 0.15rem; max-width: 100%; }
 .date-input-row { display: inline-flex; align-items: stretch; gap: 0.25rem; position: relative; }
-.date-input-row input:first-child { width: 7.5rem; min-width: 0; font: inherit; padding: 0.3rem; }
-.date-picker-button { display: inline-flex; align-items: center; padding: 0.1rem 0.45rem; }
+.date-input-row input:first-child { width: 8.5rem; min-width: 0; }
+.date-picker-button { padding: 0 8px; }
 .date-native { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0;
   pointer-events: none; }
 
 /* Footer of the app and of the landing page */
-.app-footer { margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85em; }
+.app-footer { margin-top: 3rem; padding-top: 0.75rem; padding-bottom: 1.5rem; color: var(--muted); background: var(--bg); font-size: 12px; }
+.app-footer::before { content: ''; display: block; border-top: 1px solid var(--border); margin-bottom: 0.75rem; }
 .app-footer p { margin: 0.25rem 0; }
 
 /* Landing page, for visitors who aren't signed in */
-.landing header { justify-content: space-between; }
-.landing .brand { font-size: 1.15rem; }
-.landing main { max-width: 52rem; }
+.landing .brand { font-size: 16px; }
+.landing > main > * { max-width: 52rem; }
 .landing .hero { padding: 2.5rem 0 1rem; }
 .landing h1 { font-size: clamp(1.7rem, 4vw, 2.4rem); line-height: 1.2; margin: 0 0 1rem; }
 .landing h2 { margin-top: 2.5rem; }
@@ -240,16 +363,33 @@ section summary { cursor: pointer; }
 .landing figure img { max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; }
 .landing figcaption { color: var(--muted); font-size: 0.85em; margin-top: 0.3rem; }
 
+/* Settings' Appearance (D-499): three cards, each with a preview in its own theme's tokens. */
+.theme-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: 12px; margin: 0 0 12px; }
+.theme-option { display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'radio preview' 'radio name' 'radio line';
+  gap: 4px 10px; align-items: start; padding: 12px; border: 1px solid var(--border-control); border-radius: 8px;
+  background: var(--surface); cursor: pointer; }
+.theme-option:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.theme-option input { grid-area: radio; margin: 2px 0 0; }
+.theme-option .theme-name { grid-area: name; font-weight: 600; }
+.theme-option .theme-line { grid-area: line; color: var(--muted); font-size: 12px; line-height: 16px; }
+.theme-preview { grid-area: preview; display: flex; align-items: flex-end; gap: 6px; height: 40px; padding: 8px;
+  box-sizing: border-box; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); }
+.theme-preview .swatch { display: block; width: 14px; border-radius: 2px 2px 0 0; }
+.theme-preview .swatch.income { height: 18px; background: var(--chart-income); }
+.theme-preview .swatch.expense { height: 24px; background: var(--chart-expense); }
+.theme-preview .swatch.accent { height: 8px; width: 40px; margin-left: auto; align-self: center; border-radius: 4px; background: var(--accent); }
+
 /* Dashboard of an empty ledger */
 .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; align-items: start; }
 .choice p { line-height: 1.5; }
 
 /* Settings */
-.danger-zone { max-width: 44rem; border-color: var(--expense); }
+.danger-zone { max-width: 44rem; border-color: var(--danger); }
 .danger-zone form { align-items: end; }
 
 /* Family budgets */
-nav.subnav { display: flex; gap: 1rem; flex-wrap: wrap; padding-bottom: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+nav.subnav { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+nav.subnav a { min-height: 40px; }
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1.5rem; margin: 1rem 0; }
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
@@ -258,7 +398,7 @@ dl.facts dd { margin: 0; }
 .family-form fieldset.section legend { color: var(--muted); }
 .category-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem 2rem; }
 .category-group label.check { display: flex; margin: 0.2rem 0; }
-.category-group h3 { font-size: 1rem; margin: 0.5rem 0; }
+.category-group h3 { font-size: 14px; margin: 0.5rem 0; }
 ul.plain { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 table.shares { width: auto; min-width: min(100%, 20rem); }
 table.shares td small { display: block; text-align: left; }
@@ -280,7 +420,7 @@ input.money { width: 6rem; }
 .expense-form h4 { width: 100%; margin: 1rem 0 0; }
 table.expenses td .small { margin-top: 0.1rem; }
 ol.journal { list-style: none; padding: 0; margin: 0.5rem 0; }
-ol.journal > li { padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
+ol.journal > li { padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
 ol.journal p { margin: 0.15rem 0; }
 ol.journal ul { margin: 0.15rem 0; padding-left: 1.25rem; }
 table.balances-table { margin: 0.75rem 0; }
@@ -288,7 +428,7 @@ table.balances-table { margin: 0.75rem 0; }
 /* Invites (F5): the new link, once, and the list. */
 .new-link p { margin: 0.25rem 0; }
 .link-copy { display: flex; gap: 0.4rem; }
-.link-copy input { flex: 1; min-width: 0; font-family: monospace; }
+.link-copy input { flex: 1; min-width: 0; font-family: var(--font-mono); }
 ul.invite-list { list-style: none; padding: 0; margin: 0.75rem 0; }
 ul.invite-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); display: grid; gap: 0.2rem; }
 ul.invite-list li button { justify-self: start; }
@@ -299,7 +439,7 @@ ul.invite-list li button { justify-self: start; }
 @media (max-width: 40rem) {
   table.members thead { display: none; }
   table.members, table.members tbody, table.members tr, table.members td { display: block; width: auto; }
-  table.members tr { padding: 0.5rem 0; border-bottom: 1px solid #ddd; }
+  table.members tr { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
   table.members td { border: none; padding: 0.1rem 0; white-space: normal; text-align: left; }
   table.members td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); }
   table.members td.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.3rem; }
@@ -309,7 +449,7 @@ ul.invite-list li button { justify-self: start; }
   table.balances-table thead { display: none; }
   table.balances-table, table.balances-table tbody, table.balances-table tfoot, table.balances-table tr,
   table.balances-table th, table.balances-table td { display: block; width: auto; }
-  table.balances-table tr { padding: 0.5rem 0; border-bottom: 1px solid #ddd; }
+  table.balances-table tr { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
   table.balances-table th, table.balances-table td { border: none; padding: 0.1rem 0; white-space: normal; text-align: left; }
   table.balances-table td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); }
   table.balances-table td:empty { display: none; }
@@ -338,7 +478,7 @@ ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: any
 @media (max-width: 40rem) {
   table.entry-list thead { display: none; }
   table.entry-list, table.entry-list tbody { display: block; }
-  table.entry-list tr { display: flex; flex-direction: column; padding: 0.5rem 0; border-bottom: 1px solid #ddd; }
+  table.entry-list tr { display: flex; flex-direction: column; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
   table.entry-list td { border: none; padding: 0.1rem 0; white-space: normal; text-align: left; overflow-wrap: anywhere; }
   table.entry-list td.date { order: 1; }
   table.entry-list td.payee { order: 2; }
@@ -349,7 +489,7 @@ ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: any
   table.entry-list .family-line { order: 6; }
   table.categories, table.categories tbody { display: block; }
   table.categories tr { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-    gap: 0.3rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
+    gap: 0.3rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
   table.categories td { display: block; border: none; padding: 0; width: auto; }
   table.categories td.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; white-space: normal; margin-left: auto; }
   table.categories td.actions:empty { display: none; }
@@ -359,7 +499,7 @@ ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: any
   table.accounts, table.accounts > tbody, table.accounts > tfoot { display: block; }
   table.accounts > thead { display: none; }
   table.accounts > tbody > tr, table.accounts > tfoot > tr { display: flex; flex-wrap: wrap; align-items: baseline;
-    justify-content: space-between; gap: 0.3rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
+    justify-content: space-between; gap: 0.3rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
   table.accounts > tbody > tr > td, table.accounts > tfoot > tr > td, table.accounts > tfoot > tr > th { display: block;
     border: none; padding: 0; width: auto; min-width: 0; overflow-wrap: anywhere; }
   table.accounts > tbody > tr > td:first-child { flex: 1 1 10rem; }
@@ -399,6 +539,17 @@ ul.similar-list { list-style: none; padding: 0; margin: 0 0 0.75rem; }
      row's top (07-dashboard); only the icon shows. */
   .user-menu .user-name { flex: 0 0 0; width: 0; margin-left: -0.4rem; }
   .user-menu .icon.person { display: inline-block; }
-  .menu-panel .menu-user-name { display: block; margin: 0; padding: 0.4rem 0.9rem; color: var(--muted);
+  .menu-panel .menu-user-name { display: block; margin: 0; padding: 10px 14px; color: var(--muted);
     overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
+}
+
+/* Under 40rem (D-500, D-502): 15px text, 16px fields so that iOS doesn't zoom, 44px buttons. */
+@media (max-width: 40rem) {
+  :root { --page-side: 16px; }
+  body { font-size: 15px; line-height: 22px; }
+  input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px; }
+  button:not(.link), .button { min-height: 44px; }
+  .toggles button { min-height: 42px; }
+  .header-row { gap: 8px; }
+  .wordmark { font-size: 15px; min-height: 44px; }
 }

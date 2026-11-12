@@ -167,11 +167,13 @@ export async function deleteAllMyData({ page, account }: Session) {
 }
 
 /**
- * The header's main menu in My finances (D-433, D-434): opens it, unless it is open, and returns its panel. Inside a
- * family budget there is none: "← My finances" leads back (D-435).
+ * The header's main navigation, row 2 (D-498): always shown, nothing to open. The pages, then with family budgets on
+ * each budget by name and "New family budget"; inside a family budget too.
  */
 export async function mainMenu(page: Page) {
-  return openMenu(page.locator('header .main-menu'))
+  const nav = page.locator('header').getByRole('navigation', { name: 'Main' })
+  await expect(nav).toBeVisible()
+  return nav
 }
 
 /** The header's user menu (D-433): Settings and Log out; opens it and returns its panel. */
@@ -187,12 +189,14 @@ async function openMenu(menu: Locator) {
 }
 
 /** A part of Settings (D-438), through the user's menu and Settings' own navigation, as a user gets there. */
-export async function openSettings(page: Page, part: 'Time zone' | 'Date format' | 'Import' | 'Export' | 'Delete all my data') {
+export async function openSettings(page: Page,
+  part: 'Time zone' | 'Date format' | 'Appearance' | 'Import' | 'Export' | 'Delete all my data') {
   if (!new URL(page.url()).pathname.startsWith('/settings')) {
     await (await userMenu(page)).getByRole('link', { name: 'Settings' }).click()
   }
   await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: part, exact: true }).click()
-  await expect(page.getByRole('heading', { level: 3, name: part, exact: true })).toBeVisible()
+  // Appearance's one heading is its Theme (D-499).
+  await expect(page.getByRole('heading', { level: 3, name: part === 'Appearance' ? 'Theme' : part, exact: true })).toBeVisible()
 }
 
 /**

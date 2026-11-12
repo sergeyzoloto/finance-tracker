@@ -109,9 +109,9 @@ export async function leave({ page }: Session, budgetPath: string, budget: strin
   await shot(page, `${prefix}-14-${button.replace(/[^a-z0-9]+/gi, '-')}`)
   await confirmation.getByRole('button', { name: button }).click()
   await expect(page).toHaveURL(/\/$/)
-  // The main menu lists it no more (D-433).
+  // The main navigation lists it no more (D-498).
   const menu = await mainMenu(page)
-  await expect(menu.getByRole('link', { name: 'New family budget…' })).toBeVisible()
+  await expect(menu.getByRole('link', { name: 'New family budget', exact: true })).toBeVisible()
   await expect(menu.getByRole('link', { name: budget, exact: true })).toHaveCount(0)
   await page.keyboard.press('Escape')
 }

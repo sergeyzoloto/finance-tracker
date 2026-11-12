@@ -72,11 +72,11 @@ describe('with the switch off', () => {
     renderApp(me, '/settings')
 
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeDefined()
-    // The main menu holds the pages only (D-434).
+    // Row 2 holds the pages only (D-498).
     const menu = mainMenu()
     expect(within(menu).getAllByRole('link').map((a) => a.textContent))
       .toEqual(['Dashboard', 'Entries', 'Accounts', 'Categories', 'Rates'])
-    expect(within(menu).queryByRole('list', { name: 'Family budgets' })).toBeNull()
+    expect(menu.querySelector('.nav-divider')).toBeNull()
     expect(screen.queryByText(/family budget/i)).toBeNull()
     expect(calls.filter((c) => c.url.includes('family'))).toEqual([])
   })
@@ -92,26 +92,26 @@ describe('with the switch off', () => {
   })
 })
 
-describe('the main menu’s family budgets (D-433)', () => {
-  it('lists the family budgets by name and a new one, and a budget’s header has only “← My finances”', async () => {
+describe('row 2’s family budgets (D-498)', () => {
+  it('lists the family budgets by name and a new one, and a budget’s header has no “New entry”', async () => {
     stubApi({ 'GET /api/family-ledgers': { status: 200, body: [home, allotment] } })
     renderApp(ON, '/settings')
 
-    await waitFor(() => expect(menuBudgets()).toEqual(['Allotment', 'Home', 'New family budget…']))
+    await waitFor(() => expect(menuBudgets()).toEqual(['Allotment', 'Home', 'New family budget']))
     fireEvent.click(within(mainMenu()).getByRole('link', { name: 'Home' }))
     expect(screen.getByTestId('where').textContent).toBe('/family/7')
 
-    // Inside the budget (D-435, D-436): no main menu and no "New entry"; the user's menu stays.
-    expect(screen.queryByRole('button', { name: 'My finances' })).toBeNull()
+    // Inside the budget (D-435, D-498): its tab current, no "New entry"; the user's menu stays.
+    expect(within(mainMenu()).getByRole('link', { name: 'Home' }).getAttribute('aria-current')).toBe('page')
     expect(screen.queryByRole('link', { name: 'New entry' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Anna' })).toBeDefined()
-    fireEvent.click(screen.getByRole('link', { name: '← My finances' }))
+    fireEvent.click(within(mainMenu()).getByRole('link', { name: 'Dashboard' }))
     expect(screen.getByTestId('where').textContent).toBe('/')
 
-    fireEvent.click(within(mainMenu()).getByRole('link', { name: 'New family budget…' }))
+    fireEvent.click(within(mainMenu()).getByRole('link', { name: 'New family budget' }))
     expect(screen.getByTestId('where').textContent).toBe('/family/new')
-    // A new budget isn't inside one: My finances' header, with the page marked.
-    expect(within(mainMenu()).getByRole('link', { name: 'New family budget…' }).getAttribute('aria-current')).toBe('page')
+    // A new budget isn't inside one: "New entry" stays, with the page marked.
+    expect(within(mainMenu()).getByRole('link', { name: 'New family budget' }).getAttribute('aria-current')).toBe('page')
   })
 
   it('loads the list again after all the user’s data is deleted', async () => {
@@ -120,12 +120,12 @@ describe('the main menu’s family budgets (D-433)', () => {
       'DELETE /api/me/data': { status: 204 },
     })
     renderApp(ON, '/settings/delete')
-    await waitFor(() => expect(menuBudgets()).toEqual(['Home', 'New family budget…']))
+    await waitFor(() => expect(menuBudgets()).toEqual(['Home', 'New family budget']))
 
     fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: 'DELETE' } })
     fireEvent.click(screen.getByRole('button', { name: 'Delete all my data' }))
 
-    await waitFor(() => expect(menuBudgets()).toEqual(['New family budget…']))
+    await waitFor(() => expect(menuBudgets()).toEqual(['New family budget']))
     expect(calls.filter((c) => c.url === '/api/family-ledgers')).toHaveLength(2)
   })
 
@@ -323,9 +323,9 @@ describe('a family budget’s page', () => {
       ['Journal', '/family/7/journal'], ['Report', '/family/7/report'], ['Members', '/family/7/members'], ['Split rule', '/family/7/split-rule'],
       ['Categories', '/family/7/categories'], ['Settings', '/family/7/settings'],
     ])
-    // The header inside a budget (D-435): "← My finances" to `/`, no main menu.
-    expect(screen.getByRole('link', { name: '← My finances' }).getAttribute('href')).toBe('/')
-    expect(screen.queryByRole('button', { name: 'My finances' })).toBeNull()
+    // The header inside a budget (D-498): its tab current, Dashboard a tab, no "← My finances".
+    expect(within(mainMenu()).getByRole('link', { name: 'Dashboard' }).getAttribute('href')).toBe('/')
+    expect(screen.queryByRole('link', { name: '← My finances' })).toBeNull()
   })
 
   it('links its pages by their full path from any of them', async () => {

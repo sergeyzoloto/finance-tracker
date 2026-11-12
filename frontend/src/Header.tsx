@@ -2,80 +2,85 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import { Link, NavLink, useLocation } from 'react-router'
 import type { FamilyLedger } from './api'
 import { logOut } from './auth'
-
-/** Which of the header's two menus is open: one at a time (D-434). */
-type Open = 'main' | 'user' | null
+import { SharedIcon } from './components'
 
 /** Whether a path is inside a family budget (D-435): `/family/<id>…`, not `/family/new`. */
 export const insideFamilyBudget = (pathname: string) => /^\/family\/(?!new(?:\/|$))[^/]+/.test(pathname)
 
 /**
- * The app's header (D-433 to D-436). In My finances: on the left the main menu (the pages, then with family budgets on
- * each budget by name and "New family budget…"); on the right "New entry" and the user's menu (Settings, Log out).
- * Inside a family budget: "← My finances" in place of the main menu, no "New entry", and the user's menu. Nothing else.
+ * The app's header (D-498), two rows, both always shown. Row 1: the wordmark, a link to `/`; on the right "New entry"
+ * (not inside a family budget, D-435) and the user's menu (Settings, Log out; D-433, D-434, D-464). Row 2, the main
+ * navigation: the pages, then with family budgets on each budget by name, current on any of its pages, and "New family
+ * budget". No theme control: the theme is chosen in Settings only (D-499).
  *
  * @param families the user's family budgets, undefined while they load; null with family budgets switched off
  * @param name the user's name, or their email for an account without one
  */
 export default function Header({ families, name }: { families: FamilyLedger[] | undefined | null; name: string }) {
   const { pathname, search } = useLocation()
-  const [open, setOpen] = useState<Open>(null)
-  // Any route change closes a panel, choosing an item of it included (D-434).
-  useEffect(() => setOpen(null), [pathname, search])
+  const [open, setOpen] = useState(false)
+  // Any route change closes the panel, choosing an item of it included (D-434).
+  useEffect(() => setOpen(false), [pathname, search])
   const inside = families !== null && insideFamilyBudget(pathname)
-  const toggle = (which: Exclude<Open, null>) => () => setOpen((now) => (now === which ? null : which))
-  const close = useCallback(() => setOpen(null), [])
+  const toggle = useCallback(() => setOpen((now) => !now), [])
+  const close = useCallback(() => setOpen(false), [])
 
   return (
     <header className="app-header">
-      <div className="header-start">
-        {inside
-          ? <Link className="button" to="/">← My finances</Link>
-          : (
-            <Disclosure open={open === 'main'} onToggle={toggle('main')} onClose={close} className="main-menu"
-              label={<><MenuIcon /><span>My finances</span></>}>
-              <MainPanel families={families} />
-            </Disclosure>
-          )}
+      <div className="header-row">
+        <Link className="wordmark" to="/">Finance Tracker</Link>
+        <div className="header-end">
+          {!inside && <Link className="button primary" to="/entries/new">New entry</Link>}
+          {/* Under 40rem a person icon stands for the name, which the panel's first line gives (D-464). */}
+          <Disclosure open={open} onToggle={toggle} onClose={close} className="user-menu" end
+            title={name} name={name} label={<><PersonIcon /><span className="user-name">{name}</span><ChevronIcon /></>}>
+            <p className="menu-user-name">{name}</p>
+            <ul>
+              <li><NavLink to="/settings">Settings</NavLink></li>
+              <li><button type="button" className="link" onClick={logOut}>Log out</button></li>
+            </ul>
+          </Disclosure>
+        </div>
       </div>
-      <div className="header-end">
-        {!inside && <Link className="button primary" to="/entries/new">New entry</Link>}
-        {/* Under 40rem a person icon stands for the name, which the panel's first line gives (D-464). */}
-        <Disclosure open={open === 'user'} onToggle={toggle('user')} onClose={close} className="user-menu" end
-          title={name} name={name} label={<><PersonIcon /><span className="user-name">{name}</span><ChevronIcon /></>}>
-          <p className="menu-user-name">{name}</p>
-          <ul>
-            <li><NavLink to="/settings">Settings</NavLink></li>
-            <li><button type="button" className="link" onClick={logOut}>Log out</button></li>
-          </ul>
-        </Disclosure>
-      </div>
+      <MainNav families={families} />
     </header>
   )
 }
 
-/** The main menu's items: the pages, then, with family budgets on, the budgets by name and a new one (D-433). */
-function MainPanel({ families }: { families: FamilyLedger[] | undefined | null }) {
+/**
+ * Row 2 (D-498): the pages, then, with family budgets on, a divider, the budgets by name with the shared icon and "New
+ * family budget". The current link is marked; under 40rem the row scrolls inside itself, the current link in view.
+ */
+function MainNav({ families }: { families: FamilyLedger[] | undefined | null }) {
+  const { pathname } = useLocation()
+  const nav = useRef<HTMLElement>(null)
   const sorted = [...(families ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+  useEffect(() => {
+    const row = nav.current
+    const current = row?.querySelector<HTMLElement>('a[aria-current="page"]')
+    if (!row || !current) return
+    // Scrolls the row only, never the page (scrollIntoView would move the page too).
+    const left = current.offsetLeft
+    const right = left + current.offsetWidth
+    if (left < row.scrollLeft || right > row.scrollLeft + row.clientWidth) {
+      row.scrollLeft = Math.max(0, left - (row.clientWidth - current.offsetWidth) / 2)
+    }
+  }, [pathname, families])
   return (
-    <>
-      <ul aria-label="Pages">
-        <li><NavLink to="/" end>Dashboard</NavLink></li>
-        <li><NavLink to="/entries">Entries</NavLink></li>
-        <li><NavLink to="/accounts">Accounts</NavLink></li>
-        <li><NavLink to="/categories">Categories</NavLink></li>
-        <li><NavLink to="/rates">Rates</NavLink></li>
-      </ul>
+    <nav className="main-nav" aria-label="Main" ref={nav}>
+      <NavLink to="/" end>Dashboard</NavLink>
+      <NavLink to="/entries">Entries</NavLink>
+      <NavLink to="/accounts">Accounts</NavLink>
+      <NavLink to="/categories">Categories</NavLink>
+      <NavLink to="/rates">Rates</NavLink>
       {families !== null && (
         <>
-          <p className="menu-group" id="menu-family-budgets">Family budgets</p>
-          <ul aria-labelledby="menu-family-budgets">
-            {sorted.map((f) => <li key={f.id}><NavLink to={`/family/${f.id}`}>{f.name}</NavLink></li>)}
-            <li><NavLink to="/family/new">New family budget…</NavLink></li>
-          </ul>
+          <span className="nav-divider" aria-hidden="true" />
+          {sorted.map((f) => <NavLink key={f.id} to={`/family/${f.id}`}><SharedIcon />{f.name}</NavLink>)}
+          <NavLink to="/family/new"><PlusIcon />New family budget</NavLink>
         </>
       )}
-    </>
+    </nav>
   )
 }
 
@@ -138,11 +143,11 @@ function Disclosure({ open, onToggle, onClose, label, title, name, className, en
   )
 }
 
-/** Three lines, drawn for the app (D-434). */
-function MenuIcon() {
+/** A plus, drawn for the app: "New family budget" (D-498). */
+function PlusIcon() {
   return (
-    <svg className="icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M2 3.5h12M2 8h12M2 12.5h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+    <svg className="icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+      <path d="M6 1.5v9M1.5 6h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
     </svg>
   )
 }

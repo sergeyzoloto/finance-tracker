@@ -3,6 +3,73 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-12 · UX-10: the look of design C, three themes, IBM Plex, a permanent navigation, D-494 to D-516
+
+One commit on `feature/family-budget` on top of `1417b8f`, the commit of this entry, "feat: the look of design C, three
+themes, IBM Plex, a permanent navigation, D-494 to D-516 (UX-10)". **Not pushed**; `main` not moved.
+Frontend only: no migration (Flyway stays at V17), no API change, no amount, report, import or export changed.
+Production read only: the server was never touched and `e2e:prod` never run. UX-8's and UX-9's deploys are not recorded
+here (D-494).
+
+**Changes**
+- D-496, D-506: the three themes' tokens in `index.css` (`:root[data-theme="blue"]`, `"light"` with
+  `:root:not([data-theme])`, `"dark"`, each with its `color-scheme`, and `.theme-preview[data-theme=…]`); every colour
+  of the stylesheet as a token, `--error-bg` now `--danger-bg`, `.expense` and `.error` apart (D-501).
+- D-497, D-508: `public/theme.js` (the first paint, a classic script in `index.html`'s head) and `src/theme.ts`
+  (`startTheme`, `useTheme`, `setTheme`; the device's change and another tab's choice followed), called by `main.tsx`.
+- D-498, D-509: `Header.tsx` in two rows: the wordmark, "New entry" and the user's menu (restyled, behaviour as UX-7's);
+  row 2 `nav[aria-label="Main"]` with the pages, a divider, each family budget with the shared icon and "New family
+  budget"; `MainPanel`, `MenuIcon` and the main menu's styles gone; `SharedIcon` moved to `components.tsx`.
+- D-499: Settings → Appearance (`Appearance.tsx`, `/settings/appearance`, `SETTINGS_PARTS` with Appearance third).
+- D-500, D-505, D-510: `@fontsource/ibm-plex-sans` and `@fontsource/ibm-plex-mono` 5.3.0, through `src/fonts.css`
+  (latin, latin-ext and cyrillic with their `unicode-range`, `woff2` only); Plex Mono for amounts, figures, totals,
+  the Entries date, DateInput's text and the chart's ticks.
+- D-501, D-507: `IncomeExpenseChart.tsx` in the chart tokens through `var()`.
+- D-502, D-511: panels, buttons, fields, toggles, tabs and subnav, tables, focus, badges and the footer; the page at
+  most 1440px wide, the header full width. The landing page in the tokens, its two screenshots retaken in Blue at
+  their sizes with new alt texts (D-503, D-515).
+- Tests: `theme.test.ts`, `Header.test.tsx`, `UX10.test.tsx`, `themeGuards.test.ts` (D-504) new; `UX7.test.tsx` (the
+  user's menu only), `testHeader.ts`, `Family.test.tsx`, `FamilyF6b.test.tsx`, `FamilyF6c.test.tsx`,
+  `Robust.test.tsx`, `Dashboard.test.tsx` for row 2. End to end: `10-themes` (new), the specs' pattern `(0[2-9]|1\d)`,
+  `01-pages` (`/theme.js`), `07-dashboard`'s step 11, `fixtures.ts` (`mainMenu`, `openSettings`), `02-smoke`,
+  `05-new-family`, `family-steps.ts`, `e2e/README.md`; `e2e/scripts/screens.ts` (`npm run screens:local`, D-513).
+- `deploy/checks/UX-10.sql` and `UX-10.expected` (D-516); `deploy/RUNBOOK.md`, "UX-10's deploy checklist with the
+  suite"; `requirements.md` D-494 to D-516, the lines on D-433, D-434 and D-436, UX-10 and UX-11 in "Planned stages";
+  CLAUDE.md.
+
+**Verified**
+- `cd frontend && npm test`: exit 0, `Test Files 48 passed (48)`, `Tests 639 passed (639)`, no Errors line.
+- `cd frontend && npm run build`: exit 0.
+- `UX-10.sql` on production's dump `finance-2026-11-11T0234Z.dump` (SHA-256 `6c2d020f…`), restored by
+  `scripts/rehearsal-db.sh` and migrated to V17: `psql` exit 0, its 9 lines equal to `UX-10.expected`; the throwaway
+  database removed.
+- The web image built locally (`docker build --target web`, tagged and removed afterwards): `/theme.js` answered
+  `application/javascript` with `no-cache`, and the built `index.html` loads it before the module script.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node 24): exit 0, every spec passed at 1280 and 375 px (`pages`,
+  `smoke`, `family F7`, `family F8`, `export`, `family F8d`, `import`, `member-import`, `new-family`, `time-zone` (2
+  tests), `dashboard`, `new-entry`, `payees`, `themes`), sign-in and cleanup passed, both accounts' data deleted and
+  signed out, `Password search over the artifacts: 0 hits`, `Result: PASSED`; `Commit:` `1417b8f` `(TREE NOT CLEAN)`,
+  this change uncommitted; the landing page's screenshots and alt texts were replaced after it, the final `npm test`
+  above ran after them. The dev stack's frontend needed `./dev.sh -V` first for the font packages (D-514).
+- `cd e2e && npm run test:guards`: first run, while the local suite was running, exit 1, `tests 37`, `pass 36`, `fail
+  1`: "everything as expected" (the guards with a real browser) aborted on an identity mismatch whose email
+  (`someone.else@example.invalid`) is the next case's setting; nothing of UX-10 touches the guards. Second run, alone:
+  exit 0, `tests 37`, `pass 37`, `fail 0`.
+- `cd e2e && npx tsc --noEmit`: exit 0.
+- Build sizes, `npm run build` before (`1417b8f`) and after: CSS `index` 18.96 kB, gzip 4.56 kB, now 29.73 kB, gzip
+  6.59 kB; JS `index` 514.88 kB, gzip 151.88 kB, now 517.34 kB, gzip 152.89 kB; `IncomeExpenseChart` 393.16, gzip
+  112.28, now 393.44, gzip 112.31 kB; `dashboard` 43.39, gzip 16.53 kB, unchanged; `theme.js` 818 bytes; the landing
+  screenshots 30.76 and 42.35 kB, now 23.00 and 34.68 kB; 15 `woff2` files, 237.9 kB together: Plex Sans latin 400,
+  500, 600 22.58, 24.18, 24.25 kB, latin-ext 15.98, 16.45, 16.44 kB, cyrillic 14.80, 15.00, 15.04 kB; Plex Mono latin
+  400, 500 14.70, 14.88 kB, latin-ext 13.34, 13.43 kB, cyrillic 8.35, 8.46 kB.
+- Section 3's screenshots: `data/private/ui/UX-10/` (72, with `index.md`; not tracked): before once, then Blue, Light
+  and Dark, at 1280 and 375 px, of Dashboard (and with the user's menu open), Entries, New entry, Accounts, Categories,
+  Settings → Appearance, the demo family budget's Overview and the landing page.
+
+**Open**
+- The first guards run's failure under load is not explained further; the PM may want it watched in CI.
+- The PM's review and acceptance; then the push, and the deploy by "UX-10's deploy checklist with the suite" (D-494).
+
 ## 2026-11-11 · UX-9: a family payment's category in Entries, payees a member chooses to show in a family budget, D-475 to D-493
 
 One commit on `feature/family-budget` on top of `2e34237`, the commit of this entry, "feat: a family payment's category

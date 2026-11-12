@@ -1,24 +1,28 @@
 import { fireEvent, screen, within } from '@testing-library/react'
 
-// The header's menus (D-433, D-434) for the tests: open one, read what it lists.
+// The header for the tests (D-498): row 2's navigation, always shown, and the user's menu (D-433, D-434).
 
-/** Opens the main menu unless it is open, and returns its panel. */
+/** The header's main navigation, row 2: nothing to open. */
 export function mainMenu(): HTMLElement {
-  return open(screen.getByRole('button', { name: 'My finances' }))
+  return screen.getByRole('navigation', { name: 'Main' })
 }
 
 /** Opens the user's menu, the button named `name`, unless it is open, and returns its panel. */
 export function userMenu(name: string): HTMLElement {
-  return open(screen.getByRole('button', { name }))
-}
-
-function open(button: HTMLElement): HTMLElement {
+  const button = screen.getByRole('button', { name })
   if (button.getAttribute('aria-expanded') !== 'true') fireEvent.click(button)
   return document.getElementById(button.getAttribute('aria-controls')!)!
 }
 
-/** What the main menu lists under "Family budgets": each budget by name, then "New family budget…". */
+/** What row 2 lists after the pages: each family budget by name, then "New family budget". */
 export function menuBudgets(): string[] {
-  const list = within(mainMenu()).getByRole('list', { name: 'Family budgets' })
-  return within(list).getAllByRole('link').map((a) => a.textContent ?? '')
+  const links = within(mainMenu()).getAllByRole('link').map((a) => a.textContent ?? '')
+  return links.slice(PAGES.length)
 }
+
+/** Row 2's pages, before any family budget. */
+export const PAGES = ['Dashboard', 'Entries', 'Accounts', 'Categories', 'Rates']
+
+/** The links of row 2 marked as the current page. */
+export const currentLinks = (panel: HTMLElement = mainMenu()) =>
+  within(panel).queryAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)

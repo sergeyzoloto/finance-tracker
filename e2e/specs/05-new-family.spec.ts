@@ -6,7 +6,7 @@ import { deleteAllMyData, expect, ledgerIdOf, mainMenu, test } from '../fixtures
 // 1. Delete all my data, so that A's next request is the app's first sight of A again: the starter ledger provisioned
 //    anew and no time zone saved yet, which the first page load saves (D-101).
 // 2. A fresh browser, no session: /family/new sends it to the login, where A signs in at Keycloak; back at the app, the
-//    switcher's "New family budget…" at once, while the first load's requests (the zone, the family budgets) are still
+//    main navigation's "New family budget" at once, while the first load's requests (the zone, the family budgets) are still
 //    on their way.
 // 3. A name, a member without an account typed and added, a second one typed and not added, Create: the budget's members
 //    are A and both, in the page and in the api (D-170: Create adds a typed name as Add member would).
@@ -41,7 +41,7 @@ test('a new family budget right after a first sign-in', async ({ as, family, tar
     await me
     // Straight to a new family budget, without waiting for anything else.
     if (new URL(page.url()).pathname !== '/family/new') {
-      await (await mainMenu(page)).getByRole('link', { name: 'New family budget…' }).click()
+      await (await mainMenu(page)).getByRole('link', { name: 'New family budget', exact: true }).click()
     }
     await expect(page).toHaveURL(/\/family\/new$/)
 

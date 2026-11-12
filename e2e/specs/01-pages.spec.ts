@@ -18,6 +18,8 @@ const PRIVACY_PHRASES = [
  * Where the Vite dev server (local) and nginx behind Caddy (production) legitimately differ:
  * - Vite adds `charset=utf-8` to a static page's content type; nginx sends `text/html`.
  * - The icons: nginx keeps them a day (`web.conf`); Vite sends `no-cache` for everything.
+ * - `/theme.js` (UX-10): nginx's type for JavaScript is `application/javascript`, Vite's `text/javascript`; both
+ *   `no-cache`.
  * - Caddy adds the security headers (`deploy/finance.caddy`); Vite has none.
  */
 function expected(target: Target) {
@@ -25,6 +27,8 @@ function expected(target: Target) {
   return {
     pageType: nginx ? 'text/html' : 'text/html;charset=utf-8',
     iconCache: nginx ? 'public, max-age=86400' : 'no-cache',
+    // nginx's mime.types names JavaScript application/javascript; Vite text/javascript.
+    themeType: nginx ? 'application/javascript' : 'text/javascript',
     security: nginx,
   }
 }
@@ -81,6 +85,10 @@ for (const width of [1280, 375]) {
     expectHeaders(ico, target, 'image/x-icon', exp.iconCache)
     // An ICO file: reserved 0, type 1 (an icon).
     expect([...(await ico.body()).subarray(0, 4)]).toEqual([0, 0, 1, 0])
+    // The theme before the first paint (D-497): a script of its own, checked on every load like index.html.
+    const theme = await context.request.get('/theme.js')
+    expectHeaders(theme, target, exp.themeType, 'no-cache')
+    expect(await theme.text()).toContain("'finance-tracker.theme'")
   })
 }
 

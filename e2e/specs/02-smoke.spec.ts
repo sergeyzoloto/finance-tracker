@@ -18,7 +18,7 @@ test('smoke', async ({ as, family, watch }) => {
   const me = await (await context.request.get('/api/me')).json() as { features: { familyLedgers: boolean } }
   expect(me.features.familyLedgers).toBe(family === 'on')
   // The main menu lists family budgets only with them on (D-434).
-  await expect((await mainMenu(page)).getByRole('link', { name: 'New family budget…' })).toHaveCount(family === 'on' ? 1 : 0)
+  await expect((await mainMenu(page)).getByRole('link', { name: 'New family budget', exact: true })).toHaveCount(family === 'on' ? 1 : 0)
   await page.keyboard.press('Escape')
   await expect(page.getByText('Your ledger is empty. How would you like to start?')).toBeVisible()
   await shot(page, 'smoke-01-empty-dashboard')
@@ -92,7 +92,7 @@ async function theDemoWithItsFamilyBudget(session: Session, watch: Watch) {
   const { page } = session
   await loadTheDemo(session, true)
 
-  // The budget from the main menu (D-433).
+  // The budget from the main navigation (D-498).
   const menu = await mainMenu(page)
   await expect(menu.getByRole('link', { name: 'Demo household', exact: true })).toHaveCount(1)
   await menu.getByRole('link', { name: 'Demo household', exact: true }).click()
@@ -131,7 +131,7 @@ async function theDemoWithItsFamilyBudget(session: Session, watch: Watch) {
   await confirmation.getByRole('button', { name: 'Leave and delete the family budget' }).click()
   await expect(page).toHaveURL(/\/$/)
   const after = await mainMenu(page)
-  await expect(after.getByRole('link', { name: 'New family budget…' })).toBeVisible()
+  await expect(after.getByRole('link', { name: 'New family budget', exact: true })).toBeVisible()
   await expect(after.getByRole('link', { name: 'Demo household', exact: true })).toHaveCount(0)
   await page.keyboard.press('Escape')
 }

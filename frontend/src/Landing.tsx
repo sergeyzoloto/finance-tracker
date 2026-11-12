@@ -11,8 +11,10 @@ export default function Landing() {
   return (
     <div className="landing">
       <header>
-        <strong className="brand">Finance Tracker</strong>
-        <a className="button primary" href={LOGIN_URL}>Sign in</a>
+        <div className="header-row">
+          <strong className="wordmark brand">Finance Tracker</strong>
+          <a className="button primary" href={LOGIN_URL}>Sign in</a>
+        </div>
       </header>
 
       <main>
@@ -29,10 +31,11 @@ export default function Landing() {
           {/* Screenshots of a local instance with the demo data, which is invented. */}
           <figure>
             <img src={dashboardScreenshot} width={1092} height={618} alt={'The dashboard with the demo data in '
-              + 'euros, the base currency: €16,973.19 held, €84.58 owed and a net worth of €16,888.61, with what '
-              + 'currency exchanges and rate changes did to it; then the income, expenses and net of 1 May to 9 '
-              + 'November 2026, with the choice of all, personal or the family budget’s records, and a bar chart '
-              + 'of each month with the same months a year earlier, empty in the demo, as dashed lines.'} />
+              + 'euros, the base currency, in the app’s dark blue theme: €16,978.53 held, €83.94 owed and a net '
+              + 'worth of €16,894.58, with what currency exchanges and rate changes did to it; then the income, '
+              + 'expenses and net of this month to date, with the choice of all, personal or the family budget’s '
+              + 'records, and a bar chart of income against expenses for this month, the previous month and the '
+              + 'same days a year earlier, empty in the demo.'} />
             <figcaption>The dashboard with the demo data, in the base currency.</figcaption>
           </figure>
         </section>
@@ -67,8 +70,9 @@ export default function Landing() {
           <figure>
             <img src={entriesScreenshot} width={1092} height={462} loading="lazy" alt={'The newest entries of the '
               + 'demo ledger, each with its date, payee, note, category, the accounts the money moved between and the '
-              + 'amount: interest, a bank fee, lunch paid by credit card, a friend paying back part of a loan, and a '
-              + 'weekly shop split between groceries and the family budget.'} />
+              + 'amount: interest, a settlement and a weekly shop in the family budget, with the payment and the '
+              + 'user’s share, a bank fee, lunch paid by credit card, a friend paying back part of a loan, a utility '
+              + 'bill and a café.'} />
             <figcaption>Entries, each read from its postings.</figcaption>
           </figure>
         </section>

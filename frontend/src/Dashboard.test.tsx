@@ -118,9 +118,9 @@ describe('the dashboard (UX-1)', () => {
     const amounts = screen.getByRole('group', { name: 'Amounts' })
     expect(within(amounts).getByRole('button', { name: 'EUR (base)' }).getAttribute('aria-pressed')).toBe('true')
     expect(within(amounts).getByRole('button', { name: 'Each currency' }).getAttribute('aria-pressed')).toBe('false')
-    // The main menu's Dashboard (D-433).
-    fireEvent.click(screen.getByRole('button', { name: 'My finances' }))
-    expect(screen.getByRole('link', { name: 'Dashboard' }).getAttribute('href')).toBe('/')
+    // Row 2's Dashboard (D-498).
+    expect(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'Dashboard' })
+      .getAttribute('href')).toBe('/')
   })
 
   it('shows one chart, one table and one row per account in the base currency, with three currencies', async () => {

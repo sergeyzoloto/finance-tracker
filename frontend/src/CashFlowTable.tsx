@@ -2,6 +2,7 @@ import {
   changeOf, changeText, effectOf, MISSING, type Cell, type CompareLine, type CompareTable as Table,
 } from './dashboard'
 import { formatMoney, signOf } from './money'
+import { SharedIcon } from './components'
 
 /**
  * One currency's income and expenses compared (D-393): the categories as rows; the period's total, then each
@@ -94,16 +95,9 @@ function Amount({ amount, currency, rounded, signed, className = '' }: {
  * in the text's colour, named "Shared: <the budget>"; the budget's name follows it only where `named`.
  */
 export function SharedMark({ budget, named }: { budget: string; named: boolean }) {
-  const label = `Shared: ${budget}`
   return (
     <span className="shared-mark">
-      <svg role="img" aria-label={label} viewBox="0 0 16 16" width="1em" height="1em" fill="currentColor">
-        <title>{label}</title>
-        <circle cx="5.5" cy="4.75" r="2.4" />
-        <path d="M1 13.5c0-2.7 2-4.6 4.5-4.6s4.5 1.9 4.5 4.6z" />
-        <circle cx="11.25" cy="5.5" r="2" />
-        <path d="M10.4 9.1a4 4 0 0 1 .85-.1c2.1 0 3.75 1.7 3.75 4.1v.4h-3.9c0-1.75-.25-3.2-.7-4.4z" />
-      </svg>
+      <SharedIcon label={`Shared: ${budget}`} />
       {named && <span className="shared-name">{budget}</span>}
     </span>
   )

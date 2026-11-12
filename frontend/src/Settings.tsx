@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate } from 'react-router'
+import Appearance from './Appearance'
 import { api, useApi, useMutation, type FamilyLedger, type FamilyMemberships } from './api'
 import { Errors, Field } from './components'
 import DateFormatSettings from './DateFormatSettings'
@@ -12,10 +13,11 @@ import { TimeZoneSettings } from './TimeZone'
 /** What the user types to confirm that all their data goes. */
 export const CONFIRMATION = 'DELETE'
 
-/** Settings' parts, in their order (D-438): each its own page under `/settings/`, the danger last. */
+/** Settings' parts, in their order (D-438, D-499's Appearance): each its own page under `/settings/`, the danger last. */
 export const SETTINGS_PARTS = [
   ['time-zone', 'Time zone'],
   ['date-format', 'Date format'],
+  ['appearance', 'Appearance'],
   ['import', 'Import'],
   ['export', 'Export'],
   ['delete', 'Delete all my data'],
@@ -43,6 +45,7 @@ export default function Settings({ onDeleted = () => {}, familyOn = false, famil
       <Routes>
         <Route path="time-zone" element={<TimeZoneSettings />} />
         <Route path="date-format" element={<DateFormatSettings />} />
+        <Route path="appearance" element={<Appearance />} />
         <Route path="import" element={<Import families={families} />} />
         <Route path="export" element={<Export />} />
         <Route path="delete" element={<DeleteAllData onDeleted={onDeleted} familyOn={familyOn} />} />

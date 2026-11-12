@@ -39,11 +39,12 @@ import {
 //    budget in "Show" sets `scope=family&family=<id>` and shows "Records" at "All records"; "My records" and
 //    "Others’ records" change the scope and keep the budget; each asks the API for its scope; "Personal" hides
 //    "Records" again. A screenshot at 1280 px and at 375 px with the budget chosen.
-// 11. UX-7 (D-433 to D-438), on the demo: the main menu to Entries, which closes it; the user's menu to Settings, which
-//    opens Time zone, and each of Settings' parts by its own navigation; an old `/export` link lands on its part; with
-//    E2E_FAMILY=on, "Demo household" from the main menu, whose header has no main menu and no "New entry", and
-//    "← My finances" back. At 375 px the header is one row, each open panel inside the screen, nothing scrolls
-//    sideways; screenshots of both menus open.
+// 11. UX-7 (D-433 to D-438) and UX-10 (D-498), on the demo: the header's main navigation (row 2), its links and the
+//    current one, Entries by its tab; the user's menu to Settings, which opens Time zone, and each of Settings' parts by
+//    its own navigation; an old `/export` link lands on its part; with E2E_FAMILY=on, "Demo household" by its tab, which
+//    is current inside the budget, with no "New entry" and no "← My finances". At 375 px the wordmark, "New entry" and
+//    the user's button share one top, the user's panel is inside the screen, the navigation scrolls inside itself and
+//    the page doesn't scroll sideways; screenshots.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -585,31 +586,37 @@ async function expectBudgetChosen({ page }: Session) {
 }
 
 /**
- * UX-7 (D-433 to D-438): the main menu and the user's menu, Settings' parts, a family budget's header, and the header at
- * 375 px: one row, each open panel inside the screen, no sideways scroll.
+ * UX-7 (D-433 to D-438) and UX-10 (D-498): the header's main navigation and the user's menu, Settings' parts, a family
+ * budget's tab, and the header at 375 px: row 1 on one top, the user's panel inside the screen, the navigation scrolling
+ * inside itself, no sideways scroll.
  */
 async function expectHeaderMenus({ page }: Session, family: boolean) {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/')
   const header = page.locator('header')
-  let menu = await mainMenu(page)
-  await expect(menu.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page')
-  if (family) await expect(menu.getByRole('link', { name: 'Demo household', exact: true })).toBeVisible()
-  await shot(page, 'dashboard-16-main-menu')
-  await menu.getByRole('link', { name: 'Entries' }).click()
+  const nav = await mainMenu(page)
+  const pages = ['Dashboard', 'Entries', 'Accounts', 'Categories', 'Rates']
+  await expect(nav.getByRole('link')).toHaveText(family
+    ? [...pages, 'Demo household', 'New family budget'] : pages)
+  await expect(nav.locator('a[aria-current="page"]')).toHaveText(['Dashboard'])
+  await expect(header.getByText('My finances')).toHaveCount(0)
+  await shot(page, 'dashboard-16-main-nav')
+  await nav.getByRole('link', { name: 'Entries', exact: true }).click()
   await expect(page).toHaveURL(/\/entries$/)
   await expect(page.getByRole('heading', { level: 2, name: 'Entries' })).toBeVisible()
-  await expect(header.locator('.menu-panel:visible')).toHaveCount(0)
+  await expect(nav.locator('a[aria-current="page"]')).toHaveText(['Entries'])
 
-  // The user's menu to Settings, which opens Time zone; then each part by Settings' own navigation (D-438).
+  // The user's menu to Settings, which opens Time zone; then each part by Settings' own navigation (D-438, D-499).
   const user = await userMenu(page)
   await expect(user.getByRole('button', { name: 'Log out' })).toBeVisible()
   await shot(page, 'dashboard-17-user-menu')
   await user.getByRole('link', { name: 'Settings' }).click()
   await expect(page).toHaveURL(/\/settings\/time-zone$/)
+  await expect(header.locator('.menu-panel:visible')).toHaveCount(0)
   await expect(page.getByRole('heading', { level: 3, name: 'Time zone' })).toBeVisible()
-  for (const [part, path] of [['Date format', 'date-format'], ['Import', 'import'], ['Export', 'export'],
-    ['Delete all my data', 'delete'], ['Time zone', 'time-zone']] as const) {
+  await expect(nav.locator('a[aria-current="page"]')).toHaveCount(0)
+  for (const [part, path] of [['Date format', 'date-format'], ['Appearance', 'appearance'], ['Import', 'import'],
+    ['Export', 'export'], ['Delete all my data', 'delete'], ['Time zone', 'time-zone']] as const) {
     await openSettings(page, part)
     await expect(page).toHaveURL(new RegExp(`/settings/${path}$`))
     await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Settings'])
@@ -621,38 +628,48 @@ async function expectHeaderMenus({ page }: Session, family: boolean) {
 
   if (family) {
     await page.goto('/')
-    await (await mainMenu(page)).getByRole('link', { name: 'Demo household', exact: true }).click()
+    await nav.getByRole('link', { name: 'Demo household', exact: true }).click()
     await expect(page.getByRole('heading', { level: 2, name: 'Demo household' })).toBeVisible()
-    // Inside the budget (D-435, D-436): "← My finances", no main menu, no "New entry"; the user's menu stays.
-    await expect(header.locator('.main-menu')).toHaveCount(0)
+    // Inside the budget (D-435, D-498): its tab current, no "New entry", no "← My finances"; the user's menu stays.
+    await expect(nav.locator('a[aria-current="page"]')).toHaveText(['Demo household'])
+    await page.getByRole('navigation', { name: 'Family budget' }).getByRole('link', { name: 'Members' }).click()
+    await expect(nav.locator('a[aria-current="page"]')).toHaveText(['Demo household'])
     await expect(header.getByRole('link', { name: 'New entry' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '← My finances' })).toHaveCount(0)
     await expect(header.locator('.user-menu')).toBeVisible()
     await shot(page, 'dashboard-18-family-header')
-    await header.getByRole('link', { name: '← My finances' }).click()
+    await nav.getByRole('link', { name: 'Dashboard', exact: true }).click()
     await expect(page).toHaveURL(/\/$/)
-    await expect(header.locator('.main-menu')).toBeVisible()
+    await expect(header.getByRole('link', { name: 'New entry' })).toBeVisible()
   }
 
-  // At a phone's width: one row, each panel inside the screen, nothing sideways.
+  // At a phone's width: row 1 on one top, the user's panel inside the screen, row 2 scrolling inside itself.
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/')
   await expect(page.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeVisible()
-  const tops = await header.locator('.main-menu > button, .header-end > a, .user-menu > button')
+  const tops = await header.locator('.wordmark, .header-end > a, .user-menu > button')
     .evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().top)))
-  expect(tops, 'the header is one row: the main button, "New entry", the user’s button').toHaveLength(3)
-  expect(new Set(tops).size, 'the header is one row').toBe(1)
-  for (const [open, name] of [[mainMenu, 'main'], [userMenu, 'user']] as const) {
-    menu = await open(page)
-    const box = (await menu.boundingBox())!
-    const width = await page.evaluate(() => document.documentElement.clientWidth)
-    expect(box.x, `the ${name} menu's left edge on the screen`).toBeGreaterThanOrEqual(0)
-    expect(box.x + box.width, `the ${name} menu's right edge on the screen`).toBeLessThanOrEqual(width)
-    const { scroll, client } = await page.evaluate(() => ({
-      scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
-    }))
-    expect(scroll, `the page with the ${name} menu open at 375 px`).toBeLessThanOrEqual(client)
-    await shot(page, `dashboard-19-${name}-menu-narrow`)
-    await page.keyboard.press('Escape')
-  }
+  expect(tops, 'row 1: the wordmark, "New entry", the user’s button').toHaveLength(3)
+  expect(new Set(tops).size, 'the wordmark, "New entry" and the user’s button share one top').toBe(1)
+  const navBox = await nav.evaluate((n) => ({ scroll: n.scrollWidth, client: n.clientWidth, overflow: getComputedStyle(n).overflowX }))
+  expect(navBox.overflow, 'row 2 scrolls inside itself').toBe('auto')
+  if (family) expect(navBox.scroll, 'row 2 is wider than the screen with a family budget').toBeGreaterThan(navBox.client)
+  const menu = await userMenu(page)
+  const box = (await menu.boundingBox())!
+  const width = await page.evaluate(() => document.documentElement.clientWidth)
+  expect(box.x, 'the user menu’s left edge on the screen').toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width, 'the user menu’s right edge on the screen').toBeLessThanOrEqual(width)
+  const page375 = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+  }))
+  expect(page375.scroll, 'the page with the user menu open at 375 px').toBeLessThanOrEqual(page375.client)
+  await shot(page, 'dashboard-19-user-menu-narrow')
+  await page.keyboard.press('Escape')
+  // The current link is scrolled into view (D-498): Rates, the last page, at the far end of the pages.
+  await nav.getByRole('link', { name: 'Rates', exact: true }).click()
+  await expect(page).toHaveURL(/\/rates$/)
+  const rates = (await nav.getByRole('link', { name: 'Rates', exact: true }).boundingBox())!
+  expect(rates.x, 'Rates in view').toBeGreaterThanOrEqual(0)
+  expect(rates.x + rates.width, 'Rates in view').toBeLessThanOrEqual(width)
   await page.setViewportSize({ width: 1280, height: 900 })
 }

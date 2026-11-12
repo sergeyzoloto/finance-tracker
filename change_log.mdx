@@ -3,6 +3,54 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-12 · UX-13-doc: UX-13's deploy recorded, the demo's load waited for in every spec, the checklist's line on a failed spec
+
+One commit on `feature/family-budget` on top of `a406090` (UX-13, deployed), the commit of this entry, "docs: UX-13's
+deploy recorded, the demo's load waited for in every spec, the checklist's line on a failed spec, D-585 to D-591
+(UX-13-doc)". **Not pushed**; `main` not moved. `e2e/` and documents only: no file under `backend/`, `frontend/` or
+`deploy/checks/`, no migration, no deploy of its own (D-587). Production read only; the server not touched.
+
+**Changes**
+- D-585: UX-13's deploy as run, in the runbook's "Deployed revisions" (one row: `a406090` over `79125a8`, the
+  pre-flight, both dumps, the images, the suite's run 1 failing in `accounts` and run 2 passing, run 2 and `finish`
+  before the PM had run 1's summary and the PM's acceptance afterwards, `finish`, `verify UX-13`, the rollback
+  acceptance, "CI on Ubuntu 26.04" #30, the laptop's pull; what isn't given is "not recorded (D-585)") and its
+  "Production now" (`a406090` and its images, the rollback state `79125a8`, UX-13's dumps, the suite's two runs, CI
+  #30, the refs, UX-13-doc's lack of a deploy); step 12's 12.1 and 12.10 use `verify UX-13`; CLAUDE.md's Deployment
+  line.
+- D-586: `loadDemoData(page)` in `e2e/fixtures.ts`: the button clicked, `POST /api/demo-data` waited for and required
+  2xx, the empty ledger's text gone, "Net worth" in the region "Headline figures". `02-smoke`, `05-export`,
+  `07-dashboard`, `10-themes`, `11-entries` and `12-accounts` load the demo through it; each keeps its own checks after
+  it. The guard `only loadDemoData clicks "Load demo data"` in `e2e/lib/spec-hygiene.test.ts` (`npm run test:guards`)
+  fails on any other line of a spec or helper that names the button, with its file and line, and a second test tries
+  the check on a sample.
+- D-588: CLAUDE.md's checklist template carries the line on a failed spec or cleanup after the suite's block, in place
+  of "D-58 and D-59 apply as in D4b's checklist" for later checklists.
+- `requirements.md`: D-585 to D-588 (the PM) and D-589 to D-591 (the agent's: the helper's shape and waits, the
+  guard's reach, what the record leaves out), the "Amended" line, UX-13-doc done in "Planned stages"; CLAUDE.md's
+  "QA" (the helper and the guard); `e2e/README.md`.
+
+**Verified**
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node 24), after a restart of the dev stack's api (D-29's limit): exit 0,
+  `34 passed (9.0m)`: every spec at 1280 and 375 px (`pages` (2 tests), `smoke`, `family F7`, `family F8`, `export`,
+  `family F8d`, `import`, `member-import`, `new-family`, `time-zone` (2 tests), `dashboard`, `new-entry`, `payees`,
+  `themes`, `entries`, `accounts`), sign-in and cleanup passed, both accounts' data deleted and signed out,
+  `Password search over the artifacts: 0 hits`, `Result: PASSED`; `Commit:` `a406090` `(TREE NOT CLEAN)`, this change
+  uncommitted.
+- `cd e2e && npm run test:guards`, alone, after the local suite (D-517): exit 0, `tests 39`, `pass 39`, `fail 0` (37
+  before, and the guard and its sample test).
+- The guard failing: a scratch copy of `12-accounts` as `specs/99-scratch-demo.spec.ts` with its `loadDemoData(page)`
+  put back as the button's click; `npm run test:guards` exit 1, `tests 39`, `pass 38`, `fail 1`, the failing test
+  `only loadDemoData clicks "Load demo data"` naming `specs/99-scratch-demo.spec.ts:22` and its line; the copy
+  removed, the tree as before.
+- `cd e2e && npx tsc --noEmit`: exit 0.
+- No backend or frontend suite: `git --no-pager diff --name-only a406090` names only `CLAUDE.md`, `change_log.mdx`,
+  `deploy/RUNBOOK.md`, `docs/family-budget/requirements.md` and files under `e2e/`.
+
+**Open**
+- The PM's review; then the owner fast-forwards `main` and pushes (D-587). No deploy: the next stage's checklist lists
+  this commit among those from `a406090` to its M.
+
 ## 2026-11-12 · UX-13's second commit: daily spending shows every day of a short period, D-584
 
 One commit on `feature/family-budget` on top of `15ca195` (UX-13's first), the commit of this entry, "fix: daily

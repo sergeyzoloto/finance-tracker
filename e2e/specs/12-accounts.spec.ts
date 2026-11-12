@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import { fillDate } from '../dates.ts'
-import { deleteAllMyData, expect, shot, test, today, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, loadDemoData, shot, test, today, type Session } from '../fixtures.ts'
 
 // UX-11's Accounts page (D-525, D-526) with A, on the demo:
 // 1. At 1280 px and at 800 px, Assets', Liabilities' and Equity's columns have the same left edges and widths, without
@@ -19,7 +19,7 @@ test('accounts on a day, and compared', async ({ as }) => {
   const narrow = page.viewportSize()?.width === 375
   await deleteAllMyData(a)
   await page.goto('/')
-  await page.getByRole('button', { name: 'Load demo data' }).click()
+  await loadDemoData(page)
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 30_000 })
 
   // 1. The columns line up (not at 375 px, where each account is a block of lines).

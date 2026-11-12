@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fillDate } from '../dates.ts'
 import { HEADER, parse } from '../export-steps.ts'
-import { deleteAllMyData, expect, openSettings, shot, test, today, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, loadDemoData, openSettings, shot, test, today, type Session } from '../fixtures.ts'
 
 // D4a's export page (/export, D-243), with account A: the summary of the whole period and of this month, and the files
 // that Download saves, named for the period (D-241), as the import reads them (D-240). Locally, on the demo's ledger
@@ -16,7 +16,7 @@ test('export page', async ({ as, target }) => {
   if (local) {
     await deleteAllMyData(a)
     await page.goto('/')
-    await page.getByRole('button', { name: 'Load demo data' }).click()
+    await loadDemoData(page)
     await expect(page.getByText('Your ledger is empty. How would you like to start?')).toHaveCount(0, { timeout: 30_000 })
     await expect(page.getByRole('region', { name: 'Headline figures' }).getByText('Net worth')).toBeVisible()
   }

@@ -147,7 +147,12 @@ Writing a spec (D-119): look for a number, an amount or a date in rendered text 
 run: Playwright finds a test in each of its processes by title, and a title that differs between the runner and the
 worker loses the test ("Test not found in the worker process"); pick the value inside the test (`06-time-zone`). Type
 and read a date only through `dates.ts` (UX-1, D-304): `fillDate` and `expectDate` use the field's own pattern, its
-placeholder, which is the account's date format; `shownDay` words a shown date for a format.
+placeholder, which is the account's date format; `shownDay` words a shown date for a format. Load the demo only with
+`loadDemoData(page)` from `fixtures.ts` (D-586, UX-13-doc): it clicks the button, requires a 2xx from `POST
+/api/demo-data`, and waits for the empty ledger's text to go and the region "Headline figures" to show "Net worth". The
+empty ledger has the heading "Dashboard" too, so waiting for that heading waits for nothing (production's run 1 of UX-13
+read Accounts before the demo was there). `lib/spec-hygiene.test.ts` fails on any other line of a spec or helper that
+names the demo's button, with its file and line.
 
 ## Running it in production
 
@@ -220,7 +225,8 @@ cleanup failed. Keycloak keeps the two accounts, and its events log their sign-i
   `npm run test:prod-entry` (`prod-entry.ts`: `scripts/prod.ts`'s `main` with its real prompt, a credentials file of
   fake values and the fake app; `npm run e2e:prod` itself can't be pointed elsewhere), and checks the fake app's
   request log.
-- `fixtures.ts`: the signed-in contexts, the watch on responses and errors, "Delete all my data", the integrity check.
+- `fixtures.ts`: the signed-in contexts, the watch on responses and errors, "Delete all my data", the demo's load
+  (`loadDemoData`, D-586), the integrity check.
 - `dates.ts`: dates typed and read in the account's format (UX-1, D-304).
 - `export-steps.ts`: D4a's export of an account: its file and summary through the API, the format and the balances
   checked (D-240 to D-242), and since D4b the file imported back as a dry run, which rolls everything back (D-256,

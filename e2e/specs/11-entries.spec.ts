@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { deleteAllMyData, expect, shot, test, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, loadDemoData, shot, test, type Session } from '../fixtures.ts'
 
 // UX-11's Entries (D-522, D-524) and Categories (D-527) with A, on the demo:
 // 1. Entries' Period list holds "All time", the dashboard's Period list in its order (its "Custom" last), and "Custom".
@@ -21,7 +21,7 @@ test('entries: periods and the summary row; categories: icon buttons', async ({ 
   const { page } = a
   await deleteAllMyData(a)
   await page.goto('/')
-  await page.getByRole('button', { name: 'Load demo data' }).click()
+  await loadDemoData(page)
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 30_000 })
 
   // 1. The Period lists.

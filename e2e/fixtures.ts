@@ -167,6 +167,23 @@ export async function deleteAllMyData({ page, account }: Session) {
 }
 
 /**
+ * The demo, loaded from the empty ledger's button (D-586, UX-13-doc): the button clicked, `POST
+ * /api/demo-data` answered with a 2xx, the empty ledger's text gone and the region "Headline figures" showing "Net
+ * worth". The empty ledger has the heading "Dashboard" too, so that heading alone doesn't wait for the demo (production's
+ * run 1 of UX-13 read Accounts before the demo was there). Every spec loads the demo through this, and only this clicks
+ * the button (the guard in `lib/spec-hygiene.test.ts`).
+ */
+export async function loadDemoData(page: Page) {
+  const loaded = page.waitForResponse((r) => r.request().method() === 'POST'
+    && new URL(r.url()).pathname === '/api/demo-data', { timeout: 60_000 })
+  await page.getByRole('button', { name: 'Load demo data' }).click()
+  const response = await loaded
+  expect(response.ok(), `POST /api/demo-data answered ${response.status()}`).toBe(true)
+  await expect(page.getByText('Your ledger is empty. How would you like to start?')).toHaveCount(0, { timeout: 30_000 })
+  await expect(page.getByRole('region', { name: 'Headline figures' }).getByText('Net worth')).toBeVisible({ timeout: 30_000 })
+}
+
+/**
  * The header's main navigation, row 2 (D-498): always shown, nothing to open. The pages, then with family budgets on
  * each budget by name and "New family budget"; inside a family budget too.
  */

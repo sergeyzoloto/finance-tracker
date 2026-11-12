@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { deleteAllMyData, expect, mainMenu, openSettings, shot, test, userMenu, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, loadDemoData, mainMenu, openSettings, shot, test, userMenu, type Session } from '../fixtures.ts'
 
 // UX-10's themes (D-495 to D-499), A only, on the demo:
 // 1. At 1280 px each theme chosen through Settings → Appearance gives `html[data-theme]` and the body's background
@@ -99,7 +99,7 @@ async function expectTheme(page: Page, theme: (typeof THEMES)[number]) {
 async function loadTheDemo(page: Page, withFamily: boolean) {
   await page.goto('/')
   await expect(page.getByText('It also creates the family budget “Demo household”')).toHaveCount(withFamily ? 1 : 0)
-  await page.getByRole('button', { name: 'Load demo data' }).click()
+  await loadDemoData(page)
   await expect(page.getByText('Your ledger is empty. How would you like to start?')).toHaveCount(0, { timeout: 30_000 })
   await expect(page.getByRole('heading', { name: 'Cash flow by category' })).toBeVisible()
 }

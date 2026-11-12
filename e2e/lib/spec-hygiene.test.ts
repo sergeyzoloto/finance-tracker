@@ -51,3 +51,40 @@ test('the check leaves alone what it isn’t about', () => {
   ]
   assert.deepEqual(fine.flatMap(numberNeedles), [])
 })
+
+// D-586 (UX-13-doc): the demo is loaded only through `loadDemoData` of fixtures.ts, which waits for `POST /api/demo-data`
+// and for the dashboard's headline. The empty ledger has the heading "Dashboard" too, so a spec that clicks "Load demo
+// data" itself and waits for that heading reads the page before the demo is there (production's run 1 of UX-13). This
+// test reads every spec and helper and fails on any line that names the button, but the helper's own.
+
+const DEMO_BUTTON = /Load demo data/i
+
+/** The lines of a source that name the demo's button: `file:line: text`. */
+export function demoClicks(file: string, source: string): string[] {
+  return source.split('\n').flatMap((line, i) => (DEMO_BUTTON.test(line) ? [`${file}:${i + 1}: ${line.trim()}`] : []))
+}
+
+/** The helper's own line in fixtures.ts, the one place allowed to name the button. */
+const HELPER_LINE = "await page.getByRole('button', { name: 'Load demo data' }).click()"
+
+test('only loadDemoData clicks "Load demo data"', () => {
+  const found = sources().flatMap((file) => demoClicks(file, readFileSync(join(root, file), 'utf8')))
+  const helper = found.filter((line) => line.startsWith('fixtures.ts:') && line.endsWith(HELPER_LINE))
+  assert.equal(helper.length, 1, 'loadDemoData in fixtures.ts clicks the button once')
+  assert.deepEqual(found.filter((line) => !helper.includes(line)), [],
+    'load the demo with loadDemoData(page) from fixtures.ts, which waits for it (D-586)')
+})
+
+test('the demo check finds a spec that clicks the button itself', () => {
+  const spec = [
+    "await page.goto('/')",
+    "await page.getByRole('button', { name: 'Load demo data' }).click()",
+    "await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()",
+    'await page.getByText(/load demo data/i).click()',
+    'await loadDemoData(page)',
+  ].join('\n')
+  assert.deepEqual(demoClicks('specs/x.spec.ts', spec), [
+    "specs/x.spec.ts:2: await page.getByRole('button', { name: 'Load demo data' }).click()",
+    'specs/x.spec.ts:4: await page.getByText(/load demo data/i).click()',
+  ])
+})

@@ -2,7 +2,7 @@ import { dateFormatOf, expectDate, fillDate, inPattern, shownDay } from '../date
 import { createTheBudget, inviteSomeoneNew, joinThroughTheLink } from '../family-steps.ts'
 import type { Locator } from '@playwright/test'
 import {
-  deleteAllMyData, expect, mainMenu, openSettings, shot, test, today, userMenu, wholeNumber, type Session, type Watch,
+  deleteAllMyData, expect, loadDemoData, mainMenu, openSettings, shot, test, today, userMenu, wholeNumber, type Session, type Watch,
 } from '../fixtures.ts'
 
 // UX-1's dashboard with A (and B with the family budget on), every entry dated today:
@@ -172,7 +172,7 @@ test('dashboard', async ({ as, family, target, watch }) => {
   // 6. The demo at a phone's width.
   await deleteAllMyData(a)
   await page.goto('/')
-  await page.getByRole('button', { name: 'Load demo data' }).click()
+  await loadDemoData(page)
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 30_000 })
   await expectAssetsTotalIsYouHave(a)
   // UX-11 (D-521): a link to `/` opens the month of the latest entry, in the demo this month, which ends today.

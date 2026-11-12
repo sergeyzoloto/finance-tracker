@@ -1,5 +1,5 @@
 import {
-  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, mainMenu, shot, test, today,
+  deleteAllMyData, expect, expectIntegrity, expectReloadAfterLeaving, ledgerIdOf, loadDemoData, mainMenu, shot, test, today,
   wholeNumber, type Session, type Watch,
 } from '../fixtures.ts'
 import { expectExport } from '../export-steps.ts'
@@ -68,7 +68,7 @@ async function loadTheDemo(session: Session, withFamily: boolean) {
   const { page } = session
   await page.goto('/')
   await expect(page.getByText('It also creates the family budget “Demo household”')).toHaveCount(withFamily ? 1 : 0)
-  await page.getByRole('button', { name: 'Load demo data' }).click()
+  await loadDemoData(page)
   await expect(page.getByText('Your ledger is empty. How would you like to start?')).toHaveCount(0, { timeout: 30_000 })
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Headline figures' }).getByText('Net worth')).toBeVisible()

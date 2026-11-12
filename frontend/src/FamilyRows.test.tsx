@@ -286,7 +286,7 @@ describe('the cash flow', () => {
     const familyLine = screen.getByRole('img', { name: 'Shared: Home' }).closest('tr')!
     expect(within(familyLine).getByText('Groceries')).toBeDefined()
     expect(within(familyLine).queryByText('Home')).toBeNull()
-    expect(within(familyLine).getAllByRole('cell').map((c) => c.textContent)).toEqual(['€32.25', '—', '—', '—', '—'])
+    expect(within(familyLine).getAllByRole('cell').map((c) => c.textContent)).toEqual(['€32.25', '89.0%', '—', '—', '—', '—'])
   })
 
   it('does the same in the base currency', () => {

@@ -95,10 +95,10 @@ describe('income and expenses compared (UX-5)', () => {
       '/api/reports/cash-flow?from=2026-09-01&to=2026-09-30',
     ])
     expect(within(table).getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
-      'EUR', 'Period Oct 2026', 'Year earlier Oct 2025', 'Change %', 'Previous period Sep 2026', 'Change %'])
+      'EUR', 'Period Oct 2026', 'Share %', 'Year earlier Oct 2025', 'Change %', 'Previous period Sep 2026', 'Change %'])
     const groceries = within(table).getByRole('rowheader', { name: 'Groceries' }).closest('tr')!
     expect(within(groceries).getAllByRole('cell').map((c) => c.textContent))
-      .toEqual(['€440.00', '€400.00', '+10.0%', '€500.00', `${minus}12.0%`])
+      .toEqual(['€440.00', '100.0%', '€400.00', '+10.0%', '€500.00', `${minus}12.0%`])
     expect(screen.getByRole('heading', { name: 'Cash flow by category' })).toBeDefined()
   })
 
@@ -120,7 +120,7 @@ describe('income and expenses compared (UX-5)', () => {
     const table = screen.getByRole('table', { name: 'Cash flow in EUR' })
     const net = within(table).getByRole('rowheader', { name: 'Net' }).closest('tr')!
     expect(within(net).getAllByRole('cell').map((c) => c.textContent))
-      .toEqual(['€1,560.00', '€1,200.00', '+30.0%', '€1,500.00', '+4.0%'])
+      .toEqual(['€1,560.00', '', '€1,200.00', '+30.0%', '€1,500.00', '+4.0%'])
   })
 
   it('compares a running month to date and says so (D-396)', async () => {
@@ -144,7 +144,7 @@ describe('income and expenses compared (UX-5)', () => {
     expect(screen.getByRole('status').textContent).toContain('KZT on Sep 4, 2026')
     const groceries = within(table).getByRole('rowheader', { name: 'Groceries' }).closest('tr')!
     expect(within(groceries).getAllByRole('cell').map((c) => c.textContent))
-      .toEqual(['€440.00', '€400.00', '+10.0%', 'rate missing', ''])
+      .toEqual(['€440.00', '100.0%', '€400.00', '+10.0%', 'rate missing', ''])
   })
 
   it('shows a comparison that failed as an error, and keeps the period and the other one (D-401)', async () => {
@@ -152,7 +152,7 @@ describe('income and expenses compared (UX-5)', () => {
     renderAt('/?period=previous-month&currency=each')
     const table = await screen.findByRole('table', { name: 'Cash flow in EUR' })
     expect(within(table).getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
-      'EUR', 'Period Oct 2026', 'Previous period Sep 2026', 'Change %'])
+      'EUR', 'Period Oct 2026', 'Share %', 'Previous period Sep 2026', 'Change %'])
     expect(within(flowsSection()).getByText(/^Year earlier \(Oct 2025\):/)).toBeDefined()
   })
 
@@ -181,7 +181,7 @@ describe('income and expenses compared (UX-5)', () => {
     renderAt('/?period=previous-year')
     const table = await screen.findByRole('table', { name: 'Cash flow in EUR' })
     expect(within(table).getAllByRole('columnheader').map((th) => th.textContent))
-      .toEqual(['EUR', 'Period 2025', 'Previous year 2024', 'Change %'])
+      .toEqual(['EUR', 'Period 2025', 'Share %', 'Previous year 2024', 'Change %'])
     expect(screen.queryByRole('group', { name: 'Compare with' })).toBeNull()
   })
 })

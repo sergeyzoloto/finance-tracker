@@ -1,5 +1,6 @@
 import {
-  changeOf, changeText, effectOf, MISSING, type Cell, type CompareLine, type CompareTable as Table,
+  changeOf, changeText, effectOf, MISSING, shareOf, shareText, type Cell, type CompareLine, type CompareSection,
+  type CompareTable as Table,
 } from './dashboard'
 import { formatMoney, signOf } from './money'
 import { SharedIcon } from './components'
@@ -7,21 +8,25 @@ import { SharedIcon } from './components'
 /**
  * One currency's income and expenses compared (D-393): the categories as rows; the period's total, then each
  * comparison's total with the change in % (D-398), each column headed by its role above its range's name. A dash
- * marks a range in which nothing was posted. In the base currency the results of exchange rates follow the net,
+ * marks a range in which nothing was posted. Right after the period's column, each category's share of Total income
+ * or Total expenses in the period, with a bar (D-595); the subtotals, the net and the exchange lines leave it empty. In the base currency the results of exchange rates follow the net,
  * amounts only, and "rate missing" marks a figure that can't be converted, its % left empty.
  */
 export default function CashFlowTable({ table }: { table: Table }) {
   const [period, ...comparisons] = table.columns
   // D-419: the budget's name follows the icon only when this table holds more than one family budget's categories.
   const budgets = new Set([...table.income.lines, ...table.expense.lines].flatMap((l) => (l.family ? [l.family] : [])))
-  const width = 2 + comparisons.length * 2
-  const row = (line: CompareLine, className = '', signed = false) => (
+  const width = 3 + comparisons.length * 2
+  const row = (line: CompareLine, className = '', signed = false, of?: { section: CompareSection; kind: Kind }) => (
     <tr key={line.key} className={className}>
       <th scope="row">
         {line.label}
         {line.family && <SharedMark budget={line.family} named={budgets.size > 1} />}
       </th>
       <Amount amount={line.amounts[0]} currency={table.currency} rounded={table.converted} signed={signed} />
+      <td className="amount nowrap share">
+        {of && <Share line={line.amounts[0]} subtotal={of.section.subtotal.amounts[0]} kind={of.kind} />}
+      </td>
       {comparisons.map((column, i) => {
         const before = line.amounts[i + 1]
         const change = changeOf(line.amounts[0], before, line.key === 'net')
@@ -43,6 +48,7 @@ export default function CashFlowTable({ table }: { table: Table }) {
           <tr>
             <th scope="col">{table.currency}</th>
             <th scope="col" className="amount"><span className="col-role">{period.role}</span> {period.label}</th>
+            <th scope="col" className="amount share"><span className="col-role">Share</span> %</th>
             {comparisons.map((column) => [
               <th key={column.key} scope="col" className="amount compared">
                 <span className="col-role">{column.role}</span> {column.label}
@@ -53,10 +59,10 @@ export default function CashFlowTable({ table }: { table: Table }) {
             ])}
           </tr>
         </thead>
-        {([['Income', table.income], ['Expenses', table.expense]] as const).map(([title, section]) => (
+        {([['Income', table.income, 'income'], ['Expenses', table.expense, 'expense']] as const).map(([title, section, kind]) => (
           <tbody key={title}>
             <tr className="section"><th scope="rowgroup" colSpan={width}>{title}</th></tr>
-            {section.lines.map((line) => row(line))}
+            {section.lines.map((line) => row(line, '', false, { section, kind }))}
             {row(section.subtotal, 'subtotal')}
           </tbody>
         ))}
@@ -69,6 +75,25 @@ export default function CashFlowTable({ table }: { table: Table }) {
         )}
       </table>
     </div>
+  )
+}
+
+type Kind = 'income' | 'expense'
+
+/**
+ * D-595: a line's share of its section, "33.8%" beside a bar in the chart's colour of income or expenses, hidden from
+ * screen readers; "—" without a bar where there is no share.
+ */
+function Share({ line, subtotal, kind }: { line: Cell; subtotal: Cell; kind: Kind }) {
+  const share = shareOf(line, subtotal)
+  if (share === null) return <span className="muted">—</span>
+  return (
+    <span className="share-cell">
+      <span className="share-track" aria-hidden="true">
+        <span className={`share-fill ${kind}`} style={{ width: `${share.width}%` }} />
+      </span>
+      <span className="share-text">{shareText(share.percent)}</span>
+    </span>
   )
 }
 

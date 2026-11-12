@@ -14,7 +14,8 @@ import { LOCAL, requireLocalOnly } from '../lib/targets.ts'
 // family payee, and testuser's record page with a new name typed in its payee field (D-549); testuser2's data is
 // deleted at the end too. Since UX-13 also the dashboard for a past month, in each currency, and with a family scope
 // (the headline strip, D-569, and daily spending, D-571), and Entries filtered by a counterparty's name in another
-// case (D-568). SCREENS=dashboard takes the dashboard's screens alone (the before shots of another commit).
+// case (D-568). SCREENS=dashboard takes the dashboard's screens alone (the before shots of another commit). Since
+// UX-14 SCREENS_WIDTHS=375,1024,1280,1440 takes them at other widths than 1280 and 375 (D-593, D-594).
 
 requireLocalOnly(LOCAL)
 const [folder, label, theme] = process.argv.slice(2)
@@ -24,7 +25,13 @@ if (!folder || !label || (theme !== undefined && !['blue', 'light', 'dark'].incl
 }
 mkdirSync(folder, { recursive: true })
 
-const WIDTHS = [1280, 375] as const
+const WIDTHS = process.env.SCREENS_WIDTHS
+  ? process.env.SCREENS_WIDTHS.split(',').map((w) => {
+    const width = Number(w)
+    if (!Number.isInteger(width) || width < 320 || width > 2560) throw new Error(`SCREENS_WIDTHS: not a width: ${w}`)
+    return width
+  })
+  : [1280, 375]
 const ONLY_DASHBOARD = process.env.SCREENS === 'dashboard'
 const PAYEE = 'Corner shop'
 const PARTNERS_PAYEE = 'Trefpunt Coffeeshop'

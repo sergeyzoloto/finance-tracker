@@ -222,7 +222,7 @@ describe('the Balances card in each currency', () => {
     renderAt('/?period=previous-month', { ...ME, dateFormat: 'DD.MM.YYYY' })
     expect((await balancesCard()).querySelector('h3')!.textContent).toBe('Balances on 31.08.2026')
     // No "Balances on" field any more (D-430).
-    expect(screen.queryByLabelText(/Balances on/)).toBeNull()
+    expect(screen.queryByLabelText(/Balances on/, { selector: 'input' })).toBeNull()
   })
 
   it('hides an archived account whose amounts are all below a minor unit, and counts it in the total (D-364)', async () => {

@@ -162,6 +162,20 @@ export function formatMoney(amount: string, currency: string, { signed = false, 
 }
 
 /**
+ * `part` as a share of `whole` in percent (D-595): part / whole × 100, rounded HALF_UP to one decimal, as a decimal
+ * string ("33.8", "0.0"); undefined when `whole` is 0, of which nothing is a share.
+ */
+export function percentOf(part: string, whole: string): string | undefined {
+  const total = new Decimal(whole)
+  if (total.eq('0')) return undefined
+  const share = new Decimal(part).div(total).times('100').round(1, Big.roundHalfUp)
+  return share.eq('0') ? '0.0' : share.toFixed(1)
+}
+
+/** The smaller of two decimal strings. */
+export const atMost = (value: string, limit: string) => (new Decimal(value).gt(new Decimal(limit)) ? limit : value)
+
+/**
  * The change from `before` to `now` in percent (D-398): (now − before) / |before| × 100, rounded HALF_UP to one decimal,
  * as a decimal string ("12.3", "-4.0", "0.0"); undefined when `before` is 0, since nothing can be compared with it.
  */

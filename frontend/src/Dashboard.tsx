@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
   dateOfIso, formatDate, useApi, type AccountBalance, type CashFlowRow, type ConvertedBalance, type ConvertedCashFlow,
   type ConvertedCounterpartyBalance, type ConvertedNetWorth, type CounterpartyBalance, type EntryPage, type FamilyLedger,
-  type NetWorth, type Rate, type Settings, type SharedSettlement, type DailyCashFlowRow, type ConvertedDailyCashFlow,
+  type NetWorth, type Settings, type SharedSettlement, type DailyCashFlowRow, type ConvertedDailyCashFlow,
 } from './api'
 import CashFlowTable from './CashFlowTable'
 import { lazyWithReload } from './chunkReload'
@@ -17,7 +17,7 @@ import {
   inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING,
   missingDays, monthPairs, monthsBetween, needsLatestEntry, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
   recordsOf, resultRange, scopeFromQuery, scopeParams, showOf, showOptions, showsOwnCurrencies, totalChanges,
-  usedRateText, withRecords, withShow,
+  rateSourceText, rateText, withRecords, withShow,
   type CashFlowTable as Table, type Cell, type ComparedRange, type CompareTable, type Comparisons, type DayRange,
   type FamilyDebt, type PeriodChoice, type Records,
 } from './dashboard'
@@ -244,54 +244,68 @@ function PeriodDashboard({ families, latest }: { families: FamilyLedger[] | null
       <HeadlineStrip inBase={inBase} worth={baseNetWorth} rows={netWorth} baseCurrency={baseCurrency}
         flows={{ ...flows, data: flows.data?.tables }} scopeNote={scopeNote} />
 
-      <section className="card flows" aria-labelledby="flows-title">
-        <h3 id="flows-title">
-          Income and expenses{' '}
-          <span className="muted period">
-            {compared === null ? ''
-              : `${formatDate(compared.section.from)} – ${formatDate(compared.section.to)}${compared.running ? ', to date' : ''}`}
-          </span>
-        </h3>
-        {families !== null && families.length > 0 && (
-          <div className="scope">
-            <ToggleGroup label="Show" value={showOf(chosen)} onChange={setShow} options={showOptions(families)} />
-            {isFamilyScope(chosen.scope) && (
-              <ToggleGroup label="Records" value={recordsOf(chosen.scope)} onChange={setRecords}
-                options={RECORDS.map((r) => ({ value: r, label: RECORDS_LABELS[r] }))} />
+      {/* D-593: below the strip, from 64rem, a main column and a side column, each stacking its own cards; under 64rem
+          one column in this DOM order, which tab order and screen readers follow at every width. */}
+      <div className="dashboard-columns">
+        <div className="dashboard-column main">
+          <section className="card flows" aria-labelledby="flows-title">
+            <h3 id="flows-title">
+              Income and expenses{' '}
+              <span className="muted period">
+                {compared === null ? ''
+                  : `${formatDate(compared.section.from)} – ${formatDate(compared.section.to)}${compared.running ? ', to date' : ''}`}
+              </span>
+            </h3>
+            {families !== null && families.length > 0 && (
+              <div className="scope">
+                <ToggleGroup label="Show" value={showOf(chosen)} onChange={setShow} options={showOptions(families)} />
+                {isFamilyScope(chosen.scope) && (
+                  <ToggleGroup label="Records" value={recordsOf(chosen.scope)} onChange={setRecords}
+                    options={RECORDS.map((r) => ({ value: r, label: RECORDS_LABELS[r] }))} />
+                )}
+                {isFamilyScope(chosen.scope) && (
+                  <p className="small whole-family">
+                    {scopeFamilies.map((f, i) => (
+                      <span key={f.id}>
+                        {i > 0 && ' · '}
+                        <Link to={`/family/${f.id}/report?from=${period.from}&to=${period.to}`}>
+                          Whole family budget{families.length > 1 ? `: ${f.name}` : ''} →
+                        </Link>
+                      </span>
+                    ))}
+                    <span className="muted"> Your own shares are here; the budget’s report has every member’s.</span>
+                  </p>
+                )}
+              </div>
             )}
-            {isFamilyScope(chosen.scope) && (
-              <p className="small whole-family">
-                {scopeFamilies.map((f, i) => (
-                  <span key={f.id}>
-                    {i > 0 && ' · '}
-                    <Link to={`/family/${f.id}/report?from=${period.from}&to=${period.to}`}>
-                      Whole family budget{families.length > 1 ? `: ${f.name}` : ''} →
-                    </Link>
-                  </span>
-                ))}
-                <span className="muted"> Your own shares are here; the budget’s report has every member’s.</span>
-              </p>
-            )}
-          </div>
-        )}
-        {tables.error || compared === null ? <Errors messages={[tables.error ?? '']} />
-          : (
-            <Flows compared={compared} period={tables} state={flows} params={params} onCompare={setCompare}
-              daily={shownDays === null ? null : { range: shownDays, load: daily }} today={today} />
-          )}
-      </section>
-
-      <div className="dashboard">
-        {inBase
-          ? <Card title={balancesTitle} state={both(both(baseBalances, baseNetWorth), both(balances, baseResult))}>
-            {([[rows, worth], [own, flow]]) => <BaseBalancesByType balances={rows} worth={worth} own={own} result={flow} />}
+            {tables.error || compared === null ? <Errors messages={[tables.error ?? '']} />
+              : (
+                <Flows compared={compared} period={tables} state={flows} params={params} onCompare={setCompare}
+                  daily={shownDays === null ? null : { range: shownDays, load: daily }} today={today} />
+              )}
+          </section>
+          <CashFlowCard state={flows} scopeNote={scopeNote} />
+        </div>
+        <div className="dashboard-column side">
+          {inBase
+            ? <Card title={balancesTitle} labelId="balances-title"
+              state={both(both(baseBalances, baseNetWorth), both(balances, baseResult))}>
+              {([[rows, worth], [own, flow]]) => <BaseBalancesByType balances={rows} worth={worth} own={own} result={flow} />}
+            </Card>
+            : <Card title={balancesTitle} labelId="balances-title" state={both(balances, result)}>
+              {([rows, flow]) => <BalancesByType balances={rows} result={flow} />}
+            </Card>}
+          <Card title="Open loans" labelId="loans-title" state={loans}>
+            {(groups) => <OpenLoans groups={groups} inBase={inBase} baseCurrency={baseCurrency ?? ''} />}
           </Card>
-          : <Card title={balancesTitle} state={both(balances, result)}>
-            {([rows, flow]) => <BalancesByType balances={rows} result={flow} />}
-          </Card>}
-        <Card title="Open loans" state={loans}>
-          {(groups) => <OpenLoans groups={groups} inBase={inBase} baseCurrency={baseCurrency ?? ''} />}
-        </Card>
+          {/* D-596: the rates net worth used on the balances' day; nothing is converted in each currency. */}
+          {inBase && (
+            <Card title={<>Rates <span className="muted period">on {formatDate(day)}</span></>} labelId="rates-title"
+              className="rates" state={baseNetWorth}>
+              {(worth) => <RatesUsed worth={worth} />}
+            </Card>
+          )}
+        </div>
       </div>
     </>
   )
@@ -328,15 +342,17 @@ function PeriodList({ choice, onChoose }: { choice: PeriodChoice; onChoose: (cho
 }
 
 /** A widget. While it reloads, the previous figures stay, dimmed, so nothing jumps. */
-function Card<T>({ title, state, className = '', children }: {
+function Card<T>({ title, labelId, state, className = '', children }: {
   title: ReactNode
+  /** The heading's id, which names the card's region. */
+  labelId?: string
   state: Loaded<T>
   className?: string
   children: (data: T) => ReactNode
 }) {
   return (
-    <section className={`card ${className}`}>
-      <h3>{title}</h3>
+    <section className={`card ${className}`} aria-labelledby={labelId}>
+      <h3 id={labelId}>{title}</h3>
       <Body state={state}>{children}</Body>
     </section>
   )
@@ -389,8 +405,8 @@ function Body<T>({ state, children }: { state: Loaded<T>; children: (data: T) =>
 const NoCashFlow = () => <p className="empty">No income or expenses in this period or the ones it is compared with.</p>
 
 /**
- * Income and expenses compared (D-393 to D-400): the totals with their changes, the chart of each currency and the
- * comparison table of each. Shown once the period and every comparison have answered or failed; a comparison that
+ * Income and expenses compared (D-393 to D-400): the chart of each currency with its daily spending (D-571, D-594);
+ * the comparison tables are "Cash flow by category"'s (D-595). Shown once the period and every comparison have answered or failed; a comparison that
  * failed shows its error and leaves the period's figures and the other comparison (D-401).
  */
 function Flows({ compared, period, state, params, onCompare, daily, today }: {
@@ -426,7 +442,7 @@ function Flows({ compared, period, state, params, onCompare, daily, today }: {
               options={[{ value: 'year', label: 'A year earlier' }, { value: 'previous', label: 'Previous period' }]} />
           )}
           {tables.map((table) => (
-            // D-571: daily spending beside each currency's chart from 64rem, under it below.
+            // D-571, D-594: daily spending beside each currency's chart while the card is at least 40rem wide, under it otherwise.
             <div key={table.currency} className="chart-row">
               <figure className="chart" aria-label={`Income and expenses in ${table.currency}`}>
                 {tables.length > 1 && <figcaption>{table.currency}</figcaption>}
@@ -443,11 +459,32 @@ function Flows({ compared, period, state, params, onCompare, daily, today }: {
               )}
             </div>
           ))}
-          <h4>Cash flow by category</h4>
-          {tables.map((table) => <CashFlowTable key={table.currency} table={table} />)}
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * "Cash flow by category" (D-595): the comparison tables of the card "Income and expenses", from the same loads, with
+ * the same loading, dimming and empty text; each category's share in a column of its own. A comparison's error shows
+ * there only; the period's own error in both, which have nothing else to show. For any scope but All, the scope's line
+ * under the heading, as the strip words it, since "Show" and "Records" are in the other card.
+ */
+function CashFlowCard({ state, scopeNote }: { state: Loaded<FlowsData>; scopeNote: string | null }) {
+  return (
+    <section className="card cash-flow-card" aria-labelledby="cash-flow-title">
+      <h3 id="cash-flow-title">Cash flow by category</h3>
+      {scopeNote !== null && <p className="small muted scope-line">{scopeNote}</p>}
+      {state.data === undefined
+        ? state.error ? <Errors messages={[state.error]} /> : state.loading ? <Loading /> : null
+        : (
+          <div className={state.loading ? 'stale' : undefined}>
+            {state.data.tables.length === 0 ? <NoCashFlow />
+              : state.data.tables.map((table) => <CashFlowTable key={table.currency} table={table} />)}
+          </div>
+        )}
+    </section>
   )
 }
 
@@ -501,8 +538,8 @@ function Pending({ state }: { state: Pending }) {
  * The headline strip (D-569, design C): You have, You owe (or "Owed to you", D-350), Net worth, Income and Expenses, one
  * `dl` per strip in one section. The first three are the whole ledger's on the balances' day (D-301); Income and
  * Expenses the period's totals of the cash flow table (D-305), each with its changes (D-400) and, for any choice but
- * All, the scope as the controls name it. In the base currency one strip, with the exchange results under Net worth and
- * the rates under the strip; in each currency one strip per currency of either part, "—" where a currency has nothing.
+ * All, the scope as the controls name it. In the base currency one strip, with the exchange results under Net worth (the
+ * rates are the Rates card's, D-596); in each currency one strip per currency of either part, "—" where a currency has nothing.
  * The balances never wait for the cash flow, nor the cash flow for the balances: each part shows its own loading and
  * error.
  */
@@ -560,7 +597,6 @@ function HeadlineStrip({ inBase, worth, rows, flows, scopeNote, baseCurrency }: 
           <StripFigures key={strip.currency} {...strip} scopeNote={scopeNote}
             fx={inBase ? worth.data : undefined} />
         ))}
-      {inBase && worth.data && worth.data.rates.length > 0 && <UsedRates rates={worth.data.rates} />}
     </section>
   )
 }
@@ -636,20 +672,27 @@ function StripFigures({ currency, label, balances, flows, scopeNote, fx }: {
 }
 
 /**
- * The rate of each currency on the day (D-49, D-90): an ECB one at most 7 days old, or the user's own, marked "manual",
- * and "rate stale" when that is more than 31 days old.
+ * The Rates card's body (D-596): each rate net worth used on its day (D-49, D-90), what 1 EUR is in its currency, with
+ * its source and date, "rate stale" for a manual one more than 31 days old; or that every amount is in the base
+ * currency. Then the link to the rates page.
  */
-function UsedRates({ rates }: { rates: Rate[] }) {
+function RatesUsed({ worth }: { worth: ConvertedNetWorth }) {
   return (
-    <p className="muted small">
-      At the rates{' '}
-      {rates.map((r, i) => (
-        <span key={r.currency} className={r.stale ? 'stale-rate' : undefined}>
-          {i > 0 && '; '}{usedRateText(r)}
-        </span>
-      ))}
-      . <Link to="/rates">Rates</Link>
-    </p>
+    <>
+      {worth.rates.length === 0
+        ? <p className="muted">Every amount is in {worth.currency}: no rate needed.</p>
+        : (
+          <ul className="rates-used">
+            {worth.rates.map((r) => (
+              <li key={r.currency}>
+                <span className="rate-pair"><span className="amount">1 EUR</span> <span className="amount">{rateText(r)}</span></span>
+                <span className={`small ${r.stale ? 'stale-rate' : 'muted'}`}>{rateSourceText(r)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      <p className="small"><Link to="/rates">Rates</Link></p>
+    </>
   )
 }
 

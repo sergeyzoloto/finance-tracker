@@ -54,6 +54,11 @@ import {
 //    answer adding up to Expenses, its biggest day as that answer gives it; "Personal" in "Show" changing the strip's
 //    figures, its line under them and the daily request's scope. Since D-584 also "This month", running: a slot per day
 //    of the month, those after today dashed, the days asked up to today adding up to Expenses.
+// 13. UX-14 (D-593 to D-596), on the demo with "Previous month": at 1280 px Balances to the right of "Income and
+//    expenses" with the same top, and daily spending beside the chart; at 1024 px daily spending under it (D-594); at
+//    375 px one column, in D-593's order. In the base currency and in each currency, every income and expense line's
+//    Share equals the spec's own computation from the period's `/api/reports/cash-flow` answer the page received; in
+//    the base currency the Rates card's rows are that day's net worth's `rates`, and in each currency there is no card.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -92,7 +97,7 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await expectDate(page.getByLabel('From', { exact: true }), first)
   await expectDate(page.getByLabel('To', { exact: true }), last)
   await expect(page.getByRole('heading', { name: `Balances on ${shownDay(last, null)}`, exact: true })).toBeVisible()
-  await expect(page.getByLabel(/Balances on/)).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: /Balances on/ })).toHaveCount(0)
   // "This month" stays a preset of its own, kept by name; the default leaves the URL without one.
   await period.selectOption({ label: 'This month' })
   await expect(page).toHaveURL(/[?&]period=this-month(&|$)/)
@@ -226,6 +231,15 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await shot(page, 'dashboard-15-strip-personal')
   await page.setViewportSize({ width: 1280, height: 900 })
 
+  // 13. The two columns, the categories' shares and the Rates card (UX-14).
+  await expectColumns(a)
+  for (const each of [false, true]) {
+    await expectShares(a, first, last, each)
+    await expectRatesCard(a, last, each)
+  }
+  await shot(page, 'dashboard-16-columns')
+  await page.setViewportSize({ width: 1280, height: 900 })
+
   await deleteAllMyData(a)
 })
 
@@ -273,7 +287,7 @@ async function expectComparisons(session: Session, day: string) {
   expect([...asked].sort(), 'the period and both comparisons are asked').toEqual(
     [`${period.from} ${period.to}`, `${previous.from} ${previous.to}`, `${yearEarlier.from} ${yearEarlier.to}`].sort())
   const headers = (await table.locator('thead th .col-role').allTextContents())
-  expect(headers).toEqual(['Period', 'Year earlier', 'Change', 'Previous period', 'Change'])
+  expect(headers).toEqual(['Period', 'Share', 'Year earlier', 'Change', 'Previous period', 'Change'])
   // The chart by range is oldest first (D-413), its labels wrapped to their bars at any width (D-414).
   const ticks = page.locator('figure.chart .recharts-xAxis-tick-labels text')
   await expect(ticks).toHaveCount(3)
@@ -306,8 +320,8 @@ async function expectComparisons(session: Session, day: string) {
   const p = sumOf(now, key(chosen!))!
   const q = sumOf(before, key(chosen!))
   expect(cents(cells[0]), `${chosen!.categoryCode} in the period`).toBe(p)
-  expect(cents(cells[3]), `${chosen!.categoryCode} in the previous period`).toBe(q)
-  expect(tenths(cells[4]), `${chosen!.categoryCode}'s change against the previous period`).toBe(changeInTenths(p, q))
+  expect(cents(cells[4]), `${chosen!.categoryCode} in the previous period`).toBe(q)
+  expect(tenths(cells[5]), `${chosen!.categoryCode}'s change against the previous period`).toBe(changeInTenths(p, q))
 
   // A running month is compared to date (D-396), unless today is its last day.
   await page.goto('/?period=this-month')
@@ -543,10 +557,13 @@ async function expectScope({ page }: Session, scope: string, amount: string, hol
     }
     await expect(choice).toHaveAttribute('aria-pressed', 'true')
   }
-  const flows = page.getByRole('region', { name: /^Income and expenses/ })
-  await expect(flows.locator('.stale')).toHaveCount(0)
-  if (holds) await expect(flows.getByRole('table', { name: 'Cash flow in EUR' })).toContainText(wholeNumber(amount))
-  else await expect(flows).not.toContainText(wholeNumber(amount))
+  // The tables are in "Cash flow by category" since UX-14 (D-595).
+  const card = page.getByRole('region', { name: 'Cash flow by category' })
+  await expect(page.locator('.stale')).toHaveCount(0)
+  // Its tables, or with nothing in the scope its empty text (B's "My records").
+  await expect(card.getByRole('table').or(card.getByText(/^No income or expenses/)).first()).toBeVisible()
+  if (holds) await expect(card.getByRole('table', { name: 'Cash flow in EUR' })).toContainText(wholeNumber(amount))
+  else await expect(card).not.toContainText(wholeNumber(amount))
 }
 
 /**
@@ -557,10 +574,9 @@ async function expectBudgetChosen({ page }: Session) {
   const DEMO = 'Demo household'
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?period=previous-month')
-  const flows = page.getByRole('region', { name: /^Income and expenses/ })
-  const table = flows.getByRole('table', { name: 'Cash flow in EUR' })
+  const table = page.getByRole('region', { name: 'Cash flow by category' }).getByRole('table', { name: 'Cash flow in EUR' })
   await expect(table).toBeVisible()
-  await expect(flows.locator('.stale')).toHaveCount(0)
+  await expect(page.locator('.stale')).toHaveCount(0)
   const icon = table.getByRole('img', { name: `Shared: ${DEMO}`, exact: true }).first()
   await expect(icon).toBeVisible()
   await expect(icon.locator('title')).toHaveText(`Shared: ${DEMO}`)
@@ -583,7 +599,7 @@ async function expectBudgetChosen({ page }: Session) {
   const records = page.getByRole('group', { name: 'Records' })
   await expect(records.getByRole('button')).toHaveText(['All records', 'My records', 'Others’ records'])
   await expect(records.getByRole('button', { name: 'All records' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(flows.locator('.stale')).toHaveCount(0)
+  await expect(page.locator('.stale')).toHaveCount(0)
   await expect(table.getByRole('img', { name: `Shared: ${DEMO}`, exact: true }).first()).toBeVisible()
   await expect(page.getByRole('link', { name: 'Whole family budget →' }))
     .toHaveAttribute('href', new RegExp(`^/family/${id}/report\\?from=`))
@@ -723,7 +739,7 @@ async function expectStripAndDays({ page }: Session, from: string, last: string,
   expect(url.searchParams.get('to')).toBe(last)
   expect(url.searchParams.get('currency')).toBe(each ? null : 'BASE')
 
-  const flows = page.getByRole('region', { name: /^Income and expenses/ })
+  const flows = page.getByRole('region', { name: 'Cash flow by category' })
   await expect(flows.getByRole('table').first()).toBeVisible()
   await expect(page.locator('.stale')).toHaveCount(0)
   const strips = page.locator('dl.strip-figures')
@@ -844,4 +860,187 @@ async function expectRunningMonth({ page }: Session, day: string) {
   const shown = await expenses.textContent()
   if (shown === '—') expect(sum).toBe(0n)
   else expect(sum, 'the days asked add up to Expenses').toBe(cents(shown))
+}
+
+/** The cards below the strip, in D-593's order, by their names. */
+const CARDS = [/^Income and expenses/, 'Cash flow by category', /^Balances on /, 'Open loans', /^Rates on /] as const
+
+/**
+ * UX-14 (D-593, D-594) on the demo's previous month in the base currency: at 1280 px Balances beside "Income and
+ * expenses" from the same top, daily spending beside the chart; at 1024 px daily spending under the chart; at 375 px
+ * every card in one column in D-593's order, nothing wider than the screen.
+ */
+async function expectColumns({ page }: Session) {
+  const settle = async (width: number) => {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 })
+    await page.goto('/?period=previous-month')
+    await expect(page.getByRole('region', { name: 'Cash flow by category' }).getByRole('table').first()).toBeVisible()
+    await expect(page.getByRole('region', { name: /^Rates on / })).toBeVisible()
+    await expect(page.locator('section.daily .daily-biggest').first()).toBeVisible()
+    await expect(page.locator('figure.chart .recharts-surface').first()).toBeVisible()
+    await expect(page.locator('.stale')).toHaveCount(0)
+  }
+  const box = async (name: string | RegExp) => (await page.getByRole('region', { name }).boundingBox())!
+  const chartAndDays = async () => {
+    const chart = (await page.locator('figure.chart').first().boundingBox())!
+    const days = (await page.locator('section.daily').first().boundingBox())!
+    return { chart, days }
+  }
+
+  await settle(1280)
+  const flows = await box(CARDS[0])
+  const balances = await box(CARDS[2])
+  expect(balances.x, 'Balances to the right of "Income and expenses"').toBeGreaterThanOrEqual(flows.x + flows.width)
+  expect(Math.abs(balances.y - flows.y), 'Balances from the same top').toBeLessThanOrEqual(1)
+  const cashFlow = await box(CARDS[1])
+  expect(Math.abs(cashFlow.x - flows.x), 'Cash flow by category in the main column').toBeLessThanOrEqual(1)
+  expect(cashFlow.y, 'under "Income and expenses"').toBeGreaterThan(flows.y + flows.height)
+  for (const [upper, lower] of [[CARDS[2], CARDS[3]], [CARDS[3], CARDS[4]]] as const) {
+    const [a, b] = [await box(upper), await box(lower)]
+    expect(Math.abs(a.x - b.x), `${String(lower)} in the side column`).toBeLessThanOrEqual(1)
+    expect(b.y, `${String(lower)} under ${String(upper)}`).toBeGreaterThan(a.y + a.height)
+  }
+  let { chart, days } = await chartAndDays()
+  expect(days.x, 'daily spending beside the chart at 1280 px').toBeGreaterThanOrEqual(chart.x + chart.width)
+  expect(Math.abs(days.y - chart.y), 'from the same top').toBeLessThanOrEqual(1)
+  await shot(page, 'dashboard-16-columns-1280')
+
+  // D-594: at 1024 px the card is narrower than 40rem inside, so daily spending sits under the chart.
+  await settle(1024)
+  ;({ chart, days } = await chartAndDays())
+  expect(days.y, 'daily spending under the chart at 1024 px').toBeGreaterThanOrEqual(chart.y + chart.height)
+  expect(Math.abs((await box(CARDS[2])).y - (await box(CARDS[0])).y), 'still two columns at 1024 px').toBeLessThanOrEqual(1)
+
+  await settle(375)
+  const boxes = []
+  for (const name of CARDS) boxes.push(await box(name))
+  for (let i = 1; i < boxes.length; i++) {
+    expect(Math.abs(boxes[i].x - boxes[0].x), `${String(CARDS[i])} in the one column`).toBeLessThanOrEqual(1)
+    expect(boxes[i].y, `${String(CARDS[i])} after ${String(CARDS[i - 1])}`).toBeGreaterThan(boxes[i - 1].y + boxes[i - 1].height)
+  }
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, 'the dashboard at 375 px is no wider than the screen').toBeLessThanOrEqual(client)
+  await shot(page, 'dashboard-16-columns-375')
+  await page.setViewportSize({ width: 1280, height: 900 })
+}
+
+/** A decimal string in units of 0.0001, the precision of NUMERIC(19,4). */
+function units(amount: string): bigint {
+  const negative = amount.startsWith('-')
+  const [whole, fraction = ''] = amount.replace(/^[-+]/, '').split('.')
+  expect(fraction.length, `at most 4 decimals in ${amount}`).toBeLessThanOrEqual(4)
+  const value = BigInt(whole) * 10000n + BigInt(fraction.padEnd(4, '0'))
+  return negative ? -value : value
+}
+
+/**
+ * D-595's share in the table's text: the line over its section's total in tenths of a percent, rounded half up, as
+ * "33.8%"; "—" where either is missing, the section is 0 or below, or the line is below 0.
+ */
+function expectedShare(line: bigint | null, section: bigint | null): string {
+  if (line === null || section === null || section <= 0n || line < 0n) return '—'
+  const tenths = (line * 2000n / section + 1n) / 2n
+  return `${(tenths / 10n).toLocaleString('en-US')}.${tenths % 10n}%`
+}
+
+/**
+ * UX-14 (D-595) on the demo's previous month: every income and expense line's Share equals the spec's own computation
+ * from the period's `/api/reports/cash-flow` answer that the page received; the subtotals and the net have none.
+ */
+async function expectShares({ page }: Session, from: string, last: string, each: boolean) {
+  type Row = { categoryName: string; categoryType: string; total: string | null; currency?: string; familyLedgerName?: string }
+  const received = page.waitForResponse((r) => {
+    const url = new URL(r.url())
+    return url.pathname === '/api/reports/cash-flow' && url.searchParams.get('from') === from
+      && url.searchParams.get('to') === last
+  })
+  await page.goto(`/?period=previous-month${each ? '&currency=each' : ''}`)
+  const answer = await (await received).json() as Row[] | { currency: string; rows: Row[] }
+  const rows = Array.isArray(answer) ? answer : answer.rows.map((r) => ({ ...r, currency: answer.currency }))
+  const card = page.getByRole('region', { name: 'Cash flow by category' })
+  await expect(card.getByRole('table').first()).toBeVisible()
+  await expect(page.locator('.stale')).toHaveCount(0)
+  const currencies = [...new Set(rows.map((r) => r.currency!))].sort()
+
+  let checked = 0
+  for (const currency of currencies) {
+    // The page's lines: a name (with "Shared: <budget>" for a family budget's category) and its share, per section.
+    const table = card.getByRole('table', { name: `Cash flow in ${currency}` })
+    await expect(table.locator('thead th .col-role').nth(1)).toHaveText('Share')
+    const shown = await table.locator('tbody').evaluateAll((bodies) => bodies.slice(0, 2).map((body) =>
+      [...body.querySelectorAll('tr')].filter((tr) => !tr.classList.contains('section'))
+        .map((tr) => ({
+          label: (tr.querySelector('th')!.textContent ?? '').trim(),
+          share: (tr.querySelector('td.share')!.textContent ?? '').trim(),
+          total: tr.classList.contains('subtotal'),
+        }))))
+    for (const [i, type] of (['INCOME', 'EXPENSE'] as const).entries()) {
+      const own = rows.filter((r) => r.currency === currency && r.categoryType === type)
+      const sums = new Map<string, bigint | null>()
+      for (const r of own) {
+        const label = `${r.categoryName}${r.familyLedgerName ? `Shared: ${r.familyLedgerName}` : ''}`
+        const before = sums.has(label) ? sums.get(label)! : 0n
+        sums.set(label, before === null || r.total === null ? null : before + units(r.total))
+      }
+      const section = [...sums.values()].reduce<bigint | null>((a, b) => (a === null || b === null ? null : a + b), 0n)
+      const lines = shown[i].filter((l) => !l.total)
+      expect(lines.map((l) => l.label), `${currency} ${type}: every category of the answer is a line`)
+        .toEqual(expect.arrayContaining([...sums.keys()]))
+      for (const line of lines) {
+        // A line of a comparison only is "—" in the period, and so is its share.
+        const amount = sums.has(line.label) ? sums.get(line.label)! : null
+        expect(line.share, `${currency} ${line.label}'s share`).toBe(expectedShare(amount, section))
+        if (amount !== null) checked++
+      }
+      expect(shown[i].filter((l) => l.total).map((l) => l.share), `${currency} ${type}: no share for the total`).toEqual([''])
+    }
+    const net = await table.locator('tr.net td.share').textContent()
+    expect(net, `${currency}: no share for the net`).toBe('')
+  }
+  expect(checked, 'the demo has categories with shares').toBeGreaterThan(0)
+}
+
+/**
+ * UX-14 (D-596): in the base currency the Rates card lists the rates of net worth's answer on the balances' day, each
+ * "1 EUR" and the rate with its currency, its source and date, "rate stale" where the answer says so; in each currency
+ * there is no Rates card.
+ */
+async function expectRatesCard({ page }: Session, last: string, each: boolean) {
+  type Rate = { currency: string; date: string; perEuro: string; source: string; stale?: boolean }
+  const received = page.waitForResponse((r) => {
+    const url = new URL(r.url())
+    return url.pathname === '/api/reports/net-worth' && url.searchParams.get('asOf') === last
+  })
+  await page.goto(`/?period=previous-month${each ? '&currency=each' : ''}`)
+  const answer = await (await received).json() as { currency: string; rates: Rate[] } | unknown[]
+  await expect(page.getByRole('region', { name: 'Open loans' })).toBeVisible()
+  await expect(page.locator('.stale')).toHaveCount(0)
+  const card = page.getByRole('region', { name: `Rates on ${shownDay(last, null)}`, exact: true })
+  await expect(page.getByRole('region', { name: 'Headline figures' })).not.toContainText('At the rates')
+  if (each || Array.isArray(answer)) {
+    expect(each, 'net worth in each currency only in each currency').toBe(true)
+    await expect(page.getByRole('region', { name: /^Rates on / })).toHaveCount(0)
+    return
+  }
+  await expect(card).toBeVisible()
+  await expect(card.getByRole('link', { name: 'Rates', exact: true })).toHaveAttribute('href', '/rates')
+  if (answer.rates.length === 0) {
+    await expect(card.getByText(`Every amount is in ${answer.currency}: no rate needed.`, { exact: true })).toBeVisible()
+    return
+  }
+  const items = card.getByRole('listitem')
+  await expect(items).toHaveCount(answer.rates.length)
+  // A rate's figure as a decimal without grouping or trailing zeros, for comparing the shown one with the answer's.
+  const plainRate = (text: string) => text.replace(/,/g, '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')
+  for (const [i, rate] of answer.rates.entries()) {
+    const item = items.nth(i)
+    const [unit, shown] = await item.locator('.rate-pair .amount').allTextContents()
+    expect(unit).toBe('1 EUR')
+    expect(shown.endsWith(` ${rate.currency}`), `the rate of ${rate.currency} in "${shown}"`).toBe(true)
+    expect(plainRate(shown.slice(0, -` ${rate.currency}`.length)), `the rate of ${rate.currency}`).toBe(plainRate(rate.perEuro))
+    await expect(item.locator('.rate-pair + span')).toHaveText(
+      `${rate.source === 'MANUAL' ? 'Manual' : 'ECB'} rate of ${shownDay(rate.date, null)}${rate.stale ? ' (rate stale)' : ''}`)
+  }
 }

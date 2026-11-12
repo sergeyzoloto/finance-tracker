@@ -4,7 +4,7 @@ import {
 } from './api'
 import { minorUnit } from './minorUnits'
 import { DEFAULT_PRESET, presetNamed, presetRange, validDate, type PeriodChoice } from './periods'
-import { abs, formatRate, isZero, negate, percentChange, roundsToZero, signOf, sum } from './money'
+import { abs, atMost, formatRate, isZero, negate, percentChange, percentOf, roundsToZero, signOf, sum } from './money'
 
 // The dashboard without React: the period, the currency and the scope in the URL, the cash flow as a monthly pivot,
 // and who owes whom. Every figure comes from the report endpoints; amounts in different currencies are never added
@@ -403,8 +403,30 @@ export const periodTotals = (table: CashFlowTable): { income: Cell; expense: Cel
  * A rate a figure in the base currency used, in words (D-49, D-90): "1 EUR = 95.5 RUB, manual rate of Aug 1, 2026 (rate
  * stale)", the ECB's or the user's own.
  */
-export const usedRateText = (r: Rate) =>
-  `1 EUR = ${formatRate(r.perEuro)} ${r.currency}, ${r.source === 'MANUAL' ? 'manual' : 'ECB'} rate of ${formatDate(r.date)}${r.stale ? ' (rate stale)' : ''}`
+/** Where a rate comes from, for the Rates card (D-596): "ECB rate of <date>" or "Manual rate of <date>", and stale. */
+export const rateSourceText = (r: Rate) =>
+  `${r.source === 'MANUAL' ? 'Manual' : 'ECB'} rate of ${formatDate(r.date)}${r.stale ? ' (rate stale)' : ''}`
+
+/** A rate as the Rates card shows it (D-596): what 1 EUR is in the currency, "1.1193 USD". */
+export const rateText = (r: Rate) => `${formatRate(r.perEuro)} ${r.currency}`
+
+/**
+ * A category's share of its section in the period's column (D-595): the line's amount as a percentage of Total income
+ * or Total expenses, rounded HALF_UP to one decimal, and the bar's width, at most 100. None where either figure is
+ * missing ("—" or "rate missing"), where the subtotal is 0 or below, or where the line is below 0 (refunds exceeding
+ * it); a line of 0 is 0.0 with an empty bar.
+ */
+export function shareOf(line: Cell, subtotal: Cell): { percent: string; width: string } | null {
+  if (typeof line !== 'string' || typeof subtotal !== 'string') return null
+  if (signOf(subtotal) <= 0 || signOf(line) < 0) return null
+  const percent = percentOf(line, subtotal)
+  return percent === undefined ? null : { percent, width: atMost(percent, '100') }
+}
+
+/** A share as the table shows it, "33.8%", one decimal in the user's locale. */
+export const shareText = (percent: string) =>
+  `${new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    .format(percent as Intl.StringNumericLiteral)}%`
 
 /**
  * Whether the Balances card lists an account (D-364): an account that isn't archived always, an archived one only

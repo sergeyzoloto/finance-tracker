@@ -4,7 +4,7 @@ import {
   cashFlowTables, convertedCashFlowTable, daysBetween, debtSides, familyDebts, inBaseFromQuery, loanSides,
   mergeMissing, MISSING, monthNote, monthsBetween, needsLatestEntry, PERIOD_LABELS, periodFromQuery, periodTotals, presetRange, PRESETS, recordsOf,
   scopeFromQuery, showOf, showOptions, withRecords, withShow,
-  scopeParams, showsOwnCurrencies, total, usedRateText, type Preset,
+  scopeParams, showsOwnCurrencies, total, rateSourceText, rateText, type Preset,
 } from './dashboard'
 
 describe('periodFromQuery', () => {
@@ -319,12 +319,14 @@ describe('amounts in the base currency', () => {
   })
 })
 
-describe('the rates a figure used (D-49, D-90)', () => {
-  it('names the source and date, and marks a stale manual rate', () => {
-    expect(usedRateText({ currency: 'USD', date: '2026-09-29', perEuro: '1.1', source: 'ECB', stale: false }))
-      .toBe('1 EUR = 1.1 USD, ECB rate of Sep 29, 2026')
-    expect(usedRateText({ currency: 'RUB', date: '2026-08-01', perEuro: '95.5', source: 'MANUAL', stale: true }))
-      .toBe('1 EUR = 95.5 RUB, manual rate of Aug 1, 2026 (rate stale)')
+describe('the rates a figure used (D-49, D-90, D-596)', () => {
+  it('names the rate, its source and date, and marks a stale manual rate', () => {
+    const usd = { currency: 'USD', date: '2026-09-29', perEuro: '1.1193', source: 'ECB', stale: false } as const
+    const rub = { currency: 'RUB', date: '2026-08-01', perEuro: '95.5', source: 'MANUAL', stale: true } as const
+    expect(rateText(usd)).toBe('1.1193 USD')
+    expect(rateSourceText(usd)).toBe('ECB rate of Sep 29, 2026')
+    expect(rateText(rub)).toBe('95.5 RUB')
+    expect(rateSourceText(rub)).toBe('Manual rate of Aug 1, 2026 (rate stale)')
   })
 })
 

@@ -3,6 +3,72 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-12 · UX-14: the rest of design C's dashboard, two columns, the categories' shares, a Rates card
+
+One commit on `feature/family-budget` on top of `fd33d31` (UX-13-doc), the commit of this entry, "feat: the
+dashboard's two columns, the categories' shares and a Rates card, D-592 to D-606 (UX-14)". **Not pushed**; `main` not
+moved. Frontend, end-to-end spec, the deploy's check files and documents only: no file under `backend/`, no migration
+(Flyway stays V17). Production read only; the server not touched and `e2e:prod` never run.
+
+**Changes**
+- D-593: below the strip two columns from 64rem (`.dashboard-columns`, `2fr` and `1fr`, each `.dashboard-column` a
+  stack of its cards with a 1rem gap, both from the same top), one column below, the DOM in design C's phone order at
+  every width: "Income and expenses", "Cash flow by category", "Balances", "Open loans", "Rates"; `.dashboard`'s grid
+  removed. Each card a region named by its `h3` (D-601).
+- D-594, D-603: the card "Income and expenses" is a size container (`container-type: inline-size`); daily spending
+  sits beside its chart while the card is at least 40rem wide inside (`@container`), under it otherwise (under at
+  1024 px, beside at 1280 and 1440 px); the 64rem media rule for `.chart-row` removed.
+- D-595, D-599, D-600: "Cash flow by category" a card of its own (`CashFlowCard`, the `h4` gone), the same tables,
+  loading, dimming and empty text, the period's error, the scope's line for any scope but All; each table's column
+  "Share" after the period's (`dashboard.shareOf`, `shareText`, `money.percentOf` and `atMost`: HALF_UP to one decimal
+  in big.js, the bar's width capped at 100), "33.8%" beside a 6px bar in `--chart-income` or `--chart-expense`, "—"
+  without a bar for a missing figure, a section of 0 or below or a line below 0, empty for the totals, the net and the
+  exchange lines.
+- D-596, D-602: the card "Rates" in the base currency (`RatesUsed`, `rateText`, `rateSourceText`): `on <day>`, one item
+  per rate of net worth's `rates`, its source and date, "(rate stale)" in `--stale`, or "Every amount is in EUR: no
+  rate needed.", then the link; none in each currency. The rates' line under the strip (`UsedRates`, `usedRateText`)
+  removed. Every card's `on <day>` in normal weight.
+- D-597, D-606: `frontend/src/assets/demo-dashboard.webp` retaken (1092 × 618, Blue: the strip, then "Income and
+  expenses" with daily spending, and Balances beside it), its alt text in `Landing.tsx`.
+- D-598: `deploy/checks/UX-14.sql` and `UX-14.expected`, UX-13's 12 lines unchanged, with UX-14's header.
+- Tests: `UX14.test.tsx` (new, 15 tests); `CashFlowTable.test.tsx`, `UX5.test.tsx` and `FamilyRows.test.tsx` (the Share
+  column), `UX3.test.tsx` (the old "Balances on" field looked for as an input) and `dashboard.test.ts` (the rate texts).
+  `07-dashboard`'s step 13 (D-604) and its tables read from "Cash flow by category" (steps 3, 9, 10, 12; step 9's cells
+  shifted by the Share column; step 2's old field as a text field); `e2e/scripts/screens.ts`' `SCREENS_WIDTHS`
+  (D-605); `e2e/README.md`.
+- `requirements.md`: D-592 to D-598 (the owner and the PM), D-599 to D-606 (the agent's), the "Amended" line, UX-14
+  done in "Planned stages" and out of "Later"; CLAUDE.md's Frontend dashboard paragraphs and tests.
+
+**Verified**
+- `cd frontend && npm ci && npm test && npm run build`, as CI runs them, on the final tree: exit 0, `found 0
+  vulnerabilities`, `Test Files 52 passed (52)`, `Tests 710 passed (710)`, no Errors line, `built in 483ms`.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node 24), three runs:
+  - Run 1: exit 1, `Result: FAILED`: `dashboard` failed at 1280 and 375 px in step 3's `expectScope` for B's "My
+    records", where my new wait asked for a table that an empty scope rightly replaces with "No income or expenses…";
+    the spec fixed to wait for either. Every other spec passed; cleanup passed; 0 password hits.
+  - Run 2: exit 1, `Result: FAILED`, `26 passed`: `dashboard`, `payees`, and at 375 px `family F7`, `family F8`,
+    `family F8d`, `member-import`, `dashboard` and `payees` failed on `429 for POST /api/invites/accept` and `/lookup`,
+    D-29's in-memory limit after two runs within the hour (the runner's own message); cleanup passed, 0 password hits.
+    The dev stack's backend container restarted to reset it.
+  - Run 3: exit 0, `34 passed (9.4m)` (and `pages`' `2 passed`): every spec at 1280 and 375 px, step 13 included;
+    sign-in and cleanup passed, both accounts' data deleted and signed out, `Password search over the artifacts: 0
+    hits`, `Result: PASSED`; `Commit:` `fd33d31` `(TREE NOT CLEAN)`, this change uncommitted (before D-597's image and
+    alt text, which no spec reads).
+- `cd e2e && npm run test:guards`, alone, after run 3 (D-517): exit 0, `tests 39`, `pass 39`, `fail 0`.
+- `cd e2e && npx tsc --noEmit`: exit 0.
+- `UX-14.sql` on production's dump `finance-2026-11-12T1929Z.dump` (SHA-256 `ebe0fa5d…`, V17) in
+  `scripts/rehearsal-db.sh`'s throwaway database: `psql` exit 0, its 12 lines equal to `UX-14.expected`; the database
+  removed.
+- No backend suite: `git --no-pager diff --name-only fd33d31` names nothing under `backend/`.
+- Screenshots, outside the repository in `~/dev/finance-tracker-screens/UX-14/` (`SCREENS=dashboard`): Blue at 375,
+  1024, 1280 and 1440 px and Light at 1280 px, five screens each (this month, previous month, each currency, previous
+  month in each currency, the family scope); looked at: two columns at 1024 to 1440 px, daily spending under the chart
+  at 1024 px and beside it at 1280 and 1440 px, one column in D-593's order at 375 px.
+
+**Open**
+- The PM's review; then the push and the deploy by the report's checklist (M this commit; `fd33d31` and M from
+  `a406090`; rollback target `a406090`).
+
 ## 2026-11-12 · UX-13-doc: UX-13's deploy recorded, the demo's load waited for in every spec, the checklist's line on a failed spec
 
 One commit on `feature/family-budget` on top of `a406090` (UX-13, deployed), the commit of this entry, "docs: UX-13's

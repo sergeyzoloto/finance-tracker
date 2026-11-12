@@ -42,7 +42,7 @@ function renderTables() {
 }
 
 const table = (currency: string) => screen.getByRole('table', { name: `Cash flow in ${currency}` })
-/** A row's cells after its label: the period, then each comparison's amount and change. */
+/** A row's cells after its label: the period, its share (D-595), then each comparison's amount and change. */
 function cells(currency: string, label: string) {
   const tr = within(table(currency)).getByRole('rowheader', { name: label }).closest('tr')!
   return within(tr).getAllByRole('cell').map((cell) => cell.textContent)
@@ -55,7 +55,7 @@ describe('the comparison table', () => {
   it('heads each column with its role above its range', () => {
     renderTables()
     const headers = within(table('EUR')).getAllByRole('columnheader').map((th) => th.textContent)
-    expect(headers).toEqual(['EUR', 'Period Oct 2026', 'Year earlier Oct 2025', 'Change %',
+    expect(headers).toEqual(['EUR', 'Period Oct 2026', 'Share %', 'Year earlier Oct 2025', 'Change %',
       'Previous period Sep 2026', 'Change %'])
   })
 
@@ -70,12 +70,15 @@ describe('the comparison table', () => {
 
   it('gives each range’s total and the change in %, a dash with nothing or 0 to compare with', () => {
     renderTables()
-    expect(cells('EUR', 'Salary')).toEqual([eur('2000.00'), eur('1600.00'), '+25.0%', eur('2000.00'), '0.0%'])
-    expect(cells('EUR', 'Groceries')).toEqual([eur('330.00'), eur('300.00'), '+10.0%', eur('0.00'), '—'])
+    expect(cells('EUR', 'Salary')).toEqual([eur('2000.00'), '100.0%', eur('1600.00'), '+25.0%', eur('2000.00'), '0.0%'])
+    // 330.00 of 329.90: a refund elsewhere makes a line more than its section.
+    expect(cells('EUR', 'Groceries')).toEqual([eur('330.00'), '100.0%', eur('300.00'), '+10.0%', eur('0.00'), '—'])
     // In a comparison only: a dash in the period, and −100.0% against it.
-    expect(cells('EUR', 'Rent')).toEqual(['—', eur('700.00'), `${minus}100.0%`, '—', '—'])
-    expect(cells('EUR', 'Total expenses')).toEqual([eur('329.90'), eur('1000.00'), `${minus}67.0%`, eur('0.00'), '—'])
-    expect(cells('EUR', 'Net')).toEqual([eur('1670.10'), eur('600.00'), '+178.4%', eur('2000.00'), `${minus}16.5%`])
+    expect(cells('EUR', 'Rent')).toEqual(['—', '—', eur('700.00'), `${minus}100.0%`, '—', '—'])
+    // Refunds larger than the line: no share.
+    expect(cells('EUR', 'Transport')[1]).toBe('—')
+    expect(cells('EUR', 'Total expenses')).toEqual([eur('329.90'), '', eur('1000.00'), `${minus}67.0%`, eur('0.00'), '—'])
+    expect(cells('EUR', 'Net')).toEqual([eur('1670.10'), '', eur('600.00'), '+178.4%', eur('2000.00'), `${minus}16.5%`])
   })
 
   it('colours a change by its effect on the net, the sign always shown', () => {
@@ -91,7 +94,7 @@ describe('the comparison table', () => {
   it('keeps each currency in its own table, every column in it', () => {
     renderTables()
     expect(screen.getAllByRole('table').map((t) => t.getAttribute('aria-label'))).toEqual(['Cash flow in EUR', 'Cash flow in RUB'])
-    expect(cells('RUB', 'Groceries')).toEqual([rub('3114.50'), '—', '—', '—', '—'])
+    expect(cells('RUB', 'Groceries')).toEqual([rub('3114.50'), '100.0%', '—', '—', '—', '—'])
   })
 
   it('in the base currency marks a missing figure and leaves its % empty; exchange lines have no %', () => {
@@ -107,11 +110,11 @@ describe('the comparison table', () => {
       convertedCashFlowTable(converted('2026-09', '50.00', '-2.50'), ['2026-09']),
     ], true)
     render(<CashFlowTable table={t} />)
-    expect(cells('EUR', 'Groceries')).toEqual(['rate missing', eur('40.00'), '', eur('50.00'), ''])
-    expect(cells('EUR', 'Net')).toEqual(['rate missing', eur('-40.00'), '', eur('-50.00'), ''])
+    expect(cells('EUR', 'Groceries')).toEqual(['rate missing', '—', eur('40.00'), '', eur('50.00'), ''])
+    expect(cells('EUR', 'Net')).toEqual(['rate missing', '', eur('-40.00'), '', eur('-50.00'), ''])
     expect(within(table('EUR')).getAllByRole('rowheader').map((th) => th.textContent).slice(-3)).toEqual([
       'Exchange rates (not in the net)', 'Realized on exchanges', 'Revaluation of balances'])
-    expect(cells('EUR', 'Realized on exchanges')).toEqual([eur('10.00'), eur('0.00'), '', eur('-2.50'), ''])
+    expect(cells('EUR', 'Realized on exchanges')).toEqual([eur('10.00'), '', eur('0.00'), '', eur('-2.50'), ''])
   })
 
   it('has one comparison headed “Previous year” for a year-long period', () => {
@@ -122,7 +125,7 @@ describe('the comparison table', () => {
     ], false)
     render(<CashFlowTable table={t} />)
     expect(within(table('EUR')).getAllByRole('columnheader').map((th) => th.textContent))
-      .toEqual(['EUR', 'Period 2025', 'Previous year 2024', 'Change %'])
-    expect(cells('EUR', 'Salary')).toEqual([eur('110.00'), eur('100.00'), '+10.0%'])
+      .toEqual(['EUR', 'Period 2025', 'Share %', 'Previous year 2024', 'Change %'])
+    expect(cells('EUR', 'Salary')).toEqual([eur('110.00'), '100.0%', eur('100.00'), '+10.0%'])
   })
 })

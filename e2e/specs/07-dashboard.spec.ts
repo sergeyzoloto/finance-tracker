@@ -47,6 +47,12 @@ import {
 //    is current inside the budget, with no "New entry" and no "← My finances". At 375 px the wordmark, "New entry" and
 //    the user's button share one top, the user's panel is inside the screen, the navigation scrolls inside itself and
 //    the page doesn't scroll sideways; screenshots.
+// 12. UX-13 (D-569, D-571), on the demo with "Previous month", in the base currency and in each currency, at 1280 and
+//    375 px: the headline strip's five figures in their order and layout (one row from 64rem; under 40rem Net worth
+//    first across, then You have and You owe, then Income and Expenses); Income and Expenses equal to the table's
+//    totals; daily spending's slots one per day of the month, its days' expenses in `/api/reports/daily-cash-flow`'s
+//    answer adding up to Expenses, its biggest day as that answer gives it; "Personal" in "Show" changing the strip's
+//    figures, its line under them and the daily request's scope.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -66,7 +72,7 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await expect(amounts.getByRole('button', { name: 'EUR (base)' })).toHaveAttribute('aria-pressed', 'true')
   await expect(amounts.getByRole('button', { name: 'Each currency' })).toHaveAttribute('aria-pressed', 'false')
   expect(new URL(page.url()).searchParams.has('currency')).toBe(false)
-  await expect(page.getByRole('region', { name: 'What you have and owe' }).getByText('You have')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Headline figures' }).getByText('You have')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Shared budget' })).toHaveCount(0)
   await expectAssetsTotalIsYouHave(a)
   await shot(page, 'dashboard-01-base')
@@ -154,7 +160,7 @@ test('dashboard', async ({ as, family, target, watch }) => {
   // 5. No sideways scroll at a phone's width.
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/')
-  await expect(page.getByRole('region', { name: 'What you have and owe' }).getByText('You have')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Headline figures' }).getByText('You have')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Open loans' })).toBeVisible()
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
@@ -207,6 +213,16 @@ test('dashboard', async ({ as, family, target, watch }) => {
 
   // 11. The header's menus and Settings' parts (UX-7).
   await expectHeaderMenus(a, family === 'on')
+
+  // 12. The headline strip and daily spending (UX-13).
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 })
+    for (const each of [false, true]) await expectStripAndDays(a, first, last, each, width)
+    await shot(page, 'dashboard-14-strip-each')
+  }
+  await expectShowChangesTheStrip(a)
+  await shot(page, 'dashboard-15-strip-personal')
+  await page.setViewportSize({ width: 1280, height: 900 })
 
   await deleteAllMyData(a)
 })
@@ -327,9 +343,8 @@ function cents(text: string | null): bigint {
  */
 async function expectEquityByPeriod({ page }: Session, from: string, to: string) {
   await page.goto(`/?from=${from}&to=${to}`)
-  const totals = page.getByLabel('Totals in EUR')
-  // The first dd is the amount; a second holds its changes (D-400).
-  const net = totals.getByRole('term').filter({ hasText: /^Net$/ }).locator('xpath=following-sibling::dd[1]')
+  // The period's Net: the cash flow table's Net row, its period's column (D-569 left the Net there alone).
+  const net = page.getByRole('table', { name: 'Cash flow in EUR' }).locator('tr.net td.amount').first()
   const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: /^Balances on / }) })
   const equity = balances.locator('table.by-type').filter({ has: page.getByRole('columnheader', { name: 'Equity' }) })
   const result = equity.locator('tr').filter({ has: page.getByRole('cell', { name: 'Result for the period', exact: true }) })
@@ -469,12 +484,14 @@ async function expectAccountsAtANarrowWidth({ page }: Session) {
 /** In the base currency, the Balances card's Assets total reads as "You have" (D-348). */
 async function expectAssetsTotalIsYouHave({ page }: Session) {
   if (new URL(page.url()).pathname !== '/') await page.goto('/')
-  const headline = page.getByRole('region', { name: 'What you have and owe' })
+  const headline = page.getByRole('region', { name: 'Headline figures' })
   const youHave = headline.getByRole('term').filter({ hasText: /^You have$/ }).locator('xpath=following-sibling::dd')
   const balances = page.locator('section.card').filter({ has: page.getByRole('heading', { name: /^Balances on / }) })
   const assets = balances.locator('table.by-type').filter({ has: page.getByRole('columnheader', { name: 'Assets' }) })
     .locator('tfoot td')
   await expect(youHave).not.toHaveText('')
+  // The strip shows "…" while its part loads (D-569).
+  await expect(youHave).not.toHaveText('…')
   await expect(assets).toHaveText((await youHave.textContent())!)
   await expect(balances.getByText(/a total may differ slightly from the sum of its rows/)).toBeVisible()
 }
@@ -683,4 +700,119 @@ async function expectHeaderMenus({ page }: Session, family: boolean) {
   expect(rates.x, 'Rates in view').toBeGreaterThanOrEqual(0)
   expect(rates.x + rates.width, 'Rates in view').toBeLessThanOrEqual(width)
   await page.setViewportSize({ width: 1280, height: 900 })
+}
+
+/** A daily cash flow row as `/api/reports/daily-cash-flow` answers it, in either shape. */
+interface DailyRow { day: string; categoryType: string; categoryName: string; currency?: string; total: string | null }
+
+/**
+ * UX-13 (D-569, D-571) on the demo's previous month, `from` to `last`: the strip's five figures in their order and
+ * layout at `width`, Income and Expenses as the table's totals, and per currency daily spending's slots, the days'
+ * expenses adding up to Expenses and the biggest day, against the daily report's answer.
+ */
+async function expectStripAndDays({ page }: Session, from: string, last: string, each: boolean, width: number) {
+  const daily = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/reports/daily-cash-flow')
+  await page.goto(`/?period=previous-month${each ? '&currency=each' : ''}`)
+  const answer = await (await daily).json() as DailyRow[] | { currency: string; rows: DailyRow[] }
+  const rows: (DailyRow & { currency: string })[] = Array.isArray(answer) ? answer.map((r) => ({ ...r, currency: r.currency! }))
+    : answer.rows.map((r) => ({ ...r, currency: answer.currency }))
+  const url = new URL((await daily).url())
+  expect(url.searchParams.get('from')).toBe(from)
+  expect(url.searchParams.get('to')).toBe(last)
+  expect(url.searchParams.get('currency')).toBe(each ? null : 'BASE')
+
+  const flows = page.getByRole('region', { name: /^Income and expenses/ })
+  await expect(flows.getByRole('table').first()).toBeVisible()
+  await expect(page.locator('.stale')).toHaveCount(0)
+  const strips = page.locator('dl.strip-figures')
+  await expect(strips.first().locator('.figure.expense dd').first()).not.toHaveText('…')
+  const tables = flows.getByRole('table', { name: /^Cash flow in / })
+  const currencies = (await tables.evaluateAll((all) => all.map((t) => t.getAttribute('aria-label')!.slice('Cash flow in '.length))))
+  expect(currencies.length, 'a cash flow table').toBeGreaterThan(0)
+  const days = Number(last.slice(8))
+
+  for (const currency of currencies) {
+    const strip = page.getByLabel(`Headline figures in ${currency}`)
+    await expect(strip.getByRole('term')).toHaveText(['You have', /^(You owe|Owed to you)$/, 'Net worth', 'Income', 'Expenses'])
+    const table = flows.getByRole('table', { name: `Cash flow in ${currency}` })
+    const totalOf = (label: string) => table.locator('tr').filter({ has: page.getByRole('rowheader', { name: label, exact: true }) })
+      .locator('td.amount').first()
+    const income = strip.locator('.figure.income > dd').first()
+    const expenses = strip.locator('.figure.expense > dd').first()
+    await expect(income, `${currency}: Income is the table's Total income`).toHaveText((await totalOf('Total income').textContent())!)
+    await expect(expenses, `${currency}: Expenses is the table's Total expenses`).toHaveText((await totalOf('Total expenses').textContent())!)
+
+    // Daily spending: a slot per day of the month, all past; the days' expenses add up to Expenses.
+    const panel = page.locator(`section.daily[data-currency="${currency}"]`)
+    await expect(panel.locator('.daily-day')).toHaveCount(days)
+    await expect(panel.locator('.daily-day.future')).toHaveCount(0)
+    const own = rows.filter((r) => r.currency === currency && r.categoryType === 'EXPENSE')
+    expect(own.every((r) => r.total !== null), `${currency}: every day converts`).toBe(true)
+    const sum = own.reduce((a, r) => a + cents(r.total), 0n)
+    const shown = await expenses.textContent()
+    if (shown === '—') expect(sum, `${currency}: no expenses`).toBe(0n)
+    else expect(sum, `${currency}: the days add up to Expenses`).toBe(cents(shown))
+
+    // The biggest day, the earlier on a tie, and its largest category, the first by name on a tie.
+    const byDay = new Map<string, bigint>()
+    for (const r of own) byDay.set(r.day, (byDay.get(r.day) ?? 0n) + cents(r.total))
+    let best: [string, bigint] | null = null
+    for (const [d, amount] of [...byDay].sort(([a], [b]) => a.localeCompare(b))) {
+      if (amount > 0n && (best === null || amount > best[1])) best = [d, amount]
+    }
+    const biggest = panel.locator('.daily-biggest')
+    if (best === null) {
+      await expect(biggest).toHaveText('No spending in this period.')
+      continue
+    }
+    const top = own.filter((r) => r.day === best[0])
+      .sort((a, b) => Number(cents(b.total) - cents(a.total)) || a.categoryName.localeCompare(b.categoryName))[0]
+    const text = ((await biggest.textContent()) ?? '').replace(/\u00a0/g, ' ')
+    expect(text.startsWith(`Biggest day: ${shownDay(best[0], null)}, `), `${currency}: the biggest day in "${text}"`).toBe(true)
+    expect(text.endsWith(`, ${top.categoryName}`), `${currency}: its largest category in "${text}"`).toBe(true)
+    expect(cents(text.slice(`Biggest day: ${shownDay(best[0], null)}, `.length, -`, ${top.categoryName}`.length)),
+      `${currency}: its amount`).toBe(best[1])
+  }
+
+  // The layout: one row of five from 64rem; under 40rem Net worth first across, then two columns.
+  const box = async (name: string) => (await page.getByLabel(`Headline figures in ${currencies[0]}`).locator(`.figure.${name}`).boundingBox())!
+  const [have, owe, worth, income, expense] = await Promise.all(['have', 'owe', 'worth', 'income', 'expense'].map(box))
+  if (width >= 1024) {
+    for (const b of [owe, worth, income, expense]) {
+      expect(Math.abs(b.y - have.y), 'one row').toBeLessThanOrEqual(1)
+      expect(Math.abs(b.width - have.width), 'equal columns').toBeLessThanOrEqual(1)
+    }
+    expect(have.x < owe.x && owe.x < worth.x && worth.x < income.x && income.x < expense.x, 'in order').toBe(true)
+  } else {
+    expect(worth.y, 'Net worth first').toBeLessThan(have.y)
+    expect(worth.width, 'Net worth across').toBeGreaterThan(have.width + owe.width)
+    expect(Math.abs(have.y - owe.y), 'You have and You owe in a row').toBeLessThanOrEqual(1)
+    expect(Math.abs(income.y - expense.y), 'Income and Expenses in a row').toBeLessThanOrEqual(1)
+    expect(income.y, 'then Income and Expenses').toBeGreaterThan(have.y)
+    const { scroll, client } = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+    }))
+    expect(scroll, 'the dashboard at 375 px is no wider than the screen').toBeLessThanOrEqual(client)
+  }
+}
+
+/** UX-13 (D-569, D-571): "Personal" in "Show" changes the strip's Income and Expenses, its line, and the daily request. */
+async function expectShowChangesTheStrip({ page }: Session) {
+  await page.goto('/?period=previous-month')
+  const show = page.getByRole('group', { name: 'Show' })
+  if (await show.count() === 0) return
+  const strip = page.getByLabel('Headline figures in EUR')
+  const expenses = strip.locator('.figure.expense > dd').first()
+  await expect(expenses).not.toHaveText('…')
+  await expect(page.locator('.stale')).toHaveCount(0)
+  await expect(strip.locator('dd.scope-note')).toHaveCount(0)
+  const daily = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/reports/daily-cash-flow')
+  await show.getByRole('button', { name: 'Personal', exact: true }).click()
+  expect(new URL((await daily).url()).searchParams.get('scope')).toBe('PERSONAL')
+  await expect(page.locator('.stale')).toHaveCount(0)
+  await expect(strip.locator('dd.scope-note')).toHaveText(['Personal', 'Personal'])
+  const table = page.getByRole('table', { name: 'Cash flow in EUR' })
+  const total = table.locator('tr').filter({ has: page.getByRole('rowheader', { name: 'Total expenses', exact: true }) })
+    .locator('td.amount').first()
+  await expect(expenses).toHaveText((await total.textContent())!)
 }

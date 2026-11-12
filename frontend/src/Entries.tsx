@@ -94,6 +94,7 @@ export default function Entries() {
 
   const filtered = FILTERS.some((f) => filter[f] !== '')
   const familyPayees = useFamilyPayees()
+  const payeeOptions = ledger ? payeeFilterOptions(ledger.counterparties, familyPayees, filter.payee) : []
   const texts = summary.data && summaryTexts(summary.data)
   const open = (id: number) => navigate(`/entries/${id}`, { state: { from: location.pathname + location.search } })
   const data = entries.data
@@ -131,10 +132,10 @@ export default function Entries() {
             </label>
             <label>
               Payee or person{' '}
-              <select value={payeeFilterValue(filter.counterpartyId, filter.payee)}
+              <select value={payeeFilterValue(filter.counterpartyId, filter.payee, payeeOptions)}
                 onChange={(e) => setFilter(payeeFilterOf(e.target.value))}>
                 <option value="">Anyone</option>
-                {payeeFilterOptions(ledger.counterparties, familyPayees, filter.payee).map((o) => (
+                {payeeOptions.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>

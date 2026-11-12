@@ -16,6 +16,12 @@ function options(counterparties: Counterparty[], chosen: string) {
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** The payee field's hint: whom it shows to, and for a name no counterparty of the user's has that it is added. */
+export function payeeFieldHint(payee: string, counterparties: Counterparty[], payeesShown: boolean) {
+  const known = payee.trim() === '' || counterpartyCalled(counterparties, payee)
+  return known ? payeeHint(payeesShown) : <>{payeeHint(payeesShown)} {NEW_PAYEE_HINT}</>
+}
+
 /**
  * The counterparty of an account that requires one, required (a loan given, a debt to a creditor: who it is with), and
  * the payee, optional (D-80, D-81). `counterparties` is undefined while they load.
@@ -25,12 +31,6 @@ function options(counterparties: Counterparty[], chosen: string) {
  * @param payeesShown whether the reader shows their payees to the other members of the budget (UX-9), which the hint
  *        says
  */
-/** The payee field's hint: whom it shows to, and for a name no counterparty of the user's has that it is added. */
-export function payeeFieldHint(payee: string, counterparties: Counterparty[], payeesShown: boolean) {
-  const known = payee.trim() === '' || counterpartyCalled(counterparties, payee)
-  return known ? payeeHint(payeesShown) : <>{payeeHint(payeesShown)} {NEW_PAYEE_HINT}</>
-}
-
 export function CounterpartyFields({ account, counterparties, counterpartyId, payee, onCounterparty, onPayee, showPayee,
   payeesShown = false, errors }: {
   account: Account | undefined

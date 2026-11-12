@@ -3,11 +3,13 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
   dateOfIso, formatDate, useApi, type AccountBalance, type CashFlowRow, type ConvertedBalance, type ConvertedCashFlow,
   type ConvertedCounterpartyBalance, type ConvertedNetWorth, type CounterpartyBalance, type EntryPage, type FamilyLedger,
-  type NetWorth, type Rate, type Settings, type SharedSettlement,
+  type NetWorth, type Rate, type Settings, type SharedSettlement, type DailyCashFlowRow, type ConvertedDailyCashFlow,
 } from './api'
 import CashFlowTable from './CashFlowTable'
 import { lazyWithReload } from './chunkReload'
 import { Amounts, ErrorBoundary, Errors, Loading, ToggleGroup } from './components'
+import { dailyRange, type DailyRange, type DailyRow } from './daily'
+import DailySpending from './DailySpending'
 import {
   balancesDay, baseEquitySplit, belowMinorUnit, cashFlowTables, changeText, chartByMonth, compareColumns, comparisons,
   compareTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawable, drawnComparison, effectOf, equitySplits,
@@ -16,7 +18,7 @@ import {
   missingDays, monthPairs, monthsBetween, needsLatestEntry, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
   recordsOf, resultRange, scopeFromQuery, scopeParams, showOf, showOptions, showsOwnCurrencies, totalChanges,
   usedRateText, withRecords, withShow,
-  type CashFlowTable as Table, type Cell, type CompareLine, type CompareTable, type Comparisons, type DayRange,
+  type CashFlowTable as Table, type Cell, type ComparedRange, type CompareTable, type Comparisons, type DayRange,
   type FamilyDebt, type PeriodChoice, type Records,
 } from './dashboard'
 import DateInput from './DateInput'
@@ -150,6 +152,18 @@ function PeriodDashboard({ families, latest }: { families: FamilyLedger[] | null
     : monthly(compared?.section, cashFlow, baseCashFlow)
   const comparedTables = [monthly(first, firstFlow, firstBase), monthly(second, secondFlow, secondBase)]
     .slice(0, compared?.ranges.length ?? 0)
+  // The comparison tables, once the period and every comparison have answered or failed: the card's and the strip's.
+  const flows: Loaded<FlowsData> = compared === null ? { error: tables.error, loading: false }
+    : flowsData(compared, tables, comparedTables, inBase)
+  // Daily spending (D-571): its own request, with the page's scope, up to today; nothing to ask before its first day.
+  const shownDays = compared === null || backwards ? null : dailyRange(period, compared.section, today)
+  const dailyPath = shownDays?.asked
+    ? `/reports/daily-cash-flow?from=${shownDays.asked.from}&to=${shownDays.asked.to}${scopeParams(chosen)}` : null
+  const dailyEach = useApi<DailyCashFlowRow[]>(dailyPath && each(dailyPath))
+  const dailyBase = useApi<ConvertedDailyCashFlow>(base(dailyPath))
+  const daily: Loaded<CurrencyDailyRow[]> = shownDays !== null && shownDays.asked === null ? { data: [], loading: false }
+    : inBase ? { ...dailyBase, data: dailyBase.data && dailyBase.data.rows.map((r) => ({ ...r, currency: dailyBase.data!.currency })) }
+      : dailyEach
   const missing = inBase ? mergeMissing([
     baseNetWorth.data?.missingRates ?? [],
     ...(baseBalances.data ?? []).map((b) => b.missingRates),
@@ -159,6 +173,8 @@ function PeriodDashboard({ families, latest }: { families: FamilyLedger[] | null
       ...(load.data?.rows ?? []).map((r) => r.missingRates),
       ...(load.data?.exchangeResults ?? []).map((r) => r.missingRates),
     ]),
+    // Daily spending's days that can't be converted (D-571).
+    ...(dailyBase.data?.rows ?? []).map((r) => r.missingRates),
   ]) : []
   const baseCurrency = baseNetWorth.data?.currency ?? settings.data?.baseCurrency
 
@@ -201,6 +217,10 @@ function PeriodDashboard({ families, latest }: { families: FamilyLedger[] | null
   // D-431: the Balances card names its day, as "Income and expenses" names its period.
   const balancesTitle = <>Balances <span className="muted period">on {formatDate(day)}</span></>
   const scopeFamilies = chosen.family === null ? families ?? [] : (families ?? []).filter((f) => f.id === chosen.family)
+  // D-569: under Income and Expenses, the scope as "Show" and "Records" name it, for any choice but All.
+  const scopeNote = families === null || chosen.scope === 'all' ? null
+    : chosen.scope === 'personal' ? showOptions(families).find((o) => o.value === 'personal')!.label
+      : `${showOptions(families).find((o) => o.value === showOf(chosen))?.label ?? ''} · ${RECORDS_LABELS[recordsOf(chosen.scope)]}`
 
   return (
     <>
@@ -221,9 +241,8 @@ function PeriodDashboard({ families, latest }: { families: FamilyLedger[] | null
       </div>
       {missing.length > 0 && <MissingRates missing={missing} currency={baseCurrency} />}
 
-      {inBase
-        ? <Block state={baseNetWorth} label="What you have and owe">{(worth) => <BaseHeadline worth={worth} />}</Block>
-        : <Block state={netWorth} label="What you have and owe">{(rows) => <Headlines rows={rows} />}</Block>}
+      <HeadlineStrip inBase={inBase} worth={baseNetWorth} rows={netWorth} baseCurrency={baseCurrency}
+        flows={{ ...flows, data: flows.data?.tables }} scopeNote={scopeNote} />
 
       <section className="card flows" aria-labelledby="flows-title">
         <h3 id="flows-title">
@@ -257,8 +276,8 @@ function PeriodDashboard({ families, latest }: { families: FamilyLedger[] | null
         )}
         {tables.error || compared === null ? <Errors messages={[tables.error ?? '']} />
           : (
-            <Flows compared={compared} period={tables} comparisons={comparedTables} inBase={inBase} params={params}
-              onCompare={setCompare} />
+            <Flows compared={compared} period={tables} state={flows} params={params} onCompare={setCompare}
+              daily={shownDays === null ? null : { range: shownDays, load: daily }} today={today} />
           )}
       </section>
 
@@ -323,10 +342,43 @@ function Card<T>({ title, state, className = '', children }: {
   )
 }
 
-/** A part of the page without a card of its own, such as the headline row. */
-function Block<T>({ state, label, children }: { state: Loaded<T>; label: string; children: (data: T) => ReactNode }) {
-  return <section className="headline" aria-label={label}><Body state={state}>{children}</Body></section>
+/** A row of the daily cash flow in either shape, with its currency (the base currency's in base mode). */
+type CurrencyDailyRow = DailyRow & { currency: string }
+
+/** Income and expenses compared, once the period and every comparison have answered or failed (D-401). */
+interface FlowsData {
+  /** One comparison table per currency (D-393), the failed comparisons' columns left out. */
+  tables: CompareTable[]
+  /** Each failed comparison's error, naming it. */
+  errors: string[]
+  /** The comparisons that answered, with their monthly tables. */
+  kept: { range: ComparedRange; load: Loaded<Table[]> }[]
+  /** The comparisons as shown: those that answered. */
+  shown: Comparisons
 }
+
+/**
+ * The comparison tables of the period and its comparisons: there once the period and every comparison have answered
+ * or failed; failed with the period's error; stale while any reloads. The card "Income and expenses" and the headline
+ * strip's Income and Expenses (D-569) read the same tables.
+ */
+function flowsData(compared: Comparisons, period: Loaded<Table[]>, loads: Loaded<Table[]>[], inBase: boolean): Loaded<FlowsData> {
+  if (period.error) return { error: period.error, loading: false }
+  if (period.data === undefined || loads.some((l) => l.data === undefined && !l.error)) return { loading: true }
+  const all = compareColumns(compared)
+  const errors = loads.flatMap((l, i) => (l.error ? [`${all[i + 1].role} (${all[i + 1].label}): ${l.error}`] : []))
+  const kept = compared.ranges.map((range, i) => ({ range, load: loads[i] })).filter(({ load }) => !load.error)
+  const columns = [all[0], ...all.slice(1).filter((_, i) => !loads[i].error)]
+  const tables = compareTables(columns, [period.data, ...kept.map(({ load }) => load.data!)], inBase)
+  return {
+    data: { tables, errors, kept, shown: { ...compared, ranges: kept.map(({ range }) => range) } },
+    loading: period.loading || loads.some((l) => l.loading),
+  }
+}
+
+/** The family budgets whose categories a comparison table holds, for D-419's name after the icon. */
+const familyBudgetsOf = (table: CompareTable) =>
+  new Set([...table.income.lines, ...table.expense.lines].flatMap((l) => (l.family ? [l.family] : [])))
 
 function Body<T>({ state, children }: { state: Loaded<T>; children: (data: T) => ReactNode }) {
   return state.error ? <Errors messages={[state.error]} />
@@ -341,22 +393,19 @@ const NoCashFlow = () => <p className="empty">No income or expenses in this peri
  * comparison table of each. Shown once the period and every comparison have answered or failed; a comparison that
  * failed shows its error and leaves the period's figures and the other comparison (D-401).
  */
-function Flows({ compared, period, comparisons: loads, inBase, params, onCompare }: {
+function Flows({ compared, period, state, params, onCompare, daily, today }: {
   compared: Comparisons
   period: Loaded<Table[]>
-  comparisons: Loaded<Table[]>[]
-  inBase: boolean
+  state: Loaded<FlowsData>
   params: URLSearchParams
   onCompare: (role: string) => void
+  /** Daily spending's days and its load (D-571); null where the period has none. */
+  daily: { range: DailyRange; load: Loaded<CurrencyDailyRow[]> } | null
+  today: string
 }) {
-  if (period.data === undefined || loads.some((l) => l.data === undefined && !l.error)) return <Loading />
-  const all = compareColumns(compared)
-  const errors = loads.flatMap((l, i) => (l.error ? [`${all[i + 1].role} (${all[i + 1].label}): ${l.error}`] : []))
-  const kept = compared.ranges.map((range, i) => ({ range, load: loads[i] })).filter(({ load }) => !load.error)
-  const columns = [all[0], ...all.slice(1).filter((_, i) => !loads[i].error)]
-  const tables = compareTables(columns, [period.data, ...kept.map(({ load }) => load.data!)], inBase)
-  const stale = period.loading || loads.some((l) => l.loading)
-  const shown: Comparisons = { ...compared, ranges: kept.map(({ range }) => range) }
+  if (state.data === undefined) return state.error ? <Errors messages={[state.error]} /> : <Loading />
+  const { tables, errors, kept, shown } = state.data
+  const stale = state.loading
   const byMonth = chartByMonth(shown)
   const drawn = byMonth ? drawnComparison(shown, params) : null
   const choices = byMonth ? drawable(shown) : []
@@ -372,20 +421,27 @@ function Flows({ compared, period, comparisons: loads, inBase, params, onCompare
       {errors.length > 0 && <Errors messages={errors} />}
       {tables.length === 0 ? <NoCashFlow /> : (
         <>
-          <PeriodTotals tables={tables} />
           {choices.length > 1 && (
             <ToggleGroup label="Compare with" value={drawn?.role === 'previous' ? 'previous' : 'year'} onChange={onCompare}
               options={[{ value: 'year', label: 'A year earlier' }, { value: 'previous', label: 'Previous period' }]} />
           )}
           {tables.map((table) => (
-            <figure key={table.currency} className="chart" aria-label={`Income and expenses in ${table.currency}`}>
-              {tables.length > 1 && <figcaption>{table.currency}</figcaption>}
-              <ErrorBoundary fallback={<p className="error">The chart couldn’t load. Reload the page to try again.</p>}>
-                <Suspense fallback={<div className="chart-placeholder"><Loading what="chart" /></div>}>
-                  <IncomeExpenseChart data={chart(table)} currency={table.currency} rounded={table.converted} />
-                </Suspense>
-              </ErrorBoundary>
-            </figure>
+            // D-571: daily spending beside each currency's chart from 64rem, under it below.
+            <div key={table.currency} className="chart-row">
+              <figure className="chart" aria-label={`Income and expenses in ${table.currency}`}>
+                {tables.length > 1 && <figcaption>{table.currency}</figcaption>}
+                <ErrorBoundary fallback={<p className="error">The chart couldn’t load. Reload the page to try again.</p>}>
+                  <Suspense fallback={<div className="chart-placeholder"><Loading what="chart" /></div>}>
+                    <IncomeExpenseChart data={chart(table)} currency={table.currency} rounded={table.converted} />
+                  </Suspense>
+                </ErrorBoundary>
+              </figure>
+              {daily !== null && (
+                <DailySpending range={daily.range} currency={table.currency} rounded={table.converted} today={today}
+                  rows={daily.load.data?.filter((r) => r.currency === table.currency)} error={daily.load.error}
+                  loading={daily.load.loading} budgetsNamed={familyBudgetsOf(table).size > 1} />
+              )}
+            </div>
           ))}
           <h4>Cash flow by category</h4>
           {tables.map((table) => <CashFlowTable key={table.currency} table={table} />)}
@@ -427,107 +483,154 @@ function Figure({ amount, currency, signed = false, rounded = true }: {
 
 const cell = (amount: string | null): Cell => amount ?? MISSING
 
+/** A part of the headline strip that hasn't come, has failed, or doesn't exist in a currency. */
+type Pending = 'loading' | 'failed' | 'none'
+
+/** The three balance figures of one strip (D-301), or why they aren't shown. */
+type StripBalances = { assets: Cell; liabilities: Cell; netWorth: Cell; rounded: boolean; stale: boolean } | Pending
+/** The period's comparison table of one strip's currency (D-569), or why there is none. */
+type StripFlows = { table: CompareTable; stale: boolean } | Pending
+
+/** A figure that hasn't come yet, failed, or that a currency doesn't have ("—", D-569). */
+function Pending({ state }: { state: Pending }) {
+  return state === 'loading' ? <span className="muted" aria-busy="true" title="Loading">…</span>
+    : <span className="muted">—</span>
+}
+
 /**
- * The headline row (D-301): what the user has, owes and is worth on the day, in that order, each as large as the
- * others, "You have" never muted. What the user owes below zero, as when others owe more than the user does, reads
- * "Owed to you" with the amount above zero (D-350).
+ * The headline strip (D-569, design C): You have, You owe (or "Owed to you", D-350), Net worth, Income and Expenses, one
+ * `dl` per strip in one section. The first three are the whole ledger's on the balances' day (D-301); Income and
+ * Expenses the period's totals of the cash flow table (D-305), each with its changes (D-400) and, for any choice but
+ * All, the scope as the controls name it. In the base currency one strip, with the exchange results under Net worth and
+ * the rates under the strip; in each currency one strip per currency of either part, "—" where a currency has nothing.
+ * The balances never wait for the cash flow, nor the cash flow for the balances: each part shows its own loading and
+ * error.
  */
-function HeadlineRow({ currency, assets, liabilities, netWorth, rounded, label }: {
-  currency: string
-  assets: Cell
-  liabilities: Cell
-  netWorth: Cell
-  rounded: boolean
-  label?: string
+function HeadlineStrip({ inBase, worth, rows, flows, scopeNote, baseCurrency }: {
+  inBase: boolean
+  worth: Loaded<ConvertedNetWorth>
+  rows: Loaded<NetWorth[]>
+  flows: Loaded<CompareTable[]>
+  scopeNote: string | null
+  baseCurrency?: string
 }) {
-  const owedToYou = typeof liabilities === 'string' && signOf(liabilities) < 0
+  const balanceError = inBase ? worth.error : rows.error
+  const pending = (load: Loaded<unknown>): Pending => (load.error ? 'failed' : 'loading')
+  const flowsOf = (currency: string): StripFlows => {
+    if (flows.data === undefined) return pending(flows)
+    const table = flows.data.find((t) => t.currency === currency)
+    return table === undefined ? 'none' : { table, stale: flows.loading }
+  }
+  let strips: { currency: string; label?: string; balances: StripBalances; flows: StripFlows }[] = []
+  if (inBase) {
+    const currency = worth.data?.currency ?? baseCurrency ?? flows.data?.[0]?.currency
+    if (currency !== undefined) {
+      const w = worth.data
+      strips = [{
+        currency,
+        balances: w === undefined ? pending(worth) : {
+          assets: cell(w.assets), liabilities: cell(w.liabilities), netWorth: cell(w.netWorth), rounded: true,
+          stale: worth.loading,
+        },
+        flows: flowsOf(currency),
+      }]
+    }
+  } else {
+    const currencies = [...new Set([...(rows.data ?? []).map((n) => n.currency), ...(flows.data ?? []).map((t) => t.currency)])]
+      .sort()
+    strips = currencies.map((currency) => {
+      const n = rows.data?.find((r) => r.currency === currency)
+      return {
+        currency, label: currency,
+        balances: rows.data === undefined ? pending(rows) : n === undefined ? 'none' : {
+          assets: n.assets, liabilities: n.liabilities, netWorth: n.netWorth, rounded: false, stale: rows.loading,
+        },
+        flows: flowsOf(currency),
+      }
+    })
+  }
+  const settled = (inBase ? worth : rows).data !== undefined || balanceError !== undefined
+  const flowsSettled = flows.data !== undefined || flows.error !== undefined
   return (
-    <div className="headline-row">
+    <section className="headline" aria-label="Headline figures">
+      <Errors messages={[balanceError, flows.error]} />
+      {strips.length === 0
+        ? settled && flowsSettled ? (balanceError || flows.error ? null : <p className="empty">No balances yet.</p>) : <Loading />
+        : strips.map((strip) => (
+          <StripFigures key={strip.currency} {...strip} scopeNote={scopeNote}
+            fx={inBase ? worth.data : undefined} />
+        ))}
+      {inBase && worth.data && worth.data.rates.length > 0 && <UsedRates rates={worth.data.rates} />}
+    </section>
+  )
+}
+
+/** One strip: five figures of one currency, in D-569's order, one size from 64rem, Mono. */
+function StripFigures({ currency, label, balances, flows, scopeNote, fx }: {
+  currency: string
+  label?: string
+  balances: StripBalances
+  flows: StripFlows
+  scopeNote: string | null
+  /** In the base currency, net worth's exchange results, shown small under it. */
+  fx?: ConvertedNetWorth
+}) {
+  const known = typeof balances === 'object' ? balances : null
+  const owedToYou = known !== null && typeof known.liabilities === 'string' && signOf(known.liabilities) < 0
+  const balance = (amount: Cell) => known === null ? <Pending state={balances as Pending} />
+    : <Figure amount={amount} currency={currency} rounded={known.rounded} />
+  const flow = (title: string, which: 'income' | 'expense') => {
+    const table = typeof flows === 'object' ? flows.table : null
+    const line = table === null ? null : table[which].subtotal
+    const changes = table === null || line === null ? [] : totalChanges(table, line).filter((c) => typeof c.change === 'object')
+    return (
+      <div className={`figure flow ${which}${typeof flows === 'object' && flows.stale ? ' stale' : ''}`}>
+        <dt>{title}</dt>
+        <dd className={which}>
+          {table === null || line === null ? <Pending state={flows as Pending} />
+            : <Figure amount={line.amounts[0]} currency={currency} rounded={table.converted} />}
+        </dd>
+        {changes.length > 0 && (
+          <dd className="changes">
+            {changes.map((c, i) => (
+              <span key={c.label}>
+                {i > 0 && ' · '}
+                <span className={effectOf(c.change, c.good) ?? undefined}>{changeText(c.change)}</span> vs {c.label}
+              </span>
+            ))}
+          </dd>
+        )}
+        {scopeNote !== null && <dd className="scope-note">{scopeNote}</dd>}
+      </div>
+    )
+  }
+  const stale = known?.stale ? ' stale' : ''
+  return (
+    <div className="strip">
       {label && <div className="headline-currency">{label}</div>}
-      <dl className="figures">
-        <div className="figure"><dt>You have</dt><dd><Figure amount={assets} currency={currency} rounded={rounded} /></dd></div>
-        <div className="figure">
+      <dl className="figures strip-figures" aria-label={`Headline figures in ${currency}`}>
+        <div className={`figure have${stale}`}><dt>You have</dt><dd>{balance(known?.assets ?? null)}</dd></div>
+        <div className={`figure owe${stale}`}>
           <dt>{owedToYou ? 'Owed to you' : 'You owe'}</dt>
-          <dd><Figure amount={owedToYou ? abs(liabilities as string) : liabilities} currency={currency} rounded={rounded} /></dd>
+          <dd>{balance(owedToYou ? abs(known!.liabilities as string) : known?.liabilities ?? null)}</dd>
         </div>
-        <div className="figure"><dt>Net worth</dt><dd><Figure amount={netWorth} currency={currency} rounded={rounded} /></dd></div>
+        <div className={`figure worth${stale}`}>
+          <dt>Net worth</dt>
+          <dd>{balance(known?.netWorth ?? null)}</dd>
+          {fx && (
+            <dd className="fx">
+              <span title="What currency exchanges gained or lost against the rates of their days">
+                Realized on exchanges <Figure amount={cell(fx.realizedExchangeResult)} currency={currency} signed />
+              </span>
+              <span title="What rate changes did to the money you still hold or owe in other currencies">
+                Revaluation of balances <Figure amount={cell(fx.unrealizedRevaluation)} currency={currency} signed />
+              </span>
+            </dd>
+          )}
+        </div>
+        {flow('Income', 'income')}
+        {flow('Expenses', 'expense')}
       </dl>
-    </div>
-  )
-}
-
-/** The headline row in the base currency, and under it, small, what exchange rates did and the rates used. */
-function BaseHeadline({ worth }: { worth: ConvertedNetWorth }) {
-  const c = worth.currency
-  return (
-    <>
-      <HeadlineRow currency={c} assets={cell(worth.assets)} liabilities={cell(worth.liabilities)}
-        netWorth={cell(worth.netWorth)} rounded />
-      <p className="muted small fx">
-        <span title="What currency exchanges gained or lost against the rates of their days">
-          Realized on exchanges <Figure amount={cell(worth.realizedExchangeResult)} currency={c} signed />
-        </span>
-        {' · '}
-        <span title="What rate changes did to the money you still hold or owe in other currencies">
-          Revaluation of balances <Figure amount={cell(worth.unrealizedRevaluation)} currency={c} signed />
-        </span>
-      </p>
-      {worth.rates.length > 0 && <UsedRates rates={worth.rates} />}
-    </>
-  )
-}
-
-/** One headline row per currency. */
-function Headlines({ rows }: { rows: NetWorth[] }) {
-  if (rows.length === 0) return <p className="empty">No balances yet.</p>
-  return (
-    <>
-      {rows.map((n) => (
-        <HeadlineRow key={n.currency} label={n.currency} currency={n.currency} assets={n.assets}
-          liabilities={n.liabilities} netWorth={n.netWorth} rounded={false} />
-      ))}
-    </>
-  )
-}
-
-/**
- * The period's income, expenses and net (D-305), from each table's own subtotals, each with a small line of its
- * changes (D-400): "+12.3% vs Oct 2026 · −4.0% vs Oct 2025", coloured by the effect on the net. A comparison with
- * nothing to compare, or a figure without a rate, is left out of the line.
- */
-function PeriodTotals({ tables }: { tables: CompareTable[] }) {
-  return (
-    <div className="period-totals">
-      {tables.map((table) => {
-        const shown = { currency: table.currency, rounded: table.converted }
-        const figure = (title: string, line: CompareLine, className: string, signed = false) => {
-          const changes = totalChanges(table, line).filter((c) => typeof c.change === 'object')
-          return (
-            <div className="figure">
-              <dt>{title}</dt>
-              <dd className={className}><Figure amount={line.amounts[0]} {...shown} signed={signed} /></dd>
-              {changes.length > 0 && (
-                <dd className="changes">
-                  {changes.map((c, i) => (
-                    <span key={c.label}>
-                      {i > 0 && ' · '}
-                      <span className={effectOf(c.change, c.good) ?? undefined}>{changeText(c.change)}</span> vs {c.label}
-                    </span>
-                  ))}
-                </dd>
-              )}
-            </div>
-          )
-        }
-        return (
-          <dl key={table.currency} className="figures small-figures" aria-label={`Totals in ${table.currency}`}>
-            {tables.length > 1 && <div className="headline-currency">{table.currency}</div>}
-            {figure('Income', table.income.subtotal, 'income')}
-            {figure('Expenses', table.expense.subtotal, 'expense')}
-            {figure('Net', table.net, '', true)}
-          </dl>
-        )
-      })}
     </div>
   )
 }

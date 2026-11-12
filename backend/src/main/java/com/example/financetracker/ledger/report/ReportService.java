@@ -5,6 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -214,10 +215,61 @@ public class ReportService {
         }
         // The date is truncated as a timestamp without time zone. A bare date would be cast to timestamptz, and the
         // month would then depend on the session's time zone.
+        return flowRows(ledger, from, to, scope, familyLedgerId, "date_trunc('month', e.entry_date::timestamp)::date")
+                .stream()
+                .map(row -> new CashFlowRow(YearMonth.from(row.bucket()), row.categoryCode(), row.categoryName(),
+                        row.categoryType(), row.currency(), row.total(), row.familyLedgerId(),
+                        row.familyLedgerName()))
+                .toList();
+    }
+
+    /** The longest range of {@link #dailyCashFlow}, in days, both ends included (D-570). */
+    public static final int MAX_DAILY_DAYS = 366;
+
+    /**
+     * {@link #cashFlow(LedgerScope, LocalDate, LocalDate, CashFlowScope, Long)} per day in place of per month (D-570,
+     * UX-13): the same postings by the same classification and family categories, so that over any range and scope the
+     * days' totals per category and currency add up exactly to the cash flow's. Ordered by day, category type, category
+     * code and currency.
+     *
+     * @throws IllegalArgumentException if {@code from} is after {@code to}, for a range of more than
+     *         {@value #MAX_DAILY_DAYS} days, and as {@link #cashFlow(LedgerScope, LocalDate, LocalDate, CashFlowScope,
+     *         Long)} for the scope
+     * @throws NotFoundException as {@link #cashFlow(LedgerScope, LocalDate, LocalDate, CashFlowScope, Long)}
+     */
+    public List<DailyCashFlowRow> dailyCashFlow(LedgerScope ledger, LocalDate from, LocalDate to,
+            CashFlowScope scope, Long familyLedgerId) {
+        checkDailyRange(from, to);
+        return flowRows(ledger, from, to, scope, familyLedgerId, "e.entry_date").stream()
+                .map(row -> new DailyCashFlowRow(row.bucket(), row.categoryCode(), row.categoryName(),
+                        row.categoryType(), row.currency(), row.total(), row.familyLedgerId(),
+                        row.familyLedgerName()))
+                .toList();
+    }
+
+    /** D-570's range: not backwards, and at most {@value #MAX_DAILY_DAYS} days, both ends included. */
+    private static void checkDailyRange(LocalDate from, LocalDate to) {
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("'from' must not be after 'to'");
+        }
+        if (ChronoUnit.DAYS.between(from, to) + 1 > MAX_DAILY_DAYS) {
+            throw new IllegalArgumentException(
+                    "The daily cash flow covers at most %d days".formatted(MAX_DAILY_DAYS));
+        }
+    }
+
+    /**
+     * The categorized postings of the scope's entries dated {@code from} to {@code to}, summed per {@code bucket} (an
+     * SQL expression of the entry's date {@code e}), category, family budget and currency: the one statement of both
+     * {@link #cashFlow(LedgerScope, LocalDate, LocalDate, CashFlowScope, Long)} and {@link #dailyCashFlow}, so that
+     * they classify alike (D-570).
+     */
+    private List<FlowRow> flowRows(LedgerScope ledger, LocalDate from, LocalDate to, CashFlowScope scope,
+            Long familyLedgerId, String bucket) {
         List<Long> families = families(ledger);
         checkScope(scope, familyLedgerId, families);
         var statement = jdbc.sql("""
-                SELECT date_trunc('month', e.entry_date::timestamp)::date AS month,
+                SELECT %s AS bucket,
                        c.code AS category_code, c.name AS category_name, c.type AS category_type, p.currency,
                        CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS total,
                        f.id AS family_ledger_id, f.name AS family_ledger_name
@@ -227,8 +279,8 @@ public class ReportService {
                 LEFT JOIN ledger f ON f.id = c.ledger_id AND f.type = 'SHARED'
                 %s
                 WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to AND %s
-                GROUP BY month, c.id, p.currency, f.id
-                ORDER BY month, c.type, c.code, p.currency, f.id NULLS FIRST""".formatted(scopeJoins(scope),
+                GROUP BY bucket, c.id, p.currency, f.id
+                ORDER BY bucket, c.type, c.code, p.currency, f.id NULLS FIRST""".formatted(bucket, scopeJoins(scope),
                         categories(families), scopeCondition(scope, familyLedgerId)))
                 .param("ledgerId", ledger.ledgerId())
                 .param("from", from)
@@ -239,7 +291,7 @@ public class ReportService {
         if (familyLedgerId != null) {
             statement = statement.param("familyId", familyLedgerId);
         }
-        return statement.query(ReportService::cashFlowRow).list();
+        return statement.query(ReportService::flowRow).list();
     }
 
     /**
@@ -405,20 +457,7 @@ public class ReportService {
                   AND ((a.type IN ('ASSET', 'LIABILITY') AND p.currency <> :base)
                        OR (a.type = 'EQUITY' AND a.code = :fxExchange AND e.entry_date >= :from))
                 GROUP BY 1, 2, 3""";
-        var statement = jdbc.sql("""
-                SELECT 'CATEGORY' AS part, e.entry_date AS day, p.currency, c.code AS category_code,
-                       c.name AS category_name, c.type AS category_type,
-                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS amount,
-                       f.id AS family_ledger_id, f.name AS family_ledger_name
-                FROM journal_entry e
-                JOIN posting p ON p.entry_id = e.id
-                JOIN category c ON c.id = p.category_id
-                LEFT JOIN ledger f ON f.id = c.ledger_id AND f.type = 'SHARED'
-                %s
-                WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to AND %s
-                GROUP BY e.entry_date, p.currency, c.id, f.id
-                %s""".formatted(scopeJoins(scope), categories(families), scopeCondition(scope, familyLedgerId),
-                        exchange))
+        var statement = jdbc.sql(categorySums(scope, familyLedgerId, families) + exchange)
                 .param("ledgerId", ledger.ledgerId())
                 .param("from", from)
                 .param("to", to);
@@ -494,6 +533,85 @@ public class ReportService {
                     missing(realized, unrealized)));
         }
         return new ConvertedCashFlow(base, rows, results);
+    }
+
+    /**
+     * The CATEGORY part of {@link #cashFlowInBase(LedgerScope, LocalDate, LocalDate, CashFlowScope, Long)} and
+     * {@link #dailyCashFlowInBase}: the scope's categorized postings per day, currency, category and family budget, as
+     * {@link #flowRows} classifies them; {@link FlowSum}'s columns.
+     */
+    private static String categorySums(CashFlowScope scope, Long familyLedgerId, List<Long> families) {
+        return """
+                SELECT 'CATEGORY' AS part, e.entry_date AS day, p.currency, c.code AS category_code,
+                       c.name AS category_name, c.type AS category_type,
+                       CASE c.type WHEN 'EXPENSE' THEN sum(p.amount) ELSE -sum(p.amount) END AS amount,
+                       f.id AS family_ledger_id, f.name AS family_ledger_name
+                FROM journal_entry e
+                JOIN posting p ON p.entry_id = e.id
+                JOIN category c ON c.id = p.category_id
+                LEFT JOIN ledger f ON f.id = c.ledger_id AND f.type = 'SHARED'
+                %s
+                WHERE e.ledger_id = :ledgerId AND %s AND e.entry_date BETWEEN :from AND :to AND %s
+                GROUP BY e.entry_date, p.currency, c.id, f.id
+                """.formatted(scopeJoins(scope), categories(families), scopeCondition(scope, familyLedgerId));
+    }
+
+    /**
+     * {@link #dailyCashFlow} in the base currency (D-570): each posting converted at the rate on its own day, each
+     * category's figure of a day rounded once; null with the missing rates where a rate is missing. No exchange results.
+     * The postings and the rates are read in two statements inside one snapshot, as the other reports in the base
+     * currency.
+     *
+     * @throws IllegalArgumentException as {@link #dailyCashFlow}
+     * @throws NotFoundException as {@link #dailyCashFlow}
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ConvertedDailyCashFlow dailyCashFlowInBase(LedgerScope ledger, LocalDate from, LocalDate to,
+            CashFlowScope scope, Long familyLedgerId) {
+        checkDailyRange(from, to);
+        String base = settingsService.get(ledger.userId()).baseCurrency();
+        List<Long> families = families(ledger);
+        checkScope(scope, familyLedgerId, families);
+        var statement = jdbc.sql(categorySums(scope, familyLedgerId, families))
+                .param("ledgerId", ledger.ledgerId())
+                .param("from", from)
+                .param("to", to);
+        if (!families.isEmpty()) {
+            statement = statement.param("families", families);
+        }
+        if (familyLedgerId != null) {
+            statement = statement.param("familyId", familyLedgerId);
+        }
+        List<FlowSum> sums = statement.query(FlowSum.class).list();
+        RateBook book = rates.rateBook(ledger.userId(), currencies(sums.stream().map(FlowSum::currency), base), from,
+                to);
+
+        // As in cashFlowInBase, the family budget is part of a category's key; the ledger's own come first.
+        record Category(LocalDate day, CategoryType type, String code, long family) {
+        }
+        Map<Category, ConvertedSum> totals = new TreeMap<>(Comparator.comparing(Category::day)
+                .thenComparing(category -> category.type().name()).thenComparing(Category::code)
+                .thenComparingLong(Category::family));
+        Map<String, String> names = new LinkedHashMap<>();
+        Map<Long, String> familyNames = new LinkedHashMap<>();
+        for (FlowSum sum : sums) {
+            long family = sum.familyLedgerId() == null ? 0 : sum.familyLedgerId();
+            totals.computeIfAbsent(new Category(sum.day(), CategoryType.valueOf(sum.categoryType()),
+                    sum.categoryCode(), family), category -> new ConvertedSum(book, base))
+                    .add(sum.amount(), sum.currency(), sum.day());
+            names.put(family + " " + sum.categoryCode(), sum.categoryName());
+            if (sum.familyLedgerId() != null) {
+                familyNames.put(family, sum.familyLedgerName());
+            }
+        }
+        List<ConvertedDailyCashFlow.Row> rows = totals.entrySet().stream()
+                .map(e -> new ConvertedDailyCashFlow.Row(e.getKey().day(), e.getKey().code(),
+                        names.get(e.getKey().family() + " " + e.getKey().code()), e.getKey().type(),
+                        e.getValue().total(), e.getValue().missing().toList(),
+                        e.getKey().family() == 0 ? null : e.getKey().family(), familyNames.get(e.getKey().family()),
+                        e.getValue().rates()))
+                .toList();
+        return new ConvertedDailyCashFlow(base, rows);
     }
 
     /**
@@ -637,8 +755,13 @@ public class ReportService {
             String categoryType, BigDecimal amount, Long familyLedgerId, String familyLedgerName) {
     }
 
-    private static CashFlowRow cashFlowRow(ResultSet row, int rowNum) throws SQLException {
-        return new CashFlowRow(YearMonth.from(row.getObject("month", LocalDate.class)), row.getString("category_code"),
+    /** A row of {@link #flowRows}: a category's total in one bucket (a month's first day, or a day) and currency. */
+    private record FlowRow(LocalDate bucket, String categoryCode, String categoryName, CategoryType categoryType,
+            String currency, BigDecimal total, Long familyLedgerId, String familyLedgerName) {
+    }
+
+    private static FlowRow flowRow(ResultSet row, int rowNum) throws SQLException {
+        return new FlowRow(row.getObject("bucket", LocalDate.class), row.getString("category_code"),
                 row.getString("category_name"), CategoryType.valueOf(row.getString("category_type")),
                 row.getString("currency"), row.getBigDecimal("total"), row.getObject("family_ledger_id", Long.class),
                 row.getString("family_ledger_name"));

@@ -87,6 +87,11 @@ class DataIsolationApiTests extends LedgerApiTest {
             "/api/reports/counterparty-balances" + AS_OF + "&accountCode=LOANS_ASSET&currency=BASE",
             "/api/reports/cash-flow" + AUGUST + "&scope=PERSONAL",
             "/api/reports/cash-flow" + AUGUST + "&currency=BASE&scope=PERSONAL",
+            // UX-13 (D-570): the daily cash flow, in both shapes and a scope.
+            "/api/reports/daily-cash-flow" + AUGUST,
+            "/api/reports/daily-cash-flow" + AUGUST + "&currency=BASE",
+            "/api/reports/daily-cash-flow" + AUGUST + "&scope=PERSONAL",
+            "/api/reports/daily-cash-flow" + AUGUST + "&currency=BASE&scope=PERSONAL",
             "/api/reports/net-worth" + AS_OF,
             "/api/reports/net-worth" + AS_OF + "&currency=BASE",
             "/api/reports/shared-settlement" + AS_OF,
@@ -535,19 +540,22 @@ class DataIsolationApiTests extends LedgerApiTest {
                         uri.formatted(MISSING), request.body());
             }
         }
-        // D-302 and D-421: the cash flow's family scopes reach no budget but his own memberships', in either shape.
+        // D-302 and D-421: the cash flow's family scopes reach no budget but his own memberships', in either shape;
+        // and so do the daily cash flow's (D-570).
         for (String query : List.of("", "&currency=BASE")) {
             for (String scope : List.of("FAMILY", "FAMILY_MINE", "FAMILY_OTHERS")) {
-                String uri = "/api/reports/cash-flow" + AUGUST + query + "&scope=" + scope + "&familyLedgerId=%d";
-                for (long ledger : List.of(familyB, alicesPersonal, bobsPersonal)) {
-                    answersAsIfMissing(softly, HttpMethod.GET, uri, ledger, null);
+                for (String report : List.of("/api/reports/cash-flow", "/api/reports/daily-cash-flow")) {
+                    String uri = report + AUGUST + query + "&scope=" + scope + "&familyLedgerId=%d";
+                    for (long ledger : List.of(familyB, alicesPersonal, bobsPersonal)) {
+                        answersAsIfMissing(softly, HttpMethod.GET, uri, ledger, null);
+                    }
+                    for (long ledger : List.of(familyA, familyB, alicesPersonal)) {
+                        answersAsIfMissingTo(softly, carol, HttpMethod.GET, uri.formatted(ledger),
+                                uri.formatted(MISSING), null);
+                    }
+                    softly.assertThat(bobsRequest(HttpMethod.GET, uri.formatted(familyA), null).getResponse()
+                            .getStatus()).as("his own budget A").isEqualTo(200);
                 }
-                for (long ledger : List.of(familyA, familyB, alicesPersonal)) {
-                    answersAsIfMissingTo(softly, carol, HttpMethod.GET, uri.formatted(ledger), uri.formatted(MISSING),
-                            null);
-                }
-                softly.assertThat(bobsRequest(HttpMethod.GET, uri.formatted(familyA), null).getResponse().getStatus())
-                        .as("his own budget A").isEqualTo(200);
             }
         }
         // In a family ledger of his own, B's members and categories and Alice's personal ones are missing.
@@ -1775,7 +1783,8 @@ class DataIsolationApiTests extends LedgerApiTest {
         for (var answer : before.entrySet()) {
             JsonNode copy = answer.getValue().deepCopy();
             for (Merged category : merged) {
-                replaceCategory(copy, answer.getKey().contains("/cash-flow"), category);
+                // The daily cash flow (D-570) names categories as the cash flow does.
+                replaceCategory(copy, answer.getKey().contains("cash-flow"), category);
             }
             // Read back, so that numbers have the node types an answer's have.
             view.put(answer.getKey(), json.readTree(json.writeValueAsBytes(copy)));

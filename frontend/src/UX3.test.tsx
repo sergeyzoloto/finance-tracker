@@ -98,10 +98,11 @@ async function line(label: string) {
 }
 const total = async (type: string) =>
   (await within(await balancesCard()).findByRole('columnheader', { name: type })).closest('table')!.querySelector('tfoot td')!.textContent
+/** The period's Net: the cash flow table's Net row (D-569 moved the totals' Net there), of a currency or the first. */
 const net = async (currency?: string) => {
-  const block = currency ? await screen.findByLabelText(`Totals in ${currency}`) : (await screen.findAllByLabelText(/^Totals in/))[0]
-  const dt = within(block).getAllByRole('term').find((t) => t.textContent === 'Net')!
-  return dt.nextElementSibling!.textContent
+  const table = currency ? await screen.findByRole('table', { name: `Cash flow in ${currency}` })
+    : (await screen.findAllByRole('table', { name: /^Cash flow in/ }))[0]
+  return within(table).getByRole('rowheader', { name: 'Net' }).closest('tr')!.querySelector('td.amount')!.textContent
 }
 
 afterEach(() => {
@@ -172,8 +173,8 @@ describe('the Balances card in each currency', () => {
     // A transfer of 300 to the reserve within the period stays in the reserve: 1200 - (1000 - 400.25).
     expect(await line('Accumulated reserve')).toBe('€600.25$120.00')
     expect(await line('Result for the period')).toBe('€599.75-$20.00')
-    // The Net of income and expenses, shown signed there.
-    expect(await net('EUR')).toBe('+€599.75')
+    // The Net of income and expenses: the table's Net row.
+    expect(await net('EUR')).toBe('€599.75')
     expect(await net('USD')).toBe('-$20.00')
     const card = await balancesCard()
     expect(within(card).queryByRole('link', { name: 'Unallocated' })).toBeNull()
@@ -240,7 +241,7 @@ describe('the Balances card in the base currency', () => {
     renderAt('/')
     // The Net: 1000.00 - 400.25 - 16.13 at each day's rate.
     expect(await line('Result for the period')).toBe('€583.62')
-    expect(await net()).toBe('+€583.62')
+    expect(await net()).toBe('€583.62')
     // 1485.01 - 200.00 - 5.01 - 583.62: the lines add up to Equity's total, net worth.
     expect(await line('Accumulated reserve')).toBe('€696.38')
     expect(await total('Equity')).toBe('€1,485.01')

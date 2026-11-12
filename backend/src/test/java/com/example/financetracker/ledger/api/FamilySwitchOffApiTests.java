@@ -116,6 +116,8 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         List<String> reads = List.of("/api/categories", "/api/accounts", "/api/counterparties", "/api/entries?size=200",
                 "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31",
                 "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31&currency=BASE",
+                "/api/reports/daily-cash-flow?from=2026-01-01&to=2026-12-31",
+                "/api/reports/daily-cash-flow?from=2026-01-01&to=2026-12-31&currency=BASE",
                 "/api/reports/balances?asOf=2026-12-31", "/api/reports/balances?asOf=2026-12-31&currency=BASE",
                 "/api/reports/counterparty-balances?accountCode=LOANS_ASSET&currency=BASE",
                 "/api/reports/net-worth?asOf=2026-12-31",
@@ -159,16 +161,18 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
             assertThat(Answers.mentions(balances, "familyLedgerId")).as(shape).isFalse();
             assertThat(Answers.mentions(balances, "familyLedgerName")).as(shape).isFalse();
         }
-        String period = "/api/reports/cash-flow?from=2026-01-01&to=2026-12-31";
-        for (String shape : List.of("", "&currency=BASE")) {
-            for (String scope : List.of("FAMILY", "FAMILY_MINE", "FAMILY_OTHERS")) {
-                assertThat(get(user, period + shape + "&scope=" + scope)).as(scope + shape)
-                        .hasStatus(HttpStatus.BAD_REQUEST);
-                assertThat(get(user, period + shape + "&scope=" + scope + "&familyLedgerId=" + family))
-                        .as(scope + shape).hasStatus(HttpStatus.BAD_REQUEST);
+        for (String period : List.of("/api/reports/cash-flow?from=2026-01-01&to=2026-12-31",
+                "/api/reports/daily-cash-flow?from=2026-01-01&to=2026-12-31")) {
+            for (String shape : List.of("", "&currency=BASE")) {
+                for (String scope : List.of("FAMILY", "FAMILY_MINE", "FAMILY_OTHERS")) {
+                    assertThat(get(user, period + shape + "&scope=" + scope)).as(scope + shape)
+                            .hasStatus(HttpStatus.BAD_REQUEST);
+                    assertThat(get(user, period + shape + "&scope=" + scope + "&familyLedgerId=" + family))
+                            .as(scope + shape).hasStatus(HttpStatus.BAD_REQUEST);
+                }
+                assertThat(get(user, period + shape + "&scope=PERSONAL")).hasStatus(HttpStatus.OK);
+                assertThat(get(user, period + shape + "&scope=ALL")).hasStatus(HttpStatus.OK);
             }
-            assertThat(get(user, period + shape + "&scope=PERSONAL")).hasStatus(HttpStatus.OK);
-            assertThat(get(user, period + shape + "&scope=ALL")).hasStatus(HttpStatus.OK);
         }
     }
 

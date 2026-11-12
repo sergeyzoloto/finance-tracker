@@ -161,6 +161,16 @@ describe('Entries’ payee filter in the page (D-547)', () => {
     expect(calls.length).toBeGreaterThan(0)
   })
 
+  it('chooses a counterparty whose name the URL’s payee has in another case, listed once, the URL kept (D-568)', async () => {
+    const calls = renderEntries('/entries?payee=ALBERT%20HEIJN')
+    await waitFor(() => expect(payeeSelect().value).toBe('c:21'))
+    expect([...payeeSelect().options].filter((o) => o.textContent!.toLowerCase().startsWith('albert heijn')))
+      .toHaveLength(1)
+    expect(new URLSearchParams(where).get('payee')).toBe('ALBERT HEIJN')
+    await waitFor(() => expect(calls.map((c) => c.url)).toContain('/api/entries/summary?payee=ALBERT+HEIJN'))
+    expect(calls.some((c) => c.url.includes('counterpartyId='))).toBe(false)
+  })
+
   it('asks no family payees with the family switch off', async () => {
     const calls = renderEntries('/entries', { ...TEST_ME, features: { familyLedgers: false } })
     await waitFor(() => expect([...payeeSelect().options].length).toBeGreaterThan(1))

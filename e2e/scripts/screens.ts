@@ -12,7 +12,9 @@ import { LOCAL, requireLocalOnly } from '../lib/targets.ts'
 // payee comes from its record (a family expense with a payee added to the demo's budget), and Accounts compared.
 // Since UX-12 also testuser2 in the demo's budget, paying with a payee he shows (D-547): Entries filtered by that
 // family payee, and testuser's record page with a new name typed in its payee field (D-549); testuser2's data is
-// deleted at the end too.
+// deleted at the end too. Since UX-13 also the dashboard for a past month, in each currency, and with a family scope
+// (the headline strip, D-569, and daily spending, D-571), and Entries filtered by a counterparty's name in another
+// case (D-568). SCREENS=dashboard takes the dashboard's screens alone (the before shots of another commit).
 
 requireLocalOnly(LOCAL)
 const [folder, label, theme] = process.argv.slice(2)
@@ -23,6 +25,7 @@ if (!folder || !label || (theme !== undefined && !['blue', 'light', 'dark'].incl
 mkdirSync(folder, { recursive: true })
 
 const WIDTHS = [1280, 375] as const
+const ONLY_DASHBOARD = process.env.SCREENS === 'dashboard'
 const PAYEE = 'Corner shop'
 const PARTNERS_PAYEE = 'Trefpunt Coffeeshop'
 const account = LOCAL.roles.A
@@ -57,6 +60,15 @@ try {
       await page.screenshot({ path: join(folder, `${label}-${width}-${name}.png`), fullPage: true })
     }
     await take('dashboard', '/')
+    // UX-13 (D-569, D-571): a past month, each currency, and a family scope with its records.
+    await take('dashboard-past-month', '/?period=previous-month')
+    await take('dashboard-each', '/?currency=each')
+    await take('dashboard-past-month-each', '/?period=previous-month&currency=each')
+    if (familyId) await take('dashboard-family', `/?scope=family-mine&family=${familyId}`)
+    if (ONLY_DASHBOARD) {
+      await context.close()
+      continue
+    }
     await take('dashboard-user-menu', '/', async (p) => {
       await p.locator('header .user-menu button.menu-button').click()
       await p.waitForTimeout(200)
@@ -67,6 +79,8 @@ try {
       await take('entries-record-payee', `/entries?q=${encodeURIComponent(PAYEE)}`)
       await take('entry-record-payee', `/entries/${share}`)
     }
+    // UX-13 (D-568): a counterparty's name in another case, chosen in "Payee or person" once.
+    if (paid) await take('entries-payee-case', `/entries?payee=${encodeURIComponent(PAYEE.toUpperCase())}`)
     if (partnersPayee) {
       // UX-12 (D-547): the list closed, the chosen family payee shown in it, with the summary row.
       await take('entries-family-payee', `/entries?payee=${encodeURIComponent(PARTNERS_PAYEE)}`)

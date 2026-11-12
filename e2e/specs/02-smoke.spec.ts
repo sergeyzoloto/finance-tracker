@@ -71,7 +71,7 @@ async function loadTheDemo(session: Session, withFamily: boolean) {
   await page.getByRole('button', { name: 'Load demo data' }).click()
   await expect(page.getByText('Your ledger is empty. How would you like to start?')).toHaveCount(0, { timeout: 30_000 })
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'What you have and owe' }).getByText('Net worth')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Headline figures' }).getByText('Net worth')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Cash flow by category' })).toBeVisible()
   // The chart is a chunk of its own, loaded lazily (chunkReload.lazyWithReload): it loads, and draws.
   await expect(page.getByText('Loading chart…')).toHaveCount(0)

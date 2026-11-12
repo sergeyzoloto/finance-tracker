@@ -560,6 +560,31 @@ export interface ConvertedCashFlowRow {
 export interface ExchangeResult { month: string; realized: string | null; unrealized: string | null; missingRates: MissingRate[] }
 export interface ConvertedCashFlow { currency: string; rows: ConvertedCashFlowRow[]; exchangeResults: ExchangeResult[] }
 
+/** A category's income or expenses on one day in one currency (D-570): a cash flow row with the day for the month. */
+export interface DailyCashFlowRow {
+  day: string
+  categoryCode: string
+  categoryName: string
+  categoryType: CategoryType
+  currency: string
+  total: string
+  familyLedgerId?: number
+  familyLedgerName?: string
+}
+/** A daily row in the base currency (D-570): null with `missingRates` where a rate is missing. */
+export interface ConvertedDailyCashFlowRow {
+  day: string
+  categoryCode: string
+  categoryName: string
+  categoryType: CategoryType
+  total: string | null
+  missingRates: MissingRate[]
+  familyLedgerId?: number
+  familyLedgerName?: string
+  rates?: Rate[]
+}
+export interface ConvertedDailyCashFlow { currency: string; rows: ConvertedDailyCashFlowRow[] }
+
 /**
  * A currency's rate as the user sees it today: the one that applies (D-49, D-91), else the latest there is, which
  * `applies` false marks (an ECB rate more than 7 days old); `date` is null for a currency without any.

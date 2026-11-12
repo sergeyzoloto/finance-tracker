@@ -11,8 +11,10 @@ import com.example.financetracker.ledger.report.CashFlowScope;
 import com.example.financetracker.ledger.report.ConvertedBalance;
 import com.example.financetracker.ledger.report.ConvertedCashFlow;
 import com.example.financetracker.ledger.report.ConvertedCounterpartyBalance;
+import com.example.financetracker.ledger.report.ConvertedDailyCashFlow;
 import com.example.financetracker.ledger.report.ConvertedNetWorth;
 import com.example.financetracker.ledger.report.CounterpartyBalance;
+import com.example.financetracker.ledger.report.DailyCashFlowRow;
 import com.example.financetracker.ledger.report.IntegrityViolation;
 import com.example.financetracker.ledger.report.NetWorth;
 import com.example.financetracker.ledger.report.ReportService;
@@ -88,6 +90,32 @@ class ReportController {
             @Parameter(description = SCOPE) @RequestParam(defaultValue = "ALL") CashFlowScope scope,
             @Parameter(description = FAMILY) @RequestParam(required = false) Long familyLedgerId) {
         return reports.cashFlowInBase(ledger, from, to, scope, familyLedgerId);
+    }
+
+    /**
+     * Income and expenses per day, category and currency, from entries dated {@code from} to {@code to} (D-570): the
+     * cash flow's rows with the day in place of the month, so that the days add up to the cash flow's months exactly.
+     * {@code from} after {@code to}, or a range of more than 366 days, is a 400.
+     */
+    @GetMapping(path = "/daily-cash-flow", params = "!currency")
+    List<DailyCashFlowRow> dailyCashFlow(LedgerScope ledger, @RequestParam LocalDate from, @RequestParam LocalDate to,
+            @Parameter(description = SCOPE) @RequestParam(defaultValue = "ALL") CashFlowScope scope,
+            @Parameter(description = FAMILY) @RequestParam(required = false) Long familyLedgerId) {
+        return reports.dailyCashFlow(ledger, from, to, scope, familyLedgerId);
+    }
+
+    /**
+     * Income and expenses per day and category in the base currency (D-570), each posting at its own day's rate, each
+     * figure rounded once; no exchange results.
+     */
+    @GetMapping(path = "/daily-cash-flow", params = "currency=BASE")
+    ConvertedDailyCashFlow dailyCashFlowInBase(LedgerScope ledger, @RequestParam LocalDate from,
+            @RequestParam LocalDate to,
+            @Parameter(description = BASE, schema = @Schema(allowableValues = "BASE")) @RequestParam(required = false)
+            String currency,
+            @Parameter(description = SCOPE) @RequestParam(defaultValue = "ALL") CashFlowScope scope,
+            @Parameter(description = FAMILY) @RequestParam(required = false) Long familyLedgerId) {
+        return reports.dailyCashFlowInBase(ledger, from, to, scope, familyLedgerId);
     }
 
     /**

@@ -209,7 +209,8 @@ class ReportApiTests extends LedgerApiTest {
         assertThat(body(get(alice, "/api/reports/counterparty-balances?accountCode=CASH"), HttpStatus.BAD_REQUEST)
                 .get("detail").asText()).isEqualTo("Account CASH has no balances per counterparty: it doesn't "
                         + "require one.");
-        for (String report : new String[] {"balances?", "net-worth?", "cash-flow" + AUGUST + "&"}) {
+        for (String report : new String[] {"balances?", "net-worth?", "cash-flow" + AUGUST + "&",
+                "daily-cash-flow" + AUGUST + "&"}) {
             assertThat(body(get(alice, "/api/reports/" + report + "currency=USD"), HttpStatus.BAD_REQUEST)
                     .get("errors")).as(report).isEqualTo(Answers.json("""
                     [{"field":"currency","message":"must be BASE, or left out"}]"""));

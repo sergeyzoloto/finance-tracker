@@ -407,6 +407,80 @@ abstract class LedgerApiTest extends IntegrationTest {
         checkScopeSum(user, path, "ALL", List.of("PERSONAL", "FAMILY"));
     }
 
+    /**
+     * D-570: the daily cash flow of {@code from} to {@code to} (at most 366 days) with the request's {@code query} (a
+     * scope and family budget, or "") adds up, per month, category, family budget and currency, exactly to the cash
+     * flow's rows; in the base currency per month and category within the rounding of its days (half a minor unit per
+     * day's figure and half for the month's), a missing day's rate making that month's figure missing too.
+     *
+     * @return the number of daily rows in each currency, for the caller to see that something was compared
+     */
+    protected int checkDailyCashFlow(String user, String from, String to, String query) throws IOException {
+        String period = "?from=%s&to=%s%s".formatted(from, to, query);
+        Map<String, BigDecimal> days = new TreeMap<>();
+        JsonNode daily = ok(get(user, "/api/reports/daily-cash-flow" + period));
+        for (JsonNode row : daily) {
+            days.merge(dailyKey(row, row.get("day").asText().substring(0, 7)) + " " + row.get("currency").asText(),
+                    new BigDecimal(row.get("total").asText()), BigDecimal::add);
+        }
+        Map<String, BigDecimal> months = new TreeMap<>();
+        for (JsonNode row : ok(get(user, "/api/reports/cash-flow" + period))) {
+            months.merge(dailyKey(row, row.get("month").asText()) + " " + row.get("currency").asText(),
+                    new BigDecimal(row.get("total").asText()), BigDecimal::add);
+        }
+        // Compared by value: the days' sums may hold more trailing zeros than the month's normalized total.
+        days.replaceAll((key, value) -> value.stripTrailingZeros());
+        months.replaceAll((key, value) -> value.stripTrailingZeros());
+        assertThat(days).as("D-570: %s's days of %s against the cash flow", user, period).isEqualTo(months);
+
+        JsonNode dailyInBase = ok(get(user, "/api/reports/daily-cash-flow" + period + "&currency=BASE"));
+        JsonNode monthlyInBase = ok(get(user, "/api/reports/cash-flow" + period + "&currency=BASE"));
+        assertThat(dailyInBase.get("currency")).isEqualTo(monthlyInBase.get("currency"));
+        BigDecimal half = BigDecimal.valueOf(5, java.util.Currency.getInstance(
+                dailyInBase.get("currency").asText()).getDefaultFractionDigits() + 1);
+        Map<String, BigDecimal> baseDays = new TreeMap<>();
+        Map<String, Integer> counts = new TreeMap<>();
+        Set<String> missing = new java.util.HashSet<>();
+        for (JsonNode row : dailyInBase.get("rows")) {
+            String key = dailyKey(row, row.get("day").asText().substring(0, 7));
+            if (row.get("total").isNull()) {
+                assertThat(row.get("missingRates")).as("why %s is missing", key).isNotEmpty();
+                missing.add(key);
+            } else {
+                baseDays.merge(key, new BigDecimal(row.get("total").asText()), BigDecimal::add);
+                counts.merge(key, 1, Integer::sum);
+            }
+        }
+        Set<String> keys = new java.util.TreeSet<>(baseDays.keySet());
+        for (JsonNode row : monthlyInBase.get("rows")) {
+            String key = dailyKey(row, row.get("month").asText());
+            keys.add(key);
+            assertThat(row.get("total").isNull()).as("D-570: %s's month %s in the base currency is missing exactly "
+                    + "when one of its days is", user, key).isEqualTo(missing.contains(key));
+            if (!row.get("total").isNull()) {
+                BigDecimal month = new BigDecimal(row.get("total").asText());
+                BigDecimal sum = baseDays.getOrDefault(key, BigDecimal.ZERO);
+                BigDecimal tolerance = half.multiply(BigDecimal.valueOf(counts.getOrDefault(key, 0) + 1L));
+                assertThat(sum.subtract(month).abs()).as("D-570: %s's days of %s in the base currency, %s against %s",
+                        user, key, sum, month).isLessThanOrEqualTo(tolerance);
+            }
+        }
+        keys.removeAll(missing);
+        for (JsonNode row : monthlyInBase.get("rows")) {
+            keys.remove(dailyKey(row, row.get("month").asText()));
+        }
+        // A category with days but no month would be a row the monthly report lost; one whose days add up to 0 has none.
+        keys.removeIf(key -> baseDays.get(key).signum() == 0);
+        assertThat(keys).as("D-570: %s's days without a month in the base currency", user).isEmpty();
+        return daily.size();
+    }
+
+    /** A cash flow row's month, category type and code and family budget, for {@link #checkDailyCashFlow}. */
+    private static String dailyKey(JsonNode row, String month) {
+        return "%s %s %s %s".formatted(month, row.get("categoryType").asText(), row.get("categoryCode").asText(),
+                row.path("familyLedgerId").asText("-"));
+    }
+
     /** The scopes {@code parts} add up to the scope {@code whole}, in each currency and in the base currency. */
     private void checkScopeSum(String user, String path, String whole, List<String> parts) throws IOException {
         String what = "%s's %s against %s".formatted(user, parts, whole);

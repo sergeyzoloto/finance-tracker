@@ -1,5 +1,5 @@
 -- The stage checks of UX-12 (every shown payee in Entries' payee filter, a payee typed freely on the family forms,
--- npm audit fix, two layout fixes; D-545 to D-557; deploy/deploy.sh run and verify), read only; the output must equal
+-- npm audit fix, two layout fixes; D-545 to D-564; deploy/deploy.sh run and verify), read only; the output must equal
 -- UX-12.expected. UX-12 changes the api (the read-only GET /api/entries/family-payees, a payee filter on the entry
 -- list and its summary) and the web image: no migration, no stored entry, record, amount, report's figure, import or
 -- export changed, and numbers.sql is unchanged (no table added). So the schema is V17's, as UX-9 left it and UX-10

@@ -3,6 +3,76 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-12 · UX-13: the dashboard's headline strip and daily spending, a daily report, UX-12's deploy recorded, three small fixes, D-567 to D-583
+
+One commit on `feature/family-budget` on top of `79125a8` (UX-12), the commit of this entry, "feat: the dashboard's
+headline strip and daily spending, a daily report, UX-12's deploy recorded, three small fixes, D-567 to D-583
+(UX-13)". **Not pushed**; `main` not moved. No migration (Flyway stays at V17); one read-only report
+(`GET /api/reports/daily-cash-flow`); no stored entry, record, amount, existing endpoint's answer, report's figure,
+import or export changed. Production read only: the server was never touched and `e2e:prod` never run.
+
+**Changes**
+- D-570, D-575, D-576: `GET /api/reports/daily-cash-flow` (`ReportController`, two handlers on the path as
+  `/cash-flow`): `DailyCashFlowRow` per day, category and currency, and with `currency=BASE`
+  `ConvertedDailyCashFlow` (each day's category converted at each posting's day's rate, rounded once, null with
+  `missingRates`, its `rates`, no exchange results); the cash flow's `scope` and `familyLedgerId` with their rules; at
+  most 366 days, both ends counted. `ReportService.flowRows` is now the one statement of `cashFlow` and `dailyCashFlow`
+  (the bucket the month's first day or the day), and `categorySums` the CATEGORY part of `cashFlowInBase` and
+  `dailyCashFlowInBase`, so the days add up to the months by construction; `/cash-flow`'s answers are unchanged.
+- D-569, D-577: the dashboard's headline strip (`Dashboard.tsx`, `HeadlineStrip`, `StripFigures`): You have, You owe or
+  "Owed to you", Net worth, Income and Expenses, one `section` "Headline figures", one `dl.strip-figures` per strip;
+  Income and Expenses the comparison tables' totals with D-400's change line and the scope's line; each part loading
+  and failing on its own; `flowsData` gives the card and the strip the same tables; `PeriodTotals` removed, the period's
+  net the table's Net row. `index.css`: five equal columns from 64rem, wrapping between 40rem and 64rem, Net worth
+  first across under 40rem.
+- D-571, D-574, D-579: daily spending (`daily.ts`, `DailySpending.tsx`) beside each currency's chart (`.chart-row`),
+  its days requested with the page's scope and currency mode up to today, its missing rates in the page's notice; plain
+  HTML and CSS bars, the days to come dashed, the day numbers, the biggest day, a visually hidden table.
+- D-568, D-578: `CounterpartyFields`' doc comment back above it; `deploy/checks/UX-12.sql`'s header names D-545 to
+  D-564 (a comment only); `familyPayees.payeeFilterValue` takes the options, so a `payee=` in another case is that
+  counterparty's (or family payee's) option, listed once.
+- D-572, D-580: `frontend/src/assets/demo-dashboard.webp` retaken (1092 × 618, Blue), its alt text in `Landing.tsx`.
+- D-567: `deploy/RUNBOOK.md`'s "Deployed revisions" row for UX-12 (`79125a8`), "Production now" as of its `finish`
+  (the deploy dumps on both server and laptop), step 12's 12.1 and 12.10 on `verify UX-12`; CLAUDE.md's Deployment
+  line.
+- D-581: `deploy/checks/UX-13.sql` and `UX-13.expected` (12 lines); `deploy/RUNBOOK.md`, "UX-13's deploy checklist
+  with the suite".
+- Tests: `DailyCashFlowApiTests` (new), `LedgerApiTest.checkDailyCashFlow`, `ApiTests`, `DataIsolationApiTests`,
+  `FamilySwitchOffApiTests`, `ReportApiTests`; `UX13.test.tsx` (new), `UX12.test.tsx`, and `Dashboard.test.tsx`,
+  `UX2.test.tsx`, `UX3.test.tsx`, `UX5.test.tsx` read the strip and the table's Net row. End to end: `07-dashboard`'s
+  step 12 (D-582) and its "You have" helper waiting for the strip; `02-smoke` and `05-export` read the strip's region
+  ("Headline figures"); `e2e/README.md`; `e2e/scripts/screens.ts` (D-583). `DataIsolationApiTests`' view of Alice's
+  answers after the merge marks the daily report's rows with the family budget as it does the cash flow's.
+- `requirements.md`: D-567 to D-583, UX-13 done in "Planned stages", "UX-14 (proposed)" in "Later"; CLAUDE.md: the
+  daily report, the strip, daily spending, D-568's Entries rule, the new tests and specs.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: exit 0, `Tests run: 679, Failures: 0, Errors: 0, Skipped: 0`,
+  `BUILD SUCCESS`. The first run exited 1 with 2 failures in `DataIsolationApiTests`
+  (`familyLedgersAreReachedByTheirActiveMembersOnly`: its expected view of Alice's answers after the merge marked
+  answers whose path holds `/cash-flow`, which `/daily-cash-flow` doesn't, so the daily rows lacked the family budget
+  the api rightly gives them; and `everyEndpointIsCheckedHere`, which the first failure cut short); fixed in the test.
+- `cd frontend && npm test`: exit 0, `Test Files 51 passed (51)`, `Tests 695 passed (695)`, no Errors line.
+- `cd frontend && npm run build`: exit 0.
+- `UX-13.sql` on production's dump `finance-2026-11-12T1636Z.dump` (SHA-256 `22ebbf67…`, V17) in
+  `scripts/rehearsal-db.sh`'s throwaway database: `psql` exit 0, its 12 lines equal to `UX-13.expected`; the database
+  removed.
+- `cd e2e && npx tsc --noEmit`: exit 0.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node 24): run 1 exit 1, `smoke` and `export` failed at 1280 and 375 px
+  (they still looked for the region "What you have and owe"); run 2 exit 0, every spec passed at 1280 and 375 px
+  (`pages` (2 tests), `smoke`, `family F7`, `family F8`, `export`, `family F8d`, `import`, `member-import`,
+  `new-family`, `time-zone` (2 tests), `dashboard`, `new-entry`, `payees`, `themes`, `entries`, `accounts`), sign-in and
+  cleanup passed, both accounts' data deleted and signed out, `Password search over the artifacts: 0 hits`,
+  `Result: PASSED`; `Commit:` `79125a8` `(TREE NOT CLEAN)`, this change uncommitted.
+- `cd e2e && npm run test:guards`, alone, after the local suite (D-517): exit 0, `tests 37`, `pass 37`, `fail 0`.
+- Section 3's screenshots: `data/private/ui/UX-13/` (with `index.md`; not tracked): Blue, Light and Dark at 1280 and
+  375 px, and `79125a8`'s dashboard in Blue for comparison.
+
+**Open**
+- The PM's review and acceptance; the push, and the deploy by "UX-13's deploy checklist with the suite".
+- Not automated: the look of the strip and the panel in the three themes (the screenshots); the layout is checked by
+  measured boxes.
+
 ## 2026-11-12 · UX-12's second commit: UX-8's to UX-11's deploys recorded, D-565 and D-566
 
 One commit on `feature/family-budget` on top of `94701e0` (UX-12), the commit of this entry, "docs: UX-8's to UX-11's

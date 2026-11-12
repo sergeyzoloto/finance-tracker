@@ -96,7 +96,7 @@ async function typeTotal(type: string) {
 }
 /** A headline figure, by its term. */
 async function headline(term: string) {
-  const row = await screen.findByRole('region', { name: 'What you have and owe' })
+  const row = await screen.findByRole('region', { name: 'Headline figures' })
   const dt = (await within(row).findAllByRole('term')).find((t) => t.textContent === term)
   return dt?.nextElementSibling?.textContent
 }
@@ -217,9 +217,11 @@ describe('a negative “You owe” (D-350)', () => {
     stubApi({ worthEach: [{ currency: 'EUR', assets: '5.00', liabilities: '9.50', netWorth: '-4.50' },
       { currency: 'USD', assets: '0.00', liabilities: '-120.00', netWorth: '120.00' }] })
     renderAt('/?currency=each')
-    const region = await screen.findByRole('region', { name: 'What you have and owe' })
+    const region = await screen.findByRole('region', { name: 'Headline figures' })
     await within(region).findAllByText('$120.00')
-    const terms = within(region).getAllByRole('term').map((t) => `${t.textContent} ${t.nextElementSibling!.textContent}`)
+    const balances = ['You have', 'You owe', 'Owed to you', 'Net worth']
+    const terms = within(region).getAllByRole('term').filter((t) => balances.includes(t.textContent!))
+      .map((t) => `${t.textContent} ${t.nextElementSibling!.textContent}`)
     expect(terms).toEqual(['You have €5.00', 'You owe €9.50', 'Net worth -€4.50',
       'You have $0.00', 'Owed to you $120.00', 'Net worth $120.00'])
   })

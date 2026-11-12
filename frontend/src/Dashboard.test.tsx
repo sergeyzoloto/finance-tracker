@@ -144,13 +144,13 @@ describe('the dashboard (UX-1)', () => {
     expect(container.querySelectorAll('figure.chart')).toHaveLength(3)
   })
 
-  it('heads the page with what you have, owe and are worth, in that order and of one size (D-301)', async () => {
+  it('heads the page with what you have, owe and are worth, then income and expenses, of one size (D-301, D-569)', async () => {
     stubApi(ON, [home])
     renderAt('/')
-    const headline = await screen.findByRole('region', { name: 'What you have and owe' })
+    const headline = await screen.findByRole('region', { name: 'Headline figures' })
     await within(headline).findByText('€145.50')
     const terms = within(headline).getAllByRole('term').map((t) => t.textContent)
-    expect(terms).toEqual(['You have', 'You owe', 'Net worth'])
+    expect(terms).toEqual(['You have', 'You owe', 'Net worth', 'Income', 'Expenses'])
     const [have, , worth] = within(headline).getAllByRole('definition')
     expect(have.textContent).toBe('€155.00')
     // "You have" isn't muted, and is the same element as net worth's, so never smaller.
@@ -160,16 +160,21 @@ describe('the dashboard (UX-1)', () => {
     expect(headline.textContent).toContain('Revaluation of balances')
   })
 
-  it('has no “Shared budget” card, and the period totals come from the table (D-300, D-305)', async () => {
+  it('has no “Shared budget” card, and the strip’s Income and Expenses come from the table (D-300, D-305, D-569)', async () => {
     stubApi(ON, [home])
     renderAt('/')
-    await screen.findByRole('table', { name: 'Cash flow in EUR' })
+    const table = await screen.findByRole('table', { name: 'Cash flow in EUR' })
     expect(screen.queryByRole('heading', { name: 'Shared budget' })).toBeNull()
     expect(screen.queryByText(/Nothing is open with the shared budget/)).toBeNull()
-    const income = screen.getAllByRole('term').find((t) => t.textContent === 'Income')!.nextElementSibling!
-    const expense = screen.getAllByRole('term').find((t) => t.textContent === 'Expenses')!.nextElementSibling!
-    const net = screen.getAllByRole('term').find((t) => t.textContent === 'Net')!.nextElementSibling!
-    expect([income.textContent, expense.textContent, net.textContent]).toEqual(['€1,000.00', '€67.00', '+€933.00'])
+    const headline = screen.getByRole('region', { name: 'Headline figures' })
+    const income = within(headline).getAllByRole('term').find((t) => t.textContent === 'Income')!.nextElementSibling!
+    const expense = within(headline).getAllByRole('term').find((t) => t.textContent === 'Expenses')!.nextElementSibling!
+    expect([income.textContent, expense.textContent]).toEqual(['€1,000.00', '€67.00'])
+    // The period's net stays the table's Net row only.
+    expect(within(headline).getAllByRole('term').map((t) => t.textContent)).not.toContain('Net')
+    expect(within(screen.getByRole('region', { name: /^Income and expenses/ })).queryAllByRole('term')).toEqual([])
+    expect(within(table).getByRole('rowheader', { name: 'Net' }).closest('tr')!.querySelector('td.amount')!.textContent)
+      .toBe('€933.00')
   })
 
   it('lists the family budgets in open loans: a debt, a budget that owes, the old shared account (D-299)', async () => {

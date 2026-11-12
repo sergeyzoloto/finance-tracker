@@ -18,7 +18,7 @@ test('export page', async ({ as, target }) => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Load demo data' }).click()
     await expect(page.getByText('Your ledger is empty. How would you like to start?')).toHaveCount(0, { timeout: 30_000 })
-    await expect(page.getByRole('region', { name: 'What you have and owe' }).getByText('Net worth')).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Headline figures' }).getByText('Net worth')).toBeVisible()
   }
 
   // Export is a part of Settings (D-437, D-438), reached through the user's menu.

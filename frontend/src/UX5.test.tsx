@@ -102,22 +102,25 @@ describe('income and expenses compared (UX-5)', () => {
     expect(screen.getByRole('heading', { name: 'Cash flow by category' })).toBeDefined()
   })
 
-  it('puts the changes under the totals, the previous period’s first (D-400)', async () => {
+  it('puts the changes under the strip’s Income and Expenses, the previous period’s first (D-400, D-569)', async () => {
     stubApi()
     renderAt('/?period=previous-month&currency=each')
-    const totals = await screen.findByLabelText('Totals in EUR')
+    const totals = await screen.findByLabelText('Headline figures in EUR')
+    await within(totals).findAllByText('vs Sep 2026', { exact: false })
     const changes = within(totals).getAllByRole('definition').filter((d) => d.className === 'changes').map((d) => d.textContent)
     expect(changes).toEqual([
       '0.0% vs Sep 2026 · +25.0% vs Oct 2025',
       `${minus}12.0% vs Sep 2026 · +10.0% vs Oct 2025`,
-      '+4.0% vs Sep 2026 · +30.0% vs Oct 2025',
     ])
-    // Expenses down is good, and coloured so; the net's first dd is still its amount.
+    // Expenses down is good, and coloured so.
     const expenses = within(totals).getAllByRole('term').find((t) => t.textContent === 'Expenses')!.parentElement!
     expect(expenses.querySelector('.changes .better')!.textContent).toBe(`${minus}12.0%`)
     expect(expenses.querySelector('.changes .worse')!.textContent).toBe('+10.0%')
-    const net = within(totals).getAllByRole('term').find((t) => t.textContent === 'Net')!
-    expect(net.nextElementSibling!.textContent).toBe('+€1,560.00')
+    // The net and its changes are the table's Net row's.
+    const table = screen.getByRole('table', { name: 'Cash flow in EUR' })
+    const net = within(table).getByRole('rowheader', { name: 'Net' }).closest('tr')!
+    expect(within(net).getAllByRole('cell').map((c) => c.textContent))
+      .toEqual(['€1,560.00', '€1,200.00', '+30.0%', '€1,500.00', '+4.0%'])
   })
 
   it('compares a running month to date and says so (D-396)', async () => {

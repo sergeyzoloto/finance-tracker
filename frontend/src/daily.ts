@@ -27,16 +27,18 @@ const nextDay = (iso: string) => {
 }
 
 /**
- * D-571's days: the section's days (D-396: the period, or From to today while it runs) when the period has at most 31
- * days; otherwise the calendar month of the section's last day, from the period's From if that is later and (D-574) to
- * the period's To if that is earlier, so that the panel never shows a day outside the period. Asked for up to today.
+ * D-571's days, as D-584 amends D-574: a period of at most 31 days shows its own days, From to To, those after today
+ * still to come (so a running month shows the whole month); a longer period shows the calendar month of the section's
+ * last day (D-396: To, or today while the period runs), from the period's From if that is later and to the period's
+ * To if that is earlier, so that the panel never shows a day outside the period. Asked from the first shown day to the
+ * earlier of the last and today; nothing when the first shown day is after today.
  */
 export function dailyRange(period: DayRange, section: DayRange, today: string): DailyRange {
   const own = daysBetween(period.from, period.to) + 1 <= DAILY_MAX_DAYS
   const monthStart = `${section.to.slice(0, 7)}-01`
-  const from = own || period.from > monthStart ? section.from : monthStart
   const monthEnd = endOfMonth(section.to)
-  const to = own ? section.to : period.to < monthEnd ? period.to : monthEnd
+  const from = own || period.from > monthStart ? period.from : monthStart
+  const to = own || period.to < monthEnd ? period.to : monthEnd
   const last = to < today ? to : today
   return {
     from, to,

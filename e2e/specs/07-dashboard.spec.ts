@@ -52,7 +52,8 @@ import {
 //    first across, then You have and You owe, then Income and Expenses); Income and Expenses equal to the table's
 //    totals; daily spending's slots one per day of the month, its days' expenses in `/api/reports/daily-cash-flow`'s
 //    answer adding up to Expenses, its biggest day as that answer gives it; "Personal" in "Show" changing the strip's
-//    figures, its line under them and the daily request's scope.
+//    figures, its line under them and the daily request's scope. Since D-584 also "This month", running: a slot per day
+//    of the month, those after today dashed, the days asked up to today adding up to Expenses.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -218,6 +219,7 @@ test('dashboard', async ({ as, family, target, watch }) => {
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 })
     for (const each of [false, true]) await expectStripAndDays(a, first, last, each, width)
+    await expectRunningMonth(a, day)
     await shot(page, 'dashboard-14-strip-each')
   }
   await expectShowChangesTheStrip(a)
@@ -815,4 +817,31 @@ async function expectShowChangesTheStrip({ page }: Session) {
   const total = table.locator('tr').filter({ has: page.getByRole('rowheader', { name: 'Total expenses', exact: true }) })
     .locator('td.amount').first()
   await expect(expenses).toHaveText((await total.textContent())!)
+}
+
+/**
+ * D-584 on the demo: "This month" while it runs shows every day of the month, those after today dashed and not asked;
+ * the days asked, from the 1st to today, add up to Expenses.
+ */
+async function expectRunningMonth({ page }: Session, day: string) {
+  const daily = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/reports/daily-cash-flow')
+  await page.goto('/?period=this-month')
+  const answer = await (await daily).json() as { currency: string; rows: DailyRow[] }
+  const url = new URL((await daily).url())
+  expect(url.searchParams.get('from')).toBe(`${day.slice(0, 8)}01`)
+  expect(url.searchParams.get('to'), 'asked up to today').toBe(day)
+  const [year, month] = day.split('-').map(Number)
+  const days = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const panel = page.locator(`section.daily[data-currency="${answer.currency}"]`)
+  await expect(panel.locator('.daily-day')).toHaveCount(days)
+  await expect(panel.locator('.daily-day.future'), 'the days after today').toHaveCount(days - Number(day.slice(8)))
+  await expect(page.locator('.stale')).toHaveCount(0)
+  const expenses = page.getByLabel(`Headline figures in ${answer.currency}`).locator('.figure.expense > dd').first()
+  await expect(expenses).not.toHaveText('…')
+  const own = answer.rows.filter((r) => r.categoryType === 'EXPENSE')
+  expect(own.every((r) => r.total !== null), 'every day converts').toBe(true)
+  const sum = own.reduce((a, r) => a + cents(r.total), 0n)
+  const shown = await expenses.textContent()
+  if (shown === '—') expect(sum).toBe(0n)
+  else expect(sum, 'the days asked add up to Expenses').toBe(cents(shown))
 }

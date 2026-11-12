@@ -31,14 +31,18 @@ describe('the days daily spending shows (D-571)', () => {
     return { from: range.from, to: range.to, asked: range.asked, title: plain(dailyTitle(range)) }
   }
 
-  it('shows a week’s days, and a running month’s days to today', () => {
+  it('shows a short period’s own days, a running one’s asked up to today (D-584)', () => {
     expect(shown('2026-11-02', '2026-11-08')).toEqual({ from: '2026-11-02', to: '2026-11-08',
       asked: { from: '2026-11-02', to: '2026-11-08' }, title: 'Daily spending, Nov 2 – 8, 2026' })
-    // A period of at most 31 days shows the section's days: while it runs, From to today (D-396).
-    expect(shown('2026-11-01', '2026-11-30')).toEqual({ from: '2026-11-01', to: '2026-11-12',
-      asked: { from: '2026-11-01', to: '2026-11-12' }, title: 'Daily spending, Nov 1 – 12, 2026' })
-    expect(shown('2026-11-09', '2026-11-15')).toEqual({ from: '2026-11-09', to: '2026-11-12',
-      asked: { from: '2026-11-09', to: '2026-11-12' }, title: 'Daily spending, Nov 9 – 12, 2026' })
+    // A running month: the whole month, asked up to today, its days after today to come.
+    expect(shown('2026-11-01', '2026-11-30')).toEqual({ from: '2026-11-01', to: '2026-11-30',
+      asked: { from: '2026-11-01', to: TODAY }, title: 'Daily spending, November 2026' })
+    // A running week.
+    expect(shown('2026-11-09', '2026-11-15')).toEqual({ from: '2026-11-09', to: '2026-11-15',
+      asked: { from: '2026-11-09', to: TODAY }, title: 'Daily spending, Nov 9 – 15, 2026' })
+    // A custom range of at most 31 days across months, running.
+    expect(shown('2026-10-20', '2026-11-15')).toEqual({ from: '2026-10-20', to: '2026-11-15',
+      asked: { from: '2026-10-20', to: TODAY }, title: 'Daily spending, Oct 20 – Nov 15, 2026' })
   })
 
   it('names a past calendar month by its month', () => {
@@ -68,8 +72,9 @@ describe('the days daily spending shows (D-571)', () => {
     // A long period that starts within its last month: from its From.
     expect(shown('2026-11-05', '2027-01-04')).toMatchObject({ from: '2026-11-05', to: '2026-11-30',
       asked: { from: '2026-11-05', to: TODAY } })
-    // Nothing has come yet: nothing to ask.
-    expect(shown('2026-12-01', '2026-12-31').asked).toBeNull()
+    // A period that starts after today: its own days, every one to come, nothing asked (D-584).
+    expect(shown('2026-12-01', '2026-12-31')).toEqual({ from: '2026-12-01', to: '2026-12-31', asked: null,
+      title: 'Daily spending, December 2026' })
   })
 
   it('marks the first day, today while the range runs, and the last day', () => {
@@ -360,12 +365,13 @@ describe('daily spending on the dashboard (D-571)', () => {
     expect(plain(usd.querySelector('.daily-biggest')!.textContent)).toBe('Biggest day: Oct 5, 2026, $20.00, Travel')
   })
 
-  it('asks a running month up to today, and a running quarter’s month with its days to come', async () => {
+  it('shows a running month’s and a running quarter’s month, asked up to today, its days to come (D-584)', async () => {
     stubApi()
     const { container } = renderAt('/?period=this-month')
-    await screen.findByRole('region', { name: /^Daily spending, Nov 1/ })
+    await screen.findByRole('region', { name: 'Daily spending, November 2026' })
     expect(calls).toContain('/api/reports/daily-cash-flow?from=2026-11-01&to=2026-11-12&currency=BASE')
-    await waitFor(() => expect(container.querySelectorAll('.daily-day')).toHaveLength(12))
+    await waitFor(() => expect(container.querySelectorAll('.daily-day')).toHaveLength(30))
+    expect(container.querySelectorAll('.daily-day.future')).toHaveLength(18)
     cleanup()
     stubApi()
     const quarter = renderAt('/?period=this-quarter')

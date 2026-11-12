@@ -3,6 +3,43 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-12 · UX-13's second commit: daily spending shows every day of a short period, D-584
+
+One commit on `feature/family-budget` on top of `15ca195` (UX-13's first), the commit of this entry, "fix: daily
+spending shows every day of a period of at most 31 days, D-584 (UX-13)". **Not pushed**; `main` not moved. Frontend,
+end-to-end spec, screenshots and docs only: no backend change, no migration. Production read only.
+
+**Changes**
+- D-584: `daily.ts`'s `dailyRange` shows a period of at most 31 days From to To, its days after today slots to come
+  (on Nov 12 the month of the latest entry is "Daily spending, November 2026", days 1 to 30, 18 dashed); the days
+  asked stay From to the earlier of To and today, none for a period that starts after today; longer periods as D-574,
+  cut at the period's To.
+- `UX13.test.tsx`: the rule for a running week and month, a past month and week, a custom range of at most 31 days
+  running and past, a period after today; the page's running month with 30 slots, 18 to come.
+- `07-dashboard`'s step 12: also "This month" running, a slot per day of the month, those after today dashed, the
+  days asked from the 1st to today adding up to Expenses; `e2e/README.md`.
+- `frontend/src/assets/demo-dashboard.webp` retaken (1092 × 618, Blue; its demo month runs, so the panel shows
+  November's 30 days), its alt text in `Landing.tsx`.
+- `requirements.md`: D-584 and the "Amended" line; CLAUDE.md: the panel's days and step 12; `deploy/RUNBOOK.md`,
+  UX-13's checklist: M this commit, two commits from `79125a8` (`15ca195` and M), its parent `15ca195`.
+
+**Verified**
+- `cd frontend && npm test`: exit 0, `Test Files 51 passed (51)`, `Tests 695 passed (695)`, no Errors line.
+- `cd frontend && npm run build`: exit 0. `cd e2e && npx tsc --noEmit`: exit 0.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node 24): exit 0, every spec passed at 1280 and 375 px (`pages` (2
+  tests), `smoke`, `family F7`, `family F8`, `export`, `family F8d`, `import`, `member-import`, `new-family`,
+  `time-zone` (2 tests), `dashboard`, `new-entry`, `payees`, `themes`, `entries`, `accounts`), sign-in and cleanup
+  passed, both accounts' data deleted and signed out, `Password search over the artifacts: 0 hits`, `Result: PASSED`;
+  `Commit:` `15ca195` `(TREE NOT CLEAN)`, this change uncommitted.
+- `cd e2e && npm run test:guards`, alone, after the local suite (D-517): exit 0, `tests 37`, `pass 37`, `fail 0`.
+- The backend not run: no file of it changed (`git diff --name-only` against `15ca195`).
+- Screenshots: the dashboard ones in `data/private/ui/UX-13/` retaken in Blue, Light and Dark at 1280 and 375 px
+  (`SCREENS=dashboard`), its `index.md` updated; the other screens stay the first commit's.
+
+**Open**
+- The PM's review and acceptance; the push, and the deploy by "UX-13's deploy checklist with the suite" (M this
+  commit).
+
 ## 2026-11-12 · UX-13: the dashboard's headline strip and daily spending, a daily report, UX-12's deploy recorded, three small fixes, D-567 to D-583
 
 One commit on `feature/family-budget` on top of `79125a8` (UX-12), the commit of this entry, "feat: the dashboard's

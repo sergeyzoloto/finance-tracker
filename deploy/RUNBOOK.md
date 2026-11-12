@@ -1665,8 +1665,9 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
 
 ## UX-13's deploy checklist with the suite
 
-**Commit to deploy (M):** `feature/family-budget`'s head after UX-13, its one commit (subject ending "(UX-13)"), the
-commit the PM names in full once UX-13 is accepted. M holds this checklist, so the checklist can't name M's hash
+**Commit to deploy (M):** `feature/family-budget`'s head after UX-13's second commit (D-584, subject ending
+"(UX-13)"), on top of its first, `15ca195106681eace2e835758a76cfefa048dac7`; the commit the PM names in full once
+UX-13 is accepted. M holds this checklist, so the checklist can't name M's hash
 itself: every block below that takes it says `<M>`; type M's full hash (40 characters) there before pasting the block
 (D-226). Pasted as it is, bash reads `<M>` as a redirection and runs nothing of the line. **Stage:** `UX-13`
 (`deploy/checks/UX-13.sql` and `UX-13.expected`, 12 lines, structure and invariants only: UX-12's 11 and one more the
@@ -1676,7 +1677,8 @@ settlement, no record with another ledger's category, no categorized posting out
 posting's counterparty of another ledger than the entry's, no unbalanced entry; no count that an import, a user or a
 member's switch changes; tried on production's dump `finance-2026-11-12T1636Z.dump`, UX-12's after-dump, at V17).
 UX-13 is the dashboard's headline strip of five figures (D-569: You have, You owe, Net worth, Income, Expenses) and
-its daily spending beside the chart (D-571), with the read-only report `GET /api/reports/daily-cash-flow` (D-570);
+its daily spending beside the chart (D-571, D-584: a period of at most 31 days shows its own days, those after today
+dashed), with the read-only report `GET /api/reports/daily-cash-flow` (D-570);
 D-568's three small fixes (a doc comment, `UX-12.sql`'s header comment, Entries' "Payee or person" with a `payee=` in
 another case); the landing page's dashboard screenshot (D-572); and UX-12's deploy recorded (D-567). **No
 migration**; the api changes (one read-only report) and the web changes: no stored entry, record, amount, report's
@@ -1684,7 +1686,8 @@ figure, import or export changed. **The switch:** on (`FAMILY_LEDGERS_ENABLED=tr
 before, during and after. **The suite:** from a clean checkout of M, with `E2E_FAMILY=on`; it replaces the browser
 checks and the smoke test (D-51, D-56); `dashboard`'s step 12 checks the strip's five figures in their order and
 layout at 1280 and 375 px, Income and Expenses against the table's totals, daily spending's slots, its days against
-`/api/reports/daily-cash-flow`'s answer adding up to Expenses for a month, and "Show" changing both. **The rollback
+`/api/reports/daily-cash-flow`'s answer adding up to Expenses for a month, and "Show" changing both, and "This month" running, a slot per day of the month with those after today dashed
+(D-584). **The rollback
 target:** `79125a8` (UX-12's code) on V17, with no condition of its own: the same schema, and UX-13 writes no row.
 **The time (D-125):** no step between 03:30 and 04:30 UTC; the last block (a rollback for a site that is down) is the
 exception. This checklist is for this deploy only.
@@ -1709,7 +1712,7 @@ What runs and why:
 - `run` is the clone's script, `79125a8`'s (bash reads it, with `common.sh`, before the merge): its step 1.1 refuses a
   scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-126, D-128, D-131); its gate
   (1.5) counts only the check runs of `ci.yml`'s runs (D-280). Step 1.3 requires M to be `origin/main` after `git
-  fetch` and a fast-forward of `HEAD` (`79125a8`), lists the commits from `79125a8` to M (one: UX-13's),
+  fetch` and a fast-forward of `HEAD` (`79125a8`), lists the commits from `79125a8` to M (two: `15ca195`, UX-13's first, and M),
   `Migrations added: none`, and under `deploy/` four files: `RUNBOOK.md`, `checks/UX-12.sql` (D-568: its header
   comment only), `checks/UX-13.expected` and `checks/UX-13.sql`. `finance.caddy`, the postgres service and
   `pg-backup/finance.conf` don't change.
@@ -1735,8 +1738,8 @@ cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 -
 
 You should see `HEAD` M with UX-13's subject (on `feature/family-budget`); `origin/main`
 `79125a83167b10b6751032206b430468f5ee3185` (UX-12); `origin/feature/family-budget` M if UX-13 is pushed, else
-`79125a83167b10b6751032206b430468f5ee3185` too; the commits of `origin/main..feature/family-budget`, one: M (any other: the PM restates this checklist's
-commits); `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any line of `git status`: stop
+`79125a83167b10b6751032206b430468f5ee3185` too; the commits of `origin/main..feature/family-budget`, two: M and `15ca195` (UX-13's first) below it (any
+other: the PM restates this checklist's commits); `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any line of `git status`: stop
 and tell the PM.
 
 **1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted UX-13
@@ -1749,7 +1752,7 @@ cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git
 
 You should see `Updating 79125a8..<M's 7 characters>` and `Fast-forward` for the merge (or `Already up to date.` if
 `main` is at M already), the push of both branches (or `Everything up-to-date`), and M in full with its parent
-(`79125a83167b10b6751032206b430468f5ee3185`) and UX-13's subject. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the PM. `Not
+(`15ca195106681eace2e835758a76cfefa048dac7`) and its subject. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the PM. `Not
 possible to fast-forward`, or another hash: stop.
 
 CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about fifteen minutes). First the
@@ -1863,7 +1866,7 @@ It prints ("Deploying with deploy.sh" lists the steps):
   here).
 - 1.2: `HEAD: 79125a8 docs: UX-8's to UX-11's deploys recorded, …`, the running images, `Last good deploy: 79125a8 … (deploy)`,
   status `good`, both images "the recorded image", the read-only role's line.
-- 1.3: the fetch; the commits from `79125a8` to M, one: M; `Migrations added: none`; under `deploy/`:
+- 1.3: the fetch; the commits from `79125a8` to M, two: `15ca195` and M; `Migrations added: none`; under `deploy/`:
   `RUNBOOK.md`, `checks/UX-12.sql`, `checks/UX-13.expected`, `checks/UX-13.sql`.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`, CI's own only (D-280). 1.6: the UX-13
@@ -1908,7 +1911,8 @@ opens at "Month of the latest entry" and keeps "This month" by name, and its ste
 UX-13 its step 12 on the demo's previous month, in the base currency and in each currency, at 1280 and 375 px: the
 strip's five figures in their order and layout, Income and Expenses equal to the table's totals, daily spending a slot
 per day, its days in `/api/reports/daily-cash-flow`'s answer adding up to Expenses and its biggest day as that answer
-gives it, and "Personal" in "Show" changing the strip and the daily request, D-569, D-571),
+gives it, and "Personal" in "Show" changing the strip and the daily request, D-569, D-571; and "This month" running, a slot per
+day of the month, those after today dashed, the days asked adding up to Expenses, D-584),
 `new-entry passed` (UX-8), `payees passed` (UX-9; since UX-11 B's share on Entries names A's payee while A shows it,
 "—" otherwise, and the text search finds it only then, D-523; since UX-12 B's "Payee or person" lists A's payee with
 the budget's name only while shown, choosing it lists B's share and the summary counts it, and on a record B pays a

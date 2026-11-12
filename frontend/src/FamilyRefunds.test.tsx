@@ -200,7 +200,8 @@ describe('an account that requires a counterparty, and the payee (D-80, D-81)', 
     await waitFor(() => expect(within(counterparty).getAllByRole('option').map((o) => o.textContent))
       .toEqual(['Choose a counterparty', 'Albert Heijn', 'Employer', 'Ivan']))
     fireEvent.change(counterparty, { target: { value: '22' } })
-    await choose(/^Payee/, '21')
+    // The payee by name since UX-12 (D-549): a counterparty of the user's goes as its id.
+    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: 'albert heijn' } })
     expect(add()).toHaveProperty('disabled', false)
     fireEvent.click(add())
 
@@ -268,6 +269,7 @@ describe('an account that requires a counterparty, and the payee (D-80, D-81)', 
 
     const save = await screen.findByRole('button', { name: 'Save the changes' })
     await waitFor(() => expect(screen.getByLabelText(/^Counterparty/)).toHaveProperty('value', '22'))
+    expect(screen.getByLabelText(/^Payee/)).toHaveProperty('value', 'Albert Heijn')
     expect(save).toHaveProperty('disabled', true)
     fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: '' } })
     expect(save).toHaveProperty('disabled', false)
@@ -281,7 +283,7 @@ describe('an account that requires a counterparty, and the payee (D-80, D-81)', 
     renderApp('/family/7/expenses/5')
     await waitFor(() => expect(screen.getByLabelText(/^Counterparty/)).toHaveProperty('value', '22'))
     fireEvent.change(screen.getByLabelText(/^Counterparty/), { target: { value: '23' } })
-    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: '22' } })
+    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: 'Ivan' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save the changes' }))
     await waitFor(() => expect(again.some((c) => c.method === 'PATCH')).toBe(true))
     expect(again.find((c) => c.method === 'PATCH')!.body).toEqual({ paymentCounterpartyId: 23, payeeId: 22 })

@@ -317,7 +317,7 @@ describe('the payer’s own payment entry', () => {
     await screen.findByText('Groceries, €10.01, shared by Anna, Sam.')
     // The account's counterparty is required, and both are the user's own.
     await waitFor(() => expect(screen.getByLabelText(/^Counterparty/)).toHaveProperty('value', '22'))
-    expect(screen.getByLabelText(/^Payee/)).toHaveProperty('value', '21')
+    expect(screen.getByLabelText(/^Payee/)).toHaveProperty('value', 'Albert Heijn')
     const save = screen.getByRole('button', { name: 'Save' })
     expect(save).toHaveProperty('disabled', true)
     fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: '' } })

@@ -5,13 +5,14 @@ import { SharedMark } from './CashFlowTable'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
 import DateInput from './DateInput'
 import { summaryTexts } from './entrySummary'
+import { payeeFilterOf, payeeFilterOptions, payeeFilterValue, useFamilyPayees } from './familyPayees'
 import { describeEntry, entryKindLabel, kindLabel, useLedger } from './ledger'
 import { useToday } from './me'
 import { formatMoney, negate } from './money'
 import { PERIOD_LABELS, presetNamed, presetRange, PRESETS, useLatestEntryDay, type Preset } from './periods'
 
 const PAGE_SIZE = 50
-const FILTERS = ['from', 'to', 'accountId', 'categoryId', 'counterpartyId', 'q'] as const
+const FILTERS = ['from', 'to', 'accountId', 'categoryId', 'counterpartyId', 'payee', 'q'] as const
 type Filter = (typeof FILTERS)[number]
 
 /**
@@ -50,6 +51,8 @@ export default function Entries() {
     filter.from = ''
     filter.to = ''
   }
+  // One of the two payee filters (D-547): a counterparty wins when, by hand, the URL has both (D-556).
+  if (filter.counterpartyId !== '') filter.payee = ''
   // No request for another month before the latest entry's is known.
   const waiting = period === 'latest-entry-month' && latest.day === undefined
 
@@ -90,6 +93,7 @@ export default function Entries() {
   })
 
   const filtered = FILTERS.some((f) => filter[f] !== '')
+  const familyPayees = useFamilyPayees()
   const texts = summary.data && summaryTexts(summary.data)
   const open = (id: number) => navigate(`/entries/${id}`, { state: { from: location.pathname + location.search } })
   const data = entries.data
@@ -127,10 +131,11 @@ export default function Entries() {
             </label>
             <label>
               Payee or person{' '}
-              <select value={filter.counterpartyId} onChange={(e) => setFilter({ counterpartyId: e.target.value })}>
+              <select value={payeeFilterValue(filter.counterpartyId, filter.payee)}
+                onChange={(e) => setFilter(payeeFilterOf(e.target.value))}>
                 <option value="">Anyone</option>
-                {ledger.counterparties.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}{c.archived ? ' (archived)' : ''}</option>
+                {payeeFilterOptions(ledger.counterparties, familyPayees, filter.payee).map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
             </label>

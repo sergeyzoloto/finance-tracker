@@ -12,13 +12,18 @@ import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave } fr
 //    doesn't.
 //    Since UX-11 (D-523), in steps 2 to 4 B's Entries also shows the payee on B's share while A shows payees, and "—"
 //    otherwise; the text search finds the share by it, then doesn't.
+//    Since UX-12 (D-547), B's "Payee or person" lists A's payee with the budget's name while A shows payees, and choosing
+//    it lists B's share, which the summary row counts; hidden, it isn't listed.
 // 5. A's Entries shows the payment with its record's category, the kind and the budget under it (D-477).
 // 6. At 375 px (local-narrow): the Settings section and that Entries row, with nothing scrolling sideways.
+// 6b. UX-12 (D-549): A shows payees again; on a record B pays, a payee typed for the first time is saved and becomes B's
+//    counterparty, and A's payee, chosen from the field's suggestions, becomes B's too.
 // 7. B leaves, then A, which deletes the budget; Delete all my data for both.
 
 const BUDGET = 'UX-9 check'
 const PAYEE = 'Odido UX9'
 const LABEL = 'Show the other members where I paid'
+const B_PAYEE = 'Bakker UX12'
 
 test('payees a member chooses to show', async ({ as, family, target, watch }) => {
   test.skip(family === 'off', 'The family budget is switched off (E2E_FAMILY=off).')
@@ -102,6 +107,33 @@ test('payees a member chooses to show', async ({ as, family, target, watch }) =>
   await expect(a.page.locator('tr').filter({ hasText: 'Family payment' })).toHaveCount(1)
   await expect(a.page.locator('tr').filter({ hasText: 'Family share' })).toHaveCount(1)
 
+  // 6b. B's own record: a new payee typed, then A's payee from the suggestions; both become B's counterparties.
+  await a.page.goto(`${budget}/settings`)
+  await answer(a.page, true, () => box.click())
+  await expect(a.page.getByText('Saved.')).toBeVisible()
+  await expect(box).toBeChecked()
+  await b.page.goto(`${budget}/expenses/new`)
+  await b.page.getByLabel('Category').selectOption({ label: 'Groceries' })
+  await b.page.getByLabel(/^Amount \(/).fill('4.00')
+  await b.page.getByLabel(/^Paid from/).selectOption({ label: 'Current account' })
+  const bPayee = b.page.getByLabel(/^Payee/)
+  await bPayee.fill(B_PAYEE)
+  await expect(b.page.getByText('New payee: it is added when you save.')).toBeVisible()
+  await b.page.getByRole('button', { name: 'Add the expense' }).click()
+  await expect(b.page.getByRole('heading', { name: /^Groceries, / })).toBeVisible()
+  await expect(fact(b.page, 'Payee')).toHaveText(`${B_PAYEE}Only you see it.`)
+  await expect(bPayee).toHaveValue(B_PAYEE)
+  expect(await counterpartiesOf(b)).toEqual([B_PAYEE])
+  // A's payee is among the suggestions, and saved becomes B's own counterparty.
+  const list = await bPayee.getAttribute('list')
+  await expect(b.page.locator(`datalist[id="${list}"] option[value="${PAYEE}"]`)).toHaveCount(1)
+  await bPayee.fill(PAYEE)
+  await expect(b.page.getByText('New payee: it is added when you save.')).toBeVisible()
+  await shot(b.page, 'ux12-01-record-payee')
+  await b.page.getByRole('button', { name: 'Save the changes' }).click()
+  await expect(fact(b.page, 'Payee')).toHaveText(`${PAYEE}Only you see it.`)
+  expect(await counterpartiesOf(b)).toEqual([B_PAYEE, PAYEE].sort((x, y) => x.localeCompare(y)))
+
   // 7. B leaves, then A, which deletes the budget; Delete all my data for both.
   expectReloadAfterLeaving(watch, ledgerId)
   await leave(b, budget, BUDGET, 'Leave the family budget', null, 'ux9')
@@ -145,6 +177,33 @@ async function bsShare(page: Page, shown: boolean) {
   } else {
     await expect(page.getByText('No entries match these filters.')).toBeVisible()
   }
+  // UX-12 (D-547): "Payee or person" lists the payee with its budget's name only while it is shown.
+  await page.goto('/entries')
+  const select = page.getByLabel('Payee or person')
+  const option = select.locator('option').filter({ hasText: `${PAYEE} · ${BUDGET}` })
+  if (!shown) {
+    await expect(select.locator('option').filter({ hasText: PAYEE })).toHaveCount(0)
+    return
+  }
+  await expect(option).toHaveCount(1)
+  await select.selectOption({ label: `${PAYEE} · ${BUDGET}` })
+  await expect(page).toHaveURL(/[?&]payee=/)
+  expect(new URL(page.url()).searchParams.get('payee')).toBe(PAYEE)
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('Family share')
+  const summary = page.getByRole('rowgroup', { name: 'Summary of all matching entries' })
+  await expect(summary).not.toHaveClass(/stale/)
+  await expect(summary.locator('td.sum-date')).toContainText('1 entry · ')
+  await expect(summary.locator('td.sum-payee')).toContainText('1 payee')
+  await expect(summary.locator('td.sum-payee')).not.toContainText('without')
+  await shot(page, 'ux12-02-entries-family-payee')
+}
+
+/** The names of the account's counterparties, sorted. */
+async function counterpartiesOf({ context }: { context: import('@playwright/test').BrowserContext }) {
+  const response = await context.request.get('/api/counterparties')
+  expect(response.status()).toBe(200)
+  return ((await response.json()) as { name: string }[]).map((c) => c.name).sort((x, y) => x.localeCompare(y))
 }
 
 /** Clicks, answers the confirmation that follows, and gives its question. */

@@ -242,6 +242,8 @@ form.add { align-items: end; }
 td.actions { width: 1%; }
 td button, td .button { padding: 0.1rem 0.5rem; font-size: 0.9em; }
 table.accounts td, table.accounts th { vertical-align: middle; }
+/* A category's name on the line of its buttons, on Categories and a family budget's categories (UX-12, D-552). */
+table.categories td { vertical-align: middle; }
 /* One table for the three types (UX-11, D-525): the browser sizes the columns once, so they line up. */
 table.accounts { width: 100%; }
 table.accounts > tbody.account-type > tr.type-head > th { text-align: left; font-weight: normal; padding-top: 1.25rem; }
@@ -534,8 +536,19 @@ ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: any
   table.accounts > tbody > tr.type-head > th { display: block; flex-basis: 100%; border: none; padding: 1rem 0 0; }
   table.accounts > tbody > tr.type-total > th { display: block; border: none; padding: 0; }
   table.accounts > tbody > tr.type-total > td { border: none; }
-  /* While comparing, each figure names its column (D-526). */
-  table.accounts.compared td[data-label] { flex: 1 1 40%; margin-left: 0; text-align: left; }
+  /* While comparing, each figure names its column (D-526), and (UX-12, D-552) an account's, a total's and a person's
+     figures stand under its name in two columns: the earlier and the later day's balance, then Change and %. */
+  table.accounts.compared > tbody > tr, table.accounts.compared > tfoot > tr,
+  table.accounts.compared table.nested > tbody > tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.3rem 0.75rem; align-items: baseline; }
+  table.accounts.compared > tbody > tr > :not([data-label]), table.accounts.compared > tfoot > tr > :not([data-label]),
+  table.accounts.compared table.nested > tbody > tr > :not([data-label]) { grid-column: 1 / -1; }
+  table.accounts.compared > tbody > tr > td:empty { display: none; }
+  table.accounts.compared table.nested, table.accounts.compared table.nested > tbody { display: block; }
+  table.accounts.compared table.nested > thead { display: none; }
+  table.accounts.compared table.nested > tbody > tr { padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
+  table.accounts.compared table.nested > tbody > tr > td { display: block; border: none; padding: 0; }
+  table.accounts.compared td[data-label] { margin-left: 0; text-align: left; }
   table.accounts.compared td[data-label]::before { content: attr(data-label); display: block; font-size: 12px;
     font-weight: normal; color: var(--muted); }
 }

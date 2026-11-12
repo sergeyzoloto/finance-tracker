@@ -135,8 +135,20 @@ public final class Answers {
      * in "51.500757". Dates, timestamps, UUIDs and hashes contribute nothing.
      */
     public static List<String> numbers(JsonNode answer) {
+        return numbers(answer, name -> true);
+    }
+
+    /**
+     * As {@link #numbers(JsonNode)}, of the leaves whose field's name passes {@code field} only (an array's elements
+     * count as their array's field; a leaf at the top has none, null), such as the fields that name an account (UX-12, D-555): ids of different tables
+     * come from different sequences and may be equal.
+     */
+    public static List<String> numbers(JsonNode answer, java.util.function.Predicate<String> field) {
         List<String> numbers = new ArrayList<>();
         walk(answer, null, (name, leaf) -> {
+            if (!field.test(name)) {
+                return;
+            }
             String text = leaf.asText();
             if (leaf.isNumber()) {
                 numbers.add(text);

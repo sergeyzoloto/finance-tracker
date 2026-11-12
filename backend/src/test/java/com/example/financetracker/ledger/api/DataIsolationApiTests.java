@@ -76,6 +76,9 @@ class DataIsolationApiTests extends LedgerApiTest {
             // UX-11 (D-524): the list's summary, unfiltered and filtered.
             "/api/entries/summary",
             "/api/entries/summary" + AUGUST + "&q=shop",
+            // UX-12 (D-548): the payee filter on the list and its summary.
+            "/api/entries?payee=alice's LANDLORD",
+            "/api/entries/summary?payee=alice's LANDLORD",
             "/api/reports/balances" + AS_OF,
             "/api/reports/balances" + AS_OF + "&currency=BASE",
             "/api/reports/cash-flow" + AUGUST,
@@ -839,7 +842,7 @@ class DataIsolationApiTests extends LedgerApiTest {
 
         List<String> reads = List.of(inA + "/records", record, inA + "/journal", inA + "/balances", inA + "/members",
                 inA, inA + "/report?from=2026-08-01&to=2026-08-31", "/api/entries?size=200",
-                "/api/entries/matches?type=EXPENSE&categoryId=" + groceriesInA);
+                "/api/entries/matches?type=EXPENSE&categoryId=" + groceriesInA, "/api/entries/family-payees");
         for (String read : reads) {
             JsonNode bobs = bobReads(read);
             Answers.assertNoneMention(read, bobs, payee);
@@ -901,6 +904,17 @@ class DataIsolationApiTests extends LedgerApiTest {
         }
         assertThat(named).containsExactly("SHARE " + payee);
         Answers.assertNoneMention(bobsEntries, payee);
+        // UX-12 (D-548): his family payees name it with A alone, and its name finds his share; Carol's list stays
+        // empty, Alice hiding it in B.
+        JsonNode bobsPayees = bobReads("/api/entries/family-payees");
+        assertThat(bobsPayees).singleElement().satisfies(p -> {
+            assertThat(p.get("name").asText()).isEqualTo(payee);
+            assertThat(p.get("budgets")).singleElement()
+                    .satisfies(b -> assertThat(b.get("id").asLong()).isEqualTo(familyA));
+        });
+        assertThat(bobReads("/api/entries?payee=" + payee).get("totalElements").asLong())
+                .isOne();
+        assertThat(ok(get(carol, "/api/entries/family-payees"))).isEmpty();
         assertThat(Answers.csv(bobsRequest(HttpMethod.GET, "/api/export/transactions", null))).isEqualTo(bobsFile);
         // Carol, of B only: nothing in B, where Alice hides it, and A is a missing ledger to her.
         Answers.assertNoneMention(ok(get(carol, trip)), payee);
@@ -1685,8 +1699,11 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .containsExactly(String.valueOf(bobsEntry));
         assertThat(bobs.get("entriesAfterReturn").get(0).get("memo").asText()).isEqualTo("BOB_AFTER_RETURN");
         Answers.assertNoneMention(bobs, "ALICE_", alice, "@example.com");
-        // Her account's id as a number of its own: the digits inside another value (a timestamp's microseconds) aren't it.
-        assertThat(Answers.numbers(bobs)).doesNotContain(String.valueOf(alicesBank));
+        // Her account's id as a number of its own: the digits inside another value (a timestamp's microseconds) aren't it,
+        // nor (UX-12, D-555) an id of another table, a category's or a member's, which may equal it in the shared
+        // database: only a field that names an account could hold it.
+        assertThat(Answers.numbers(bobs, name -> name != null && name.toLowerCase(java.util.Locale.ROOT)
+                .contains("account"))).doesNotContain(String.valueOf(alicesBank));
         String memberships = membershipsBut(-1);
         MvcTestResult refused = bobsRequest(() -> inviteCall(bob, "accept",
                 "{\"token\": \"%s\", \"displayName\": \"Dad\", \"categoryIds\": []}".formatted(backToA)));

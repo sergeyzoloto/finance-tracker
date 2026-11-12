@@ -301,7 +301,8 @@ describe('an expense’s page', () => {
     // The payment's fields change here now (F4c): no advice to delete and enter it again.
     expect(screen.queryByText(/delete the expense and enter it again/)).toBeNull()
     // The account comes with the record, for the payer only: no search of the day's entries.
-    expect(calls.some((c) => c.url.startsWith('/api/entries'))).toBe(false)
+    // The payee field's suggestions (UX-12, D-549) are no search of entries.
+    expect(calls.some((c) => c.url.startsWith('/api/entries') && c.url !== '/api/entries/family-payees')).toBe(false)
   })
 
   it('shows “Specify later” to the payer, and no account to anyone else', async () => {

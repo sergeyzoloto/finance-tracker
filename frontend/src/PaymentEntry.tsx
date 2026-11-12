@@ -1,14 +1,15 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { api, ApiError, formatDate, sentence, useApi, type Entry, type FamilyRecord } from './api'
+import { api, ApiError, formatDate, sentence, useApi, type Counterparty, type Entry, type FamilyRecord } from './api'
 import { AccountSelect, Errors, Field } from './components'
 import DateInput from './DateInput'
 import { paymentAccounts } from './expenseForm'
 import { newPayingSide, sidePatch, type PayingSideForm } from './currency'
 import { CounterpartyFields } from './FamilyCounterparties'
+import { payeeChange, payeeIdFor } from './familyPayees'
 import { PayingSideFields } from './FamilyCurrency'
 import { RECORD_NOUNS } from './family'
-import { accountById, type Ledger } from './ledger'
+import { accountById, counterpartyById, type Ledger } from './ledger'
 import { fromMinor, parseMinor, toMinor } from './minorUnits'
 import { formatMoney, signOf } from './money'
 
@@ -99,9 +100,12 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted, payees
   const [paying, setPaying] = useState<PayingSideForm>(newPayingSide)
   const [memo, setMemo] = useState(entry.memo ?? '')
   const initialCounterparty = String(side.counterpartyId ?? '')
-  const initialPayee = String(entry.payeeId ?? '')
+  // The payee by name (D-549).
+  const initialPayee = counterpartyById(ledger, entry.payeeId)?.name ?? ''
   const [counterpartyId, setCounterpartyId] = useState(initialCounterparty)
-  const [payeeId, setPayeeId] = useState(initialPayee)
+  const [payee, setPayee] = useState(initialPayee)
+  // Counterparties this form created, for a second save before the list reloads (D-462).
+  const createdPayees = useRef<Counterparty[]>([])
   const [failure, setFailure] = useState<Error>()
   const [busy, setBusy] = useState(false)
 
@@ -126,9 +130,12 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted, payees
     // The counterparty goes with an account that requires one, new or changed (D-80); the payee alone (D-81).
     ...(needsCounterparty && counterpartyId !== '' && (accountChanged || counterpartyId !== initialCounterparty)
       ? { counterpartyId: Number(counterpartyId) } : {}),
-    ...(!settlement && payeeId !== initialPayee ? { payeeId: payeeId === '' ? null : Number(payeeId) } : {}),
   }
-  const changed = Object.keys(patch).length > 0
+  const payeeChanges = settlement ? { kind: 'keep' as const }
+    : payeeChange(payee, initialPayee, [...ledger.counterparties, ...createdPayees.current])
+  if (payeeChanges.kind === 'remove') patch.payeeId = null
+  if (payeeChanges.kind === 'id') patch.payeeId = payeeChanges.id
+  const changed = Object.keys(patch).length > 0 || payeeChanges.kind === 'create'
   const ready = changed && date !== '' && 'minor' in parsed && !busy && !('problem' in paid)
     && (!needsCounterparty || counterpartyId !== '')
   // The accounts the backend takes, and the one it has, archived or not.
@@ -156,7 +163,11 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted, payees
     event.preventDefault()
     if (!ready) return
     void run(async () => {
-      await api(`/entries/${entry.id}/family-payment?version=${entry.version}`, 'PATCH', patch)
+      // A name no counterparty of the user's has becomes one first (D-549).
+      const payeeId = payeeChanges.kind === 'create'
+        ? await payeeIdFor(payee, initialPayee, ledger.counterparties, createdPayees.current) : undefined
+      await api(`/entries/${entry.id}/family-payment?version=${entry.version}`, 'PATCH',
+        payeeId === undefined ? patch : { ...patch, payeeId })
       onSaved()
     })
   }
@@ -227,7 +238,7 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted, payees
           </Field>
           {!settlement && (
             <CounterpartyFields account={chosen} counterparties={ledger.counterparties} counterpartyId={counterpartyId}
-              payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee
+              payee={payee} onCounterparty={setCounterpartyId} onPayee={setPayee} showPayee
               payeesShown={payeesShown} errors={problems.counterparty} />
           )}
           {settlement && <Errors messages={problems.counterparty} />}

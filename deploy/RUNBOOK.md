@@ -1639,6 +1639,346 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
 
+## UX-12's deploy checklist with the suite
+
+**Commit to deploy (M):** `feature/family-budget`'s head after UX-12 and the PM's record of UX-8's to UX-11's deploys
+(D-546: UX-12's second commit), the commit the PM names in full. M holds
+this checklist, so the checklist can't name M's hash itself: every block below that takes it says `<M>`; type M's full
+hash (40 characters) there before pasting the block (D-226). Pasted as it is, bash reads `<M>` as a redirection and
+runs nothing of the line. **Stage:** `UX-12` (`deploy/checks/UX-12.sql` and `UX-12.expected`, 11 lines, structure and
+invariants only, UX-11's checks and two more (D-561): Flyway V17, the column `ledger_member.shows_payees`, its check
+and its trigger, no PAYMENT link outside its member's personal ledger or of a settlement, no record with another
+ledger's category, no categorized posting outside equity, no entry's payee and no posting's counterparty of another
+ledger than the entry's, no unbalanced entry; no count that an import, a user or a member's switch changes; tried on
+production's dump of 2026-11-11, migrated to V17). UX-12 is every payee the page can show in Entries' "Payee or
+person" (D-547), with the read-only `GET /api/entries/family-payees` and a `payee` filter on the list and its summary
+(D-548); the family forms' payee typed freely with suggestions, a new name becoming the user's counterparty on save
+(D-549); New entry's payee suggesting family payees (D-550); `npm audit fix` in `frontend/` (D-551, the web image's
+build tools only: vite 8.3.8, vitest 5.1.0); and two layout fixes, Accounts compared under 40rem and Categories
+(D-552). **No migration**; the api changes (one read-only endpoint, one more filter) and the web changes: no stored
+entry, record, amount, report's figure, import or export changed, nobody sees a payee they didn't. **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before,
+during and after. **The suite:** from a clean checkout of M, with `E2E_FAMILY=on`; it replaces the browser checks and
+the smoke test (D-51, D-56); `payees` checks B's "Payee or person" listing A's shown payee and, on a record B pays, a
+payee typed and one chosen from the suggestions becoming B's counterparties; `entries` a payee filter by name and
+each category's name centred on its buttons; `family F8d` its payee typed. **The rollback target:** `136e5c2`
+(UX-11's code) on V17, with no condition of its own: the same schema, and UX-12 writes no row. **The time (D-125):** no
+step between 03:30 and 04:30 UTC; the last block (a rollback for a site that is down) is the exception. This checklist
+is for this deploy only.
+
+**When.** At any time the PM chooses, once UX-11's deploy is done and finished (D-519: this checklist assumes production
+runs `136e5c2` on V17 with `finish=passed`, 2026-11-12T12:57:22Z). November's step 12 is rehearsed on the code
+production runs then (D-220). UX-12 changes nothing of the import or the export, so a rehearsal on `136e5c2` holds for
+M.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt (`root@auth-1:…#` on the server, yours on the laptop) has returned. A server block starts with
+`cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` … `}`, so that pasted on the laptop it
+does nothing; a laptop block starts with `cd ~/dev/finance-tracker &&` (or `cd ~/dev/finance-tracker/e2e &&`), or is
+wrapped in `cd ~/dev/finance-tracker && {` … `}`, so that pasted on the server it does nothing (D-330, D-334). A
+command that asks a question (`deploy.sh run`, `finish`, `rollback.sh`, and on the laptop `npm run e2e:prod`) is alone
+in its block; type its answer on the keyboard, after the question, never paste it. Every laptop git command that can
+page runs as `git --no-pager`, and a dirty tree stops a chain (`test -z "$(git status --porcelain)"`), D-127. Each step
+closes with its output pasted, never a confirmation in words (D-222). Don't start "CI on Ubuntu 26.04" before step 9.
+
+What runs and why:
+
+- `run` is the clone's script, `136e5c2`'s (bash reads it, with `common.sh`, before the merge): its step 1.1 refuses a
+  scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-126, D-128, D-131); its gate
+  (1.5) counts only the check runs of `ci.yml`'s runs (D-280). Step 1.3 requires M to be `origin/main` after `git
+  fetch` and a fast-forward of `HEAD` (`136e5c2`), lists the commits from `136e5c2` to M (two: UX-12's and the PM's
+  deploy record, D-546), `Migrations added: none`, and under `deploy/` at least three files: `RUNBOOK.md`,
+  `checks/UX-12.expected` and `checks/UX-12.sql` (the record may add none; the PM restates it if it does).
+  `finance.caddy`, the postgres service and `pg-backup/finance.conf` don't change.
+- `backend/` and `frontend/` change (and `e2e/` and the docs, in no image). Both images are new: the api's container
+  and the web's are recreated. A recreated api ends signed-in sessions; it finds nothing to migrate.
+- The Flyway lines (D-519): each is what that container's own start printed. The pre-flight reads UX-11's api, which
+  started on V17 already there: `Schema "app" is up to date. No migration necessary.` The new api after the deploy
+  starts on V17 too: the same line, and no `Successfully applied`.
+- 1.7 and 4.3 count the numbers with `numbers.sql` (24 numbers, unchanged), the same before and after.
+- 3.2 keeps the running images (`136e5c2`'s, as UX-11's `finish` left them) as
+  `:136e5c29feb2dd581e78d96d646b2942e8748148` and `:previous`; `/root/finance-tracker.previous` then names `136e5c2`.
+- 4.4 compares `UX-12.sql`'s output with `UX-12.expected`. A difference in any line is a fault: stop and send the diff.
+- **The rollback target after this deploy is `136e5c2`**, with no condition of its own: the same schema, and no row
+  UX-12 writes. `136e5c2`'s api has no `/api/entries/family-payees` and ignores `payee` (a bookmark
+  `/entries?payee=…` then lists every entry), and its web offers a payee from a list on the family forms again; a
+  counterparty UX-12's forms created stays the user's.
+
+**0. On the laptop, read only: where things stand.** Before anything else; type M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
+```
+
+You should see `HEAD` M with UX-12's subject (on `feature/family-budget`); `origin/main`
+`136e5c29feb2dd581e78d96d646b2942e8748148` (UX-11); `origin/feature/family-budget` M if UX-12 is pushed, else
+`136e5c29feb2dd581e78d96d646b2942e8748148` too; the commits of `origin/main..feature/family-budget`, two: M (the PM's
+deploy record, D-546) and UX-12's below it (any other: the PM restates this checklist's commits); `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or any line of `git status`: stop
+and tell the PM.
+
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted UX-12
+and named M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see `Updating 136e5c2..<M's 7 characters>` and `Fast-forward` for the merge (or `Already up to date.` if
+`main` is at M already), the push of both branches (or `Everything up-to-date`), and M in full with its parent
+(`<UX-12's commit>…`) and the record's subject. A dirty tree stops the chain before the merge, with no message: run `git status` and tell the PM. `Not
+possible to fast-forward`, or another hash: stop.
+
+CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about fifteen minutes). First the
+runs with their jobs; type M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `CI`, `push`, once on `main` and once on `feature/family-budget` (D-95), attempt 1, each `completed
+success`, each with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` and `Dependency updates`,
+`completed success`; and none or some `Monitor #n schedule main`, each with its job `Monitor` (D-276; `run`'s gate
+doesn't count them, D-280). No "CI on Ubuntu 26.04" run. Then the check runs:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && M=<M> && curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see 10 plus the number of `Monitor` runs, the five names twice each, each `completed success`. The two
+Backend runs ran the test classes in random order with their run numbers as seeds (D-99); a failure of either is a
+real fault: stop. A failure only of a Frontend job may be re-run once (D-94). A failed `Monitor` run is production's,
+not M's: send it to the PM, who decides whether to go on. Anything else: stop.
+
+**2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-web:previous finance-tracker-web:latest; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Successfully applied|Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+}
+```
+
+You should see:
+
+- `Now:` outside 03:30 to 04:30 UTC (D-125). `Scheduled shutdown: cat: /run/systemd/shutdown/scheduled: No such file
+  or directory`; a scheduled reboot isn't a stop by hand (`run` decides by D-131 in its step 1.1): start step 4 only if
+  it is at least 2 hours after the moment you start it. Send the line either way. `Reboot required:` either `No such
+  file or directory` or `*** System restart required ***`, neither a stop by itself.
+- Docker server 29.8.2, linux/amd64 (or a later patch the PM knows of); Compose; `Image store:
+  [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: 136e5c29feb2dd581e78d96d646b2942e8748148 feat: the month of the latest entry, Entries' periods, payees and
+  summary, Accounts on a date and compared, icon buttons on Categories, D-517 to D-544 (UX-11)`; `git status --short` printing **nothing**; `previous file:
+  1edc62cee898db777b23cc4e2d0e2631517927ea`.
+- `last-good`, `contents` and the history's last lines as UX-11's `finish` left them: `commit=136e5c2…`, its two images
+  and contents, `source=deploy`, `finish=passed 2026-11-12T12:57:22Z …`; the history ending with UX-11's `good
+  136e5c2…` (and its rollback acceptance, if it ran one); the newest run folders UX-11's. UX-8's to UX-11's
+  deploy notes are in the runbook by M (D-546): compare these lines with them.
+- The api's and the web's containers on UX-11's images (`last-good`'s), started at UX-11's run (or at a later reboot:
+  not a stop, but say so); `:previous` and `:1edc62cee898db777b23cc4e2d0e2631517927ea` UX-10's images, as UX-11's run
+  kept them; `:latest` the running images.
+- D-519: this block prints the running images in full (`last-good`, `contents`, the containers' image IDs and
+  contents, `docker image ls --no-trunc` and the tags' contents); send them as printed, so that "Deployed revisions"
+  records them in full.
+- The api's start, the line UX-11's container printed itself (D-519): `Schema "app" is up to date. No migration
+  necessary.` (V17 was there before it started), the D-25 line "on" and `Started FinanceTrackerApplication`; `1`; `600
+  root` for `.env` and its copies.
+
+If anything differs, stop and send it to the PM: a difference in the images or `last-good` changes what 3.2 does.
+
+**3. On the server: verify, read only**, with the running script.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-11
+```
+
+You should see `verify UX-11 at 136e5c2 …: OK`, its `Scheduled shutdown:` line, both images "the recorded image",
+`Image store: containerd, platform linux/amd64`, the pages 5 of 5, Flyway V17, the D-25 line "on", `UX-11.expected`'s 9
+lines, and the 24 numbers. Keep them: step 4 prints them again and step 7 compares with them. Before November's step 12
+they are October's figures' **after** numbers, as D4c's and the UX deploys left them; a participant writing in the app
+since (the owner's first commit on D4c's code adds his sides to `imported_family_sides`, D-342) explains a difference in
+his own lines only.
+
+**4. On the server: the deploy**, alone in its block, not between 03:30 and 04:30 UTC; type M's 7 characters at the
+confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> UX-12
+```
+
+It prints ("Deploying with deploy.sh" lists the steps):
+
+- 1.1: `Tools present: …` and `Scheduled shutdown: none (…)` (or a reboot at least 2 hours away; less, and it refuses
+  here).
+- 1.2: `HEAD: 136e5c2 feat: the month of the latest entry, …`, the running images, `Last good deploy: 136e5c2 … (deploy)`,
+  status `good`, both images "the recorded image", the read-only role's line.
+- 1.3: the fetch; the commits from `136e5c2` to M, two: UX-12's and M; `Migrations added: none`; under
+  `deploy/`: `RUNBOOK.md`, `checks/UX-12.expected`, `checks/UX-12.sql`.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`, CI's own only (D-280). 1.6: the UX-12
+  files. 1.7: step 3's 24 numbers.
+- 1.8: a fresh dump, `PASS`, the before-dump preserved with its SHA-256. Note the dump's name.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage UX-12, over 136e5c2.`; type the 7 characters.
+- 3.1: `Fast-forward`. 3.2: `136e5c2`'s images kept as `:136e5c29feb2dd581e78d96d646b2942e8748148` and `:previous`,
+  the oldest kept revision's tags removed. 3.3: api built (Maven: a few minutes), web built. 3.4: both recreated.
+  3.5: `api: healthy, web: healthy`. 3.6: `Pages: 5 of 5 as expected`.
+- 4.1: the new api's own start (D-519): `Schema "app" is up to date. No migration necessary.`, `Latest row: 17 member
+  shows payees true; the highest migration in <M>: V17`, `Started: …` (this run's time). No `Successfully applied`
+  line: that would be a fault, stop. 4.2: the D-25 line "on". 4.3: `The same numbers`. 4.4: `UX-12.expected`'s 11
+  lines. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump, `PASS`.
+- 5: the summary, `Numbers: the same before and after (…)`, then `Left for you: … deploy/deploy.sh finish`: here, the
+  suite of step 5.
+
+A FAILED line: stop, send it to the PM; it prints the rollback command, which isn't run (the last block).
+
+**5. On the laptop: the end-to-end suite against production** (D-51, D-56), not between 03:30 and 04:30 UTC, from a
+clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. Nothing after the checkout means a dirty tree: stop. Another commit: stop.
+
+Then the suite, alone in its block. Read its banner (https://app.finance-nl.com, `e2e-a (e2e-a@finance-nl.com)`, `e2e-b
+(e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, M and "clean tree"), then type `E2E PROD` after the question.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary, from `===== E2E summary =====` to `=======================`. You should see `Commit:` M `(clean
+tree)`, `E2E_FAMILY: on`, `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`, `family F8
+passed`, `export passed`, `family F8d passed`, `import passed`, `member import passed`,
+`new-family skipped` (D-163, local only), `time-zone passed` (2 tests), `dashboard passed` (since UX-11 its step 2
+opens at "Month of the latest entry" and keeps "This month" by name, and its step 6 opens the demo at it, D-521),
+`new-entry passed` (UX-8), `payees passed` (UX-9; since UX-11 B's share on Entries names A's payee while A shows it,
+"—" otherwise, and the text search finds it only then, D-523; since UX-12 B's "Payee or person" lists A's payee with
+the budget's name only while shown, choosing it lists B's share and the summary counts it, and on a record B pays a
+new payee typed and A's payee from the suggestions each become B's counterparty, D-547, D-549), `themes passed`
+(UX-10), `entries passed` (UX-11; since UX-12 also a payee filter by name and each category's name centred on its
+buttons, D-552:
+Entries' Period list the dashboard's with All time and Custom; for four filters the summary row equal to the visible
+rows; Categories renamed, archived and restored through their icon buttons, and the family category's link),
+`accounts passed` (UX-11; since UX-12 at 375 px the figures in two columns under each name, D-552: the three types' columns lined up at 1280 and 800 px with and without a comparison; a day of
+last month and its comparison against `/api/reports/balances`, Change and %, kept in the URL and after a reload),
+`cleanup passed`, both accounts signed in, their data deleted and signed out, `Password search over the artifacts: 0
+hits`, `Result: PASSED`. D-58 and D-59 apply as in D4b's checklist.
+
+Left to check by hand, before `finish`: nothing. The look of the new screens is in section 3 of UX-12's report (its
+screenshots, from the demo on the local stack, `data/private/ui/UX-12/`). A browser that had the app open keeps the
+old page until it loads `/` again (`index.html` is `no-cache`); nothing about it is a stop.
+
+**6. On the server: finish**, only after step 5, alone in its block; `yes` to both only if step 5's summary says
+`Result: PASSED` with 0 password hits; otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-<M's 7 characters>`, its `Scheduled shutdown:` line,
+the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before the deploy", the
+images and "Done". After `no`: `NOT PASSED: …`, exit status 3, and the rollback command, which isn't run.
+
+**7. On the server: verify UX-12, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-12
+```
+
+You should see `verify UX-12 at <M's 7 characters> …: OK`, its `Scheduled shutdown:` line, both images "the recorded
+image", the pages 5 of 5, Flyway V17, the D-25 line "on", `UX-12.expected`'s 11 lines, and step 3's 24 numbers,
+the same. A participant writing meanwhile explains a difference in his own lines only; judge it before going on. From
+UX-12's deploy on, step 12's 12.1 and 12.10 use `verify UX-12`.
+
+**8. Acceptance: `rollback.sh 136e5c2` goes to its question**, changing nothing. The rollback state, before:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous finance-tracker-api:136e5c29feb2dd581e78d96d646b2942e8748148 finance-tracker-web:136e5c29feb2dd581e78d96d646b2942e8748148; cat /var/lib/finance-deploy/last-good; }
+```
+
+You should see `136e5c29feb2dd581e78d96d646b2942e8748148`; the api's and the web's previous images twice each (step
+2's running images, as UX-11's `finish` left them); and `last-good` with `commit=` M and `finish=passed …`.
+
+`rollback.sh 136e5c2`, alone in its block; type `no` at its question.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh 136e5c2
+```
+
+You should see in step 1 `Scheduled shutdown: none (…)` (a scheduled one would only be a `WARNING`) and the image store
+and platform; step 2 `Target: 136e5c2 feat: the month of the latest entry, …, the commit HEAD's deploy replaced
+(…-<M's 7 characters>); its status, its newest line in the history: good`; step 3 the images accepted; step 4
+`Flyway's latest row: 17 member shows payees true; the target's highest migration: V17` and no condition line (the
+conditions are for targets below V7, V11, V13 and V14); then the question, and after `no`:
+`REFUSED at "5. Confirmation": not confirmed` and "Nothing changed." Then the block above again: the same lines.
+
+**9. CI on Ubuntu 26.04 (D-44, D-124)**, last, only now, on M deployed and finished. On GitHub, Actions → "CI on Ubuntu
+26.04" → "Run workflow" on `main`, **exactly once**, and wait for it to the end. If `main` has moved past M by then, run
+it under D-60: a temporary branch at exactly M, deleted afterwards. Then, read only, type M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], "id", r["id"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `1 runs`: `CI on Ubuntu 26.04`, its number and id, `workflow_dispatch main attempt 1 completed success`,
+and Backend, Frontend, Web image and Deploy scripts each `completed success`. Two runs mean a second dispatch, which
+cancels the first (D-124): send both to the PM.
+
+**10. Last, only for a failed deploy where the site is down: the rollback**, alone in its block, at any hour; type
+`ROLLBACK 136e5c2` at its question. It goes to `136e5c2`, UX-11's code and its deploy scripts, on the same V17; no
+condition of its own (UX-12 writes no row). A scheduled shutdown, however near, is only a warning here (D-126, D-131).
+
+```bash
+# On the server: only for a failed deploy where the site is down
+cd /opt/finance-tracker && deploy/rollback.sh 136e5c2
+```
+
 ## UX-11's deploy checklist with the suite
 
 **Commit to deploy (M):** `feature/family-budget`'s head after UX-11, the commit UX-11's report names in full. M holds

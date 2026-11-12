@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   api, ApiError, formatDate, formatInstant, useApi, type Account, type Category, type Counterparty, type FamilyJournalPage,
@@ -13,6 +13,7 @@ import {
 } from './expenseForm'
 import { newPayingSide, recordAmount, sidePatch, type PayingSideForm } from './currency'
 import { CounterpartyFields } from './FamilyCounterparties'
+import { payeeChange, payeeIdFor } from './familyPayees'
 import { ownPayeeNote, shownByNote } from './payees'
 import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCurrency'
 import { OpeningBalanceNote } from './FamilyExpenseForm'
@@ -178,11 +179,13 @@ export function RecordDetail({ family }: { family: FamilyData }) {
     })
   }
 
-  function save(patch: object) {
+  /** A PATCH of the record; `before` adds what needs a request first, a new payee's counterparty (D-549). */
+  function save(patch: object, before?: () => Promise<object>) {
     setSaved(false)
     removal.clear()
     void change.run(async () => {
-      await api(`${family.path}/records/${r.id}?version=${r.version}`, 'PATCH', patch)
+      const more = before ? await before() : {}
+      await api(`${family.path}/records/${r.id}?version=${r.version}`, 'PATCH', { ...patch, ...more })
       setSaved(true)
     })
   }
@@ -354,7 +357,7 @@ interface EditProps {
   family: FamilyData
   problems: ReturnType<typeof expenseProblems>
   pending: boolean
-  onSave: (patch: RecordPatch) => void
+  onSave: (patch: RecordPatch, before?: () => Promise<RecordPatch>) => void
 }
 
 /** How the reader names their own account, or "Specify later", as a patch: only when it changed. */
@@ -394,9 +397,14 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const [payment, setPayment] = useState(initialPayment)
   const [side, setSide] = useState<PayingSideForm>(newPayingSide)
   const initialCounterparty = String(record.yourPayment?.counterpartyId ?? '')
-  const initialPayee = String(record.yourPayment?.payeeId ?? '')
+  // The payee by name (D-549), opened with the current payee's once the reader's counterparties are there; null while
+  // untouched.
+  const initialPayee = counterparties.data?.find((c) => c.id === record.yourPayment?.payeeId)?.name ?? ''
   const [counterpartyId, setCounterpartyId] = useState(initialCounterparty)
-  const [payeeId, setPayeeId] = useState(initialPayee)
+  const [typedPayee, setPayee] = useState<string | null>(null)
+  const payee = typedPayee ?? initialPayee
+  // Counterparties this form created, for a second save before the list reloads (D-462).
+  const createdPayees = useRef<Counterparty[]>([])
   const [categoryId, setCategoryId] = useState(initialCategory)
   const [split, setSplit] = useState<SplitForm>(initial)
   const [comment, setComment] = useState(record.comment ?? '')
@@ -414,6 +422,10 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
   const needsCounterparty = account?.requiresCounterparty === true
   const counterpartyChanged = counterpartyId !== initialCounterparty
   const ownSide = payerIsMe && !opening && !payerChanged
+  // A new payer has no payee yet: whatever is typed is sent.
+  const payeeHad = payerChanged ? '' : initialPayee
+  const payeeChanges = payerIsMe && !opening
+    ? payeeChange(payee, payeeHad, [...(counterparties.data ?? []), ...createdPayees.current]) : { kind: 'keep' as const }
   // The side's paying currency while it stays on the same account (D-89).
   const kept = !accountChanged ? record.yourPayment?.currency : undefined
   const currencyValid = /^[A-Z]{3}$/.test(currency)
@@ -441,13 +453,12 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
     // The counterparty goes with an account that requires one, new or changed (D-80); the payee alone (D-81).
     ...(needsCounterparty && (accountChanged || counterpartyChanged || payerChanged) && counterpartyId !== ''
       ? { paymentCounterpartyId: Number(counterpartyId) } : {}),
-    ...(payerIsMe && !opening && (payeeId !== initialPayee || payerChanged && payeeId !== '')
-      ? { payeeId: payeeId === '' ? null : Number(payeeId) } : {}),
+    ...(payeeChanges.kind === 'remove' ? { payeeId: null } : payeeChanges.kind === 'id' ? { payeeId: payeeChanges.id } : {}),
     ...(categoryId !== initialCategory ? { categoryId: Number(categoryId) } : {}),
     ...(comment.trim() !== (record.comment ?? '') ? { comment: comment.trim() || null } : {}),
     ...(splitChanged ? { split: request } : {}),
   }
-  const changed = Object.keys(patch).length > 0
+  const changed = Object.keys(patch).length > 0 || payeeChanges.kind === 'create'
   const dateProblem = date === '' ? 'Enter a date.'
     : date < ledger.startDate ? `The family budget starts on ${formatDate(ledger.startDate)}; an ${noun} can’t be earlier.` : undefined
   const splitProblems = splitChanged || needsAmounts || split.mode === 'KEEP' ? preview.problems : []
@@ -457,13 +468,19 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    if (ready) onSave(patch)
+    if (!ready) return
+    // A name no counterparty of the user's has becomes one first (D-549).
+    onSave(patch, payeeChanges.kind !== 'create' ? undefined : async () => {
+      const payeeId = await payeeIdFor(payee, payeeHad, counterparties.data ?? [], createdPayees.current,
+        counterparties.reload)
+      return payeeId === undefined ? {} : { payeeId }
+    })
   }
 
   function undo() {
     setDate(record.date); setAmountText(record.amount); setCurrency(record.currency); setSide(newPayingSide())
     setPayer(String(record.payer.memberId)); setPayment(initialPayment)
-    setCounterpartyId(initialCounterparty); setPayeeId(initialPayee)
+    setCounterpartyId(initialCounterparty); setPayee(null)
     setCategoryId(initialCategory); setSplit(initial); setComment(record.comment ?? '')
   }
 
@@ -505,7 +522,7 @@ function EditRecord({ record, family, problems, pending, onSave }: EditProps) {
             )}
             {payerIsMe && !opening && (record.yourPayment || ownSide || payerChanged) && (
               <CounterpartyFields account={account} counterparties={counterparties.data} counterpartyId={counterpartyId}
-                payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee
+                payee={payee} onCounterparty={setCounterpartyId} onPayee={setPayee} showPayee
                 payeesShown={family.ledger.showsPayees === true} errors={problems.counterparty} />
             )}
             {account && (

@@ -37,7 +37,7 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
   if ((entry.data?.family?.link === 'PAYMENT' || entry.data?.family?.link === 'SETTLEMENT') && families) {
     return <PaymentEntry key={`${entry.data.id}:${entry.data.version}`} entry={entry.data} ledger={ledger}
       payeesShown={families.find((f) => f.id === entry.data?.family?.ledgerId)?.showsPayees === true}
-      onSaved={entry.reload} onDeleted={() => navigate(back)} />
+      onSaved={() => { entry.reload(); reloadCounterparties() }} onDeleted={() => navigate(back)} />
   }
   if (entry.data?.family?.readOnly) {
     return <ReadOnlyEntry entry={entry.data} ledger={ledger} onBack={() => navigate(back)} />

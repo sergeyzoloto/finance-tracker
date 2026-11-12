@@ -2,6 +2,7 @@ package com.example.financetracker.ledger.api;
 
 import java.net.URI;
 import java.time.LocalDate;
+import java.util.List;
 
 import com.example.financetracker.ledger.EntryFilter;
 import com.example.financetracker.ledger.EntryMatchFilter;
@@ -11,6 +12,7 @@ import com.example.financetracker.ledger.EntryPage;
 import com.example.financetracker.ledger.EntryService;
 import com.example.financetracker.ledger.EntrySummary;
 import com.example.financetracker.ledger.EntryView;
+import com.example.financetracker.ledger.FamilyPayee;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.CategoryType;
 import com.example.financetracker.ledger.domain.EntryCommand;
@@ -55,6 +57,8 @@ class EntryController {
      * @param accountId entries with a posting to this account
      * @param categoryId entries with a posting in this category
      * @param counterpartyId entries with this payee, or with a posting with this counterparty
+     * @param payee entries whose Payee cell shows this name, in any case (UX-12, D-548); not with
+     *        {@code counterpartyId}
      * @param q entries whose memo, payee's name or (UX-11, D-523) shown family record's payee contains this text, in
      *        any case
      * @param page the page, from 0
@@ -64,10 +68,11 @@ class EntryController {
     EntryPage list(LedgerScope ledger, @RequestParam(required = false) LocalDate from,
             @RequestParam(required = false) LocalDate to, @RequestParam(required = false) Long accountId,
             @RequestParam(required = false) Long categoryId, @RequestParam(required = false) Long counterpartyId,
+            @RequestParam(required = false) String payee,
             @RequestParam(required = false) @Size(max = 100) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "50") @Min(1) @Max(200) int size) {
-        return entries.search(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q), page,
+        return entries.search(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q, payee), page,
                 size);
     }
 
@@ -80,8 +85,19 @@ class EntryController {
     EntrySummary summary(LedgerScope ledger, @RequestParam(required = false) LocalDate from,
             @RequestParam(required = false) LocalDate to, @RequestParam(required = false) Long accountId,
             @RequestParam(required = false) Long categoryId, @RequestParam(required = false) Long counterpartyId,
+            @RequestParam(required = false) String payee,
             @RequestParam(required = false) @Size(max = 100) String q) {
-        return entries.summary(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q));
+        return entries.summary(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q, payee));
+    }
+
+    /**
+     * The payees that family records show on the user's entries (UX-12, D-548), each name once in any case with the
+     * family budgets it comes from, sorted by name ignoring case: the names Entries' "Payee or person" lists beside the
+     * user's counterparties and the payee fields suggest. {@code []} with the family switch off. Read only.
+     */
+    @GetMapping("/family-payees")
+    List<FamilyPayee> familyPayees(LedgerScope ledger) {
+        return entries.familyPayees(ledger);
     }
 
     /**

@@ -301,6 +301,11 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         assertThat(listed.get("family").has("recordPayee")).isFalse();
         assertThat(ok(get(user, "/api/entries/" + payment)).get("family").has("recordPayee")).isFalse();
         assertThat(listed.get("payeeId").asLong()).isEqualTo(shop);
+        // UX-12 (D-548): no family payee is listed, and the payee filter finds the payment by its own payee only.
+        assertThat(ok(get(user, "/api/entries/family-payees"))).isEmpty();
+        assertThat(ok(get(user, "/api/entries?payee=corner SHOP off")).get("content")).singleElement()
+                .satisfies(e -> assertThat(e.get("id").asLong()).isEqualTo(payment));
+        assertThat(ok(get(user, "/api/entries/summary?payee=corner SHOP off")).get("count").asLong()).isOne();
 
         JsonNode answer = ok(get(user, "/api/entries/matches?type=EXPENSE&amount=40&currency=EUR"));
         List<Long> ids = new ArrayList<>();

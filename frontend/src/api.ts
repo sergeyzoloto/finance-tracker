@@ -438,6 +438,11 @@ export interface EntrySummary {
   accounts: number
   currencies: { currency: string; incoming: string; outgoing: string; transfers: string }[]
 }
+/**
+ * A payee that family records show on the user's entries (UX-12, D-548; `GET /api/entries/family-payees`): its name,
+ * once in any case, and the family budgets it comes from.
+ */
+export interface FamilyPayee { name: string; budgets: { id: number; name: string }[] }
 /** A request to write an entry: the backend builds the postings from it (EntryCommandJson). */
 export type EntryCommand = { kind: EntryKind; entryDate: string; memo: string | null } & Record<string, unknown>
 

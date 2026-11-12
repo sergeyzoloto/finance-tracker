@@ -4,13 +4,17 @@ import { newForm, type EntryForm, type Tab } from './entryForm'
 import { EntryFormView, type SaveResult } from './EntryForms'
 import { formatMoney } from './money'
 import { testLedger } from './testLedger'
+import { TEST_ME, WithMe } from './testMe'
 
 afterEach(cleanup)
 
 type OnSave = (form: EntryForm, andNew: boolean) => Promise<SaveResult>
 
 function renderForm(tab: Tab, onSave = vi.fn<OnSave>(async () => {})) {
-  render(<EntryFormView ledger={testLedger} initial={newForm(testLedger, '2026-09-25', tab)} onSave={onSave} />)
+  // The payee field asks the family payees with the family switch on (UX-12, D-550); here it is off.
+  render(<WithMe me={{ ...TEST_ME, features: { familyLedgers: false } }}>
+    <EntryFormView ledger={testLedger} initial={newForm(testLedger, '2026-09-25', tab)} onSave={onSave} />
+  </WithMe>)
   return onSave
 }
 

@@ -3,6 +3,77 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-12 · UX-12: every shown payee in Entries' payee filter, a payee typed freely on the family forms, npm audit fix, two layout fixes, D-545 to D-564
+
+One commit on `feature/family-budget` on top of `136e5c2`, the commit of this entry, "feat: every shown payee in
+Entries' payee filter, a payee typed freely on the family forms, npm audit fix, two layout fixes, D-545 to D-564
+(UX-12)". **Not pushed**; `main` not moved. No migration (Flyway stays at V17); one read-only endpoint
+(`GET /api/entries/family-payees`) and one more filter (`payee`); no stored entry, record, amount, report's figure,
+import or export changed, and nobody sees a payee they didn't. Production read only: the server was never touched and
+`e2e:prod` never run. UX-8's to UX-11's deploys are not recorded here (D-546). UX-11's entry says under Open that its
+deploy waits for UX-10's record; it didn't: UX-11 was deployed on 2026-11-12 (`136e5c2`, `finish` at
+2026-11-12T12:57:22Z), and the records wait for the PM's second commit of this stage.
+
+**Changes**
+- D-548, D-554: `GET /api/entries/family-payees` (`EntryController.familyPayees`, `EntryService.familyPayees`,
+  `ledger.FamilyPayee`): the distinct shown record payees by `lower()`, each with its family budgets, `[]` with the
+  switch off; `RecordPayees`' join also gives the record's `family_ledger_id`. `payee` on `GET /api/entries` and
+  `/summary` (`EntryFilter.payee`, trimmed, at most 100 characters, 400 with `counterpartyId`), matched in
+  `EntryService.matching` by the entry's payee, a line's counterparty or the shown record payee.
+- D-547, D-556, D-558: `familyPayees.ts` (`useFamilyPayees`, Entries' options, the save rule) and `payeeNames.ts`;
+  Entries' "Payee or person" one merged list, `payee=` and `counterpartyId=` exclusive in the URL.
+- D-549, D-550, D-559: `CounterpartyFields`' payee is `CounterpartyInput` by name on `FamilyExpenseForm.tsx`,
+  `EditRecord` and `PaymentEntry.tsx`, with the new-payee hint, a new name created as the user's counterparty on save
+  and remembered for a second save; `CounterpartyInput` suggests the family payees on those and on New entry's
+  `PayeeField`; `EntryEditor` reloads the counterparties after a payment entry's save.
+- D-552, D-564: `index.css`: Accounts compared under 40rem as a grid of two columns under each name (accounts, totals,
+  "By person"); `table.categories td` vertically centred.
+- D-551, D-560: `frontend/package-lock.json` by `npm audit fix` (vite 8.3.8, undici 7.30.2, vitest and
+  `@vitest/mocker` 5.1.0, rolldown 1.2.19 and other transitive updates); `package.json` unchanged;
+  `@rolldown/binding-linux-x64-musl` kept.
+- Tests: `FamilyPayeeFilterApiTests` (new); `FamilySwitchOffApiTests`, `DataIsolationApiTests` (D-555: Alice's account
+  id looked for in account fields only), `ApiTests`, `Answers.numbers(answer, field)`; `UX12.test.tsx` (new),
+  `EntryForms.test.tsx` (inside `WithMe`), `FamilyRefunds.test.tsx`, `FamilyPayer.test.tsx`,
+  `FamilyExpenses.test.tsx` (the payee by name). End to end: `09-payees` (B's payee list and step 6b), `11-entries` (a
+  payee filter, the names centred, D-557's two races), `12-accounts` (two columns at 375 px), `05-family-f8d` (its
+  payee typed), `e2e/README.md`, `e2e/scripts/screens.ts` (D-562).
+- `deploy/checks/UX-12.sql` and `UX-12.expected` (D-561); `deploy/RUNBOOK.md`, "UX-12's deploy checklist with the
+  suite"; `requirements.md` D-545 to D-564, UX-12 and UX-13 in "Planned stages"; CLAUDE.md (`/api/entries/family-payees`
+  and `payee`, Entries' payee list, the payee typed freely, Accounts and Categories under 40rem, the new tests and
+  specs; its dependency names, React 19, Vite 8 and Playwright 1.63.0, still hold).
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: exit 0, `Tests run: 674, Failures: 0, Errors: 0, Skipped: 0`,
+  `BUILD SUCCESS`. Before it, a targeted run without `clean` failed `TestHygieneTests` on VS Code's compiled classes
+  (`lambda$0`), and one with the new classes failed
+  `DataIsolationApiTests.aReturnsOwnEntriesAndAClaimedSeatAreTheMembersOwn` on an id of another table (D-555, fixed).
+- `cd frontend && npm test`: exit 0, `Test Files 50 passed (50)`, `Tests 671 passed (671)`, no Errors line.
+- `cd frontend && npm run build`: exit 0. `cd e2e && npx tsc --noEmit`: exit 0.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node 24): run 1 exit 1, `family F8d` failed at 1280 and 375 px (its
+  payee chosen from a list, now typed); run 2 exit 1 and run 3 exit 1, `entries` failed at 1280 px (D-557's two races,
+  fixed); run 4 exit 0, every spec passed at 1280 and 375 px (`pages` (2 tests), `smoke`, `family F7`, `family F8`,
+  `export`, `family F8d`, `import`, `member-import`, `new-family`, `time-zone` (2 tests), `dashboard`, `new-entry`,
+  `payees`, `themes`, `entries`, `accounts`), sign-in and cleanup passed, both accounts' data deleted and signed out,
+  `Password search over the artifacts: 0 hits`, `Result: PASSED`; `Commit:` `136e5c2` `(TREE NOT CLEAN)`, this change
+  uncommitted.
+- `cd e2e && npm run test:guards`, alone, after the local suite (D-517): exit 0, `tests 37`, `pass 37`, `fail 0`.
+- D-551: `npm audit` in `frontend/` before: 4 vulnerabilities (2 moderate, 2 high), as D-543 reported (its exit status
+  not captured: the output went through `tail`); after: exit 0, `found 0 vulnerabilities`; in `e2e/`: `found 0
+  vulnerabilities` before, exit 0 after. `@rolldown/binding-linux-x64-musl` in the lock before and after.
+  `docker build --no-cache-filter dev --target web -t finance-tracker-web:ux12-check frontend`: exit 0, its `npm ci` on
+  `node:24-alpine` "added 146 packages", the build passed; the image removed by name.
+- `UX-12.sql` on production's dump `finance-2026-11-11T0234Z.dump` (SHA-256 `6c2d020f…`, at V16), restored by
+  `scripts/rehearsal-db.sh`, migrated to V17 by the built jar: `psql` exit 0, its 11 lines equal to `UX-12.expected`;
+  the throwaway database removed.
+- Section 3's screenshots: `data/private/ui/UX-12/` (with `index.md`; not tracked): Blue and Light at 1280 and 375 px,
+  and `136e5c2`'s Accounts compared and Categories for comparison.
+
+**Open**
+- The PM's review and acceptance; then the record of UX-8's to UX-11's deploys as this stage's second commit (D-546),
+  the push, and the deploy by "UX-12's deploy checklist with the suite".
+- Not automated: whether the browser's datalist shows the suggestions as a list is the browser's (the specs check the
+  `datalist`'s options and fill the field); the layouts are checked by measured boxes, the look by the screenshots.
+
 ## 2026-11-12 · UX-11: the month of the latest entry, Entries' periods, payees and summary, Accounts on a date and compared, icon buttons on Categories, D-517 to D-544
 
 One commit on `feature/family-budget` on top of `1edc62c`, the commit of this entry, "feat: the month of the latest

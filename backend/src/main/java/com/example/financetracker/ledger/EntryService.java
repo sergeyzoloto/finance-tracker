@@ -277,6 +277,45 @@ public class EntryService {
     }
 
     /**
+     * The distinct payees that family records show on the ledger's entries (UX-12, D-548): every name the Payee cell
+     * can show through {@link RecordPayees}, with the family budgets it comes from. Names are one when equal by the
+     * database's {@code lower()} (D-531); a name is spelled as on the newest entry that shows it (D-554). Sorted by
+     * name ignoring case, each name's budgets by name. Empty with the family switch off, for a family ledger and
+     * without family links. Read only; nothing is stored.
+     */
+    @Transactional(readOnly = true)
+    public List<FamilyPayee> familyPayees(LedgerScope ledger) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("ledgerId", ledger.ledgerId());
+        RecordPayees.params(params, ledger, familySwitch.enabled());
+        Map<String, FamilyPayee> payees = new LinkedHashMap<>();
+        jdbc.sql("WITH n AS (SELECT rp.name, rp.family_ledger_id, e.entry_date, e.id FROM journal_entry e"
+                        + RecordPayees.join("rp") + """
+
+                    WHERE e.ledger_id = :ledgerId AND rp.name IS NOT NULL
+                      AND EXISTS (SELECT FROM family_entry_link l WHERE l.entry_id = e.id)
+                ), names AS (
+                    SELECT lower(name) AS k, (array_agg(name ORDER BY entry_date DESC, id DESC))[1] AS name
+                    FROM n GROUP BY lower(name)
+                ), budgets AS (
+                    SELECT DISTINCT lower(name) AS k, family_ledger_id FROM n
+                )
+                SELECT names.k, names.name, f.id AS budget_id, f.name AS budget_name
+                FROM names JOIN budgets b ON b.k = names.k JOIN ledger f ON f.id = b.family_ledger_id
+                ORDER BY names.k, names.name, lower(f.name), f.id""")
+                .params(params)
+                .query(row -> {
+                    String name = row.getString("name");
+                    payees.computeIfAbsent(row.getString("k"), k -> new FamilyPayee(name, new ArrayList<>()))
+                            .budgets().add(new FamilyPayee.Budget(row.getLong("budget_id"),
+                                    row.getString("budget_name")));
+                });
+        return payees.values().stream()
+                .map(p -> new FamilyPayee(p.name(), List.copyOf(p.budgets())))
+                .toList();
+    }
+
+    /**
      * The FROM and WHERE of the ledger's entries that match the filter, aliased {@code e}, with the entry's payee as
      * {@code payee} and its family record's payee as {@code rp} ({@link RecordPayees}); built once for {@link #search}
      * and {@link #summary}. Only fixed fragments go into the SQL; every value is a parameter, put into {@code params}.
@@ -318,6 +357,18 @@ public class EntryService {
                     + " AND lower(rp.name) = (SELECT lower(c.name) FROM counterparty c"
                     + " WHERE c.id = :counterpartyId AND c.ledger_id = :ledgerId)))");
             params.put("counterpartyId", filter.counterpartyId());
+        }
+        if (filter.payee() != null) {
+            // UX-12, D-548: by name, ignoring case as D-531 does, exactly the entries whose Payee cell shows it: the
+            // entry's payee, a line's counterparty, or for an entry with neither its shown family record's payee
+            // (null with the switch off, so that only the first two match then).
+            where.append(" AND (lower(payee.name) = lower(:payee) OR EXISTS (SELECT FROM posting p"
+                    + " JOIN counterparty pc ON pc.id = p.counterparty_id AND pc.ledger_id = :ledgerId"
+                    + " WHERE p.entry_id = e.id AND lower(pc.name) = lower(:payee))"
+                    + " OR (e.payee_id IS NULL"
+                    + " AND NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.counterparty_id IS NOT NULL)"
+                    + " AND lower(rp.name) = lower(:payee)))");
+            params.put("payee", filter.payee());
         }
         if (filter.text() != null) {
             where.append(" AND (e.memo ILIKE :text OR payee.name ILIKE :text OR rp.name ILIKE :text)");

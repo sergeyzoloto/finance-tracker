@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, formatDate, useApi, type Account, type Category, type Counterparty, type FamilyRecord } from './api'
 import { AccountSelect, CategorySelect, Errors, Field, Loading } from './components'
@@ -9,6 +9,7 @@ import {
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { newPayingSide, payingCurrency, payingSideRequest, serverDefault, type PayingSideForm } from './currency'
 import { CounterpartyFields } from './FamilyCounterparties'
+import { payeeIdFor } from './familyPayees'
 import { CurrencyField, currencySuggestions, PayingSideFields } from './FamilyCurrency'
 import { SplitEditor } from './FamilySplit'
 import { useToday } from './me'
@@ -91,7 +92,9 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
   const [currency, setCurrency] = useState(base)
   const [side, setSide] = useState<PayingSideForm>(newPayingSide)
   const [counterpartyId, setCounterpartyId] = useState('')
-  const [payeeId, setPayeeId] = useState('')
+  const [payee, setPayee] = useState('')
+  // Counterparties this form created, for a second save before the list reloads (D-462, D-549).
+  const createdPayees = useRef<Counterparty[]>([])
   const save = useFamilyMutation(family)
 
   const payers = members.filter((m) => m.status === 'ACTIVE' && (m.id === ledger.memberId || !m.hasAccount))
@@ -131,13 +134,16 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
     // The currency only when it isn't the main currency; the paying side with the account (D-89).
     const inCurrency = currency === base ? {} : { currency }
     const paid = sideRequest && 'request' in sideRequest ? sideRequest.request : {}
-    // Only the payer's own: the account's counterparty when it requires one (D-80), and the payee (D-81).
-    const own = payerIsMe && !opening ? {
-      ...(needsCounterparty ? { paymentCounterpartyId: Number(counterpartyId) } : {}),
-      ...(payeeId !== '' ? { payeeId: Number(payeeId) } : {}),
-    } : {}
+    // Only the payer's own: the account's counterparty when it requires one (D-80), and the payee (D-81), a new name
+    // becoming the user's counterparty first (D-549).
+    const mine = payerIsMe && !opening
+    const own = mine && needsCounterparty ? { paymentCounterpartyId: Number(counterpartyId) } : {}
     void save.run(async () => {
+      const payeeId = mine
+        ? await payeeIdFor(payee, '', counterparties.data ?? [], createdPayees.current, counterparties.reload)
+        : undefined
       const created = await api<FamilyRecord>(`${family.path}/records`, 'POST', {
+        ...(typeof payeeId === 'number' ? { payeeId } : {}),
         type, date, categoryId: Number(categoryId), amount: fromMinor(amount!, currency), ...inCurrency, ...paid, ...own,
         ...(refund ? { refund: true } : {}),
         comment: comment.trim() || null, payerMemberId: Number(payer), ...how, split: splitRequest(split, preview, currency),
@@ -207,7 +213,7 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
           )}
           {payerIsMe && !opening && (
             <CounterpartyFields account={account} counterparties={counterparties.data} counterpartyId={counterpartyId}
-              payeeId={payeeId} onCounterparty={setCounterpartyId} onPayee={setPayeeId} showPayee
+              payee={payee} onCounterparty={setCounterpartyId} onPayee={setPayee} showPayee
               payeesShown={family.ledger.showsPayees === true} errors={problems.counterparty} />
           )}
           <Field label="Comment (optional)" errors={problems.comment} className="wide"

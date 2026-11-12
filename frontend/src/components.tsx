@@ -1,7 +1,8 @@
 import { Component, useId, type ReactNode } from 'react'
-import type { Account, Category, CategoryType, Counterparty } from './api'
+import type { Account, Category, CategoryType, Counterparty, FamilyPayee } from './api'
 import { ACCOUNT_TYPES, categoryLabel, TYPE_LABELS } from './ledger'
 import { formatMoney } from './money'
+import { payeeSuggestions } from './payeeNames'
 
 /** A labelled form control with its hint and the messages about it, such as the server's validation errors. */
 export function Field({ label, errors, hint, children, className }: {
@@ -120,10 +121,12 @@ export function CategorySelect({ categories, type, value, onChange, placeholder 
 
 /**
  * A payee or other counterparty by name, suggesting the known ones as the user types. A name that isn't known yet is
- * fine: it is added when the entry is saved.
+ * fine: it is added when the entry is saved. A payee field also suggests the family payees (UX-12, D-549, D-550), one
+ * per name ignoring case.
  */
-export function CounterpartyInput({ counterparties, value, onChange, ...rest }: {
+export function CounterpartyInput({ counterparties, familyPayees = [], value, onChange, ...rest }: {
   counterparties: Counterparty[]
+  familyPayees?: FamilyPayee[]
   value: string
   onChange: (name: string) => void
   placeholder?: string
@@ -135,7 +138,7 @@ export function CounterpartyInput({ counterparties, value, onChange, ...rest }: 
     <>
       <input list={list} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" maxLength={100} {...rest} />
       <datalist id={list}>
-        {counterparties.filter((c) => !c.archived).map((c) => <option key={c.id} value={c.name} />)}
+        {payeeSuggestions(counterparties, familyPayees).map((name) => <option key={name} value={name} />)}
       </datalist>
     </>
   )

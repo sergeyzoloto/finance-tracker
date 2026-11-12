@@ -8,7 +8,9 @@ import { deleteAllMyData, expect, shot, test, today, type Session } from '../fix
 // 2. "Balances on" a day of last month, then "Compare": the day before that month's start by default. Every figure
 //    equals `/api/reports/balances?asOf=` for its day, the earlier day's column first; "Change" is later − earlier and
 //    "%" is against the earlier day, "—" from 0 or across 0. The URL keeps both days, and so does a reload.
-// 3. At 375 px (local-narrow) nothing scrolls sideways, without and with the comparison; screenshots.
+// 3. At 375 px (local-narrow) nothing scrolls sideways, without and with the comparison; screenshots. Since UX-12
+//    (D-552), compared at 375 px each account's, each total's and a person's figures stand under its name in two columns:
+//    the earlier and the later day's balance on one line, Change and % on the next.
 // Delete all my data at the end.
 
 test('accounts on a day, and compared', async ({ as }) => {
@@ -54,6 +56,7 @@ test('accounts on a day, and compared', async ({ as }) => {
     }
   }
   // 3. At 375 px.
+  if (narrow) await expectTwoColumnsUnderTheName(page)
   await shot(page, 'ux11-05-accounts-compared')
   await expectNoSidewaysScroll(page, '/accounts with a comparison')
   await page.getByRole('button', { name: 'End the comparison' }).click()
@@ -61,6 +64,37 @@ test('accounts on a day, and compared', async ({ as }) => {
 
   await deleteAllMyData(a)
 })
+
+/**
+ * UX-12 (D-552): at 375 px with a comparison, every account row and type total has its name on a line of its own,
+ * then the earlier and the later day's balance side by side, then Change and % side by side below them, the first
+ * column's left edge the name's.
+ */
+async function expectTwoColumnsUnderTheName(page: Page) {
+  const rows = await page.locator('table.accounts > tbody.account-type > tr:not(.type-head):not(.details):not(.row-error)')
+    .evaluateAll((trs) => trs.map((tr) => {
+      const box = (el: Element | null) => {
+        const r = el!.getBoundingClientRect()
+        return { left: Math.round(r.left), top: Math.round(r.top), bottom: Math.round(r.bottom) }
+      }
+      const figures = [...tr.querySelectorAll(':scope > td[data-label]')].map(box)
+      return { text: tr.textContent ?? '', name: box(tr.firstElementChild), figures }
+    }))
+  expect(rows.length).toBeGreaterThan(3)
+  for (const { text, name, figures } of rows) {
+    const what = `compared at 375 px: ${text.slice(0, 40)}`
+    expect(figures, what).toHaveLength(4)
+    const [earlier, later, change, percent] = figures
+    expect(earlier.top, `${what}: the balances under the name`).toBeGreaterThanOrEqual(name.bottom)
+    expect(later.top, `${what}: the two balances on one line`).toBe(earlier.top)
+    expect(later.left, `${what}: the later balance right of the earlier`).toBeGreaterThan(earlier.left)
+    expect(change.top, `${what}: Change below the balances`).toBeGreaterThanOrEqual(earlier.bottom)
+    expect(percent.top, `${what}: Change and % on one line`).toBe(change.top)
+    expect(change.left, `${what}: Change under the earlier balance`).toBe(earlier.left)
+    expect(percent.left, `${what}: % under the later balance`).toBe(later.left)
+    expect(earlier.left, `${what}: the first column at the name's edge`).toBe(name.left)
+  }
+}
 
 /**
  * Each type's first account row has the same cells at the same left edges and widths as every other type's, so that

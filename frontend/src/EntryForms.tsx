@@ -12,6 +12,7 @@ import {
   entryAmount, familiesFor, familyProblems, familyRequest, familyServerErrors, memberField, splitContext, unavailable,
 } from './familyEntry'
 import { SplitEditor } from './FamilySplit'
+import { useFamilyPayees } from './familyPayees'
 import { accountById, counterpartyNamed, knownCurrencies, sharedAccount, type Ledger } from './ledger'
 import { amountProblem, formatMoney, parseAmount, rate } from './money'
 import SimilarEntries from './SimilarEntries'
@@ -296,9 +297,11 @@ interface FieldsProps {
 
 function PayeeField({ form, ledger, errors, change, label = 'Payee' }: FieldsProps & { label?: string }) {
   const known = form.payee.trim() === '' || counterpartyNamed(ledger, form.payee)
+  // The family payees too (UX-12, D-550); a chosen one is created on save as any new name.
+  const familyPayees = useFamilyPayees()
   return (
     <Field label={label} errors={errors.payee} hint={known ? undefined : 'New payee: it is added when you save.'}>
-      <CounterpartyInput counterparties={ledger.counterparties} value={form.payee}
+      <CounterpartyInput counterparties={ledger.counterparties} familyPayees={familyPayees} value={form.payee}
         onChange={(name) => change(withPayee(form, name, ledger), ['payee', 'categoryId'])} />
     </Field>
   )

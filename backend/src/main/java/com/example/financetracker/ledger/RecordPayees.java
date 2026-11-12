@@ -23,12 +23,13 @@ final class RecordPayees {
 
     /**
      * A {@code LEFT JOIN LATERAL} that gives the entry aliased {@code e} the column {@code alias.name}, null when the
-     * entry has no family record's payee the reader may see.
+     * entry has no family record's payee the reader may see, and {@code alias.family_ledger_id}, that record's family
+     * budget (UX-12, D-548).
      */
     static String join(String alias) {
         return " " + """
                 LEFT JOIN LATERAL (
-                    SELECT pc.name
+                    SELECT pc.name, rr.ledger_id AS family_ledger_id
                     FROM family_entry_link rl
                     JOIN family_record rr ON rr.id = rl.record_id AND rr.ledger_id = rl.family_ledger_id
                     JOIN ledger_member reader ON reader.ledger_id = rr.ledger_id AND reader.user_sub = :rpReader

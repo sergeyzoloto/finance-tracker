@@ -61,7 +61,9 @@ test('family F8d', async ({ as, family, target, watch }) => {
   await a.page.getByLabel('Category').selectOption({ label: 'Groceries' })
   await a.page.getByLabel('Amount (EUR)').fill('10.00')
   await a.page.getByLabel('Received into').selectOption({ label: 'Current account' })
-  await a.page.getByLabel(/^Payee/).selectOption({ label: 'Corner shop' })
+  // Typed since UX-12 (D-549): a counterparty of A's already, so no new one.
+  await a.page.getByLabel(/^Payee/).fill('Corner shop')
+  await expect(a.page.getByText('New payee: it is added when you save.')).toHaveCount(0)
   await shot(a.page, 'f8d-06-new-refund')
   await a.page.getByRole('button', { name: 'Add the refund' }).click()
   await expect(a.page.getByRole('heading', { name: /^Groceries, / })).toBeVisible()

@@ -1,10 +1,14 @@
 import type { Account, Counterparty } from './api'
-import { Field } from './components'
+import { CounterpartyInput, Field } from './components'
+import { NEW_PAYEE_HINT, useFamilyPayees } from './familyPayees'
+import { counterpartyCalled } from './payeeNames'
 import { payeeHint } from './payees'
 
 // The reader's own counterparties on their payment (F8d; D-80, D-81): the counterparty of an account that requires one
 // and the payee. Both are counterparties of their personal ledger, and only they see them: no other member's answer
-// names either, and the family journal doesn't.
+// names either, and the family journal doesn't, unless the payer shows their payees (UX-9). Since UX-12 (D-549) the
+// payee is typed freely, suggesting the user's counterparties and the family payees; a new name becomes the user's
+// counterparty when the form is saved (`familyPayees.payeeIdFor`).
 
 /** The counterparties the reader may name, those not archived first, with the one chosen already always listed. */
 function options(counterparties: Counterparty[], chosen: string) {
@@ -21,18 +25,26 @@ function options(counterparties: Counterparty[], chosen: string) {
  * @param payeesShown whether the reader shows their payees to the other members of the budget (UX-9), which the hint
  *        says
  */
-export function CounterpartyFields({ account, counterparties, counterpartyId, payeeId, onCounterparty, onPayee, showPayee,
+/** The payee field's hint: whom it shows to, and for a name no counterparty of the user's has that it is added. */
+export function payeeFieldHint(payee: string, counterparties: Counterparty[], payeesShown: boolean) {
+  const known = payee.trim() === '' || counterpartyCalled(counterparties, payee)
+  return known ? payeeHint(payeesShown) : <>{payeeHint(payeesShown)} {NEW_PAYEE_HINT}</>
+}
+
+export function CounterpartyFields({ account, counterparties, counterpartyId, payee, onCounterparty, onPayee, showPayee,
   payeesShown = false, errors }: {
   account: Account | undefined
   counterparties: Counterparty[] | undefined
   counterpartyId: string
-  payeeId: string
+  /** The payee's name as typed (D-549). */
+  payee: string
   onCounterparty: (id: string) => void
-  onPayee: (id: string) => void
+  onPayee: (name: string) => void
   showPayee: boolean
   payeesShown?: boolean
   errors: string[]
 }) {
+  const familyPayees = useFamilyPayees()
   return (
     <>
       {account?.requiresCounterparty && (
@@ -46,11 +58,9 @@ export function CounterpartyFields({ account, counterparties, counterpartyId, pa
       )}
       {showPayee && (
         <Field label="Payee (optional)" errors={account?.requiresCounterparty ? [] : errors}
-          hint={payeeHint(payeesShown)}>
-          <select value={payeeId} onChange={(e) => onPayee(e.target.value)}>
-            <option value="">None</option>
-            {options(counterparties ?? [], payeeId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          hint={payeeFieldHint(payee, counterparties ?? [], payeesShown)}>
+          <CounterpartyInput counterparties={counterparties ?? []} familyPayees={familyPayees} value={payee}
+            onChange={onPayee} />
         </Field>
       )}
     </>

@@ -3,6 +3,46 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-12 · UX-12's second commit: UX-8's to UX-11's deploys recorded, D-565 and D-566
+
+One commit on `feature/family-budget` on top of `94701e0` (UX-12), the commit of this entry, "docs: UX-8's to UX-11's
+deploys recorded, D-565 and D-566 (UX-12)". **Not pushed**; `main` not moved. Docs only: `CLAUDE.md`,
+`change_log.mdx`, `deploy/RUNBOOK.md` and `docs/family-budget/requirements.md`. Production read only: the server was
+never touched.
+
+**Changes**
+- D-565: `deploy/RUNBOOK.md`'s "Deployed revisions" gets four rows, one per deploy, each with its run, dumps, Flyway
+  line, images in full, `finish`, rollback acceptance and "CI on Ubuntu 26.04" run: UX-8 (`2e34237`, 2026-11-11, V16),
+  UX-9 (`1417b8f`, 2026-11-11, V17 applied), UX-10 (`1edc62c`, 2026-11-12; its api image new from a moved
+  `eclipse-temurin:21-jre`) and UX-11 (`136e5c2`, 2026-11-12, `finish` 12:57:22Z). What the PM's record doesn't hold
+  is "not recorded (D-565)".
+- "Production now" rewritten as of UX-11's `finish`: `136e5c2` on V17 with its images, the switch on, both histories
+  imported up to 2026-10-31, the 24 numbers, the rollback target `1edc62c` with no condition, every deploy dump with
+  where it is (UX-8's to UX-11's on the server only until the laptop's next pull, its last 2026-11-11T02:34:21Z), the
+  older ways back carried over.
+- Step 12's 12.1 and 12.10 use `verify UX-11`, the next step 12 runs on the code production runs then (`136e5c2`
+  today).
+- CLAUDE.md: the Deployment line (`136e5c2` since 2026-11-12T12:57:22Z on Flyway V17, after `1edc62c`, `1417b8f` and
+  `2e34237`), the rollback state, UX-8's to UX-11's deploys, step 12's `verify`.
+- `requirements.md`: D-565, D-566 and the "Amended" line.
+
+**Verified**
+- "CI on Ubuntu 26.04", read only through GitHub's API without a token (`actions/workflows/ci-ubuntu-26.yml/runs?head_sha=`):
+  `1417b8f` run #26 (id `43103341479`), `workflow_dispatch` on `main`, attempt 1, success, Backend, Frontend, Web
+  image and Deploy scripts success; `1edc62c` run #27 (id `43199661793`), the same. The PM's #25 for `2e34237` and #28
+  for `136e5c2` agree with the API.
+- `git --no-pager diff --stat 94701e0 HEAD`: the four files only. No suite runs for a docs commit. No CI job or test reads
+  these files (the deploy tests only quote runbook section names, unchanged); the Stop hook
+  (`.claude/hooks/require-changelog.sh`) requires this entry, and the change log compiles as MDX with `@mdx-js/mdx`
+  with no error.
+
+**Open**
+- D-566's three cosmetic items, for a later stage: `CounterpartyFields`' doc comment above `payeeFieldHint` in
+  `FamilyCounterparties.tsx`; `deploy/checks/UX-12.sql`'s header naming D-545 to D-557; a `payee=` equal to one of the
+  user's counterparties in another case listed twice in "Payee or person".
+- The push, and UX-12's deploy by "UX-12's deploy checklist with the suite" (M this commit, two commits from
+  `136e5c2`).
+
 ## 2026-11-12 · UX-12: every shown payee in Entries' payee filter, a payee typed freely on the family forms, npm audit fix, two layout fixes, D-545 to D-564
 
 One commit on `feature/family-budget` on top of `136e5c2`, the commit of this entry, "feat: every shown payee in

@@ -8,8 +8,9 @@ import {
 // UX-1's dashboard with A (and B with the family budget on), every entry dated today:
 // 1. A's personal expense of 12.34 on Groceries; the dashboard opens in the base currency (D-297): no currency in the
 //    URL, the base currency's button pressed, and every report asked in BASE.
-// 2. A preset of the Period list (D-296, D-432) changes the URL and the range shown in From and To; the Balances card
-//    names its day, To (D-430, D-431).
+// 2. The Period list opens at "Month of the latest entry", this month here (D-521); a preset (D-296, D-432) changes the
+//    URL and the range shown in From and To; the Balances card names its day, To (D-430, D-431); "This month" is kept
+//    by name (`period=this-month`).
 // 3. With E2E_FAMILY=on: A creates "Dashboard check" (Groceries merged in), invites B, who joins; A pays a family expense
 //    of 30.00. Since UX-6 (D-420) "Show" chooses the budget and "Records" the records: A's share of 15.00 is under the
 //    budget's "All records" and "My records", and not under "Personal", which keeps A's own 12.34; B's share is under
@@ -17,7 +18,8 @@ import {
 // 4. A chooses DD.MM.YYYY in Settings (D-304): a date in the entry list and the new entry's date field follow it, a date
 //    typed in it is taken; A goes back to "As the browser shows it".
 // 5. At 375 px the dashboard doesn't scroll sideways.
-// 6. UX-2 (D-351, D-352, D-356): with the demo loaded (and "Demo household" with E2E_FAMILY=on), at 375 px the entry
+// 6. UX-2 (D-351, D-352, D-356): with the demo loaded (and "Demo household" with E2E_FAMILY=on), `/` opens the month of
+//    the latest entry, this month (UX-11, D-521); at 375 px the entry
 //    list, the categories and the family budget's categories don't scroll sideways; in the base currency the
 //    Balances' Assets total reads as "You have" (D-348), as it does in step 1.
 // 7. UX-3 (D-366, D-367), on the demo at 1280 px, in the base currency from the 1st of the month to today: "Result for
@@ -71,7 +73,9 @@ test('dashboard', async ({ as, family, target, watch }) => {
 
   // 2. A preset: the URL and the range, and the day of the balances.
   const period = page.getByRole('combobox', { name: 'Period' })
-  await expect(period).toHaveValue('this-month')
+  // UX-11 (D-521): the month of the latest entry by default, here this month, A's one entry being today's.
+  await expect(period).toHaveValue('latest-entry-month')
+  await expectDate(page.getByLabel('From', { exact: true }), `${day.slice(0, 8)}01`)
   await period.selectOption({ label: 'Previous month' })
   await expect(page).toHaveURL(/[?&]period=previous-month(&|$)/)
   await expect(period).toHaveValue('previous-month')
@@ -82,12 +86,14 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await expectDate(page.getByLabel('To', { exact: true }), last)
   await expect(page.getByRole('heading', { name: `Balances on ${shownDay(last, null)}`, exact: true })).toBeVisible()
   await expect(page.getByLabel(/Balances on/)).toHaveCount(0)
+  // "This month" stays a preset of its own, kept by name; the default leaves the URL without one.
   await period.selectOption({ label: 'This month' })
-  await expect(page).not.toHaveURL(/period=/)
+  await expect(page).toHaveURL(/[?&]period=this-month(&|$)/)
+  await expectDate(page.getByLabel('From', { exact: true }), `${day.slice(0, 8)}01`)
   await fillDate(page.getByLabel('From', { exact: true }), `${day.slice(0, 8)}02`)
   await expect(period).toHaveValue('custom')
   await expect(page).toHaveURL(/[?&]from=/)
-  await period.selectOption({ label: 'This month' })
+  await period.selectOption({ label: 'Month of the latest entry' })
   await expect(page).not.toHaveURL(/[?&](from|period)=/)
 
   // 3. The scopes, with a family budget.
@@ -162,15 +168,19 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await page.getByRole('button', { name: 'Load demo data' }).click()
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 30_000 })
   await expectAssetsTotalIsYouHave(a)
+  // UX-11 (D-521): a link to `/` opens the month of the latest entry, in the demo this month, which ends today.
+  await page.goto('/')
+  await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('latest-entry-month')
+  await expectDate(page.getByLabel('From', { exact: true }), `${day.slice(0, 8)}01`)
   await expectNoSidewaysScroll(a, '/entries', page.getByRole('heading', { name: 'Entries' }))
   if (family === 'on') {
     await expect(page.locator('table.entries .family-line').first(), 'the demo’s family rows in the list').toBeVisible()
   }
   await shot(page, 'dashboard-06-entries-narrow')
-  await expectNoSidewaysScroll(a, '/categories', page.getByRole('button', { name: 'Rename' }).first())
+  await expectNoSidewaysScroll(a, '/categories', page.getByRole('button', { name: /^Rename / }).first())
   await shot(page, 'dashboard-07-categories-narrow')
   if (family === 'on') {
-    const id = /\/family\/(\d+)/.exec((await page.getByRole('link', { name: 'Change it in the family budget' }).first()
+    const id = /\/family\/(\d+)/.exec((await page.getByRole('link', { name: /^Change .+ in the family budget / }).first()
       .getAttribute('href')) ?? '')![1]
     await expectNoSidewaysScroll(a, `/family/${id}/categories`, page.getByRole('button', { name: 'Rename' }).first())
     await shot(page, 'dashboard-08-family-categories-narrow')
@@ -413,14 +423,15 @@ async function expectArchivedAmounts(session: Session, day: string) {
 
   await page.goto('/accounts')
   await expect(page.getByLabel(/^Show archived/)).not.toBeChecked()
-  const assets = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Assets', exact: true }) })
+  // UX-11 (D-525): one table, a group per type labelled by its heading.
+  const assets = page.getByRole('rowgroup', { name: 'Assets', exact: true })
   const row = assets.getByRole('row').filter({ has: page.getByRole('link', { name: 'Cent account', exact: true }) })
   await expect(row.getByText('Archived', { exact: true })).toBeVisible()
   await expect(row.locator('td.amount')).toHaveText('€0.01')
   // The euro total is the sum of the euro amounts its rows show.
   const euros = (texts: string[]) => texts.map((t) => t.replace(/\u00a0/g, ' ').trim()).filter((t) => /€/.test(t))
-  const shown = euros(await assets.locator('tbody td.amount > div').allTextContents())
-  const total = euros(await assets.locator('tfoot td.amount > div').allTextContents())
+  const shown = euros(await assets.locator('tr:not(.type-total) > td.amount > div').allTextContents())
+  const total = euros(await assets.locator('tr.type-total > td.amount > div').allTextContents())
   expect(total, 'one euro total').toHaveLength(1)
   expect(shown.map(cents).reduce((x, y) => x + y, 0n), 'the euro rows add up to the total').toBe(cents(total[0]))
 }

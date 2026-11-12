@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AccountBalance, ConvertedBalance, ConvertedCashFlow, CounterpartyBalance, MissingRate } from './api'
 import {
   cashFlowTables, convertedCashFlowTable, daysBetween, debtSides, familyDebts, inBaseFromQuery, loanSides,
-  mergeMissing, MISSING, monthNote, monthsBetween, periodFromQuery, periodTotals, presetRange, PRESETS, recordsOf,
+  mergeMissing, MISSING, monthNote, monthsBetween, needsLatestEntry, PERIOD_LABELS, periodFromQuery, periodTotals, presetRange, PRESETS, recordsOf,
   scopeFromQuery, showOf, showOptions, withRecords, withShow,
   scopeParams, showsOwnCurrencies, total, usedRateText, type Preset,
 } from './dashboard'
@@ -11,8 +11,28 @@ describe('periodFromQuery', () => {
   const today = new Date(2026, 0, 15)
   const period = (query: string) => periodFromQuery(new URLSearchParams(query), today)
 
-  it('is this month without a query, with no day of the balances of its own (D-430)', () => {
-    expect(period('')).toEqual({ choice: 'this-month', from: '2026-01-01', to: '2026-01-31' })
+  it('is the month of the latest entry without a query, this month without an entry, with no day of the balances of its own (D-430, D-521)', () => {
+    expect(period('')).toEqual({ choice: 'latest-entry-month', from: '2026-01-01', to: '2026-01-31' })
+    expect(periodFromQuery(new URLSearchParams(''), today, '2025-11-30'))
+      .toEqual({ choice: 'latest-entry-month', from: '2025-11-01', to: '2025-11-30' })
+    expect(periodFromQuery(new URLSearchParams(''), today, null))
+      .toEqual({ choice: 'latest-entry-month', from: '2026-01-01', to: '2026-01-31' })
+    // Its own name, as a bookmark keeps it.
+    expect(periodFromQuery(new URLSearchParams('period=latest-entry-month'), today, '2024-02-10'))
+      .toEqual({ choice: 'latest-entry-month', from: '2024-02-01', to: '2024-02-29' })
+    // This month stays a preset as it was.
+    expect(periodFromQuery(new URLSearchParams('period=this-month'), today, '2025-11-30'))
+      .toEqual({ choice: 'this-month', from: '2026-01-01', to: '2026-01-31' })
+  })
+
+  it('needs the latest entry only for that preset (D-521)', () => {
+    const needs = (query: string) => needsLatestEntry(new URLSearchParams(query))
+    expect(needs('')).toBe(true)
+    expect(needs('period=latest-entry-month')).toBe(true)
+    expect(needs('period=forever')).toBe(true)
+    expect(needs('period=this-month')).toBe(false)
+    expect(needs('from=2026-01-01&to=2026-01-31')).toBe(false)
+    expect(needs('from=2023-02-29&to=2023-03-31')).toBe(true)
   })
 
   it('reaches into the year before for the last 3 months', () => {
@@ -41,7 +61,9 @@ describe('periodFromQuery', () => {
 
   it('ignores days that do not exist and unknown presets', () => {
     expect(period('from=2023-02-29&to=2023-03-31&period=this-year')).toMatchObject({ choice: 'this-year', from: '2026-01-01' })
-    expect(period('period=forever')).toMatchObject({ choice: 'this-month' })
+    expect(period('period=forever')).toMatchObject({ choice: 'latest-entry-month' })
+    expect(periodFromQuery(new URLSearchParams('period=forever'), today, '2025-12-24'))
+      .toMatchObject({ choice: 'latest-entry-month', from: '2025-12-01', to: '2025-12-31' })
   })
 })
 
@@ -52,12 +74,24 @@ describe('the period buttons (D-296)', () => {
   }))
 
   it('come in the page’s order', () => {
-    expect(PRESETS).toEqual(['this-week', 'previous-week', 'past-month', 'previous-month', 'this-month', 'this-quarter',
-      'previous-quarter', 'last-3-months', 'past-year', 'this-year', 'previous-year'])
+    expect(PRESETS).toEqual(['latest-entry-month', 'this-week', 'previous-week', 'past-month', 'previous-month',
+      'this-month', 'this-quarter', 'previous-quarter', 'last-3-months', 'past-year', 'this-year', 'previous-year'])
+  })
+
+  it('make the month of the latest entry that entry’s calendar month, else this month (D-521)', () => {
+    // A month earlier than today's, this month, and none.
+    expect(presetRange('latest-entry-month', new Date(2026, 10, 12), new Date(2026, 8, 3)))
+      .toEqual({ from: '2026-09-01', to: '2026-09-30' })
+    expect(presetRange('latest-entry-month', new Date(2026, 10, 12), new Date(2026, 10, 12)))
+      .toEqual({ from: '2026-11-01', to: '2026-11-30' })
+    expect(presetRange('latest-entry-month', new Date(2026, 10, 12), null))
+      .toEqual({ from: '2026-11-01', to: '2026-11-30' })
+    expect(PERIOD_LABELS['latest-entry-month']).toBe('Month of the latest entry')
   })
 
   it('on 31 March: a month back clamps to the end of February', () => {
     expect(ranges(2026, 3, 31)).toEqual({
+      'latest-entry-month': '2026-03-01 2026-03-31',
       'this-week': '2026-03-30 2026-04-05',
       'previous-week': '2026-03-23 2026-03-29',
       'this-quarter': '2026-01-01 2026-03-31',

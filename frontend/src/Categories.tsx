@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { api, fieldMessages, useApi, useMutation, type Category, type CategoryType } from './api'
 import { Errors, Loading } from './components'
+import { ArchiveIcon, ExternalIcon, PencilIcon, RestoreIcon } from './icons'
 
 const SECTIONS: { type: CategoryType; title: string }[] = [
   { type: 'EXPENSE', title: 'Expenses' },
@@ -119,20 +120,43 @@ function CategoryRow({ category, onChanged }: { category: Category; onChanged: (
       <td className="actions nowrap">
         {category.familyLedgerId !== undefined ? (
           // A family budget's category changes in the family budget, by its owners (D-11, D-15).
-          <Link to={`/family/${category.familyLedgerId}/categories`} className="small">Change it in the family budget</Link>
+          <IconLink to={`/family/${category.familyLedgerId}/categories`}
+            name={`Change ${category.name} in the family budget ${category.familyLedgerName}`}><ExternalIcon /></IconLink>
         ) : (
           <>
-            {!renaming && !category.archived && <button type="button" onClick={() => { clear(); setRenaming(true) }}>Rename</button>}
+            {!renaming && !category.archived && (
+              <IconButton name={`Rename ${category.name}`} onClick={() => { clear(); setRenaming(true) }}><PencilIcon /></IconButton>
+            )}
             {!renaming && (
-              <button type="button" disabled={pending} onClick={() => archive(!category.archived)}>
-                {category.archived ? 'Restore' : 'Archive'}
-              </button>
+              <IconButton name={`${category.archived ? 'Restore' : 'Archive'} ${category.name}`} disabled={pending}
+                onClick={() => archive(!category.archived)}>
+                {category.archived ? <RestoreIcon /> : <ArchiveIcon />}
+              </IconButton>
             )}
           </>
         )}
       </td>
     </tr>
   )
+}
+
+/** A square button with an icon in place of its word (D-527): its name says the action and the category. */
+function IconButton({ name, onClick, disabled, children }: {
+  name: string
+  onClick: () => void
+  disabled?: boolean
+  children: ReactNode
+}) {
+  return (
+    <button type="button" className="icon-button" aria-label={name} title={name} disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  )
+}
+
+/** A link styled as an icon button (D-527). */
+function IconLink({ to, name, children }: { to: string; name: string; children: ReactNode }) {
+  return <Link to={to} className="button icon-button" aria-label={name} title={name}>{children}</Link>
 }
 
 const CYRILLIC: Record<string, string> = {

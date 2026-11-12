@@ -228,6 +228,10 @@ fieldset.choice legend { font-size: 12px; line-height: 16px; color: var(--muted)
 table.entries tr.clickable { cursor: pointer; }
 table.entries tr.clickable:hover, tr.clickable:hover { background: var(--surface-raised); }
 .stale { opacity: 0.6; }
+/* Entries' summary row (UX-11, D-524): every matching entry, under the column headers; labelled lines under 40rem. */
+table.entry-list tbody.entry-summary td { color: var(--muted); vertical-align: top; border-bottom: 2px solid var(--border-control); }
+table.entry-list tbody.entry-summary td.sum-amount { text-align: right; white-space: nowrap; }
+table.entry-list .summary-label { display: none; }
 .pager { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; justify-content: center; margin: 1rem 0; }
 table.nested { margin: 0 0 0 1.5rem; width: calc(100% - 1.5rem); }
 tr.details > td { background: var(--surface-raised); }
@@ -238,6 +242,17 @@ form.add { align-items: end; }
 td.actions { width: 1%; }
 td button, td .button { padding: 0.1rem 0.5rem; font-size: 0.9em; }
 table.accounts td, table.accounts th { vertical-align: middle; }
+/* One table for the three types (UX-11, D-525): the browser sizes the columns once, so they line up. */
+table.accounts { width: 100%; }
+table.accounts > tbody.account-type > tr.type-head > th { text-align: left; font-weight: normal; padding-top: 1.25rem; }
+table.accounts > tbody.account-type:first-of-type > tr.type-head > th { padding-top: 0.5rem; }
+table.accounts tr.type-head h3 { margin: 0 0 0.2rem; }
+table.accounts tr.type-head p { margin: 0; }
+table.accounts tr.type-total > th { text-align: left; }
+table.accounts tr.type-total > th, table.accounts tr.type-total > td { font-weight: 600; border-top: 1px solid var(--border-control); }
+.account-days { align-items: end; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* Dashboard */
 .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1rem; align-items: start; }
@@ -487,6 +502,10 @@ ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: any
   table.entry-list td.flow { order: 4; color: var(--muted); }
   table.entry-list td.amount { order: 5; font-weight: 600; }
   table.entry-list .family-line { order: 6; }
+  table.entry-list tbody.entry-summary tr { background: var(--surface-raised); padding: 0.5rem; border-bottom: 2px solid var(--border-control); }
+  table.entry-list tbody.entry-summary td, table.entry-list tbody.entry-summary td.sum-amount { border: none; text-align: left; white-space: normal; }
+  table.entry-list .summary-label { display: inline; font-weight: 600; color: var(--text); margin-right: 0.5ch; }
+  table.entry-list .sum-amount .summary-label { display: block; }
   table.categories, table.categories tbody { display: block; }
   table.categories tr { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
     gap: 0.3rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
@@ -512,6 +531,13 @@ ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: any
   table.accounts form.inline { display: flex; flex-wrap: wrap; }
   table.accounts form.inline input { min-width: 0; flex: 1 1 8rem; }
   table.accounts table.nested { margin-left: 0.75rem; width: calc(100% - 0.75rem); }
+  table.accounts > tbody > tr.type-head > th { display: block; flex-basis: 100%; border: none; padding: 1rem 0 0; }
+  table.accounts > tbody > tr.type-total > th { display: block; border: none; padding: 0; }
+  table.accounts > tbody > tr.type-total > td { border: none; }
+  /* While comparing, each figure names its column (D-526). */
+  table.accounts.compared td[data-label] { flex: 1 1 40%; margin-left: 0; text-align: left; }
+  table.accounts.compared td[data-label]::before { content: attr(data-label); display: block; font-size: 12px;
+    font-weight: normal; color: var(--muted); }
 }
 
 /* New entry's similar entries (UX-8, D-460): a row per entry, its parts in columns; under 40rem each row is a block of
@@ -543,12 +569,18 @@ ul.similar-list { list-style: none; padding: 0; margin: 0 0 0.75rem; }
     overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
 }
 
+/* An icon button (UX-11, D-527): square, 36px, 44px under 40rem; its name in aria-label and title. */
+button.icon-button, .button.icon-button { display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; min-width: 36px; height: 36px; padding: 0; font-size: 16px; vertical-align: middle; }
+td.actions .icon-button + .icon-button { margin-left: 6px; }
+
 /* Under 40rem (D-500, D-502): 15px text, 16px fields so that iOS doesn't zoom, 44px buttons. */
 @media (max-width: 40rem) {
   :root { --page-side: 16px; }
   body { font-size: 15px; line-height: 22px; }
   input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px; }
   button:not(.link), .button { min-height: 44px; }
+  button.icon-button, .button.icon-button { width: 44px; min-width: 44px; height: 44px; }
   .toggles button { min-height: 42px; }
   .header-row { gap: 8px; }
   .wordmark { font-size: 15px; min-height: 44px; }

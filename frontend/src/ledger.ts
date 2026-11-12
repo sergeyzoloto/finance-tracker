@@ -91,7 +91,7 @@ export interface Money { currency: string; amount: string }
 
 /** How an entry reads in a list, without debit and credit. */
 export interface EntrySummary {
-  /** The payee, or else whoever the postings are with, such as a borrower. */
+  /** The payee, or else whoever the postings are with, such as a borrower, or else the family record's shown payee. */
   payee: string
   category: string
   /** Where the money went, such as "ING → Cash" or "Current account → Groceries". */
@@ -149,8 +149,11 @@ export function describeEntry(entry: Entry, ledger: Ledger, inList = false): Ent
   const net = categorized.length === 0 ? '0' : sum(categorized.map((p) => p.amount))
   const direction = (0 - signOf(net)) as -1 | 0 | 1
 
+  // The entry's payee, else its lines' counterparties, else (UX-11, D-523) its family record's payee shown to the reader.
   const payee = counterpartyById(ledger, entry.payeeId)?.name
-    ?? unique(entry.postings.flatMap((p) => counterpartyById(ledger, p.counterpartyId)?.name ?? [])).join(', ')
+    || unique(entry.postings.flatMap((p) => counterpartyById(ledger, p.counterpartyId)?.name ?? [])).join(', ')
+    || entry.family?.recordPayee?.name
+    || ''
   return {
     payee,
     category: unique(categorized.map(label)).join(', '),

@@ -72,14 +72,24 @@ class FamilyPayeeApiTests extends FamilyApiTest {
                 .single();
     }
 
-    /** Everything Bob reads that D-481 keeps the payee out of, always. */
+    /**
+     * Everything Bob reads that D-481 keeps the payee out of, always. Since UX-11 (D-523) his own entries name it only
+     * as their record's payee ({@code family.recordPayee}), and only while it is shown: who sees it is unchanged.
+     */
     private void bobNeverSeesItElsewhere() throws IOException {
         for (String path : List.of(uri + "/journal", uri + "/balances", uri + "/members", uri,
-                uri + "/report?from=2026-09-01&to=2026-12-31", "/api/entries?size=200",
+                uri + "/report?from=2026-09-01&to=2026-12-31",
                 "/api/export/summary", "/api/entries/matches?type=EXPENSE&categoryId=" + groceries,
                 "/api/family-ledgers")) {
             Answers.assertNoneMention(ok(get(bob, path)), SHOP);
         }
+        JsonNode entries = ok(get(bob, "/api/entries?size=200"));
+        entries.get("content").forEach(entry -> {
+            if (entry.get("family") instanceof com.fasterxml.jackson.databind.node.ObjectNode family) {
+                family.remove("recordPayee");
+            }
+        });
+        Answers.assertNoneMention(entries, SHOP);
         assertThat(Answers.csv(get(bob, "/api/export/transactions")).lines().stream().flatMap(List::stream))
                 .noneMatch(value -> value.contains(SHOP));
     }
@@ -108,6 +118,8 @@ class FamilyPayeeApiTests extends FamilyApiTest {
         Answers.assertNoneMention(record(bob, expense), SHOP);
         holdsNothingOfHerSide(record(bob, expense));
         bobNeverSeesItElsewhere();
+        // Hidden: not even as his share's record's payee (UX-11, D-523).
+        Answers.assertNoneMention(ok(get(bob, "/api/entries?size=200")), SHOP);
     }
 
     /**

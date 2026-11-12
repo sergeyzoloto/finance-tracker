@@ -3,6 +3,7 @@ import {
   type ConvertedCashFlow, type CounterpartyBalance, type MissingRate, type Rate,
 } from './api'
 import { minorUnit } from './minorUnits'
+import { DEFAULT_PRESET, presetNamed, presetRange, validDate, type PeriodChoice } from './periods'
 import { abs, formatRate, isZero, negate, percentChange, roundsToZero, signOf, sum } from './money'
 
 // The dashboard without React: the period, the currency and the scope in the URL, the cash flow as a monthly pivot,
@@ -10,63 +11,8 @@ import { abs, formatRate, isZero, negate, percentChange, roundsToZero, signOf, s
 // together. In the base currency, the backend converts them, and a figure it can't convert for want of a rate stays
 // missing: it is never added up as if it were zero.
 
-/** The period's presets, in their order in the Period list (D-296, D-432). */
-export const PRESETS = [
-  'this-week', 'previous-week', 'past-month', 'previous-month', 'this-month', 'this-quarter', 'previous-quarter',
-  'last-3-months', 'past-year', 'this-year', 'previous-year',
-] as const
-export type Preset = (typeof PRESETS)[number]
-export type PeriodChoice = Preset | 'custom'
-export const DEFAULT_PRESET: Preset = 'this-month'
-export const PERIOD_LABELS: Record<PeriodChoice, string> = {
-  'this-week': 'This week',
-  'previous-week': 'Previous week',
-  'this-quarter': 'This quarter',
-  'previous-quarter': 'Previous quarter',
-  'past-month': 'Past month',
-  'previous-month': 'Previous month',
-  'this-month': 'This month',
-  'last-3-months': 'Last 3 months',
-  'past-year': 'Past year',
-  'this-year': 'This year',
-  'previous-year': 'Previous year',
-  custom: 'Custom',
-}
-/** Names a bookmark may still use: "Previous year" was "Last year" (`period=last-year`). */
-const OLD_PRESETS: Record<string, Preset> = { 'last-year': 'previous-year' }
-
-/**
- * A preset's first and last day, inclusive. A week is Monday to Sunday and a quarter a calendar quarter (D-397). "Last
- * 3 months" is this month and the two before it. "Past month" and
- * "Past year" end today and start the day after the same date a month or a year back, that date clamped to the end of a
- * shorter month: on 31 March, 1 to 31 March; on 29 February 2028, from 1 March 2027.
- */
-export function presetRange(preset: Preset, today: Date) {
-  const y = today.getFullYear()
-  const m = today.getMonth()
-  const d = today.getDate()
-  /** The same date `months` back, clamped to that month's last day; then the day after it. */
-  const dayAfterSameDate = (months: number) => {
-    const last = new Date(y, m - months + 1, 0).getDate()
-    return new Date(y, m - months, Math.min(d, last) + 1)
-  }
-  const monday = d - ((today.getDay() + 6) % 7)
-  const quarter = m - (m % 3)
-  const [from, to] = {
-    'this-week': [new Date(y, m, monday), new Date(y, m, monday + 6)],
-    'previous-week': [new Date(y, m, monday - 7), new Date(y, m, monday - 1)],
-    'this-quarter': [new Date(y, quarter, 1), new Date(y, quarter + 3, 0)],
-    'previous-quarter': [new Date(y, quarter - 3, 1), new Date(y, quarter, 0)],
-    'past-month': [dayAfterSameDate(1), today],
-    'previous-month': [new Date(y, m - 1, 1), new Date(y, m, 0)],
-    'this-month': [new Date(y, m, 1), new Date(y, m + 1, 0)],
-    'last-3-months': [new Date(y, m - 2, 1), new Date(y, m + 1, 0)],
-    'past-year': [dayAfterSameDate(12), today],
-    'this-year': [new Date(y, 0, 1), new Date(y, 11, 31)],
-    'previous-year': [new Date(y - 1, 0, 1), new Date(y - 1, 11, 31)],
-  }[preset]
-  return { from: isoDate(from), to: isoDate(to) }
-}
+// The presets live in periods.ts, which the Entries page shares (D-522).
+export { DEFAULT_PRESET, PERIOD_LABELS, PRESETS, presetRange, type PeriodChoice, type Preset } from './periods'
 
 /**
  * What the dashboard shows: income and expenses from `from` to `to`, and balances, net worth, loans and the family
@@ -80,16 +26,24 @@ export interface Period {
 
 /**
  * The period the URL's query string selects: a custom range as `from` and `to`, or else a preset as
- * `period=this-year`, or else this month. Presets are kept by name, so a bookmark stays current. An old link's `asOf`
- * is ignored (D-430): the balances' day is `balancesDay`'s.
+ * `period=this-year`, or else (no `period`, or an unknown one) the month of the latest entry (D-521). Presets are kept
+ * by name, so a bookmark stays current. An old link's `asOf` is ignored (D-430): the balances' day is `balancesDay`'s.
+ *
+ * @param latest the day of the ledger's latest entry on or before today, for "Month of the latest entry"; null for
+ * none, which makes it this month
  */
-export function periodFromQuery(params: URLSearchParams, today: Date): Period {
+export function periodFromQuery(params: URLSearchParams, today: Date, latest: string | null = null): Period {
   const from = validDate(params.get('from'))
   const to = validDate(params.get('to'))
-  const named = params.get('period') ?? ''
-  const preset = PRESETS.find((p) => p === named) ?? OLD_PRESETS[named] ?? DEFAULT_PRESET
-  const range = from && to ? { from, to } : presetRange(preset, today)
+  const preset = presetNamed(params.get('period')) ?? DEFAULT_PRESET
+  const range = from && to ? { from, to } : presetRange(preset, today, latest === null ? null : dateOfIso(latest))
   return { choice: from && to ? 'custom' : preset, ...range }
+}
+
+/** Whether the URL's period is "Month of the latest entry", which needs that entry's day first (D-521). */
+export function needsLatestEntry(params: URLSearchParams) {
+  return !(validDate(params.get('from')) && validDate(params.get('to')))
+    && (presetNamed(params.get('period')) ?? DEFAULT_PRESET) === 'latest-entry-month'
 }
 
 /**
@@ -203,11 +157,6 @@ export function monthNote(month: string, from: string, to: string): string | und
 }
 
 /** "2024-02-29" if it is a real day, else undefined. */
-function validDate(text: string | null) {
-  if (!text || !/^\d{4}-\d{2}-\d{2}$/.test(text)) return undefined
-  const [year, month, day] = text.split('-').map(Number)
-  return isoDate(new Date(year, month - 1, day)) === text ? text : undefined
-}
 
 /** The months that the days `from` to `to` fall in, as "2024-03", oldest first. */
 export function monthsBetween(from: string, to: string) {
@@ -631,6 +580,10 @@ export function comparisons(period: DayRange, today: string): Comparisons | null
 }
 
 const dayRangeFormat = () => new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+/** Days `from` to `to` through `formatRange` in the browser's locale ("Oct 1 – 31, 2026"), one day as that day. */
+export const formatDayRange = (from: string, to: string) => from === to ? dayRangeFormat().format(dateOfIso(from))
+  : dayRangeFormat().formatRange(dateOfIso(from), dateOfIso(to))
 const monthRangeFormat = () => new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' })
 
 /**

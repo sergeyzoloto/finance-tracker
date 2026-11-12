@@ -30,8 +30,8 @@ function described(c: Comparisons) {
 
 describe('the comparison ranges (D-395, D-396)', () => {
   it('come with the four new presets in the page’s order (D-397)', () => {
-    expect(PRESETS).toEqual(['this-week', 'previous-week', 'past-month', 'previous-month', 'this-month', 'this-quarter',
-      'previous-quarter', 'last-3-months', 'past-year', 'this-year', 'previous-year'])
+    expect(PRESETS).toEqual(['latest-entry-month', 'this-week', 'previous-week', 'past-month', 'previous-month',
+      'this-month', 'this-quarter', 'previous-quarter', 'last-3-months', 'past-year', 'this-year', 'previous-year'])
     const ranges = Object.fromEntries(PRESETS.map((p) => {
       const r = presetRange(p, new Date(2026, 10, 9))
       return [p, `${r.from} ${r.to}`]

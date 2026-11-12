@@ -8,7 +8,8 @@ import { LOCAL, requireLocalOnly } from '../lib/targets.ts'
 // ledger, for a stage's review (UX-10, section 3). Local only: it refuses any host but localhost, and e2e:prod never
 // runs it. It signs in testuser, deletes all his data, loads the demo, takes each screen at 1280 and 375 px, and
 // deletes his data again. With a theme it is chosen in the browser before the first page (D-497's key); without one
-// the browser is light, as the app looked before UX-10.
+// the browser is light, as the app looked before UX-10. Since UX-11 also Entries for a month, a family share whose
+// payee comes from its record (a family expense with a payee added to the demo's budget), and Accounts compared.
 
 requireLocalOnly(LOCAL)
 const [folder, label, theme] = process.argv.slice(2)
@@ -19,6 +20,7 @@ if (!folder || !label || (theme !== undefined && !['blue', 'light', 'dark'].incl
 mkdirSync(folder, { recursive: true })
 
 const WIDTHS = [1280, 375] as const
+const PAYEE = 'Corner shop'
 const account = LOCAL.roles.A
 
 const browser = await chromium.launch({ channel: 'chrome' })
@@ -26,6 +28,7 @@ try {
   const state = await signIn()
   const setup = await browser.newContext({ baseURL: LOCAL.app, storageState: state })
   const familyId = await demo(setup)
+  const share = familyId ? await shareWithAPayee(setup, familyId) : undefined
   await setup.close()
 
   for (const width of WIDTHS) {
@@ -48,8 +51,18 @@ try {
       await p.waitForTimeout(200)
     })
     await take('entries', '/entries')
+    await take('entries-month', '/entries?period=previous-month')
+    if (share) {
+      await take('entries-record-payee', `/entries?q=${encodeURIComponent(PAYEE)}`)
+      await take('entry-record-payee', `/entries/${share}`)
+    }
     await take('new-entry', '/entries/new')
     await take('accounts', '/accounts')
+    await take('accounts-compared', '/accounts', async (p) => {
+      await p.getByRole('button', { name: 'Compare', exact: true }).click()
+      await p.waitForLoadState('networkidle')
+      await p.waitForTimeout(300)
+    })
     await take('categories', '/categories')
     // Before UX-10 there is no Appearance: Settings' first part stands in for it.
     await take('settings-appearance', theme ? '/settings/appearance' : '/settings/time-zone')
@@ -111,4 +124,30 @@ async function demo(context: BrowserContext): Promise<number | undefined> {
   if (response.status() >= 300) throw new Error(`POST /api/demo-data answered ${response.status()}`)
   const body = await response.json().catch(() => ({})) as { familyLedgerId?: number }
   return body.familyLedgerId
+}
+
+/**
+ * UX-11 (D-523): a family expense of testuser's in the demo's budget, paid from his current account with a payee, so
+ * that his share names its record's payee; the share's entry id.
+ */
+async function shareWithAPayee(context: BrowserContext, familyId: number): Promise<number | undefined> {
+  const headers = await xsrf(context)
+  const get = async <T,>(path: string) => (await (await context.request.get(path)).json()) as T
+  const budget = await get<{ memberId: number }>(`/api/family-ledgers/${familyId}`)
+  const categories = await get<{ id: number; type: string; archived: boolean }[]>(`/api/family-ledgers/${familyId}/categories`)
+  const accounts = await get<{ id: number; code: string }[]>('/api/accounts')
+  const payee = await context.request.post('/api/counterparties', { headers, data: { name: PAYEE } })
+  const me = await get<{ today: string }>('/api/me')
+  const record = await context.request.post(`/api/family-ledgers/${familyId}/records`, {
+    headers,
+    data: {
+      date: me.today, categoryId: categories.find((c) => c.type === 'EXPENSE' && !c.archived)!.id, amount: '24.80',
+      payerMemberId: budget.memberId, paymentAccountId: accounts.find((a) => a.code === 'CURRENT_ACCOUNT')!.id,
+      payeeId: ((await payee.json()) as { id: number }).id,
+    },
+  })
+  if (record.status() !== 201) throw new Error(`POST …/records answered ${record.status()}`)
+  const entries = await get<{ content: { id: number; family: { link: string } | null }[] }>(
+    `/api/entries?q=${encodeURIComponent(PAYEE)}`)
+  return entries.content.find((e) => e.family?.link === 'SHARE')?.id
 }

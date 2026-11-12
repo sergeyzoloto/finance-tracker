@@ -152,6 +152,7 @@ function ReadOnlyEntry({ entry, ledger, onBack }: { entry: Entry; ledger: Ledger
       <dl className="read-only">
         <dt>Date</dt>
         <dd>{formatDate(entry.entryDate)}</dd>
+        {summary.payee && <><dt>Payee</dt><dd>{summary.payee}</dd></>}
         {summary.category && <><dt>Category</dt><dd>{summary.category}</dd></>}
         <dt>Accounts</dt>
         <dd>{summary.flow}</dd>

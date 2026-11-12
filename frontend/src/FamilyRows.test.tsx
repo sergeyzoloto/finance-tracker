@@ -249,11 +249,12 @@ describe('the categories', () => {
     const familyRow = (await screen.findAllByRole('row')).find((r) => within(r).queryByText('Home'))!
     expect(within(familyRow).getByText('Groceries')).toBeDefined()
     expect(within(familyRow).queryByRole('button')).toBeNull()
-    expect(within(familyRow).getByRole('link', { name: 'Change it in the family budget' }).getAttribute('href'))
+    // UX-11 (D-527): a link with an icon, named by the action, the category and its budget.
+    expect(within(familyRow).getByRole('link', { name: 'Change Groceries in the family budget Home' }).getAttribute('href'))
       .toBe('/family/7/categories')
     const ownRow = screen.getAllByRole('row').find((r) => r.textContent?.startsWith('Eating out'))!
-    expect(within(ownRow).getByRole('button', { name: 'Rename' })).toBeDefined()
-    expect(within(ownRow).getByRole('button', { name: 'Archive' })).toBeDefined()
+    expect(within(ownRow).getByRole('button', { name: 'Rename Eating out' })).toBeDefined()
+    expect(within(ownRow).getByRole('button', { name: 'Archive Eating out' })).toBeDefined()
   })
 
   it('offers a family budget’s category in the pickers, marked', () => {

@@ -13,7 +13,7 @@ import {
   compareTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawable, drawnComparison, effectOf, equitySplits,
   familyDebts,
   inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING,
-  missingDays, monthPairs, monthsBetween, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
+  missingDays, monthPairs, monthsBetween, needsLatestEntry, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
   recordsOf, resultRange, scopeFromQuery, scopeParams, showOf, showOptions, showsOwnCurrencies, totalChanges,
   usedRateText, withRecords, withShow,
   type CashFlowTable as Table, type Cell, type CompareLine, type CompareTable, type Comparisons, type DayRange,
@@ -23,6 +23,7 @@ import DateInput from './DateInput'
 import EmptyLedger from './EmptyLedger'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
 import { useToday } from './me'
+import { useLatestEntryDay } from './periods'
 import { abs, formatMoney, signOf, sum } from './money'
 import type { ChartData } from './IncomeExpenseChart'
 
@@ -60,8 +61,8 @@ export default function Dashboard({ familyOn = false, families, onFamilyCreated 
 
 /**
  * What the user has and owes on a day, and what came in and went out in a period, from the report endpoints alone.
- * The period, the day, the currency and the scope are kept in the URL only (D-306): a link to `/` opens this month in
- * the base currency (D-297), with every income and expense. In the base currency the whole page is one: one headline
+ * The period, the day, the currency and the scope are kept in the URL only (D-306): a link to `/` opens the month of
+ * the latest entry (D-521) in the base currency (D-297), with every income and expense. In the base currency the whole page is one: one headline
  * row, one chart, one table, one row per account and counterparty; in each currency, a block per currency where it
  * must. The scope (D-302) narrows only income and expenses; balances, the headline row and open loans are the whole
  * ledger's.
@@ -69,9 +70,21 @@ export default function Dashboard({ familyOn = false, families, onFamilyCreated 
  * @param families the family budgets of the scopes; null with the family budget switched off
  */
 function LedgerDashboard({ families }: { families: FamilyLedger[] | null }) {
+  const [params] = useSearchParams()
+  const today = useToday()
+  // "Month of the latest entry" (D-521) needs that entry's day first: no report request for another period before.
+  const latest = useLatestEntryDay(needsLatestEntry(params), today)
+  if (latest.day === undefined) {
+    return latest.error ? <Errors messages={[latest.error]} /> : <Loading what="the dashboard" />
+  }
+  return <PeriodDashboard families={families} latest={latest.day} />
+}
+
+/** The dashboard once its period is known; `latest` is the day of the latest entry on or before today, or null. */
+function PeriodDashboard({ families, latest }: { families: FamilyLedger[] | null; latest: string | null }) {
   const [params, setParams] = useSearchParams()
   const today = useToday()
-  const period = periodFromQuery(params, dateOfIso(today))
+  const period = periodFromQuery(params, dateOfIso(today), latest)
   const inBase = inBaseFromQuery(params)
   const chosen = scopeFromQuery(params, families && families.map((f) => f.id))
   const backwards = period.from > period.to
@@ -277,7 +290,7 @@ function both<A, B>(a: Loaded<A>, b: Loaded<B>): Loaded<[A, B]> {
 }
 
 /**
- * The period as a native list (D-432): the presets in D-296's order, then "Custom", which can't be chosen and is shown
+ * The period as a native list (D-432): "Month of the latest entry" (D-521), the presets in D-296's order, then "Custom", which can't be chosen and is shown
  * chosen while From and To are a custom range, as on the Entries page. A choice does what its button did.
  */
 function PeriodList({ choice, onChoose }: { choice: PeriodChoice; onChoose: (choice: PeriodChoice) => void }) {

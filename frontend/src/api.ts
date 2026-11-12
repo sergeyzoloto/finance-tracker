@@ -396,6 +396,12 @@ export interface EntryFamily {
    * correction.
    */
   recordCategory?: { id: number; name: string }
+  /**
+   * The payee on the payer's own payment entry of the record, exactly when the reader may see it (UX-11, D-523): to
+   * its payer always, to another member while the payer shows their payees. Display only; never for a settlement, an
+   * opening balance or a correction.
+   */
+  recordPayee?: { name: string }
 }
 export interface Posting {
   accountId: number
@@ -416,6 +422,22 @@ export interface Entry {
   family?: EntryFamily | null
 }
 export interface EntryPage { content: Entry[]; page: number; size: number; totalElements: number; totalPages: number }
+/**
+ * What every entry the list's filters match adds up to, on every page (UX-11, D-524; `GET /api/entries/summary`):
+ * the distinct payees, categories and accounts as the cells show them, and per currency the Amount cells by their sign,
+ * each at or above 0, never added across currencies.
+ */
+export interface EntrySummary {
+  count: number
+  firstDate: string | null
+  lastDate: string | null
+  payees: number
+  withoutPayee: number
+  categories: number
+  withoutCategory: number
+  accounts: number
+  currencies: { currency: string; incoming: string; outgoing: string; transfers: string }[]
+}
 /** A request to write an entry: the backend builds the postings from it (EntryCommandJson). */
 export type EntryCommand = { kind: EntryKind; entryDate: string; memo: string | null } & Record<string, unknown>
 

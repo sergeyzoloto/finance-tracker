@@ -35,6 +35,7 @@ import com.example.financetracker.ledger.domain.LedgerReferences.CategoryInfo;
 import com.example.financetracker.ledger.domain.LedgerValidator;
 import com.example.financetracker.ledger.domain.Money;
 import com.example.financetracker.ledger.domain.PostingLine;
+import com.example.financetracker.ledger.family.FamilySwitch;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -66,11 +67,12 @@ public class EntryService {
     private final JdbcClient jdbc;
     private final LedgerAccess access;
     private final ObjectProvider<FamilyPayments> familyPayments;
+    private final FamilySwitch familySwitch;
     private final LedgerValidator validator = new LedgerValidator();
 
     EntryService(JournalEntryRepository entries, AccountRepository accounts, LedgerCategoryRepository categories,
             CounterpartyRepository counterparties, UserSettingsRepository settings, JdbcClient jdbc,
-            LedgerAccess access, ObjectProvider<FamilyPayments> familyPayments) {
+            LedgerAccess access, ObjectProvider<FamilyPayments> familyPayments, FamilySwitch familySwitch) {
         this.entries = entries;
         this.accounts = accounts;
         this.categories = categories;
@@ -79,6 +81,7 @@ public class EntryService {
         this.jdbc = jdbc;
         this.access = access;
         this.familyPayments = familyPayments;
+        this.familySwitch = familySwitch;
     }
 
     /** @throws InvalidEntryException naming every problem with the entry */
@@ -174,10 +177,114 @@ public class EntryService {
     // The count, the page and its postings are read by separate queries; one snapshot keeps them consistent.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public EntryPage search(LedgerScope ledger, EntryFilter filter, int page, int size) {
-        // Only fixed fragments go into the SQL; every value is a parameter.
-        StringBuilder where = new StringBuilder("e.ledger_id = :ledgerId");
         Map<String, Object> params = new HashMap<>();
+        String from = matching(ledger, filter, params);
+
+        long total = jdbc.sql("SELECT count(*)" + from).params(params).query(Long.class).single();
+        params.put("limit", size);
+        params.put("offset", (long) page * size);
+        List<EntryView> headers = jdbc.sql("SELECT e.id, e.version, e.entry_date, e.kind, e.payee_id, e.memo" + from
+                        + " ORDER BY e.entry_date DESC, e.id DESC LIMIT :limit OFFSET :offset")
+                .params(params)
+                .query(EntryService::header)
+                .list();
+        return new EntryPage(withPostings(ledger, headers), page, size, total,
+                Math.toIntExact((total + size - 1) / size));
+    }
+
+    /**
+     * What every entry that matches the filter adds up to, on every page, as the entry list's cells show them (UX-11,
+     * D-524). The same entries as {@link #search}: both build their WHERE in {@link #matching}.
+     */
+    // Two statements; one snapshot keeps them consistent.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public EntrySummary summary(LedgerScope ledger, EntryFilter filter) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("fx", AccountRole.FX_EXCHANGE.defaultCode());
+        // The matching entries, with the payee their Payee cell shows when it shows none of the entry's own (D-523).
+        String matched = "WITH m AS (SELECT e.id, e.entry_date, e.payee_id, rp.name AS record_payee"
+                + matching(ledger, filter, params) + ")";
+        EntrySummary counts = jdbc.sql(matched + """
+                , payees AS (
+                    SELECT m.id, lower(c.name) AS name FROM m
+                    JOIN counterparty c ON c.id = m.payee_id AND c.ledger_id = :ledgerId
+                    UNION ALL
+                    SELECT m.id, lower(c.name) FROM m
+                    JOIN posting p ON p.entry_id = m.id
+                    JOIN counterparty c ON c.id = p.counterparty_id AND c.ledger_id = :ledgerId
+                    WHERE m.payee_id IS NULL
+                    UNION ALL
+                    SELECT m.id, lower(m.record_payee) FROM m
+                    WHERE m.payee_id IS NULL AND m.record_payee IS NOT NULL
+                      AND NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = m.id AND p.counterparty_id IS NOT NULL)
+                ), categories AS (
+                    SELECT p.entry_id AS id, p.category_id FROM m JOIN posting p ON p.entry_id = m.id
+                    WHERE p.category_id IS NOT NULL
+                    UNION ALL
+                    SELECT m.id, c.id FROM m
+                    JOIN family_entry_link l ON l.entry_id = m.id AND l.detached_at IS NULL
+                    JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
+                    JOIN category c ON c.id = r.category_id AND c.ledger_id = r.ledger_id
+                    WHERE NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = m.id AND p.category_id IS NOT NULL)
+                ), fx AS (
+                    SELECT a.id FROM account a WHERE a.ledger_id = :ledgerId AND a.code = :fx
+                ), accounts AS (
+                    SELECT p.account_id FROM m JOIN posting p ON p.entry_id = m.id
+                    WHERE p.category_id IS NULL
+                      AND (p.account_id NOT IN (SELECT id FROM fx)
+                           OR NOT EXISTS (SELECT FROM posting q WHERE q.entry_id = m.id
+                                          AND q.account_id NOT IN (SELECT id FROM fx)))
+                )
+                SELECT (SELECT count(*) FROM m) AS count,
+                       (SELECT min(entry_date) FROM m) AS first_date,
+                       (SELECT max(entry_date) FROM m) AS last_date,
+                       (SELECT count(DISTINCT name) FROM payees) AS payees,
+                       (SELECT count(*) FROM m WHERE NOT EXISTS (SELECT FROM payees x WHERE x.id = m.id)) AS without_payee,
+                       (SELECT count(DISTINCT category_id) FROM categories) AS categories,
+                       (SELECT count(*) FROM m WHERE NOT EXISTS (SELECT FROM categories x WHERE x.id = m.id))
+                           AS without_category,
+                       (SELECT count(DISTINCT account_id) FROM accounts) AS accounts""")
+                .params(params)
+                .query((row, n) -> new EntrySummary(row.getLong("count"),
+                        row.getObject("first_date", LocalDate.class), row.getObject("last_date", LocalDate.class),
+                        row.getLong("payees"), row.getLong("without_payee"), row.getLong("categories"),
+                        row.getLong("without_category"), row.getLong("accounts"), List.of()))
+                .single();
+        // describeEntry's rule: per currency the sum of the entry's positive lines, its sign the opposite of the net of
+        // its categorized lines (rule 5): below 0 an income or a refund (+), above 0 an expense (−), else a transfer.
+        List<EntrySummary.CurrencyTotals> currencies = jdbc.sql(matched + """
+                , direction AS (
+                    SELECT m.id, sign(coalesce(sum(p.amount) FILTER (WHERE p.category_id IS NOT NULL), 0)) AS net
+                    FROM m JOIN posting p ON p.entry_id = m.id GROUP BY m.id
+                ), amounts AS (
+                    SELECT p.entry_id AS id, p.currency, sum(p.amount) AS amount
+                    FROM m JOIN posting p ON p.entry_id = m.id WHERE p.amount > 0
+                    GROUP BY p.entry_id, p.currency
+                )
+                SELECT a.currency,
+                       coalesce(sum(a.amount) FILTER (WHERE d.net < 0), 0) AS incoming,
+                       coalesce(sum(a.amount) FILTER (WHERE d.net > 0), 0) AS outgoing,
+                       coalesce(sum(a.amount) FILTER (WHERE d.net = 0), 0) AS transfers
+                FROM amounts a JOIN direction d ON d.id = a.id
+                GROUP BY a.currency ORDER BY a.currency""")
+                .params(params)
+                .query((row, n) -> new EntrySummary.CurrencyTotals(row.getString("currency"),
+                        Money.normalize(row.getBigDecimal("incoming")), Money.normalize(row.getBigDecimal("outgoing")),
+                        Money.normalize(row.getBigDecimal("transfers"))))
+                .list();
+        return new EntrySummary(counts.count(), counts.firstDate(), counts.lastDate(), counts.payees(),
+                counts.withoutPayee(), counts.categories(), counts.withoutCategory(), counts.accounts(), currencies);
+    }
+
+    /**
+     * The FROM and WHERE of the ledger's entries that match the filter, aliased {@code e}, with the entry's payee as
+     * {@code payee} and its family record's payee as {@code rp} ({@link RecordPayees}); built once for {@link #search}
+     * and {@link #summary}. Only fixed fragments go into the SQL; every value is a parameter, put into {@code params}.
+     */
+    private String matching(LedgerScope ledger, EntryFilter filter, Map<String, Object> params) {
+        StringBuilder where = new StringBuilder("e.ledger_id = :ledgerId");
         params.put("ledgerId", ledger.ledgerId());
+        RecordPayees.params(params, ledger, familySwitch.enabled());
         if (filter.from() != null) {
             where.append(" AND e.entry_date >= :from");
             params.put("from", filter.from());
@@ -201,27 +308,24 @@ public class EntryService {
             params.put("categoryId", filter.categoryId());
         }
         if (filter.counterpartyId() != null) {
+            // The entry's payee or a line's counterparty, or (UX-11, D-523) for an entry with neither its family
+            // record's payee by the chosen counterparty's name, ignoring case: exactly the entries whose Payee cell
+            // shows it.
             where.append(" AND (e.payee_id = :counterpartyId OR EXISTS"
-                    + " (SELECT FROM posting p WHERE p.entry_id = e.id AND p.counterparty_id = :counterpartyId))");
+                    + " (SELECT FROM posting p WHERE p.entry_id = e.id AND p.counterparty_id = :counterpartyId)"
+                    + " OR (e.payee_id IS NULL"
+                    + " AND NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.counterparty_id IS NOT NULL)"
+                    + " AND lower(rp.name) = (SELECT lower(c.name) FROM counterparty c"
+                    + " WHERE c.id = :counterpartyId AND c.ledger_id = :ledgerId)))");
             params.put("counterpartyId", filter.counterpartyId());
         }
         if (filter.text() != null) {
-            where.append(" AND (e.memo ILIKE :text OR payee.name ILIKE :text)");
+            where.append(" AND (e.memo ILIKE :text OR payee.name ILIKE :text OR rp.name ILIKE :text)");
             params.put("text", "%" + likeLiteral(filter.text()) + "%");
         }
         // The composite foreign key (ledger_id, payee_id) keeps the payee in the entry's ledger.
-        String from = " FROM journal_entry e LEFT JOIN counterparty payee ON payee.id = e.payee_id WHERE " + where;
-
-        long total = jdbc.sql("SELECT count(*)" + from).params(params).query(Long.class).single();
-        params.put("limit", size);
-        params.put("offset", (long) page * size);
-        List<EntryView> headers = jdbc.sql("SELECT e.id, e.version, e.entry_date, e.kind, e.payee_id, e.memo" + from
-                        + " ORDER BY e.entry_date DESC, e.id DESC LIMIT :limit OFFSET :offset")
-                .params(params)
-                .query(EntryService::header)
-                .list();
-        return new EntryPage(withPostings(ledger, headers), page, size, total,
-                Math.toIntExact((total + size - 1) / size));
+        return " FROM journal_entry e LEFT JOIN counterparty payee ON payee.id = e.payee_id" + RecordPayees.join("rp")
+                + " WHERE " + where;
     }
 
     /** The text with LIKE's wildcards escaped by backslash, which is PostgreSQL's default escape character. */
@@ -272,24 +376,31 @@ public class EntryService {
         if (entryIds.isEmpty()) {
             return families;
         }
+        Map<String, Object> params = new HashMap<>();
+        params.put("ledgerId", ledger.ledgerId());
+        params.put("entryIds", entryIds);
+        RecordPayees.params(params, ledger, familySwitch.enabled());
         jdbc.sql("""
                 SELECT l.entry_id, l.family_ledger_id, f.name, l.record_id, l.link_type, r.type AS record_type,
-                       c.id AS category_id, c.name AS category_name
+                       c.id AS category_id, c.name AS category_name, rp.name AS record_payee
                 FROM family_entry_link l
                 JOIN journal_entry e ON e.id = l.entry_id
                 JOIN ledger f ON f.id = l.family_ledger_id
                 LEFT JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
-                LEFT JOIN category c ON c.id = r.category_id AND c.ledger_id = r.ledger_id
+                LEFT JOIN category c ON c.id = r.category_id AND c.ledger_id = r.ledger_id"""
+                + RecordPayees.join("rp") + """
+
                 WHERE e.ledger_id = :ledgerId AND l.entry_id IN (:entryIds) AND l.detached_at IS NULL""")
-                .param("ledgerId", ledger.ledgerId())
-                .param("entryIds", entryIds)
+                .params(params)
                 .query(row -> {
                     families.put(row.getLong("entry_id"), new EntryFamily(row.getLong("family_ledger_id"),
                             row.getString("name"), row.getObject("record_id", Long.class),
                             row.getString("link_type"), true, row.getString("record_type"),
                             row.getObject("category_id", Long.class) == null ? null
                                     : new EntryFamily.RecordCategory(row.getLong("category_id"),
-                                            row.getString("category_name"))));
+                                            row.getString("category_name")),
+                            row.getString("record_payee") == null ? null
+                                    : new EntryFamily.RecordPayee(row.getString("record_payee"))));
                 });
         return families;
     }

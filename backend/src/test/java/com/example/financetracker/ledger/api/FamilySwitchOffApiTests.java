@@ -263,6 +263,7 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         long member = join(family, user, "Me", "OWNER", LocalDate.of(2026, 9, 1));
         long personal = jdbc.sql("SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'")
                 .param(user).query(Long.class).single();
+        long shop = newCounterparty(user, "Corner shop off");
         long payment = new TransactionTemplate(transactions).execute(status -> {
             jdbc.sql("SELECT set_config('app.writer', 'family-posting', true), "
                     + "set_config('app.own_ledger', ?, true)").param(String.valueOf(personal)).query().listOfRows();
@@ -282,9 +283,9 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
                     .params(family, category, member, member, member).query(Long.class).single();
             jdbc.sql("INSERT INTO family_share (ledger_id, record_id, member_id, amount, updated_by_member_id) "
                     + "VALUES (?, ?, ?, 40.03, ?)").params(family, record, member, member).update();
-            long entry = jdbc.sql("INSERT INTO journal_entry (user_id, ledger_id, entry_date, kind) "
-                    + "VALUES (?, ?, DATE '2026-09-10', 'FAMILY_PAYMENT') RETURNING id").params(user, personal)
-                    .query(Long.class).single();
+            long entry = jdbc.sql("INSERT INTO journal_entry (user_id, ledger_id, entry_date, kind, payee_id) "
+                    + "VALUES (?, ?, DATE '2026-09-10', 'FAMILY_PAYMENT', ?) RETURNING id")
+                    .params(user, personal, shop).query(Long.class).single();
             jdbc.sql("INSERT INTO posting (entry_id, line_no, account_id, currency, amount) VALUES (?, 0, ?, 'EUR', ?)")
                     .params(entry, cash, new BigDecimal("-40.03")).update();
             jdbc.sql("INSERT INTO posting (entry_id, line_no, account_id, currency, amount) VALUES (?, 1, ?, 'EUR', ?)")
@@ -294,6 +295,12 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
                     .update();
             return entry;
         });
+
+        // UX-11 (D-523): the payment names no record's payee with the switch off; its own payee is the entry's.
+        JsonNode listed = find(ok(get(user, "/api/entries?size=200")).get("content"), "id", String.valueOf(payment));
+        assertThat(listed.get("family").has("recordPayee")).isFalse();
+        assertThat(ok(get(user, "/api/entries/" + payment)).get("family").has("recordPayee")).isFalse();
+        assertThat(listed.get("payeeId").asLong()).isEqualTo(shop);
 
         JsonNode answer = ok(get(user, "/api/entries/matches?type=EXPENSE&amount=40&currency=EUR"));
         List<Long> ids = new ArrayList<>();

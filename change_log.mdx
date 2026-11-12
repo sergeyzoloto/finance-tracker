@@ -3,6 +3,72 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-12 · UX-11: the month of the latest entry, Entries' periods, payees and summary, Accounts on a date and compared, icon buttons on Categories, D-517 to D-544
+
+One commit on `feature/family-budget` on top of `1edc62c`, the commit of this entry, "feat: the month of the latest
+entry, Entries' periods, payees and summary, Accounts on a date and compared, icon buttons on Categories, D-517 to D-544
+(UX-11)". **Not pushed**; `main` not moved. No migration (Flyway stays at V17); one additive field
+(`family.recordPayee`) and one read-only endpoint (`GET /api/entries/summary`); no stored entry, record, amount,
+report's figure, import or export changed. Production read only: the server was never touched and `e2e:prod` never
+run. UX-8's, UX-9's and UX-10's deploys are not recorded here (D-519).
+
+**Changes**
+- D-523, D-529 to D-531: `RecordPayees` (`ledger/`), one `LEFT JOIN LATERAL` for a family record's payee as the reader
+  may see it; `EntryFamily.recordPayee`; `EntryService.matching` builds the WHERE of the list and the summary once, its
+  `q` and `counterpartyId` matching the shown payee; with the switch off it is never given or matched.
+- D-524, D-532: `GET /api/entries/summary` (`EntryController.summary`, `EntryService.summary`, `EntrySummary`): the
+  count, the first and last date, the distinct payees, categories and accounts with those without, and per currency
+  `incoming`, `outgoing` and `transfers` by `describeEntry`'s sign, read only in one snapshot.
+- D-521, D-534: `periods.ts` (`PRESETS` with `latest-entry-month` first and the default, `PERIOD_LABELS`, `presetRange`,
+  `presetNamed`, `validDate`, `useLatestEntryDay`), re-exported by `dashboard.ts`; `periodFromQuery` takes the latest
+  entry's day, `needsLatestEntry`; `Dashboard.tsx` asks no report before it knows that day.
+- D-522, D-524, D-535, D-536: `Entries.tsx`'s Period list the dashboard's with All time and Custom, `period=` in the
+  URL, a typed date as Custom; the summary row (`entrySummary.ts`, `tbody.entry-summary`, labelled lines under 40rem);
+  `describeEntry`'s payee falls back to `family.recordPayee`, shown on the Payee cell and on `ReadOnlyEntry`;
+  `dashboard.formatDayRange`.
+- D-525, D-526, D-537: `Accounts.tsx` one table, a `tbody.account-type` per type labelled by its heading, "Balances on"
+  (`on=`), "Compare" (`compare=`) and "End the comparison", the earlier and later day, Change and % per currency for
+  accounts, totals and "By person"; `accounts.ts`.
+- D-527, D-538: `icons.tsx` (pencil, archive, restore, external), the Categories page's icon buttons and family link
+  (`.icon-button`, 36px, 44px under 40rem).
+- Tests: `EntrySummaryApiTests`, `FamilyRecordPayeeApiTests` (new); `FamilySwitchOffApiTests`, `DataIsolationApiTests`,
+  `FamilyPayeeApiTests` (D-533), `ApiTests`; `UX11.test.tsx` (new), `dashboard.test.ts`, `Dashboard.test.tsx`,
+  `compare.test.ts`, `UX2.test.tsx`, `UX4.test.tsx`, `FamilyRows.test.tsx`. End to end: `11-entries` and
+  `12-accounts` (new), `07-dashboard` (the default period, the new accounts table, the icon buttons), `09-payees` (B's
+  share on Entries, D-539), `e2e/README.md`, `playwright.config.ts`'s comment, `e2e/scripts/screens.ts` (D-540).
+- `deploy/checks/UX-11.sql` and `UX-11.expected` (D-542); `deploy/RUNBOOK.md`, "UX-11's deploy checklist with the
+  suite"; `requirements.md` D-517 to D-544, UX-11 and UX-12 in "Planned stages"; CLAUDE.md (the checklist's Flyway
+  line, D-519; the guards alone, D-517; the dashboard's default period, Entries, `/api/entries/summary`, Accounts,
+  `icons.tsx`, the new tests and specs).
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: first run exit 1, `Tests run: 670, Failures: 1, Errors: 0, Skipped: 0`:
+  `DataIsolationApiTests.aPayeeIsShownOnlyByItsPayersChoice` still held UX-9's "never in Bob's entries"; updated for
+  D-523 (D-533). Second run: exit 0, `Tests run: 670, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- `cd frontend && npm test`: exit 0, `Test Files 49 passed (49)`, `Tests 657 passed (657)`, no Errors line.
+- `cd frontend && npm run build`: exit 0. `cd e2e && npx tsc --noEmit`: exit 0.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node 24): first run exit 1, `entries` failed at 1280 and 375 px (it read
+  the dashboard's Period list before the demo's dashboard had rendered it); the spec now waits for the list. Second
+  run: exit 0, every spec passed at 1280 and 375 px (`pages` (2 tests), `smoke`, `family F7`, `family F8`, `export`,
+  `family F8d`, `import`, `member-import`, `new-family`, `time-zone` (2 tests), `dashboard`, `new-entry`, `payees`,
+  `themes`, `entries`, `accounts`), sign-in and cleanup passed, both accounts' data deleted and signed out, `Password
+  search over the artifacts: 0 hits`, `Result: PASSED`; `Commit:` `1edc62c` `(TREE NOT CLEAN)`, this change
+  uncommitted.
+- `cd e2e && npm run test:guards`, alone, after the local suite (D-517): exit 0, `tests 37`, `pass 37`, `fail 0`.
+- `UX-11.sql` on production's dump `finance-2026-11-11T0234Z.dump` (SHA-256 `6c2d020f…`, at V16), restored by
+  `scripts/rehearsal-db.sh`, migrated to V17 by the built jar (`Successfully applied 1 migration … v17`): `psql` exit 0,
+  its 9 lines equal to `UX-11.expected`; the throwaway database removed.
+- D-520's audit, read only: `frontend/` `npm audit` exit 1, 4 vulnerabilities (2 moderate, 2 high), `--omit=dev` exit
+  0, 0 found; `e2e/` both exit 0, 0 found (D-543). No file changed.
+- Section 3's screenshots: `data/private/ui/UX-11/` (55, with `index.md`; not tracked): Blue and Light at 1280 and 375
+  px, and `1edc62c`'s Entries, Accounts and Categories at 1280 in Blue.
+
+**Open**
+- D-543's `npm audit` findings wait for the PM's decision (no dependency changed, D-520); a fix made on the laptop must
+  keep `@rolldown/binding-linux-x64-musl` in the lock file.
+- The PM's review and acceptance; then the push, and the deploy by "UX-11's deploy checklist with the suite", after
+  UX-10's is recorded (D-519).
+
 ## 2026-11-12 · UX-10: the look of design C, three themes, IBM Plex, a permanent navigation, D-494 to D-516
 
 One commit on `feature/family-budget` on top of `1417b8f`, the commit of this entry, "feat: the look of design C, three

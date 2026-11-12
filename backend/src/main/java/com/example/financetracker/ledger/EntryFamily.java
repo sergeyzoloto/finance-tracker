@@ -17,10 +17,19 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  *        payment and an income's receipt read with it in the entry list as a share does (UX-9, D-477; additive); left
  *        out for a settlement, an opening balance and a correction. Display only: the entry has no categorized line
  *        for it, and no report counts it
+ * @param recordPayee the payee on the payer's own payment entry of the record, exactly when the reader may see it
+ *        ({@link RecordPayees}, UX-11, D-523; additive): of an expense, a refund or an income, to its payer always, and
+ *        to another ACTIVE member while the payer, an ACTIVE member with an account, shows their payees; left out
+ *        otherwise, for a settlement, an opening balance and a correction. Display only, never stored
  */
 public record EntryFamily(long ledgerId, String ledgerName, Long recordId, String link, boolean readOnly,
         @JsonInclude(JsonInclude.Include.NON_NULL) String recordType,
-        @JsonInclude(JsonInclude.Include.NON_NULL) RecordCategory recordCategory) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) RecordCategory recordCategory,
+        @JsonInclude(JsonInclude.Include.NON_NULL) RecordPayee recordPayee) {
+
+    /** A payee's name, as the payer's own ledger names it now. */
+    public record RecordPayee(String name) {
+    }
 
     /** A family category, as the family budget names it now. */
     public record RecordCategory(long id, String name) {

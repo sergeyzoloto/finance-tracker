@@ -73,6 +73,9 @@ class DataIsolationApiTests extends LedgerApiTest {
             "/api/counterparties",
             "/api/entries?size=200",
             "/api/entries" + AUGUST + "&q=shop",
+            // UX-11 (D-524): the list's summary, unfiltered and filtered.
+            "/api/entries/summary",
+            "/api/entries/summary" + AUGUST + "&q=shop",
             "/api/reports/balances" + AS_OF,
             "/api/reports/balances" + AS_OF + "&currency=BASE",
             "/api/reports/cash-flow" + AUGUST,
@@ -880,12 +883,24 @@ class DataIsolationApiTests extends LedgerApiTest {
             Answers.assertNoneMention(answer, "USD");
         }
         for (String read : List.of(inA + "/journal", inA + "/balances", inA + "/members", inA,
-                inA + "/report?from=2026-08-01&to=2026-08-31", "/api/entries?size=200",
+                inA + "/report?from=2026-08-01&to=2026-08-31",
                 "/api/entries/matches?type=EXPENSE&categoryId=" + groceriesInA)) {
             JsonNode bobs = bobReads(read);
             Answers.assertNoneMention(read, bobs, payee);
             assertThat(fieldNames(bobs)).as(read).doesNotContain("paymentPayee");
         }
+        // UX-11 (D-523): his share names it as its record's payee, and nothing else of his entries does.
+        JsonNode bobsEntries = bobReads("/api/entries?size=200");
+        List<String> named = new ArrayList<>();
+        for (JsonNode entry : bobsEntries.get("content")) {
+            JsonNode family = entry.get("family");
+            if (!family.isNull() && family.has("recordPayee")) {
+                named.add(family.get("link").asText() + " " + family.get("recordPayee").get("name").asText());
+                ((com.fasterxml.jackson.databind.node.ObjectNode) family).remove("recordPayee");
+            }
+        }
+        assertThat(named).containsExactly("SHARE " + payee);
+        Answers.assertNoneMention(bobsEntries, payee);
         assertThat(Answers.csv(bobsRequest(HttpMethod.GET, "/api/export/transactions", null))).isEqualTo(bobsFile);
         // Carol, of B only: nothing in B, where Alice hides it, and A is a missing ledger to her.
         Answers.assertNoneMention(ok(get(carol, trip)), payee);

@@ -63,7 +63,8 @@ function stubApi() {
 const renderAccounts = () => render(<WithMe><MemoryRouter><Accounts /></MemoryRouter></WithMe>)
 /** Text as shown, with no-break spaces as spaces. */
 const plain = (text: string | null | undefined) => text?.replace(/ /g, ' ').trim()
-const section = async (type: string) => (await screen.findByRole('heading', { name: type })).closest('section')!
+// UX-11 (D-525): one table, a tbody per type, labelled by its heading.
+const section = async (type: string) => (await screen.findByRole('heading', { name: type })).closest('tbody')!
 /** The account names listed in a type's table, in order. */
 const listed = async (type: string) =>
   within(await section(type)).queryAllByRole('link').map((l) => l.textContent)
@@ -71,7 +72,7 @@ const listed = async (type: string) =>
 const cell = (name: string) =>
   [...screen.getByRole('link', { name }).closest('tr')!.querySelector('td.amount')!.children].map((c) => plain(c.textContent))
 const totals = async (type: string) =>
-  [...(await section(type)).querySelector('tfoot td.amount')!.children].map((c) => plain(c.textContent))
+  [...(await section(type)).querySelector('tr.type-total td.amount')!.children].map((c) => plain(c.textContent))
 const showArchived = () => fireEvent.click(screen.getByRole('checkbox', { name: /Show archived/ }))
 
 afterEach(() => {

@@ -57,8 +57,11 @@ const friend: ConvertedCounterpartyBalance = {
   amounts: [{ currency: 'EUR', balance: '100.00' }, { currency: 'USD', balance: '50.00' }],
 }
 
-/** The api, by path; every request it saw. */
-function stubApi(me: Me, families: FamilyLedger[]) {
+/**
+ * The api, by path; every request it saw. `latest` is the day of the latest entry up to today (D-521), which the
+ * entry list with `to` answers; none by default.
+ */
+function stubApi(me: Me, families: FamilyLedger[], latest: string | null = null) {
   const seen: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     seen.push(url)
@@ -67,7 +70,10 @@ function stubApi(me: Me, families: FamilyLedger[]) {
     const base = params.get('currency') === 'BASE'
     const family = me.features?.familyLedgers === true
     const bodies: Record<string, unknown> = {
-      '/api/entries': { content: [], page: 0, size: 1, totalElements: 12, totalPages: 12 },
+      '/api/entries': params.get('to') && latest
+        ? { content: [{ id: 1, version: 0, entryDate: latest, kind: 'EXPENSE', payeeId: null, memo: null, postings: [] }],
+          page: 0, size: 1, totalElements: 9, totalPages: 9 }
+        : { content: [], page: 0, size: 1, totalElements: 12, totalPages: 12 },
       '/api/settings': { baseCurrency: 'EUR', sharedAccountId: null, defaultShareRatio: '0.50' },
       '/api/family-ledgers': families,
       '/api/reports/net-worth': base
@@ -276,10 +282,11 @@ describe('the dashboard (UX-1)', () => {
     const seen = stubApi(ON, [home])
     renderAt('/')
     const period = await screen.findByRole('combobox', { name: 'Period' }) as HTMLSelectElement
-    expect([...period.options].map((o) => o.textContent)).toEqual(['This week', 'Previous week',
-      'Past month', 'Previous month', 'This month', 'This quarter', 'Previous quarter', 'Last 3 months', 'Past year',
-      'This year', 'Previous year', 'Custom'])
-    expect(period.value).toBe('this-month')
+    expect([...period.options].map((o) => o.textContent)).toEqual(['Month of the latest entry', 'This week',
+      'Previous week', 'Past month', 'Previous month', 'This month', 'This quarter', 'Previous quarter', 'Last 3 months',
+      'Past year', 'This year', 'Previous year', 'Custom'])
+    // D-521: first and chosen; with no entry up to today, it is this month.
+    expect(period.value).toBe('latest-entry-month')
     // Custom can't be chosen.
     expect([...period.options].filter((o) => o.disabled).map((o) => o.value)).toEqual(['custom'])
     expect(screen.queryByRole('group', { name: 'Period' })).toBeNull()
@@ -298,5 +305,27 @@ describe('the dashboard (UX-1)', () => {
     const table = await screen.findByRole('table', { name: 'Cash flow in EUR' })
     await waitFor(() => expect(within(table).getAllByRole('columnheader')[1].textContent?.replace(/[\u2009\u202f]/g, ' '))
       .toBe('Period Sep 16 – 30, 2026'))
+  })
+
+  it('opens the month of the latest entry, and asks for no other period before it knows it (D-521)', async () => {
+    const seen = stubApi(ON, [home], '2026-07-14')
+    renderAt('/')
+    const period = await screen.findByRole('combobox', { name: 'Period' }) as HTMLSelectElement
+    expect(period.value).toBe('latest-entry-month')
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('07/01/2026')
+    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('07/31/2026')
+    await waitFor(() => expect(seen).toContain('/api/reports/cash-flow?from=2026-07-01&to=2026-07-31&currency=BASE'))
+    // The latest entry was asked first, up to today; no report for this month, ever.
+    const latestAt = seen.findIndex((u) => /^\/api\/entries\?size=1&to=\d{4}-\d{2}-\d{2}$/.test(u))
+    const firstReport = seen.findIndex((u) => u.startsWith('/api/reports/'))
+    expect(latestAt).toBeGreaterThanOrEqual(0)
+    expect(latestAt).toBeLessThan(firstReport)
+    expect(seen.filter((u) => u.startsWith('/api/reports/') && u.includes('2026-09'))).toEqual([])
+    // An earlier month's balances are those of its last day (D-430, D-443).
+    expect(seen).toContain('/api/reports/balances?asOf=2026-07-31&currency=BASE')
+    // "This month" still works by its name.
+    fireEvent.change(period, { target: { value: 'this-month' } })
+    await waitFor(() => expect(period.value).toBe('this-month'))
+    await waitFor(() => expect(seen.some((u) => u.startsWith('/api/reports/cash-flow?from=2026-09-01'))).toBe(true))
   })
 })

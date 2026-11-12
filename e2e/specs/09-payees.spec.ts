@@ -10,6 +10,8 @@ import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave } fr
 //    the payee on Activity ("Paid by A · <payee>") and on the record ("Shown by A.").
 // 4. A dismisses the confirmation to switch it off: still on, and B still sees it; A switches off and accepts: B
 //    doesn't.
+//    Since UX-11 (D-523), in steps 2 to 4 B's Entries also shows the payee on B's share while A shows payees, and "—"
+//    otherwise; the text search finds the share by it, then doesn't.
 // 5. A's Entries shows the payment with its record's category, the kind and the budget under it (D-477).
 // 6. At 375 px (local-narrow): the Settings section and that Entries row, with nothing scrolling sideways.
 // 7. B leaves, then A, which deletes the budget; Delete all my data for both.
@@ -122,6 +124,26 @@ async function bSees(page: Page, budget: string, record: string, by: string | nu
   } else {
     await expect(fact(page, 'Payee')).toHaveCount(0)
     await expect(page.locator('main')).not.toContainText(PAYEE)
+  }
+  await bsShare(page, by !== null)
+}
+
+/**
+ * UX-11 (D-523): B's share on Entries names its record's payee in the Payee cell only while it is shown, "—" otherwise,
+ * and the text search finds the share by it only then.
+ */
+async function bsShare(page: Page, shown: boolean) {
+  const rows = page.locator('table.entry-list > tbody:not(.entry-summary) > tr')
+  await page.goto('/entries')
+  const share = rows.filter({ hasText: 'Family share' })
+  await expect(share).toHaveCount(1)
+  await expect(share.locator('td.payee')).toHaveText(shown ? PAYEE : '—')
+  await page.goto('/entries?q=Odido')
+  if (shown) {
+    await expect(rows).toHaveCount(1)
+    await expect(rows.first()).toContainText('Family share')
+  } else {
+    await expect(page.getByText('No entries match these filters.')).toBeVisible()
   }
 }
 

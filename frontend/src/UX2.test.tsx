@@ -286,11 +286,14 @@ describe('the category lists’ buttons (D-352)', () => {
       vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(categories), {
         status: 200, headers: { 'Content-Type': 'application/json' } })))
       render(<WithMe><MemoryRouter><Categories /></MemoryRouter></WithMe>)
-      const rename = (await screen.findAllByRole('button', { name: 'Rename' }))[0]
+      // UX-11 (D-527): icon buttons, named by the action and the category.
+      const rename = (await screen.findAllByRole('button', { name: /^Rename / }))[0]
       const cell = rename.closest('td')!
       expect(cell.className).toContain('actions')
       expect(cell.closest('table')!.className).toBe('categories')
-      expect(within(cell).getAllByRole('button').map((b) => b.textContent)).toEqual(['Rename', 'Archive'])
+      const name = rename.getAttribute('aria-label')!.slice('Rename '.length)
+      expect(within(cell).getAllByRole('button').map((b) => b.getAttribute('aria-label')))
+        .toEqual([`Rename ${name}`, `Archive ${name}`])
     })
   }
 })

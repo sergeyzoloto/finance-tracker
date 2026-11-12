@@ -17,8 +17,8 @@ const quiet = { trace: 'off', screenshot: 'off', video: 'off' } as const
 /**
  * Smoke, family F7, family F8, the export page (D4a), family F8d, the import, the member's import, the time zone (which
  * saves another zone for A; every other spec starts with Delete all my data, which takes the zone along), the
- * dashboard (UX-1, which sets A's date format and back), New entry (UX-8), the payees (UX-9), then the themes (UX-10,
- * which chooses each theme in A's browser only), in this order
+ * dashboard (UX-1, which sets A's date format and back), New entry (UX-8), the payees (UX-9), the themes (UX-10,
+ * which chooses each theme in A's browser only), then Entries and Accounts (UX-11), in this order
  * (workers 1, files in order); the guards' tests run a probe instead.
  */
 const specs = t === 'test' ? /guards-probe\.spec\.ts$/ : /(0[2-9]|1\d)-[a-z0-9-]+\.spec\.ts$/

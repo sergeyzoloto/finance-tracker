@@ -9,6 +9,7 @@ import com.example.financetracker.ledger.EntryMatchPage;
 import com.example.financetracker.ledger.EntryMatchService;
 import com.example.financetracker.ledger.EntryPage;
 import com.example.financetracker.ledger.EntryService;
+import com.example.financetracker.ledger.EntrySummary;
 import com.example.financetracker.ledger.EntryView;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.CategoryType;
@@ -54,7 +55,8 @@ class EntryController {
      * @param accountId entries with a posting to this account
      * @param categoryId entries with a posting in this category
      * @param counterpartyId entries with this payee, or with a posting with this counterparty
-     * @param q entries whose memo or payee's name contains this text, in any case
+     * @param q entries whose memo, payee's name or (UX-11, D-523) shown family record's payee contains this text, in
+     *        any case
      * @param page the page, from 0
      * @param size entries per page
      */
@@ -67,6 +69,19 @@ class EntryController {
             @RequestParam(defaultValue = "50") @Min(1) @Max(200) int size) {
         return entries.search(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q), page,
                 size);
+    }
+
+    /**
+     * What every entry that the list's filters match adds up to, on every page, as the list's cells show them (UX-11,
+     * D-524): how many, the first and last date, the distinct payees, categories and accounts, and per currency what
+     * came in, went out and moved. The same filters as the list, with the same answers to bad ones. Read only.
+     */
+    @GetMapping("/summary")
+    EntrySummary summary(LedgerScope ledger, @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to, @RequestParam(required = false) Long accountId,
+            @RequestParam(required = false) Long categoryId, @RequestParam(required = false) Long counterpartyId,
+            @RequestParam(required = false) @Size(max = 100) String q) {
+        return entries.summary(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q));
     }
 
     /**

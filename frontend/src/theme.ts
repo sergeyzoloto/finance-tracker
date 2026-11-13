@@ -4,7 +4,8 @@ import { useSyncExternalStore } from 'react'
  * The app's three themes (D-495 to D-497): Blue, Light and Dark, their tokens in `index.css` under `data-theme` on
  * `<html>`. The choice belongs to the browser (`localStorage`, never the server); with none, the device decides: dark
  * gives Blue, light gives Light, followed live while nothing is chosen. `public/theme.js` sets the first paint by the
- * same rules (its test runs both); from then on this module owns every change.
+ * same rules (its test runs both); from then on this module owns every change. A choice is also written to the cookie
+ * `ft_theme` (D-617), which Keycloak's pages read to show the same theme (D-614).
  */
 export const THEMES = ['blue', 'light', 'dark'] as const
 export type Theme = (typeof THEMES)[number]
@@ -62,7 +63,41 @@ function apply() {
   listeners.forEach((listener) => listener())
 }
 
-/** Stores the choice and applies it at once. A storage that throws still applies it for this page. */
+/** The cookie that tells the sign-in pages (Keycloak's theme, ../auth_server) the choice (D-614, D-617). */
+export const THEME_COOKIE = 'ft_theme'
+const COOKIE_MAX_AGE = 31536000
+
+/**
+ * The cookie's `Domain` (D-617): the parent of the app's host when the host has at least three labels
+ * (`app.finance-nl.com` gives `finance-nl.com`, so that `auth.finance-nl.com` reads it), else none, a host-only cookie
+ * (`localhost`, which Keycloak on `localhost:8080` reads too, cookies taking no port). An IP address has no parent.
+ */
+export function cookieDomain(hostname: string): string | null {
+  if (/^[\d.]+$/.test(hostname) || hostname.includes(':')) return null
+  const labels = hostname.split('.')
+  return labels.length >= 3 ? labels.slice(1).join('.') : null
+}
+
+/** The `Set-Cookie`-like text `document.cookie` takes for a choice, at this location (D-617). */
+export function themeCookie(theme: Theme, location: { hostname: string; protocol: string }): string {
+  const domain = cookieDomain(location.hostname)
+  return `${THEME_COOKIE}=${theme}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`
+    + (domain ? `; Domain=${domain}` : '') + (location.protocol === 'https:' ? '; Secure' : '')
+}
+
+/** Writes the cookie for a choice. Nothing on the server reads it; only Keycloak's pages do, in the browser. */
+function writeCookie(theme: Theme) {
+  try {
+    document.cookie = themeCookie(theme, window.location)
+  } catch {
+    // A browser that refuses cookies: the sign-in pages follow the device.
+  }
+}
+
+/**
+ * Stores the choice and applies it at once, and writes the cookie (D-617), also when the storage refuses the choice.
+ * A storage that throws still applies it for this page.
+ */
 export function setTheme(theme: Theme) {
   try {
     localStorage.setItem(THEME_KEY, theme)
@@ -71,6 +106,7 @@ export function setTheme(theme: Theme) {
     // Not kept: the theme applies to this page only.
     unsaved = theme
   }
+  writeCookie(theme)
   apply()
 }
 
@@ -83,6 +119,9 @@ let deviceQuery: MediaQueryList | null = null
  */
 export function startTheme() {
   unsaved = null
+  // A stored choice renews the cookie's year, and writes it for a choice made before UX-15 (D-617); none writes none.
+  const stored = storedTheme()
+  if (stored) writeCookie(stored)
   // Only matters while nothing is chosen: `read` takes a stored choice first.
   deviceQuery?.removeEventListener?.('change', apply)
   deviceQuery = darkQuery()

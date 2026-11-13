@@ -1682,6 +1682,528 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
 
+## UX-15's deploy checklist with the suite
+
+**Commits to deploy.** auth_server: `<A>`, its `main`'s head after UX-15's commit (subject with "UX-15"), on top of
+`2f0d02cc25a9a3bbd6b6fbaf7a234d17dd577439` (OPS-3). finance: `<M>`, `feature/family-budget`'s head after UX-15's
+commit (subject ending "(UX-15)"), on top of `ed5f2c5f8d4af4ed54f5ffaf4886a7b62eb398fc` (UX-14-doc). The PM names both
+in full once UX-15 is accepted. M holds this checklist, so it can't name M's hash itself: type the full hashes (40
+characters) where a block says `<A>` or `<M>` before pasting it (D-226); pasted as it is, bash reads `<M>` as a
+redirection and runs nothing of the line. **Stage:** `UX-15` (`deploy/checks/UX-15.sql` and `UX-15.expected`, UX-14's
+12 lines unchanged, structure and invariants only, tried on production's dump `finance-2026-11-12T1929Z.dump` at V17).
+UX-15 is Keycloak's sign-in pages, account console and emails in design C (D-613 to D-621): the theme
+`finance-tracker` in auth_server, mounted read-only into `keycloak`, the realm's settings by kcadm; in the app the
+cookie `ft_theme` (D-617), the user menu's Account with `/api/me`'s `accountUrl` (D-619) and the privacy policy's new
+cookie (D-633). **No migration**; the api changes (one additive field of `/api/me`) and the web changes: no stored entry,
+record, amount, report's figure, import or export changed. **The switch:** on (`FAMILY_LEDGERS_ENABLED=true` since
+2026-10-03T09:25:40Z) before, during and after. **The order (D-622):** auth first, then finance: the app's new Account
+link and its cookie need the theme and the realm's settings. **The suite:** from a clean checkout of M with
+`E2E_FAMILY=on`; it replaces the browser checks and the smoke test (D-51, D-56); `themes` checks the cookie and
+Keycloak's sign-in page in each theme, and `account` the account console and its way back (D-634). **The rollback
+targets:** finance `3ed8515` (UX-14's code) on V17, with no condition of its own; auth: the realm's old values by kcadm
+(D-621, D-628) and the files of the sync backup. **The time (D-125):** no step between 03:30 and 04:30 UTC; the last
+blocks (a rollback for a site that is down) are the exception. **Sign-in:** step A4 recreates `keycloak` for the
+theme's mount: sign-in is unavailable for about a minute, and signed-in users of the app stay signed in. This checklist is
+for this deploy only.
+
+**When.** At any time the PM chooses, once UX-14's deploy is done and finished (D-607: production runs `3ed8515` on
+V17 with `finish=passed`, 2026-11-12T22:29:38Z) and auth runs `2f0d02c`. UX-15 changes nothing of the import or the
+export, so a rehearsal of step 12 on `3ed8515` holds for M.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"; auth_server's CLAUDE.md, "Production safety"): paste one block
+at a time, and the next only once the shell prompt (`root@auth-1:…#` on the server, yours on the laptop) has
+returned. A server block starts with `cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` …
+`}`; a laptop block starts with `cd ~/dev/finance-tracker &&`, `cd ~/dev/finance-tracker/e2e &&` or `cd
+~/dev/auth_server &&`, or is wrapped in `cd ~/dev/finance-tracker && {` … `}` (D-330, D-334). Every server command is
+written out; nothing is piped into a remote shell. A command that asks a question (`sync.sh`, `deploy.sh run`,
+`finish`, `rollback.sh`, and on the laptop `npm run e2e:prod`) is alone in its block; type its answer, never paste it.
+Every laptop git command that can page runs as `git --no-pager`, and a dirty tree stops a chain (D-127). Each step
+closes with its output pasted (D-222). Don't start "CI on Ubuntu 26.04" before step 9.
+
+What runs and why:
+
+- auth: `sync.sh` copies `deploy/` (`docker-compose.yml` with the theme's mount, `sync.sh`, and `themes/finance-tracker/`,
+  new), sets the theme's files 644 and folders 755, and runs `docker compose up -d`, which recreates `keycloak` alone
+  (its volumes changed); since it is recreated, `sync.sh` doesn't restart it again (D-630). `postgres` and `caddy` stay.
+  kcadm then sets `displayName`, the three themes and SMTP's `fromDisplayName` (D-621); until then the realm still
+  shows Keycloak's own themes, so the order of A4 and A9 changes nothing a user sees but the minute without sign-in.
+- finance `run` is the clone's script, `3ed8515`'s. Step 1.3 lists the commits from `3ed8515` to M, two: `ed5f2c5`
+  (UX-14-doc) and M; `Migrations added: none`; under `deploy/`: `RUNBOOK.md`, `checks/UX-15.expected`,
+  `checks/UX-15.sql`. `finance.caddy`, the postgres service and `pg-backup/finance.conf` don't change.
+- `backend/` and `frontend/` change: both images are new and both containers recreated. A recreated api ends signed-in
+  sessions; it finds nothing to migrate. The Flyway lines (D-519): the pre-flight reads the api UX-13's deploy started
+  (UX-14 didn't recreate it): `Schema "app" is up to date. No migration necessary.`; the new api the same line, and no
+  `Successfully applied`.
+- 1.7 and 4.3: `numbers.sql`'s 24 numbers, the same before and after. 3.2 keeps `3ed8515`'s images as
+  `:3ed8515…` (in full) and `:previous`; `/root/finance-tracker.previous` then names `3ed8515`. 4.4 compares
+  `UX-15.sql`'s output with `UX-15.expected`: a difference in any line is a fault.
+- **The rollback target after this deploy is `3ed8515`**, with no condition of its own. Its api has no `accountUrl`
+  (the menu leaves Account out) and its web writes no cookie (Keycloak's pages then follow the device, or a cookie
+  written before, which lasts its year).
+
+**A0. On the laptop, read only: where things stand.** Type A and M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && A=<A> && M=<M> && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain && cd ~/dev/auth_server && git fetch origin && git --no-pager log -1 --format='auth HEAD %H %s' && git --no-pager log -1 --format='auth origin/main %H' origin/main && git --no-pager log --oneline origin/main..main && { git merge-base --is-ancestor origin/main "$A" && echo AUTH-FF-OK || echo AUTH-NOT-FF; } && git status --porcelain
+```
+
+You should see `HEAD` M with UX-15's subject (on `feature/family-budget`); `origin/main`
+`ed5f2c5f8d4af4ed54f5ffaf4886a7b62eb398fc` (if UX-14-doc is pushed; else `3ed8515…`, and then `origin/main..` lists
+`ed5f2c5` too); `origin/feature/family-budget` the same or M; `origin/main..feature/family-budget` M (and `ed5f2c5`);
+`FF-OK`; nothing from `git status --porcelain`; `auth HEAD` A with UX-15's subject, `auth origin/main`
+`2f0d02cc25a9a3bbd6b6fbaf7a234d17dd577439`, `origin/main..main` A alone, `AUTH-FF-OK`, and nothing from auth's
+`git status --porcelain`. Anything else: stop and tell the PM.
+
+**A1. On the laptop: auth's push.** Only once the PM has accepted UX-15 and named A.
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && git checkout main && test -z "$(git status --porcelain)" && git push origin main && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see the push (`2f0d02c..<A's 7 characters>  main -> main`) and A in full with its parent `2f0d02c…` and its
+subject. Nothing after the checkout means a dirty tree: stop.
+
+**A2. On the server: auth's pre-flight, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "auth deployed: $(cat /opt/auth/.deployed-revision)"; ls -1 /root/auth-sync-backups | tail -n 2
+ls -la /opt/auth; ls /opt/auth/themes 2>&1
+for c in auth-postgres-1 auth-keycloak-1 auth-caddy-1; do docker inspect -f '{{.Name}} {{.Config.Image}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} started {{.State.StartedAt}}' "$c"; done
+docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}} rw={{.RW}}{{"\n"}}{{end}}' auth-keycloak-1
+}
+```
+
+You should see `Now:` outside 03:30 to 04:30 UTC and no scheduled shutdown within 2 hours (a nearer one: wait);
+`auth deployed: 2f0d02c <UTC time>` (OPS-3's copy, D-277); `/opt/auth` without `themes` (`ls: cannot access
+'/opt/auth/themes'`); the three containers running, `keycloak` and `postgres` healthy, `keycloak` on
+`quay.io/keycloak/keycloak:26.7.4@sha256:82a77884…`; Keycloak's mounts `/opt/auth/vault -> /opt/keycloak/vault
+rw=false` only. Send the output to the PM.
+
+**A3. On the laptop: `sync.sh --dry-run`, read only.**
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && git --no-pager log -1 --format='%H %s' && deploy/sync.sh --dry-run
+```
+
+You should see A; `== Dry run: root@2.28.108.199:/opt/auth (revision <A's 7 characters>)` (no `-dirty`); the files
+it would send: `docker-compose.yml`, `sync.sh` and every file under `themes/finance-tracker/` (`login/`,
+`account/`, `email/`: their `theme.properties`, `resources/css/`, `resources/js/theme.js`, `resources/fonts/`
+with `OFL.txt`, `email/html/template.ftl`, `email/messages/messages_en.properties`), and nothing else; the diff of
+`docker-compose.yml` (only the theme's mount and its comment) and of `sync.sh`; `== Checking docker-compose.yml
+against the server's .env` `OK`; the Caddyfile validated; and last `== Theme: a file under themes/ would change.
+sync.sh would restart keycloak to load it (unless docker compose up -d recreates it anyway)…`. Any other file, or a
+failed check: stop.
+
+**A4. On the laptop: `sync.sh`**, alone in its block, not between 03:30 and 04:30 UTC; type `y` at its question.
+Sign-in is unavailable for about a minute.
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && deploy/sync.sh
+```
+
+You should see the dry run again, `⚠️  A file under themes/ changed: keycloak restarts to load it, and sign-in is
+unavailable for about a minute.`, the question, `== Copying (replaced files go to /root/auth-sync-backups/<UTC
+time>/)` (**note that time**: the auth rollback needs it), `themes/: files 644, directories 755`, `Installed
+/usr/local/sbin/caddy-site`, `docker compose up -d` recreating `auth-keycloak-1` only, `== keycloak was recreated by
+docker compose up -d: it reads the new theme`, `caddy runs the current Caddyfile`, then the three services `running
+healthy` (caddy `running`) and `✅ All 3 services are up. Deployed revision <A's 7 characters>.` Not healthy after 300
+s: stop, and send the output to the PM.
+
+**A5. On the server: the theme in place, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+echo "auth deployed: $(cat /opt/auth/.deployed-revision)"
+docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}} rw={{.RW}}{{"\n"}}{{end}}' auth-keycloak-1
+stat -c '%a %U:%G %n' /opt/auth/themes /opt/auth/themes/finance-tracker /opt/auth/themes/finance-tracker/login/theme.properties
+echo "files not 644: $(find /opt/auth/themes -type f ! -perm 644 | wc -l), directories not 755: $(find /opt/auth/themes -type d ! -perm 755 | wc -l), files: $(find /opt/auth/themes -type f | wc -l)"
+docker exec auth-keycloak-1 ls /opt/keycloak/themes/finance-tracker
+docker inspect -f '{{.State.StartedAt}} {{.State.Health.Status}}' auth-keycloak-1
+}
+```
+
+You should see `auth deployed: <A's 7 characters> <A4's time>`; the mounts `/opt/auth/vault -> /opt/keycloak/vault
+rw=false` and `/opt/auth/themes/finance-tracker -> /opt/keycloak/themes/finance-tracker rw=false`; `755 root:root`
+twice and `644 root:root`; `files not 644: 0, directories not 755: 0, files: 31`; `account email login`; a start time
+at A4 and `healthy`.
+
+**A6. On the laptop: the smoke test.**
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && deploy/smoke-test.sh 2>&1 | tail -n 1
+```
+
+You should see `== Summary: 11 ok, 0 fail ==`. Anything else: stop.
+
+**A7. Maintenance access on**, by hand (auth_server's PRODUCTION.md, "Maintenance access", steps 1 and 2): the admin
+console from an address in `ADMIN_ALLOWED_IPS`, realm `myapps` → Clients → `automation-cli` → Enabled on.
+
+**A8. On the server: kcadm, the current values, read only.** It prints no secret: the SMTP password is the vault's
+reference, and `--fields` names no client secret (D-636).
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+kc() { docker compose -f /opt/auth/docker-compose.yml exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config </dev/null; }
+kc config credentials --server http://localhost:8080 --realm myapps --client automation-cli --secret "$(cat /root/automation-cli.secret)"
+kc get realms/myapps --fields 'displayName,displayNameHtml,loginTheme,accountTheme,emailTheme,smtpServer(*)'
+kc get clients -r myapps -q clientId=finance-tracker --fields 'clientId,name,rootUrl,baseUrl,attributes(login_theme)'
+}
+```
+
+You should see the sign-in line; the realm with no `displayName`, `displayNameHtml`, `loginTheme`, `accountTheme` or
+`emailTheme` (Keycloak's defaults; a value here: send it to the PM, the rollback then sets it back instead) and
+`smtpServer` with `host` `smtp-relay.brevo.com`, `port` `587`, `starttls` `true`, `ssl` `false`, `auth` `true`, the
+Brevo login as `user`, `password` `${vault.smtppassword}`, `from` `noreply@finance-nl.com` and `fromDisplayName`
+`finance-nl.com`; the client `finance-tracker` with `name` `Finance Tracker`, `baseUrl` `https://app.finance-nl.com/`
+and no `login_theme` (D-623: the console's "Back to Finance Tracker" uses both). Keep this output: it is the rollback's
+record. A password that isn't the vault's reference, or anything else: stop.
+
+**A9. On the server: kcadm, D-621's values.** kcadm reads the realm and writes it back with these keys changed, so the
+SMTP map is written whole, as read, with `fromDisplayName` changed (D-636).
+
+```bash
+# On the server
+cd /opt/finance-tracker && {
+kc() { docker compose -f /opt/auth/docker-compose.yml exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config </dev/null; }
+kc update realms/myapps -s 'displayName=Finance Tracker' -s loginTheme=finance-tracker -s accountTheme=finance-tracker -s emailTheme=finance-tracker -s 'smtpServer.fromDisplayName=Finance Tracker'
+}
+```
+
+You should see nothing (kcadm prints nothing on success). An error: stop; nothing was changed.
+
+**A10. On the server: read back, read only**, then compare with A8.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+kc() { docker compose -f /opt/auth/docker-compose.yml exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config </dev/null; }
+kc get realms/myapps --fields 'displayName,displayNameHtml,loginTheme,accountTheme,emailTheme,smtpServer(*)'
+kc get clients -r myapps -q clientId=finance-tracker --fields 'clientId,name,rootUrl,baseUrl,attributes(login_theme)'
+}
+```
+
+You should see `displayName` `Finance Tracker`, no `displayNameHtml`, the three themes `finance-tracker`, and the SMTP
+map key for key as in A8 but `fromDisplayName` `Finance Tracker` (the password still `${vault.smtppassword}`); the
+client as in A8. Any other difference: run the auth rollback's kcadm block (last section) and stop.
+
+**A11. Maintenance access off** (PRODUCTION.md, "Maintenance access", steps 4 to 6): the session file deleted, then
+`automation-cli` disabled in the admin console, then the check:
+
+```bash
+# On the server
+cd /opt/finance-tracker && docker compose -f /opt/auth/docker-compose.yml exec -T keycloak rm -f /tmp/kcadm.config </dev/null
+```
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && curl -s -o /dev/null -w '%{http_code}\n' -X POST https://auth.finance-nl.com/realms/myapps/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=automation-cli --data-urlencode client_secret@/root/automation-cli.secret
+```
+
+You should see nothing from the first block and `401` from the second (`200`: it is still enabled; disable it).
+
+Then, on the laptop, read only, the sign-in page's header, theme files and title:
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && curl -fsS 'https://auth.finance-nl.com/realms/myapps/protocol/openid-connect/auth?client_id=account-console&response_type=code&redirect_uri=https%3A%2F%2Fauth.finance-nl.com%2Frealms%2Fmyapps%2Faccount%2F&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256' | grep -o -E '<title>[^<]*|finance-tracker/(css|js)/[a-z]+\.(css|js)|kc-header-wrapper"[^>]*>[^<]*' | tr -s ' '
+```
+
+You should see `<title>Sign in to Finance Tracker`, `finance-tracker/css/tokens.css`, `finance-tracker/css/login.css`,
+`finance-tracker/js/theme.js` and the header's line ending `Finance Tracker`.
+
+**0. On the laptop, read only: the finance side.** As in A0, its first half; type M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
+```
+
+You should see what A0 showed for finance. Anything else: stop and tell the PM.
+
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.**
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see `Fast-forward` (or `Already up to date.`), the push of both branches, and M in full with its parent
+`ed5f2c5f8d4af4ed54f5ffaf4886a7b62eb398fc` and its subject. `Not possible to fast-forward`, or another hash: stop.
+
+CI on M, read only, once the jobs have had time to finish (about fifteen minutes); type M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `CI`, `push`, once on `main` and once on `feature/family-budget`, attempt 1, each `completed success`
+with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` and `Dependency updates` `completed success`;
+none or some `Monitor #n schedule main`; no "CI on Ubuntu 26.04" run. Then the check runs:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && M=<M> && curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see 10 plus the number of `Monitor` runs, the five names twice each, each `completed success`. A failure of
+a Backend run is a real fault: stop. A failure only of a Frontend job may be re-run once (D-94). A failed `Monitor`
+run is production's: send it to the PM. Anything else: stop.
+
+**2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-web:previous finance-tracker-web:latest; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Successfully applied|Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+}
+```
+
+You should see:
+
+- `Now:` outside 03:30 to 04:30 UTC (D-125); the scheduled shutdown line (`run` decides by D-131 in its step 1.1:
+  start step 4 only if a scheduled reboot is at least 2 hours after it); `Reboot required:` either line, neither a stop.
+- Docker server 29.8.2, linux/amd64 (or a later patch the PM knows of); Compose; `Image store:
+  [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: 3ed8515… feat: the dashboard's two columns, the categories' shares and a Rates card, D-592 to D-606
+  (UX-14)`; `git status --short` printing **nothing**; `previous file: a406090eed8ada8ff5a63fbb5f559b3947e6f25c`.
+- `last-good`, `contents` and the history as UX-14's `finish` left them (D-607): `commit=3ed8515…`, its two images
+  and contents, `finish=passed 2026-11-12T22:29:38Z …`; the history ending with UX-14's `good 3ed8515…` and its
+  rollback acceptance (`2026-11-12T223002Z-rollback-a406090`, refused).
+- The api's container on `sha256:1b86db281d15416eba633ee28a5d1f9d57f1fbb9c27fe089786d7925e8078da8` (content
+  `sha256:030b7d4d…`, started at UTC 19:29:22 on 2026-11-12, UX-13's deploy, or at a later reboot: not a stop, but say
+  so, D-611), the web's on `sha256:213398250b6c39dabb071ea3dbc808134ab18c7ccc43373f39436fbc17047178`; `:previous` and
+  `:a406090eed8ada8ff5a63fbb5f559b3947e6f25c` UX-13's images; `:latest` the running images. D-519: send them as
+  printed, in full.
+- The api's start: `Schema "app" is up to date. No migration necessary.`, the D-25 line "on" and `Started
+  FinanceTrackerApplication`; `1`; `600 root` for `.env` and its copies.
+
+If anything differs, stop and send it to the PM.
+
+**3. On the server: verify, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-14
+```
+
+You should see `verify UX-14 at 3ed8515 …: OK`, its `Scheduled shutdown:` line, both images "the recorded image",
+`Image store: containerd, platform linux/amd64`, the pages 5 of 5, Flyway V17, the D-25 line "on", `UX-14.expected`'s
+12 lines and the 24 numbers. Keep them: step 4 prints them again and step 7 compares with them.
+
+**4. On the server: the deploy**, alone in its block, not between 03:30 and 04:30 UTC; type M's 7 characters at the
+confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> UX-15
+```
+
+It prints ("Deploying with deploy.sh" lists the steps):
+
+- 1.1: `Tools present: …` and `Scheduled shutdown: none (…)` (or a reboot at least 2 hours away; less, and it refuses).
+- 1.2: `HEAD: 3ed8515 feat: the dashboard's two columns, …`, the running images, `Last good deploy: 3ed8515 …
+  (deploy)`, status `good`, both images "the recorded image", the read-only role's line.
+- 1.3: the fetch; the commits from `3ed8515` to M, two: `ed5f2c5` and M; `Migrations added: none`; under `deploy/`:
+  `RUNBOOK.md`, `checks/UX-15.expected`, `checks/UX-15.sql`.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`. 1.6: the UX-15 files. 1.7: step 3's 24
+  numbers.
+- 1.8: a fresh dump, `PASS`, the before-dump preserved with its SHA-256. Note the dump's name.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage UX-15, over 3ed8515.`; type the 7 characters.
+- 3.1: `Fast-forward`. 3.2: `3ed8515`'s images kept as `:3ed8515…` (in full) and `:previous`, the oldest kept
+  revision's tags removed. 3.3: api built (Maven: a few minutes), web built. 3.4: both recreated. 3.5: `api: healthy,
+  web: healthy`. 3.6: `Pages: 5 of 5 as expected` (`/privacy` the new one, dated 13 November 2026).
+- 4.1: the new api's own start (D-519): `Schema "app" is up to date. No migration necessary.`, `Latest row: 17 member
+  shows payees true; the highest migration in <M>: V17`, `Started: …` (this run's time). A `Successfully applied`
+  line: a fault, stop. 4.2: the D-25 line "on". 4.3: `The same numbers`. 4.4: `UX-15.expected`'s 12 lines. 4.5:
+  `finance.conf: not installed (unchanged)`. 4.6: an after-dump, `PASS`.
+- 5: the summary, `Numbers: the same before and after (…)`, then `Left for you: … deploy/deploy.sh finish`: here, the
+  suite of step 5.
+
+A FAILED line: stop, send it to the PM; it prints the rollback command, which isn't run (the last blocks).
+
+**5. On the laptop: the end-to-end suite against production** (D-51, D-56), not between 03:30 and 04:30 UTC, from a
+clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. Nothing after the checkout means a dirty tree: stop. Another commit: stop.
+
+Then the suite, alone in its block. Read its banner (https://app.finance-nl.com, `e2e-a (e2e-a@finance-nl.com)`, `e2e-b
+(e2e-b@finance-nl.com)`, `E2E_FAMILY: on`, M and "clean tree"), then type `E2E PROD` after the question.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary, from `===== E2E summary =====` to `=======================`. You should see `Commit:` M `(clean
+tree)`, `E2E_FAMILY: on`, `pages passed` (2 tests), `sign-in passed`, `smoke passed`, `family F7 passed`, `family F8
+passed`, `export passed`, `family F8d passed`, `import passed`, `member import passed`, `new-family skipped` (D-163,
+local only), `time-zone passed` (2 tests), `dashboard passed`, `new-entry passed`, `payees passed`, `themes passed`
+(since UX-15 after each choice the cookie `ft_theme` with the domain `.finance-nl.com`, `Secure`, and Keycloak's
+sign-in page in that theme with "Finance Tracker" as its header, nothing submitted, D-634), `entries passed`,
+`accounts passed`, `account passed` (UX-15: Account in the user menu opens the account console at auth.finance-nl.com
+in the theme, and "Back to Finance Tracker" returns to `/`), `cleanup passed`, both accounts signed in, their data
+deleted and signed out, `Password search over the artifacts: 0 hits`, `Result: PASSED`.
+
+If any spec fails, or the cleanup does: don't run the suite again and don't run `finish`; send the whole summary to the
+PM, who decides (D-58, D-59).
+
+Left to check by hand, before `finish`: nothing that blocks it. The emails can't be automated against production (the
+suite reads no mailbox, and sending one needs an account's email): once, at a moment of the owner's choosing after
+`finish`, "Forgot Password?" for the owner's own account shows the reset email's subject "Reset your Finance Tracker
+password", the sender's name "Finance Tracker" and the layout of D-620 (UX-15's report has the local screenshots,
+`data/private/ui/UX-15/`); a difference is sent to the PM and isn't a rollback by itself. A browser that had the app
+open keeps the old page until it loads `/` again; nothing about it is a stop.
+
+**6. On the server: finish**, only after step 5, alone in its block; `yes` to both only if step 5's summary says
+`Result: PASSED` with 0 password hits; otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see `Finish of /var/lib/finance-deploy/runs/<UTC time>-<M's 7 characters>`, its `Scheduled shutdown:` line,
+the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before the deploy", the
+images and "Done". After `no`: `NOT PASSED: …`, exit status 3, and the rollback command, which isn't run.
+
+**7. On the server: verify UX-15, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-15
+```
+
+You should see `verify UX-15 at <M's 7 characters> …: OK`, its `Scheduled shutdown:` line, both images "the recorded
+image", the pages 5 of 5, Flyway V17, the D-25 line "on", `UX-15.expected`'s 12 lines, and step 3's 24 numbers, the
+same. From UX-15's deploy on, step 12's 12.1 and 12.10 use `verify UX-15`.
+
+**8. Acceptance: `rollback.sh 3ed8515` goes to its question**, changing nothing. The rollback state, before:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { cat /root/finance-tracker.previous; docker image inspect -f '{{.Id}}' finance-tracker-api:previous finance-tracker-web:previous finance-tracker-api:3ed851514d0c38b980c8809dab824609b918e86c finance-tracker-web:3ed851514d0c38b980c8809dab824609b918e86c; cat /var/lib/finance-deploy/last-good; }
+```
+
+You should see `3ed851514d0c38b980c8809dab824609b918e86c`; the api's and the web's previous images twice each (step 2's
+running images); and `last-good` with `commit=` M and `finish=passed …`. If the block's tags name no image, compare
+`3ed8515`'s full hash with step 4's 3.2 line and tell the PM; nothing is wrong with the deploy.
+
+`rollback.sh 3ed8515`, alone in its block; type `no` at its question.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh 3ed8515
+```
+
+You should see in step 1 `Scheduled shutdown: none (…)` (a scheduled one only a `WARNING`) and the image store and
+platform; step 2 `Target: 3ed8515 feat: the dashboard's two columns, …, the commit HEAD's deploy replaced
+(…-<M's 7 characters>); its status, its newest line in the history: good`; step 3 the images accepted; step 4
+`Flyway's latest row: 17 member shows payees true; the target's highest migration: V17` and no condition line; then
+the question, and after `no`: `REFUSED at "5. Confirmation": not confirmed` and "Nothing changed." Then the block above
+again: the same lines.
+
+**9. CI on Ubuntu 26.04 (D-44, D-124)**, last, only now, on M deployed and finished. On GitHub, Actions → "CI on Ubuntu
+26.04" → "Run workflow" on `main`, **exactly once**, and wait for it to the end (if `main` has moved past M, under
+D-60). Then, read only, type M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], "id", r["id"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `1 runs`: `CI on Ubuntu 26.04`, its number and id, `workflow_dispatch main attempt 1 completed success`,
+and Backend, Frontend, Web image and Deploy scripts each `completed success`. Two runs mean a second dispatch, which
+cancels the first (D-124): send both to the PM.
+
+**10. Last, only for a failed deploy where the site is down: the finance rollback**, alone in its block, at any hour;
+type `ROLLBACK 3ed8515` at its question. It goes to `3ed8515`, UX-14's code and its deploy scripts, on the same V17;
+no condition of its own (UX-15 writes no row). Keycloak's pages keep their theme; the app's old code just links no
+Account and writes no cookie.
+
+```bash
+# On the server: only for a failed deploy where the site is down
+cd /opt/finance-tracker && deploy/rollback.sh 3ed8515
+```
+
+**11. Last, only if the auth side fails (sign-in broken by the theme or the realm's settings): the auth rollback**, at
+any hour. First the realm's old values (D-621, D-628), with maintenance access on (A7), then A11 again:
+
+```bash
+# On the server: only for a failed auth side; the realm's values of A8
+cd /opt/finance-tracker && {
+kc() { docker compose -f /opt/auth/docker-compose.yml exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config </dev/null; }
+kc config credentials --server http://localhost:8080 --realm myapps --client automation-cli --secret "$(cat /root/automation-cli.secret)"
+kc update realms/myapps -s displayName=myapps -s loginTheme=keycloak.v2 -s accountTheme=keycloak.v3 -s emailTheme=keycloak -s smtpServer.fromDisplayName=finance-nl.com
+kc get realms/myapps --fields 'displayName,displayNameHtml,loginTheme,accountTheme,emailTheme,smtpServer(*)'
+}
+```
+
+You should see the realm with `displayName` `myapps` (kcadm can't unset it; the sign-in pages read as before, D-628),
+the themes `keycloak.v2`, `keycloak.v3`, `keycloak`, and the SMTP map as in A8. Then, only if the files themselves
+must go back (`keycloak` failing to start with the theme's mount), the sync backup of A4: type the UTC time A4 printed
+in place of `<TS>`. It puts the old `docker-compose.yml` and `sync.sh` back and recreates `keycloak` without the
+mount (sign-in down for about a minute); the theme's folder stays in `/opt/auth/themes`, unused.
+
+```bash
+# On the server: only for a failed auth side, after the realm's values above
+cd /opt/finance-tracker && cp /root/auth-sync-backups/<TS>/docker-compose.yml /root/auth-sync-backups/<TS>/sync.sh /opt/auth/ && cd /opt/auth && docker compose up -d && docker compose ps
+```
+
+You should see `auth-keycloak-1` recreated and, after about a minute, the three services running and healthy; then
+A6's smoke test on the laptop.
+
 ## UX-13's deploy checklist with the suite
 
 **Commit to deploy (M):** `feature/family-budget`'s head after UX-13's second commit (D-584, subject ending

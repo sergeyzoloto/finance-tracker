@@ -1,9 +1,13 @@
 import type { Page } from '@playwright/test'
 import { deleteAllMyData, expect, loadDemoData, mainMenu, openSettings, shot, test, userMenu, type Session } from '../fixtures.ts'
+import type { Target } from '../lib/targets.ts'
 
 // UX-10's themes (D-495 to D-499), A only, on the demo:
 // 1. At 1280 px each theme chosen through Settings → Appearance gives `html[data-theme]` and the body's background
-//    equal to the theme's --bg, kept after a reload and on another page.
+//    equal to the theme's --bg, kept after a reload and on another page. Since UX-15 (D-614, D-617) also the cookie
+//    ft_theme with that value and its domain (the app's parent domain in production, host-only locally), and
+//    Keycloak's sign-in page, opened with prompt=login and nothing submitted, showing that theme as html[data-theme]
+//    and "Finance Tracker" as its header.
 // 2. The header has no theme control, at 1280 px and at 375 px, the user's menu open included.
 // 3. In a fresh context with no choice, a dark device gives Blue and a light one Light.
 // 4. In each theme at 375 px nothing scrolls sideways (a screenshot of each in local-narrow): Dashboard, Entries, New
@@ -22,7 +26,7 @@ const PAGES = [
   ['categories', '/categories'], ['appearance', '/settings/appearance'],
 ] as const
 
-test('themes', async ({ as, family }) => {
+test('themes', async ({ as, family, target }) => {
   const a = await as('A')
   await deleteAllMyData(a)
   const { page } = a
@@ -37,6 +41,9 @@ test('themes', async ({ as, family }) => {
     const choice = page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: new RegExp(`^${theme.name}`) })
     await choice.check()
     await expectTheme(page, theme)
+    await expectCookieAndSignInPage(a, target, theme.value)
+    await page.goto('/')
+    await openSettings(page, 'Appearance')
     await page.reload()
     await expect(page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: new RegExp(`^${theme.name}`) })).toBeChecked()
     await expectTheme(page, theme)
@@ -89,6 +96,34 @@ test('themes', async ({ as, family }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await deleteAllMyData(a)
 })
+
+/**
+ * D-617: the cookie the choice wrote, its value and domain; D-614, D-618: Keycloak's sign-in page in the same browser
+ * shows that theme and the realm's name. The page is opened with prompt=login (and PKCE, which the client requires)
+ * and left without submitting anything.
+ */
+async function expectCookieAndSignInPage({ page, context }: Session, target: Target, value: string) {
+  const cookies = (await context.cookies(target.app)).filter((c) => c.name === 'ft_theme')
+  expect(cookies.map((c) => c.value), 'the theme cookie').toEqual([value])
+  const appHost = new URL(target.app).hostname
+  expect(cookies[0].domain, 'its domain').toBe(target.name === 'prod' ? `.${appHost.split('.').slice(1).join('.')}` : appHost)
+  expect(cookies[0].sameSite).toBe('Lax')
+  expect(cookies[0].secure).toBe(target.app.startsWith('https:'))
+  const me = await (await page.request.get('/api/me')).json() as { accountUrl?: string }
+  expect(me.accountUrl, '/api/me names the account console').toMatch(/\/account\?referrer=finance-tracker$/)
+  const realm = me.accountUrl!.replace(/\/account\?.*$/, '')
+  expect(new URL(realm).origin).toBe(target.keycloak)
+  const signIn = new URL(`${realm}/protocol/openid-connect/auth`)
+  for (const [k, v] of Object.entries({
+    client_id: 'finance-tracker', response_type: 'code', scope: 'openid', prompt: 'login',
+    redirect_uri: `${target.app}/login/oauth2/code/keycloak`,
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256',
+  })) signIn.searchParams.set(k, v)
+  await page.goto(signIn.toString())
+  await expect(page.locator('#kc-login')).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', value)
+  await expect(page.locator('#kc-header-wrapper')).toHaveText('Finance Tracker')
+}
 
 async function expectTheme(page: Page, theme: (typeof THEMES)[number]) {
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme.value)

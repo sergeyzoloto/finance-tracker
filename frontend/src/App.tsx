@@ -51,7 +51,7 @@ function Shell() {
   }, [update, reload])
   return (
     <>
-      <Header families={familyOn ? families.data : null} name={me.name ?? me.email ?? ''} />
+      <Header families={familyOn ? families.data : null} name={me.name ?? me.email ?? ''} accountUrl={me.accountUrl} />
       <main>
         <ZoneHint />
         {/* A page that can't read its answer shows an error with a reload link, and the header stays (F8c). */}

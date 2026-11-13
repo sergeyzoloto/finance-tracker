@@ -9,14 +9,20 @@ export const insideFamilyBudget = (pathname: string) => /^\/family\/(?!new(?:\/|
 
 /**
  * The app's header (D-498), two rows, both always shown. Row 1: the wordmark, a link to `/`; on the right "New entry"
- * (not inside a family budget, D-435) and the user's menu (Settings, Log out; D-433, D-434, D-464). Row 2, the main
+ * (not inside a family budget, D-435) and the user's menu (Settings, Account, Log out; D-433, D-434, D-464, D-619). Row 2, the main
  * navigation: the pages, then with family budgets on each budget by name, current on any of its pages, and "New family
  * budget". No theme control: the theme is chosen in Settings only (D-499).
  *
  * @param families the user's family budgets, undefined while they load; null with family budgets switched off
  * @param name the user's name, or their email for an account without one
+ * @param accountUrl Keycloak's account console, `/api/me`'s (D-619): a plain link, same tab, between Settings and Log
+ *        out; none without one
  */
-export default function Header({ families, name }: { families: FamilyLedger[] | undefined | null; name: string }) {
+export default function Header({ families, name, accountUrl }: {
+  families: FamilyLedger[] | undefined | null
+  name: string
+  accountUrl?: string | null
+}) {
   const { pathname, search } = useLocation()
   const [open, setOpen] = useState(false)
   // Any route change closes the panel, choosing an item of it included (D-434).
@@ -24,6 +30,7 @@ export default function Header({ families, name }: { families: FamilyLedger[] | 
   const inside = families !== null && insideFamilyBudget(pathname)
   const toggle = useCallback(() => setOpen((now) => !now), [])
   const close = useCallback(() => setOpen(false), [])
+  const account = accountLink(accountUrl)
 
   return (
     <header className="app-header">
@@ -37,6 +44,7 @@ export default function Header({ families, name }: { families: FamilyLedger[] | 
             <p className="menu-user-name">{name}</p>
             <ul>
               <li><NavLink to="/settings">Settings</NavLink></li>
+              {account && <li><a href={account}>Account</a></li>}
               <li><button type="button" className="link" onClick={logOut}>Log out</button></li>
             </ul>
           </Disclosure>
@@ -45,6 +53,11 @@ export default function Header({ families, name }: { families: FamilyLedger[] | 
       <MainNav families={families} />
     </header>
   )
+}
+
+/** The account console's address when `/api/me` gave one over http or https, else none (D-619). */
+export function accountLink(url: string | null | undefined): string | null {
+  return typeof url === 'string' && /^https?:\/\//.test(url) ? url : null
 }
 
 /**

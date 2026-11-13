@@ -19,6 +19,11 @@ export interface Me {
   /** How the user sees and types day dates (D-304): one of `DATE_FORMATS`, null for as the browser shows them. */
   dateFormat?: string | null
   features?: { familyLedgers?: boolean }
+  /**
+   * Keycloak's account console with this app as its referrer (D-619): the user menu's Account link. Missing from an
+   * older api, which leaves the item out.
+   */
+  accountUrl?: string | null
 }
 
 /** Whether the family budget is switched on (D-25): off in production until F7. */

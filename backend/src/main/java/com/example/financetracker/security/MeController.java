@@ -1,5 +1,7 @@
 package com.example.financetracker.security;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 
 import com.example.financetracker.ledger.Today;
@@ -23,8 +25,12 @@ class MeController {
      * @param dateFormat how the user has the app show and take day dates (D-304): DD.MM.YYYY, DD/MM/YYYY, MM/DD/YYYY
      *        or YYYY-MM-DD, null for as the browser shows them
      * @param features which features the app has switched on, so that the frontend shows only those
+     * @param accountUrl Keycloak's account console for this realm, with {@code referrer} this app's client, so that
+     *        its "Back to Finance Tracker" returns to the client's base URL (D-619, UX-15, additive): the user menu's
+     *        Account link, built here because only the backend knows the issuer
      */
-    record Me(String name, String email, String timeZone, LocalDate today, String dateFormat, Features features) {
+    record Me(String name, String email, String timeZone, LocalDate today, String dateFormat, Features features,
+            String accountUrl) {
     }
 
     /** @param familyLedgers the family budget (D-25): off until F7 in production */
@@ -34,11 +40,23 @@ class MeController {
     private final FamilySwitch family;
     private final Today today;
     private final UserSettingsRepository settings;
+    private final String accountUrl;
 
-    MeController(FamilySwitch family, Today today, UserSettingsRepository settings) {
+    MeController(FamilySwitch family, Today today, UserSettingsRepository settings, KeycloakProperties keycloak) {
         this.family = family;
         this.today = today;
         this.settings = settings;
+        this.accountUrl = accountUrl(keycloak.issuerUrl(), keycloak.clientId());
+    }
+
+    /**
+     * The account console of the realm whose issuer is given (D-619): {@code <issuer>/account?referrer=<client id>},
+     * the client id URL-encoded. Keycloak 26.7 turns {@code referrer} alone into the client's base URL for its "Back to"
+     * link (AccountConsole#getReferrer), so no {@code referrer_uri} is sent and no redirect URI is needed.
+     */
+    static String accountUrl(String issuerUrl, String clientId) {
+        String realm = issuerUrl.endsWith("/") ? issuerUrl.substring(0, issuerUrl.length() - 1) : issuerUrl;
+        return realm + "/account?referrer=" + URLEncoder.encode(clientId, StandardCharsets.UTF_8);
     }
 
     @GetMapping("/api/me")
@@ -47,6 +65,6 @@ class MeController {
         String sub = jwt.getSubject();
         return new Me(CurrentUserResolver.displayName(jwt), jwt.getClaimAsString("email"),
                 settings.findTimeZone(sub).orElse(null), today.date(sub), settings.findDateFormat(sub).orElse(null),
-                new Features(family.enabled()));
+                new Features(family.enabled()), accountUrl);
     }
 }

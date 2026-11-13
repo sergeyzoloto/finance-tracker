@@ -58,7 +58,7 @@ describe('the privacy policy', () => {
   })
 
   it('has the new date, names the time zone among what is stored, and no longer says nobody else sees anything of yours', () => {
-    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 11 November 2026')
+    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 13 November 2026')
     const data = words(page.getElementById('data')!.parentElement!.textContent!)
     // D-101 (F8c): the time zone is stored with the settings, from the browser, changeable, and decides today's date.
     expect(data).toContain('Your settings include your time zone, such as Europe/Amsterdam, which the app takes from your browser the first time you use it and which you can change in Settings')
@@ -66,6 +66,13 @@ describe('the privacy policy', () => {
     expect(data).toContain('No other user of the app can see it, apart from what you record in a family budget, which its members see')
     expect(words(page.getElementById('retention')!.nextElementSibling!.textContent!))
       .toContain('The records of a family budget are kept as long as the family budget exists')
+  })
+
+  it('lists the theme cookie among the cookies: what it holds and why (UX-15, D-617)', () => {
+    const cookies = words(page.getElementById('cookies')!.nextElementSibling!.nextElementSibling!.textContent!)
+    expect(cookies).toContain('the theme cookie (ft_theme), which holds only the theme you chose in Settings (Blue, Light or Dark), so that the login pages at auth.finance-nl.com show the same theme')
+    expect(cookies).toContain('It is set only once you choose a theme, lasts a year from your last visit')
+    expect(cookies).toContain('nothing on the servers reads it')
   })
 
   it('states every period as an upper bound, the copies in backups included (OPS-3, D-277)', () => {

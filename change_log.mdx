@@ -3,6 +3,67 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-13 · UX-15: Keycloak in design C, the theme shared by a cookie, Account in the user menu
+
+One commit on `feature/family-budget` on top of `ed5f2c5` (UX-14-doc), the commit of this entry, "feat: Keycloak's
+pages in design C, the theme cookie and the user menu's Account, D-613 to D-636 (UX-15)"; and one commit on
+auth_server's `main` on top of `2f0d02c` (OPS-3), "UX-15: a Keycloak theme in design C, its mount, sync.sh restarts
+keycloak for a theme change, Mailpit in the dev stack". **Neither pushed**; `main` not moved. No migration (Flyway stays
+V17), no stored entry, amount, report, import or export changed. Production read only: the server not touched, no
+kcadm run there, and `e2e:prod` never run.
+
+**Changes**
+- auth_server (its change log has the detail): the theme `deploy/themes/finance-tracker/` (`login/` on
+  `keycloak.v2`, `account/` on `keycloak.v3`, `email/` on `keycloak`; CSS, a script, messages and the email's HTML
+  layout, no other template; the app's tokens and Plex Sans), its read-only mount in both compose files, `sync.sh`
+  (D-630), the dev stack on production's image with Mailpit, the dev realm's settings, PRODUCTION.md and README.
+- D-617: `frontend/src/theme.ts` writes the cookie `ft_theme` (`cookieDomain`, `themeCookie`): on every choice, a
+  refused storage included, and at `startTheme` from a stored choice; never without one.
+- D-619: `/api/me`'s `accountUrl` (`MeController.accountUrl`: the configured issuer's `/account?referrer=` and the
+  client id, encoded); the user menu's Account between Settings and Log out, a plain link, only for an `http(s)`
+  address (`Header.accountLink`); `api.ts`'s `Me.accountUrl`.
+- D-633: the privacy policy's cookie list names `ft_theme`, what it holds and why; last updated 13 November 2026.
+- Tests: `AccountUrlTests`, `MeAccountUrlApiTests`; `UX15.test.tsx` (the cookie's domain, `Secure`, every write and
+  none without a choice; the Account item's place, address, same tab, absence and its rules under 40rem);
+  `privacy.test.ts` (the new date and the cookie). e2e: `10-themes` checks the cookie and Keycloak's sign-in page
+  after each choice; `13-account` (new) the console and its way back; `npm run screens:keycloak` (new,
+  `scripts/keycloak-screens.ts`, local only).
+- `requirements.md`: D-613 to D-622 (the owner and the PM), D-623 to D-636 (the agent's; D-628 the owner's answer:
+  the auth rollback sets `displayName` `myapps`, since kcadm can't unset it), the "Amended" line, UX-15 in "Planned
+  stages". CLAUDE.md: `accountUrl`, the cookie, Account, the auth theme's place, the two specs. `e2e/README.md`.
+- `deploy/checks/UX-15.sql` and `UX-15.expected` (UX-14's 12 lines, D-635); the runbook's "UX-15's deploy checklist
+  with the suite" (D-622: auth's steps A0 to A11 first, then finance's 0 to 9, both rollbacks last).
+
+**Verified**
+- Backend: `./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=15`, exit 0, Results:
+  `Tests run: 682, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- Frontend: `npm test`, exit 0, `Test Files 53 passed (53)`, `Tests 721 passed (721)`, no Errors line (D-504's guards
+  in `themeGuards.test.ts` among them); `npm run build`, exit 0.
+- End to end: `E2E_FAMILY=on npm run e2e:local` against the dev stack with the theme (2026-11-13T12:56:07Z to
+  13:05:41Z), exit 0: every spec passed at 1280 and at 375 px, `themes` and the new `account` included, the sign-in
+  setup unchanged, cleanup passed, 0 password hits, `Result: PASSED` (the tree not clean, before the commit). An
+  earlier run failed `import` at 1280 px only, on `net::ERR_NETWORK_CHANGED` when a throwaway container of mine started
+  during it; nothing ran beside the final one. Then `npm run test:guards` alone, exit 0: `tests 39`, `pass 39`,
+  `fail 0`. `npm run typecheck` in `e2e/`: exit 0.
+- `npm run screens:keycloak -- ../data/private/ui/UX-15`: exit 0, 156 screenshots (every page of D-618, the console's
+  three pages and its error screen in Blue, Light and Dark at 1280 and 375 px; the verify, reset and
+  identity-provider-link emails at 600 and 375 px), no page wider than its window; `index.md` lists them. Mailpit
+  received "Verify your email for Finance Tracker", "Reset your Finance Tracker password" and "Link GitHub", from
+  "Finance Tracker".
+- `deploy/checks/UX-15.sql` on a throwaway `postgres:17.11` restored from production's
+  `finance-2026-11-12T1929Z.dump` (V17): output equal to `UX-15.expected`, 12 lines; no backslash in the file.
+- The checklist's kcadm commands as written, against dev realms (auth_server's entry), and its hashes compared with
+  git and D-607's record.
+- `change_log.mdx` compiled with `@mdx-js/mdx`: no error.
+- Not run: anything against production (`e2e:prod` is the owner's; the server and kcadm there are the checklist's).
+
+**Open**
+- The PM's review; then the deploy by the checklist: auth's push and `sync.sh`, kcadm, then finance's `run`, the suite,
+  `finish`, `verify UX-15`, the rollback acceptance and "CI on Ubuntu 26.04".
+- D-633's wording of the privacy policy, for the owner.
+- An email from production, seen once after the deploy (the checklist's step 5).
+- D-609's two follow-ups from UX-14's review stay in "Later": UX-15's scope didn't include them.
+
 ## 2026-11-13 · UX-14-doc: UX-14's deploy recorded, two follow-ups in "Later"
 
 One commit on `feature/family-budget` on top of `3ed8515` (UX-14, deployed), the commit of this entry, "docs: UX-14's

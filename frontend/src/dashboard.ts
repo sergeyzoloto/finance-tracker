@@ -399,10 +399,6 @@ export const periodTotals = (table: CashFlowTable): { income: Cell; expense: Cel
   net: table.net.total,
 })
 
-/**
- * A rate a figure in the base currency used, in words (D-49, D-90): "1 EUR = 95.5 RUB, manual rate of Aug 1, 2026 (rate
- * stale)", the ECB's or the user's own.
- */
 /** Where a rate comes from, for the Rates card (D-596): "ECB rate of <date>" or "Manual rate of <date>", and stale. */
 export const rateSourceText = (r: Rate) =>
   `${r.source === 'MANUAL' ? 'Manual' : 'ECB'} rate of ${formatDate(r.date)}${r.stale ? ' (rate stale)' : ''}`
@@ -759,6 +755,9 @@ export function totalChanges(table: CompareTable, line: CompareLine): { change: 
 /** D-399: the chart by range for a section of fewer than 3 calendar months, by month otherwise. */
 export const chartByMonth = (c: Comparisons) => monthsBetween(c.section.from, c.section.to).length >= 3
 
+/** D-652: a section of more than 24 calendar months is drawn by calendar year, with no comparison. */
+export const chartByYear = (c: Comparisons) => monthsBetween(c.section.from, c.section.to).length > 24
+
 /**
  * The comparisons the monthly chart can draw behind the period (D-399): those whose months pair one-to-one with the
  * period's (as many, in order); the previous period only when the period is whole months.
@@ -828,6 +827,49 @@ export function monthPairs(table: CashFlowTable | null, section: DayRange, befor
           expense: at(before, theirs[i], 'expense'),
         },
       }),
+    }
+  })
+}
+
+/** A row of the chart by year (D-652): a calendar year's income and expenses, and its days when covered in part. */
+export interface YearRow { year: string; note?: string; income: Cell; expense: Cell }
+
+/**
+ * What a year's row says when the section covers only part of it (D-652), as `monthNote` does for a month: "from 1 Dec"
+ * for the first, "to 13 Nov" for the last, both for a section within one year; nothing for a whole year.
+ */
+export function yearNote(year: string, from: string, to: string): string | undefined {
+  const first = `${year}-01-01`
+  const last = `${year}-12-31`
+  const day = (iso: string) => formatDate(iso, { day: 'numeric', month: 'short' })
+  const starts = from > first && from <= last
+  const ends = to < last && to >= first
+  if (starts && ends) return `${day(from)} to ${day(to)}`
+  if (starts) return `from ${day(from)}`
+  if (ends) return `to ${day(to)}`
+  return undefined
+}
+
+/**
+ * The section's calendar years, oldest first, each with the sums of its months' subtotals in the period's table
+ * (D-652): MISSING if any month is, null if every month is, else their sum in `money.ts`'s decimals (`total`).
+ */
+export function yearRows(table: CashFlowTable | null, section: DayRange): YearRow[] {
+  const at = (month: string, which: 'income' | 'expense'): Cell => {
+    if (table === null) return null
+    const j = table.months.indexOf(month)
+    return j < 0 ? null : table[which].subtotal.months[j]
+  }
+  const months = monthsBetween(section.from, section.to)
+  const years = [...new Set(months.map((m) => m.slice(0, 4)))]
+  return years.map((year) => {
+    const own = months.filter((m) => m.startsWith(`${year}-`))
+    const note = yearNote(year, section.from, section.to)
+    return {
+      year,
+      income: total(own.map((m) => at(m, 'income'))),
+      expense: total(own.map((m) => at(m, 'expense'))),
+      ...(note === undefined ? {} : { note }),
     }
   })
 }

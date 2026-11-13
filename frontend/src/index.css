@@ -141,7 +141,8 @@ th, td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); text-al
 thead th { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--muted); }
 /* Amounts, figures, totals and dates in Plex Mono with tabular figures (D-500). */
 .amount, .figure dd, .daily-axis, .amount-inline, td.total, tr.subtotal td, tr.net td, tfoot td, .chart-tooltip strong,
-table.entry-list td.date, .date-input-row input:first-child, .recharts-cartesian-axis-tick text {
+table.entry-list td.date, .date-input-row input:first-child, .ie-value, .ie-label.range .ie-sub, .ie-label.month .ie-main,
+.ie-label.year .ie-main {
   font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .amount { text-align: right; }
 /* A column's heading is a label, not an amount. */
@@ -257,11 +258,11 @@ table.accounts tr.type-total > th, table.accounts tr.type-total > td { font-weig
   clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* Dashboard */
-/* Below the strip (D-593): from 64rem a main column of about two thirds and a side column, both from the same top, each
-   stacking its own cards with the page's gap; under 64rem one column in the DOM's order. */
+/* Below the strip (D-593 as D-654 amends it): from 80rem a main column of about two thirds and a side column, both from
+   the same top, each stacking its own cards with the page's gap; under 80rem one column in the DOM's order. */
 .dashboard-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
 .dashboard-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
-@media (min-width: 64rem) {
+@media (min-width: 80rem) {
   .dashboard-columns { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 }
 /* A panel (D-502). */
@@ -367,10 +368,55 @@ figure.chart { margin: 0; }
 figure.chart figcaption { font-weight: 600; color: var(--muted); }
 .chart-tooltip { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
   padding: 0.4rem 0.6rem; font-size: 0.9em; }
-.chart-tooltip .key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 0.4rem; vertical-align: middle; }
-.chart-tooltip .key.dashed { height: 0; border-top: 2px dashed; border-radius: 0; }
+.chart-tooltip .key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.4rem; vertical-align: -1px; }
+.chart-tooltip .key.income { background: var(--chart-income); }
+.chart-tooltip .key.expense { background: var(--chart-expense); }
+.chart-tooltip .key.marker { width: 2px; height: 12px; border-radius: 0; margin: 0 calc(0.4rem + 4px) 0 4px; background: var(--text); }
 .chart-tooltip .tooltip-before { margin-top: 0.3rem; }
-.chart-placeholder { height: 260px; }
+/* The chart "Income and expenses" (D-647 to D-652), plain HTML and CSS: the legend; then a row per range, month or
+   year, its label in a column of at most 40% (its text wraps inside it) and its bars from one baseline, a 1px
+   --chart-grid line down the chart; income above expenses, 12px by range and 10px by month or year, 2px apart; each
+   value 6px after its bar (or after a comparison's marker past it), in Mono 12px --text. A row pointed at or tapped is
+   --surface-raised, its panel beside it (by month and by year). The drawn rows are hidden from screen readers. */
+.ie-chart { position: relative; }
+.ie-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; margin-bottom: 0.5rem;
+  font-size: 12px; line-height: 16px; color: var(--muted); }
+.ie-legend > span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ie-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.ie-swatch.income { background: var(--chart-income); }
+.ie-swatch.expense { background: var(--chart-expense); }
+.ie-swatch.marker { width: 2px; height: 14px; margin: 0 4px; border-radius: 0; background: var(--text);
+  box-shadow: -1px 0 0 var(--surface), 1px 0 0 var(--surface); }
+.ie-behind { display: inline-block; }
+.ie-behind::first-letter { text-transform: uppercase; }
+.ie-rows { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); column-gap: 12px; }
+.ie-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; border-radius: 4px; }
+.ie-row.active { background: var(--surface-raised); }
+/* Rows touch, so that the baseline runs the chart's full height; their space is the cells' padding: 10px between rows
+   by range, 6px by month and by year. */
+.ie-row > * { padding-block: 5px; }
+.ie-months .ie-row > *, .ie-years .ie-row > * { padding-block: 3px; }
+.ie-label { display: flex; flex-direction: column; justify-content: center; min-width: 0; overflow-wrap: anywhere;
+  padding-left: 4px; }
+.ie-main { font-size: 13px; line-height: 16px; color: var(--text); }
+.ie-label.own .ie-main { font-weight: 600; }
+.ie-sub { font-size: 12px; line-height: 15px; color: var(--muted); }
+.ie-bars { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0;
+  border-left: 1px solid var(--chart-grid); }
+.ie-line { position: relative; height: 12px; }
+.ie-months .ie-line, .ie-years .ie-line { height: 10px; }
+.ie-bar { position: absolute; left: 0; top: 0; height: 100%; min-width: 1px; border-radius: 0 4px 4px 0; }
+.ie-bar.income { background: var(--chart-income); }
+.ie-bar.expense { background: var(--chart-expense); }
+.ie-stub { position: absolute; left: 0; top: 0; width: 2px; height: 100%; background: var(--border); }
+/* A comparison's month (D-650): a 2px --text line, 4px taller than the bar, edged with --surface on each side. */
+.ie-marker { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text);
+  box-shadow: -1px 0 0 var(--surface), 1px 0 0 var(--surface); }
+.ie-value { position: absolute; top: 0; height: 100%; display: flex; align-items: center; white-space: nowrap;
+  font-size: 12px; line-height: 1; color: var(--text); }
+.ie-value.none { color: var(--muted); }
+.ie-value.missing { font-family: inherit; font-size: 12px; }
+.ie-panel { position: absolute; right: 0; z-index: 2; max-width: min(20rem, 100%); pointer-events: none; }
 /* Daily spending (D-571, D-594): beside the chart, the chart about two thirds, while the card "Income and expenses" is at
    least 40rem wide inside; under it otherwise. Plain HTML and CSS:
    a bar per day in --chart-expense by the range's largest day, a day at or below 0 a 2px --border line, a day still to

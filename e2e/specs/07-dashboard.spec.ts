@@ -31,11 +31,13 @@ import {
 //    at 375 px, with "Show archived" on, a "By person" account's details open and the refusal's row shown, the
 //    Accounts page doesn't scroll sideways and every button is inside the screen.
 // 9. UX-5 (D-393, D-396, D-399), on the demo at 1280 px in the base currency: "Previous month" heads the cash flow
-//    table with the period, the year earlier and the previous period, its chart by range is oldest first (D-413),
-//    and one category's period, previous period and
-//    change in % equal the test's own computation from those two ranges' `/api/reports/cash-flow` answers; "This
-//    month" says "to date" while it runs; "Last 3 months" offers "Compare with", whose "Previous period" sets
-//    `compare=previous` and changes the chart's legend.
+//    table with the period, the year earlier and the previous period, its chart by range is oldest first (D-413; since
+//    UX-16, D-649, its rows' roles top to bottom by their place in the DOM), and one category's period, previous
+//    period and change in % equal the test's own computation from those two ranges' `/api/reports/cash-flow` answers;
+//    "This month" says "to date" while it runs; "Last 3 months" offers "Compare with", whose "Previous period" sets
+//    `compare=previous` and changes the chart's legend from "a year earlier" to "previous period"; since UX-16
+//    (D-650) each month's bars carry a marker exactly where the drawn comparison's month has a figure above 0 in that
+//    range's own `/api/reports/cash-flow` answer.
 // 10. UX-6 (D-419, D-420), on the demo at 1280 px with E2E_FAMILY=on: "Demo household"'s categories in the cash flow
 //    table carry the shared icon, named "Shared: Demo household", with no name after it (one budget); choosing the
 //    budget in "Show" sets `scope=family&family=<id>` and shows "Records" at "All records"; "My records" and
@@ -55,10 +57,15 @@ import {
 //    figures, its line under them and the daily request's scope. Since D-584 also "This month", running: a slot per day
 //    of the month, those after today dashed, the days asked up to today adding up to Expenses.
 // 13. UX-14 (D-593 to D-596), on the demo with "Previous month": at 1280 px Balances to the right of "Income and
-//    expenses" with the same top, and daily spending beside the chart; at 1024 px daily spending under it (D-594); at
-//    375 px one column, in D-593's order. In the base currency and in each currency, every income and expense line's
+//    expenses" with the same top, and daily spending beside the chart; since UX-16 (D-654) at 1024 px one column, in
+//    D-593's order, with daily spending beside the chart, the card being wider than 40rem (D-594); at 375 px one
+//    column, in D-593's order. In the base currency and in each currency, every income and expense line's
 //    Share equals the spec's own computation from the period's `/api/reports/cash-flow` answer the page received; in
 //    the base currency the Rates card's rows are that day's net worth's `rates`, and in each currency there is no card.
+// 14. UX-16 (D-647 to D-652), on the demo in the base currency: a custom range of more than 24 months draws a row
+//    per calendar year it touches, with no "Compare with" and no marker; at 375, 1024 and 1280 px, on "This month",
+//    "Previous month", "Last 3 months" and "Past year", the dashboard doesn't scroll sideways, every label and value of
+//    the chart is inside the chart's box, no two rows' boxes overlap, and no value's box overlaps a marker.
 // Delete all my data for both at the end.
 
 const BUDGET = 'Dashboard check'
@@ -240,6 +247,11 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await shot(page, 'dashboard-16-columns')
   await page.setViewportSize({ width: 1280, height: 900 })
 
+  // 14. The chart in horizontal bars: by year, and its layout at three widths (UX-16).
+  await expectChartByYear(a, day)
+  await expectChartLayout(a)
+  await page.setViewportSize({ width: 1280, height: 900 })
+
   await deleteAllMyData(a)
 })
 
@@ -262,6 +274,9 @@ function changeInTenths(now: bigint, before: bigint | null): bigint | null {
   const scaled = (now - before) * 2000n / (before < 0n ? -before : before)
   return (scaled + (scaled < 0n ? -1n : 1n)) / 2n
 }
+
+/** A cash flow answer in the base currency. */
+type Flow = { rows: { month?: string; categoryCode: string; categoryName: string; categoryType: string; total: string | null; familyLedgerName?: string }[] }
 
 /** UX-5 on the demo: the table's columns and one category's figures, "to date", and "Compare with" (D-393 to D-399). */
 async function expectComparisons(session: Session, day: string) {
@@ -288,17 +303,12 @@ async function expectComparisons(session: Session, day: string) {
     [`${period.from} ${period.to}`, `${previous.from} ${previous.to}`, `${yearEarlier.from} ${yearEarlier.to}`].sort())
   const headers = (await table.locator('thead th .col-role').allTextContents())
   expect(headers).toEqual(['Period', 'Share', 'Year earlier', 'Change', 'Previous period', 'Change'])
-  // The chart by range is oldest first (D-413), its labels wrapped to their bars at any width (D-414).
-  const ticks = page.locator('figure.chart .recharts-xAxis-tick-labels text')
-  await expect(ticks).toHaveCount(3)
-  const roles = await ticks.evaluateAll((texts) => texts
-    .map((t) => ({ x: t.getBoundingClientRect().left, text: [...t.querySelectorAll('tspan')].map((s) => s.textContent).join(' ') }))
-    .sort((a, b) => a.x - b.x)
-    .map(({ text }) => ['Year earlier', 'Previous period', 'Period'].find((role) => text.startsWith(role)) ?? text))
-  expect(roles, 'the chart by range, oldest first').toEqual(['Year earlier', 'Previous period', 'Period'])
+  // The chart by range is oldest first (D-413), a row per range top to bottom (D-649): read by their place in the DOM.
+  const roles = page.locator('figure.chart .ie-ranges .ie-row .ie-main')
+  await expect(roles).toHaveCount(3)
+  expect(await roles.allTextContents(), 'the chart by range, oldest first').toEqual(['Year earlier', 'Previous period', 'Period'])
 
   // One expense category of the demo in both months, from the API's own answers.
-  type Flow = { rows: { categoryCode: string; categoryName: string; categoryType: string; total: string | null; familyLedgerName?: string }[] }
   const flow = async (r: { from: string; to: string }) =>
     (await call(session, 'GET', `/api/reports/cash-flow?from=${r.from}&to=${r.to}&currency=BASE`)).body as Flow
   const [now, before] = [await flow(period), await flow(previous)]
@@ -331,16 +341,78 @@ async function expectComparisons(session: Session, day: string) {
   if (lastDay) await expect(heading).not.toContainText('to date')
   else await expect(heading).toContainText('to date')
 
-  // Three months or more: the chart by month, and "Compare with" in the URL (D-399).
+  // Three months or more: the chart by month, and "Compare with" in the URL (D-399); the legend names the comparison
+  // marked on the bars (D-650).
+  const answers = new Map<string, Promise<Flow>>()
+  const keep = (r: { url: () => string; json: () => Promise<unknown> }) => {
+    const url = new URL(r.url())
+    if (url.pathname === '/api/reports/cash-flow' && url.searchParams.get('currency') === 'BASE' && !url.searchParams.has('scope')) {
+      answers.set(`${url.searchParams.get('from')} ${url.searchParams.get('to')}`, r.json() as Promise<Flow>)
+    }
+  }
+  page.on('response', keep)
   await page.goto('/?period=last-3-months')
   const compare = page.getByRole('group', { name: 'Compare with' })
   await expect(compare.getByRole('button', { name: 'A year earlier' })).toHaveAttribute('aria-pressed', 'true')
-  const legend = page.locator('figure.chart .recharts-legend-wrapper')
-  await expect(legend).toContainText('Income, a year earlier')
+  const legend = page.locator('figure.chart .ie-legend')
+  await expect(legend).toContainText('a year earlier')
+  await expect(page.locator('.stale')).toHaveCount(0)
+  await expectMarkers(page, answers, 3, 'a year earlier')
   await compare.getByRole('button', { name: 'Previous period' }).click()
   await expect(page).toHaveURL(/[?&]compare=previous(&|$)/)
-  await expect(legend).toContainText('Income, previous period')
+  await expect(legend).toContainText('previous period')
   await expect(legend).not.toContainText('a year earlier')
+  await expect(page.locator('.stale')).toHaveCount(0)
+  const marked = await expectMarkers(page, answers, 3, 'previous period')
+  // The demo's six months hold the previous period's: it has markers.
+  expect(marked, 'markers where the demo has figures in the previous period').toBeGreaterThan(0)
+  page.off('response', keep)
+}
+
+/**
+ * D-650: on each month's row of the chart, a marker on the income and on the expense bar exactly where the drawn
+ * comparison's month has a figure above 0, by that range's own `/api/reports/cash-flow` answer in the base currency
+ * (the hidden table names each row's comparison month). Returns how many markers it found.
+ */
+async function expectMarkers(page: Session['page'], answers: Map<string, Promise<Flow>>, rows: number, behind: string) {
+  const table = page.getByRole('table', { name: 'Income and expenses in EUR' })
+  await expect(table.locator('thead th')).toHaveText(['Month', 'Income', 'Expenses', `Month, ${behind}`, `Income, ${behind}`, `Expenses, ${behind}`])
+  await expect(table.locator('tbody tr')).toHaveCount(rows)
+  // The comparison's range: the answer whose months are the hidden table's comparison months.
+  const theirs = await table.locator('tbody tr td:nth-child(4)').allTextContents()
+  let flow: Flow | undefined
+  for (const [range, answer] of answers) {
+    const [from, to] = range.split(' ')
+    const months: string[] = []
+    for (let d = new Date(`${from.slice(0, 7)}-01T00:00:00Z`); d.toISOString().slice(0, 7) <= to.slice(0, 7); d.setUTCMonth(d.getUTCMonth() + 1)) {
+      months.push(d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }))
+    }
+    if (months.join() === theirs.join()) flow = await answer
+  }
+  expect(flow, `the page asked the cash flow of ${theirs.join(', ')}`).toBeDefined()
+  const byMonth = new Map<string, { INCOME: bigint | null; EXPENSE: bigint | null; missing: boolean }>()
+  for (const row of flow!.rows) {
+    const label = new Date(`${row.month ?? ''}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    const own = byMonth.get(label) ?? { INCOME: null, EXPENSE: null, missing: false }
+    if (row.total === null) own.missing = true
+    else {
+      const type = row.categoryType as 'INCOME' | 'EXPENSE'
+      own[type] = (own[type] ?? 0n) + units(row.total)
+    }
+    byMonth.set(label, own)
+  }
+  let found = 0
+  const drawn = page.locator('figure.chart .ie-months .ie-row')
+  for (let i = 0; i < rows; i++) {
+    const figures = byMonth.get(theirs[i])
+    for (const which of ['income', 'expense'] as const) {
+      const amount = figures === undefined || figures.missing ? null : figures[which === 'income' ? 'INCOME' : 'EXPENSE']
+      const expected = amount !== null && amount > 0n ? 1 : 0
+      await expect(drawn.nth(i).locator(`.ie-line.${which} .ie-marker`), `${theirs[i]}'s ${which} marker`).toHaveCount(expected)
+      found += expected
+    }
+  }
+  return found
 }
 
 /** "€1,234.56", "-€0.50" or "+€3.00" in cents. */
@@ -867,8 +939,9 @@ const CARDS = [/^Income and expenses/, 'Cash flow by category', /^Balances on /,
 
 /**
  * UX-14 (D-593, D-594) on the demo's previous month in the base currency: at 1280 px Balances beside "Income and
- * expenses" from the same top, daily spending beside the chart; at 1024 px daily spending under the chart; at 375 px
- * every card in one column in D-593's order, nothing wider than the screen.
+ * expenses" from the same top, daily spending beside the chart; since UX-16 (D-654) at 1024 px every card in one column
+ * in D-593's order with daily spending beside the chart; at 375 px every card in one column in D-593's order, nothing
+ * wider than the screen.
  */
 async function expectColumns({ page }: Session) {
   const settle = async (width: number) => {
@@ -877,7 +950,7 @@ async function expectColumns({ page }: Session) {
     await expect(page.getByRole('region', { name: 'Cash flow by category' }).getByRole('table').first()).toBeVisible()
     await expect(page.getByRole('region', { name: /^Rates on / })).toBeVisible()
     await expect(page.locator('section.daily .daily-biggest').first()).toBeVisible()
-    await expect(page.locator('figure.chart .recharts-surface').first()).toBeVisible()
+    await expect(page.locator('figure.chart .ie-row').first()).toBeVisible()
     await expect(page.locator('.stale')).toHaveCount(0)
   }
   const box = async (name: string | RegExp) => (await page.getByRole('region', { name }).boundingBox())!
@@ -900,28 +973,34 @@ async function expectColumns({ page }: Session) {
     expect(Math.abs(a.x - b.x), `${String(lower)} in the side column`).toBeLessThanOrEqual(1)
     expect(b.y, `${String(lower)} under ${String(upper)}`).toBeGreaterThan(a.y + a.height)
   }
+  const expectOneColumn = async (width: number) => {
+    const boxes = []
+    for (const name of CARDS) boxes.push(await box(name))
+    for (let i = 1; i < boxes.length; i++) {
+      expect(Math.abs(boxes[i].x - boxes[0].x), `${String(CARDS[i])} in the one column at ${width} px`).toBeLessThanOrEqual(1)
+      expect(boxes[i].y, `${String(CARDS[i])} after ${String(CARDS[i - 1])} at ${width} px`).toBeGreaterThan(boxes[i - 1].y + boxes[i - 1].height)
+    }
+    const { scroll, client } = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+    }))
+    expect(scroll, `the dashboard at ${width} px is no wider than the screen`).toBeLessThanOrEqual(client)
+  }
   let { chart, days } = await chartAndDays()
   expect(days.x, 'daily spending beside the chart at 1280 px').toBeGreaterThanOrEqual(chart.x + chart.width)
   expect(Math.abs(days.y - chart.y), 'from the same top').toBeLessThanOrEqual(1)
   await shot(page, 'dashboard-16-columns-1280')
 
-  // D-594: at 1024 px the card is narrower than 40rem inside, so daily spending sits under the chart.
+  // D-654: under 80rem one column, in D-593's order; at 1024 px the card is then wider than 40rem inside, so daily
+  // spending sits beside the chart (D-594).
   await settle(1024)
+  await expectOneColumn(1024)
   ;({ chart, days } = await chartAndDays())
-  expect(days.y, 'daily spending under the chart at 1024 px').toBeGreaterThanOrEqual(chart.y + chart.height)
-  expect(Math.abs((await box(CARDS[2])).y - (await box(CARDS[0])).y), 'still two columns at 1024 px').toBeLessThanOrEqual(1)
+  expect(days.x, 'daily spending beside the chart at 1024 px').toBeGreaterThanOrEqual(chart.x + chart.width)
+  expect(Math.abs(days.y - chart.y), 'from the same top').toBeLessThanOrEqual(1)
+  await shot(page, 'dashboard-16-columns-1024')
 
   await settle(375)
-  const boxes = []
-  for (const name of CARDS) boxes.push(await box(name))
-  for (let i = 1; i < boxes.length; i++) {
-    expect(Math.abs(boxes[i].x - boxes[0].x), `${String(CARDS[i])} in the one column`).toBeLessThanOrEqual(1)
-    expect(boxes[i].y, `${String(CARDS[i])} after ${String(CARDS[i - 1])}`).toBeGreaterThan(boxes[i - 1].y + boxes[i - 1].height)
-  }
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'the dashboard at 375 px is no wider than the screen').toBeLessThanOrEqual(client)
+  await expectOneColumn(375)
   await shot(page, 'dashboard-16-columns-375')
   await page.setViewportSize({ width: 1280, height: 900 })
 }
@@ -1042,5 +1121,91 @@ async function expectRatesCard({ page }: Session, last: string, each: boolean) {
     expect(plainRate(shown.slice(0, -` ${rate.currency}`.length)), `the rate of ${rate.currency}`).toBe(plainRate(rate.perEuro))
     await expect(item.locator('.rate-pair + span')).toHaveText(
       `${rate.source === 'MANUAL' ? 'Manual' : 'ECB'} rate of ${shownDay(rate.date, null)}${rate.stale ? ' (rate stale)' : ''}`)
+  }
+}
+
+/**
+ * UX-16 (D-652) on the demo: a custom range of more than 24 months, from 30 months before today's month to today, is
+ * drawn by calendar year, a row per year it touches, oldest first, with no "Compare with" and no marker; the cash flow
+ * table keeps its comparison columns.
+ */
+async function expectChartByYear({ page }: Session, day: string) {
+  const [year, month] = day.split('-').map(Number)
+  const from = new Date(Date.UTC(year, month - 1 - 30, 1)).toISOString().slice(0, 10)
+  await page.goto(`/?from=${from}&to=${day}`)
+  await expect(page.getByRole('table', { name: 'Cash flow in EUR' })).toBeVisible()
+  await expect(page.locator('.stale')).toHaveCount(0)
+  const years: string[] = []
+  for (let y = Number(from.slice(0, 4)); y <= year; y++) years.push(String(y))
+  await expect(page.locator('figure.chart .ie-years .ie-row .ie-main')).toHaveText(years)
+  await expect(page.getByRole('group', { name: 'Compare with' })).toHaveCount(0)
+  await expect(page.locator('figure.chart .ie-marker')).toHaveCount(0)
+  await expect(page.getByRole('table', { name: 'Income and expenses in EUR' }).locator('thead th')).toHaveText(['Year', 'Income', 'Expenses'])
+  await expect(page.getByRole('table', { name: 'Cash flow in EUR' }).locator('thead th .col-role')).toContainText(['Period', 'Share', 'Previous period'])
+  await shot(page, 'dashboard-17-by-year')
+}
+
+/**
+ * UX-16 (D-649, D-650; D-414's goal kept): at 375, 1024 and 1280 px, on "This month", "Previous month", "Last 3
+ * months" (with each comparison) and "Past year", the dashboard doesn't scroll sideways, every label and value of the
+ * chart is inside the chart's box, no two rows' boxes overlap, and no value's box overlaps a marker.
+ */
+async function expectChartLayout({ page }: Session) {
+  const pages = ['this-month', 'previous-month', 'last-3-months', 'last-3-months&compare=previous', 'past-year']
+  for (const width of [375, 1024, 1280]) {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 })
+    for (const period of pages) {
+      await page.goto(`/?period=${period}`)
+      await expect(page.locator('figure.chart .ie-row').first()).toBeVisible()
+      await expect(page.locator('.stale')).toHaveCount(0)
+      const found = await page.evaluate(() => {
+        const problems: string[] = []
+        const doc = document.documentElement
+        if (doc.scrollWidth > doc.clientWidth) {
+          const name = (e: Element) => `${e.tagName.toLowerCase()}${e.classList.length ? `.${[...e.classList].join('.')}` : ''}`
+          const wide = [...document.body.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().right > doc.clientWidth + 1)
+          const outermost = wide.filter((e) => !wide.some((o) => o !== e && o.contains(e))).map(name)
+          problems.push(`the page scrolls sideways: ${doc.scrollWidth} > ${doc.clientWidth}, by ${outermost.join(', ')}`)
+        }
+        const overlap = (a: DOMRect, b: DOMRect) =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5
+        let rows = 0
+        let values = 0
+        for (const chart of document.querySelectorAll('.ie-chart')) {
+          const box = chart.getBoundingClientRect()
+          const inside = (e: Element, what: string) => {
+            const r = e.getBoundingClientRect()
+            if (r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5) {
+              problems.push(`${what} "${e.textContent}" outside the chart: ${r.left}-${r.right} of ${box.left}-${box.right}`)
+            }
+          }
+          chart.querySelectorAll('.ie-label .ie-main, .ie-label .ie-sub').forEach((e) => inside(e, 'label'))
+          const shown = [...chart.querySelectorAll('.ie-value')]
+          shown.forEach((e) => inside(e, 'value'))
+          values += shown.length
+          const drawn = [...chart.querySelectorAll('.ie-row')].map((e) => e.getBoundingClientRect())
+          rows += drawn.length
+          for (let i = 0; i < drawn.length; i++) {
+            for (let j = i + 1; j < drawn.length; j++) if (overlap(drawn[i], drawn[j])) problems.push(`rows ${i} and ${j} overlap`)
+          }
+          const markers = [...chart.querySelectorAll('.ie-marker')].map((e) => e.getBoundingClientRect())
+          for (const value of shown) {
+            const r = value.getBoundingClientRect()
+            if (markers.some((m) => overlap(r, m))) problems.push(`the value "${value.textContent}" overlaps a marker`)
+          }
+          // A row's two values don't overlap either.
+          for (let i = 0; i < shown.length; i++) {
+            for (let j = i + 1; j < shown.length; j++) {
+              if (overlap(shown[i].getBoundingClientRect(), shown[j].getBoundingClientRect())) problems.push(`values ${i} and ${j} overlap`)
+            }
+          }
+        }
+        return { problems, rows, values }
+      })
+      expect(found.rows, `rows on ${period} at ${width} px`).toBeGreaterThan(0)
+      expect(found.values, `values on ${period} at ${width} px`).toBe(found.rows * 2)
+      expect(found.problems, `the chart on ${period} at ${width} px`).toEqual([])
+    }
+    await shot(page, `dashboard-18-chart-${width}`)
   }
 }

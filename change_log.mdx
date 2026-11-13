@@ -3,6 +3,69 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-13 · UX-16: the dashboard's chart in horizontal bars, in HTML and CSS; Recharts gone
+
+One commit on `feature/family-budget` on top of `3785ff8` (UX-15-doc), the commit of this entry, "feat: the
+dashboard's chart in horizontal bars in HTML and CSS, rows by year over 24 months, two columns from 80rem, D-647 to
+D-667 (UX-16)". **Not pushed**; `main` not moved. Frontend only: no backend, API, migration (Flyway stays V17), stored
+row, report's figure, import or export changed (D-655). Production read only; the server not touched and `e2e:prod`
+never run.
+
+**Changes**
+- D-647 to D-651: `frontend/src/IncomeExpenseChart.tsx` rewritten in HTML and CSS, keeping its name and `ChartData`
+  (with a third form, `years`): a row per range or month, oldest first, a label column of at most 40% and two bars
+  from one `--chart-grid` baseline, each value after its bar as the tables format it, "—", "rate missing" and a 2px
+  stub for 0 or below; one scale per chart with `valueRoom` (characters × 0.6 × 12px + 8px); the comparison by month a
+  marker on each bar, the value after it when it lies past the bar; by month and year a row pointed at or tapped
+  raised with a `.chart-tooltip` panel; the drawn rows `aria-hidden` and a visually hidden table of every row.
+- D-648: `Dashboard.tsx` imports the chart directly; its `Suspense`, `ErrorBoundary`, "Loading chart…" and
+  `.chart-placeholder` gone; `chunkReload.ts` and `chunkReload.test.ts` deleted (nothing else imported them);
+  `recharts` and, D-657, its peer `react-is` removed from `package.json` and the lock file.
+- D-652: `dashboard.ts`'s `chartByYear`, `yearRows` and `yearNote`; a section of more than 24 calendar months is drawn
+  by calendar year, with no comparison and no "Compare with".
+- D-654: the dashboard's two columns from 80rem (`index.css`), one column under it; the stale JSDoc above
+  `rateSourceText` removed.
+- D-653, D-661: `src/assets/demo-dashboard.webp` retaken (a 1280 px window, scaled to 1092 × 618), its alt text in
+  `Landing.tsx` updated to that day's figures and the horizontal bars.
+- `index.css`: the `ie-*` rules, the tooltip's keys by class; the Recharts selector and `.chart-placeholder` gone.
+- Tests: `IncomeExpenseChart.test.tsx` (new; D-415's tests of `axisLines`, `measureText` and `RangeTick` removed with
+  them), `UX16.test.tsx` (new), `dashboard.test.ts`'s "the chart by year", `UX10.test.tsx`'s chart part rewritten (no
+  Recharts mock), `UX14.test.tsx`'s columns from 80rem. e2e: `02-smoke` (the chart drawn, nothing of Recharts),
+  `07-dashboard` steps 9 and 13 changed and step 14 new (D-662); `scripts/screens.ts`'s chart pages, a hovered and a
+  tapped row (D-663).
+- `deploy/checks/UX-16.sql` and `UX-16.expected` (UX-15's 12 lines, D-666); the runbook's "UX-16's deploy checklist
+  with the suite" (frontend only, the switch on, rollback `56c51bb`).
+- `requirements.md`: D-647 to D-655 (the owner and the PM), D-656 to D-667 (the agent's), the "Amended" line, D-399,
+  D-413, D-414, D-417, D-501 and D-593 amended and D-415 superseded, UX-16 in "Planned stages", D-609's two items
+  closed in "Later". CLAUDE.md: the chart's lines, the frontend's dependencies, the tests and the specs.
+
+**Verified**
+- Frontend: `npm test`, exit 0, `Test Files 53 passed (53)`, `Tests 746 passed (746)`, no Errors line (D-504's guards
+  in `themeGuards.test.ts` unchanged and passing); `npx tsc -b`, exit 0; `npm run build`, exit 0: one JavaScript file
+  of 582.24 kB (173.95 kB gzip) in place of three of 972.71 kB (287.79 kB gzip), Vite's 500 kB warning before and
+  after (D-665).
+- `npm audit` in `frontend/`: `found 0 vulnerabilities` before and after, exit 0 both times.
+- End to end: `npm run e2e:local` against the dev stack (2026-11-13T17:50:48Z to 18:00:26Z, `E2E_FAMILY=on`), exit 0:
+  every spec passed at 1280 and at 375 px, `dashboard` with its new step 14, cleanup passed, 0 password hits, `Result:
+  PASSED` (the tree not clean, before the commit). An earlier full run, before the alt text and two comments changed,
+  passed too. While writing step 14 its 375 px check found the page 717 px wide on "Last 3 months": the hidden
+  table's six columns, since a `table` ignores `width: 1px`; fixed by a clipping `div` (D-659). Then `npm run
+  test:guards` alone, exit 0: `tests 39`, `pass 39`, `fail 0`. `npm run typecheck` in `e2e/`: exit 0.
+- `deploy/checks/UX-16.sql` on a throwaway `postgres:17.11` restored from `finance-2026-11-13T1426Z.dump` (V17): `psql`
+  exit 0, output equal to `UX-16.expected`, 12 lines; no backslash in the file; the container removed.
+- D-649's glyph check on the bundled Plex Mono files (D-656): every currency format's glyph 0.6em but U+202F.
+- The screens: `data/private/ui/UX-16/` (163 screenshots: the dashboard and the chart on six pages, both currency
+  modes, at 375, 1024 and 1280 px in Blue, Light and Dark, a hovered row at 1024 and 1280 and a tapped one at 375; the
+  new `demo-dashboard.webp`), listed in its `index.md`.
+- `change_log.mdx` compiled with `@mdx-js/mdx`: no error.
+- Not run: the backend's suite (no backend file changes); anything against production.
+
+**Open**
+- The PM's review: D-656 (no measuring for U+202F), D-661 (the landing screenshot at 1280 px, scaled) and the other
+  choices; then the deploy by the checklist.
+- Not automated: the look of the chart, judged on the screenshots; the hover at a real pointer and a real phone's tap
+  (a scripted hover and a touch context's tap only).
+
 ## 2026-11-13 · UX-15-doc: UX-15's deploy recorded in both repositories, five follow-ups in "Later"
 
 One commit on `feature/family-budget` on top of `56c51bb` (UX-15, deployed), the commit of this entry, "docs: UX-15's

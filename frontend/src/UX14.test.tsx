@@ -204,10 +204,11 @@ describe('the two columns (D-593)', () => {
     expect(container.querySelector('.dashboard')).toBeNull()
   })
 
-  it('lays them out in two columns from 64rem and stacks each column’s cards, one column below', () => {
+  it('lays them out in two columns from 80rem (D-654) and stacks each column’s cards, one column below', () => {
     expect(css).toMatch(/\.dashboard-columns \{ display: grid; grid-template-columns: minmax\(0, 1fr\); gap: 1rem; align-items: start; \}/)
     expect(css).toMatch(/\.dashboard-column \{ display: flex; flex-direction: column; gap: 1rem; min-width: 0; \}/)
-    expect(css).toMatch(/@media \(min-width: 64rem\) \{\s*\.dashboard-columns \{ grid-template-columns: minmax\(0, 2fr\) minmax\(0, 1fr\); \}/)
+    expect(css).not.toMatch(/@media \(min-width: 64rem\) \{\s*\.dashboard-columns/)
+    expect(css).toMatch(/@media \(min-width: 80rem\) \{\s*\.dashboard-columns \{ grid-template-columns: minmax\(0, 2fr\) minmax\(0, 1fr\); \}/)
     expect(css).not.toMatch(/\.dashboard \{/)
   })
 

@@ -73,9 +73,10 @@ async function loadTheDemo(session: Session, withFamily: boolean) {
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Headline figures' }).getByText('Net worth')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Cash flow by category' })).toBeVisible()
-  // The chart is a chunk of its own, loaded lazily (chunkReload.lazyWithReload): it loads, and draws.
-  await expect(page.getByText('Loading chart…')).toHaveCount(0)
-  await expect(page.locator('.recharts-surface').first()).toBeVisible()
+  // The chart is drawn in HTML and CSS with the page (UX-16, D-648): its rows with their bars, and nothing of Recharts.
+  await expect(page.locator('figure.chart .ie-row').first()).toBeVisible()
+  await expect(page.locator('figure.chart .ie-bar').first()).toBeVisible()
+  await expect(page.locator('[class*="recharts"]')).toHaveCount(0)
   await shot(page, 'smoke-04-demo-dashboard')
   // D4a: the demo's ledger exported, its file in the import's format and its rows moving the balances (D-242).
   const month = today().slice(0, 7)

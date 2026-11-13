@@ -15,7 +15,8 @@ import { LOCAL, requireLocalOnly } from '../lib/targets.ts'
 // deleted at the end too. Since UX-13 also the dashboard for a past month, in each currency, and with a family scope
 // (the headline strip, D-569, and daily spending, D-571), and Entries filtered by a counterparty's name in another
 // case (D-568). SCREENS=dashboard takes the dashboard's screens alone (the before shots of another commit). Since
-// UX-14 SCREENS_WIDTHS=375,1024,1280,1440 takes them at other widths than 1280 and 375 (D-593, D-594).
+// UX-14 SCREENS_WIDTHS=375,1024,1280,1440 takes them at other widths than 1280 and 375 (D-593, D-594). Since UX-16
+// also the chart on six periods in both currency modes, a month's row pointed at (1280 px and up) or tapped (375 px).
 
 requireLocalOnly(LOCAL)
 const [folder, label, theme] = process.argv.slice(2)
@@ -33,6 +34,17 @@ const WIDTHS = process.env.SCREENS_WIDTHS
   })
   : [1280, 375]
 const ONLY_DASHBOARD = process.env.SCREENS === 'dashboard'
+/** UX-16's chart pages: a running month, a past month, three months with each comparison, a past year, 30 months. */
+const now = new Date()
+const thirtyMonthsBack = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 30, 1)).toISOString().slice(0, 10)
+const CHART_PAGES: [string, string][] = [
+  ['this-month', 'period=this-month'],
+  ['previous-month', 'period=previous-month'],
+  ['last-3-months-year', 'period=last-3-months'],
+  ['last-3-months-previous', 'period=last-3-months&compare=previous'],
+  ['past-year', 'period=past-year'],
+  ['by-year', `from=${thirtyMonthsBack}&to=${now.toISOString().slice(0, 10)}`],
+]
 const PAYEE = 'Corner shop'
 const PARTNERS_PAYEE = 'Trefpunt Coffeeshop'
 const account = LOCAL.roles.A
@@ -72,6 +84,32 @@ try {
     await take('dashboard-each', '/?currency=each')
     await take('dashboard-past-month-each', '/?period=previous-month&currency=each')
     if (familyId) await take('dashboard-family', `/?scope=family-mine&family=${familyId}`)
+    // UX-16 (D-647 to D-652): the chart in horizontal bars by range, by month with each comparison, a running month,
+    // a past year and more than 24 months by year, in the base currency and in each; a month's row pointed at.
+    for (const [name, query] of CHART_PAGES) {
+      await take(`chart-${name}`, `/?${query}`)
+      await take(`chart-${name}-each`, `/?${query}&currency=each`)
+    }
+    if (width !== 375) {
+      await take('chart-hovered', '/?period=past-year', async (p) => {
+        await p.locator('figure.chart .ie-months .ie-row').nth(2).hover()
+        await p.waitForTimeout(200)
+      })
+    } else {
+      // A tap, with a touch screen's pointer.
+      const touch = await browser.newContext({
+        baseURL: LOCAL.app, storageState: state, locale: 'en-US', timezoneId: 'UTC', colorScheme: 'light',
+        viewport: { width, height: 812 }, hasTouch: true, isMobile: true,
+      })
+      if (theme) await touch.addInitScript((t) => { localStorage.setItem('finance-tracker.theme', t) }, theme)
+      const tapped = await touch.newPage()
+      await tapped.goto('/?period=past-year')
+      await tapped.waitForLoadState('networkidle')
+      await tapped.locator('figure.chart .ie-months .ie-row').nth(2).tap()
+      await tapped.waitForTimeout(200)
+      await tapped.screenshot({ path: join(folder, `${label}-${width}-chart-tapped.png`), fullPage: true })
+      await touch.close()
+    }
     if (ONLY_DASHBOARD) {
       await context.close()
       continue

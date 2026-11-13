@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { AccountBalance, ConvertedBalance, ConvertedCashFlow, CounterpartyBalance, MissingRate } from './api'
+import type { AccountBalance, CashFlowRow, ConvertedBalance, ConvertedCashFlow, CounterpartyBalance, MissingRate } from './api'
 import {
   cashFlowTables, convertedCashFlowTable, daysBetween, debtSides, familyDebts, inBaseFromQuery, loanSides,
   mergeMissing, MISSING, monthNote, monthsBetween, needsLatestEntry, PERIOD_LABELS, periodFromQuery, periodTotals, presetRange, PRESETS, recordsOf,
   scopeFromQuery, showOf, showOptions, withRecords, withShow,
   scopeParams, showsOwnCurrencies, total, rateSourceText, rateText, type Preset,
+  chartByMonth, chartByYear, comparisons, yearNote, yearRows,
 } from './dashboard'
 
 describe('periodFromQuery', () => {
@@ -377,5 +378,58 @@ describe('the family budget chosen by "Show" and the records by "Records" (D-420
     expect(withRecords(params('scope=family&family=9'), 'mine').toString()).toBe('scope=family-mine&family=9')
     expect(withRecords(params('scope=family-mine'), 'others').toString()).toBe('scope=family-others')
     expect(withRecords(params('scope=family-others&family=9'), 'all').toString()).toBe('scope=family&family=9')
+  })
+})
+
+describe('the chart by year (D-652)', () => {
+  const row = (month: string, type: 'INCOME' | 'EXPENSE', total: string): CashFlowRow => ({
+    month, categoryCode: type === 'INCOME' ? 'SALARY' : 'GROCERIES', categoryName: type, categoryType: type, currency: 'EUR', total,
+  })
+  const section = { from: '2024-12-01', to: '2026-11-13' }
+
+  it('switches at 25 calendar months, and the month chart stops there', () => {
+    const at = (from: string, to: string) => {
+      const c = comparisons({ from, to }, '2026-11-13')!
+      return { byYear: chartByYear(c), byMonth: chartByMonth(c) }
+    }
+    expect(at('2024-11-01', '2026-10-31')).toEqual({ byYear: false, byMonth: true }) // 24 months
+    expect(at('2024-10-01', '2026-10-31')).toEqual({ byYear: true, byMonth: true }) // 25
+    expect(at('2024-10-31', '2026-10-01')).toEqual({ byYear: true, byMonth: true }) // 25 months touched, in part
+    expect(at('2026-09-01', '2026-10-31')).toEqual({ byYear: false, byMonth: false })
+  })
+
+  it('sums each year’s months in decimals, oldest first, noting the years covered in part', () => {
+    const [table] = cashFlowTables([
+      row('2024-12', 'INCOME', '0.10'), row('2024-12', 'EXPENSE', '0.20'),
+      row('2025-01', 'INCOME', '1000.05'), row('2025-06', 'INCOME', '0.25'), row('2025-06', 'EXPENSE', '300.10'),
+      row('2026-11', 'EXPENSE', '-5.00'),
+    ], monthsBetween(section.from, section.to))
+    expect(yearRows(table, section)).toEqual([
+      { year: '2024', note: 'from Dec 1', income: '0.1', expense: '0.2' },
+      { year: '2025', income: '1000.3', expense: '300.1' },
+      { year: '2026', note: 'to Nov 13', income: null, expense: '-5' },
+    ])
+  })
+
+  it('is MISSING where any month is, null where every month is, and null for every year without a table', () => {
+    const report: ConvertedCashFlow = {
+      currency: 'EUR', missingRates: [], exchangeResults: [],
+      rows: [
+        { month: '2025-02', categoryCode: 'SALARY', categoryName: 'Salary', categoryType: 'INCOME', total: '10.00', missingRates: [], rates: [] },
+        { month: '2025-03', categoryCode: 'SALARY', categoryName: 'Salary', categoryType: 'INCOME', total: null, missingRates: [], rates: [] },
+        { month: '2025-03', categoryCode: 'FOOD', categoryName: 'Food', categoryType: 'EXPENSE', total: '4.00', missingRates: [], rates: [] },
+      ],
+    } as unknown as ConvertedCashFlow
+    const table = convertedCashFlowTable(report, monthsBetween(section.from, section.to))
+    expect(yearRows(table, section).map((y) => [y.year, y.income, y.expense])).toEqual([
+      ['2024', null, null], ['2025', MISSING, '4'], ['2026', null, null],
+    ])
+    expect(yearRows(null, section).map((y) => [y.income, y.expense])).toEqual([[null, null], [null, null], [null, null]])
+  })
+
+  it('notes a section within one year with both ends, and a whole year with nothing', () => {
+    expect(yearNote('2025', '2025-03-04', '2025-10-09')).toBe('Mar 4 to Oct 9')
+    expect(yearNote('2025', '2025-01-01', '2025-12-31')).toBeUndefined()
+    expect(yearNote('2025', '2024-06-01', '2026-06-30')).toBeUndefined()
   })
 })

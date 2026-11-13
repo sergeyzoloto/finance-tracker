@@ -1,4 +1,4 @@
-import { Suspense, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import {
   dateOfIso, formatDate, useApi, type AccountBalance, type CashFlowRow, type ConvertedBalance, type ConvertedCashFlow,
@@ -6,18 +6,17 @@ import {
   type NetWorth, type Settings, type SharedSettlement, type DailyCashFlowRow, type ConvertedDailyCashFlow,
 } from './api'
 import CashFlowTable from './CashFlowTable'
-import { lazyWithReload } from './chunkReload'
-import { Amounts, ErrorBoundary, Errors, Loading, ToggleGroup } from './components'
+import { Amounts, Errors, Loading, ToggleGroup } from './components'
 import { dailyRange, type DailyRange, type DailyRow } from './daily'
 import DailySpending from './DailySpending'
 import {
-  balancesDay, baseEquitySplit, belowMinorUnit, cashFlowTables, changeText, chartByMonth, compareColumns, comparisons,
+  balancesDay, baseEquitySplit, belowMinorUnit, cashFlowTables, changeText, chartByMonth, chartByYear, compareColumns, comparisons,
   compareTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawable, drawnComparison, effectOf, equitySplits,
   familyDebts,
   inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING,
   missingDays, monthPairs, monthsBetween, needsLatestEntry, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
   recordsOf, resultRange, scopeFromQuery, scopeParams, showOf, showOptions, showsOwnCurrencies, totalChanges,
-  rateSourceText, rateText, withRecords, withShow,
+  rateSourceText, rateText, withRecords, withShow, yearRows,
   type CashFlowTable as Table, type Cell, type ComparedRange, type CompareTable, type Comparisons, type DayRange,
   type FamilyDebt, type PeriodChoice, type Records,
 } from './dashboard'
@@ -27,10 +26,7 @@ import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
 import { useToday } from './me'
 import { useLatestEntryDay } from './periods'
 import { abs, formatMoney, signOf, sum } from './money'
-import type { ChartData } from './IncomeExpenseChart'
-
-// Recharts is most of the app's code; loading it with the chart keeps it off every other page.
-const IncomeExpenseChart = lazyWithReload(() => import('./IncomeExpenseChart'))
+import IncomeExpenseChart, { type ChartData } from './IncomeExpenseChart'
 
 /**
  * The home page. A ledger without any entry gets the choice of the demo data or a start from scratch; once the demo
@@ -244,7 +240,7 @@ function PeriodDashboard({ families, latest }: { families: FamilyLedger[] | null
       <HeadlineStrip inBase={inBase} worth={baseNetWorth} rows={netWorth} baseCurrency={baseCurrency}
         flows={{ ...flows, data: flows.data?.tables }} scopeNote={scopeNote} />
 
-      {/* D-593: below the strip, from 64rem, a main column and a side column, each stacking its own cards; under 64rem
+      {/* D-593, D-654: below the strip, from 80rem, a main column and a side column, each stacking its own cards; under 80rem
           one column in this DOM order, which tab order and screen readers follow at every width. */}
       <div className="dashboard-columns">
         <div className="dashboard-column main">
@@ -422,12 +418,15 @@ function Flows({ compared, period, state, params, onCompare, daily, today }: {
   if (state.data === undefined) return state.error ? <Errors messages={[state.error]} /> : <Loading />
   const { tables, errors, kept, shown } = state.data
   const stale = state.loading
-  const byMonth = chartByMonth(shown)
+  // D-399: by range under 3 calendar months, by month from 3; D-652: by calendar year over 24, with no comparison.
+  const byYear = chartByYear(shown)
+  const byMonth = !byYear && chartByMonth(shown)
   const drawn = byMonth ? drawnComparison(shown, params) : null
   const choices = byMonth ? drawable(shown) : []
   const chart = (table: CompareTable): ChartData => {
-    if (!byMonth) return { form: 'ranges', bars: rangeBars(table) }
     const own = period.data!.find((t) => t.currency === table.currency) ?? null
+    if (byYear) return { form: 'years', years: yearRows(own, compared.section) }
+    if (!byMonth) return { form: 'ranges', bars: rangeBars(table) }
     const i = drawn === null ? -1 : kept.findIndex(({ range }) => range.role === drawn.role)
     const before = i < 0 ? null : kept[i].load.data!.find((t) => t.currency === table.currency) ?? null
     return { form: 'months', months: monthPairs(own, compared.section, before, drawn), role: drawn?.role ?? null }
@@ -446,11 +445,7 @@ function Flows({ compared, period, state, params, onCompare, daily, today }: {
             <div key={table.currency} className="chart-row">
               <figure className="chart" aria-label={`Income and expenses in ${table.currency}`}>
                 {tables.length > 1 && <figcaption>{table.currency}</figcaption>}
-                <ErrorBoundary fallback={<p className="error">The chart couldn’t load. Reload the page to try again.</p>}>
-                  <Suspense fallback={<div className="chart-placeholder"><Loading what="chart" /></div>}>
-                    <IncomeExpenseChart data={chart(table)} currency={table.currency} rounded={table.converted} />
-                  </Suspense>
-                </ErrorBoundary>
+                <IncomeExpenseChart data={chart(table)} currency={table.currency} rounded={table.converted} />
               </figure>
               {daily !== null && (
                 <DailySpending range={daily.range} currency={table.currency} rounded={table.converted} today={today}

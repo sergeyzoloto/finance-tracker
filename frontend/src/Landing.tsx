@@ -31,15 +31,16 @@ export default function Landing() {
           {/* Screenshots of a local instance with the demo data, which is invented. */}
           <figure>
             <img src={dashboardScreenshot} width={1092} height={618} alt={'The dashboard with the demo data in '
-              + 'euros, the base currency, in the app’s dark blue theme: one row of five figures, €16,982.28 held, '
-              + '€83.50 owed, a net worth of €16,898.79 with what currency exchanges and rate changes did to it, and '
-              + 'this month’s income of €15.35 and expenses of €180.30 to date, each against the same days of the '
+              + 'euros, the base currency, in the app’s dark blue theme: one row of five figures, €16,984.67 held, '
+              + '€83.21 owed, a net worth of €16,901.45 with what currency exchanges and rate changes did to it, and '
+              + 'this month’s income of €15.35 and expenses of €192.23 to date, each against the same days of the '
               + 'previous month; below it two columns. On the left, income and expenses: the choice of all, personal '
-              + 'or the family budget’s records, a bar chart of income against expenses for this month, the previous '
-              + 'month and the same days a year earlier, empty in the demo, and beside it a bar for each day’s '
-              + 'spending this month, the days still to come drawn as empty slots, the biggest day named. On the '
-              + 'right, the balances of each account on today’s date, the assets and the liabilities with their '
-              + 'totals.'} />
+              + 'or the family budget’s records, horizontal bars of income and expenses for the same days a year '
+              + 'earlier, empty in the demo, the previous month and this month to date, each with its amount, and '
+              + 'beside them a bar for each day’s spending this month, the days still to come drawn as empty slots, '
+              + 'the biggest day named; under it the start of the cash flow by category with each category’s share. '
+              + 'On the right, the balances of each account on today’s date, the assets and the liabilities with '
+              + 'their totals, and the start of equity.'} />
             <figcaption>The dashboard with the demo data, in the base currency.</figcaption>
           </figure>
         </section>

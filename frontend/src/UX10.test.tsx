@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { cloneElement, type ReactElement } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -10,16 +11,6 @@ import { SETTINGS_PARTS } from './Settings'
 import { THEME_KEY } from './theme'
 
 // UX-10: Settings' Appearance (D-499) and the chart in the theme's tokens (D-501).
-
-// Recharts measures its container, which jsdom can't: a fixed size in its place, so that the chart draws.
-vi.mock('recharts', async (original) => {
-  const actual = await original<typeof import('recharts')>()
-  return {
-    ...actual,
-    ResponsiveContainer: ({ children }: { children: ReactElement<{ width?: number; height?: number }> }) =>
-      cloneElement(children, { width: 600, height: 260 }),
-  }
-})
 
 function device(dark: boolean) {
   vi.stubGlobal('matchMedia', vi.fn(() => ({
@@ -97,39 +88,57 @@ describe('Settings → Appearance (D-499)', () => {
   })
 })
 
-describe('the chart in the theme’s tokens (D-501)', () => {
-  const fills = (container: HTMLElement, selector: string, attribute: string) =>
-    [...new Set([...container.querySelectorAll(selector)].map((e) => e.getAttribute(attribute)))]
+describe('the chart in the theme’s tokens (D-501, D-649)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
 
-  it('draws the months’ bars, the earlier period’s dashed lines and the grid with var()', () => {
+  it('colours its bars, markers, baseline, legend and panel only through the tokens', () => {
+    // Every declaration of the chart's own rules that names a colour names it through var().
+    const rules = [...css.matchAll(/([^{}]*\.(?:ie-[\w-]+|chart-tooltip)[^{}]*)\{([^}]*)\}/g)]
+    expect(rules.length).toBeGreaterThan(10)
+    for (const [, selector, body] of rules) {
+      for (const declaration of body.split(';')) {
+        const [property, value] = declaration.split(':').map((part) => part?.trim())
+        if (!property || !/(color|background|border|shadow)/.test(property) || value === undefined) continue
+        expect(value, `${selector.trim()} { ${property} }`).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/)
+        if (/^(color|background|background-color)$/.test(property)) expect(value, `${selector.trim()} { ${property} }`).toMatch(/^(var\(--[\w-]+\)|inherit|transparent)$/)
+      }
+    }
+    expect(css).toMatch(/\.ie-bar\.income \{ background: var\(--chart-income\); \}/)
+    expect(css).toMatch(/\.ie-bar\.expense \{ background: var\(--chart-expense\); \}/)
+    expect(css).toMatch(/\.ie-bars \{[^}]*border-left: 1px solid var\(--chart-grid\);/)
+    expect(css).toMatch(/\.ie-marker \{[^}]*background: var\(--text\);\s*box-shadow: -1px 0 0 var\(--surface\), 1px 0 0 var\(--surface\);/)
+    expect(css).toMatch(/\.ie-stub \{[^}]*background: var\(--border\);/)
+    expect(css).toMatch(/\.ie-row\.active \{ background: var\(--surface-raised\); \}/)
+    expect(css).toMatch(/\.ie-value \{[^}]*color: var\(--text\);/)
+    expect(css).toMatch(/\.ie-value\.none \{ color: var\(--muted\); \}/)
+  })
+
+  it('draws the months with their markers and no colour of its own', () => {
     const { container } = render(<IncomeExpenseChart currency="EUR" rounded={false} data={{
       form: 'months', role: 'year',
       months: [
-        { month: '2026-09', income: '100', expense: '-80', before: { month: '2025-09', income: '90', expense: '-70' } },
-        { month: '2026-10', income: '120', expense: '-60', before: { month: '2025-10', income: '80', expense: '-50' } },
+        { month: '2026-09', income: '100', expense: '80', before: { month: '2025-09', income: '90', expense: '70' } },
+        { month: '2026-10', income: '120', expense: '60', before: { month: '2025-10', income: '80', expense: '50' } },
       ],
     }} />)
-    // The bars grow in (an animation), so their fills are read from the legend's icons, which Recharts draws from them.
-    expect(fills(container, 'path.recharts-legend-icon', 'fill')).toEqual(['var(--chart-income)', 'var(--chart-expense)'])
-    expect(fills(container, 'line.recharts-legend-icon', 'stroke'))
-      .toEqual(['var(--chart-income-before)', 'var(--chart-expense-before)'])
-    expect(fills(container, '.recharts-line-curve', 'stroke').sort())
-      .toEqual(['var(--chart-expense-before)', 'var(--chart-income-before)'])
-    expect(fills(container, '.recharts-line-dot', 'stroke')).toEqual(['var(--surface)'])
-    expect(fills(container, '.recharts-cartesian-grid-horizontal line', 'stroke')).toEqual(['var(--chart-grid)'])
-    expect(fills(container, '.recharts-cartesian-axis-tick-value', 'fill')).toEqual(['var(--muted)'])
-    // No colour of its own anywhere in the drawing.
+    expect(container.querySelectorAll('.ie-bar.income')).toHaveLength(2)
+    expect(container.querySelectorAll('.ie-bar.expense')).toHaveLength(2)
+    expect(container.querySelectorAll('.ie-marker')).toHaveLength(4)
+    // Inline styles place things; none colours them.
+    for (const element of container.querySelectorAll<HTMLElement>('[style]')) {
+      expect(element.getAttribute('style')).not.toMatch(/color|background|border|fill|stroke/)
+    }
     expect(container.innerHTML).not.toMatch(/#[0-9a-fA-F]{3,6}\b|rgb\(/)
+    expect(container.querySelector('svg')).toBeNull()
   })
 
-  it('draws the ranges’ bars with var()', () => {
+  it('draws the ranges with no colour of its own', () => {
     const { container } = render(<IncomeExpenseChart currency="EUR" rounded={false} data={{
       form: 'ranges',
-      bars: [{ key: 'previous', role: 'Previous period', label: 'Sep 2026', income: '10', expense: '-20' },
-        { key: 'period', role: 'Period', label: 'Oct 2026', income: '30', expense: '-5' }],
+      bars: [{ key: 'previous', role: 'Previous period', label: 'Sep 2026', income: '10', expense: '20' },
+        { key: 'period', role: 'Period', label: 'Oct 2026', income: '30', expense: '5' }],
     }} />)
-    expect(fills(container, 'path.recharts-legend-icon', 'fill')).toEqual(['var(--chart-income)', 'var(--chart-expense)'])
-    expect(fills(container, '.recharts-cartesian-grid-horizontal line', 'stroke')).toEqual(['var(--chart-grid)'])
+    expect(container.querySelectorAll('.ie-bar')).toHaveLength(4)
     expect(container.innerHTML).not.toMatch(/#[0-9a-fA-F]{3,6}\b|rgb\(/)
   })
 })

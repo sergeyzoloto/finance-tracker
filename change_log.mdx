@@ -3,6 +3,47 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-13 · UX-15-doc: UX-15's deploy recorded in both repositories, five follow-ups in "Later"
+
+One commit on `feature/family-budget` on top of `56c51bb` (UX-15, deployed), the commit of this entry, "docs: UX-15's
+deploy recorded, five follow-ups in Later, D-637 to D-642 (UX-15-doc)"; and one commit on auth_server's `main` on top of
+`87b478b` (UX-15, deployed), "UX-15-doc: UX-15's deploy recorded". **Neither pushed**; `main` not moved. Documents only:
+no file under `backend/`, `frontend/`, `e2e/` or `deploy/checks/` here, none under auth_server's `deploy/`, no
+migration, no deploy of its own (D-642). Production read only: the server not touched, no kcadm, `e2e:prod` never run.
+
+**Changes**
+- D-641: UX-15's deploy as run, in the runbook's "Deployed revisions" (one row: `56c51bb` over `3ed8515`, with
+  auth_server's `87b478b` first; auth's A1 to A11, finance's pre-flight, `run` in run folder
+  `2026-11-13T142443Z-56c51bb`, both dumps with their SHA-256, 3.2's tags, both images new, Flyway's line, the suite
+  passing on its first run, `finish`, `verify UX-15`, the rollback acceptance, "CI on Ubuntu 26.04" #32; "Not recorded
+  (D-641)"), "Production now" (`56c51bb` on V17 with its images, the reboot of 04:00:23Z as happened, closing D-611's
+  question, a bullet for the auth server, the rollback target `3ed8515` with no condition and UX-14's images, UX-15's
+  dumps on the server, the suite, CI, the branches, the checklists), and step 12's 12.1 and 12.10 on `verify UX-15` (and
+  the rehearsed commit `56c51bb…`). UX-15's checklist unchanged (D-638).
+- CLAUDE.md: the Deployment line (`56c51bb` since 14:47:38Z with auth's `87b478b`, the rollback target `3ed8515`, UX-15
+  and UX-15-doc in the list) and step 12's `verify UX-15`.
+- `requirements.md`: D-637 to D-642 (the PM), D-643 to D-646 (the agent's), the "Amended" line, UX-15 done and
+  UX-15-doc in "Planned stages", D-639's five items in "Later".
+- auth_server (its change log has the detail): a change log entry for A0 to A11, which closes the "Open" of UX-15's
+  entry; PRODUCTION.md's realm row (set on 2026-11-13), the deployed revision and newest sync backup, and D-639's items 1
+  to 3 as open.
+
+**Verified**
+- No test suite run: no code, spec or check file changes. `git --no-pager diff --name-only 56c51bb` names `CLAUDE.md`,
+  `change_log.mdx`, `deploy/RUNBOOK.md` and `docs/family-budget/requirements.md` only; auth_server's `git --no-pager diff
+  --name-only 87b478b` names `PRODUCTION.md` and `change_log.mdx` only.
+- Both `change_log.mdx` compiled with `@mdx-js/mdx`: no error.
+- Every hash, time, size and count in the row, "Production now", D-641, CLAUDE.md and auth_server's entry compared with
+  D-641's text.
+
+**Open**
+- The PM's review; then the owner fast-forwards `main` and pushes both repositories (D-642). The next stage's checklist
+  lists this commit among those from `56c51bb` to its M.
+- D-639's five follow-ups and D-609's two, in "Later".
+- Not recorded (D-641): A0's time, the laptop's pull after the deploy, the email from production (the owner's,
+  optional), the state block after the rollback acceptance, CI's times, the restore tests' table counts beyond the
+  summary's.
+
 ## 2026-11-13 · UX-15: Keycloak in design C, the theme shared by a cookie, Account in the user menu
 
 One commit on `feature/family-budget` on top of `ed5f2c5` (UX-14-doc), the commit of this entry, "feat: Keycloak's

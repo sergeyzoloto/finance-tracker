@@ -3,6 +3,68 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-13 · UX-16's second commit: the lock CI's `npm ci` refused, made again with CI's npm
+
+One commit on `feature/family-budget` on top of `9478ece` (UX-16), the commit of this entry, "fix: the frontend's lock
+made again with CI's npm, npm ci from a clean copy for a changed lock, D-668 to D-674 (UX-16)". **Not pushed**; `main`
+not moved. No code, test or `package.json` change; production read only, the server not touched, `e2e:prod` never run.
+
+**The failure.** On `9478ece` both `CI` runs (#43494476829 and #43494476839) failed `Frontend` and `Web image` at
+`npm ci`, under setup-node's Node v24.22.2 and in `node:24-alpine` (the web image's build): `Missing:
+@emnapi/core@2.0.0-beta.2 from lock file` and the same for `@emnapi/runtime`. UX-16 was not deployed; production stays
+at `56c51bb` (UX-15).
+
+**The cause** (D-672). UX-16 removed `recharts` and `react-is` with the laptop's default npm (Node v22.19.0, npm
+11.6.2). That npm dropped, besides the 39 entries of Recharts' tree and `react-is`, the two `@emnapi` entries (the peers
+of `@napi-rs/wasm-runtime`, which Vite's optional `@rolldown/binding-wasm32-wasi` needs) and the six
+`@rolldown/binding-linux-*` entries' `libc`, and marked ten entries `peer`. CI's npm 11.19.1 refuses such a lock.
+UX-16's `npm test` and `npm run build` ran on the `node_modules` already installed, so nothing ran `npm ci`. Reproduced:
+the same `npm uninstall` with npm 11.6.2 on `3785ff8`'s files writes `9478ece`'s lock byte for byte, and `npm ci` on
+`9478ece`'s files in `node:24.22.2` exits 1 with CI's two lines.
+
+**Changes**
+- `frontend/package-lock.json` (D-668, D-671): `3785ff8`'s lock with `npm uninstall recharts react-is
+  --package-lock-only --ignore-scripts` run in `node:24.22.2` (v24.22.2, npm 11.19.1), exit 0; no script. Against
+  `3785ff8`'s: the 39 entries gone, none added, both `@emnapi` and every `libc` kept, no version changed; `@types/react`
+  and `csstype` `devOptional` to `dev`, as that npm writes them (`react-redux`, Recharts' dependency, had `@types/react`
+  as an optional peer on the production path; now only dev dependencies reach it, and `csstype` through it).
+- CLAUDE.md: "Testing", D-669's rule: a commit that changes a `package.json` or a lock file runs `npm ci` from a clean
+  copy of the whole tree in CI's Node (then `npm test` and `npm run build`) and through `check-web-image.sh`, with CI's
+  npm making the lock.
+- `deploy/RUNBOOK.md`: "UX-16's deploy checklist with the suite" restated for M, UX-16's second commit (D-670): step 0
+  expects `origin/main` at `9478ece2ba7ec45dc44e0511af0272c2274e2139` and one commit ahead, step 1's merge
+  `Updating 9478ece..`, M's parent `9478ece`, `run`'s 1.3 three commits from `56c51bb` (`3785ff8`, `9478ece`, M), under
+  `deploy/` the same three files; `9478ece`'s red runs left as they are.
+- `requirements.md`: D-668 to D-670 (the PM), D-671 to D-674 (the agent's), the "Amended" line, the stage in "Planned
+  stages", and a `.nvmrc` for the laptop's `frontend/` proposed in "Later". UX-16's entry below stays as written.
+
+**Verified**
+- Package lists, `3785ff8`'s lock against M's: 39 gone (`recharts`, `react-is`, `react-redux`, `redux`, `redux-thunk`,
+  `reselect`, `immer`, `@reduxjs/toolkit`, `@standard-schema/spec`, `@standard-schema/utils`, `es-toolkit`,
+  `eventemitter3`, `decimal.js-light`, `clsx`, `tiny-invariant`, `use-sync-external-store`,
+  `@types/use-sync-external-store`, `victory-vendor`, `internmap`, the eleven `d3-*` and nine `@types/d3-*`), none added;
+  two that stay changed (`@types/react`, `csstype`: `devOptional` to `dev`). The root's `dependencies` as `package.json`
+  says, which is `9478ece`'s byte for byte.
+- In CI's Node, on a clean copy of the whole tree (`git archive` of `9478ece` with the new lock), `node:24.22.2`
+  (`node -v` v24.22.2, `npm -v` 11.19.1, `CI=true`): `npm ci` exit 0 (`added 107 packages, and audited 108 packages`,
+  `found 0 vulnerabilities`); `npm test` exit 0, `Test Files 53 passed (53)`, `Tests 746 passed (746)`, no Errors line;
+  `npm run build` exit 0, `index-BtS4-gcJ.js 582.24 kB` (173.95 kB gzip), as UX-16's. A first try on a copy of
+  `frontend/` alone failed `privacy.test.ts` with `ENOENT` for `docs/family-budget/privacy-draft.md` (`Test Files 1
+  failed | 52 passed`, exit 1): the clean copy is the whole tree, as CI's checkout (D-673).
+- The web image, from the same copy: `.github/scripts/check-web-image.sh frontend finance-tracker-web:ux16-2-ci` exit 0
+  and with `--server-modes` exit 0, each "every check passed", `npm ci` inside `added 107 packages` on `node:24-alpine`
+  pulled as CI does (v24.22.3, npm 11.19.1); the tags removed and the laptop's `node:24-alpine` pointed back at the image
+  found there (D-674).
+- The control: `npm ci` on `9478ece`'s `package.json` and lock in `node:24.22.2`: exit 1, CI's two `Missing:` lines.
+- The laptop's `frontend/node_modules` reinstalled from M's lock: `npm ci` (Node v22.19.0, npm 11.6.2) exit 0, `found 0
+  vulnerabilities`; no `recharts`.
+- The committed `frontend/` is the tested copy's (the same files' digest).
+- Not run: the backend's suite and the end-to-end suite (no code changes; the installed packages' versions are UX-16's).
+
+**Open**
+- The PM's review of M, then UX-16's deploy by the restated checklist, CI on M first.
+- The laptop's Node for `frontend/` ("Later"): a `.nvmrc` naming CI's Node, not in this commit's scope.
+
 ## 2026-11-13 · UX-16: the dashboard's chart in horizontal bars, in HTML and CSS; Recharts gone
 
 One commit on `feature/family-budget` on top of `3785ff8` (UX-15-doc), the commit of this entry, "feat: the

@@ -1705,8 +1705,9 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
 
 ## UX-16's deploy checklist with the suite
 
-**Commit to deploy (M):** `feature/family-budget`'s head after UX-16, its one commit (subject ending "(UX-16)") on top
-of UX-15-doc's `3785ff875810d5cf2912b8ef389fcd1349e6fafe`; the commit the PM names in full once UX-16 is accepted. M
+**Commit to deploy (M):** UX-16's second commit (subject ending "(UX-16)"), on top of `9478ece` (UX-16's first,
+`9478ece2ba7ec45dc44e0511af0272c2274e2139`, whose CI failed at `npm ci` and which was never deployed, D-670), itself on
+top of UX-15-doc's `3785ff875810d5cf2912b8ef389fcd1349e6fafe`; the commit the PM names in full once it is accepted. M
 holds this checklist, so the checklist can't name M's hash itself: every block below that takes it says `<M>`; type
 M's full hash (40 characters) there before pasting the block (D-226). Pasted as it is, bash reads `<M>` as a
 redirection and runs nothing of the line. **Stage:** `UX-16` (`deploy/checks/UX-16.sql` and `UX-16.expected`, UX-15's
@@ -1745,9 +1746,11 @@ What runs and why:
 
 - `run` is the clone's script, `56c51bb`'s (bash reads it, with `common.sh`, before the merge): its step 1.1 refuses a
   scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-126, D-128, D-131); its gate
-  (1.5) counts only the check runs of `ci.yml`'s runs (D-280). Step 1.3 requires M to be `origin/main` after `git
-  fetch` and a fast-forward of `HEAD` (`56c51bb`), lists the commits from `56c51bb` to M (two: `3785ff8`, UX-15-doc,
-  and M), `Migrations added: none`, and under `deploy/` three files: `RUNBOOK.md`, `checks/UX-16.expected` and
+  (1.5) counts only the check runs of `ci.yml`'s runs (D-280) on M itself, so `9478ece`'s failed `CI` runs
+  (#43494476829 and #43494476839, `Frontend` and `Web image` at `npm ci`) count for nothing: they stay as they are,
+  never re-run (D-670). Step 1.3 requires M to be `origin/main` after `git
+  fetch` and a fast-forward of `HEAD` (`56c51bb`), lists the commits from `56c51bb` to M (three: `3785ff8`, UX-15-doc,
+  `9478ece`, UX-16's first, and M), `Migrations added: none`, and under `deploy/` three files: `RUNBOOK.md`, `checks/UX-16.expected` and
   `checks/UX-16.sql`. `finance.caddy`, the postgres service and `pg-backup/finance.conf` don't change.
 - Only `frontend/` changes (and `e2e/` and the docs, in no image). The web image is new and its container recreated.
   `backend/` doesn't change: the api image is most likely built from cache with the same content, and then its
@@ -1774,8 +1777,8 @@ cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 -
 ```
 
 You should see `HEAD` M with UX-16's subject (on `feature/family-budget`); `origin/main`
-`3785ff875810d5cf2912b8ef389fcd1349e6fafe` (UX-15-doc); `origin/feature/family-budget` M if UX-16 is pushed, else
-`3785ff875810d5cf2912b8ef389fcd1349e6fafe` too; one commit in `origin/main..feature/family-budget`, M (any other: the
+`9478ece2ba7ec45dc44e0511af0272c2274e2139` (UX-16's first commit); `origin/feature/family-budget` M if M is pushed,
+else `9478ece2ba7ec45dc44e0511af0272c2274e2139` too; one commit in `origin/main..feature/family-budget`, M (any other: the
 PM restates this checklist's commits); `FF-OK`; and nothing from `git status --porcelain`. `NOT-FF`, another hash, or
 any line of `git status`: stop and tell the PM.
 
@@ -1787,9 +1790,9 @@ and named M.
 cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
 ```
 
-You should see `Updating 3785ff8..<M's 7 characters>` and `Fast-forward` for the merge (or `Already up to date.` if
+You should see `Updating 9478ece..<M's 7 characters>` and `Fast-forward` for the merge (or `Already up to date.` if
 `main` is at M already), the push of both branches (or `Everything up-to-date`), and M in full with its parent
-(`3785ff875810d5cf2912b8ef389fcd1349e6fafe`) and its subject. A dirty tree stops the chain before the merge, with no
+(`9478ece2ba7ec45dc44e0511af0272c2274e2139`) and its subject. A dirty tree stops the chain before the merge, with no
 message: run `git status` and tell the PM. `Not possible to fast-forward`, or another hash: stop.
 
 CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about fifteen minutes). First the
@@ -1903,7 +1906,7 @@ It prints ("Deploying with deploy.sh" lists the steps):
   here).
 - 1.2: `HEAD: 56c51bb feat: Keycloak's pages in design C, …`, the running images, `Last good deploy: 56c51bb …
   (deploy)`, status `good`, both images "the recorded image", the read-only role's line.
-- 1.3: the fetch; the commits from `56c51bb` to M, two: `3785ff8` and M; `Migrations added: none`; under `deploy/`:
+- 1.3: the fetch; the commits from `56c51bb` to M, three: `3785ff8`, `9478ece` and M; `Migrations added: none`; under `deploy/`:
   `RUNBOOK.md`, `checks/UX-16.expected`, `checks/UX-16.sql`.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)` (15 with a review branch's run), CI's own

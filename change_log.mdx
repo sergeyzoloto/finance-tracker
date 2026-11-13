@@ -3,6 +3,42 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-13 · UX-14-doc: UX-14's deploy recorded, two follow-ups in "Later"
+
+One commit on `feature/family-budget` on top of `3ed8515` (UX-14, deployed), the commit of this entry, "docs: UX-14's
+deploy recorded, two follow-ups of its review in Later, D-607 to D-612 (UX-14-doc)". **Not pushed**; `main` not moved.
+Documents only: no file under `backend/`, `frontend/`, `e2e/` or `deploy/checks/`, no migration, no deploy of its own
+(D-608). Production read only; the server not touched and `e2e:prod` never run.
+
+**Changes**
+- D-607: UX-14's deploy as run, in the runbook's "Deployed revisions" (one row: `3ed8515` over `a406090`, run folder
+  `2026-11-12T222247Z-3ed8515`, commits `fd33d31` and `3ed8515`, no migration; the pre-flight, both dumps with their
+  SHA-256, 3.2's tags, the api image's content unchanged and its container not recreated, the web image new, Flyway's
+  line from UX-13's start (D-519), the images, the suite passing on its first run, `finish`, `verify UX-14`, the
+  rollback acceptance, "CI on Ubuntu 26.04" #31; "Not recorded (D-607, D-610)"), "Production now" (`3ed8515` on V17
+  with its images, the reboot scheduled for 04:00Z not recorded as happened, the rollback target `a406090` with no
+  condition and UX-13's images, UX-14's dumps on the server, the suite, CI, the branches, the checklists), and step 12's
+  12.1 and 12.10 on `verify UX-14` (and the rehearsed commit `3ed8515…`).
+- CLAUDE.md: the Deployment line (`3ed8515` since 22:29:38Z, the rollback target `a406090`, UX-14 and UX-14-doc in the
+  list of deploys) and step 12's `verify UX-14`.
+- `requirements.md`: D-607 to D-609 (the PM), D-610 to D-612 (the agent's: what is named "not recorded", the
+  containers' start times without the reboot, UX-14's checklist in its report only), the "Amended" line, UX-14-doc done
+  in "Planned stages", and D-609's two items in "Later" (the dashboard's two columns from 80rem; the stale JSDoc of
+  `usedRateText` above `rateSourceText` in `frontend/src/dashboard.ts`, both checked to be as the PM describes).
+
+**Verified**
+- No test suite run: no code, spec or check file changes. `git --no-pager diff --name-only 3ed8515` names
+  `CLAUDE.md`, `change_log.mdx`, `deploy/RUNBOOK.md` and `docs/family-budget/requirements.md` only.
+- `change_log.mdx` compiled with `@mdx-js/mdx`: no error.
+- Every hash, time, size and count in the row, "Production now", D-607 and CLAUDE.md compared with D-607's text.
+
+**Open**
+- The PM's review; then the owner fast-forwards `main` and pushes (D-608). The next stage's checklist lists this commit
+  among those from `3ed8515` to its M.
+- D-609's two follow-ups, for the next stage with code.
+- Not recorded (D-607): the laptop's pull after UX-14's deploy, and whether the reboot scheduled for 2026-11-13T04:00Z
+  happened.
+
 ## 2026-11-12 · UX-14: the rest of design C's dashboard, two columns, the categories' shares, a Rates card
 
 One commit on `feature/family-budget` on top of `fd33d31` (UX-13-doc), the commit of this entry, "feat: the

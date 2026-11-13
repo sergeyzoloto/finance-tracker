@@ -3,6 +3,46 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-13 · UX-16-doc: UX-16's deploy recorded, two follow-ups in Later
+
+One commit on `feature/family-budget` on top of `28c0cee` (UX-16's second commit), the commit of this entry, "docs:
+UX-16's deploy recorded, two follow-ups in Later, D-675 to D-679 (UX-16-doc)". **Not pushed**; `main` not moved.
+Documents only, no deploy of its own (D-679): production stays at `28c0cee`. Production read only; the server not
+touched.
+
+**Changes**
+- `deploy/RUNBOOK.md`: UX-16's row in "Deployed revisions" (D-676: the pre-flight and `verify UX-15` at 19:41Z, `9478ece`'s
+  failed CI #132 and #133, `28c0cee`'s CI #134 and #135, `run` with its dumps, images and Flyway line, the suite, `finish`
+  at 20:32:54Z, `verify UX-16`, the rollback acceptance refused, "CI on Ubuntu 26.04" #33, D-677's differences and what
+  isn't recorded); "Production now" at `28c0cee` (the running images, the rollback state `56c51bb` with its tags, UX-16's
+  dumps, the suite, CI on Ubuntu 26.04, the branches, "Later"); step 12's 12.1 and 12.10 on `verify UX-16`, and its
+  code `28c0cee`. UX-16's checklist text unchanged (D-677).
+- CLAUDE.md: the Deployment line (`28c0cee` since 20:32:54Z, the rollback state `56c51bb`, step 12 on `verify UX-16`,
+  UX-16 and UX-16-doc in the list).
+- `requirements.md`: D-675 to D-679 (the PM), D-680 to D-683 (the agent's), the "Amended" line, UX-16-doc in "Planned
+  stages", D-678's two follow-ups in "Later".
+
+**Verified**
+- Against the repository: `56c51bb..28c0cee` is 24 files and three commits (`3785ff8`, `9478ece`, `28c0cee`), three
+  files under `deploy/` (`RUNBOOK.md`, `checks/UX-16.expected`, `checks/UX-16.sql`); the images D-676's pre-flight
+  lists under `:3ed8515…`, `:a406090…` and `:79125a8…`, and UX-15's running images and contents, are those their rows
+  name; the web build's 107 packages and `index-BtS4-gcJ.js` 582.24 kB are D-673's clean run's (D-681).
+- Against GitHub's public API, read only: `CI` #132 (id `43494476829`) and #133 (id `43494476839`) on `9478ece`, failure;
+  #134 (id `43498558012`) and #135 (id `43498559784`) on `28c0cee`, success; "CI on Ubuntu 26.04" #33 (id `43502783294`),
+  20:34:22Z to 20:46:50Z, success; as D-676 says (D-681).
+- UX-16's checklist: no line of its section changed (`git diff` has no hunk in it).
+- `git --no-pager diff --name-only` of the commit: `CLAUDE.md`, `change_log.mdx`, `deploy/RUNBOOK.md`,
+  `docs/family-budget/requirements.md`.
+- `change_log.mdx` compiled with `@mdx-js/mdx` 3.1.1: no error.
+- Not run: any test suite (documents only); anything against the server.
+
+**Open**
+- The PM's review; then the owner fast-forwards `main` and pushes (D-679).
+- Not recorded (D-677, D-682): the state block after the rollback acceptance, the laptop's pull after UX-16's deploy
+  (its two dumps named on the server only, until about 2026-11-27), the recreated web container's start time, the
+  restore tests' table counts beyond the summary's.
+- D-678's two follow-ups and the rest of "Later", for the owner and the PM.
+
 ## 2026-11-13 · UX-16's second commit: the lock CI's `npm ci` refused, made again with CI's npm
 
 One commit on `feature/family-budget` on top of `9478ece` (UX-16), the commit of this entry, "fix: the frontend's lock

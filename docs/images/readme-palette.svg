@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 470" width="1280" height="470">
+  <!-- README's colour palette, drawn for this project: the three themes of frontend/src/index.css, each panel filled
+       with the theme's bg and each swatch filled with a token's value, labelled with its name and hex.
+       readmeAssets.test.ts checks every swatch's fill and printed hex against index.css. -->
+
+  <!-- Blue -->
+  <rect x="20" y="10" width="400" height="450" rx="16" fill="#18212F" stroke="#33435C" stroke-width="2"/>
+  <text x="48" y="58" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="600" fill="#E3E9F2">Blue</text>
+  <rect x="48" y="84" width="56" height="28" rx="6" data-theme="blue" data-token="bg" fill="#18212F" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="103" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">bg</text>
+  <text x="392" y="103" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#18212F</text>
+  <rect x="48" y="124" width="56" height="28" rx="6" data-theme="blue" data-token="surface" fill="#1F2A3B" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="143" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">surface</text>
+  <text x="392" y="143" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#1F2A3B</text>
+  <rect x="48" y="164" width="56" height="28" rx="6" data-theme="blue" data-token="text" fill="#E3E9F2" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="183" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">text</text>
+  <text x="392" y="183" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#E3E9F2</text>
+  <rect x="48" y="204" width="56" height="28" rx="6" data-theme="blue" data-token="muted" fill="#9AA8BD" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="223" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">muted</text>
+  <text x="392" y="223" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#9AA8BD</text>
+  <rect x="48" y="244" width="56" height="28" rx="6" data-theme="blue" data-token="accent" fill="#A99BFF" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="263" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">accent</text>
+  <text x="392" y="263" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#A99BFF</text>
+  <rect x="48" y="284" width="56" height="28" rx="6" data-theme="blue" data-token="income" fill="#6BB8F2" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="303" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">income</text>
+  <text x="392" y="303" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#6BB8F2</text>
+  <rect x="48" y="324" width="56" height="28" rx="6" data-theme="blue" data-token="expense" fill="#F2A65A" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="343" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">expense</text>
+  <text x="392" y="343" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#F2A65A</text>
+  <rect x="48" y="364" width="56" height="28" rx="6" data-theme="blue" data-token="success" fill="#7FD6B8" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="383" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">success</text>
+  <text x="392" y="383" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#7FD6B8</text>
+  <rect x="48" y="404" width="56" height="28" rx="6" data-theme="blue" data-token="danger" fill="#F49A9A" stroke="#33435C" stroke-width="1.5"/>
+  <text x="120" y="423" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E3E9F2">danger</text>
+  <text x="392" y="423" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9AA8BD">#F49A9A</text>
+
+  <!-- Light -->
+  <rect x="440" y="10" width="400" height="450" rx="16" fill="#F4F6F9" stroke="#D5DCE6" stroke-width="2"/>
+  <text x="468" y="58" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="600" fill="#1B2433">Light</text>
+  <rect x="468" y="84" width="56" height="28" rx="6" data-theme="light" data-token="bg" fill="#F4F6F9" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="103" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">bg</text>
+  <text x="812" y="103" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#F4F6F9</text>
+  <rect x="468" y="124" width="56" height="28" rx="6" data-theme="light" data-token="surface" fill="#FFFFFF" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="143" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">surface</text>
+  <text x="812" y="143" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#FFFFFF</text>
+  <rect x="468" y="164" width="56" height="28" rx="6" data-theme="light" data-token="text" fill="#1B2433" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="183" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">text</text>
+  <text x="812" y="183" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#1B2433</text>
+  <rect x="468" y="204" width="56" height="28" rx="6" data-theme="light" data-token="muted" fill="#566173" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="223" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">muted</text>
+  <text x="812" y="223" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#566173</text>
+  <rect x="468" y="244" width="56" height="28" rx="6" data-theme="light" data-token="accent" fill="#5B48D6" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="263" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">accent</text>
+  <text x="812" y="263" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#5B48D6</text>
+  <rect x="468" y="284" width="56" height="28" rx="6" data-theme="light" data-token="income" fill="#0B6E99" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="303" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">income</text>
+  <text x="812" y="303" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#0B6E99</text>
+  <rect x="468" y="324" width="56" height="28" rx="6" data-theme="light" data-token="expense" fill="#A55A0F" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="343" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">expense</text>
+  <text x="812" y="343" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#A55A0F</text>
+  <rect x="468" y="364" width="56" height="28" rx="6" data-theme="light" data-token="success" fill="#1C6A4D" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="383" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">success</text>
+  <text x="812" y="383" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#1C6A4D</text>
+  <rect x="468" y="404" width="56" height="28" rx="6" data-theme="light" data-token="danger" fill="#B42318" stroke="#D5DCE6" stroke-width="1.5"/>
+  <text x="540" y="423" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#1B2433">danger</text>
+  <text x="812" y="423" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#566173">#B42318</text>
+
+  <!-- Dark -->
+  <rect x="860" y="10" width="400" height="450" rx="16" fill="#17181B" stroke="#393B41" stroke-width="2"/>
+  <text x="888" y="58" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="600" fill="#E8E8EB">Dark</text>
+  <rect x="888" y="84" width="56" height="28" rx="6" data-theme="dark" data-token="bg" fill="#17181B" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="103" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">bg</text>
+  <text x="1232" y="103" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#17181B</text>
+  <rect x="888" y="124" width="56" height="28" rx="6" data-theme="dark" data-token="surface" fill="#1F2024" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="143" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">surface</text>
+  <text x="1232" y="143" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#1F2024</text>
+  <rect x="888" y="164" width="56" height="28" rx="6" data-theme="dark" data-token="text" fill="#E8E8EB" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="183" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">text</text>
+  <text x="1232" y="183" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#E8E8EB</text>
+  <rect x="888" y="204" width="56" height="28" rx="6" data-theme="dark" data-token="muted" fill="#A4A6AD" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="223" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">muted</text>
+  <text x="1232" y="223" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#A4A6AD</text>
+  <rect x="888" y="244" width="56" height="28" rx="6" data-theme="dark" data-token="accent" fill="#B3A8FF" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="263" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">accent</text>
+  <text x="1232" y="263" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#B3A8FF</text>
+  <rect x="888" y="284" width="56" height="28" rx="6" data-theme="dark" data-token="income" fill="#74B9EE" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="303" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">income</text>
+  <text x="1232" y="303" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#74B9EE</text>
+  <rect x="888" y="324" width="56" height="28" rx="6" data-theme="dark" data-token="expense" fill="#F0A860" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="343" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">expense</text>
+  <text x="1232" y="343" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#F0A860</text>
+  <rect x="888" y="364" width="56" height="28" rx="6" data-theme="dark" data-token="success" fill="#82D3B5" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="383" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">success</text>
+  <text x="1232" y="383" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#82D3B5</text>
+  <rect x="888" y="404" width="56" height="28" rx="6" data-theme="dark" data-token="danger" fill="#F49A9A" stroke="#393B41" stroke-width="1.5"/>
+  <text x="960" y="423" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="16" fill="#E8E8EB">danger</text>
+  <text x="1232" y="423" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#A4A6AD">#F49A9A</text>
+</svg>

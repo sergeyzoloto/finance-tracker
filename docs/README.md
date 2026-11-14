@@ -16,6 +16,7 @@ original decision and add dated amendments; a snapshot is never updated.
 | [family-budget/requirements.md](family-budget/requirements.md) | The decision log of the whole project (below), the planned stages and "Later", the open work | Current, appended |
 | [family-budget/current-state.md](family-budget/current-state.md) | What the code did before the family budget, written in F1 (2026-09-28) | Frozen snapshot |
 | [family-budget/privacy-draft.md](family-budget/privacy-draft.md) | The privacy policy's section "Family budgets", word for word as published in `frontend/public/privacy.html` (a test compares them) | Current |
+| [images/](images/) | The README's banner and colour palette, hand-written SVG in the app's colours (`frontend/src/readmeAssets.test.ts` checks them) | Current |
 
 **The decision log.** [family-budget/requirements.md](family-budget/requirements.md) holds every decision of the
 project, D-1 onward, for all stages, not only the family budget's, despite its path; it stays there because many

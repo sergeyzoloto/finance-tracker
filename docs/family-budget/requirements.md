@@ -140,6 +140,8 @@ Amended in IMP-1-doc on 2026-11-14: new D-764 to D-766 (the PM): step 12's third
 
 Amended in DOC-1d on 2026-11-14: new D-732 to D-737 and D-774 to D-776 (the PM): IMP-1's deploy recorded, and DOC-1b's lost part done (a neutral file name in a test, the forbidden-names check in the Definition of done, D-730's findings, D-731's contradictions in CLAUDE.md); new D-777 to D-781 (the agent).
 
+Amended in DOC-2 on 2026-11-14: new D-782 to D-787 (the PM): the README's look, a banner, badges, two illustrations in the app's colours and a guard; new D-788 to D-793 (the agent).
+
 Amended in IMP-1 on 2026-11-14: new D-767 to D-769 (the PM): the benefit check takes the file's period, its deploy checklist, D-758 done in "Later"; new D-770 to D-773, the agent's.
 
 Amended in UX-9 on 2026-11-11: new D-475 (the PM), UX-8's deploy not recorded here; new D-476 to D-483 (decided by the owner and the PM, as UX-9's task states them), a family payment's category in Entries and its Category filter, and the payees a member chooses to show in a family budget, with V17 and `PATCH /api/family-ledgers/{id}/me`; D-81 amended by D-479 to D-482; new D-484 to D-493, the agent's choices and findings of UX-9, which the PM may correct; UX-9 in "Planned stages".
@@ -1195,6 +1197,18 @@ Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
 - D-779 (the agent, DOC-1d). The one other "six months" found, a comment in `e2e/specs/07-dashboard.spec.ts` (line 367), isn't user-facing; it says 36 months now, so that no file contradicts the landing page. No spec pins the landing page's sentence (`StartPages.test.tsx` and `01-pages` read other text), so no spec changed.
 - D-780 (the agent, DOC-1d). The Definition of done's new bullet is item 5, after D-97's item 4.
 - D-781 (the agent, DOC-1d). The runbook's "Production now" names the rollback one step further back (`28c0cee`, as UX-17's acceptance named it) and the kept tags as IMP-1's 3.2 left them (`3ed8515`'s removed); IMP-1's dumps join the list of dumps named on the server only, the laptop's pull after it not recorded.
+- D-782 (the PM, DOC-2). The emoji 📊 in README.md's H1 only, echoing the icon's three rising bars; the H2 headings stay without emoji so that their anchors (`#try-the-demo`, `#getting-started`, `#status`) keep working.
+- D-783 (the PM, DOC-2). The README's header: a banner image, the centred H1, a one-line tagline and a row of badges; the rest of its text stays, but for the screenshots, the section "Design" and the `docs/` line of the layout.
+- D-784 (the PM, DOC-2). Badges from shields.io in the app's colours, `style=flat-square`; technologies without versions (the Tech stack table keeps them); "Live" in the accent; CI the status of `ci.yml` on `main`, accepted that a red run shows publicly.
+- D-785 (the PM, DOC-2). Two hand-written SVGs in `docs/images/`, a banner and a colour palette, using only token values of `frontend/src/index.css` and `favicon.svg`'s own colours; the two demo screenshots reused from `frontend/src/assets/`, no new ones.
+- D-786 (the PM, DOC-2). A guard in Vitest, `frontend/src/readmeAssets.test.ts`: README.md's relative images exist, the SVGs' colours are tokens or the icon's, the palette's swatches show their token's value.
+- D-787 (the PM, DOC-2). No deploy of its own: production stays at `0c1bfb6`, and the next stage's checklist lists DOC-2 among its commits.
+- D-788 (the agent, DOC-2). The guard reads the tokens itself rather than importing `tokensOf` from `themeGuards.test.ts`: importing a test file runs its tests again in the importing file. Its parser is the same regex over the same blocks.
+- D-789 (the agent, DOC-2). The Playwright badge has no logo: simple-icons has no Playwright icon (`playwright` and `microsoftplaywright` give none), so the badge is the name alone.
+- D-790 (the agent, DOC-2). Each technology badge links to its project's own site; the Live badge reads "live | app.finance-nl.com", the CI badge links to `ci.yml`'s runs on `main`.
+- D-791 (the agent, DOC-2). `readme-palette.svg` was written by a scratch script from `index.css` once and committed as plain SVG (no generator in the repository; the guard catches any drift). Every swatch, not only `bg`, is outlined in its theme's `border`, so that `surface` and `bg` show on their own ground.
+- D-792 (the agent, DOC-2). The banner's dashboard has two cards (paired bars with a segmented control, and a column chart); the icon is `favicon.svg`'s rect and path inside a `scale(6)` group, unchanged.
+- D-793 (the agent, DOC-2). The section "Design" names the default as `theme.ts` has it: with no choice the device decides, Blue on a dark one, Light otherwise.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
@@ -1263,6 +1277,7 @@ Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
 - After UX-16-doc (2026-11-13, decided by the owner and the PM, D-684 to D-694): UX-17 leaves out of the dashboard what has nothing posted: a comparison in each currency (D-685), empty leading rows, charts and daily spending panels (D-686), and an empty comparison month in the hover panel (D-687); the demo covers 36 months whose years differ (D-688 to D-690), its family budget the same months (D-691), and the dashboard opens "Past year" after loading it (D-692); texts and images (D-693); no migration, no API's shape, rollback target `28c0cee` (D-694) (done; D-695 to D-708).
 - After UX-17's deploy (2026-11-14, `388c90a`, Flyway V17, decided by the PM, D-709 to D-714): UX-17-doc records UX-17's deploy (D-710, D-711), corrects D-698 (D-712), and puts a Javadoc of `DemoLedger` and a note on D-678's first item in "Later" (D-712, D-713); documents only, no deploy of its own (D-714) (done; D-715 to D-718).
 - After IMP-1's deploy (2026-11-14, `0c1bfb6`, Flyway V17): DOC-1d records it (D-775) and does DOC-1b's lost part (D-732 to D-737, D-776); documents, comments and the landing page's text, no deploy of its own (D-737) (done; D-777 to D-781).
+- After DOC-1d (2026-11-14, decided by the owner and the PM, D-782 to D-787): DOC-2 gives the README a banner, badges, screenshots, a palette and a section "Design", with a guard; documents, two SVGs and one test, no deploy of its own (D-787) (done; D-788 to D-793).
 
 ## Later
 Found along the way; not part of a stage yet.

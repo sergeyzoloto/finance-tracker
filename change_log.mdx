@@ -3,6 +3,44 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · DOC-2: the README's look
+
+One commit on `main` (and `feature/family-budget`, the same commit before it) on top of `82af365` (DOC-1d), the commit
+of this entry, "docs: the README's banner, badges, screenshots and palette, with a guard, D-782 to D-793 (DOC-2)".
+**Not pushed**; the owner pushes after the PM's review. No deploy of its own (D-787): production stays at `0c1bfb6`.
+
+**Changes**
+- `README.md` (D-782 to D-784): a header of the banner, the centred H1 "📊 Finance Tracker", a tagline of 87
+  characters and ten badges, each a link (Live in the accent, CI of `ci.yml` on `main`, eight technologies without
+  versions; Playwright's without a logo, D-789; D-790); the dashboard's screenshot after the NOTE and the entries'
+  in "Try the demo", from `frontend/src/assets/` by relative path; the section "Design" after "Tech stack" with the
+  palette (D-793); the layout's `docs/` line names `images/`. The H2 headings unchanged.
+- `docs/images/readme-banner.svg` (D-785, D-792, 3.5 KB) and `docs/images/readme-palette.svg` (D-785, D-791, 14 KB):
+  hand-written SVG, only token values of `index.css` and `favicon.svg`'s colours, no script, no external reference.
+- `frontend/src/readmeAssets.test.ts` (D-786, D-788): 8 tests: the README's relative images exist, every colour of
+  `docs/images/*.svg` is a token value or the icon's (and none is written another way), each palette swatch's fill
+  and printed hex are its token's.
+- `docs/README.md`: a row for `images/`. `CLAUDE.md`: `docs/images/` and the guard, one line each.
+- `docs/family-budget/requirements.md`: D-782 to D-787 (the PM), D-788 to D-793 (the agent), the amendment line and
+  the planned stage's line.
+
+**Verified**
+- `cd frontend && npm test`: exit 0, `Test Files 55 passed (55)`, `Tests 769 passed (769)`, no Errors line.
+  `npm run build`: exit 0 (`✓ built`).
+- The guard fails on a banner colour off by one and on a swatch hex changed (3 of 8 tests failed), and passes again
+  with the files put back.
+- Every badge URL answers 200; the seven technology badges with a logo embed one (`<image`), Playwright's has none
+  (simple-icons has no such icon, D-789). CI's badge read "CI: passing".
+- Both SVGs rendered at 1012 px with the e2e folder's Chromium on white and on `#0d1117`, and looked at.
+- The README's in-page links `#try-the-demo`, `#getting-started` and `#status` resolve to their H2 headings.
+- `scripts/check-forbidden-names.sh` on the working tree and `--log 82af365..HEAD` after the commit: see the report.
+
+**Open**
+- For the PM: `frontend/public/favicon.svg`'s colour `#0b5cad` is not a token of the current palette, though its
+  comment says it is the app's accent (the Light accent is `#5B48D6`, the Blue `#A99BFF`). Unchanged here; the guard
+  allows it by reading the favicon.
+- GitHub's rendering of the header (the centred HTML, the badges, the SVG banner) is seen only after the owner pushes.
+
 ## 2026-11-14 · DOC-1d: IMP-1's deploy recorded; DOC-1b's lost part
 
 One commit on `feature/family-budget` on top of `0c1bfb6` (IMP-1), the commit of this entry, "docs: IMP-1's deploy

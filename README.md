@@ -1,4 +1,21 @@
-# Finance Tracker
+<p align="center"><img src="docs/images/readme-banner.svg" alt="Finance Tracker's icon, three rising bars, beside a sketch of its dashboard: income and expense bars, daily spending columns and a period switch" width="100%"></p>
+
+<h1 align="center">📊 Finance Tracker</h1>
+
+<p align="center"><em>Double-entry personal finance in several currencies, with family budgets members share.</em></p>
+
+<p align="center">
+  <a href="https://app.finance-nl.com"><img alt="Live: app.finance-nl.com" src="https://img.shields.io/badge/live-app.finance--nl.com-5B48D6?style=flat-square&labelColor=18212F"></a>
+  <a href="https://github.com/sergeyzoloto/finance-tracker/actions/workflows/ci.yml?query=branch%3Amain"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/sergeyzoloto/finance-tracker/ci.yml?branch=main&style=flat-square&label=CI&labelColor=18212F"></a>
+  <a href="https://openjdk.org"><img alt="Java" src="https://img.shields.io/badge/Java-26344A?style=flat-square&logo=openjdk&logoColor=white"></a>
+  <a href="https://spring.io/projects/spring-boot"><img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-26344A?style=flat-square&logo=springboot&logoColor=white"></a>
+  <a href="https://react.dev"><img alt="React" src="https://img.shields.io/badge/React-26344A?style=flat-square&logo=react&logoColor=white"></a>
+  <a href="https://www.typescriptlang.org"><img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-26344A?style=flat-square&logo=typescript&logoColor=white"></a>
+  <a href="https://www.postgresql.org"><img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-26344A?style=flat-square&logo=postgresql&logoColor=white"></a>
+  <a href="https://www.keycloak.org"><img alt="Keycloak" src="https://img.shields.io/badge/Keycloak-26344A?style=flat-square&logo=keycloak&logoColor=white"></a>
+  <a href="https://www.docker.com"><img alt="Docker" src="https://img.shields.io/badge/Docker-26344A?style=flat-square&logo=docker&logoColor=white"></a>
+  <a href="https://playwright.dev"><img alt="Playwright" src="https://img.shields.io/badge/Playwright-26344A?style=flat-square"></a>
+</p>
 
 A personal finance web app built on a double-entry ledger: accounts, income and expenses by category, loans and
 currency exchange, in several currencies, with a family budget that members share. Spring Boot backend, React
@@ -8,6 +25,9 @@ frontend, PostgreSQL. Sign-in goes through a shared Keycloak server.
 > **Live at <https://app.finance-nl.com>** since 2026-09-28, on a Hetzner host it shares with the auth server.
 > Anyone can create an account and load the demo data (see [Try the demo](#try-the-demo)). It is a one-person
 > project in active development; [Status](#status) says where it stands.
+
+<p align="center"><img src="frontend/src/assets/demo-dashboard.webp" alt="The dashboard on the demo data: the headline figures, income and expenses compared with a year earlier, daily spending and the balances" width="100%"></p>
+<p align="center"><em>The dashboard on the demo data.</em></p>
 
 ## Features
 
@@ -59,6 +79,9 @@ frontend, PostgreSQL. Sign-in goes through a shared Keycloak server.
 3. Look around: the dashboard in each currency or in euros, the entries, the accounts, the family budget. Change
    anything.
 4. **Settings → Delete all my data** empties the ledger again, and the demo can be loaded again.
+
+<p align="center"><img src="frontend/src/assets/demo-entries.webp" alt="The entry list on the demo data: a period filter, the summary of the matching entries and the entries, newest first" width="100%"></p>
+<p align="center"><em>The entries of the demo, with the summary of everything that matches.</em></p>
 
 The demo is invented from scratch in
 [`DemoLedger`](backend/src/main/java/com/example/financetracker/ledger/demo/DemoLedger.java) and
@@ -116,6 +139,15 @@ Key decisions:
 | Tests    | JUnit 5, MockMvc, Testcontainers, ArchUnit, an in-process fake Keycloak; Vitest and Testing Library; Playwright end to end |
 | Runtime  | Docker Compose; GitHub Actions for CI and an external monitor                                                         |
 
+## Design
+
+<p align="center"><img src="docs/images/readme-palette.svg" alt="The colour palette of the three themes, Blue, Light and Dark: background, surface, text, muted, accent, income, expense, success and danger, each with its hex value" width="100%"></p>
+
+A dense, analyst-style interface: figures in tables and plain bars, with no decoration between them. Three themes,
+Blue, Light and Dark, chosen in Settings → Appearance; until one is chosen, the device decides (Blue on a dark one,
+Light otherwise). Text is set in IBM Plex Sans, figures in IBM Plex Mono. The colours are tokens in
+[`frontend/src/index.css`](frontend/src/index.css), and a test checks their contrast.
+
 ## Repository layout
 
 ```text
@@ -137,7 +169,8 @@ frontend/                     React SPA; public/privacy.html is the privacy poli
 e2e/                          Playwright end-to-end suite (e2e/README.md)
 deploy/                       production: compose stack, Caddy site file, backup settings,
                               deploy.sh and rollback.sh with their tests, checks/ per stage, RUNBOOK.md
-docs/                         ADRs, auth, database hosting, the family budget's decisions (docs/README.md)
+docs/                         ADRs, auth, database hosting, the family budget's decisions (docs/README.md);
+                              images/ holds the README's pictures
 scripts/                      check-forbidden-names.sh, rehearsal-db.sh
 .github/workflows/            ci.yml (every push), ci-ubuntu-26.yml (by hand), monitor.yml (production)
 change_log.mdx                every completed task: what changed, how it was verified, what is open

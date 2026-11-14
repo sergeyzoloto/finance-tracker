@@ -866,11 +866,12 @@ imported 50) and the reconciliation **Passed** (3210 points), the family debt co
 his transactions file with D-235's 32 columns (the owner's `Transactions.csv`, the partner's named after him), each in
 his own browser session, each with the same later **Import up to**; the accounts, categories and daily files are no
 input any more (D-228, D-232, D-233). Step 12 is that monthly import. It is a task of its own, never part of a deploy, with both participants present. The procedure (12.0 to
-12.12) is the same every month; the numbers it expects are in [Step 12's figures](#step-12s-figures-october-2026),
+12.12) is the same every month; the numbers it expects are in [Step 12's figures](#step-12s-figures-2026-11-13),
 valid for one export and one date only (D-212). The first run was September 2026: `export-2026-10-21`, **Import up to
 2026-09-30**; the second October 2026, on 2026-11-05: `export-2026-11-05`, **Import up to 2026-10-31** (D-319). The
-next is November 2026, rehearsed first on `9e7aa87`, whose page takes **Import up to** in the account's date format
-(D-304); its figures replace October's.
+third, rehearsed by R-NOV on 2026-11-14 on `388c90a`: `export-2026-11-14`, **Import up to 2026-11-13** for both, mid-month
+(D-750), both files from 2026-10-01, so October is imported again (D-751); the partner's file is the PM's rebuild of his
+export (D-752). The run after it is **Import up to 2026-11-30**, rehearsed first; its figures replace these.
 
 **The order is fixed (D-204, D-258): (1) the owner's import, (2) the partner's import.** Since D4b neither's check
 depends on the other's records (D-255: another member's records move one's family debt and equity together by 0), so the
@@ -932,7 +933,7 @@ first on the laptop, never production, **from production's latest dump** (D-220)
    container), the restore drill B2's over it.
 4. `scripts/rehearsal-db.sh --remove` at the end.
 
-Its figures replace [Step 12's figures](#step-12s-figures-october-2026) before step 12 runs. D3d-doc rehearsed
+Its figures replace [Step 12's figures](#step-12s-figures-2026-11-13) before step 12 runs. D3d-doc rehearsed
 September 2026 from a replay (data/private/reports/D3d-doc.md); D3e from B3, production's dump after step 12, with D3e's
 code ([D3e's rehearsal from B3](#d3es-rehearsal-from-b3-september-again)).
 
@@ -941,11 +942,11 @@ files the rehearsed ones, and how many rows do they hold?
 
 ```bash
 # On the laptop (read only)
-cd ~/dev/finance-tracker/data/private/export-2026-11-05 && python3 -I - <<'EOF'
+cd ~/dev/finance-tracker/data/private/export-2026-11-14 && python3 -I - <<'EOF'
 import csv, glob, hashlib
 expected = [
-    ("the owner's transactions", "Transactions.csv", "be2ae496a01ed9fa0469b955f08e80b8e4316014d6f4d72200d23292f4adce9d", 7092),
-    ("the partner's transactions", "Transactions?*.csv", "20cec9603deb58711b2001a2ad81be42dcc726c3bb364b9e27f0692142ae9fe7", 12882),
+    ("the owner's transactions", "Transactions.csv", "8fe322800bae4e24d4a8fad8b52b8d7914f825085d845786ee4816719240aac0", 75),
+    ("the partner's transactions", "Transactions?*.csv", "f698d76cdbec5c7cca037988d30c065a857dddff8a827d85eabdda503a37624a", 290),
 ]
 bad = 0
 for role, pattern, digest, rows in expected:
@@ -962,12 +963,12 @@ for role, pattern, digest, rows in expected:
         same = same and n == rows
     bad += 0 if same else 1
     print(line)
-print("GATE: export-2026-11-05 as rehearsed" if bad == 0 else f"GATE: STOP, {bad} difference(s): rehearse again (D-212)")
+print("GATE: export-2026-11-14 as rehearsed" if bad == 0 else f"GATE: STOP, {bad} difference(s): rehearse again (D-212)")
 EOF
 ```
 
-You should see two lines, `the owner's transactions: same, rows 7092 (expected 7092)` and `the partner's transactions:
-same, rows 12882 (expected 12882)`, and last `GATE: export-2026-11-05 as rehearsed`. The partner's file is found by role
+You should see two lines, `the owner's transactions: same, rows 75 (expected 75)` and `the partner's transactions:
+same, rows 290 (expected 290)`, and last `GATE: export-2026-11-14 as rehearsed`. The partner's file is found by role
 (its name carries his), never by name. The rows are counted as the import counts them: every line with a value, less
 the header. **STOP** on any `DIFFERENT`, any `STOP` or another row count: these files are not the rehearsed ones, so
 none of the figures below holds. Rehearse with them first (D-212) and replace the figures.
@@ -987,7 +988,7 @@ cat /var/lib/finance-deploy/last-good
 You should see `Now:` outside 03:30 to 04:30 UTC; `Scheduled shutdown: cat: …: No such file or directory` (a scheduled
 reboot: STOP, and start after it has happened); the clone and `last-good` at the
 commit [Production now](#production-now) names, in full, the code the month's figures were rehearsed on (D-220; for
-November, as of UX-17's deploy, `388c90a1a5aaafd80cd58754e22e787cb357d103`), `finish=passed`.
+the run of 2026-11-13, as of UX-17's deploy, `388c90a1a5aaafd80cd58754e22e787cb357d103`, D-753), `finish=passed`.
 
 ```bash
 # On the server (read only)
@@ -1031,13 +1032,13 @@ file of the export of 12.0 **by its whole path**: in the file picker press Ctrl+
 `export-<the date of 12.0>/Transactions.csv` (the picker opens the folder it opened last: on 2026-11-05 the owner's
 first dry run took `export-2026-10-21`'s file, 7068 rows, 34 to create), and read "Your transactions file: N rows, …"
 against the figures before going on. Then the family budget and the partner's place (the page takes no partner's
-file: the place has an account); type the figures' **Import up to** date; click **Check (dry run)** and read the
+file: the place has an account); type the figures' **Import up to** date, 13 November 2026, in the format his field shows (D-304, D-750); click **Check (dry run)** and read the
 report against the figures' **phase 1** block:
 
-- before the check, as soon as the file is chosen, "Your transactions file: 7092 rows, counted as the import counts
+- before the check, as soon as the file is chosen, "Your transactions file: 75 rows, counted as the import counts
   them; highest ID …; last row dated …." (D-221, D-257, since D4b);
 - the report's header, **"Check (dry run): nothing was saved"**, and the line under the totals, "Imported up to …. After
-  it, neither imported nor missing: … of 7092 of yours" (D-206);
+  it, neither imported nor missing: … of 75 of yours" (D-206);
 - the totals: created, updated, unchanged, missing, conflicts, errors, skipped, not imported;
 - the check against the file: its first line, "Passed: N month-end balances compared, from … to …, as movements since
   the day before the file's first row; R rows checked, 0 failing." (D-231, D-255, D-256);
@@ -1074,8 +1075,8 @@ owner tells the partner "go for your import"**.
 **12.6 The partner's dry run**, in his own private window, signed in fresh as the partner (the header shows his name):
 Settings, then Import, from his name's menu (<https://app.finance-nl.com/settings/import> since UX-7, D-438; on code
 before UX-7 `/import`), his transactions file (the page asks for no place and no partner's file: his own
-place), the family budget, the same **Import up to**, **Check (dry run)**. Compare with the figures' **phase 2** block:
-the lines "Your transactions file: 12882 rows …" (D-221, D-257) and "… of 12882 of yours" (D-206), the totals, the
+place), the family budget, the same **Import up to**, 13 November 2026 typed in the format his field shows (D-304), **Check (dry run)**. Compare with the figures' **phase 2** block:
+the lines "Your transactions file: 290 rows …" (D-221, D-257) and "… of 290 of yours" (D-206), the totals, the
 table "Your family rows", and the check **Passed**. **STOP** on any error, conflict or missing row, a count that
 differs, or a check that doesn't pass. Errors "no counterpart: no settlement of … matches it
 (D-178)" mean the owner's import of the month isn't in: STOP and check 12.4 and 12.5.
@@ -1156,11 +1157,112 @@ Restore only once the PM has read the STOP's output and said so; a dry run never
 After a restore, step 12 starts again at the phase after that dump: from B1 at 12.3, from B2 at 12.6 (the owner's go
 stays given), with the same figures; a cause that the rehearsal didn't show means rehearsing again first.
 
+### Step 12's figures: 2026-11-13
+
+**The current figures** (D-756), for step 12's third run, on `388c90a` (UX-17, D-753). Valid only for
+`export-2026-11-14`'s two files (12.0's hashes) and **Import up to 2026-11-13** for both (D-212, D-750), on production as
+**before** below shows it. Rehearsed by R-NOV on 2026-11-14 on the laptop: `finance-2026-11-14T1015Z.dump` (UX-17's
+after-dump, 4812005 bytes, SHA-256 `4592577d4a2b28e61282b2228d4465e20708a058da4a6b95205c4b4c5eb7f373`) restored by
+`scripts/rehearsal-db.sh`, `388c90a`'s api and Vite from a scratch worktree, 12.3 to 12.7 through the import page as
+`testuser` and `testuser2`, the backups the database's own. Every page's text: `data/private/reports/r-nov-*`.
+
+**The files (D-751, D-752).** Both start on 2026-10-01, so October is imported again; D-256 checks each file within its
+own period. The partner's file is **not his workbook's own export but the PM's rebuild of it** (D-752): his export of
+2026-11-14 came with the ID column empty and DEBIT_CHANGE, CREDIT_CHANGE, FAMILY_EXP and FAMILY_INC shown rounded to two
+decimals; the PM restored the IDs by content against `export-2026-11-05` (its 220 rows dated from 2026-10-01 under
+their IDs, byte for byte its lines; the 70 new rows 12883 to 12952 in file order) and set the four columns to what
+`ExcelRow` computes in the 94 rows that showed them rounded. The owner's: 75 rows, "highest ID 7114; last row dated
+2026-11-14" (his 7114 of 14.11 is for the next run). The partner's: 290 rows, "highest ID 12952; last row dated
+Nov 13, 2026" (his page shows dates in his format; the rehearsal's was en-US's). The report's line: the owner "1 row of 75 of yours", the partner "0 rows of 290 of
+yours". **Import up to** as the rehearsal typed it, each in his account's format (D-304): the owner `2026-11-13`
+(YYYY-MM-DD), the partner `11/13/2026` (the browser's, en-US, as his account sets none); in step 12 each types 13 November
+2026 in the format his own field shows.
+
+**Before** (12.1's `verify UX-17`, 24 numbers; October's **after**, unchanged since): `accounts=74`, `categories=92`,
+`counterparties=1413`, `entries=42743`, `family_accounts=2`, `family_import_cutoffs=2`, `family_invites=1`,
+`family_journal=12561`, `family_ledgers=1`, `family_links=36174`, `family_members=2`, `family_members_active=2`,
+`family_members_former=0`, `family_members_left=0`, `family_records=12549`, `family_shares=23830`, `import_batches=10`,
+`imported_entries_deleted=0`, `imported_family_sides=8650`, `outside_their_ledger=0`, `personal_ledgers=4`,
+`personal_members=4`, `settings=4`, `users=4`.
+
+**Participants before:** `family budgets 1`, `OWNER ACTIVE, users with this email 1, personal entries 18927`, `MEMBER
+ACTIVE, users with this email 1, personal entries 23816`.
+
+**B1** (12.2's restore test): users 4, ledgers 5, members 6, accounts 74, categories 92, counterparties 1413, entries
+42743, postings 85857, unbalanced 0, family_records 12549, family_shares 23830, family_links 36174, family_journal 12561,
+family_invites 1 (October's B3).
+
+**Phase 1, the owner's import (12.3, 12.4):**
+
+- Totals: created 16, updated 0, unchanged 57, missing 0, conflicts 0, errors 0, skipped 0, not imported 1. By source
+  and kind, created: his family rows 6 expenses and 6 refunds; his settlements 1 (09.11, 205, the partner pays); his
+  personal rows 3 transfers (2 between his accounts, 1 payment of CREDITOR_DEBT). Unchanged: his 57 October rows
+  imported on 05.11. Not imported: 7097, his October row on the family debt that the partner's family rows carry
+  (D-84), as on 05.11.
+- "Accounts: 0 new, 0 renamed. Categories: 0 new, 0 renamed; family categories: 0 new, 0 of yours merged into them.
+  Payees and people: 0 new."
+- "Gaps in the file's IDs, between its lowest and highest: 7027-7037, 7049-7052, 7066-7068, 7074, 7092-7095." (D-754:
+  rows dated before the period, or IDs never used.)
+- "Your sides of your family records, as your ledger holds them, stored for the first time: 48." (D-337: his first
+  commit on D4c's code or later; the check again has no such line.)
+- The check: "Passed: 8 month-end balances compared, from 2026-10-01 to 2026-11-13, as movements since the day before
+  the file's first row; 74 rows checked, 0 failing." Every account's Explained 0.00; no NO_ROW. Every sync group empty
+  (October's five "changed in the app" and five D-73 rows lie before this file's period).
+- The commit: header "Commit: the import was saved", "Imported: 16 created, 0 updated.", the same totals and check. The
+  check again: created 0, updated 0, unchanged 73, not imported 1, "Payees and people: 0 new", the same check; Commit
+  stays off. Integrity `[]` for both.
+
+**B2** (12.5): users 4, ledgers 5, members 6, accounts 74, categories 92, counterparties 1413, entries 42784, postings
+85939, unbalanced 0, family_records 12562, family_shares 23854, family_links 36212, family_journal 12574, family_invites
+1. (`import_batches=11`, `imported_family_sides=8711`, the participants' entries 18955 and 23829.)
+
+**Phase 2, the partner's import (12.6, 12.7):**
+
+- Totals: created 96, updated 1, unchanged 335, missing 0, conflicts 0, errors 0, skipped 0, not imported 1. By kind,
+  created: his family rows 64 expenses and 8 refunds (70 of November and his October 12884 and 12885); his personal rows
+  22 transfers (12 on CREDITOR_DEBT, 10 others) and 2 incomes (12883, his deposit's interest in RUB, and November's
+  cashback); updated: his settlements 1 (his side on the owner's 09.11 settlement). Unchanged: his October rows, with
+  his 143 payment sides. Not imported: 1 benefit row (D-179). "Payees and people: 2 new" (Wibra and Etos, ING punten,
+  in his rows of 2026-11-11). No account or category created or renamed, none merged.
+- "Gaps in the file's IDs, between its lowest and highest: 12759-12762." (D-754: four rows dated 2020 to 2024 among
+  October's IDs, outside the period.)
+- "Your family rows": family records as imported before 143, changed 0, new 72; your payment side attached 72; your
+  side as imported before 143; settlements matched: same date and amount 1, every other way 0; conversions matched 0 of
+  0; your rows without a counterpart 0; the other member's settlements without your side 0; benefit rows checked 1.
+- **"Benefit months: 68 compared with your shares of the incomes the others received, 67 differ."** (D-757.) The 67 are
+  the months 2021-03 to 2026-09 in EUR, each a warning "benefit rows of … in EUR: 0.00, your shares …: <his share>": the
+  file starts on 2026-10-01 (D-751), so it holds no benefit row of those months, while the comparison runs from his join
+  date (D-758, in "Later"). The 68th, 2026-10 EUR, doesn't differ (225.50 against 225.50). Step 12 compares the count,
+  the range and that line; no other warning but the ID gaps'.
+- The check: "Passed: 18 month-end balances compared, from Oct 1, 2026 to Nov 13, 2026, as movements since the day before
+  the file's first row; 290 rows checked, 0 failing." Every account's Explained 0.00; no NO_ROW. Every sync group empty.
+- The settlements pair one to one on date and amount, both sides, 7 pairs: 01.10 28, 08.10 205, 11.10 10, 17.10 20,
+  20.10 300 (the owner pays), 29.10 28, 09.11 205.
+- The commit: "Imported: 96 created, 1 updated.", the same totals and check. The check again: created 0, updated 0,
+  unchanged 504, not imported 1, family records as imported before 215, new 0, "Payees and people: 0 new", the same
+  benefit line and check; Commit stays off. Integrity `[]` for both.
+
+**B3** (12.9): users 4, ledgers 5, members 6, accounts 74, categories 92, counterparties 1415, entries 43024, postings
+86419, unbalanced 0, family_records 12634, family_shares 23998, family_links 36428, family_journal 12646, family_invites
+1.
+
+**After** (12.10's `verify UX-17`): as **before** but `counterparties=1415`, `entries=43024`, `family_journal=12646`,
+`family_links=36428`, `family_records=12634`, `family_shares=23998`, `import_batches=12`, `imported_family_sides=8784`;
+`categories=92` and `users=4` unchanged. **Participants after:** `family budgets 1`, `OWNER ACTIVE, users with this email
+1, personal entries 19027`, `MEMBER ACTIVE, users with this email 1, personal entries 23997`.
+
+**NO_ROW from 2026-10-01 to 2026-11-13 (D-755):** none in either ledger. Every personal entry of either participant
+dated in the period has its `xls:` reference or a family record's link, and every live family record dated in it its
+reference (276: 266 expenses and refunds, 3 incomes, 7 settlements).
+
+**The restore drill** (rehearsal only): after phase 2, B2 restored over the database: every number equal to B2's; the
+owner's dry run as his check again after 12.4 and the partner's as 12.6, each page's text to the letter; integrity `[]`
+for both.
+
 ### Step 12's figures: October 2026
 
 **Used on 2026-11-05** by step 12's second run on `b899e3a` ("Deployed revisions" has what it showed); they stay as
-its history. The next month's figures are rehearsed from production's dump with the code then deployed (D-220,
-`9e7aa87`) and replace these.
+its history, replaced as the current figures by [2026-11-13's](#step-12s-figures-2026-11-13) (D-756).
 
 **For step 12's second run**, on `b899e3a` (OPS-3, whose import is D4b's; D-320). Valid only for `export-2026-11-05`'s
 two files (12.0's hashes) and **Import up to 2026-10-31** (D-212, D-319), on production as **before** below shows it.

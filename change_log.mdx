@@ -3,6 +3,40 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · R-NOV: step 12 rehearsed for 2026-11-13 (October again, November to the 13th)
+
+One commit on `feature/family-budget` on top of `718546a` (DOC-1c), the commit of this entry, "docs: step 12 rehearsed
+for 2026-11-13, its figures, D-750 to D-763 (R-NOV)". **Not pushed**; `main` not moved. Documents only. No code, no
+deploy (production stays at `388c90a`). Production and the server not touched; `e2e:prod` not run.
+
+**Changes**
+- `deploy/RUNBOOK.md`: the new "Step 12's figures: 2026-11-13", the current figures (D-756): the files (D-751, the
+  partner's rebuilt by the PM, D-752), the Import up to spellings typed, before and the participants before, B1, phase 1,
+  B2, phase 2 with "Your family rows" and the benefit line (D-757), B3, after and the participants after, NO_ROW, the
+  restore drill. October's figures marked as history. Step 12's intro: the third run, `export-2026-11-14`, Import up to
+  2026-11-13, the next run Import up to 2026-11-30, rehearsed first. 12.0's gate: `export-2026-11-14`, both hashes, 75
+  and 290 rows. 12.1: already `388c90a` and `verify UX-17`; "for November" now "for the run of 2026-11-13". 12.3 and
+  12.6: the row counts, and each types 13 November 2026 in the format his field shows (D-304).
+- `docs/family-budget/requirements.md`: D-750 to D-758 (the PM), D-759 to D-763 (the agent), and two items in "Later":
+  the partner's workbook (D-752) and the benefit check's period (D-758).
+
+**Verified**
+- The files by SHA-256 and row count against the task; the owner's renamed `Transactions.csv` (D-759). The owner's 58
+  October rows and the partner's 220 rows with an old ID are byte for byte `export-2026-11-05`'s lines (D-752).
+- The rehearsal on `finance-2026-11-14T1015Z.dump` (SHA-256 `4592577d…`) with `388c90a`'s api and Vite from a scratch
+  worktree, through the import page (D-760): both dry runs, commits and checks again as the figures say, both checks
+  Passed, every sync group empty, integrity `[]` for both after each commit; the 24 numbers and participants before and
+  after; NO_ROW none (D-762); the restore drill's pages equal to the letter. Page texts in `data/private/reports/r-nov-*`.
+- D-757 confirmed from the page: 67 warnings, 2021-03 to 2026-09 in EUR, each with rows 0.00; the 68th month, 2026-10
+  EUR, 225.50 against 225.50, from the dry run's JSON.
+- `scripts/rehearsal-db.sh --remove` and the worktree removed.
+- No test suite run: no code changed. `change_log.mdx` compiled with `@mdx-js/mdx`; `scripts/check-forbidden-names.sh`
+  run.
+
+**Open**
+- Step 12 itself (production), with these figures.
+- D-758's fix of the benefit check, and the partner's workbook (D-752), both in "Later".
+
 ## 2026-11-14 · DOC-1c: a race in the dashboard's daily spending test
 
 One commit on `feature/family-budget` on top of `22866b7` (DOC-1b), the commit of this entry, "test: the daily

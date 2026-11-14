@@ -3,7 +3,8 @@
 **Status:** Accepted, 2026-09-26. The schema change is `V4__exchange_rate_sources.sql`. Amended in F8b
 (2026-10-06) by D-49, D-90 and D-91 of [the family budget's requirements](../family-budget/requirements.md): an age
 limit for the ECB's rates, the precedence among applicable rates, the "stale" mark, and rounding to the minor unit
-("Conversion since F8b" below). No schema change.
+("Conversion since F8b" below). No schema change. Amended in F8c (the user's today, below) and in DOC-1 (2026-11-14): two more
+reports take `currency=BASE` (UX-1, UX-13), with no new rate rule.
 
 ## Context
 
@@ -139,3 +140,19 @@ the one today of the api when the image's zone was UTC.
   or updates `time_zone` (its upsert of the settings names its own four columns), the new check on the column holds
   for null, and V12's one other change loosens a check. So `rollback.sh` needs no new condition for V12, and a
   rollback to `bfb8cc6` keeps users' zones in the database, unused: the old image's today is UTC's.
+
+## Amendment, DOC-1: two more reports in the base currency (D-298, D-309, D-570, D-575)
+
+"Balances, net worth and cash flow take `currency=BASE`" is now five reports, each with the same `params` pattern
+(a second handler on the same path, its own response shape) and the rules above, unchanged:
+
+- **Counterparty balances** (UX-1, D-298, D-309): one row per account and counterparty, its currencies converted at
+  the rate on `asOf` and added up with `ConvertedSum` (null with `missingRates`, the `rates` used), with `amounts`, the
+  balance in each currency as the report per currency has it.
+- **Daily cash flow** (UX-13, D-570, D-575): `GET /api/reports/daily-cash-flow`, the cash flow's rows by day; in the
+  base currency each day's category converted at each posting's own day's rate and rounded once, as the monthly cash
+  flow does; no exchange results.
+
+The cash flow's scopes (UX-1, D-302; UX-6, D-421) apply in both shapes; in the base currency a scope other than `ALL`
+has no exchange results (`ReportService`). Later dashboard stages show
+these figures (UX-5's comparisons, UX-14's Rates card naming net worth's `rates`) without changing how a rate is chosen.

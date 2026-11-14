@@ -2,7 +2,11 @@
 
 **Status:** Accepted, 2026-09-25. Implemented: the schema is in `V2__double_entry_ledger.sql` to
 `V4__exchange_rate_sources.sql`, applied in production since D3 (2026-09-28), and the code uses it.
-V1's single-entry tables remain, unused apart from `users`.
+V1's single-entry tables remain, unused apart from `users`. Amended in DOC-1 (2026-11-14): rule 11's
+ownership is by ledger since V5 (ADR 0003), the import's open points are settled (ADR 0005), shares
+split by D-12's rule, an account is archived only at zero (D-366), and accounts that require a
+counterparty also carry family payments and settlement sides (D-80, D-148); see the amendments at the
+end. The thirteen rules above them stay as decided.
 
 ## Context
 
@@ -240,3 +244,50 @@ category, and income and expenses closed into equity.
   - A report per category is the same query either way.
   - Refunds work the same way under both models.
   - A trial balance comes from the invariant in rule 2 regardless.
+
+## Amendment, DOC-1: ownership by ledger (V5, ADR 0003)
+
+Rule 11 keyed every owned row by the Keycloak `sub` (`user_id`). Since F2a and F2b (V5, 2026-09-29) access is decided by
+ledger, not by user: every ledger row also has `ledger_id`, every query is scoped by a `LedgerScope`, and `LedgerAccess`
+makes one only from an ACTIVE membership (D-2, [ADR 0003](0003-family-budget-membership-and-cross-ledger-posting.md),
+topics A to C). A user's personal ledger has exactly one member, the user (D-4), so for personal data the rule reads as
+before; a family budget's rows have no `user_id` and are reached by its members. "Another user's object returns 404"
+became "an object of a ledger you aren't an active member of returns 404". `user_id` stays on the personal rows,
+checked against `ledger_id` by V5's trigger. The indexes named under "Reports" are those of V2; reads now filter by
+`ledger_id` (a remaining sequential scan on `posting` is in the requirements' "Later").
+
+## Amendment, DOC-1: the import's open points settled (D3b to D4c, ADR 0005)
+
+"What the import still has to settle" was settled by the importer of D3b to D4c, recorded in
+[ADR 0005](0005-excel-import-and-export.md). In short: accounts and categories come from the transactions file's own
+code, name and type columns, so no separate mapping is needed (D-228, D-229); a row whose amounts are all 0, an FX
+gain with Sum 0 among them, is skipped and listed in the report (`EntryMapper`); a loan row without a borrower gets a
+placeholder counterparty with a warning; an exchange is the row's `CUR_DEBIT`, `SUM_DEBIT`, `CUR_CREDIT` and `SUM_CREDIT` through `FX_EXCHANGE` (rule 9);
+opening balances are ordinary rows of the file (D-233); family rows become family records split by D-12, their halves'
+difference from Excel's explained in the reconciliation (D-68, D-76); and shared income exists as family incomes
+(D-12, F4d). The table "How a workbook row maps onto the model" describes the first importer; the date format is
+`dd.MM.yyyy` (D-240), not `DD/MM/YYYY`.
+
+## Amendment, DOC-1: splitting into shares (D-12)
+
+Rule 3's rounding applies to single amounts, such as conversions. Splitting an amount into shares (a family record,
+D-12) uses a sum-preserving rule instead: each share cut down to the currency's minor unit, the remainder to the
+largest share, on a tie to the payer, then by join order (`ledger.family.ShareSplit`). Rule 7's `SHARED_EXPENSE`
+stays for entries made before family budgets; with family budgets switched on, a new expense is shared through a
+family budget instead (H4, ADR 0003 topic J).
+
+## Amendment, DOC-1: archiving only at zero (D-366, UX-3)
+
+Rule 12 still holds. In addition, since UX-3 an account is archived only at zero: archiving answers 409 while any
+currency's balance over all its postings, whatever their date, doesn't round to 0 at that currency's minor unit, the
+message naming what remains (D-366, D-376). Accounts archived before stay archived, and entries may still post to an
+archived account. Displays leave out what rounds to 0 at its minor unit in the same way: open loans (D-349, D-358) and
+archived accounts in the balances (D-355).
+
+## Amendment, DOC-1: accounts that require a counterparty in family postings (D-80, D-148)
+
+Rule 8 holds for every posting. Its accounts (`LOANS_ASSET`, `CREDITOR_DEBT`) may also carry the payer's own payment
+of a family expense (D-80, D-109; V13) and, since D3b, a member's own side of a settlement (D-148; the importer writes
+them, the settlement forms don't offer them yet, D-162), each with the counterparty on that account's line. A
+conversion of the family debt between currencies is two settlements through the member's `FX_EXCHANGE` (D-71, rule 9).
+[ADR 0004](0004-multi-currency-family-ledger.md) has the posting rules.

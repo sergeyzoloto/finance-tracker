@@ -89,25 +89,61 @@ These must be in place before launch, not after:
 5. Stop Keycloak and the backend, copy each schema with `pg_dump`/`pg_restore`, switch the
    connection settings, and start them again.
 
-## State on 2026-09-23
+## Current state (DOC-1, 2026-11-14)
 
-- A Supabase project exists in `eu-west-1`.
-  - Schema `keycloak`: from the auth server's production rehearsal.
-  - Schema `app`: empty; Flyway v1 was applied on 2026-09-23.
-  - The local dev `.env` points at this project. Its `postgres` password was shown in a working
-    session on 2026-09-23; change it before this project, or its password, is used for anything
-    real.
-- Nothing implements this decision yet. The auth server's `PRODUCTION.md` and
-  `docker-compose.prod.yml`, and this repository's README and `docker-compose.yml`, still describe
-  Supabase.
+The decision above stands: every stack has its own PostgreSQL on the host, and the move to Supabase is deferred,
+with no date (D-720 of [the requirements](family-budget/requirements.md)).
 
-## State on 2026-09-27
+**finance-tracker in production** ([deploy/app/docker-compose.yml](../deploy/app/docker-compose.yml),
+[deploy/RUNBOOK.md](../deploy/RUNBOOK.md)):
 
-- finance-tracker's side is ready to deploy ([deploy/RUNBOOK.md](../deploy/RUNBOOK.md)):
-  `postgres:17.11` in `deploy/app/docker-compose.yml`, the container `finance-tracker-postgres` on
-  the stack's own network only, database `finance` owned by the login `finance`, which is no
-  superuser, and schema `app`. The auth server's `pg-backup` dumps it every night, with
-  `deploy/pg-backup/finance.conf`: kept 14 days in `/var/backups/pg/finance/` and pulled to the
-  owner's laptop; `pg-restore-test finance` tests a restore.
-- The auth server's production stack in `/opt/auth` runs its own PostgreSQL, `postgres:16.15`
-  (its `deploy/docker-compose.yml`), backed up the same way since its stage 3.
+- `postgres:17.11`, pinned by digest, as the container `finance-tracker-postgres`, `mem_limit: 384m`, on the stack's
+  own network only: neither published on the host nor on the shared network `edge`.
+- The database `finance`, owned by the login `finance`, which is no superuser
+  ([postgres-init.sh](../deploy/app/postgres-init.sh)); Flyway creates the schema `app` in it (V1 to V17).
+  `postgres` is the container's superuser, for maintenance only.
+- The read-only role `finance_checks` (F6b): no password, no superuser, a member of `pg_read_all_data`, with
+  `default_transaction_read_only = on`. The deploy scripts read every check as this role
+  ([RUNBOOK: A read-only role for the deploy checks](../deploy/RUNBOOK.md#a-read-only-role-for-the-deploy-checks)).
+
+**Backups:**
+
+- **Nightly dump.** The auth server's `pg-backup` writes a `pg_dump` every night at 02:30 UTC (plus up to 10 minutes)
+  into `/var/backups/pg/finance/`, checks it, and keeps 14 days, never fewer than the newest 3
+  ([deploy/pg-backup/finance.conf](../deploy/pg-backup/finance.conf); the scripts are in the auth server repository,
+  `deploy/backup/`). `pg-restore-test finance` restores a dump into a throwaway container of the same image and
+  compares it with production: the number of tables and every `CHECK_*` query of `finance.conf`. The owner's laptop pulls `/var/backups/pg/` once a day, read only
+  ([RUNBOOK: Backups](../deploy/RUNBOOK.md#9-backups)).
+- **Around each deploy.** `deploy/deploy.sh run` takes a fresh dump and tests its restore before it changes anything,
+  and again afterwards; it keeps a copy of the dump from before in the run's folder
+  ([RUNBOOK: Deploying with deploy.sh](../deploy/RUNBOOK.md#deploying-with-deploysh)).
+- **Hetzner's backups of the server** (since OPS-3, D-275): daily copies of the whole disk, the last 7 kept. They are
+  not database backups: taken from a running system, a database in them is at best as after a power cut
+  ([RUNBOOK](../deploy/RUNBOOK.md#hetzners-backups-of-the-server)). Restores come from the dumps
+  ([RUNBOOK: Restore from a backup](../deploy/RUNBOOK.md#restore-from-a-backup)).
+
+**Rehearsals from production's data.** [scripts/rehearsal-db.sh](../scripts/rehearsal-db.sh) (D3e, D-214, D-225)
+restores a production dump into a throwaway database on tmpfs on the laptop (production's pinned image,
+`127.0.0.1:5434`) and maps the two participants' users onto the dev users, so that a monthly import can be tried
+locally first; `--remove` removes it.
+
+**Local runs and tests.** The root `docker-compose.yml` runs `postgres:17-alpine` with the named volume `local-db`,
+published on `127.0.0.1:5433` only by the local overlay; it never reaches a remote database. The backend's tests start
+`postgres:17-alpine` through Testcontainers.
+
+**The auth server** runs its own PostgreSQL, `postgres:16.15` pinned by digest (its `deploy/docker-compose.yml`, read
+on 2026-11-14), backed up by the same `pg-backup` since its stage 3. It is one major version below this stack's and
+below "Same major version as Supabase" above; that matters only for the deferred move.
+
+**Supabase.** The project in `eu-west-1` from before the launch is an unused leftover: nothing in this repository
+connects to it, and no configuration holds a connection to it, the local `.env` included. Its schemas were `keycloak`
+(the auth server's production rehearsal) and `app` (Flyway V1 only, 2026-09-23). Whether it still exists, and whether
+its `postgres` password shown in a working session on 2026-09-23 was changed, is not verified.
+
+## History
+
+- 2026-09-23: the decision above; a Supabase project existed in `eu-west-1`, and the local `.env` pointed at it.
+- 2026-09-27: this stack's production database ready to deploy, with `pg-backup` and its restore test.
+- 2026-09-28: production live on its own PostgreSQL (D3; [change_log.mdx](../change_log.mdx)).
+- 2026-10-02: the read-only role `finance_checks` (F6b).
+- 2026-10-27: Hetzner's server backups and the external monitor (OPS-3).

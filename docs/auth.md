@@ -12,11 +12,19 @@ login page of the shared Keycloak server (the auth server repository), realm `my
   itself: the signature against the realm's cached keys, `iss`, `exp` and `nbf` (60 s clock skew),
   and `aud`. It then checks that the token holds this client's `user` role. A browser request uses
   the access token from its session; a service or `curl` sends `Authorization: Bearer <token>`.
-- **Who is who:** a user is a Keycloak user, and every row of a ledger is keyed by that user's
-  `sub` claim. The backend takes the user only from the validated token, never from a parameter,
-  header or body, and another user's objects answer 404 as if they didn't exist
-  (`DataIsolationApiTests`). Anyone can sign up in production, so this is what keeps the ledgers
-  apart.
+- **Who is who:** a user is a Keycloak user, identified by the token's `sub` claim. The backend
+  takes the user only from the validated token, never from a parameter, header or body
+  (`CurrentUserResolver`). What a user reaches is decided by ledger, not by user: every ledger row
+  has a `ledger_id`, every query of one is scoped by a `LedgerScope`, and only `LedgerAccess` makes
+  a scope, from an ACTIVE `ledger_member` row. A user reaches their own personal ledger and the
+  family budgets they are an active member of; a member who left or was removed reaches nothing of
+  that budget. The only read of a family budget by someone who isn't a member is an invite's lookup
+  (`LedgerInvites`), for the holder of a valid token. Everything else answers 404, as if it didn't
+  exist ([ADR 0003](adr/0003-family-budget-membership-and-cross-ledger-posting.md), topics A to C).
+  Anyone can sign up in production, so this is what keeps the ledgers apart. `DataIsolationApiTests`
+  checks it for every endpoint, with two users and with the members of different family budgets;
+  `LedgerAccessTests` checks `LedgerAccess` itself, and `ArchitectureTests` that every query takes a
+  `LedgerScope`.
 
 ## Issuer per environment
 
@@ -57,7 +65,7 @@ would reject the tokens it gets through its own login.
 
 | Role | Kind | What it allows |
 | --- | --- | --- |
-| `user` | client role of `finance-tracker` | Using Finance Tracker: your own ledger, its accounts, entries and reports. Required for every `/api` endpoint. |
+| `user` | client role of `finance-tracker` | Using Finance Tracker: your own ledger and the family budgets you belong to. Required for every `/api` endpoint. |
 | `admin` | client role of `finance-tracker`, in the dev realm only | Nothing: the app has no admin features. Not provisioned in production. |
 | `user` | realm role, held by every user of the dev realm | Nothing here. Not mapped (see below). |
 | any role of another client | e.g. `shop-api`'s `admin` in the dev realm | Nothing here. |
@@ -67,11 +75,16 @@ would reject the tokens it gets through its own login.
 new or existing, gets it, whether they register with an email address or sign in with Google or
 GitHub, and nobody assigns it by hand. Anyone can register on the login page (with email
 verification), reset a forgotten password by email, or sign in with Google or GitHub. Each user
-sees only their own ledger. The auth server's `PRODUCTION.md` shows how to stop giving the role to
-everyone and assign it per user instead.
+reaches only their own ledger and their family budgets. The auth server's `PRODUCTION.md` shows how
+to stop giving the role to everyone and assign it per user instead.
 
-**Development:** the dev realm has no registration and no identity providers. `testuser` holds the
-role, assigned directly (*Users → user → Role mapping → Assign role → Filter by clients*).
+Production also has two accounts made only for the end-to-end suite, `e2e-a` and `e2e-b`, which
+the owner's `npm run e2e:prod` signs in as ([e2e/README.md](../e2e/README.md)).
+
+**Development:** the dev realm has no registration and no identity providers. `testuser` comes with
+the auth server's `realm-export.json` and holds the role, assigned directly (*Users → user → Role
+mapping → Assign role → Filter by clients*). The end-to-end suite's second user, `testuser2`, isn't
+in the export: it is made by hand in the dev realm, with the same role.
 
 Without the role, which in production happens only if the default role changes:
 
@@ -81,9 +94,9 @@ Without the role, which in production happens only if the default role changes:
   `aud`. It gets **401**. Example: `shop-api`'s client credentials.
 - No `users` row is created. Rows (`app.users`) are keyed on the token's `sub`, the stable
   Keycloak user ID, and created on a member's first request for data (any `/api` endpoint but
-  `/api/me`), together with their settings and starter accounts and categories. Email and name
-  are stored for display only. Passwords and roles are never stored. A token without a `sub` gets
-  **401**, since all of a user's data is keyed by it.
+  `/api/me`), together with their settings, their personal ledger and its starter accounts and
+  categories. Email and name are stored for display only. Passwords and roles are never stored. A
+  token without a `sub` gets **401**, since all of a user's data is keyed by it.
 
 ## One person, several users
 
@@ -143,9 +156,30 @@ different ways can end up as different users, each with a ledger of its own:
    end-session endpoint with `id_token_hint` and `post_logout_redirect_uri`, which ends the
    Keycloak session too. The browser comes back to `/`, the landing page.
 
-Sessions live in the backend's memory and end after 30 minutes idle, or on a backend restart.
+Sessions live in the backend's memory and end after 30 minutes idle (Spring Boot's default), or on
+a backend restart.
 After a restart, the next request goes through the login again. If the Keycloak session is still
 alive (30 min idle, 10 h max), that is a quick redirect with no password prompt.
+
+## Keycloak's pages in the app's look
+
+Since UX-15 (D-613 to D-636 of [the requirements](family-budget/requirements.md)) Keycloak's
+sign-in pages, its account console and its emails have the app's design and themes. The theme
+`finance-tracker` lives in the auth server repository (`deploy/themes/finance-tracker`; its
+`PRODUCTION.md`, section "Theme"), not here.
+
+- **The realm** is still `myapps`; its displayed name is "Finance Tracker" (`displayName`, in the dev
+  realm's `realm-export.json`; in production set by UX-15's checklist, D-641 records the run).
+- **The theme cookie.** The app keeps the chosen theme (Blue, Light or Dark) in the browser and, for
+  Keycloak's pages, also writes the cookie `ft_theme` (`frontend/src/theme.ts`, D-614, D-617):
+  `Path=/`, a year, `SameSite=Lax`, `Secure` on https. Its `Domain` is the parent of the app's host
+  when the host has at least three labels (`app.finance-nl.com` gives `finance-nl.com`, which
+  `auth.finance-nl.com` reads), else none, a host-only cookie (`localhost`, which Keycloak on
+  `localhost:8080` reads too). Without a choice there is no cookie, and the device decides.
+- **The account console.** `/api/me` answers `accountUrl`,
+  `<issuer>/account?referrer=finance-tracker` (D-619), and the user menu's **Account** links there,
+  in the same tab; the console's "Back to Finance Tracker" returns to the client's base URL.
+  `security/AccountUrlTests` and `ledger/api/MeAccountUrlApiTests` test the address.
 
 ## When Keycloak is down
 
@@ -183,6 +217,10 @@ Production also needs:
 
 ## Running against the dev stack
 
+`./dev.sh` does steps 1 and 2 with Vite's hot reload (then open `http://localhost:5173`), and
+`./stop.sh` stops both stacks; it expects the auth server in `../auth_server` (`AUTH_SERVER_DIR`).
+By hand:
+
 1. Start the auth server: `docker compose up -d` in the auth server repository.
    - Its realm must contain the `finance-tracker` client. If your dev database predates the client,
      add it without wiping data, from the auth server repo:
@@ -215,8 +253,12 @@ The password grant is enabled for this client in dev only:
 TOKEN=$(curl -s -X POST http://localhost:8080/realms/myapps/protocol/openid-connect/token \
   -d grant_type=password -d client_id=finance-tracker -d client_secret=finance-tracker-secret \
   -d username=testuser -d password=test1234 | jq -r .access_token)
-curl -i -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/me          # 200 {"name":"Test User"}
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/me          # 200, see below
 ```
+
+`/api/me` answers the name, `email`, `timeZone` (null until set), `today` in that zone, `dateFormat`
+(null until set), `features.familyLedgers` (the family budget's switch) and `accountUrl`
+(`MeController`).
 
 A token from another client without this client's roles is rejected:
 
@@ -241,6 +283,10 @@ once, and a reuse is refused with Keycloak's message and detaches the client ses
   refused token is still the session's.
 - `KeycloakOutageTests`: start and recovery while Keycloak is down.
 - `security/RoleMappingTests`: the role mapping.
+- `security/AccountUrlTests` and `ledger/api/MeAccountUrlApiTests`: `/api/me`'s `accountUrl`.
+- `ApiTests`: 401 on every endpoint without a token.
+- `ledger/api/DataIsolationApiTests`, `ledger/access/LedgerAccessTests` and `ArchitectureTests`:
+  who reaches which ledger (see [Who is who](#authentication) above).
 
 ## Deviations from the auth server's reference integration
 
@@ -259,7 +305,7 @@ once, and a reuse is refused with Keycloak's message and detaches the client ses
   `security-admin-console` keep it on, so a token that they issue for a user also carries
   `finance-tracker` in `aud` and the `user` role, and this API accepts it. `admin-cli` is public
   with the password grant on, so a user can get such a token for themselves with their password and
-  call the API directly. It opens only their own ledger, as a normal sign-in would. The demo clients
+  call the API directly. It opens only what a normal sign-in of theirs opens. The demo clients
   such as `shop-api` no longer exist in production; the dev realm still has them, with full scope
   on, as in the dev examples above.
 - **Sign-out elsewhere is noticed within 5 minutes, not immediately.** An SSO logout in another

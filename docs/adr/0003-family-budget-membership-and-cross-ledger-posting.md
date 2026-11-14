@@ -36,7 +36,12 @@ says. F6c is deployed since 2026-10-02, from `8ede02e`, with the switch off; it 
 a redeploy (the runbook's "Deployed revisions"), and the owner confirmed it as built. D-40 and F7's plan are at the end
 of topic J. The requirements and decisions D-1 to D-40 are in
 [docs/family-budget/requirements.md](../family-budget/requirements.md);
-what the code does today is in [docs/family-budget/current-state.md](../family-budget/current-state.md).
+what the code did at F1 is in [docs/family-budget/current-state.md](../family-budget/current-state.md), a frozen
+snapshot. F7 switched family budgets on in production on 2026-10-03, after F7b (topic J, D-41). F8 (multi-currency
+records, D-45 to D-133) is [ADR 0004](0004-multi-currency-family-ledger.md). Amended in DOC-1 (2026-11-14), at the end
+of this ADR: the claim and each member's own import (D3c, V15), payees a member chooses to show (UX-9, V17), the family
+scopes of the personal reports (UX-1, UX-6), the budgets in the header (UX-7, UX-10), and topic K's isolation tests as
+built.
 
 ## Context
 
@@ -1934,3 +1939,55 @@ tables (A), invariants in the service alone (B), row level security and per-quer
 (C), family journal entries with member accounts, and the hybrid (D), synchronised or linked category
 copies (F), a public endpoint that keeps the token in the HTTP session (G), audit triggers and an event
 store (H), and a header or a session for the current ledger (I).
+
+## Amendment, DOC-1: the claim and each member's own import (D3c; D-174 to D-191, V15)
+
+D3c (deployed 2026-10-24, `2cfeec0`, with the claim the same day) let the partner take over his seat, whose rows the
+owner had imported, and import his own file from then on. What it changes here (decisions in
+[the requirements](../family-budget/requirements.md); the import itself is [ADR 0005](0005-excel-import-and-export.md)):
+
+- **The claim's join date** stays F5's (topic G): the owner picks it on the members page, today by default, any date
+  from the start date (D-183, "F5's way stays"); production's claim used a past date, the first day of the partner's
+  own records (D-174). A claim posts the opening balance before that date and the seat's records from it (D-31), and
+  stays one request in one transaction, all or nothing (D-182).
+- **The seat's imported records become the claimer's** (D-176): records an import wrote from the seat's own file
+  (`xls:<seat member id>:<ID>`, D-142) get the claimer as author; records from the owner's file that the seat paid stay
+  the owner's, the claimer having only their payment side (D-14).
+- **Each member imports only their own file** once the seat is claimed (D-175), and their import attaches their side to
+  the records of their rows, kept in their own ledger (`imported_family_side`, V15, D-181).
+- **Nothing another member's ledger posts is deleted.** "Delete all my data" and leaving never delete or change a family
+  record another active member's ledger posts (D-186); the code already did so, so nothing refuses anew. Erasing a
+  member's own comments (D-20) isn't such a change (D-195).
+
+## Amendment, DOC-1: payees a member chooses to show (UX-9; D-479 to D-485, V17)
+
+Topic E and [ADR 0004](0004-multi-currency-family-ledger.md)'s "The payer's payee" keep the payee on the payer's own
+payment entry, private. Since UX-9 each ACTIVE member with an account may let the other members of one budget see the
+payees of their own family payments, off by default, their own choice only, an owner's included (D-479, D-480). V17
+adds `ledger_member.shows_payees`, true only for a SHARED ledger's ACTIVE member with an account; a trigger turns it off
+when the row stops being one (leaving, removal, `release_family_memberships`), whichever code writes it (D-483, D-485).
+Only the payee's name on an expense's, a refund's or an income's payment entry is shown, read when asked, never
+copied, and never a settlement's, an account, a counterparty, a note or a paying amount (D-481). `PATCH
+/api/family-ledgers/{id}/me` sets the reader's own switch; no request names another membership's (D-483).
+`DataIsolationApiTests.aPayeeIsShownOnlyByItsPayersChoice` and `FamilyPayeeApiTests` test it.
+
+## Amendment, DOC-1: family scopes in the personal reports (UX-1, UX-6; D-299, D-302, D-421)
+
+Topic I's personal reports gained the family budget as a filter, read from the member's own postings: the cash flow
+(and since UX-13 the daily cash flow, D-570) takes `scope` `PERSONAL`, `FAMILY`, `FAMILY_MINE` or `FAMILY_OTHERS` and
+optionally `familyLedgerId`, classifying an entry by its SHARE link and that record's payer, so the parts add up to
+`ALL` (D-302, D-421). A budget that isn't an ACTIVE membership's answers 404, and a family scope with the switch off
+400. The balances name each debt account's family budget for ACTIVE memberships only (D-299). No figure of another
+member's ledger is read.
+
+## Amendment, DOC-1: the budgets in the header (UX-7, UX-10; D-433, D-498)
+
+Topic I's ledger switcher is gone: since UX-10 the header's second row lists Dashboard, Entries, Accounts,
+Categories and Rates, then each family budget by name and "New family budget" (D-498, superseding UX-7's menu, D-433).
+What a budget's page and the personal pages show is unchanged.
+
+## Amendment, DOC-1: topic K as built
+
+Topic K's `FamilyIsolationApiTests` was built as tests inside `DataIsolationApiTests` (from
+`familyLedgersAreReachedByTheirActiveMembersOnly` on, one per stage that added a family endpoint), whose last test,
+`everyEndpointIsCheckedHere`, fails for any mapped endpoint none of its requests reached.

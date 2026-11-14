@@ -4,7 +4,9 @@ Status: accepted for F8a (2026-10-06). Implements D-45, D-46, D-87, D-12 per cur
 [the requirements](../family-budget/requirements.md); D-47 and D-49 (displayed totals and rates) are F8b's. Amended in
 F8b (2026-10-06) for D-88 (who sees the paying side) and D-89 (the paying currency chosen per payment). Supersedes
 D-13 and the parts of [ADR 0003](0003-family-budget-membership-and-cross-ledger-posting.md) (topic D, "The base
-currency"; topic E, "F4e as built: other currencies") that keep shares, balances and debt in one base currency.
+currency"; topic E, "F4e as built: other currencies") that keep shares, balances and debt in one base currency. Amended in DOC-1 (2026-11-14), at the end: settlement sides on accounts that require a counterparty and on
+`FX_EXCHANGE` alone (D3b, D-148, D-71, V14's rollback condition), a member's imported side (D3c, V15), and payees a
+member chooses to show (UX-9).
 
 ## Context
 
@@ -272,3 +274,33 @@ them.
 - Display totals across currencies need rates, which F8b brings with D-49's rules, and never feed back into postings.
 - A rollback below V11 is safe until the first record in another currency than its ledger's main currency exists, and
   refused afterwards, with the reason.
+
+## Amendment, DOC-1: settlement sides on counterparty accounts and on FX_EXCHANGE (D3b; D-71, D-148, D-162)
+
+F8d let only the payer's own payment of an expense use an account that requires a counterparty; a settlement's side
+still refused one (D-109). Since D3b (2026-10-12):
+
+- **A member's own side of a settlement** may be on such an account (`LOANS_ASSET`, `CREDITOR_DEBT`), with the
+  counterparty on that side's account line, required exactly then (D-148; `paymentCounterpartyId` on POST
+  `/settlements` and on a side's PATCH). An income's receipt still refuses such an account.
+- **A conversion of the family debt** between currencies is two settlements, one per currency, each side posted
+  through the member's `FX_EXCHANGE` alone (D-71): each settlement stays in one currency (D-46).
+- Only the import writes such sides so far; the settlement forms don't offer them (D-162, in the requirements' "Later").
+- **Rollback.** The code before V14 refuses to post either kind of side, so `deploy/rollback.sh` refuses to go below
+  V14 while one exists (case `rollback_below_v14` of `deploy/tests/run.sh`); the way back is a restore.
+
+## Amendment, DOC-1: a member's imported side (D3c; D-178, D-181, V15)
+
+"The import's sync fields" above recognise a record. Since D3c a member's own side of a record (his payment, receipt or
+settlement side: account, paying currency and amount, counterparty, payee, note) has its own content hash, stored in
+his personal ledger in `imported_family_side` (V15, D-181), so that an edit of his row in Excel and a change of his side
+in the app are told apart; since D4c the owner's own side is compared the same way (D-337). A member's settlement rows
+never create settlements: each is matched to an existing one and gives it his side (D-178).
+[ADR 0005](0005-excel-import-and-export.md) has the rest.
+
+## Amendment, DOC-1: payees a member shows (UX-9, D-479 to D-485)
+
+"The payer's payee" above: no family answer names the payee, unless the payer has chosen to show their payees to the
+budget's other members (V17, `ledger_member.shows_payees`); then the others read the payee's name on that member's
+payment entries, and nothing else of them. [ADR 0003](0003-family-budget-membership-and-cross-ledger-posting.md)'s
+amendment "Payees a member chooses to show" has the rules.

@@ -3,6 +3,66 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · DOC-1: the documentation brought up to date
+
+One commit on `feature/family-budget` on top of `c877ba3` (UX-17-doc), the commit of this entry, "docs: the
+documentation brought up to date, README, auth, database hosting, ADR amendments, ADR 0005, docs index, D-719 to D-731
+(DOC-1)". **Not pushed**; `main` not moved. Documents only: no code, configuration, migration, test, workflow or deploy
+change, and no deploy (D-725): production stays at `388c90a`. Production and the server not touched.
+
+**Changes**
+- `README.md` (D-719, D-728): live since 2026-09-28 in place of "not deployed" and Supabase; the features as they are
+  (dashboard, entries, family budget, import and export, rates, settings and themes, sign-in in the app's look,
+  isolation by ledger); the production and local architecture; key decisions of today (`NUMERIC(19,4)`, `ledger_id`
+  scoping, the database's triggers) in place of V1's; the tech stack against `pom.xml`, `package.json`, the
+  Dockerfiles and compose files; the layout with `e2e/`, `scripts/`, `docs/`, the workflows and `deploy/`'s scripts
+  and checks; `./dev.sh` first; the API as a map of paths with `GET /api/openapi`; production's deploys, backups,
+  monitoring and logs by link to the runbook; a short status with "Later" as the open work.
+- `docs/auth.md`: who reaches what by `ledger_id`, `LedgerScope` and an ACTIVE membership, invites' lookup as the only
+  read by a non-member, and the tests that cover it; a section on Keycloak's pages in the app's look (UX-15: the
+  theme in the auth server's repository, the realm `myapps` shown as "Finance Tracker", the `ft_theme` cookie and its
+  `Domain` rule, `accountUrl` and the Account link); `/api/me`'s fields; `./dev.sh` and `./stop.sh`; `testuser2`;
+  production's `e2e-a` and `e2e-b`; the auth tests as they exist.
+- `docs/database-hosting.md` (D-720): the dated decision and its context kept; "Current state (DOC-1, 2026-11-14)"
+  (production's pinned `postgres:17.11`, 384m, the database, its owner and `finance_checks`; the nightly dump, its
+  retention, restore test and the laptop's pull; `deploy.sh`'s dumps; Hetzner's server backups, which are not
+  database backups; `scripts/rehearsal-db.sh`; local runs and tests on `postgres:17-alpine`; the auth server's
+  `postgres:16.15`; Supabase an unused leftover) and a short "History", replacing the states of 2026-09-23 and
+  2026-09-27.
+- ADRs (D-721), each a Status line and dated sections at the end, the decision text unchanged: 0001 (ownership by
+  ledger, the import's open points settled, D-12's split, archiving at zero, counterparty accounts in family
+  postings); 0002 (counterparty balances and the daily cash flow in the base currency, D-726); 0003 (the claim and
+  each member's import, payees a member shows, family scopes, the header's budgets, topic K as built); 0004 (settlement
+  sides on counterparty accounts and on `FX_EXCHANGE`, a member's imported side, payees shown).
+- New `docs/adr/0005-excel-import-and-export.md` (D-722, 159 lines): the import and export as built in D3b to D4c,
+  with the rejected alternatives the log records.
+- New `docs/README.md` (D-723): each document's role and whether it is current, amended or a snapshot, and
+  `requirements.md` as the project's decision log; one line pointing at it in CLAUDE.md's project map (D-724).
+- `requirements.md`: the "Amended in DOC-1" line; D-719 to D-725 (the PM) and D-726 to D-731 (the agent's: ADR 0002,
+  two references of the task, README's tables, what isn't verified, findings in code, contradictions in CLAUDE.md).
+
+**Verified**
+- Every new or kept statement against the code, migrations, tests, compose files, workflows, the runbook or git
+  history; the auth server's facts read from `../auth_server`, read only, unchanged. What couldn't be is marked "not
+  verified" or left out (D-729).
+- Every relative link and anchor in the files touched resolves (a one-off script in the scratchpad, not committed;
+  shown to catch a bad anchor and a missing file first).
+- `scripts/check-forbidden-names.sh` on the tree: exit 1, 2 hits each in the tree and the index, both in
+  `frontend/src/importFilter.test.ts` (lines 96 and 98), which DOC-1 doesn't touch; `--rev HEAD` gives the same 2 on
+  `c877ba3`, and `--rev fd2515e` (D4b) exits 1 too. No hit in any file DOC-1 changed or adds.
+- `cd frontend && npx vitest run src/privacy.test.ts` (the only test that reads a document; its file untouched): exit
+  0, Test Files 1 passed (1), Tests 6 passed (6).
+- `change_log.mdx` compiled with `@mdx-js/mdx`: no error.
+- Not run: the backend, frontend and end-to-end suites (documents only).
+
+**Open**
+- The PM's review; then the owner fast-forwards `main` and pushes.
+- The forbidden-names hits in `frontend/src/importFilter.test.ts`, found at `c877ba3` and at D4b's `fd2515e`: the owner
+  to look at them (a 4-character entry of the names file matching inside a file name in the test's strings).
+- D-730's findings in code (the landing page's "six months", comments saying the switch is off until F7) and D-731's
+  contradictions in CLAUDE.md, for the owner to decide whether they go to "Later".
+- The size of CLAUDE.md, the runbook and this change log (D-724).
+
 ## 2026-11-14 · UX-17-doc: UX-17's deploy recorded, D-698 corrected
 
 One commit on `feature/family-budget` on top of `388c90a` (UX-17), the commit of this entry, "docs: UX-17's deploy

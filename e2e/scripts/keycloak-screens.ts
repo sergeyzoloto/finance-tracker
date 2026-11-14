@@ -368,6 +368,8 @@ try {
     const another = page.getByRole('link', { name: /try another way/i })
     if (await another.count() > 0) {
       await another.click()
+      // The click posts a form: wait for the list itself, not for the old page's idle network (UX-19).
+      await page.locator('.select-auth-box-parent, .pf-v5-c-data-list__item').first().waitFor()
       await page.waitForLoadState('networkidle')
       await snap(context, page, '19a-first-sign-in-choose-a-way')
       const reauth = page.locator('.select-auth-box-parent, [data-testid="select-auth"] a, .pf-v5-c-data-list__item').filter({ hasText: /password|re-?authenticat|sign in/i }).first()

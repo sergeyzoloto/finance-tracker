@@ -3,6 +3,56 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · UX-19: four small fixes before December's step 12
+
+One commit on `feature/family-budget` on top of `95cf827` (UX-18-doc), the commit of this entry, "fix: the theme in
+the privacy policy, Node 24 for frontend/, UX-19's deploy checklist, D-818 to D-827 (UX-19)", and one in auth_server,
+`8b19e36` ("UX-19: the emails without the plain link and with a footer naming the service, …", its own change log
+entry). **Neither pushed**; `main` not moved. A deploy of its own: auth's theme first, then finance's web image, from
+`6296e69`, by `deploy/RUNBOOK.md`'s "UX-19's deploy checklist with the suite"; the api's content stays the running one.
+
+**Changes**
+- auth_server (D-639 items 1 to 3, D-819, D-822, D-823): the emails' button without the plain link under it and the
+  footer "Finance Tracker · app.finance-nl.com"; `login.css` renamed `login-2.css`, which maps PatternFly's scoped
+  `--dark-*` and `--light-*` text, link and primary colours to the tokens, so "Select login method"'s descriptions are
+  `--muted` (they were PatternFly's `#6A6E73` in every theme).
+- `frontend/public/privacy.html` and `docs/family-budget/privacy-draft.md` (D-821, D-824): the sentence on the theme
+  kept in the browser's local storage, never sent to the server, with the theme cookie holding a copy for the login
+  pages; "Last updated: 14 November 2026". `frontend/src/privacy.test.ts` compares the page with the draft and checks
+  the date.
+- `frontend/.nvmrc` (`24`) and `engines.node` `>=24 <25` in `frontend/package.json` and its lock's root, without
+  `engine-strict` (D-820, D-826). `CLAUDE.md`'s "Testing" says how the laptop's nvm reads it.
+- `e2e/scripts/keycloak-screens.ts` (D-827): after "Try Another Way" it waits for the list, not for an idle network.
+- `deploy/RUNBOOK.md`: "UX-19's deploy checklist with the suite" (auth A0 to A6, then finance 0 to 9, the finance
+  rollback to `6296e69`, the auth rollback from A4's sync backup); "Not covered": Docker's own packages are not in
+  unattended-upgrades, checked monthly by hand on the day of step 12, after it (D-825, D-812's row unchanged).
+  `deploy/checks/UX-19.sql` and `UX-19.expected`: UX-18's 12 lines.
+- `docs/family-budget/requirements.md`: D-818 to D-821 (the PM), D-822 to D-827 (the agent), D-626 amended, D-639's
+  items 1, 2, 3 and 5 and D-672's done in "Later", three new items there, the amendment and planned stage lines.
+
+**Verified**
+- `frontend/` from a clean copy of the whole tree in `node:24.22.2` (node v24.22.2, npm 11.19.1, D-669, D-673):
+  `npm ci` exit 0; `npm test` exit 0, Test Files 56 passed (56), Tests 774 passed (774), no Errors line; `npm run
+  build` exit 0. The lock with `engines` written by hand equals what `npm install --package-lock-only` writes there.
+- `.github/scripts/check-web-image.sh frontend finance-tracker-web:ux19-check` from that copy: exit 0, every check
+  passed (Node v24.21.0 in `node:24-alpine`, no engine warning); the tag removed.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local`: exit 0, 2 pages tests and 38 others passed, cleanup passed, 0 password
+  hits, `Result: PASSED`. Then alone `npm run test:guards`: exit 0, pass 39, fail 0.
+- The Keycloak theme on the dev stack: the description's computed colour `--muted` in each theme after; `npm run
+  screens:keycloak` before and after (156 screenshots each, `data/private/ui/UX-19/`) differ on "Select login method"
+  only, apart from random OTP secrets; the emails in Mailpit (reset password, verify email, identity provider link,
+  execute actions, update email) without the plain link, with the link in the plain text and the new footer.
+- `deploy/checks/UX-19.sql` on `finance-2026-11-14T1645Z.dump` (`scripts/rehearsal-db.sh`, removed afterwards):
+  output equals `UX-19.expected`; no backslash in it.
+- `scripts/check-forbidden-names.sh` on the working tree: exit 0. `change_log.mdx` of both repositories compiles with
+  `@mdx-js/mdx` 3.1.1. `CI`'s workflows set `node-version: '24'` (`ci.yml`, `ci-ubuntu-26.yml`).
+- `backend/` untouched: no file under it changed, so no backend test was run.
+
+**Open**
+- The deploy (auth then finance), by the checklist; the emails and `/privacy` checked by hand in its step 5.
+- In "Later": the browser's other local storage in the policy, the emails not seen (SMTP test, organisation invite),
+  the unmapped PatternFly colours; D-639's item 4 stays there.
+
 ## 2026-11-14 · UX-18-doc: UX-18's deploy recorded
 
 One commit on `feature/family-budget` on top of `6296e69` (UX-18), the commit of this entry, "docs: UX-18's deploy

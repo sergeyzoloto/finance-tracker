@@ -346,7 +346,7 @@ docker stop finance-tracker-import-db   # --rm deletes it with its data
 - for `frontend/`, in the web image's build: `.github/scripts/check-web-image.sh frontend <tag>` from the copy (alpine, `node:24-alpine` as CI pulls it), under a tag of your own, removed afterwards;
 - for `e2e/` likewise, when its files change.
 
-A lock is made with CI's npm (in that container), not the laptop's (its default Node v22.19.0's npm 11.6.2 drops entries CI's npm requires, D-672). The report names each run, its `node -v` and `npm -v`, and its exit status. Tests and builds on an installed `node_modules` don't count for this.
+A lock is made with CI's npm (in that container), not the laptop's (its default Node v22.19.0's npm 11.6.2 drops entries CI's npm requires, D-672). Since UX-19 `frontend/.nvmrc` names `24` and `package.json`'s `engines` `>=24 <25`, without `engine-strict` (D-820); the laptop's nvm reads `.nvmrc` only on `nvm use` (no hook on `cd`), and `nvm alias default 24` makes 24 every new shell's Node (D-826). The report names each run, its `node -v` and `npm -v`, and its exit status. Tests and builds on an installed `node_modules` don't count for this.
 
 ## How to run tests
 

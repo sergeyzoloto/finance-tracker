@@ -152,3 +152,11 @@ data" deletes it with the rest.
 > processing the names of members without an account, which other members enter; how long the records
 > of a former member are kept; and whether the change journal counts as personal data of the members it
 > names.
+
+## The theme in the browser's storage
+
+> Outside the section "Family budgets": a sentence of the policy's "Cookies", after its session storage sentence
+> (UX-19, D-821). `frontend/src/privacy.test.ts` compares it with the page word for word.
+
+The theme you choose in Settings (Blue, Light or Dark) is kept in your browser’s local storage on this device, which is
+never sent to the server; the theme cookie above holds a copy for the login pages.

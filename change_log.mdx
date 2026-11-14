@@ -3,6 +3,36 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · DOC-1b: the Supabase project recorded as deleted
+
+One commit on `feature/family-budget` on top of `0442d46` (DOC-1), the commit of this entry, "docs: the Supabase project
+recorded as deleted, D-738 (DOC-1b)". **Not pushed**; `main` not moved. Documents only, no deploy: production stays at
+`388c90a`. Production and the server not touched.
+
+**Changes**
+- `docs/database-hosting.md` (D-738): "Current state" says the `eu-west-1` project is deleted, confirmed by the owner on
+  2026-11-14, its date not recorded, in place of DOC-1's "not verified"; D-720's deferred move stays and would start
+  from a new project; a line in "History". The dated decision and its context are unchanged.
+- CLAUDE.md: the project map's Supabase line says the project is deleted, not that it exists unused.
+- `requirements.md`: the "Amended in DOC-1b" line and D-738 (the PM).
+
+**Verified**
+- `git grep -i supabase` over the tracked documents, configuration and scripts: every other mention is the dated
+  decision and its context in `docs/database-hosting.md`, ADR 0001's original rationale (kept by D-721), the decision
+  log and this change log (history), and a comment in `backend/src/main/resources/application.yml` (code, unchanged).
+  README.md has none.
+- Every relative link and anchor in the files touched resolves (DOC-1's one-off script).
+- `scripts/check-forbidden-names.sh` on the tree: exit 1, the same 2 hits in `frontend/src/importFilter.test.ts` as at
+  DOC-1 (lines 96 and 98, untouched); no hit in any file DOC-1b changed.
+- `change_log.mdx` compiled with `@mdx-js/mdx`: no error.
+- Not run: any test suite (documents only).
+
+**Open**
+- The PM's review; then the owner fast-forwards `main` and pushes.
+- A comment in `application.yml` ("Own schema: Supabase publishes …") still gives
+  Supabase as the reason for the schema `app`; for the next stage with code, the owner to decide.
+- DOC-1's open items stand (the forbidden-names hits, D-730, D-731, D-724).
+
 ## 2026-11-14 · DOC-1: the documentation brought up to date
 
 One commit on `feature/family-budget` on top of `c877ba3` (UX-17-doc), the commit of this entry, "docs: the

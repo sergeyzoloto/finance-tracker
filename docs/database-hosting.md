@@ -135,10 +135,11 @@ published on `127.0.0.1:5433` only by the local overlay; it never reaches a remo
 on 2026-11-14), backed up by the same `pg-backup` since its stage 3. It is one major version below this stack's and
 below "Same major version as Supabase" above; that matters only for the deferred move.
 
-**Supabase.** The project in `eu-west-1` from before the launch is an unused leftover: nothing in this repository
-connects to it, and no configuration holds a connection to it, the local `.env` included. Its schemas were `keycloak`
-(the auth server's production rehearsal) and `app` (Flyway V1 only, 2026-09-23). Whether it still exists, and whether
-its `postgres` password shown in a working session on 2026-09-23 was changed, is not verified.
+**Supabase.** The project in `eu-west-1` from before the launch is deleted; the owner confirmed it on 2026-11-14,
+and the date of the deletion isn't recorded (D-738). Its schemas were `keycloak` (the auth server's production
+rehearsal) and `app` (Flyway V1 only, 2026-09-23). Nothing in this repository connects to Supabase, and no
+configuration holds a connection to it, the local `.env` included. The decision above still stands; a move would start
+from a new project, as "Moving to Supabase later" says.
 
 ## History
 
@@ -147,3 +148,4 @@ its `postgres` password shown in a working session on 2026-09-23 was changed, is
 - 2026-09-28: production live on its own PostgreSQL (D3; [change_log.mdx](../change_log.mdx)).
 - 2026-10-02: the read-only role `finance_checks` (F6b).
 - 2026-10-27: Hetzner's server backups and the external monitor (OPS-3).
+- Date not recorded: the `eu-west-1` Supabase project deleted (confirmed by the owner on 2026-11-14, D-738).

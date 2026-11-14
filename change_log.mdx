@@ -3,6 +3,36 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · UX-18-doc: UX-18's deploy recorded
+
+One commit on `feature/family-budget` on top of `6296e69` (UX-18), the commit of this entry, "docs: UX-18's deploy
+recorded, D-811 to D-817 (UX-18-doc)". **Not pushed**; `main` not moved. Documents only, no deploy of its own:
+production stays at `6296e69`.
+
+UX-18: `scripts/check-forbidden-names.sh --log 288c84f..HEAD` after the amend exited 0 (no hit).
+
+**Changes**
+- `deploy/RUNBOOK.md` (D-811, D-812, D-814 to D-817): "Deployed revisions" gets UX-18's row from the owner's output
+  and a host row (Docker 29.9.3, containerd 2.4.2, the containers restarted at 17:57:26Z, not a deploy); "Production
+  now" names `6296e69`, its images, the host's versions, the next step 12's code and `verify UX-18`, the rollback
+  state `0c1bfb6` then `388c90a` then `28c0cee`, and UX-18's dumps; step 12's 12.1 and 12.10 run `verify UX-18`, and
+  12.11 checks out `6296e69`.
+- `CLAUDE.md`: the deployment paragraph names UX-18 as what production runs, the rollback state, step 12's
+  `verify UX-18`, and UX-18-doc without a deploy.
+- `docs/family-budget/requirements.md`: D-811 to D-814 (the PM), D-815 to D-817 (the agent), the amendment line and
+  the planned stage's line.
+
+**Verified**
+- Every figure, hash, time and name in UX-18's row and in "Production now" was compared with the owner's output.
+- `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1.
+- `scripts/check-forbidden-names.sh` on the working tree and `--log 6296e69..HEAD` after the commit: see the report.
+- No code changed, so no test suite was run.
+
+**Open**
+- Not recorded (D-814, D-815): the state block after `rollback.sh`'s refusal (not run), the build's lines, which
+  containers 3.4 recreated and the web container's start, the laptop's pull after the deploy, and whether the reboot
+  of 2026-11-15T04:00:00Z happened.
+
 ## 2026-11-14 · UX-18: the Entries summary shows family spending in full
 
 One commit on `feature/family-budget` on top of `288c84f` (DOC-2), the commit of this entry, "feat: the Entries summary shows family spending in

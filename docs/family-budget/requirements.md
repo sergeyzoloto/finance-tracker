@@ -144,6 +144,8 @@ Amended in DOC-2 on 2026-11-14: new D-782 to D-787 (the PM): the README's look, 
 
 Amended in UX-18 on 2026-11-14: new D-794 and D-795 (the PM, DOC-2's push and its change log line), D-796 (the owner) and D-797 to D-801 (the PM): the Entries summary shows family records in full; new D-802 to D-807 (the agent); new D-808 to D-810 (the PM, before the push): no real-data figure in the repository.
 
+Amended in UX-18-doc on 2026-11-14: new D-811 to D-814 (the PM): UX-18's deploy recorded, the host's Docker update, D-810's line, the acceptance's state block after the refusal not run; new D-815 to D-817 (the agent).
+
 Amended in IMP-1 on 2026-11-14: new D-767 to D-769 (the PM): the benefit check takes the file's period, its deploy checklist, D-758 done in "Later"; new D-770 to D-773, the agent's.
 
 Amended in UX-9 on 2026-11-11: new D-475 (the PM), UX-8's deploy not recorded here; new D-476 to D-483 (decided by the owner and the PM, as UX-9's task states them), a family payment's category in Entries and its Category filter, and the payees a member chooses to show in a family budget, with V17 and `PATCH /api/family-ledgers/{id}/me`; D-81 amended by D-479 to D-482; new D-484 to D-493, the agent's choices and findings of UX-9, which the PM may correct; UX-9 in "Planned stages".
@@ -1228,6 +1230,13 @@ Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
 - D-808 (the PM, UX-18). `change_log.mdx`, UX-18's entry, "Verified": the "Real data" bullet becomes, word for word: "Real data: checked on IMP-1's after-dump restored locally; the figures matched the PM's expectation and are in the report only (UX-18's prompt)." The bullet on `deploy/checks/UX-18.sql` keeps the dump's name, as earlier entries do.
 - D-809 (the PM, UX-18). `UX18.test.ts`: the amounts taken from the owner's data become neutral ones (spent 120.00, others' shares 45.00, out 75.00; D-797's invariant still holding). The tests check the same things.
 - D-810 (the PM, UX-18). As D-795 did for DOC-2: the entry's line on the `--log` check stays "see the report", and the next stage's entry records UX-18's result.
+- D-811 (the PM, UX-18-doc). UX-18-doc records UX-18's deploy in `deploy/RUNBOOK.md`'s "Deployed revisions" and "Production now", CLAUDE.md's deployment paragraph and step 12 (12.1 and 12.10 `verify UX-18`, 12.11 checks out `6296e69`), from the owner's output. No deploy of its own: production stays at `6296e69`.
+- D-812 (the PM, UX-18-doc). "Deployed revisions" gets a host line for 2026-11-14 (not a deploy): the PM's apt upgrade after IMP-1's finish took Docker 29.8.2 to 29.9.3 and containerd 2.3.6 to 2.4.2; api and web restarted on the same images at 17:57:26Z; the reboot stayed scheduled for 2026-11-15T04:00:00Z. The next checklist's pre-flight expects 29.9.3.
+- D-813 (the PM, UX-18-doc, D-810's line). The entry carries: "UX-18: `scripts/check-forbidden-names.sh --log 288c84f..HEAD` after the amend exited 0 (no hit)."
+- D-814 (the PM, UX-18-doc). UX-18's step 8: the state block before the rollback was run and matched; the same block after `rollback.sh`'s refusal was not run. Accepted: the refusal came at "5. Confirmation", before any action. Recorded as not run.
+- D-815 (the agent, UX-18-doc). What the owner's output doesn't say is "not recorded" in UX-18's row: the build's lines, which containers 3.4 recreated and the web container's start (the output names the new images, healthy, and the api's start only), the laptop's pull after the deploy, and whether the reboot of 2026-11-15T04:00:00Z happened.
+- D-816 (the agent, UX-18-doc). The host line is a row of its own, "Not a deploy: the host (D-812)" in the commit column, below UX-18's row and above IMP-1's, by time; "Production now" names the host's Docker and containerd versions.
+- D-817 (the agent, UX-18-doc). "Production now"'s rollback state goes `0c1bfb6`, then `388c90a`, then `28c0cee`, each with no condition of its own; of the kept tags it states only what UX-18's 3.2 printed (`:0c1bfb6…` and `:previous` kept, `:56c51bb…` removed), the others as earlier rows left them.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
@@ -1298,6 +1307,7 @@ Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
 - After IMP-1's deploy (2026-11-14, `0c1bfb6`, Flyway V17): DOC-1d records it (D-775) and does DOC-1b's lost part (D-732 to D-737, D-776); documents, comments and the landing page's text, no deploy of its own (D-737) (done; D-777 to D-781).
 - After DOC-1d (2026-11-14, decided by the owner and the PM, D-782 to D-787): DOC-2 gives the README a banner, badges, screenshots, a palette and a section "Design", with a guard; documents, two SVGs and one test, no deploy of its own (D-787) (done; D-788 to D-793).
 - After DOC-2 (2026-11-14, decided by the owner and the PM, D-794 to D-801): UX-18 shows family records in full in the Entries summary: Spent and Received the records' full amounts, Others' shares what falls on the other members, Out, In and Net unchanged, the paying side of a counted record out of Transfers (D-796 to D-800); backend and frontend, no migration, a deploy from `0c1bfb6` that also takes DOC-1d's landing page text (D-801) (done; D-802 to D-810).
+- After UX-18's deploy (2026-11-14, `6296e69`, Flyway V17, decided by the PM, D-811 to D-814): UX-18-doc records UX-18's deploy (D-811), the host's Docker update (D-812), D-810's line (D-813) and the acceptance's unrun state block (D-814); documents only, no deploy of its own (done; D-815 to D-817).
 
 ## Later
 Found along the way; not part of a stage yet.

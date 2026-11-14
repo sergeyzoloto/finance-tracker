@@ -992,15 +992,16 @@ a reboot 2 hours away or less, one whose time has passed, one that 12.12 wouldn'
 without `USEC`: start after the reboot has happened; the clone and `last-good` at the
 commit [Production now](#production-now) names, in full, the code the month's figures were rehearsed on (D-220; for
 the run of 2026-11-13, as of UX-17's deploy, `388c90a1a5aaafd80cd58754e22e787cb357d103`, D-753; since IMP-1's deploy
-`0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0`, D-775), `finish=passed`.
+`0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0`, D-775; since UX-18's deploy `6296e69ff9c66c824fc15764fedc403fd1c1e2a6`,
+D-811), `finish=passed`.
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify IMP-1
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-18
 ```
 
-You should see `verify IMP-1 at …: OK` and the 24 numbers of the figures' **before** list (since IMP-1's deploy
-`verify IMP-1`, D-775, UX-17's before it, whose expected file holds no count, as UX-16's to UX-1's and D4c's before it; `D3c.expected` names Flyway V15, D-326, D-333). **STOP** on any other number:
+You should see `verify UX-18 at …: OK` and the 24 numbers of the figures' **before** list (since UX-18's deploy
+`verify UX-18`, D-811, IMP-1's before it, D-775, UX-17's before it, whose expected file holds no count, as UX-16's to UX-1's and D4c's before it; `D3c.expected` names Flyway V15, D-326, D-333). **STOP** on any other number:
 either participant has written in the app since the rehearsed state, and the rehearsal's figures no longer hold (rehearse
 again from production's current state).
 
@@ -1106,7 +1107,7 @@ cd /opt/finance-tracker && systemctl start pg-backup@finance.service && pg-resto
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify IMP-1
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-18
 ```
 
 ```bash
@@ -1114,21 +1115,22 @@ cd /opt/finance-tracker && deploy/deploy.sh verify IMP-1
 cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT line FROM (SELECT 0 AS n, '' AS r, 'family budgets ' || count(*) AS line FROM app.ledger WHERE type = 'SHARED' UNION ALL SELECT 1, m.role, m.role || ' ' || m.status || ', users with this email ' || (SELECT count(*) FROM app.users o WHERE lower(o.email) = lower(u.email)) || ', personal entries ' || (SELECT count(*) FROM app.journal_entry e JOIN app.ledger_member p ON p.ledger_id = e.ledger_id AND p.ledger_type = 'PERSONAL' WHERE p.user_sub = m.user_sub) FROM app.ledger_member m LEFT JOIN app.users u ON u.keycloak_id = m.user_sub WHERE m.ledger_type = 'SHARED' AND m.user_sub IS NOT NULL) AS lines ORDER BY n, r DESC" </dev/null
 ```
 
-You should see `verify IMP-1 at …: OK` with the figures' **after** numbers, and the **participants after** lines. **STOP**
+You should see `verify UX-18 at …: OK` with the figures' **after** numbers, and the **participants after** lines. **STOP**
 on any other number.
 
 **12.11 The end-to-end suite's checkout**, on the laptop: a clean detached checkout of `last-good`'s commit (D-765),
 never `main`, which may be ahead of it by documents-only commits (on 2026-11-14 by two). The block names the commit of
-the run's figures, the one 12.1's `last-good` names (for the run of 2026-11-13, `388c90a`; since IMP-1's deploy `0c1bfb6`, D-775); the rehearsal of each run
+the run's figures, the one 12.1's `last-good` names (for the run of 2026-11-13, `388c90a`; since IMP-1's deploy `0c1bfb6`, D-775; since UX-18's
+deploy `6296e69`, D-811); the rehearsal of each run
 puts its own here with its figures.
 
 ```bash
 # On the laptop
-cd ~/dev/finance-tracker && test -z "$(git status --porcelain)" && git --no-pager branch --show-current && git checkout --detach 0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0 && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+cd ~/dev/finance-tracker && test -z "$(git status --porcelain)" && git --no-pager branch --show-current && git checkout --detach 6296e69ff9c66c824fc15764fedc403fd1c1e2a6 && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
 ```
 
 You should see the branch you were on (note it: 12.12's last block goes back to it), then git's note that you are in
-"detached HEAD" state, and last `0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0` with IMP-1's subject, the commit 12.1's
+"detached HEAD" state, and last `6296e69ff9c66c824fc15764fedc403fd1c1e2a6` with UX-18's subject, the commit 12.1's
 `last-good` named, in full. Nothing after a line: the tree is dirty, STOP. Another commit: STOP.
 
 **12.12 The end-to-end suite against production** (D-51), on the laptop, alone in its block, last. Read its banner (the
@@ -1552,6 +1554,8 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-11-14 | `6296e69ff9c66c824fc15764fedc403fd1c1e2a6` (feat: the Entries summary shows family spending in full, D-794 to D-810 (UX-18)), M; both images new | UX-18 (D-794 to D-810: the Entries summary shows family records in full, Spent, Received and Others' shares, the paying side of a counted record out of Transfers; with DOC-1d's `82af365` (the landing page's text) and DOC-2's `288c84f`), no migration (Flyway V17), the switch on, by "UX-18's deploy checklist with the suite", recorded by D-811 from the operator's pasted output. Step 1: `288c84f..6296e69` pushed to `main` and `feature/family-budget` at once; CI #150 (`feature/family-budget`) and #151 (`main`), push, attempt 1, success with their five jobs; 10 check runs, success; no Monitor run. The pre-flight at 20:28:23Z: a reboot scheduled for 2026-11-15T04:00:00Z (`USEC=1794715200000000 MODE=reboot`), a reboot required; Docker server 29.9.3, Compose v5.7.1, the containerd image store; the clone at `0c1bfb6`, clean, `previous file` `388c90a`; `last-good` IMP-1's; the history ending with IMP-1's two `good 0c1bfb6…` lines; both containers on IMP-1's row's images, started 2026-11-14T17:57:26Z (the host update below); `web:latest` `sha256:13ad8038ceab5da25c1270fedd37fd5f8f3febadea264e2ae98b2db49fd4612e`, the running web's content (D-711); the api's start `Schema "app" is up to date` 17:57:44Z, started 17:57:57Z, D-25 on. `verify IMP-1` OK at 20:48:23Z with the 24 numbers of "Production now". `deploy/deploy.sh run 6296e69ff9c66c824fc15764fedc403fd1c1e2a6 UX-18`, run folder `/var/lib/finance-deploy/runs/2026-11-14T204853Z-6296e69`, over `0c1bfb6`: 1.1 the reboot 7h 11m away, going on (D-131); commits `82af365`, `288c84f` and `6296e69`, `Migrations added: none`, under `deploy/` `RUNBOOK.md`, `checks/UX-18.expected` and `checks/UX-18.sql`; CI 10 check runs, success. Before-dump `finance-2026-11-14T2048Z.dump` (20:48:58Z, 4859717 bytes, SHA-256 `217ecaa80d7ac67f4833bd2dac8248e814f74f1cedb922f4b278ae659c50f631`), restore test PASS, preserved in the run folder. 3.2: `0c1bfb6`'s images kept as `:0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0` and `:previous`; `:56c51bb8b0da1705b9c0624645cc0692025d2252` removed for both. Images: api `sha256:f15fd29eb2c201806eb0f9bf941dcdcc74eaa76a46f4de3931777d6aa5c4d5ab` (content `sha256:c8b569f70765110d3b855ffa322c1baa761e23aa662859787979accef0b1081e`), web `sha256:366879c4994f109d2a9a8d8fc98f0d89e00416a3d58f02fbd5570c662fac057a` (content `sha256:49b34a8147ce02ff43e3875d09eac2cc9034ca68485a453a6d4940b9086547cb`); healthy; pages 5 of 5. Flyway: V17, `Schema "app" is up to date` at 20:49:47Z, started in 7.515 s at 20:49:50Z, the D-25 line on; the same numbers; `UX-18.expected`'s 12 lines; `finance.conf` not installed. After-dump `finance-2026-11-14T2050Z.dump` (20:50:01Z, 4859717 bytes, SHA-256 `dfb1fa514f5750d1ab7fdef95a85eb75f39c312eeae8291842094f4752a648a4`), restore test PASS. The end-to-end suite from `6296e69` (clean tree, `E2E_FAMILY=on`), 20:51:54Z to 20:56:48Z: 19 passed, `new-family` skipped, cleanup passed (both accounts deleted 20:56:47Z, signed out), 0 password hits, `Result: PASSED`; artifacts `prod-20261114T205154Z`. `finish`: the reboot 7h 1m away, pages 5 of 5, answers 20:58:50Z and 20:58:51Z, passed at 20:58:51Z, the family numbers as before. `verify UX-18` OK at 20:58:57Z, the new images "the recorded image", the same 24 numbers. The rollback acceptance: before, `previous` `0c1bfb6`, `:previous` and `:0c1bfb6…` api `8cf6848c…` and web `135a0325…`, `last-good` `6296e69` passed; `rollback.sh 0c1bfb6`, run folder `2026-11-14T210005Z-rollback-0c1bfb6`, the reboot a `WARNING` 6h 59m away, target `0c1bfb6` good with those images, V17, no condition, refused at "5. Confirmation", nothing changed; the state block after it not run (D-814). The rollback target is `0c1bfb6`, with no condition of its own. "CI on Ubuntu 26.04" for `6296e69`: run #36 (id `43640448908`), `workflow_dispatch` on `main`, attempt 1, success, its four jobs success. Not recorded, never guessed: the build's lines, which container 3.4 recreated and the web container's start, the laptop's pull after the deploy, whether the reboot of 2026-11-15T04:00:00Z happened. |
+| 2026-11-14 | Not a deploy: the host (D-812) | The PM's `apt upgrade` after IMP-1's `finish`: Docker 29.8.2 to 29.9.3 and containerd 2.3.6 to 2.4.2; `finance-tracker-api` and `finance-tracker-web` restarted on the same images at 17:57:26Z; the reboot stayed scheduled for 2026-11-15T04:00:00Z. The next checklist's pre-flight expects Docker 29.9.3. |
 | 2026-11-14 | `0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0` (fix: the benefit check takes the file's period, D-767 to D-769 (IMP-1)), M; the api image new and its container recreated, the web image the running one and its container not recreated | IMP-1 (D-767 to D-773: a member's import compares his benefit months from the later of his join date and the file's first row date; on UX-17-doc's `c877ba3`, DOC-1's `0442d46`, DOC-1b's `22866b7`, DOC-1c's `718546a`, R-NOV's `9c26053` and IMP-1-doc's `056ee81`), no migration (Flyway V17), the switch on, by "IMP-1's deploy checklist with the suite", recorded by D-775 from the operator's pasted output. The pre-flight at 16:43:03Z: a reboot scheduled for 2026-11-15T04:00:00Z, a reboot required; Docker 29.8.2, the containerd image store; the clone at `388c90a`, `previous file` `28c0cee`; `last-good` UX-17's; the containers started 2026-11-14T10:14:41Z. `verify UX-17` OK at 16:43:11Z with step 12's 24 numbers. `deploy/deploy.sh run 0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0 IMP-1`, run folder `/var/lib/finance-deploy/runs/2026-11-14T164435Z-0c1bfb6`, over `388c90a`: 1.1 the reboot 11h 15m away, going on (D-131); commits `c877ba3`, `0442d46`, `22866b7`, `718546a`, `9c26053`, `056ee81` and `0c1bfb6`, `Migrations added: none`, under `deploy/` `RUNBOOK.md`, `checks/IMP-1.expected` and `checks/IMP-1.sql`; CI 10 check runs, success. Before-dump `finance-2026-11-14T1644Z.dump` (16:44:40Z, 4841049 bytes, SHA-256 `f517426b2d62d0c3363fa31012eb0a77669c4bbc4ba41e446cf0b382f1c39e9c`), restore test PASS. 3.2: `388c90a`'s images kept as `:388c90a1a5aaafd80cd58754e22e787cb357d103` and `:previous`; `3ed8515`'s tags removed. Images: api `sha256:8cf6848c97c4368e94e7186e732ab18b284bebd9ffabb174c17ff7e121bda5bd` (content `sha256:c955b717f1976d47ec2f2709ed8c359538fbf327dbd584df49a4f80b317fffce`), recreated; web unchanged, the running `sha256:135a0325669880bc0927f7bc2d07b55dd1edc847057f192c802c290832dc2eb3` (content `sha256:b3e623b4c1318f25f2023de0c03ba541ec0316935f87eb912247d18945cca930`), its container not recreated. Flyway: V17, `Schema "app" is up to date. No migration necessary.` at 16:45:28Z, started 16:45:31Z (7.875 s), the D-25 line on; the same numbers; `IMP-1.expected`'s 12 lines; `finance.conf` not installed. After-dump `finance-2026-11-14T1645Z.dump` (16:45:41Z, 4841049 bytes, SHA-256 `49ed767fb88f1e33a102fff076c74d8b648e991fe635112e905876f9d73a5846`), restore test PASS. The end-to-end suite from `0c1bfb6` (clean tree, `E2E_FAMILY=on`), 16:47:41Z to 16:52:47Z: 19 passed, `new-family` skipped (by design, D-171), cleanup passed, 0 password hits, `Result: PASSED`; artifacts `prod-20261114T164741Z`. `finish`: answers 16:53:54Z and 16:53:55Z, passed at 16:53:55Z, the family numbers as before; `verify IMP-1` OK at 16:54:04Z, the same 24 numbers. The rollback acceptance: `previous` `388c90a`, `:previous` UX-17's images; `rollback.sh 388c90a`, run folder `2026-11-14T165419Z-rollback-388c90a`, the reboot a `WARNING`, V17, no condition, refused at its confirmation, nothing changed. The rollback target is `388c90a`, with no condition of its own. "CI on Ubuntu 26.04" for `0c1bfb6`: run #35 (id `43618168887`), `workflow_dispatch` on `main`, attempt 1, success, its four jobs success. Not recorded, never guessed: the state block after the refusal (not run again), the build's lines, the pages' line, the laptop's pull after the deploy, whether the reboot of 2026-11-15T04:00:00Z happened. |
 | 2026-11-14 | `388c90a`; the database: 2026-10-01 to 2026-11-13 imported again and further by both participants | Step 12's third run, [step 12](#12-monthly-import-two-participants), `export-2026-11-14`, **Import up to 2026-11-13** for both, in the browser, the owner and the partner, by [the figures of 2026-11-13](#step-12s-figures-2026-11-13), which it matched in every phase; recorded by D-766 from the operator's pasted output. 12.0: both files `same`, rows 75 and 290; the gate's last line was lost in the paste, both checks passed. 12.1 at 2026-11-14T15:19:13Z: a reboot scheduled, `USEC=1794715200000000 MODE=reboot` (2026-11-15T04:00:00Z, 12h 40m away), no stop by the PM's D-764; the clone and `last-good` at `388c90a`, `finish=passed 2026-11-14T10:32:58Z`; `verify UX-17` OK at 15:19:20Z with the figures' **before** numbers; the participants' personal entries 18927 and 23816. 12.2: B1 `finance-2026-11-14T1520Z.dump` (4812020 bytes, 15:20:26Z), PASS, B1's numbers. 12.3: the owner's dry run as the figures, to the letter. 12.4: the owner's commit; its page's text wasn't saved, so D-222 isn't met for that page; his check again (pasted): created 0, updated 0, unchanged 73, Passed; integrity `[]` for both, reported in words, not pasted. 12.5: B2 `finance-2026-11-14T1526Z.dump` (4819722 bytes, 15:26:40Z), PASS, B2's numbers. 12.6: the partner's dry run as the figures, with the 67 benefit warnings 2021-03 to 2026-09 (D-757); Import up to shown as "Nov 13, 2026". 12.7: "Imported: 96 created, 1 updated."; the check again: unchanged 504, family records as imported before 215, new 0, Passed; integrity `[]` for both, in words. 12.9: B3 `finance-2026-11-14T1530Z.dump` (4841049 bytes, 15:30:38Z), PASS, B3's numbers. 12.10: `verify UX-17` OK at 15:30:53Z with the figures' **after** numbers; the participants' personal entries 19027 and 23997. 12.12: from `388c90a`, a clean detached checkout (D-765: `main` was two documents-only commits ahead of it), 15:32:48Z to 15:37:34Z, `E2E_FAMILY` on, 19 passed, `new-family` skipped by design (D-171), cleanup passed for both, password search 0 hits, `Result: PASSED`; artifacts `prod-20261114T153248Z`. Not recorded: the gate's last line, the owner's commit page (12.4), the text of the four integrity answers, B1's, B2's and B3's SHA-256, 12.11's output, and whether the reboot of 2026-11-15T04:00:00Z happened. |
 | 2026-11-14 | `388c90a1a5aaafd80cd58754e22e787cb357d103` (feat: the dashboard leaves out what has nothing posted, a demo of 36 months, D-684 to D-708 (UX-17)), M; both images new and both containers recreated | UX-17 (D-684 to D-708: the dashboard leaves out comparisons, charts and daily spending panels with nothing posted and the hover panel's empty comparison month, the demo of 36 months whose years differ with its family budget over the same months, "Past year" after loading it, the landing page's two screenshots; on UX-16-doc's `ae75d41`, the record of UX-16's deploy), no migration (Flyway V17), the switch on, by "UX-17's deploy checklist with the suite" (its text unchanged, D-711), recorded by D-710. Steps 0 and 1 as one PM's block: `ae75d41..388c90a` pushed on both branches (D-710 says before 08:31Z; `CI`'s two runs were created at 08:31:44Z, D-715); `CI` #138 (`feature/family-budget`, id `43576244106`, 08:31:44Z to 08:42:59Z) and #139 (`main`, id `43576244679`, 08:31:44Z to 08:40:26Z), `push`, attempt 1, success, each with its five jobs success; 10 check runs, every one `completed success`. The pre-flight at 08:32:00Z: a reboot scheduled at 2026-11-15T04:00:00Z (`MODE=reboot`), a reboot required; Docker 29.8.2 linux/amd64, Compose v5.5.1, the containerd image store; the clone at `28c0cee`, clean, `previous file` `56c51bb…`; `last-good` `28c0cee` `finish=passed 2026-11-13T20:32:54Z`, the history ending with UX-16's two `good 28c0cee` lines (20:22:38Z, 20:32:54Z), the newest run folder `2026-11-13T203356Z-rollback-56c51bb`; api `sha256:b3c23c23…` (content `8f0c568a…`), its container started 2026-11-13T14:26:11.189Z, and web `sha256:32bd7c09…` (content `e1aefb23…`), started 2026-11-13T20:22:18.251Z; `:previous` and `:56c51bb…` api `b3c23c23…` and web `8729ec22…` (content `92615533…`), `:3ed8515…` api `1b86db28…` and web `21339825…`, `:a406090…` api `1b86db28…` and web `97ffc721…`; the api's `:latest` `sha256:1a4aab56d3f8ec1a11b112f6ffd41ce05d91f2a44d0ea488f11b2e4942a18450`, content `8f0c568a…`, UX-16's build from cache, not the running image (D-711); Flyway up to date at 2026-11-13T14:26:17Z, the D-25 line on, `.env` `1`, it and its three copies 600 root. `verify UX-16` OK at 08:32:11Z, its 12 lines, the 24 numbers (`entries=42743`, `family_records=12549`, `users=4`), the reboot in 19h 27m. `deploy/deploy.sh run 388c90a1a5aaafd80cd58754e22e787cb357d103 UX-17`, run folder `/var/lib/finance-deploy/runs/2026-11-14T093628Z-388c90a`, over `28c0cee`: 1.1 the reboot in 18h 23m, going on (D-131); 1.3 `28c0cee..388c90a` on both, commits `ae75d41` (UX-16-doc) and `388c90a`, `Migrations added: none`, under `deploy/` `RUNBOOK.md`, `checks/UX-17.expected` and `checks/UX-17.sql`; 1.5 CI 10 check runs; 1.7 the 24 numbers. Before-dump `finance-2026-11-14T0936Z.dump` (09:36:32Z, 4812005 bytes, SHA-256 `14a96817ab91118e9af3a24d11de1f78999bd467cf829d93d72472cd0332f03f`), kept in the run folder (mode 600); restore test PASS. 2: `388c90a` typed, about 38 minutes after 1.8's dump (D-711). 3.1: `28c0cee..388c90a`, 37 files. 3.2: `28c0cee`'s images kept as `:28c0cee3bcad9126da3e144d95f4cf7c632fb623` and `:previous`; `a406090`'s tags of api and web removed. 3.3: api built (`COPY src src` not cached, `mvn package` 13.7 s); web built (`npm ci` cached; `index-DL6SGSs7.js` 583.00 kB, `demo-dashboard-DCnL6Cvf.webp` 56.53 kB, `demo-entries-P5N6YV92.webp` 35.74 kB). 3.4: both recreated. 3.5: both healthy, `Total reclaimed space: 0B`. 3.6: the pages 5 of 5. Flyway: V17, `Schema "app" is up to date. No migration necessary.` at 10:14:47Z (the new api's own start), started in 7.867 s at 10:14:50Z, no `Successfully applied`; the D-25 line on at 10:14:50Z; the same numbers; `UX-17.expected`'s 12 lines; `finance.conf` not installed. After-dump `finance-2026-11-14T1015Z.dump` (10:15:00Z, 4812005 bytes, SHA-256 `4592577d4a2b28e61282b2228d4465e20708a058da4a6b95205c4b4c5eb7f373`), restore test PASS. Images: api `sha256:cdb907c2d4db5ca597fc0578f5948720b8c6c745563965a1617230623eddde45` (content `sha256:dfdb19c404f83cbfd8fd9b26273876a272928f95467f45b0de4e8efc9a913980`), web `sha256:135a0325669880bc0927f7bc2d07b55dd1edc847057f192c802c290832dc2eb3` (content `sha256:b3e623b4c1318f25f2023de0c03ba541ec0316935f87eb912247d18945cca930`). The end-to-end suite from `388c90a` (clean tree, `E2E_FAMILY=on`; the laptop's `e2e/` on Node v24.21.0, npm 11.19.0), 10:20:03Z to 10:25:08Z: 19 passed and 1 skipped (`new-family`, by design, D-171), `demo` 9.5 s (10.8 s on the laptop's stack, D-706), `dashboard` 58.6 s, `themes` 40.7 s; artifacts `prod-20261114T102003Z`; 0 password hits; `Result: PASSED`, on its first run. `finish`: answers 10:32:56Z and 10:32:57Z, passed at 10:32:58Z, the family numbers as before, the reboot in 17h 27m; `verify UX-17` OK at 10:33:08Z, its 12 lines, the same numbers. The rollback acceptance: the state block before it `previous` `28c0cee…`, `:previous` and `:28c0cee…` api `b3c23c23…` and web `32bd7c09…`, `last-good` `388c90a` with its two images and contents and `finish=passed 2026-11-14T10:32:58Z`; `rollback.sh 28c0cee`, run folder `2026-11-14T103325Z-rollback-28c0cee`, the reboot a `WARNING` (D-126), the target `28c0cee`, the commit HEAD's deploy replaced (`2026-11-14T093628Z-388c90a`), `good`, with images `b3c23c23…` and `32bd7c09…`, Flyway 17 against the target's V17, no condition, `no` typed, `REFUSED at "5. Confirmation"`, "Nothing changed."; the state read again, the same lines. The rollback target is `28c0cee`, with no condition of its own. "CI on Ubuntu 26.04" for `388c90a`: run #34 (id `43585874143`), `workflow_dispatch` on `main`, attempt 1, 10:33:48Z to 10:46:20Z, its four jobs (Web image, Backend, Frontend, Deploy scripts) success. Where the run differs from the checklist (D-711): steps 0 and 1 ran as one PM's block, and of step 1's CI blocks only the check runs; step 2's `:latest` of the api was UX-16's build from cache with the running content, not the running image; step 4's confirmation came about 38 minutes after 1.8's dump, the numbers the same before and after. Not recorded, never guessed: whether `1a4aab56…` is left after 3.5's prune, the laptop's pull after the deploy, the restore tests' table counts beyond the summary's. |
@@ -1672,12 +1676,14 @@ prints a row's text (no pipe character in it).
 
 ### Production now
 
-As of 2026-11-14, after IMP-1's deploy (`finish` passed at 16:53:55Z; `verify IMP-1` OK at 16:54:04Z; its rollback
-acceptance refused at its confirmation, nothing changed; D-775):
+As of 2026-11-14, after UX-18's deploy (`finish` passed at 20:58:51Z; `verify UX-18` OK at 20:58:57Z; its rollback
+acceptance refused at its confirmation, nothing changed; D-811):
 
-- `0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0` (IMP-1: a member's import compares his benefit months from the
-  later of his join date and the file's first row date, D-767; on IMP-1-doc's `056ee81`, R-NOV's `9c26053`, DOC-1c's
-  `718546a`, DOC-1b's `22866b7`, DOC-1's `0442d46` and UX-17-doc's `c877ba3`; on UX-17's
+- `6296e69ff9c66c824fc15764fedc403fd1c1e2a6` (UX-18: the Entries summary shows family records in full, D-796 to
+  D-800; on DOC-2's `288c84f` and DOC-1d's `82af365`, the landing page's text now live; on IMP-1's
+  `0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0`, deployed 2026-11-14: a member's import compares his benefit months from
+  the later of his join date and the file's first row date, D-767; on IMP-1-doc's `056ee81`, R-NOV's `9c26053`,
+  DOC-1c's `718546a`, DOC-1b's `22866b7`, DOC-1's `0442d46` and UX-17-doc's `c877ba3`; on UX-17's
   `388c90a1a5aaafd80cd58754e22e787cb357d103`, deployed 2026-11-14: the dashboard leaves out what has nothing posted, a demo of 36
   months, "Past year" after loading it; on UX-16-doc's `ae75d41` and UX-16's `28c0cee`, deployed 2026-11-13, the chart
   in horizontal bars in HTML and CSS; UX-16's first commit `9478ece`, never deployed alone; UX-15-doc's `3785ff8` and
@@ -1686,18 +1692,16 @@ acceptance refused at its confirmation, nothing changed; D-775):
   `1417b8f` (V17, 2026-11-11), UX-8's `2e34237`, UX-7's `3d1fcb0`, UX-6's `628a255`, UX-5's `18b86d0`, UX-4's
   `737af9d`, UX-3's `7bacaf0`, UX-2's `3b2206a`, D4c's `df402d0`, UX-1's `9e7aa87`, OPS-3's `b899e3a`, D4b, D4a, D3e,
   D3c with its fixes and acceptances, D3b-accept, D3b, F8f, F8e, F8d, F8c, F8, QA-1 and QA-1b) on Flyway V17,
-  `last-good` naming `0c1bfb6` (`finish=passed 2026-11-14T16:53:55Z`). Family budgets are switched on since
+  `last-good` naming `6296e69` (`finish=passed 2026-11-14T20:58:51Z`). Family budgets are switched on since
   2026-10-03T09:25:40Z. The containers run api
-  `sha256:8cf6848c97c4368e94e7186e732ab18b284bebd9ffabb174c17ff7e121bda5bd` (content
-  `sha256:c955b717f1976d47ec2f2709ed8c359538fbf327dbd584df49a4f80b317fffce`, recreated by IMP-1's `run`, started at
-  16:45:31Z) and web
-  `sha256:135a0325669880bc0927f7bc2d07b55dd1edc847057f192c802c290832dc2eb3` (content
-  `sha256:b3e623b4c1318f25f2023de0c03ba541ec0316935f87eb912247d18945cca930`, UX-17's, its container not recreated by
-  IMP-1), "the recorded image" for `verify`. At IMP-1's pre-flight a reboot was scheduled for
-  2026-11-15T04:00:00Z (a reboot required); whether it happened isn't recorded here. DOC-1d's change of the landing
-  page's text (D-735) reaches production with the next deploy, which builds a new web image (D-737). Demos loaded before
-  UX-17 stay as they were (D-694). UX-17-doc (D-709 to D-714 and its own) has no deploy of its own (D-714): it changes
-  no image's content; IMP-1's deploy listed it among its commits.
+  `sha256:f15fd29eb2c201806eb0f9bf941dcdcc74eaa76a46f4de3931777d6aa5c4d5ab` (content
+  `sha256:c8b569f70765110d3b855ffa322c1baa761e23aa662859787979accef0b1081e`, started 20:49:50Z) and web
+  `sha256:366879c4994f109d2a9a8d8fc98f0d89e00416a3d58f02fbd5570c662fac057a` (content
+  `sha256:49b34a8147ce02ff43e3875d09eac2cc9034ca68485a453a6d4940b9086547cb`), both UX-18's, "the recorded image" for
+  `verify`. The host runs Docker 29.9.3 and containerd 2.4.2 since the PM's update of 2026-11-14 (D-812). At UX-18's
+  pre-flight a reboot was scheduled for 2026-11-15T04:00:00Z (a reboot required); whether it happened isn't recorded
+  here. Demos loaded before UX-17 stay as they were (D-694). UX-18-doc (D-811 to D-814 and its own) has no deploy of
+  its own: it changes no image's content, and the next stage's checklist lists it among its commits from `6296e69`.
 - The auth server runs auth_server's `87b478bd68380be6640771387b2ea0d23d7ff2af` (`/opt/auth/.deployed-revision`
   `87b478b 20261113T134500Z`, the sync backup of the files it replaced `/root/auth-sync-backups/20261113T134500Z/`) with
   the theme `finance-tracker` mounted read-only into `keycloak` (started 2026-11-13T13:45:03Z) and D-621's realm values
@@ -1726,27 +1730,31 @@ acceptance refused at its confirmation, nothing changed; D-775):
   the family's at October's commit (D-224; categories 95 to 92). His rows 211 and 2839, changed in the app, stay as he
   edited them, explained as APP_EDITED (D-218, D-223); so do 1262, 2497 and 2973 (D-323).
 - **The next step 12** (**Import up to 2026-11-30**, early December) runs on the import page of the code production runs then
-  (`0c1bfb6` today), where **Import up to** is typed in the account's date format (D-304). It is rehearsed first from
-  production's latest dump with that code (D-220), and its 12.1 and 12.10 use that stage's `verify` (`verify IMP-1`
-  today, D-775), and 12.11 checks out `last-good`'s commit (D-765). The owner's own sides were stamped by his commit of 2026-11-14 (D-342, 48 of them).
-- The rollback state: the previous-commit file names `388c90a` (UX-17, V17), and `:previous` and
-  `:388c90a1a5aaafd80cd58754e22e787cb357d103` hold UX-17's running images (api `cdb907c2…`, web `135a0325…`, in full
-  in UX-17's row). `rollback.sh`'s target is `388c90a`, with no condition of its own (IMP-1 has no migration and
-  writes nothing an import of `388c90a` doesn't); `rollback.sh 388c90a` was refused at its confirmation in the
-  acceptance (run folder `2026-11-14T165419Z-rollback-388c90a`). `388c90a`'s import compares a member's benefit months
-  from his join date again (D-758's warnings). One step further back, as UX-17's acceptance named it: `28c0cee` (UX-16,
+  (`6296e69` today), where **Import up to** is typed in the account's date format (D-304). It is rehearsed first from
+  production's latest dump with that code (D-220), and its 12.1 and 12.10 use that stage's `verify` (`verify UX-18`
+  today, D-811), and 12.11 checks out `last-good`'s commit (D-765). The owner's own sides were stamped by his commit of 2026-11-14 (D-342, 48 of them).
+- The rollback state: the previous-commit file names `0c1bfb6` (IMP-1, V17), and `:previous` and
+  `:0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0` hold IMP-1's running images (api `8cf6848c…`, web `135a0325…`, in full
+  in IMP-1's row). `rollback.sh`'s target is `0c1bfb6`, with no condition of its own (UX-18 has no migration and
+  writes no row); `rollback.sh 0c1bfb6` was refused at its confirmation in the acceptance (run folder
+  `2026-11-14T210005Z-rollback-0c1bfb6`). `0c1bfb6`'s summary shows family payments under Transfers and shares under
+  Out again. Then `388c90a` (UX-17, `:388c90a1a5aaafd80cd58754e22e787cb357d103`, api `cdb907c2…`, web `135a0325…`),
+  with no condition of its own; its import compares a member's benefit months from his join date again (D-758's
+  warnings). One step further back, as UX-17's acceptance named it: `28c0cee` (UX-16,
   `:28c0cee3bcad9126da3e144d95f4cf7c632fb623`, api `b3c23c23…`, web `32bd7c09…`), with no condition of its own (UX-17
   has no migration, and a demo loaded under it is ordinary rows, D-694). `28c0cee`'s
   api writes the six months' demo again for a new load, and its web shows every comparison column and opens a loaded
-  demo's whole period. The kept tag `:56c51bb…` (UX-15's images, api `b3c23c23…`, web `8729ec22…`) stays; `:3ed8515…`
-  (UX-14's) went at IMP-1's 3.2, `a406090`'s at UX-17's. Whether the api image
+  demo's whole period. The kept tag `:56c51bb…` (UX-15's images) went at UX-18's 3.2, `:3ed8515…`
+  (UX-14's) at IMP-1's, `a406090`'s at UX-17's. Whether the api image
   `1a4aab56…` (UX-16's build from cache, D-711) is left after UX-17's 3.5 wasn't read: not recorded. Below `28c0cee`
   it goes one step at a time, as each stage's row names its own way back; below V17 (UX-8's `2e34237`, V16)
   `rollback.sh` has no V17 condition: V16's code ignores `ledger_member.shows_payees`. The
   deploy dumps, each on the server 14 days from its date and on the laptop 60 days from its pull (the laptop's pull
   after UX-13's deploy, `finance-nl-backup-pull.service`, `last_success=2026-11-12T19:29:31Z`, file
-  `finance-2026-11-12T1929Z.dump`; UX-8's to UX-13's are on both, D-585; the pulls after UX-14's, UX-15's, UX-16's, UX-17's and IMP-1's
-  deploys aren't recorded, D-607, D-641, D-682, D-710, D-775, so their dumps are named on the server only): IMP-1's before
+  `finance-2026-11-12T1929Z.dump`; UX-8's to UX-13's are on both, D-585; the pulls after UX-14's, UX-15's, UX-16's, UX-17's, IMP-1's and UX-18's
+  deploys aren't recorded, D-607, D-641, D-682, D-710, D-775, D-811, so their dumps are named on the server only): UX-18's before
+  `finance-2026-11-14T2048Z.dump` (SHA-256 `217ecaa8…`), after `finance-2026-11-14T2050Z.dump` (`dfb1fa51…`), on the
+  server until about 2026-11-28; IMP-1's before
   `finance-2026-11-14T1644Z.dump` (SHA-256 `f517426b…`), after `finance-2026-11-14T1645Z.dump` (`49ed767f…`), on the
   server until about 2026-11-28; UX-17's before
   `finance-2026-11-14T0936Z.dump` (SHA-256 `14a96817…`), after `finance-2026-11-14T1015Z.dump` (`4592577d…`), on the

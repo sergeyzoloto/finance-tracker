@@ -329,8 +329,10 @@ describe('the headline strip (D-569)', () => {
     renderAt('/?period=previous-month&scope=family')
     await screen.findAllByText('€2,000.00')
     expect(notes('EUR')).toEqual(['Demo household · All records', 'Demo household · All records'])
-    // The daily spending follows the scope too.
-    expect(calls).toContain('/api/reports/daily-cash-flow?from=2026-10-01&to=2026-10-31&scope=FAMILY&familyLedgerId=7&currency=BASE')
+    // The daily spending follows the scope too. Its request with the budget's id starts once the family budgets have
+    // answered, in a render after the one the figures above came from, so it is waited for (D-739).
+    await waitFor(() => expect(calls)
+      .toContain('/api/reports/daily-cash-flow?from=2026-10-01&to=2026-10-31&scope=FAMILY&familyLedgerId=7&currency=BASE'))
   })
 
   it('shows the balances while the cash flow loads, and the cash flow while the balances load', async () => {

@@ -3,6 +3,46 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · DOC-1c: a race in the dashboard's daily spending test
+
+One commit on `feature/family-budget` on top of `22866b7` (DOC-1b), the commit of this entry, "test: the daily
+spending's request waited for in UX13's scope test, D-739, D-740 (DOC-1c)". **Not pushed**; `main` not moved. Test code
+and documents only: no application, configuration, test configuration or workflow change, no deploy (production stays
+at `388c90a`). Production and the server not touched.
+
+**Changes**
+- `frontend/src/UX13.test.tsx`, "names the scope under Income and Expenses, as Show and Records do" (line 333 at
+  `22866b7`): the assertion that the daily spending asked with `scope=FAMILY&familyLedgerId=7` now waits for that
+  request (`await waitFor(() => expect(calls).toContain(…))`), with a comment saying why; what the test checks is the
+  same (D-739). No other test changed (D-740).
+- `requirements.md`: the "Amended in DOC-1c" line, D-739 (the PM) and D-740 (the race as found, the throwaway that
+  showed it, the rule, and every assertion checked).
+
+**Verified**
+- The race shown first, with a throwaway change of `frontend/src/Dashboard.tsx` (copied aside and put back, never
+  committed): a later change of the daily request's path asked 50 ms after its render, the first path at once. The old
+  test: `npx vitest run src/UX13.test.tsx` 3 times, each exit 1, Tests 1 failed, 22 passed (23), the failure CI #143's
+  (`expected [ '/api/settings', …(50) ] to include '/api/reports/daily-cash-flow?from=202…'`). The fixed test with the
+  same throwaway: 3 times, each exit 0, Tests 23 passed (23). The throwaway delays only a later change, so the other
+  daily assertions, whose requests go out in the first render, kept passing, as D-740 says they should.
+- Which requests go out in the first render: `calls` written to a file right after each `render` of `UX3`, `UX11` and
+  `UX13` (a throwaway instrumentation, put back): every request those files assert but line 333's is there.
+- The sweep (D-740): every frontend test assertion on recorded requests, and every element read right after a wait in
+  `UX13`, `Family`, `FamilyLifecycle`, `UX11` and `UX3`; each one left has its reason in D-740.
+- `cd frontend && npx vitest run` 5 times in a row: each exit 0, Test Files 54 passed (54), Tests 761 passed (761), no
+  Errors line.
+- `cd frontend && npx vitest run src/UX13.test.tsx` 20 times in a row: 20 of 20 exit 0, Tests 23 passed (23).
+- `cd frontend && npm run build`: exit 0.
+- No retries in the test configuration (`vite.config.ts` unchanged).
+- `change_log.mdx` compiled with `@mdx-js/mdx`; `scripts/check-forbidden-names.sh`: the same 2 hits as before, in the
+  untouched `frontend/src/importFilter.test.ts`, none in the files changed.
+- Not run: the backend suite and the end-to-end suite (no application change; the test is a unit test of the
+  frontend). CI on this commit is the next proof, once pushed.
+
+**Open**
+- The PM's review; then the owner fast-forwards `main` and pushes, and CI on it.
+- DOC-1's and DOC-1b's open items stand.
+
 ## 2026-11-14 · DOC-1b: the Supabase project recorded as deleted
 
 One commit on `feature/family-budget` on top of `0442d46` (DOC-1), the commit of this entry, "docs: the Supabase project

@@ -92,7 +92,7 @@ describe('Entries’ payee filter in the page (D-547)', () => {
   }
   const summary: EntrySummary = {
     count: 1, firstDate: '2026-09-12', lastDate: '2026-09-12', payees: 1, withoutPayee: 0, categories: 1,
-    withoutCategory: 0, accounts: 1, currencies: [{ currency: 'EUR', incoming: '0.00', outgoing: '5.00', transfers: '0.00' }],
+    withoutCategory: 0, accounts: 1, currencies: [{ currency: 'EUR', incoming: '0.00', outgoing: '5.00', transfers: '0.00', spent: '5.00', spentOthersShares: '0.00', received: '0.00', receivedOthersShares: '0.00' }],
   }
   const share: Entry = {
     id: 90, version: 0, entryDate: '2026-09-12', kind: 'FAMILY_SHARE', payeeId: null, memo: null,

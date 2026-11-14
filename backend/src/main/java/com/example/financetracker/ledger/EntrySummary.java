@@ -27,8 +27,16 @@ public record EntrySummary(long count, LocalDate firstDate, LocalDate lastDate, 
     /**
      * One currency's Amount cells, each the sum of the entry's positive lines in it (rule 2), by the sign the row shows,
      * which the net of its categorized lines decides (rule 5): {@code incoming} shown with +, income and refunds;
-     * {@code outgoing} shown with −, expenses; {@code transfers} shown without a sign. Each at or above 0.
+     * {@code outgoing} shown with −, expenses; {@code transfers} shown without a sign, less the paying sides of the
+     * family records counted below (UX-18, D-798). Each at or above 0.
+     *
+     * <p>UX-18, D-796, D-797: a family record counts once, through the user's matched share entry, by its full amount.
+     * {@code spentOthersShares} is what of the counted expense records falls on the other members, and {@code spent}
+     * is {@code outgoing} plus it; {@code receivedOthersShares} and {@code received} the same for incomes (and refunds,
+     * which come in). So {@code spent − spentOthersShares = outgoing} and {@code received − receivedOthersShares =
+     * incoming} exactly.
      */
-    public record CurrencyTotals(String currency, BigDecimal incoming, BigDecimal outgoing, BigDecimal transfers) {
+    public record CurrencyTotals(String currency, BigDecimal incoming, BigDecimal outgoing, BigDecimal transfers,
+            BigDecimal spent, BigDecimal spentOthersShares, BigDecimal received, BigDecimal receivedOthersShares) {
     }
 }

@@ -171,10 +171,11 @@ export default function Entries() {
                   <td className="sum-accounts"><span className="summary-label">Accounts</span>{texts.accounts}</td>
                   <td className="sum-amount">
                     <span className="summary-label">Amount</span>
-                    {texts.amounts.map((line) => (
-                      <div key={`${line.currency} ${line.label}`} className="amount-line">
+                    {texts.amounts.map((line, i) => (
+                      <div key={`${line.currency} ${i}`} className="amount-line">
                         <span className="muted">{line.label}</span>{' '}
-                        <span className={`amount ${line.label === 'In' ? 'income' : line.label === 'Out' ? 'expense' : ''}`}>{line.text}</span>
+                        <span className={`amount ${line.label === 'In' || line.label === 'Received' ? 'income'
+                          : line.label === 'Out' || line.label === 'Spent' ? 'expense' : ''}`}>{line.text}</span>
                       </div>
                     ))}
                   </td>

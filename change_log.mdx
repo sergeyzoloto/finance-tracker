@@ -3,6 +3,54 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · UX-18: the Entries summary shows family spending in full
+
+One commit on `feature/family-budget` on top of `288c84f` (DOC-2), the commit of this entry, "feat: the Entries summary shows family spending in
+full, D-794 to D-810 (UX-18)". **Not pushed**; `main` not moved. A deploy of its own (D-801): api and web, no
+migration (Flyway V17), from `0c1bfb6`, by `deploy/RUNBOOK.md`'s "UX-18's deploy checklist with the suite"; it also
+takes DOC-1d's landing page text to production.
+
+DOC-2: both forbidden-names checks (the working tree, and `--log 82af365..HEAD` after the commit) exited 0.
+
+**Changes**
+- `EntryService.summary` (D-796 to D-798, D-802 to D-804): the per-currency statement counts a family EXPENSE or
+  INCOME record once, through the user's matched `FAMILY_SHARE` entry with a live SHARE link, with the family switch
+  on; its full amount in the record's currency less that entry's own amount is the others' shares, on the side the
+  share's sign gives (a refund's on the received side); the `FAMILY_PAYMENT` entry of a counted record leaves
+  `transfers`. `incoming` and `outgoing` are unchanged.
+- `EntrySummary.CurrencyTotals` (D-805): new `spent`, `spentOthersShares`, `received`, `receivedOthersShares`.
+- `frontend/src/api.ts`: `CurrencyTotals`. `entrySummary.ts`: `amountLines` takes a currency's totals and reads
+  "Received" (+), "Others’ shares" (−), "In", then "Spent" (−), "Others’ shares" (+), "Out", then "Net" and
+  "Transfers", the first two of a side only while its others' shares aren't 0 (D-799, D-806). `Entries.tsx`: the
+  lines keyed by position, Received and Spent coloured as In and Out.
+- Tests: `EntrySummaryFamilyApiTests` (new, 9 tests), `EntrySummaryApiTests` (the new fields; In and Out as before
+  UX-18), `UX18.test.ts` (new, 4 tests), `UX11.test.tsx` and `UX12.test.tsx` (the new fields), `e2e/specs/11-entries`
+  (the summary against the rows by D-800's rule, the records' full amounts from their own answers).
+- `deploy/checks/UX-18.sql` and `UX-18.expected` (D-807): IMP-1's 12 lines. `deploy/RUNBOOK.md`: "UX-18's deploy
+  checklist with the suite".
+- `docs/family-budget/requirements.md`: D-794 to D-801, D-802 to D-807, the amendment line and the planned stage's
+  line. `CLAUDE.md`: `/summary`, the summary row, the tests.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: exit 0, `Tests run: 697, Failures: 0, Errors: 0, Skipped: 0`,
+  `BUILD SUCCESS`.
+- `cd frontend && npm test`: exit 0, `Test Files 56 passed (56)`, `Tests 773 passed (773)`, no Errors line.
+  `npm run build`: exit 0. No `package.json` or lock changed, so D-669's clean-copy run doesn't apply.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local`: run 1 exit 1, `entries` failed in both projects on the test's own
+  label parsing (the two "Others’ shares" lines under one key; the figures agreed), fixed. Run 2 exit 1, 8 specs that
+  don't touch the summary failed at the invite flow (`/invite` instead of the budget): the local backend's in-memory
+  invite limit (D-29) after two runs and the rehearsal database started during it; the backend container restarted.
+  Run 3, 20:04:31Z to 20:15:39Z: exit 0, 37 passed, cleanup passed, 0 password hits, `Result: PASSED`.
+- `cd e2e && npm run test:guards`, alone after it: exit 0, `# tests 39`, `# pass 39`, `# fail 0`.
+- `deploy/checks/UX-18.sql` on IMP-1's after-dump `finance-2026-11-14T1645Z.dump` restored at V17
+  (`scripts/rehearsal-db.sh`): its output equals `UX-18.expected`.
+- Real data: checked on IMP-1's after-dump restored locally; the figures matched the PM's expectation and are in
+  the report only (UX-18's prompt).
+
+**Open**
+- The deploy, by "UX-18's deploy checklist with the suite", once the PM accepts and names M.
+- `scripts/check-forbidden-names.sh` with `--log 288c84f..HEAD` runs after the commit: see the report.
+
 ## 2026-11-14 · DOC-2: the README's look
 
 One commit on `main` (and `feature/family-budget`, the same commit before it) on top of `82af365` (DOC-1d), the commit

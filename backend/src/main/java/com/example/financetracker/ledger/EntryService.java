@@ -202,7 +202,7 @@ public class EntryService {
         Map<String, Object> params = new HashMap<>();
         params.put("fx", AccountRole.FX_EXCHANGE.defaultCode());
         // The matching entries, with the payee their Payee cell shows when it shows none of the entry's own (D-523).
-        String matched = "WITH m AS (SELECT e.id, e.entry_date, e.payee_id, rp.name AS record_payee"
+        String matched = "WITH m AS (SELECT e.id, e.entry_date, e.payee_id, e.kind, rp.name AS record_payee"
                 + matching(ledger, filter, params) + ")";
         EntrySummary counts = jdbc.sql(matched + """
                 , payees AS (
@@ -252,6 +252,11 @@ public class EntryService {
                 .single();
         // describeEntry's rule: per currency the sum of the entry's positive lines, its sign the opposite of the net of
         // its categorized lines (rule 5): below 0 an income or a refund (+), above 0 an expense (−), else a transfer.
+        // UX-18, D-796 to D-798: a family record counts through the user's matched share entry (a live SHARE link),
+        // once per record, with its full amount in the record's currency, the currency the share is posted in (F8a);
+        // what of it isn't the entry's own amount falls on the other members. The paying side of a counted record
+        // (a live PAYMENT link of a FAMILY_PAYMENT entry) leaves Transfers, its money being in the record's full amount.
+        // With the family switch off nothing is counted (D-802).
         List<EntrySummary.CurrencyTotals> currencies = jdbc.sql(matched + """
                 , direction AS (
                     SELECT m.id, sign(coalesce(sum(p.amount) FILTER (WHERE p.category_id IS NOT NULL), 0)) AS net
@@ -260,18 +265,45 @@ public class EntryService {
                     SELECT p.entry_id AS id, p.currency, sum(p.amount) AS amount
                     FROM m JOIN posting p ON p.entry_id = m.id WHERE p.amount > 0
                     GROUP BY p.entry_id, p.currency
+                ), counted AS (
+                    SELECT DISTINCT ON (r.id) m.id, r.id AS record_id, r.currency, abs(r.base_amount) AS full_amount
+                    FROM m
+                    JOIN family_entry_link l ON l.entry_id = m.id AND l.link_type = 'SHARE' AND l.detached_at IS NULL
+                    JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
+                    WHERE :rpOn AND m.kind = 'FAMILY_SHARE' AND r.type IN ('EXPENSE', 'INCOME')
+                      AND r.deleted_at IS NULL
+                    ORDER BY r.id, m.id
+                ), shown_once AS (
+                    SELECT m.id FROM m
+                    JOIN family_entry_link l ON l.entry_id = m.id AND l.link_type = 'PAYMENT' AND l.detached_at IS NULL
+                    WHERE m.kind = 'FAMILY_PAYMENT' AND l.record_id IN (SELECT record_id FROM counted)
                 )
                 SELECT a.currency,
                        coalesce(sum(a.amount) FILTER (WHERE d.net < 0), 0) AS incoming,
                        coalesce(sum(a.amount) FILTER (WHERE d.net > 0), 0) AS outgoing,
-                       coalesce(sum(a.amount) FILTER (WHERE d.net = 0), 0) AS transfers
+                       coalesce(sum(a.amount) FILTER (WHERE d.net = 0
+                                AND a.id NOT IN (SELECT id FROM shown_once)), 0) AS transfers,
+                       coalesce(sum(c.full_amount - a.amount) FILTER (WHERE d.net < 0), 0) AS received_others,
+                       coalesce(sum(c.full_amount - a.amount) FILTER (WHERE d.net > 0), 0) AS spent_others
                 FROM amounts a JOIN direction d ON d.id = a.id
+                LEFT JOIN counted c ON c.id = a.id AND c.currency = a.currency
                 GROUP BY a.currency ORDER BY a.currency""")
                 .params(params)
-                .query((row, n) -> new EntrySummary.CurrencyTotals(row.getString("currency"),
-                        Money.normalize(row.getBigDecimal("incoming")), Money.normalize(row.getBigDecimal("outgoing")),
-                        Money.normalize(row.getBigDecimal("transfers"))))
-                .list();
+                .query((row, n) -> {
+                    BigDecimal incoming = row.getBigDecimal("incoming");
+                    BigDecimal outgoing = row.getBigDecimal("outgoing");
+                    BigDecimal receivedOthers = row.getBigDecimal("received_others");
+                    BigDecimal spentOthers = row.getBigDecimal("spent_others");
+                    return new EntrySummary.CurrencyTotals(row.getString("currency"), Money.normalize(incoming),
+                            Money.normalize(outgoing), Money.normalize(row.getBigDecimal("transfers")),
+                            Money.normalize(outgoing.add(spentOthers)), Money.normalize(spentOthers),
+                            Money.normalize(incoming.add(receivedOthers)), Money.normalize(receivedOthers));
+                })
+                .list()
+                .stream()
+                // A currency whose only figures were counted payments has nothing left to show.
+                .filter(t -> t.incoming().signum() != 0 || t.outgoing().signum() != 0 || t.transfers().signum() != 0)
+                .toList();
         return new EntrySummary(counts.count(), counts.firstDate(), counts.lastDate(), counts.payees(),
                 counts.withoutPayee(), counts.categories(), counts.withoutCategory(), counts.accounts(), currencies);
     }

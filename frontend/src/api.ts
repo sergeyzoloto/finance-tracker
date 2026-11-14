@@ -432,6 +432,22 @@ export interface EntryPage { content: Entry[]; page: number; size: number; total
  * the distinct payees, categories and accounts as the cells show them, and per currency the Amount cells by their sign,
  * each at or above 0, never added across currencies.
  */
+/**
+ * One currency of the entry summary (UX-11, D-524; UX-18, D-796 to D-798): In, Out and Transfers as the rows show
+ * them, the paying sides of counted family records left out of Transfers; `spent` is Out plus `spentOthersShares`,
+ * what of the counted family expense records falls on the other members, and `received` likewise for In.
+ */
+export interface CurrencyTotals {
+  currency: string
+  incoming: string
+  outgoing: string
+  transfers: string
+  spent: string
+  spentOthersShares: string
+  received: string
+  receivedOthersShares: string
+}
+
 export interface EntrySummary {
   count: number
   firstDate: string | null
@@ -441,7 +457,7 @@ export interface EntrySummary {
   categories: number
   withoutCategory: number
   accounts: number
-  currencies: { currency: string; incoming: string; outgoing: string; transfers: string }[]
+  currencies: CurrencyTotals[]
 }
 /**
  * A payee that family records show on the user's entries (UX-12, D-548; `GET /api/entries/family-payees`): its name,

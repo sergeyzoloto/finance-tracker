@@ -8,7 +8,9 @@ import { deleteAllMyData, expect, loadDemoData, shot, test, type Session } from 
 //    last date (the dates from the list's own answer, put in words by the test with Intl), the distinct payees and the
 //    entries without one, the distinct
 //    categories and the entries without one, the distinct accounts the Accounts cells name, and per currency In, Out,
-//    Net and Transfers summed from the Amount cells. Since UX-12 also a payee by name (D-548).
+//    Net and Transfers summed from the Amount cells. Since UX-12 also a payee by name (D-548). Since UX-18 (D-800) a
+//    family record counts once, through its share's row, by its full amount (its record's answer): Spent or Received
+//    the full amount, Others' shares the full amount less the share's cell; its payment's row isn't counted again.
 // 3. Categories: a category renamed through its pencil, archived and restored through its boxes, each found by its
 //    accessible name, and renamed back; with E2E_FAMILY=on a family category's link opens its budget's categories.
 //    Since UX-12 (D-552), each category's name is centred on its buttons, on Categories and the family budget's.
@@ -143,7 +145,7 @@ async function expectSummaryMatchesRows({ page }: Session, filter: string) {
   })
   const summary = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/entries/summary')
   await page.goto(`/entries?${filter}`)
-  const answer = await (await list).json() as { totalElements: number; content: { entryDate: string }[] }
+  const answer = await (await list).json() as { totalElements: number; content: ListedEntry[] }
   await summary
   expect(answer.totalElements, `${filter}: fits on one page`).toBeGreaterThan(0)
   expect(answer.totalElements, `${filter}: fits on one page`).toBeLessThanOrEqual(50)
@@ -169,17 +171,39 @@ async function expectSummaryMatchesRows({ page }: Session, filter: string) {
   const accounts = new Set(cells.flatMap((c) => c.flow.split(' → ').flatMap(split)
     .map((label) => label.replace(/ \([^)]*\)$/, ''))
     .filter((label) => label !== '—' && !split(c.category).includes(label))))
-  const totals = new Map<string, { in: bigint; out: bigint; transfers: bigint }>()
-  for (const c of cells) {
+  // D-800: the records counted through a share's row, with their full amount from the record's own answer.
+  const counted = new Map<number, bigint>()
+  for (const e of answer.content) {
+    const f = e.family
+    if (e.kind !== 'FAMILY_SHARE' || !f || f.link !== 'SHARE' || f.recordId == null) continue
+    if (f.recordType !== 'EXPENSE' && f.recordType !== 'INCOME') continue
+    if (counted.has(f.recordId)) continue
+    const record = await (await page.context().request
+      .get(`/api/family-ledgers/${f.ledgerId}/records/${f.recordId}`)).json() as { amount: string }
+    const [whole, part = ''] = record.amount.replace('-', '').split('.')
+    counted.set(f.recordId, BigInt(whole + part.padEnd(2, '0').slice(0, 2)))
+  }
+  const totals = new Map<string, { in: bigint; out: bigint; transfers: bigint; spentOthers: bigint;
+    receivedOthers: bigint }>()
+  const seen = new Set<number>()
+  cells.forEach((c, i) => {
+    const e = answer.content[i]
+    const record = e.family?.recordId ?? null
+    const paysCounted = e.kind === 'FAMILY_PAYMENT' && e.family?.link === 'PAYMENT' && record != null
+      && counted.has(record)
+    const share = e.kind === 'FAMILY_SHARE' && record != null && counted.has(record) && !seen.has(record)
+    if (share) seen.add(record)
     for (const part of c.amount.split(' → ')) {
       const m = amountOf(part)
-      const t = totals.get(m.currency) ?? { in: 0n, out: 0n, transfers: 0n }
+      const t = totals.get(m.currency) ?? { in: 0n, out: 0n, transfers: 0n, spentOthers: 0n, receivedOthers: 0n }
       if (m.sign === '+') t.in += m.cents
       else if (m.sign === '-') t.out += m.cents
-      else t.transfers += m.cents
+      else if (!paysCounted) t.transfers += m.cents
+      if (share && m.sign === '+') t.receivedOthers += counted.get(record)! - m.cents
+      if (share && m.sign === '-') t.spentOthers += counted.get(record)! - m.cents
       totals.set(m.currency, t)
     }
-  }
+  })
 
   const dates = answer.content.map((e) => e.entryDate).sort()
   const range = await page.evaluate(([from, to]) => {
@@ -200,23 +224,42 @@ async function expectSummaryMatchesRows({ page }: Session, filter: string) {
 
   const lines = await row.locator('.amount-line').allTextContents()
   const shown = new Map<string, Record<string, bigint>>()
+  let side = ''
   for (const line of lines) {
     const [label, amount] = line.replace(/[  ]/g, '').split(/\s+(?=[+\-−]?[€$])/)
     const m = amountOf(amount)
     const own = shown.get(m.currency) ?? {}
-    own[label.trim()] = m.sign === '-' ? -m.cents : m.cents
+    const name = label.trim()
+    if (name === 'Received' || name === 'Spent') side = name
+    // The two "Others’ shares" lines are told apart by the side they follow (D-799).
+    own[name === 'Others’ shares' ? `${name} (${side})` : name] = m.sign === '-' ? -m.cents : m.cents
     shown.set(m.currency, own)
   }
   const expected = new Map<string, Record<string, bigint>>()
   for (const [currency, t] of totals) {
     const own: Record<string, bigint> = {}
+    if (t.receivedOthers !== 0n) {
+      own.Received = t.in + t.receivedOthers
+      own['Others’ shares (Received)'] = -t.receivedOthers
+    }
     if (t.in !== 0n) own.In = t.in
+    if (t.spentOthers !== 0n) {
+      own.Spent = -(t.out + t.spentOthers)
+      own['Others’ shares (Spent)'] = t.spentOthers
+    }
     if (t.out !== 0n) own.Out = -t.out
     if (t.in !== 0n && t.out !== 0n) own.Net = t.in - t.out
     if (t.transfers !== 0n) own.Transfers = t.transfers
     if (Object.keys(own).length > 0) expected.set(currency, own)
   }
   expect(Object.fromEntries(shown), `${filter}: the Amount column`).toEqual(Object.fromEntries(expected))
+}
+
+/** What the test reads of a listed entry: its date, kind and family link. */
+interface ListedEntry {
+  entryDate: string
+  kind: string
+  family?: { ledgerId: number; recordId: number | null; link: string; recordType?: string }
 }
 
 /** At 375 px, the page is no wider than the window. */

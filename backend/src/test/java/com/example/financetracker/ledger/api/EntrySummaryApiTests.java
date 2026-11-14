@@ -101,7 +101,10 @@ class EntrySummaryApiTests extends FamilyApiTest {
     private static List<String> currencies(JsonNode summary) {
         List<String> lines = new ArrayList<>();
         summary.get("currencies").forEach(c -> lines.add(c.get("currency").asText() + " in " + c.get("incoming").asText()
-                + " out " + c.get("outgoing").asText() + " transfers " + c.get("transfers").asText()));
+                + " out " + c.get("outgoing").asText() + " transfers " + c.get("transfers").asText()
+                + " spent " + c.get("spent").asText() + " (others " + c.get("spentOthersShares").asText() + ")"
+                + " received " + c.get("received").asText() + " (others " + c.get("receivedOthersShares").asText()
+                + ")"));
         return lines;
     }
 
@@ -112,9 +115,12 @@ class EntrySummaryApiTests extends FamilyApiTest {
         assertThat(all.get("count").asLong()).isEqualTo(15);
         assertThat(all.get("firstDate").asText()).isEqualTo("2026-09-01");
         assertThat(all.get("lastDate").asText()).isEqualTo("2026-09-20");
+        // UX-18, D-797: In and Out as before UX-18 (123.00, 51.68); the expense of 20.00 counts in full (13.32 the
+        // others'), the income of 60.00 too (40.00 the others'); her payment (20) and receipt (60) leave Transfers
+        // (710.00 before UX-18), D-798.
         assertThat(currencies(all)).containsExactly(
-                "EUR in 123.00 out 51.68 transfers 710.00",
-                "USD in 0.00 out 0.00 transfers 22.00");
+                "EUR in 123.00 out 51.68 transfers 630.00 spent 65.00 (others 13.32) received 163.00 (others 40.00)",
+                "USD in 0.00 out 0.00 transfers 22.00 spent 0.00 (others 0.00) received 0.00 (others 0.00)");
         // Shop A (the expense, the refund, her payment and, from its record, her share), Bank B, Friend C (both loans).
         assertThat(all.get("payees").asLong()).isEqualTo(3);
         // The transfer, the exchange, the shared expense, the opening balance, the manual entry, the receipt, the
@@ -131,7 +137,9 @@ class EntrySummaryApiTests extends FamilyApiTest {
         // Bob's own: his one expense and his share of each family record.
         JsonNode bobs = summary(bob, "");
         assertThat(bobs.get("count").asLong()).isEqualTo(4);
-        assertThat(currencies(bobs)).containsExactly("EUR in 20.00 out 783.66 transfers 5.00");
+        // His shares count the records Alice paid and received in full (D-797); before UX-18 in 20.00, out 783.66.
+        assertThat(currencies(bobs)).containsExactly(
+                "EUR in 20.00 out 783.66 transfers 5.00 spent 797.00 (others 13.34) received 60.00 (others 40.00)");
     }
 
     /** Each filter selects the list's entries: the same count, the same first and last date. */

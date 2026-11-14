@@ -8,6 +8,10 @@ import Categories from './Categories'
 import Entries, { entriesPeriod } from './Entries'
 import { amountLines, summaryTexts } from './entrySummary'
 import { PERIOD_LABELS, PRESETS } from './periods'
+
+/** A currency without family records counted (UX-18): Spent and Received are Out and In. */
+const noFamily = (received: string, spent: string) =>
+  ({ spent, spentOthersShares: '0.00', received, receivedOthersShares: '0.00' })
 import { testLedger } from './testLedger'
 import { WithMe } from './testMe'
 
@@ -64,8 +68,8 @@ const summary: EntrySummary = {
   count: 214, firstDate: '2026-09-01', lastDate: '2026-09-30', payees: 12, withoutPayee: 3, categories: 7,
   withoutCategory: 0, accounts: 4,
   currencies: [
-    { currency: 'EUR', incoming: '2000.00', outgoing: '1234.50', transfers: '0.00' },
-    { currency: 'USD', incoming: '0.00', outgoing: '20.00', transfers: '300.00' },
+    { currency: 'EUR', incoming: '2000.00', outgoing: '1234.50', transfers: '0.00', ...noFamily('2000.00', '1234.50') },
+    { currency: 'USD', incoming: '0.00', outgoing: '20.00', transfers: '300.00', ...noFamily('0.00', '20.00') },
   ],
 }
 
@@ -154,7 +158,8 @@ describe('Entries’ summary row (D-524)', () => {
 
   it('shows a currency’s lines only when not 0, the Net only with both In and Out', () => {
     const lines = (i: string, o: string, t: string) =>
-      amountLines('EUR', i, o, t).map((l) => `${l.label} ${plain(l.text)}`)
+      amountLines({ currency: 'EUR', incoming: i, outgoing: o, transfers: t, ...noFamily(i, o) })
+        .map((l) => `${l.label} ${plain(l.text)}`)
     expect(lines('0', '0', '0')).toEqual([])
     expect(lines('5.00', '0', '0')).toEqual(['In +€5.00'])
     expect(lines('0', '5.00', '0')).toEqual(['Out -€5.00'])

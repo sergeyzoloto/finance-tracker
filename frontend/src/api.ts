@@ -794,7 +794,7 @@ export interface DemoLedger {
   accounts: number
   categories: number
   counterparties: number
-  /** The day of the opening balances, about six months ago. */
+  /** The day of the opening balances, the first of the month 35 months back or 36 (D-689). */
   from: string
   /** The day of the last entries: the day it was loaded. */
   to: string

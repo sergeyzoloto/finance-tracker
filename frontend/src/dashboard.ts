@@ -732,13 +732,29 @@ export function compareTable(currency: string, columns: CompareColumn[], parts: 
   return { currency, columns, income, expense, net, exchange, converted }
 }
 
-/** The comparison tables of the page, one per currency, from each column's monthly tables (D-393). */
+/**
+ * D-685: whether a range's own cash flow has something posted in a currency: an income, expense or exchange-rate line
+ * (one whose amounts net to 0 included). No table, or an empty one, is nothing posted.
+ */
+export const hasPosted = (part: CashFlowTable | null) =>
+  part !== null && part.income.lines.length + part.expense.lines.length + part.exchange.length > 0
+
+/**
+ * The comparison tables of the page, one per currency, from each column's monthly tables (D-393). In each currency a
+ * comparison with nothing posted in it is left out (D-685): its columns, so its row on the chart by range, its
+ * markers by month and its changes in the strip go with them; the period's column always stays.
+ */
 export function compareTables(columns: CompareColumn[], parts: CashFlowTable[][], converted: boolean): CompareTable[] {
   const currencies = [...new Set(parts.flat().map((t) => t.currency))].sort()
-  return currencies.map((currency) => compareTable(currency, columns,
-    parts.map((tables) => tables.find((t) => t.currency === currency) ?? null), converted))
-    .filter((t) => t.income.lines.length + t.expense.lines.length + t.exchange.length > 0)
+  return currencies.map((currency) => {
+    const own = parts.map((tables) => tables.find((t) => t.currency === currency) ?? null)
+    const kept = columns.map((_, i) => i).filter((i) => i === 0 || hasPosted(own[i]))
+    return compareTable(currency, kept.map((i) => columns[i]), kept.map((i) => own[i]), converted)
+  }).filter((t) => t.income.lines.length + t.expense.lines.length + t.exchange.length > 0)
 }
+
+/** Whether a currency's comparison table keeps a comparison (D-685). */
+export const keeps = (table: CompareTable, role: CompareRole) => table.columns.some((c) => c.key === role)
 
 /** D-400: a total's changes, as the totals show them, the previous period's first, then the year earlier's. */
 export function totalChanges(table: CompareTable, line: CompareLine): { change: Change; label: string; good: GoodWay }[] {
@@ -768,9 +784,18 @@ export function drawable(c: Comparisons): ComparedRange[] {
     && monthsBetween(r.from, r.to).length === months)
 }
 
-/** The comparison the monthly chart draws: `compare=previous` when both can be, else the one that can (D-399). */
-export function drawnComparison(c: Comparisons, params: URLSearchParams): ComparedRange | null {
-  const can = drawable(c)
+/**
+ * D-685: the comparisons "Compare with" offers: those `drawable` allows that at least one currency's table keeps.
+ */
+export const offeredComparisons = (c: Comparisons, tables: CompareTable[]): ComparedRange[] =>
+  drawable(c).filter((r) => tables.some((t) => keeps(t, r.role)))
+
+/**
+ * The comparison the monthly chart draws: `compare=previous` when both can be, else the one that can (D-399); of
+ * `can`, the comparisons offered (D-685), all those `drawable` allows by default.
+ */
+export function drawnComparison(c: Comparisons, params: URLSearchParams, can: ComparedRange[] = drawable(c)):
+  ComparedRange | null {
   if (can.length === 0) return null
   return (params.get('compare') === 'previous' ? can.find((r) => r.role === 'previous') : undefined)
     ?? can.find((r) => r.role !== 'previous') ?? can[0]
@@ -872,4 +897,16 @@ export function yearRows(table: CashFlowTable | null, section: DayRange): YearRo
       ...(note === undefined ? {} : { note }),
     }
   })
+}
+
+/**
+ * D-686: the chart by month or by year starts at its first row with a figure: the leading rows whose income and
+ * expenses are null, and the drawn comparison's too, are left out. Later rows stay, "—" and all; MISSING is a figure.
+ */
+export function fromFirstFigure<T extends { income: Cell; expense: Cell; before?: { income: Cell; expense: Cell } }>(
+  rows: T[]): T[] {
+  const empty = (r: T) => r.income === null && r.expense === null
+    && (r.before === undefined || (r.before.income === null && r.before.expense === null))
+  const first = rows.findIndex((r) => !empty(r))
+  return first < 0 ? [] : rows.slice(first)
 }

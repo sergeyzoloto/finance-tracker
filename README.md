@@ -27,7 +27,7 @@ through a shared Keycloak server.
 - **Sign-in:** single sign-on through the shared Keycloak (realm `myapps`), for members only. The
   app has no passwords of its own, and no token ever reaches the browser.
 - **Per-user data:** users only ever see their own ledger.
-- **Demo data:** an empty ledger offers six months of invented entries in one click (see
+- **Demo data:** an empty ledger offers three years of invented entries in one click (see
   [Try the demo](#try-the-demo)).
 - **Delete all my data:** in Settings, after typing `DELETE`; the login account itself stays on the
   auth server.
@@ -40,17 +40,20 @@ through a shared Keycloak server.
 1. Open https://app.finance-nl.com once it is deployed, or a local stack (see
    [Getting started](#getting-started)), and choose **Sign in or create an account**. Keycloak's
    sign-in page has a **Register** link; production also offers Google and GitHub.
-2. A new ledger starts empty. On the dashboard, press **Load demo data**: six months of entries in
-   euros and US dollars up to today, with every kind of entry the app has — salary and rent,
-   groceries shared with a partner, a credit card paid off every month, freelance income in dollars
-   exchanged into euros, and a loan to a friend who pays part of it back.
+2. A new ledger starts empty. On the dashboard, press **Load demo data**: 36 months of entries in
+   euros and US dollars up to today, with every kind of entry the app has — salary and rent, each
+   raised once a year, groceries shared with a partner, a credit card paid off every month, a summer
+   trip every year, freelance income in dollars exchanged into euros, and a loan to a friend who
+   pays part of it back. The dashboard then opens on the past year, each month beside the same
+   month a year earlier.
 3. Look around: the dashboard in each currency or in euros at the ECB's rates, the entries, the
    accounts. Change anything.
 4. **Settings → Delete all my data** empties the ledger again, and the demo can be loaded again.
 
 The demo is invented from scratch in
 [`DemoLedger`](backend/src/main/java/com/example/financetracker/ledger/demo/DemoLedger.java): no
-real people, companies or brands. Apart from its dates it is the same every time.
+real people, companies or brands. Loaded on the same day it is the same every time; its amounts
+follow the calendar, so another day may give other amounts.
 
 ## Architecture
 

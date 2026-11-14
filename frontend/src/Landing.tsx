@@ -30,17 +30,15 @@ export default function Landing() {
           </p>
           {/* Screenshots of a local instance with the demo data, which is invented. */}
           <figure>
-            <img src={dashboardScreenshot} width={1092} height={618} alt={'The dashboard with the demo data in '
-              + 'euros, the base currency, in the app’s dark blue theme: one row of five figures, €16,984.67 held, '
-              + '€83.21 owed, a net worth of €16,901.45 with what currency exchanges and rate changes did to it, and '
-              + 'this month’s income of €15.35 and expenses of €192.23 to date, each against the same days of the '
-              + 'previous month; below it two columns. On the left, income and expenses: the choice of all, personal '
-              + 'or the family budget’s records, horizontal bars of income and expenses for the same days a year '
-              + 'earlier, empty in the demo, the previous month and this month to date, each with its amount, and '
-              + 'beside them a bar for each day’s spending this month, the days still to come drawn as empty slots, '
-              + 'the biggest day named; under it the start of the cash flow by category with each category’s share. '
-              + 'On the right, the balances of each account on today’s date, the assets and the liabilities with '
-              + 'their totals, and the start of equity.'} />
+            <img src={dashboardScreenshot} width={1092} height={599} alt={'The dashboard with the demo data in '
+              + 'euros, the base currency, in the app’s dark blue theme, on the past year: one row of five figures, '
+              + '€54,564.90 held, €30.99 owed, a net worth of €54,533.91 with what currency exchanges and rate changes '
+              + 'did to it, and the year’s income of €37,114.54 and expenses of €21,035.17, each against the year '
+              + 'before; below it two columns. On the left, income and expenses: the choice of all, personal or the '
+              + 'family budget’s records, horizontal bars of income and expenses for each of the 13 months, each with '
+              + 'its amount and a mark where the same month of the year before stood, and beside them a bar for each '
+              + 'day’s spending this month so far, the biggest day named. On the right, the balances of each account '
+              + 'on today’s date, the assets and the liabilities with their totals, and the start of equity.'} />
             <figcaption>The dashboard with the demo data, in the base currency.</figcaption>
           </figure>
         </section>
@@ -75,9 +73,9 @@ export default function Landing() {
           <figure>
             <img src={entriesScreenshot} width={1092} height={462} loading="lazy" alt={'The newest entries of the '
               + 'demo ledger, each with its date, payee, note, category, the accounts the money moved between and the '
-              + 'amount: interest, a settlement and a weekly shop in the family budget, with the payment and the '
-              + 'user’s share, a bank fee, lunch paid by credit card, a friend paying back part of a loan, a utility '
-              + 'bill and a café.'} />
+              + 'amount: a bank fee, a settlement in the family budget, dollars exchanged into euros, a weekly shop in '
+              + 'the family budget with the payment and the user’s share, lunch paid by credit card, a utility bill '
+              + 'and a café.'} />
             <figcaption>Entries, each read from its postings.</figcaption>
           </figure>
         </section>

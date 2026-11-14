@@ -3,9 +3,10 @@ import { deleteAllMyData, expect, loadDemoData, shot, test, type Session } from 
 
 // UX-11's Entries (D-522, D-524) and Categories (D-527) with A, on the demo:
 // 1. Entries' Period list holds "All time", the dashboard's Period list in its order (its "Custom" last), and "Custom".
-// 2. For filters whose matches fit on one page (the previous month, an account, a category, a payee's text), the
-//    summary row equals what the visible rows give: the count and the first and last date (the dates from the list's own
-//    answer, put in words by the test with Intl), the distinct payees and the entries without one, the distinct
+// 2. For filters whose matches fit on one page (the previous month; since UX-17 an account, a category and a payee's
+//    text within the last 3 months), the summary row equals what the visible rows give: the count and the first and
+//    last date (the dates from the list's own answer, put in words by the test with Intl), the distinct payees and the
+//    entries without one, the distinct
 //    categories and the entries without one, the distinct accounts the Accounts cells name, and per currency In, Out,
 //    Net and Transfers summed from the Amount cells. Since UX-12 also a payee by name (D-548).
 // 3. Categories: a category renamed through its pencil, archived and restored through its boxes, each found by its
@@ -25,8 +26,8 @@ test('entries: periods and the summary row; categories: icon buttons', async ({ 
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 30_000 })
 
   // 1. The Period lists.
-  // The demo opens its whole period, a custom range (D-521).
-  await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('custom')
+  // The demo opens "Past year" (D-692; its whole period, a custom range, until UX-17).
+  await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('past-year')
   const dashboard = await page.getByRole('combobox', { name: 'Period' }).locator('option').allTextContents()
   await page.goto('/entries')
   // allTextContents doesn't wait: the list first (UX-12, D-557; UX-11's run read the page before it rendered once).
@@ -48,13 +49,15 @@ test('entries: periods and the summary row; categories: icon buttons', async ({ 
   const counterparties = await api<{ id: number; name: string }[]>('/api/counterparties')
   const usd = accounts.find((x) => x.code === 'USD_ACCOUNT')!
   const groceries = categories.find((c) => c.code === 'GROCERIES')!
+  // Since UX-17 (D-689) the demo has 36 months: each filter within the last 3 months, so that it fits on one page.
+  const recent = 'period=last-3-months'
   const filters = [
     'period=previous-month',
-    `accountId=${usd.id}`,
-    `categoryId=${groceries.id}`,
-    `q=${encodeURIComponent(counterparties[0].name.slice(0, 5))}`,
+    `${recent}&accountId=${usd.id}`,
+    `${recent}&categoryId=${groceries.id}`,
+    `${recent}&q=${encodeURIComponent(counterparties[0].name.slice(0, 5))}`,
     // UX-12 (D-548): a payee by name, in other case.
-    `payee=${encodeURIComponent(counterparties[0].name.toUpperCase())}`,
+    `${recent}&payee=${encodeURIComponent(counterparties[0].name.toUpperCase())}`,
   ]
   for (const filter of filters) await expectSummaryMatchesRows(a, filter)
   await page.goto('/entries?period=previous-month')

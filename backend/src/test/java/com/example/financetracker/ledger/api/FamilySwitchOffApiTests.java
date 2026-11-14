@@ -6,10 +6,12 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
 import com.example.financetracker.Answers;
+import com.example.financetracker.TestClock;
 import com.example.financetracker.ledger.FamilyPayments;
 import com.example.financetracker.ledger.demo.DemoFamily;
 import com.example.financetracker.ledger.family.FamilySwitch;
@@ -43,6 +45,9 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
 
     @Autowired
     private PlatformTransactionManager transactions;
+
+    @Autowired
+    private TestClock clock;
 
     private final String user = newUser();
 
@@ -199,19 +204,30 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         assertThat(ok(importWorkbook(user, personalRows(), null)).get("outcome").asText()).isEqualTo("DRY_RUN");
     }
 
+    /**
+     * Without the family budget the demo is its personal ledger alone: on {@code DemoDataApiTests.DAY}, the entries and
+     * balances that DemoLedgerTests works out for that day.
+     */
     @Test
     void theDemoCreatesNoFamilyBudget() throws IOException {
-        JsonNode demo = ok(post(user, "/api/demo-data", null));
+        clock.set(DemoDataApiTests.DAY, ZoneOffset.UTC);
+        JsonNode demo;
+        try {
+            demo = ok(post(user, "/api/demo-data", null));
+        } finally {
+            clock.reset();
+        }
 
         assertThat(demo.has("familyLedgerId")).isFalse();
         int total = demo.get("entriesByKind").properties().stream().mapToInt(kind -> kind.getValue().asInt()).sum();
-        assertThat(total).isEqualTo(138);
+        assertThat(total).isEqualTo(760);
         assertThat(ok(get(user, "/api/entries?size=1")).get("totalElements").asInt()).isEqualTo(total);
-        JsonNode balances = ok(get(user, "/api/reports/balances"));
-        assertThat(find(balances, "accountCode", "CURRENT_ACCOUNT").get("balance").asText()).isEqualTo("6054.12");
-        assertThat(find(balances, "accountCode", "USD_ACCOUNT").get("balance").asText()).isEqualTo("1247.00");
-        assertThat(find(balances, "accountCode", "CREDIT_CARD").get("balance").asText()).isEqualTo("94.69");
-        assertThat(ok(get(user, "/api/reports/shared-settlement")).get(0).get("balance").asText()).isEqualTo("-88.60");
+        JsonNode balances = ok(get(user, "/api/reports/balances?asOf=2026-11-13"));
+        assertThat(find(balances, "accountCode", "CURRENT_ACCOUNT").get("balance").asText()).isEqualTo("4296.06");
+        assertThat(find(balances, "accountCode", "USD_ACCOUNT").get("balance").asText()).isEqualTo("1171.26");
+        assertThat(find(balances, "accountCode", "CREDIT_CARD").get("balance").asText()).isEqualTo("79.71");
+        assertThat(ok(get(user, "/api/reports/shared-settlement?asOf=2026-11-13")).get(0).get("balance").asText())
+                .isEqualTo("-40.09");
         JsonNode categories = ok(get(user, "/api/categories"));
         for (String code : DemoFamily.CATEGORIES) {
             assertThat(find(categories, "code", code).has("familyLedgerId")).as(code).isFalse();

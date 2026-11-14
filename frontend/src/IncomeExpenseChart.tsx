@@ -185,18 +185,23 @@ export function Line({ which, value, before, scale, room, currency, rounded }: {
   )
 }
 
-/** The pointed row's figures (D-651): the month or year with its note, then the comparison's month and the change in %. */
+/**
+ * The pointed row's figures (D-651): the month or year with its note, then the comparison's month and the change in %.
+ * D-687: a comparison month with no figure in either series is left out; a series without a figure shows "—" alone.
+ */
 function Panel({ row, behind, currency, rounded }: { row: Row; behind: string | null; currency: string; rounded: boolean }) {
   const percent = (now: Cell, before: Cell) => {
+    if (before === null) return ''
     const text = changeText(changeOf(now, before))
     return text === '' ? '' : ` (${text})`
   }
+  const compared = row.before !== undefined && (row.before.income !== null || row.before.expense !== null)
   return (
     <>
       <div className="muted">{row.label.main}{row.note && `, ${row.note}`}</div>
       <Series name="Income" amount={row.income} kind="income" currency={currency} rounded={rounded} />
       <Series name="Expenses" amount={row.expense} kind="expense" currency={currency} rounded={rounded} />
-      {behind !== null && row.before && (
+      {behind !== null && row.before && compared && (
         <>
           <div className="muted tooltip-before">{monthLabel(row.before.month)}, {behind}</div>
           <Series name={`Income${percent(row.income, row.before.income)}`} amount={row.before.income} kind="marker"

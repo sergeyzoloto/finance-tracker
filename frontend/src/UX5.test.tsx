@@ -19,6 +19,9 @@ const flows: Record<string, { income: string; groceries: string; missing?: boole
   '2025-11-01': { income: '400.00', groceries: '100.00' },
   '2025-01-01': { income: '24000.00', groceries: '5000.00' },
   '2024-01-01': { income: '20000.00', groceries: '5000.00' },
+  // The comparisons of "Last 3 months" (Sep to Nov 2026), so that both can be drawn (D-685).
+  '2025-09-01': { income: '5400.00', groceries: '1300.00' },
+  '2026-06-01': { income: '6000.00', groceries: '1350.00' },
 }
 
 let calls: string[] = []

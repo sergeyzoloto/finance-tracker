@@ -209,6 +209,10 @@ const OCTOBER_DAYS: DailyCashFlowRow[] = [
   { day: '2026-10-05', categoryCode: 'TRAVEL', categoryName: 'Travel', categoryType: 'EXPENSE', currency: 'USD', total: '20.00' },
 ]
 
+const NOVEMBER_DAYS: DailyCashFlowRow[] = [
+  { day: '2026-11-04', categoryCode: 'GROCERIES', categoryName: 'Groceries', categoryType: 'EXPENSE', currency: 'EUR', total: '12.00' },
+]
+
 /** What the api answers, and which of its loads never answer. */
 interface Stub { hang?: ('net-worth' | 'cash-flow')[]; dailyFails?: boolean; missingRate?: boolean }
 let calls: string[] = []
@@ -233,7 +237,8 @@ function stubApi({ hang = [], dailyFails = false, missingRate = false }: Stub = 
         missingRates: currency === 'USD' && missingRate ? [{ currency: 'USD', from: '2026-10-05', to: '2026-10-05', days: 1 }] : [],
       })),
     }
-    const days = october ? OCTOBER_DAYS : []
+    // A day of November's for the running month's panel, which D-686 shows only with a figure.
+    const days = october ? OCTOBER_DAYS : params.get('from') === '2026-11-01' ? NOVEMBER_DAYS : []
     const convertedDays: ConvertedDailyCashFlow = {
       currency: 'EUR',
       rows: days.map(({ currency, total, ...r }) => ({

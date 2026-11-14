@@ -23,6 +23,10 @@ const flows: Record<string, CashFlowRow[]> = {
   '2026-09-01': [row('2026-09', 'INCOME', '2000.00'), row('2026-09', 'EXPENSE', '500.00'),
     row('2026-11', 'INCOME', '2100.00'), row('2026-11', 'EXPENSE', '450.00')],
   '2025-09-01': [row('2025-09', 'INCOME', '1800.00'), row('2025-11', 'EXPENSE', '900.00')],
+  // Their previous period, so that "Compare with" offers both (D-685).
+  '2026-06-01': [row('2026-06', 'INCOME', '1900.00'), row('2026-07', 'EXPENSE', '480.00')],
+  // The 35 months' previous period, so that the table keeps it (D-685).
+  '2021-01-01': [row('2022-05', 'INCOME', '700.00')],
   // A custom range of 35 months.
   '2023-12-01': [row('2023-12', 'INCOME', '100.00'), row('2024-03', 'INCOME', '1000.00'), row('2024-03', 'EXPENSE', '250.25'),
     row('2025-07', 'EXPENSE', '40.00'), row('2026-10', 'INCOME', '9.99')],

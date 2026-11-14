@@ -6,16 +6,24 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.example.financetracker.TestClock;
 import com.example.financetracker.ledger.EntryService;
+import com.example.financetracker.ledger.demo.DemoFamily;
+import com.example.financetracker.ledger.demo.DemoLedger;
 import com.example.financetracker.ledger.domain.EntryCommand;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
@@ -23,20 +31,33 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * POST /api/demo-data: the demo ledger for a new user, in one transaction, and only into an empty ledger. The entries
  * go through {@link EntryService}, spied on here so that one test can make it fail halfway. With the family budget
  * switched on, as here, the demo also creates its family budget (H1, F6c); {@code FamilySwitchOffApiTests} checks the
- * demo without it.
+ * demo without it. The demo's amounts follow the calendar (D-690), so the tests that assert its figures load it on a
+ * fixed day, {@link #DAY}, and take the family's counts from its plan.
  */
 class DemoDataApiTests extends LedgerApiTest {
+
+    /** The day the figures below are the demo's of: 2026-11-13 in UTC, the zone of a user who has set none. */
+    static final Instant DAY = Instant.parse("2026-11-13T12:00:00Z");
 
     @MockitoSpyBean
     private EntryService entries;
 
+    @Autowired
+    private TestClock clock;
+
+    @AfterEach
+    void resetClock() {
+        clock.reset();
+    }
+
     @Test
-    void loadsSixMonthsOfEveryKindOfEntryThatPassTheIntegrityCheckAndEveryReport() throws IOException {
+    void loadsThirtySixMonthsOfEveryKindOfEntryThatPassTheIntegrityCheckAndEveryReport() throws IOException {
         String user = newUser();
         // Long before the demo starts, so that every dollar amount has a rate in the base currency.
         ok(post(user, "/api/rates/manual", """
                 {"date": "2020-01-01", "base": "EUR", "quote": "USD", "rate": "1.10"}"""));
-        LocalDate today = utcToday();
+        clock.set(DAY, ZoneOffset.UTC);
+        LocalDate today = LocalDate.of(2026, 11, 13);
 
         JsonNode demo = ok(post(user, "/api/demo-data", null));
 
@@ -45,15 +66,20 @@ class DemoDataApiTests extends LedgerApiTest {
                 "OPENING_BALANCE", "MANUAL");
         int total = demo.get("entriesByKind").properties().stream().mapToInt(kind -> kind.getValue().asInt()).sum();
         LocalDate from = LocalDate.parse(demo.get("from").asText());
-        assertThat(from.getDayOfMonth()).isOne();
-        assertThat(from).isAfter(today.minusMonths(7)).isBefore(today.minusMonths(5));
+        // D-689: 36 months, this month included, from the first of the month; the two years before this one in full.
+        assertThat(from).isEqualTo(LocalDate.of(2023, 11, 1)).isEqualTo(DemoLedger.firstDay(today));
         assertThat(demo.get("to").asText()).isEqualTo(today.toString());
-        // The ledger starts with five opening balances on its first day.
+        assertThat(total).isEqualTo(760);
+        // The ledger starts with six opening balances on its first day.
         assertThat(ok(get(user, "/api/entries?to=" + from.minusDays(1))).get("totalElements").asInt()).isZero();
         assertThat(ok(get(user, "/api/entries?to=" + from)).get("content").findValuesAsText("kind"))
-                .filteredOn("OPENING_BALANCE"::equals).hasSize(5);
-        // The demo family's entries in the personal ledger: 15 shares, 8 payments and receipts, 3 settlement sides.
-        assertThat(ok(get(user, "/api/entries?size=1")).get("totalElements").asInt()).isEqualTo(total + 26);
+                .filteredOn("OPENING_BALANCE"::equals).hasSize(6);
+        // The demo family's entries in the personal ledger: a share of every record, the user's payments and
+        // receipts, and a settlement side of each of Sam's settlements.
+        DemoFamily.Plan plan = DemoFamily.plan(from, today);
+        long yours = plan.records().stream().filter(r -> r.payer() == DemoFamily.Who.YOU).count();
+        assertThat(ok(get(user, "/api/entries?size=1")).get("totalElements").asInt())
+                .isEqualTo(total + plan.records().size() + (int) yours + plan.settlements().size());
         assertThat(ok(get(user, "/api/settings")).get("baseCurrency").asText()).isEqualTo("EUR");
         assertThat(ok(get(user, "/api/accounts")).findValuesAsText("code")).contains("CREDIT_CARD", "USD_ACCOUNT");
         assertThat(ok(get(user, "/api/counterparties")).findValuesAsText("name")).contains("Landlord", "Robin");
@@ -61,11 +87,11 @@ class DemoDataApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
         String period = "?from=%s&to=%s".formatted(demo.get("from").asText(), demo.get("to").asText());
         JsonNode balances = ok(get(user, "/api/reports/balances"));
-        // Without the demo family 6054.12 and 1247.00: the six shops (378.40) paid, the bike's 120.00 and Sam's 145.00
-        // received; the weekend's 240 dollars paid.
-        assertThat(find(balances, "accountCode", "CURRENT_ACCOUNT").get("balance").asText()).isEqualTo("5940.72");
-        assertThat(find(balances, "accountCode", "USD_ACCOUNT").get("balance").asText()).isEqualTo("1007.00");
-        assertThat(find(balances, "accountCode", "CREDIT_CARD").get("balance").asText()).isEqualTo("94.69");
+        // Without the demo family 4296.06 and 1171.26 (DemoLedgerTests): with it, the shops paid, the bike's 120.00
+        // and Sam's euros received; the weekends paid in dollars and Sam's halves received.
+        assertThat(find(balances, "accountCode", "CURRENT_ACCOUNT").get("balance").asText()).isEqualTo("1730.86");
+        assertThat(find(balances, "accountCode", "USD_ACCOUNT").get("balance").asText()).isEqualTo("807.26");
+        assertThat(find(balances, "accountCode", "CREDIT_CARD").get("balance").asText()).isEqualTo("79.71");
         assertThat(ok(get(user, "/api/reports/net-worth")).findValuesAsText("currency"))
                 .containsExactlyInAnyOrder("EUR", "USD");
         JsonNode cashFlow = ok(get(user, "/api/reports/cash-flow" + period));
@@ -76,7 +102,7 @@ class DemoDataApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/reports/counterparty-balances?accountCode=CREDITOR_DEBT"))).isEmpty();
         JsonNode settlement = ok(get(user, "/api/reports/shared-settlement"));
         assertThat(settlement.get(0).get("direction").asText()).isEqualTo("USER_IS_OWED");
-        assertThat(settlement.get(0).get("balance").asText()).isEqualTo("-88.60");
+        assertThat(settlement.get(0).get("balance").asText()).isEqualTo("-40.09");
 
         // In the base currency every figure converts, and nothing is missing.
         JsonNode netWorth = ok(get(user, "/api/reports/net-worth?currency=BASE"));
@@ -92,20 +118,23 @@ class DemoDataApiTests extends LedgerApiTest {
     }
 
     /**
-     * H1 (F6c): the demo's family budget, made through the family budget's services, is one like any other: its owner
-     * is the user under their account's name, Sam has no account, its four categories are the demo's own, merged
-     * (D-11), so no personal twin of them remains, and its records are posted into the user's ledger. The numbers: the
-     * user's shares are 461.65 and their income share 60.00; they paid 583.50 and received the bike's 120.00 and Sam's
-     * 145.00, so they owe the family 83.15, which Sam is owed. The invariants, E1's report against the balances and the
-     * integrity check hold. E3's check of the personal cash flow: the merged categories (its groceries) hold the
-     * demo's own entries too, beside the shares, which D-40 says is right and the check now expects.
+     * H1 (F6c), over the demo's 36 months (D-691): the demo's family budget, made through the family budget's
+     * services, is one like any other: its owner is the user under their account's name, Sam has no account, its four
+     * categories are the demo's own, merged (D-11), so no personal twin of them remains, and its records are posted
+     * into the user's ledger. The numbers are its plan's: what Sam owes in each currency, the user's shares and what
+     * they paid, and what Sam paid back. The invariants, E1's report against the balances and the integrity check
+     * hold. E3's check of the personal cash flow: the merged categories (its groceries) hold the demo's own entries
+     * too, beside the shares, which D-40 says is right and the check now expects.
      */
     @Test
     void theDemoFamilyIsAFamilyBudgetLikeAnyOther() throws IOException {
         String user = newUser();
+        clock.set(DAY, ZoneOffset.UTC);
+        LocalDate today = LocalDate.of(2026, 11, 13);
 
         JsonNode demo = ok(post(user, "/api/demo-data", null));
 
+        DemoFamily.Plan plan = DemoFamily.plan(LocalDate.parse(demo.get("from").asText()), today);
         long family = demo.get("familyLedgerId").asLong();
         String uri = "/api/family-ledgers/" + family;
         JsonNode budget = find(ok(get(user, "/api/family-ledgers")), "id", String.valueOf(family));
@@ -117,9 +146,9 @@ class DemoDataApiTests extends LedgerApiTest {
                 .containsExactly("User " + user, "Sam");
         assertThat(ok(get(user, uri + "/members")).findValuesAsText("hasAccount")).containsExactly("true", "false");
         JsonNode records = ok(get(user, uri + "/records?size=200"));
-        assertThat(records.get("totalElements").asInt()).isEqualTo(18);
+        assertThat(records.get("totalElements").asInt()).isEqualTo(plan.records().size() + plan.settlements().size());
         assertThat(records.get("content").findValuesAsText("type")).containsOnly("EXPENSE", "INCOME", "SETTLEMENT");
-        // The weekend away stays in dollars (D-45).
+        // The weekends away stay in dollars (D-45).
         assertThat(records.get("content").findValuesAsText("currency")).contains("EUR", "USD");
         JsonNode categories = ok(get(user, "/api/categories"));
         for (String code : List.of("GROCERIES", "OTHER_INCOME", "TRAVEL", "UTILITIES")) {
@@ -128,23 +157,34 @@ class DemoDataApiTests extends LedgerApiTest {
         }
         JsonNode balances = ok(get(user, uri + "/balances"));
         assertThat(balances.get("byCurrency").findValuesAsText("currency")).containsExactly("EUR", "USD");
-        assertThat(balances.get("byCurrency").get(0).get("members").findValuesAsText("balance"))
-                .containsExactly("185.70", "-185.70");
-        // Sam owes half the weekend's 240.00 dollars, which no settlement in euros repays (D-46).
-        assertThat(balances.get("byCurrency").get(1).get("members").findValuesAsText("balance"))
-                .containsExactly("-120.00", "120.00");
+        // What Sam owes in euros the user is owed; the dollars of the weekends Sam pays back in dollars (D-46).
+        BigDecimal samsEuros = DemoFamily.owed(plan.records(), plan.settlements(), today, "EUR");
+        BigDecimal samsDollars = DemoFamily.owed(plan.records(), plan.settlements(), today, "USD");
+        assertThat(balances.get("byCurrency").get(0).get("members").findValuesAsText("balance").stream()
+                .map(BigDecimal::new).toList())
+                .usingElementComparator(BigDecimal::compareTo).containsExactly(samsEuros.negate(), samsEuros);
+        assertThat(balances.get("byCurrency").get(1).get("members").findValuesAsText("balance").stream()
+                .map(BigDecimal::new).toList())
+                .usingElementComparator(BigDecimal::compareTo).containsExactly(samsDollars.negate(), samsDollars);
 
         FamilyInvariants.check(jdbc, family);
         JsonNode report = checkFamilyReport(user, family, Map.of(user, LocalDate.parse(demo.get("from").asText())));
         JsonNode euros = report.get("byCurrency").get(0);
         assertThat(euros.get("currency").asText()).isEqualTo("EUR");
-        assertThat(euros.get("totals").get(0).get("expenseShares").asText()).isEqualTo("359.10");
-        assertThat(euros.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("378.40");
-        assertThat(euros.get("totals").get(1).get("settlementsPaid").asText()).isEqualTo("145.00");
+        assertThat(new BigDecimal(euros.get("totals").get(0).get("expenseShares").asText()))
+                .isEqualByComparingTo(yourShares(plan, "EUR"));
+        assertThat(new BigDecimal(euros.get("totals").get(0).get("expensesPaid").asText()))
+                .isEqualByComparingTo(yourPayments(plan, "EUR"));
+        assertThat(new BigDecimal(euros.get("totals").get(1).get("settlementsPaid").asText()))
+                .isEqualByComparingTo(settled(plan, "EUR"));
         JsonNode dollars = report.get("byCurrency").get(1);
         assertThat(dollars.get("currency").asText()).isEqualTo("USD");
-        assertThat(dollars.get("totals").get(0).get("expenseShares").asText()).isEqualTo("120.00");
-        assertThat(dollars.get("totals").get(0).get("expensesPaid").asText()).isEqualTo("240.00");
+        assertThat(new BigDecimal(dollars.get("totals").get(0).get("expenseShares").asText()))
+                .isEqualByComparingTo(yourShares(plan, "USD"));
+        assertThat(new BigDecimal(dollars.get("totals").get(0).get("expensesPaid").asText()))
+                .isEqualByComparingTo(yourPayments(plan, "USD"));
+        assertThat(new BigDecimal(dollars.get("totals").get(1).get("settlementsPaid").asText()))
+                .isEqualByComparingTo(settled(plan, "USD"));
         assertThat(ok(get(user, "/api/reports/integrity"))).isEmpty();
     }
 
@@ -229,5 +269,24 @@ class DemoDataApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/categories"))).isEqualTo(categories);
         assertThat(ok(get(user, "/api/counterparties"))).isEmpty();
         assertThat(ok(get(user, "/api/settings")).get("baseCurrency").asText()).isEqualTo("GBP");
+    }
+
+    /** The user's shares of the plan's expenses in the currency: half, or 60 % of the party's food. */
+    private static BigDecimal yourShares(DemoFamily.Plan plan, String currency) {
+        return plan.records().stream().filter(r -> r.type().equals("EXPENSE") && r.currency().equals(currency))
+                .map(r -> r.amountValue().multiply(BigDecimal.valueOf(r.yourBasisPoints() == null ? 5000
+                        : r.yourBasisPoints())).movePointLeft(4))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static BigDecimal yourPayments(DemoFamily.Plan plan, String currency) {
+        return plan.records().stream().filter(r -> r.type().equals("EXPENSE") && r.currency().equals(currency)
+                && r.payer() == DemoFamily.Who.YOU).map(DemoFamily.Record::amountValue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static BigDecimal settled(DemoFamily.Plan plan, String currency) {
+        return plan.settlements().stream().filter(st -> st.currency().equals(currency))
+                .map(DemoFamily.Settlement::amountValue).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }

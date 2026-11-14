@@ -167,7 +167,12 @@ function stubApi({ rates = [USD_RATE, RUB_RATE] }: { rates?: Rate[] } = {}) {
       '/api/reports/shared-settlement': [],
       '/api/reports/counterparty-balances': [],
       '/api/reports/cash-flow': inBase ? converted : rows,
-      '/api/reports/daily-cash-flow': inBase ? { currency: 'EUR', rows: [] } : [],
+      // A day of spending, so that daily spending is shown (D-686).
+      '/api/reports/daily-cash-flow': inBase
+        ? { currency: 'EUR', rows: [{ day: '2026-10-03', categoryCode: 'GROCERIES', categoryName: 'Groceries',
+          categoryType: 'EXPENSE', total: '50.00', missingRates: [] }] }
+        : [{ day: '2026-10-03', categoryCode: 'GROCERIES', categoryName: 'Groceries', categoryType: 'EXPENSE',
+          currency: 'EUR', total: '50.00' }],
     }
     const body = bodies[path]
     return new Response(JSON.stringify(body ?? { status: 404 }), {

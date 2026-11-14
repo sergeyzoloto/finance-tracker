@@ -7,14 +7,14 @@ import {
 } from './api'
 import CashFlowTable from './CashFlowTable'
 import { Amounts, Errors, Loading, ToggleGroup } from './components'
-import { dailyRange, type DailyRange, type DailyRow } from './daily'
+import { dailyRange, hasDailyFigure, type DailyRange, type DailyRow } from './daily'
 import DailySpending from './DailySpending'
 import {
   balancesDay, baseEquitySplit, belowMinorUnit, cashFlowTables, changeText, chartByMonth, chartByYear, compareColumns, comparisons,
-  compareTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawable, drawnComparison, effectOf, equitySplits,
+  compareTables, convertedCashFlowTable, debtSides, DEFAULT_PRESET, drawnComparison, effectOf, equitySplits, fromFirstFigure, keeps,
   familyDebts,
   inBaseFromQuery, isFamilyScope, isReserveEquity, listedInBalances, LOAN_ACCOUNTS, loanSides, mergeMissing, MISSING,
-  missingDays, monthPairs, monthsBetween, needsLatestEntry, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
+  missingDays, monthPairs, monthsBetween, needsLatestEntry, offeredComparisons, PERIOD_LABELS, periodFromQuery, PRESETS, rangeBars, RECORDS, RECORDS_LABELS,
   recordsOf, resultRange, scopeFromQuery, scopeParams, showOf, showOptions, showsOwnCurrencies, totalChanges,
   rateSourceText, rateText, withRecords, withShow, yearRows,
   type CashFlowTable as Table, type Cell, type ComparedRange, type CompareTable, type Comparisons, type DayRange,
@@ -30,7 +30,7 @@ import IncomeExpenseChart, { type ChartData } from './IncomeExpenseChart'
 
 /**
  * The home page. A ledger without any entry gets the choice of the demo data or a start from scratch; once the demo
- * is loaded, the dashboard shows its whole period.
+ * is loaded, the dashboard shows "Past year" (D-692): 13 months, each with the year before's marker.
  *
  * @param familyOn whether the family budget is switched on (D-25): the demo then comes with its family budget (H1)
  * @param families the user's family budgets, for the scopes of income and expenses (D-302); undefined while they load
@@ -50,7 +50,7 @@ export default function Dashboard({ familyOn = false, families, onFamilyCreated 
       <EmptyLedger deleted={deleted} familyOn={familyOn} onLoaded={(demo) => {
         setDemoLoaded(true)
         if (demo.familyLedgerId !== undefined) onFamilyCreated?.()
-        navigate(`/?from=${demo.from}&to=${demo.to}`)
+        navigate('/?period=past-year')
       }} />
     )
   }
@@ -421,15 +421,29 @@ function Flows({ compared, period, state, params, onCompare, daily, today }: {
   // D-399: by range under 3 calendar months, by month from 3; D-652: by calendar year over 24, with no comparison.
   const byYear = chartByYear(shown)
   const byMonth = !byYear && chartByMonth(shown)
-  const drawn = byMonth ? drawnComparison(shown, params) : null
-  const choices = byMonth ? drawable(shown) : []
-  const chart = (table: CompareTable): ChartData => {
+  // D-685: "Compare with" offers only what at least one currency's table keeps.
+  const choices = byMonth ? offeredComparisons(shown, tables) : []
+  const drawn = byMonth ? drawnComparison(shown, params, choices) : null
+  // Each currency's chart; null where it has no row left (D-686).
+  const chart = (table: CompareTable): ChartData | null => {
     const own = period.data!.find((t) => t.currency === table.currency) ?? null
-    if (byYear) return { form: 'years', years: yearRows(own, compared.section) }
+    if (byYear) {
+      const years = fromFirstFigure(yearRows(own, compared.section))
+      return years.length === 0 ? null : { form: 'years', years }
+    }
     if (!byMonth) return { form: 'ranges', bars: rangeBars(table) }
-    const i = drawn === null ? -1 : kept.findIndex(({ range }) => range.role === drawn.role)
+    // A currency whose table leaves the drawn comparison out gets no marker and no marker in its legend (D-685).
+    const marked = drawn !== null && keeps(table, drawn.role) ? drawn : null
+    const i = marked === null ? -1 : kept.findIndex(({ range }) => range.role === marked.role)
     const before = i < 0 ? null : kept[i].load.data!.find((t) => t.currency === table.currency) ?? null
-    return { form: 'months', months: monthPairs(own, compared.section, before, drawn), role: drawn?.role ?? null }
+    const months = fromFirstFigure(monthPairs(own, compared.section, before, marked))
+    return months.length === 0 ? null : { form: 'months', months, role: marked?.role ?? null }
+  }
+  // D-686: daily spending only for a currency with a figure on one of its days; shown while it loads or fails.
+  const dailyOf = (currency: string) => {
+    if (daily === null) return null
+    const rows = daily.load.data?.filter((r) => r.currency === currency)
+    return rows !== undefined && !daily.load.error && !hasDailyFigure(rows, daily.range, today) ? null : rows
   }
   return (
     <div className={stale ? 'stale' : undefined}>
@@ -440,20 +454,29 @@ function Flows({ compared, period, state, params, onCompare, daily, today }: {
             <ToggleGroup label="Compare with" value={drawn?.role === 'previous' ? 'previous' : 'year'} onChange={onCompare}
               options={[{ value: 'year', label: 'A year earlier' }, { value: 'previous', label: 'Previous period' }]} />
           )}
-          {tables.map((table) => (
-            // D-571, D-594: daily spending beside each currency's chart while the card is at least 40rem wide, under it otherwise.
-            <div key={table.currency} className="chart-row">
-              <figure className="chart" aria-label={`Income and expenses in ${table.currency}`}>
-                {tables.length > 1 && <figcaption>{table.currency}</figcaption>}
-                <IncomeExpenseChart data={chart(table)} currency={table.currency} rounded={table.converted} />
-              </figure>
-              {daily !== null && (
-                <DailySpending range={daily.range} currency={table.currency} rounded={table.converted} today={today}
-                  rows={daily.load.data?.filter((r) => r.currency === table.currency)} error={daily.load.error}
-                  loading={daily.load.loading} budgetsNamed={familyBudgetsOf(table).size > 1} />
-              )}
-            </div>
-          ))}
+          {tables.map((table) => {
+            const data = chart(table)
+            const rows = dailyOf(table.currency)
+            const withDaily = daily !== null && rows !== null
+            if (data === null && !withDaily) return null
+            return (
+              // D-571, D-594: daily spending beside each currency's chart while the card is at least 40rem wide, under
+              // it otherwise; without it, the chart takes the row's whole width (D-686).
+              <div key={table.currency} className={`chart-row${withDaily ? '' : ' solo'}`}>
+                {data !== null && (
+                  <figure className="chart" aria-label={`Income and expenses in ${table.currency}`}>
+                    {tables.length > 1 && <figcaption>{table.currency}</figcaption>}
+                    <IncomeExpenseChart data={data} currency={table.currency} rounded={table.converted} />
+                  </figure>
+                )}
+                {withDaily && (
+                  <DailySpending range={daily.range} currency={table.currency} rounded={table.converted} today={today}
+                    rows={rows} error={daily.load.error}
+                    loading={daily.load.loading} budgetsNamed={familyBudgetsOf(table).size > 1} />
+                )}
+              </div>
+            )
+          })}
         </>
       )}
     </div>

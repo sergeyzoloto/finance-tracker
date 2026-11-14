@@ -91,10 +91,14 @@ describe('the comparison table', () => {
     expect(change('Salary', 1)!.className).not.toMatch(/better|worse/)
   })
 
-  it('keeps each currency in its own table, every column in it', () => {
+  it('keeps each currency in its own table, without the comparisons that have nothing in it (D-685)', () => {
     renderTables()
     expect(screen.getAllByRole('table').map((t) => t.getAttribute('aria-label'))).toEqual(['Cash flow in EUR', 'Cash flow in RUB'])
-    expect(cells('RUB', 'Groceries')).toEqual([rub('3114.50'), '100.0%', '—', '—', '—', '—'])
+    // Neither comparison has roubles: their columns go, in RUB only; EUR keeps both.
+    expect(within(table('RUB')).getAllByRole('columnheader').map((th) => th.textContent))
+      .toEqual(['RUB', 'Period Oct 2026', 'Share %'])
+    expect(cells('RUB', 'Groceries')).toEqual([rub('3114.50'), '100.0%'])
+    expect(within(table('EUR')).getAllByRole('columnheader')).toHaveLength(7)
   })
 
   it('in the base currency marks a missing figure and leaves its % empty; exchange lines have no %', () => {

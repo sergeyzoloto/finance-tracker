@@ -191,7 +191,8 @@ public class DemoLedgerService {
         }
         for (DemoFamily.Settlement settlement : plan.settlements()) {
             familyRecords.settle(owner, personalLedger, new NewSettlement(settlement.date(), settlement.amountValue(),
-                    partner, me, settlement.comment(), accounts.get(settlement.account()), false, null, null, null));
+                    partner, me, settlement.comment(), accounts.get(settlement.account()), false,
+                    settlement.currency(), null, null));
         }
         return created.id();
     }

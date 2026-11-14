@@ -3,6 +3,7 @@ package com.example.financetracker.ledger.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,7 +20,7 @@ import org.springframework.http.HttpStatus;
  * and Kid's groceries of 12.00, each split equally among the three. Mum has a rate of 1.25 USD per euro; Dad has none.
  * <p>
  * Each day's rows, the days against the cash flow in every scope and both shapes, a refund's day, a missing rate, the
- * family budget filter and the refusals; and the demo's six months, in both shapes.
+ * family budget filter and the refusals; and the demo's 36 months, in both shapes.
  */
 class DailyCashFlowApiTests extends FamilyApiTest {
 
@@ -165,7 +166,10 @@ class DailyCashFlowApiTests extends FamilyApiTest {
         assertThat(rows(alice, "&scope=FAMILY&familyLedgerId=" + family)).isEqualTo(rows(alice, "&scope=FAMILY"));
     }
 
-    /** The demo's six months in EUR and USD with its family budget: the days against the months in both shapes. */
+    /**
+     * The demo's 36 months in EUR and USD with its family budget (D-689): the days against the months in both shapes,
+     * a calendar year at a time, since the daily report takes at most 366 days.
+     */
     @Test
     void theDemosDaysAddUpToItsMonths() throws IOException {
         String user = newUser();
@@ -173,16 +177,22 @@ class DailyCashFlowApiTests extends FamilyApiTest {
         ok(post(user, "/api/rates/manual", """
                 {"date": "2020-01-01", "base": "EUR", "quote": "USD", "rate": "1.10"}"""));
         JsonNode demo = ok(post(user, "/api/demo-data", null));
-        String from = demo.get("from").asText();
-        String to = demo.get("to").asText();
-        for (String scope : List.of("", "&scope=PERSONAL", "&scope=FAMILY", "&scope=FAMILY_MINE",
-                "&scope=FAMILY_OTHERS")) {
-            assertThat(checkDailyCashFlow(user, from, to, scope)).as(scope).isPositive();
+        LocalDate first = LocalDate.parse(demo.get("from").asText());
+        LocalDate last = LocalDate.parse(demo.get("to").asText());
+        for (int year = first.getYear(); year <= last.getYear(); year++) {
+            String from = (year == first.getYear() ? first : LocalDate.of(year, 1, 1)).toString();
+            String to = (year == last.getYear() ? last : LocalDate.of(year, 12, 31)).toString();
+            for (String scope : List.of("", "&scope=PERSONAL", "&scope=FAMILY", "&scope=FAMILY_MINE",
+                    "&scope=FAMILY_OTHERS")) {
+                assertThat(checkDailyCashFlow(user, from, to, scope)).as("%s to %s %s", from, to, scope)
+                        .isPositive();
+            }
+            JsonNode inBase = ok(get(user, "/api/reports/daily-cash-flow?from=%s&to=%s&currency=BASE"
+                    .formatted(from, to)));
+            assertThat(inBase.get("rows").findValues("total")).isNotEmpty().noneMatch(JsonNode::isNull);
+            assertThat(inBase.get("rows").findValuesAsText("day")).allMatch(day -> day.compareTo(from) >= 0
+                    && day.compareTo(to) <= 0);
         }
-        JsonNode inBase = ok(get(user, "/api/reports/daily-cash-flow?from=%s&to=%s&currency=BASE".formatted(from, to)));
-        assertThat(inBase.get("rows").findValues("total")).isNotEmpty().noneMatch(JsonNode::isNull);
-        assertThat(inBase.get("rows").findValuesAsText("day")).allMatch(day -> day.compareTo(from) >= 0
-                && day.compareTo(to) <= 0);
     }
 
     /** The user's September daily rows as "day CODE CURRENCY total", in the report's order. */

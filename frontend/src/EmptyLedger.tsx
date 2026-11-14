@@ -24,15 +24,15 @@ export default function EmptyLedger({ onLoaded, deleted = false, familyOn = fals
         <section className="card choice">
           <h3>Load demo data</h3>
           <p>
-            Fills your ledger with six months of invented entries in euros and US dollars, up to today — salary, rent,
-            groceries shared with a partner, a loan to a friend, a currency exchange and more — which you can delete
-            again in Settings.
+            Fills your ledger with three years of invented entries in euros and US dollars, up to today — salary,
+            rent, groceries shared with a partner, a summer trip each year, a loan to a friend, currency exchanges and
+            more — which you can delete again in Settings.
           </p>
           {familyOn && (
             <p>
               It also creates the family budget “Demo household”, which you share with Sam, an invented partner without
-              an account: six months of groceries, bills, a weekend away, the sale of an old bike and Sam paying you
-              back.
+              an account: three years of groceries, bills, a weekend away each summer, the sale of an old bike and Sam
+              paying you back.
             </p>
           )}
           <button type="button" className="primary" onClick={() => void load()} disabled={demo.pending}>

@@ -3,6 +3,68 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · UX-17: comparisons and charts with nothing in them left out; a demo of 36 months
+
+One commit on `feature/family-budget` on top of `ae75d41` (UX-16-doc), the commit of this entry, "feat: the dashboard
+leaves out what has nothing posted, a demo of 36 months, D-684 to D-708 (UX-17)";
+**not pushed**, `main` not moved. Backend (the demo) and frontend, no migration, no API's shape; production read only,
+the server not touched, `e2e:prod` never run.
+
+**Changes**
+- The dashboard (D-684 to D-687, D-695, D-696): `dashboard.ts`'s `compareTables` leaves out, in each currency, a
+  comparison with nothing posted in it (`hasPosted`), so its columns in "Cash flow by category", its row by range and
+  its changes in the strip go there only; `keeps`, `offeredComparisons` and `drawnComparison`'s offered list for
+  "Compare with" and the markers; `fromFirstFigure` trims the leading empty months and years; `daily.hasDailyFigure`.
+  `Dashboard.tsx`'s `Flows`: no chart without a row, no daily spending without a figure (`.chart-row.solo`, the chart
+  the whole row, `index.css`), no row for a currency with neither; after "Load demo data" `/?period=past-year` (D-692).
+  `IncomeExpenseChart.tsx`'s hover panel: no comparison part for a comparison month without a figure, "—" with no
+  "(—)" for a series without one (D-687).
+- The demo (D-688 to D-691, D-697 to D-700): `DemoLedger` of 36 months (`MONTHS`, `firstDay`), six opening balances,
+  the account fee on the load day, the yearly entries on calendar days, the levels counted back from the load day, the
+  card's bill, savings, cash, the partner's share, the interest and the dollar exchanges worked out from the balances;
+  `DemoFamily` over the same months, yearly party and weekend, Sam's settlements every third month in euros and each
+  September in dollars (`Settlement.currency`, `owed`); `DemoLedgerService` passes the settlement's currency;
+  `DemoController`'s Javadoc.
+- Texts and images (D-693, D-703): `EmptyLedger.tsx`'s two paragraphs, `api.ts`'s comment, the README's demo,
+  `Landing.tsx`'s two alt texts and the dashboard image's height (599); `src/assets/demo-dashboard.webp` (1092 × 599,
+  "Past year") and `demo-entries.webp` (1092 × 462) retaken.
+- Tests: `DemoLedgerTests` and `DemoFamilyTests` rewritten for D-689 to D-691 over every load day of 2026 to 2029;
+  `DemoDataApiTests` and `FamilySwitchOffApiTests.theDemoCreatesNoFamilyBudget` on a pinned day (2026-11-13), the
+  family's figures from the plan; `DailyCashFlowApiTests` by calendar year; `UserTimeZoneApiTests`' start date
+  (D-701). Frontend: `UX17.test.tsx` (15 tests); `compare.test.ts`, `CashFlowTable.test.tsx`, `UX5`, `UX13`, `UX14`,
+  `UX16` and `FamilyF6c` updated for D-685, D-686 and D-692. e2e: `14-demo.spec.ts` new; `11-entries` changed ("Past
+  year", the filters within "Last 3 months"); none deleted (D-702).
+- `deploy/checks/UX-17.sql` and `UX-17.expected` (UX-16's 12 lines, D-707); `deploy/RUNBOOK.md`: "UX-17's deploy
+  checklist with the suite".
+- `requirements.md`: D-684 to D-694, D-695 to D-708, the "Amended" line, D-393, D-399, D-521, D-569, D-571 and D-651
+  marked amended, UX-17 in "Planned stages", D-678's second item closed. CLAUDE.md: the demo's, the dashboard's and the
+  tests' lines.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: exit 0, `Tests run: 686, Failures: 0, Errors: 0, Skipped: 0`, `BUILD
+  SUCCESS`.
+- `cd frontend && npm test`: exit 0, `Test Files 54 passed (54)`, `Tests 761 passed (761)`, no Errors line;
+  `npm run build`: exit 0. No `package.json` or lock changed, so D-669's clean copy wasn't needed.
+- `cd e2e && npm run e2e:local` (`E2E_FAMILY=on`): exit 0, `Result: PASSED`, every spec passed at both widths, `demo`
+  10.8 s and 12.5 s at 375 px, `new-family` passed locally, both accounts' data deleted and signed out, 0 password
+  hits; 687 s against 583 s before UX-17 (the same stack, the same run without the change). Then `npm run test:guards`,
+  alone: exit 0, `tests 39`, `pass 39`, `fail 0` (its first run failed on a comment of `14-demo` naming the demo's
+  button, D-586's guard; the comment reworded, the spec otherwise as the suite ran it).
+- The demo's load, `POST /api/demo-data` on the dev stack: 1017, 1257 and 872 ms before; 7044, 5095 and 5023 ms after
+  (D-706), 760 entries and 94 family records on 2026-11-13.
+- `deploy/checks/UX-17.sql` run read only (`PGOPTIONS=-c default_transaction_read_only=on`) on the dev stack's
+  database at V17: its 12 lines equal `UX-17.expected`.
+- The screens: `data/private/ui/UX-17/` (24 screenshots and the landing images, with `index.md`; not tracked),
+  reviewed: "Past year" after the load, a dollar table without "Previous period", the hover panel without an empty
+  comparison month.
+- Not run: anything against production (`e2e:prod` is the owner's, in the checklist).
+
+**Open**
+- The PM's review; the owner to confirm D-692 (it amends his D-521).
+- The deploy, by "UX-17's deploy checklist with the suite"; the demo's load on production's host is untimed (5 to 7 s
+  on the laptop).
+- D-678's first item (a value after a marker past its bar) and the rest of "Later".
+
 ## 2026-11-13 · UX-16-doc: UX-16's deploy recorded, two follow-ups in Later
 
 One commit on `feature/family-budget` on top of `28c0cee` (UX-16's second commit), the commit of this entry, "docs:

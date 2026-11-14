@@ -125,3 +125,10 @@ export function dayMarks(range: DayRange, today: string): { day: string; label: 
   return [mark(range.from), ...(running && today !== range.from ? [mark(today)] : []),
     ...(range.to !== range.from ? [mark(range.to)] : [])]
 }
+
+/**
+ * D-686: whether any shown day up to today has a figure in the rows (spending, a refund, or a day without a rate);
+ * daily spending isn't shown for a currency without one, nor before its first day is asked.
+ */
+export const hasDailyFigure = (rows: DailyRow[], range: DayRange, today: string) =>
+  dailySpending(rows, range, today).slots.some((slot) => !slot.future && slot.amount !== null)

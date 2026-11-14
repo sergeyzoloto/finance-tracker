@@ -424,6 +424,8 @@ figure.chart figcaption { font-weight: 600; color: var(--muted); }
 .chart-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 @container (min-width: 40rem) {
   .chart-row { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+  /* D-686: without daily spending the chart takes the row's whole width. */
+  .chart-row.solo { grid-template-columns: minmax(0, 1fr); }
 }
 .daily { min-width: 0; }
 .flows .daily h4 { margin: 0 0 0.5rem; }

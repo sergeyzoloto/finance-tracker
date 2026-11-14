@@ -187,9 +187,9 @@ class UserTimeZoneApiTests extends FamilyApiTest {
             assertThat(demo.get("to").asText()).as(String.valueOf(c[0])).isEqualTo(c[1]);
             JsonNode newest = ok(get(user, "/api/entries?size=1")).get("content").get(0);
             assertThat(LocalDate.parse(newest.get("entryDate").asText())).isBeforeOrEqualTo(LocalDate.parse(c[1]));
-            // The demo's family budget starts in the user's zone too, six months back from its last day.
+            // The demo's family budget starts in the user's zone too, on the demo's first day, 36 months back (D-689).
             assertThat(ok(get(user, "/api/family-ledgers/" + demo.get("familyLedgerId").asLong())).get("startDate")
-                    .asText()).startsWith("2026-04-0");
+                    .asText()).isEqualTo(demo.get("from").asText()).isEqualTo("2023-10-01");
         }
     }
 

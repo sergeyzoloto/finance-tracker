@@ -236,9 +236,11 @@ describe('the comparison table (D-393)', () => {
       ['Groceries', ['200', null, '250']], ['Rent', [null, '500', null]]])
     expect(eur.expense.subtotal.amounts).toEqual(['200', '500', '250'])
     expect(eur.net.amounts).toEqual(['800', '400', '-250'])
-    // Each currency on its own, every column in it.
-    expect(usd.expense.subtotal.amounts).toEqual(['10', null, null])
-    expect(usd.income.subtotal.amounts).toEqual([null, null, null])
+    // Each currency on its own; D-685: neither comparison has dollars, so only the period's column is left in USD.
+    expect(usd.columns.map((col) => col.key)).toEqual(['period'])
+    expect(usd.expense.subtotal.amounts).toEqual(['10'])
+    expect(usd.income.subtotal.amounts).toEqual([null])
+    expect(eur.columns.map((col) => col.key)).toEqual(['period', 'year', 'previous'])
   })
 
   it('gives the totals’ changes, the previous period’s first (D-400)', () => {

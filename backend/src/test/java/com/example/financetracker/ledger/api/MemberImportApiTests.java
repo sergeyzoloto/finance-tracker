@@ -428,6 +428,46 @@ class MemberImportApiTests extends MemberImportApiTest {
         assertThat(report.get("member").get("benefitMonths").get(0).get("differs").asBoolean()).isTrue();
     }
 
+    /**
+     * D-767: a file that starts after his join date compares no month before its first row date. His file from
+     * 2 March 2024 holds neither row 105 nor any row of February, where the owner's income of 7 February gives him a
+     * share of 50.00: no February month, no benefit warning.
+     */
+    @Test
+    void aFileStartingMidHistoryComparesNoMonthBeforeIt() throws IOException {
+        ownersFirstImport();
+        claim();
+        byte[] fromMarch = withoutRows(his(), Set.of("101", "102", "103", "104", "105", "106", "107", "108", "110",
+                "111", "112", "114", "115", "116"));
+        JsonNode report = ok(memberImport(fromMarch, null, null));
+        assertThat(report.get("member").get("benefitMonths")).isEmpty();
+        assertThat(report.get("warnings").findValuesAsText("message"))
+                .noneMatch(message -> message.startsWith("benefit rows"));
+    }
+
+    /**
+     * D-767's first month: a file that starts within a month compares it from its first row date on both sides. From
+     * 9 February his benefit row of the 7th is gone and so is the owner's income of the 7th: nothing to compare, where
+     * the whole month would give 0.00 against 50.00. From the 7th itself, the day counts, and 49 still differs.
+     */
+    @Test
+    void aFileStartingWithinAMonthComparesItFromItsFirstDay() throws IOException {
+        ownersFirstImport();
+        claim();
+        Set<String> beforeThe9th = Set.of("101", "102", "103", "104", "105", "114");
+        JsonNode fromThe9th = ok(memberImport(withoutRows(his(), beforeThe9th), null, null));
+        assertThat(fromThe9th.get("member").get("benefitMonths")).isEmpty();
+        assertThat(fromThe9th.get("warnings").findValuesAsText("message"))
+                .noneMatch(message -> message.startsWith("benefit rows"));
+
+        Set<String> beforeThe7th = Set.of("101", "102", "103", "104", "114");
+        JsonNode fromThe7th = ok(memberImport(withField(withoutRows(his(), beforeThe7th), "105", 3, "49"), null,
+                null));
+        assertThat(fromThe7th.get("warnings").findValuesAsText("message")).contains(
+                "benefit rows of 2024-02 in EUR: 49.00, your shares of the family incomes the other members received: "
+                        + "50.00");
+    }
+
     /** D-178: an owner's settlement that none of his rows matches is a warning. */
     @Test
     void anOwnersSettlementWithoutHisSideIsAWarning() throws IOException {

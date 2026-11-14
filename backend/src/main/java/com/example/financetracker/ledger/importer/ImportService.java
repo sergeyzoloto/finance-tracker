@@ -1712,7 +1712,10 @@ public class ImportService {
             memberSettlements(file, settlementRows, conversionRows, joinDate);
             LocalDate cutoff = transactionRows.rows().stream().map(TransactionRow::date).max(LocalDate::compareTo)
                     .orElse(null);
-            memberBenefits(benefits, joinDate, cutoff);
+            LocalDate firstRowDate = transactionRows.rows().stream().map(TransactionRow::date)
+                    .min(LocalDate::compareTo).orElse(null);
+            memberBenefits(benefits, firstRowDate == null || firstRowDate.isBefore(joinDate) ? joinDate : firstRowDate,
+                    cutoff);
             appRows(appFileRows);
             String deferred = deferredConstraintsFail(personal);
             if (deferred != null) {
@@ -2318,10 +2321,12 @@ public class ImportService {
         }
 
         /**
-         * D-179: per month and currency from his join date, his benefit rows against his shares of the family incomes
-         * the other members received; each month that differs by more than 0.01 is a warning with both sums.
+         * D-179: per month and currency from {@code from}, his benefit rows against his shares of the family incomes
+         * the other members received; each month that differs by more than 0.01 is a warning with both sums. Since
+         * D-767 {@code from} is the later of his join date and the file's first row date (D-256's period rule), and a
+         * first month the file starts within is compared from that day on both sides, never from its first day.
          */
-        private void memberBenefits(List<MemberPlanner.Benefit> benefits, LocalDate joinDate, LocalDate cutoff) {
+        private void memberBenefits(List<MemberPlanner.Benefit> benefits, LocalDate from, LocalDate cutoff) {
             record Month(LocalDate first, String currency) {
             }
             Map<Month, BigDecimal> rows = new TreeMap<>(Comparator.comparing(Month::first)
@@ -2329,7 +2334,7 @@ public class ImportService {
             Map<Month, Integer> counts = new HashMap<>();
             memberTally.benefitRows = benefits.size();
             for (MemberPlanner.Benefit benefit : benefits) {
-                if (benefit.row().date().isBefore(joinDate)) {
+                if (benefit.row().date().isBefore(from)) {
                     continue;
                 }
                 Month month = new Month(benefit.row().date().withDayOfMonth(1), benefit.currency());
@@ -2338,7 +2343,7 @@ public class ImportService {
             }
             Map<Month, BigDecimal> shares = new HashMap<>();
             if (cutoff != null) {
-                incomeShares(family.scope(), family.target().ownerMemberId(), joinDate, cutoff).forEach(share -> {
+                incomeShares(family.scope(), family.target().ownerMemberId(), from, cutoff).forEach(share -> {
                     Month month = new Month(share.month(), share.currency());
                     shares.merge(month, share.amount(), BigDecimal::add);
                     rows.putIfAbsent(month, BigDecimal.ZERO);

@@ -3,6 +3,38 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · IMP-1: the benefit check takes the file's period
+
+One commit on `feature/family-budget` on top of `056ee81` (IMP-1-doc), the commit of this entry, "fix: the benefit
+check takes the file's period, D-767 to D-769 (IMP-1)". **Not pushed**; `main` not moved. No deploy yet: production stays at `388c90a`
+until the checklist below runs.
+
+**Changes**
+- `ImportService.memberBenefits` (D-767): a member's benefit months are compared from the later of his join date and
+  his file's first row date (D-771), up to the cutoff; a first month the file starts within is compared from that day
+  on both sides (D-770). Nothing else of the import changes.
+- `MemberImportApiTests`: `aFileStartingMidHistoryComparesNoMonthBeforeIt` and
+  `aFileStartingWithinAMonthComparesItFromItsFirstDay`; `aBenefitMonthThatDiffersIsAWarning` (a whole file) unchanged.
+- `deploy/checks/IMP-1.sql` and `IMP-1.expected`: UX-17's 12 lines, no count (D-768, D-772).
+- `deploy/RUNBOOK.md`: "IMP-1's deploy checklist with the suite", `verify IMP-1`, rollback target `388c90a`, no step 12.
+- `docs/family-budget/requirements.md`: D-767 to D-769 (the PM), D-770 to D-773 (the agent); D-758's "Later" item done.
+
+**Verified**
+- Both new tests fail on `9c26053`'s `ImportService` (2 of 2) and pass with the fix: `./mvnw -q -B test
+  -Dtest=MemberImportApiTests`, exit 0, Tests 25, Failures 0, Errors 0, Skipped 0.
+- `IMP-1.sql` on a throwaway `postgres:17-alpine` migrated to V17: output equal to `IMP-1.expected`.
+- `cd backend && ./mvnw -B clean verify`: exit 0, Tests run: 688, Failures: 0, Errors: 0, Skipped: 0, BUILD SUCCESS.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` on `./dev.sh`'s stack with the fix: exit 0, every spec passed at 1280
+  and 375 px (`member-import` and `new-family` included), cleanup passed for both, password search 0 hits, `Result:
+  PASSED`. Then alone `npm run test:guards`: exit 0, tests 39, pass 39, fail 0.
+- No `package.json` or lock changed, so no clean `npm ci` run (D-669). Not automated end to end: the fix itself (D-773).
+- `change_log.mdx` compiled with `@mdx-js/mdx`; `scripts/check-forbidden-names.sh`: 4 hits, all in the untouched
+  `frontend/src/importFilter.test.ts`, as at `9c26053` (D-773).
+
+**Open**
+- The deploy, by its checklist; the next rehearsal (Import up to 2026-11-30) shows the fix on production's data.
+- D-752's item (the partner's workbook) stays in "Later".
+
 ## 2026-11-14 · IMP-1-doc: step 12 of 2026-11-14 recorded
 
 One commit on `feature/family-budget` on top of `9c26053` (R-NOV), the commit of this entry, "docs: step 12 of

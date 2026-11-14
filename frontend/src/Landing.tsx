@@ -87,7 +87,7 @@ export default function Landing() {
               <a href={LOGIN_URL}>Sign in or create an account</a>, with an email address or with Google or GitHub.
             </li>
             <li>
-              Your ledger starts empty. Press <strong>Load demo data</strong> on the dashboard to fill it with six
+              Your ledger starts empty. Press <strong>Load demo data</strong> on the dashboard to fill it with 36
               months of invented entries in euros and US dollars.
             </li>
             <li>

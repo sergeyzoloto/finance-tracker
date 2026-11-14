@@ -29,7 +29,7 @@ services:
       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:?set KEYCLOAK_ISSUER_URL in .env}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:?set KEYCLOAK_CLIENT_ID in .env}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}
-      # The family budget's feature switch (D-25): on for local runs, off in production (deploy/app) until F7.
+      # The family budget's feature switch (D-25): on for local runs; off by default, and on in production since 2026-10-03 (`deploy.sh switch on`, deploy/app/.env).
       FAMILY_LEDGERS_ENABLED: "true"
       # Where the browser reaches this stack, for the links the api hands out (invites); production's is the default.
       APP_PUBLIC_URL: http://localhost:${FRONTEND_PORT}

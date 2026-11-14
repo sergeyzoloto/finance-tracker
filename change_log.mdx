@@ -3,6 +3,46 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · DOC-1d: IMP-1's deploy recorded; DOC-1b's lost part
+
+One commit on `feature/family-budget` on top of `0c1bfb6` (IMP-1), the commit of this entry, "docs: IMP-1's deploy
+recorded; DOC-1b's lost part: a neutral file name in a test, the demo's length on the landing page, stale comments,
+CLAUDE.md, D-732 to D-737, D-774 to D-781 (DOC-1d)". **Not pushed**; `main` not moved. No deploy of its own (D-737):
+production stays at `0c1bfb6`, and the landing page's text reaches production with the next deploy, whose checklist
+expects a new web image.
+
+**Changes**
+- `frontend/src/importFilter.test.ts` (D-733): a neutral file name, `Transactions.csv`, at lines 96 and 98; what the
+  test checks is unchanged. History not rewritten.
+- `frontend/src/Landing.tsx` (D-735): the demo's length, 36 months (UX-17, D-689), as README says.
+  `e2e/specs/07-dashboard.spec.ts` line 367, a comment, likewise (D-779).
+- Comments only (D-735): `FamilySwitch`, `MeController`, `application.yml` and `docker-compose.yml` say the switch is
+  off by default and on in production since 2026-10-03 (`deploy.sh switch on`), not off until F7.
+- `CLAUDE.md`: the Definition of done's item 5, `scripts/check-forbidden-names.sh` (D-734); V15 in the Database list and
+  the list in order (D-736, D-777); which compose file turns the switch on and production reading it from
+  `deploy/app/.env`, on (D-736); "State on 2026-11-14" (D-736, D-777); the deployment paragraph names IMP-1 (D-778).
+- `deploy/RUNBOOK.md` (D-775): IMP-1's row in "Deployed revisions" from the operator's pasted output; "Production now"
+  at `0c1bfb6`, its images, rollback state `388c90a` and dumps (D-781); step 12's 12.1 and 12.10 `verify IMP-1`, 12.11
+  checking out `0c1bfb60edaf76a6085b7a4926cc1c9b2ad09ca0`.
+- `docs/family-budget/requirements.md`: D-732 to D-737, D-774 to D-776 (the PM), D-777 to D-781 (the agent), the
+  amendment line and the planned stage's line. The numbers given were free; no mapping needed.
+- Recorded here only (D-737): V16's comment cites D-274 for the files' date format, which is D-240 (D-727); applied
+  migrations are never edited.
+
+**Verified**
+- `cd frontend && npm test`: exit 0, Test Files 54 passed (54), Tests 761 passed (761). `npm run build` (tsc, then
+  vite build): exit 0.
+- `cd backend && ./mvnw -B clean verify`: exit 0, Tests run: 688, Failures: 0, Errors: 0, Skipped: 0, BUILD SUCCESS.
+- `scripts/check-forbidden-names.sh` on the tree before the commit: exit 0. After it, `--rev HEAD` and
+  `--log 0c1bfb6..HEAD`: see the report (this entry is written before the commit).
+- No spec pins the landing page's sentence, so no e2e run for it; no `package.json` or lock changed (D-669).
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+
+**Open**
+- The next deploy carries the landing page's text in a new web image; its checklist lists DOC-1d among its commits.
+- Not recorded of IMP-1's deploy: the state block after the rollback acceptance's refusal, the laptop's pull after it,
+  whether the reboot of 2026-11-15T04:00:00Z happened.
+
 ## 2026-11-14 · IMP-1: the benefit check takes the file's period
 
 One commit on `feature/family-budget` on top of `056ee81` (IMP-1-doc), the commit of this entry, "fix: the benefit

@@ -364,7 +364,7 @@ async function expectComparisons(session: Session, day: string) {
   await expect(legend).not.toContainText('a year earlier')
   await expect(page.locator('.stale')).toHaveCount(0)
   const marked = await expectMarkers(page, answers, 3, 'previous period')
-  // The demo's six months hold the previous period's: it has markers.
+  // The demo's 36 months hold the previous period's: it has markers.
   expect(marked, 'markers where the demo has figures in the previous period').toBeGreaterThan(0)
   page.off('response', keep)
 }

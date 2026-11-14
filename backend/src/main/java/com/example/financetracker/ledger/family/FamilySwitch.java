@@ -8,9 +8,10 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
- * The feature switch of the family budget (D-25): off by default, and off in production until F7. While it is off,
- * the family endpoints don't exist, so they answer 404 like any unknown path, and the frontend hides the family pages
- * ({@code /api/me} tells it). The local development and test configurations turn it on.
+ * The feature switch of the family budget (D-25): off by default, and on in production since 2026-10-03
+ * ({@code deploy.sh switch on}). While it is off, the family endpoints don't exist, so they answer 404 like any
+ * unknown path, and the frontend hides the family pages ({@code /api/me} tells it). The local development and test
+ * configurations turn it on.
  */
 @Component
 public class FamilySwitch {

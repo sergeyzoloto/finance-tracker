@@ -93,9 +93,9 @@ describe('the request’s payload', () => {
 
   it('holds the user’s one file and the partner’s filtered rows under a name of their own, nothing else', async () => {
     const upload = filterPartnerRows(PARTNER, 'Свободный остаток')
-    const body = importForm(own, 'TransactionsDima.csv', upload)
+    const body = importForm(own, 'Transactions.csv', upload)
     expect([...body.keys()]).toEqual(['transactions', 'partnerTransactions'])
-    expect((body.get('transactions') as File).name).toBe('TransactionsDima.csv')
+    expect((body.get('transactions') as File).name).toBe('Transactions.csv')
     const partner = body.get('partnerTransactions') as File
     expect(partner.name).toBe(PARTNER_FILE_NAME)
     const sent = await partner.text()

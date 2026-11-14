@@ -33,7 +33,7 @@ class MeController {
             String accountUrl) {
     }
 
-    /** @param familyLedgers the family budget (D-25): off until F7 in production */
+    /** @param familyLedgers the family budget (D-25): off by default, on in production since 2026-10-03 */
     record Features(boolean familyLedgers) {
     }
 

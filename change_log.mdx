@@ -3,6 +3,37 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-14 · IMP-1-doc: step 12 of 2026-11-14 recorded
+
+One commit on `feature/family-budget` on top of `9c26053` (R-NOV), the commit of this entry, "docs: step 12 of
+2026-11-14 recorded, D-764 to D-766 (IMP-1-doc)". **Not pushed**; `main` not moved. Documents only, no deploy
+(production stays at `388c90a`). Production and the server not touched; `e2e:prod` not run.
+
+**Changes**
+- `deploy/RUNBOOK.md`: a row in "Deployed revisions" for step 12's third run (2026-11-14, `export-2026-11-14`, Import up
+  to 2026-11-13), in the form of September's and October's rows, from the operator's pasted output (D-766): the gate,
+  12.1 with the scheduled reboot, B1 to B3 with their names, sizes and times, both imports and checks again, `verify
+  UX-17` before and after, the participants, the suite's run from `388c90a` (19 passed, artifacts
+  `prod-20261114T153248Z`), and what wasn't recorded. 12.1: a reboot more than 2 hours away that leaves 12.1 to 12.12
+  clear of 03:30 UTC is no stop; nearer, passed or without `USEC` is (D-764). 12.11: a clean detached checkout of
+  `last-good`'s commit, and a block after 12.12 back to the branch (D-765). Step 12's intro: the run happened. "Production
+  now": both histories up to 2026-11-13, the 24 numbers the figures' after, the run's B1 to B3 among the ways back, the
+  next run Import up to 2026-11-30, the owner's sides stamped.
+- `docs/family-budget/requirements.md`: the "Amended in IMP-1-doc" line, D-764 to D-766 (the PM).
+- `CLAUDE.md`: the project map's line on the imported histories, up to 2026-11-13.
+
+**Verified**
+- `388c90a..0442d46` is two documents-only commits (`c877ba3` UX-17-doc, `0442d46` DOC-1), as D-765 says.
+- Every figure of the row checked against the task's section 2 and the figures of 2026-11-13; nothing guessed.
+- No test suite run: no code changed. `change_log.mdx` compiled with `@mdx-js/mdx`; `scripts/check-forbidden-names.sh`
+  run.
+
+**Open**
+- Not recorded, as the paste didn't hold them: the gate's last line, the owner's commit page (D-222 not met for it), the
+  integrity answers' text (reported in words), B1's to B3's SHA-256, 12.11's output, whether the reboot of
+  2026-11-15T04:00:00Z happened.
+- D-758's fix (IMP-1, next commit); the partner's workbook (D-752) stays in "Later".
+
 ## 2026-11-14 · R-NOV: step 12 rehearsed for 2026-11-13 (October again, November to the 13th)
 
 One commit on `feature/family-budget` on top of `718546a` (DOC-1c), the commit of this entry, "docs: step 12 rehearsed

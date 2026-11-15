@@ -3,6 +3,32 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · OPS-3-doc: OPS-3's open checks done
+
+One commit, the commit of this entry, on `feature/family-budget` on top of `e295f96` (UX-19-doc), "docs: OPS-3's open checks
+done (backups' restore line, daily log rotation, Hetzner's backup time, the journal's 15 days), D-846 to D-850
+(OPS-3-doc)". **Not pushed**; `main` not moved. Documents only, no deploy: production stays at `d9cf51f`.
+
+**Changes**
+- `deploy/RUNBOOK.md` (D-846 to D-849): "Deployed revisions" gets a row of 2026-11-15, "Not a deploy: OPS-3's open
+  checks", with the owner's output: the restore line in the nightly runs of both databases and the two manual runs,
+  the daily log rotation, Hetzner's eight backups with their times and sizes, the journal's oldest line and size.
+  OPS-3's row of 2026-10-27 points to it. "Production now" says the four checks were done. "Hetzner's backups of the
+  server" states the time (about 10:49 UTC daily) and that no backup overlaps the dumps or the reboot window (D-847);
+  the other unconfirmed points stay.
+- `docs/family-budget/requirements.md`: D-846 to D-848 (the PM), D-849 and D-850 (the agent), the amendment line, the
+  planned stage's line, and D-848's item in "Later" (the disk's growth).
+
+**Verified**
+- Every figure, time and name of the new row compared with the owner's output as the PM gave it.
+- `change_log.mdx` compiles with `@mdx-js/mdx`; `scripts/check-forbidden-names.sh` on the working tree and
+  `--log e295f96..HEAD` after the commit: see the report.
+- No code changed, so no test suite was run.
+
+**Open**
+- D-848: what grows on the server's disk, before the alerts stage. Not confirmed: whether a Hetzner backup runs during
+  a reboot, how long one takes, what happens when Backups are switched off.
+
 ## 2026-11-15 · UX-19-doc: UX-19's deploy recorded
 
 One commit on `feature/family-budget` on top of `d9cf51f` (UX-19), the commit of this entry, "docs: UX-19's deploy

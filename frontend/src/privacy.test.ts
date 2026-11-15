@@ -58,7 +58,7 @@ describe('the privacy policy', () => {
   })
 
   it('has the new date, names the time zone among what is stored, and no longer says nobody else sees anything of yours', () => {
-    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 14 November 2026')
+    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 15 November 2026')
     const data = words(page.getElementById('data')!.parentElement!.textContent!)
     // D-101 (F8c): the time zone is stored with the settings, from the browser, changeable, and decides today's date.
     expect(data).toContain('Your settings include your time zone, such as Europe/Amsterdam, which the app takes from your browser the first time you use it and which you can change in Settings')
@@ -75,11 +75,19 @@ describe('the privacy policy', () => {
     expect(cookies).toContain('nothing on the servers reads it')
   })
 
-  it('names the theme kept in the browser’s local storage, as the draft holds it (UX-19, D-821)', () => {
-    const sentence = words(draft.slice(draft.indexOf("## The theme in the browser's storage")).split(/\n\s*\n/)[2])
-    expect(sentence).toContain("kept in your browser's local storage on this device, which is never sent to the server")
-    const storage = words(page.getElementById('cookies')!.nextElementSibling!.nextElementSibling!.nextElementSibling!.textContent!)
-    expect(storage).toContain(sentence)
+  it('names everything the app keeps in the browser, as the draft holds it (UX-19, D-824, D-828)', () => {
+    const text = draft.slice(draft.indexOf("## What the app keeps in the browser"))
+    const blocks = text.split(/\n\s*\n/).slice(2).flatMap((block) => block.trim().startsWith('- ')
+      ? block.trim().split(/\n- /).map((item) => words(item.replace(/^- /, '')))
+      : [words(block)]).filter((block) => block !== '')
+    const list = page.querySelector('ul.browser-storage')!
+    const published = [words(list.previousElementSibling!.textContent!),
+      ...Array.from(list.querySelectorAll('li')).map((li) => words(li.textContent!)),
+      words(list.nextElementSibling!.textContent!)]
+    expect(published).toEqual(blocks)
+    expect(published).toHaveLength(7)
+    expect(published.join(' ')).toContain("kept in your browser's local storage on this device, which is never sent to the server")
+    expect(published.join(' ')).not.toContain('reloads only once')
   })
 
   it('states every period as an upper bound, the copies in backups included (OPS-3, D-277)', () => {

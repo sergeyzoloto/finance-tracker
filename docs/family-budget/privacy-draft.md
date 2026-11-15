@@ -153,10 +153,24 @@ data" deletes it with the rest.
 > of a former member are kept; and whether the change journal counts as personal data of the members it
 > names.
 
-## The theme in the browser's storage
+## What the app keeps in the browser
 
-> Outside the section "Family budgets": a sentence of the policy's "Cookies", after its session storage sentence
-> (UX-19, D-821). `frontend/src/privacy.test.ts` compares it with the page word for word.
+> Outside the section "Family budgets": the policy's "Cookies", after its list of cookies (UX-19, D-821, D-824; every
+> item since D-828). `frontend/src/privacy.test.ts` compares it with the page word for word.
 
-The theme you choose in Settings (Blue, Light or Dark) is kept in your browser’s local storage on this device, which is
-never sent to the server; the theme cookie above holds a copy for the login pages.
+The app also keeps a few things in your browser, on this device only:
+
+- In session storage, while you sign in, the page to take you back to afterwards. It is removed as soon as you are
+  back, and session storage ends when you close the tab.
+- The theme you choose in Settings (Blue, Light or Dark) is kept in your browser’s local storage on this device, which
+  is never sent to the server; the theme cookie above holds a copy for the login pages.
+- In local storage, the code of an invite link you open, so that the app can show the invite after you sign in or
+  register. It is erased once you accept or decline the invite or it turns out not to be valid, when you sign out, and once it is 7 days old the next time you open the app. It is sent to the server only to look up, accept or decline that invite.
+- In local storage, for each family budget, the account you last paid a family expense from, received a family income
+  into or used for your side of a settlement, or that you chose to specify it later, so that the next form suggests
+  the same. It is sent to the server only as part of a record you save.
+- In local storage, that you dismissed the hint about your browser’s time zone, with the two time zones it named, so
+  that it isn’t shown again for them. It is never sent to the server.
+
+What is in local storage stays until you clear your browser’s data for the site; “Delete all my data” doesn’t remove
+it. Because all of this is strictly necessary or keeps a choice you made, the app doesn’t ask for your consent.

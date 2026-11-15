@@ -1862,8 +1862,8 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
 
 **Commits to deploy.** auth_server: `8b19e36c5d8fcdaf1ab09cb3f1eb4da238919182` (A, "UX-19: the emails without the
 plain link and with a footer naming the service, …"), on top of `0f842ae57fa785f66a062d438f53bf86e9233573`
-(UX-15-doc, auth's `origin/main`). finance: `<M>`, `feature/family-budget`'s head after UX-19's commit (subject ending
-"(UX-19)"), on top of UX-18-doc's `95cf8277…` (D-818); the commit the PM names in full once UX-19 is accepted. M holds
+(UX-15-doc, auth's `origin/main`). finance: `<M>`, `feature/family-budget`'s head after UX-19's second commit (D-828), on
+top of UX-19's first, `b2c4276`, itself on top of UX-18-doc's `95cf8277…` (D-818); the commit the PM names in full once UX-19 is accepted. M holds
 this checklist, so it can't name M's hash itself: type M's full hash (40 characters) where a block says `<M>` before
 pasting it (D-226); pasted as it is, bash reads `<M>` as a redirection and runs nothing of the line. If the PM asks for
 another auth commit than A, the PM restates A. **Stage:** `UX-19` (`deploy/checks/UX-19.sql` and `UX-19.expected`,
@@ -1871,7 +1871,7 @@ UX-18's 12 lines unchanged, structure and invariants only, tried on production's
 IMP-1's after-dump, at V17; UX-18's after-dump wasn't pulled yet). UX-19 is four small fixes (D-818): in auth, the
 emails without the plain link under the button and with the footer "Finance Tracker · app.finance-nl.com" (D-819),
 and "Select login method"'s descriptions in `--muted` (D-822, `login-2.css`, D-823); in finance, the privacy policy's
-sentence on the theme kept in the browser's local storage (D-821, D-824) and Node 24 for `frontend/` (`.nvmrc`,
+list of what the app keeps in the browser (D-821, D-824, D-828, D-829) and Node 24 for `frontend/` (`.nvmrc`,
 `engines`, D-820). **Web image only in finance, no migration**: `backend/` doesn't change, so the api's content must
 stay the running one (`c8b569f7…`) and its container isn't recreated. **The switch:** on
 (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before, during and after. **The order (as UX-15, D-622):**
@@ -1910,7 +1910,7 @@ What runs and why:
   refuses a scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-126, D-128, D-131);
   its gate (1.5) counts only the check runs of `ci.yml`'s runs (D-280) on M itself. Step 1.3 requires M to be
   `origin/main` after `git fetch` and a fast-forward of `HEAD` (`6296e69`, or `95cf827` if the clone was pulled
-  since), lists the commits from `6296e69` to M, two: `95cf827` (UX-18-doc) and M; `Migrations added: none`; under
+  since), lists the commits from `6296e69` to M, three: `95cf827` (UX-18-doc), `b2c4276` (UX-19's first) and M; `Migrations added: none`; under
   `deploy/`: `RUNBOOK.md`, `checks/UX-19.expected`, `checks/UX-19.sql`. `finance.caddy`, the postgres service and
   `pg-backup/finance.conf` don't change. (DOC-2's `288c84f` came before `6296e69` and is deployed already.)
 - `frontend/` changes, `backend/` doesn't: 3.3 builds the api from cache with the running content and the web anew
@@ -1932,7 +1932,7 @@ cd ~/dev/finance-tracker && A=8b19e36c5d8fcdaf1ab09cb3f1eb4da238919182 && M=<M> 
 ```
 
 You should see `HEAD` M with UX-19's subject (on `feature/family-budget`); `origin/main` `95cf8277…` (UX-18-doc);
-`origin/feature/family-budget` the same or M; `origin/main..feature/family-budget` M alone; `FF-OK`; nothing from `git
+`origin/feature/family-budget` the same or M; `origin/main..feature/family-budget` `b2c4276` and M; `FF-OK`; nothing from `git
 status --porcelain`; `auth HEAD` A with UX-19's subject, `auth origin/main` `0f842ae57fa785f66a062d438f53bf86e9233573`,
 `origin/main..main` A alone, `AUTH-FF-OK`, and nothing from auth's `git status --porcelain`. Anything else: stop and
 tell the PM.
@@ -2050,7 +2050,7 @@ cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git
 ```
 
 You should see `Updating 95cf827..<M's 7 characters>` and `Fast-forward`, the push of both branches, and M in full
-with its parent (`95cf8277…`, UX-18-doc) and its subject. A dirty tree stops the chain before the merge, with no
+with its parent (`b2c4276…`, UX-19's first) and its subject. A dirty tree stops the chain before the merge, with no
 message: run `git status` and tell the PM. `Not possible to fast-forward`, or another hash: stop.
 
 CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about fifteen minutes). First the
@@ -2162,7 +2162,8 @@ It prints ("Deploying with deploy.sh" lists the steps):
 - 1.2: `HEAD: 6296e69 feat: the Entries summary shows family spending in full, …` (or `95cf827`'s), the running
   images, `Last good deploy: 6296e69 … (deploy)`, status `good`, both images "the recorded image", the read-only
   role's line.
-- 1.3: the fetch; the commits from `6296e69` to M, two: `95cf827` and M (one if the clone was pulled since);
+- 1.3: the fetch; the commits from `6296e69` to M, three: `95cf827`, `b2c4276` and M (fewer if the clone was pulled
+  since);
   `Migrations added: none`; under `deploy/`: `RUNBOOK.md`, `checks/UX-19.expected`, `checks/UX-19.sql`.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`, CI's own only (D-280). 1.6: the UX-19
@@ -2219,9 +2220,10 @@ Left to check by hand, before `finish`, each because no spec reaches it:
   "Finance Tracker · app.finance-nl.com". Don't follow the link unless you want to change the password.
 - "Select login method" (D-822): reached only at a first sign-in through Google or GitHub into an existing account,
   which needs a fresh account; nothing to do here. A5 showed `login-2.css` served, the file whose mapping fixes it.
-- `/privacy`'s new sentence: `pages` reads the page (200, its title); open https://app.finance-nl.com/privacy#cookies
-  and read the paragraph after the list: it ends with "the theme cookie above holds a copy for the login pages.", and
-  the date reads "Last updated: 14 November 2026".
+- `/privacy`'s new list: `pages` reads the page (200, its title); open https://app.finance-nl.com/privacy#cookies and
+  read on after the cookies' list: "The app also keeps a few things in your browser, on this device only:", five
+  items (session storage's page to go back to, the theme, an invite's code, the family forms' last account, the time
+  zone hint), then "What is in local storage stays until …"; the date reads "Last updated: 15 November 2026".
 
 **6. On the server: finish**, only after step 5, alone in its block; `yes` to both only if step 5's summary says
 `Result: PASSED` with 0 password hits and the checks by hand above were as described; otherwise `no` to both.

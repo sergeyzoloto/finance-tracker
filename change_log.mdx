@@ -3,6 +3,43 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · UX-19, second commit: everything the app keeps in the browser in the privacy policy
+
+One commit on `feature/family-budget` on top of `b2c4276` (UX-19's first), the commit of this entry, "fix: the privacy
+policy names everything the app keeps in the browser, D-828 to D-831 (UX-19)". **Not pushed**; `main` not moved. Same
+stage and deploy as `b2c4276`: "UX-19's deploy checklist with the suite", whose commits from `6296e69` are now
+`95cf827`, `b2c4276` and M.
+
+**Changes**
+- `frontend/public/privacy.html` and `docs/family-budget/privacy-draft.md` (D-828, D-829, D-830): after the cookies'
+  list, "The app also keeps a few things in your browser, on this device only:" and five items, each as the code does
+  it: session storage's page to go back to after signing in (`auth.ts`), the theme (D-824's sentence unchanged), an
+  invite's code (`invite.ts`: erased after an outcome, at sign-out, and once 7 days old; sent only to look up, accept
+  or decline it), the family forms' last account per budget (`FamilyExpenseForm.tsx`, `FamilySettlement.tsx`; sent
+  only as part of a record saved), the dismissed time zone hint (`timeZone.ts`; never sent); then that local storage
+  stays until the site's data is cleared, "Delete all my data" not removing it. The stale note on a reload after an
+  update is gone (UX-16 removed that code). "Last updated: 15 November 2026" (D-831).
+- `frontend/src/privacy.test.ts`: the page's list and its two paragraphs equal the draft's, word for word.
+- `deploy/RUNBOOK.md`, UX-19's checklist: M on top of `b2c4276`; A0's and step 1's expected commits and parent; 1.3's
+  three commits; step 5's look at `/privacy`.
+- `docs/family-budget/requirements.md`: D-828 (the PM), D-829 to D-831 (the agent), "Later"'s item on the browser's
+  other storage done.
+
+**Verified**
+- `frontend/` from a clean copy of the whole tree in `node:24.22.2` (node v24.22.2, npm 11.19.1): `npm ci` exit 0;
+  `npm test` exit 0, Test Files 56 passed (56), Tests 774 passed (774), no Errors line; `npm run build` exit 0.
+- `.github/scripts/check-web-image.sh frontend finance-tracker-web:ux19b-check` from that copy: exit 0, every check
+  passed; the tag and the Node image removed.
+- `scripts/check-forbidden-names.sh` on the working tree and `--log 95cf827..HEAD` after the commit: exit 0.
+  `change_log.mdx` compiles with `@mdx-js/mdx` 3.1.1.
+- Every storage write in `frontend/src` and `public/` found with `grep` (`localStorage`, `sessionStorage`,
+  `document.cookie`) and read.
+- No end-to-end run: only the policy's text changed, which `pages` reads by its status and title; `backend/`
+  untouched.
+
+**Open**
+- The deploy, by UX-19's checklist.
+
 ## 2026-11-14 · UX-19: four small fixes before December's step 12
 
 One commit on `feature/family-budget` on top of `95cf827` (UX-18-doc), the commit of this entry, "fix: the theme in

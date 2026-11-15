@@ -925,7 +925,10 @@ first on the laptop, never production, **from production's latest dump** (D-220)
    restores the dump into `finance-tracker-rehearsal-db`, its data on tmpfs (127.0.0.1:5434, database `finance`, user
    `postgres`, password `rehearsal`), maps the two participants' subs onto the dev users `testuser` (the owner) and
    `testuser2` (the partner) and nothing else, checks that no column holds their subs any more, and prints the restore
-   test's numbers, which must equal the dump's (its restore test, as 12.2 printed it).
+   test's numbers, which must equal the dump's (its restore test, as 12.2 printed it). The participants are the active
+   members with an account of the one family budget whose members with an account are an owner and one other; a demo
+   family of another user doesn't count (REH-1, D-899). If the dump holds none or several such budgets it stops and
+   names them by id and creation time, and `--family <id>` chooses one.
 3. The api of the deployed commit on the host against it (`SERVER_PORT=8081`, `FAMILY_LEDGERS_ENABLED=true`,
    `ECB_RATES_ENABLED=false`, `CBR_RATES_ENABLED=false` (from FX-1's code on, D-863), the `KEYCLOAK_*` of `.env`, `SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5434/finance`),
    and Vite (`npx vite` in `frontend/`); then 12.3 to 12.7 in the browser, signed in as `testuser` and `testuser2`, with

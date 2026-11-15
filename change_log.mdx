@@ -3,6 +3,30 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · REH-1: the rehearsal with several family budgets
+
+The commit of this entry, on `main` on top of `1ddce05` (ENT-3b), D-899, D-907 to D-909. Not pushed.
+
+**Changes**
+- `scripts/rehearsal-db.sh`: the family budget is the one whose ACTIVE members with an account are an owner and one other;
+  none or several stop it (exit 3) naming the candidates by id and creation time; `--family <id>` chooses one (a
+  candidate only); the other budgets and their users stay as the dump has them (D-899, D-908).
+- `deploy/RUNBOOK.md` step 12's description; CLAUDE.md; D-899, D-907 to D-909.
+
+**Verified**
+- On the dump of 2026-11-15T1544Z: the second family budget is a demo household of a user who is no member of the real
+  budget (D-907); with it the script took the real budget alone and printed the restore's numbers (users 4, ledgers 6,
+  members 8, entries 43,919, family records 12,728), exit 0.
+- On a copy with a second candidate: exit 3, "the dump has 2 candidate family budgets: 229 (created 2026-10-13 21:05:24),
+  1654 (created 2026-11-15 15:14:39) -- give --family <id>"; `--family 229` exit 0; `--family 99` exit 3 naming the
+  candidates; on a copy with one family budget: exit 0 (users 3, entries 43,024, family records 12,634); `--family 1654`
+  on the dump itself: exit 3, the candidate named is 229 alone; a non-numeric `--family`: exit 2.
+- ShellCheck v0.11.0 on the script: exit 0. `check-forbidden-names.sh`: see the commit.
+
+**Open**
+- Whether the demo household's user is an e2e:prod account (D-907): the PM decides if it is a bug for this batch.
+- No test of the script is committed: it has no harness (D-909).
+
 ## 2026-11-15 · ENT-3b: the same answers, faster
 
 The commit of this entry, on `main` on top of `fb59451` (ENT-3), D-897 to D-906. Not pushed.

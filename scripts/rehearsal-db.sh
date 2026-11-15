@@ -3,8 +3,9 @@
 # "12. Monthly import, two participants"). On the laptop only; it never reaches the server. The dump is one the daily
 # pull already copied (~/backups/finance-nl-server/finance/).
 #
-#   scripts/rehearsal-db.sh <dump> [owner's dev user] [partner's dev user]   restore, map the subs, print the numbers
-#   scripts/rehearsal-db.sh --remove                                         remove the container and its data
+#   scripts/rehearsal-db.sh <dump> [owner's dev user] [partner's dev user] [--family <id>]
+#                                                  restore, map the subs, print the numbers
+#   scripts/rehearsal-db.sh --remove               remove the container and its data
 #
 # What it does:
 # 1. Starts PostgreSQL from production's image (deploy/app/docker-compose.yml's postgres line, pinned by digest) as the
@@ -12,10 +13,14 @@
 #    little free), published on 127.0.0.1:${REHEARSAL_DB_PORT:-5434}; database finance, user postgres, password
 #    rehearsal.
 # 2. Restores the dump into it (pg_restore --no-owner --no-acl --exit-on-error, read from stdin).
-# 3. Maps the two participants of the dump's one family budget, its members with an account (OWNER and MEMBER), onto
-#    two users of the dev Keycloak (realm myapps; testuser and testuser2 by default): every text column of schema app
+# 3. Maps the two participants of the dump's family budget, its ACTIVE members with an account (an OWNER and one other),
+#    onto two users of the dev Keycloak (realm myapps; testuser and testuser2 by default): every text column of schema app
 #    that holds a participant's sub gets the dev user's id, in one transaction, triggers off; nothing else changes.
-#    Then no column holds a participant's sub any more, which it checks. No sub is printed.
+#    Then no column holds a participant's sub any more, which it checks. No sub is printed. A dump may hold other family
+#    budgets (a demo family of some user, REH-1, D-899): the budget is the one whose ACTIVE members with an account are
+#    an owner and one other member. If that isn't exactly one budget, it stops, names the candidates by id and creation
+#    time, and takes `--family <id>`; a budget that isn't such a candidate is refused. The other budgets and their users
+#    stay as the dump has them.
 # 4. Prints the numbers of pg-restore-test's table (users, ledgers, ... family_invites), to compare with the dump's.
 #
 # Then run the backend on the host against it and Vite (the runbook's step 12, "The local rehearsal"), sign in as the
@@ -42,10 +47,26 @@ if [ "${1:-}" = "--remove" ]; then
   docker rm -f -v "$NAME" >/dev/null 2>&1 && echo "Removed $NAME." || echo "No $NAME to remove."
   exit 0
 fi
-[ "$#" -ge 1 ] && [ "$#" -le 3 ] || usage
-DUMP="$1"
-OWNER_USER="${2:-testuser}"
-PARTNER_USER="${3:-testuser2}"
+FAMILY=""
+POSITIONAL=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --family)
+      [ "$#" -ge 2 ] && [[ "$2" =~ ^[0-9]+$ ]] || usage
+      FAMILY="$2"
+      shift 2
+      ;;
+    -*) usage ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+[ "${#POSITIONAL[@]}" -ge 1 ] && [ "${#POSITIONAL[@]}" -le 3 ] || usage
+DUMP="${POSITIONAL[0]}"
+OWNER_USER="${POSITIONAL[1]:-testuser}"
+PARTNER_USER="${POSITIONAL[2]:-testuser2}"
 [ -f "$DUMP" ] && [ -r "$DUMP" ] || { echo "Can't read the dump $DUMP." >&2; exit 1; }
 
 if docker container inspect "$NAME" >/dev/null 2>&1; then
@@ -91,18 +112,41 @@ echo "Restoring $(basename "$DUMP") ($(stat -c %s "$DUMP") bytes, SHA-256 $(sha2
 docker exec -i "$NAME" pg_restore -U postgres -d finance --no-owner --no-acl --exit-on-error <"$DUMP"
 
 echo "Mapping the participants onto $OWNER_USER (the owner) and $PARTNER_USER (the partner)"
-psql_in -q -v owner="$OWNER_ID" -v partner="$PARTNER_ID" <<'EOF'
+psql_in -q -v owner="$OWNER_ID" -v partner="$PARTNER_ID" -v family="$FAMILY" <<'EOF'
 BEGIN;
+-- psql's variables don't reach a DO block: the chosen budget goes through a setting.
+SELECT set_config('rehearsal.family', :'family', true) \gset
+-- The family budgets whose ACTIVE members with an account include an owner and another member (REH-1, D-899).
+CREATE TEMP TABLE candidate AS
+  SELECT l.id, l.created_at FROM app.ledger l
+  WHERE l.type = 'SHARED'
+    AND EXISTS (SELECT 1 FROM app.ledger_member m WHERE m.ledger_id = l.id AND m.status = 'ACTIVE'
+                AND m.user_sub IS NOT NULL AND m.role = 'OWNER')
+    AND EXISTS (SELECT 1 FROM app.ledger_member m WHERE m.ledger_id = l.id AND m.status = 'ACTIVE'
+                AND m.user_sub IS NOT NULL AND m.role <> 'OWNER');
+DO $$
+DECLARE wanted text := nullif(current_setting('rehearsal.family'), '');
+BEGIN
+  IF wanted IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM candidate WHERE id = wanted::bigint) THEN
+      RAISE EXCEPTION 'family budget % is not one whose active members with an account are an owner and one other: candidates are %',
+        wanted, coalesce((SELECT string_agg(id || ' (created ' || created_at::timestamp(0) || ')', ', ' ORDER BY id)
+                          FROM candidate), 'none');
+    END IF;
+  ELSIF (SELECT count(*) FROM candidate) <> 1 THEN
+    RAISE EXCEPTION 'the dump has % candidate family budgets: % -- give --family <id>', (SELECT count(*) FROM candidate),
+      coalesce((SELECT string_agg(id || ' (created ' || created_at::timestamp(0) || ')', ', ' ORDER BY id) FROM candidate),
+               'none');
+  END IF;
+END $$;
 CREATE TEMP TABLE participant AS
   SELECT m.user_sub AS sub, CASE m.role WHEN 'OWNER' THEN :'owner' ELSE :'partner' END AS dev
   FROM app.ledger_member m
-  WHERE m.ledger_type = 'SHARED' AND m.user_sub IS NOT NULL AND m.status = 'ACTIVE';
+  WHERE m.ledger_id = coalesce(nullif(:'family', '')::bigint, (SELECT id FROM candidate))
+    AND m.user_sub IS NOT NULL AND m.status = 'ACTIVE';
 DO $$
 DECLARE c record; n bigint;
 BEGIN
-  IF (SELECT count(*) FROM app.ledger WHERE type = 'SHARED') <> 1 THEN
-    RAISE EXCEPTION 'the dump has % family budgets, not 1', (SELECT count(*) FROM app.ledger WHERE type = 'SHARED');
-  END IF;
   IF (SELECT count(*) FROM participant) <> 2 OR (SELECT count(DISTINCT dev) FROM participant) <> 2 THEN
     RAISE EXCEPTION 'the family budget has no owner and one other member with an account';
   END IF;

@@ -3,6 +3,40 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · ENT-3: one classification, timings, the breakdown with "only"
+
+The commit of this entry, on `main` on top of `5f2b5b1` (ENT-2), D-893 to D-896.
+
+**Changes**
+- `EntryClassification`: the summary's direction rule in one place, used by `summary()` and the Direction filter
+  (D-893), no change of behaviour.
+- `GET /api/entries/breakdown?by=` (`EntryBreakdown`, `EntryFilter.without`): rows per category, payee or account
+  with entries and My share per currency (D-881, D-896).
+- Frontend: `Breakdown.tsx` and `breakdown.ts`, tabs under the amount table with a checkbox and "only" per row,
+  asked only while unfolded.
+- Tests: `EntryBreakdownApiTests`; `ApiTests` and `DataIsolationApiTests` reach the endpoint; `ENT3.test.tsx`;
+  `11-entries`' breakdown step; ENT-2's screenshot waits for the last answer.
+- Docs: D-893 to D-896, CLAUDE.md.
+
+**Verified**
+- `./mvnw -B clean verify`: run 1 exit 1, 718 tests, 2 failures (`DataIsolationApiTests`: the category breakdown's keys
+  are ids that change when Alice's budget merges, D-11; that one line left out of its before/after list); run 2
+  exit 0, BUILD SUCCESS.
+- `npm test` (Node v24.21.0, npm 11.19.0): exit 0, 58 files, 795 tests passed; `npm run build` exit 0.
+- `e2e:local` with `E2E_FAMILY=on` (Node v24.21.0, the api rebuilt and restarted before each run): run 1 exit 1,
+  37 passed, `entries` and `entries at 375 px` failed (`check()` read a URL-controlled checkbox before the URL
+  changed; the spec now clicks and waits); run 2 exit 0, "Result: PASSED", 39 passed. `npm run test:guards` alone
+  after it: exit 0, pass 39, fail 0.
+- D-894 timings, restored dump of 2026-11-15, the owner's 23,997 entries, median of 3, ms (`/entries` page 0,
+  `/summary`, breakdown category, payee, account): All time 358, 2958, 1878, 1700, 2527; Direction=Expenses
+  (19,236 entries) 1410, 1656, 1633, 1655, 1666; plus one category (11,837 entries) 3750, 5159, 1646, 4832, 4729.
+  All but the first are over 1 s; proposals are in the report, nothing added.
+- Screenshots at 375 and 1440 px in `data/private/reports/ENT-3/`; `check-forbidden-names.sh` exit 0.
+
+**Open**
+- The timings above are over 1 s (D-894): the PM decides on an index or a simpler query.
+- ENT-4: the monthly chart and BATCH-1's checklist.
+
 ## 2026-11-15 · ENT-2: several values per filter, Direction and Origin
 
 The commit of this entry, on `main` on top of `9b53332` (ENT-1), D-888 to D-892.

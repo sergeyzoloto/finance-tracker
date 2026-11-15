@@ -67,6 +67,18 @@ public record EntryFilter(LocalDate from, LocalDate to, List<Long> accountIds, L
         origins = origins == null ? Set.of() : Set.copyOf(origins);
     }
 
+    /** The same filter without the filters of one dimension: the breakdown's own tab leaves them out (D-881). */
+    public EntryFilter without(EntryBreakdown.By by) {
+        return switch (by) {
+            case CATEGORY -> new EntryFilter(from, to, accountIds, List.of(), counterpartyIds, payees, text, directions,
+                    origins);
+            case PAYEE -> new EntryFilter(from, to, accountIds, categoryIds, List.of(), List.of(), text, directions,
+                    origins);
+            case ACCOUNT -> new EntryFilter(from, to, List.of(), categoryIds, counterpartyIds, payees, text,
+                    directions, origins);
+        };
+    }
+
     /** A filter of dates, text and single values, as before ENT-2. */
     public static EntryFilter of(LocalDate from, LocalDate to, Long accountId, Long categoryId, Long counterpartyId,
             String text, String payee) {

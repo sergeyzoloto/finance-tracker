@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.Set;
 import java.util.List;
 
+import com.example.financetracker.ledger.EntryBreakdown;
 import com.example.financetracker.ledger.EntryFilter;
 import com.example.financetracker.ledger.EntryMatchFilter;
 import com.example.financetracker.ledger.EntryMatchPage;
@@ -100,6 +101,24 @@ class EntryController {
             @RequestParam(required = false) Set<EntryFilter.Origin> origin) {
         return entries.summary(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, payee, q,
                 direction, origin));
+    }
+
+    /**
+     * The entries the filters match, except the filters of the tab's own dimension, by category, payee or account
+     * (ENT-3, D-873, D-881): per value how many entries and My share per currency. The same filters as the list, with
+     * the same answers to bad ones; {@code by} is {@code category}, {@code payee} or {@code account}, else 400. Read only.
+     */
+    @GetMapping("/breakdown")
+    EntryBreakdown breakdown(LedgerScope ledger, @RequestParam String by, @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to, @RequestParam(required = false) List<Long> accountId,
+            @RequestParam(required = false) List<Long> categoryId,
+            @RequestParam(required = false) List<Long> counterpartyId,
+            @RequestParam(required = false) List<String> payee,
+            @RequestParam(required = false) @Size(max = 100) String q,
+            @RequestParam(required = false) Set<EntryFilter.Direction> direction,
+            @RequestParam(required = false) Set<EntryFilter.Origin> origin) {
+        return entries.breakdown(ledger, EntryBreakdown.By.named(by), new EntryFilter(from, to, accountId, categoryId,
+                counterpartyId, payee, q, direction, origin));
     }
 
     /**

@@ -79,6 +79,14 @@ class DataIsolationApiTests extends LedgerApiTest {
             // UX-12 (D-548): the payee filter on the list and its summary.
             "/api/entries?payee=alice's LANDLORD",
             "/api/entries/summary?payee=alice's LANDLORD",
+            // ENT-2 and ENT-3 (D-873, D-881): the several-valued filters, and the breakdown by each dimension.
+            "/api/entries?direction=EXPENSES&origin=PERSONAL",
+            "/api/entries/summary?direction=INCOME&direction=EXPENSES&payee=alice's LANDLORD&payee=Landlord",
+            // By category is left out: its keys are category ids, and Bob's Groceries becomes the family category (D-11)
+            // once Alice's budget merges, as /api/categories shows; the other dimensions' keys stay.
+            "/api/entries/breakdown?by=payee",
+            "/api/entries/breakdown?by=account",
+            "/api/entries/breakdown?by=payee&direction=EXPENSES" + AUGUST.replace("?", "&"),
             "/api/reports/balances" + AS_OF,
             "/api/reports/balances" + AS_OF + "&currency=BASE",
             "/api/reports/cash-flow" + AUGUST,

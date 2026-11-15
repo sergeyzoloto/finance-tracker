@@ -19,6 +19,7 @@ import { deleteAllMyData, expect, loadDemoData, mainMenu, shot, test, unfoldSumm
 // panel folded at 375 px and unfolded at 1280; step 2 reads the panel's counts line and amount tables; after it a
 // filter is kept going to the dashboard and back by the header's links. ENT-2 (D-873): two accounts as chips,
 // Direction and Origin toggles in the URL, the summary against the rows, a chip removed; Income and Transfers.
+// ENT-3 (D-873, D-881): the breakdown's "only", checkbox, chips and the other tabs.
 // (A family record's payee on a share, D-523, and Entries' family payees, D-547, are 09-payees' steps 2 to 4.)
 
 const ROWS = 'table.entry-list > tbody > tr'
@@ -113,6 +114,9 @@ test('entries: periods, the summary panel and remembered state; categories: icon
   await page.getByRole('group', { name: 'Origin' }).getByRole('button', { name: 'Personal' }).click()
   await expect(page).toHaveURL(/origin=PERSONAL/)
   await expectNoSidewaysScroll(page, 'Entries with chips and toggles')
+  // After the last request has answered, so that the rows and the summary match what is pressed.
+  await page.waitForLoadState('networkidle')
+  await expect(page.getByRole('region', { name: 'Summary of all matching entries' })).not.toHaveClass(/stale/)
   await shot(page, 'ent2-01-entries-chips')
   const both = new URL(page.url()).search.slice(1)
   await expectSummaryMatchesRows(a, both)
@@ -126,6 +130,47 @@ test('entries: periods, the summary panel and remembered state; categories: icon
   for (const filter of [`${recent}&direction=INCOME`, `${recent}&direction=TRANSFERS`]) {
     await expectSummaryMatchesRows(a, filter)
   }
+
+  // ENT-3 (D-873, D-881): the breakdown under the amount table. "Only" makes a category the filter's single value and
+  // the list then has exactly the entries its row counted; the other rows stay listed (the tab's own filter is left
+  // out); a second row's checkbox adds it, a chip appears, and unchecking removes it; By payee and By account too.
+  await page.goto(`/entries?${recent}`)
+  await expect(page.locator(ROWS).first()).toBeVisible()
+  await unfoldSummary(page)
+  const byCategory = page.getByRole('table', { name: 'By category' })
+  await expect(byCategory).toBeVisible()
+  const rowsWithBoxes = byCategory.locator('tbody tr').filter({ has: page.getByRole('checkbox') })
+  const firstRow = rowsWithBoxes.first()
+  const counted = Number((await firstRow.locator('td.amount').first().textContent())!.trim())
+  const listed = page.waitForResponse((r) => {
+    const url = new URL(r.url())
+    return url.pathname === '/api/entries' && url.searchParams.get('size') === '50' && url.searchParams.has('categoryId')
+  })
+  await firstRow.getByRole('button', { name: /^Only / }).click()
+  expect((await (await listed).json() as { totalElements: number }).totalElements, 'the row’s count').toBe(counted)
+  await expect(page).toHaveURL(/categoryId=\d+(&|$)/)
+  expect(new URL(page.url()).searchParams.getAll('categoryId')).toHaveLength(1)
+  await expect(byCategory.locator('tbody tr').nth(1)).toBeVisible()
+  await expect(rowsWithBoxes.first().getByRole('checkbox')).toBeChecked()
+  // A checkbox the URL controls: click, then wait for its new state (check() would read it before the URL changes).
+  await rowsWithBoxes.nth(1).getByRole('checkbox').click()
+  await expect(rowsWithBoxes.nth(1).getByRole('checkbox')).toBeChecked()
+  await expect(page).toHaveURL(/categoryId=\d+&categoryId=\d+/)
+  await expect(page.getByRole('list', { name: 'Chosen filters' }).getByRole('listitem')).toHaveCount(2)
+  await rowsWithBoxes.nth(1).getByRole('checkbox').click()
+  await expect(rowsWithBoxes.nth(1).getByRole('checkbox')).not.toBeChecked()
+  await expect(page.getByRole('list', { name: 'Chosen filters' }).getByRole('listitem')).toHaveCount(1)
+  for (const tab of ['By payee', 'By account']) {
+    await page.getByRole('tab', { name: tab }).click()
+    const table = page.getByRole('table', { name: tab })
+    await expect(table).toBeVisible()
+    await table.getByRole('button', { name: /^Only / }).first().click()
+    await expect(page.getByRole('list', { name: 'Chosen filters' }).getByRole('listitem').last()).toBeVisible()
+  }
+  await page.waitForLoadState('networkidle')
+  await expect(page.getByRole('region', { name: 'Summary of all matching entries' })).not.toHaveClass(/stale/)
+  await expectNoSidewaysScroll(page, 'Entries with the breakdown')
+  await shot(page, 'ent3-01-entries-breakdown')
 
   // 3. Categories through their icon buttons.
   await page.goto('/categories')

@@ -460,6 +460,18 @@ export interface EntrySummary {
   currencies: CurrencyTotals[]
 }
 /**
+ * `GET /api/entries/breakdown?by=` (ENT-3, D-881): the matching entries, except the tab's own dimension's filters, by
+ * category, payee or account. `key` is what the filter takes (an id, or a payee's lower-case name), null for the row of
+ * entries with none; `currencies` is My share: what came in and went out.
+ */
+export interface BreakdownRow {
+  key: string | null
+  name: string
+  entries: number
+  currencies: { currency: string; incoming: string; outgoing: string }[]
+}
+export interface EntryBreakdown { by: 'CATEGORY' | 'PAYEE' | 'ACCOUNT'; rows: BreakdownRow[] }
+/**
  * A payee that family records show on the user's entries (UX-12, D-548; `GET /api/entries/family-payees`): its name,
  * once in any case, and the family budgets it comes from.
  */

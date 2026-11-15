@@ -87,7 +87,8 @@ export default function EntrySummaryPanel({ summary, loading, children }: {
             </table>
           )
         })}
-        {children}
+        {/* Not asked while folded (D-875). */}
+        {open && children}
       </div>
     </section>
   )

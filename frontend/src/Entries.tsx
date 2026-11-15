@@ -4,6 +4,7 @@ import { dateOfIso, formatDate, useApi, type EntryPage, type EntrySummary } from
 import { SharedMark } from './CashFlowTable'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
 import DateInput from './DateInput'
+import Breakdown from './Breakdown'
 import EntrySummaryPanel from './EntrySummaryPanel'
 import { DIRECTIONS, LIST_FILTERS, ORIGINS, toggled, valuesOf, withValue, withValues, type ListFilter } from './entryFilters'
 import { payeeFilterOf, payeeFilterOptions, payeeFilterValue, useFamilyPayees, type PayeeOption } from './familyPayees'
@@ -211,7 +212,12 @@ export default function Entries() {
       </fieldset>
 
       <Errors messages={[ledgerError ?? latest.error ?? entries.error ?? summary.error]} />
-      {summary.data && summary.data.count > 0 && <EntrySummaryPanel summary={summary.data} loading={summary.loading} />}
+      {summary.data && summary.data.count > 0 && (
+        <EntrySummaryPanel summary={summary.data} loading={summary.loading}>
+          {/* ENT-3: the breakdown by category, payee and account, folding with the panel. */}
+          {ledger && <Breakdown filters={filters.toString()} counterparties={ledger.counterparties} />}
+        </EntrySummaryPanel>
+      )}
       {(!data || !ledger) && !(ledgerError ?? entries.error) && <Loading what="entries" />}
       {data && ledger && data.content.length === 0 && (
         filtered ? <p className="empty">No entries match these filters.</p>

@@ -7,12 +7,14 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -257,26 +259,11 @@ public class EntryService {
         // what of it isn't the entry's own amount falls on the other members. The paying side of a counted record
         // (a live PAYMENT link of a FAMILY_PAYMENT entry) leaves Transfers, its money being in the record's full amount.
         // With the family switch off nothing is counted (D-802).
-        List<EntrySummary.CurrencyTotals> currencies = jdbc.sql(matched + """
-                , direction AS (
-                    SELECT m.id, sign(coalesce(sum(p.amount) FILTER (WHERE p.category_id IS NOT NULL), 0)) AS net
-                    FROM m JOIN posting p ON p.entry_id = m.id GROUP BY m.id
-                ), amounts AS (
+        List<EntrySummary.CurrencyTotals> currencies = jdbc.sql(matched + EntryClassification.ctes("m") + """
+                , amounts AS (
                     SELECT p.entry_id AS id, p.currency, sum(p.amount) AS amount
                     FROM m JOIN posting p ON p.entry_id = m.id WHERE p.amount > 0
                     GROUP BY p.entry_id, p.currency
-                ), counted AS (
-                    SELECT DISTINCT ON (r.id) m.id, r.id AS record_id, r.currency, abs(r.base_amount) AS full_amount
-                    FROM m
-                    JOIN family_entry_link l ON l.entry_id = m.id AND l.link_type = 'SHARE' AND l.detached_at IS NULL
-                    JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
-                    WHERE :rpOn AND m.kind = 'FAMILY_SHARE' AND r.type IN ('EXPENSE', 'INCOME')
-                      AND r.deleted_at IS NULL
-                    ORDER BY r.id, m.id
-                ), shown_once AS (
-                    SELECT m.id FROM m
-                    JOIN family_entry_link l ON l.entry_id = m.id AND l.link_type = 'PAYMENT' AND l.detached_at IS NULL
-                    WHERE m.kind = 'FAMILY_PAYMENT' AND l.record_id IN (SELECT record_id FROM counted)
                 )
                 SELECT a.currency,
                        coalesce(sum(a.amount) FILTER (WHERE d.net < 0), 0) AS incoming,
@@ -306,6 +293,109 @@ public class EntryService {
                 .toList();
         return new EntrySummary(counts.count(), counts.firstDate(), counts.lastDate(), counts.payees(),
                 counts.withoutPayee(), counts.categories(), counts.withoutCategory(), counts.accounts(), currencies);
+    }
+
+    /**
+     * The entries the filters match, except the filters of the tab's own dimension, grouped by that dimension (ENT-3,
+     * D-873, D-881): per value how many entries have it and My share per currency, from the same classification as
+     * {@link #summary} ({@link EntryClassification}, D-893), so that with one value per entry the rows' amounts add up
+     * to the summary's In and Out over the same filters without that dimension's. Categories, payees and accounts are
+     * the ones the Category, Payee and Accounts cells show, as the summary counts them; payees by name ignoring case
+     * (D-531). Entries with no category or payee are one row without a key. Read only, in one snapshot.
+     */
+    // Two statements; one snapshot keeps them consistent.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public EntryBreakdown breakdown(LedgerScope ledger, EntryBreakdown.By by, EntryFilter filter) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("fx", AccountRole.FX_EXCHANGE.defaultCode());
+        String matched = "WITH m AS (SELECT e.id, e.entry_date, e.payee_id, e.kind, rp.name AS record_payee"
+                + matching(ledger, filter.without(by), params) + ")";
+        // dim (id, entry_date, key, name): the values each matching entry has in the dimension, as the summary's
+        // categories, payees and accounts CTEs find them.
+        String dim = switch (by) {
+            case CATEGORY -> """
+                    , dim AS (
+                        SELECT m.id, m.entry_date, p.category_id::text AS key, c.name AS name
+                        FROM m JOIN posting p ON p.entry_id = m.id JOIN category c ON c.id = p.category_id
+                        WHERE p.category_id IS NOT NULL
+                        UNION
+                        SELECT m.id, m.entry_date, c.id::text, c.name FROM m
+                        JOIN family_entry_link l ON l.entry_id = m.id AND l.detached_at IS NULL
+                        JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
+                        JOIN category c ON c.id = r.category_id AND c.ledger_id = r.ledger_id
+                        WHERE NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = m.id AND p.category_id IS NOT NULL)
+                    )""";
+            case PAYEE -> """
+                    , dim AS (
+                        SELECT m.id, m.entry_date, lower(c.name) AS key, c.name AS name FROM m
+                        JOIN counterparty c ON c.id = m.payee_id AND c.ledger_id = :ledgerId
+                        UNION
+                        SELECT m.id, m.entry_date, lower(c.name), c.name FROM m
+                        JOIN posting p ON p.entry_id = m.id
+                        JOIN counterparty c ON c.id = p.counterparty_id AND c.ledger_id = :ledgerId
+                        WHERE m.payee_id IS NULL
+                        UNION
+                        SELECT m.id, m.entry_date, lower(m.record_payee), m.record_payee FROM m
+                        WHERE m.payee_id IS NULL AND m.record_payee IS NOT NULL
+                          AND NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = m.id AND p.counterparty_id IS NOT NULL)
+                    )""";
+            case ACCOUNT -> """
+                    , fx AS (
+                        SELECT a.id FROM account a WHERE a.ledger_id = :ledgerId AND a.code = :fx
+                    ), dim AS (
+                        SELECT m.id, m.entry_date, p.account_id::text AS key, a.name AS name
+                        FROM m JOIN posting p ON p.entry_id = m.id JOIN account a ON a.id = p.account_id
+                        WHERE p.category_id IS NULL
+                          AND (p.account_id NOT IN (SELECT id FROM fx)
+                               OR NOT EXISTS (SELECT FROM posting q WHERE q.entry_id = m.id
+                                              AND q.account_id NOT IN (SELECT id FROM fx)))
+                    )""";
+        };
+        String with = matched + EntryClassification.ctes("m") + dim;
+        record Counted(String key, String name, long entries) { }
+        List<Counted> counts = jdbc.sql(with + """
+                SELECT key, (array_agg(name ORDER BY entry_date DESC, id DESC))[1] AS name, count(DISTINCT id) AS entries
+                FROM dim GROUP BY key
+                UNION ALL
+                SELECT NULL, NULL, count(*) FROM m WHERE NOT EXISTS (SELECT FROM dim d WHERE d.id = m.id)""")
+                .params(params)
+                .query((row, n) -> new Counted(row.getString("key"), row.getString("name"), row.getLong("entries")))
+                .list();
+        // My share: as the summary's In and Out, the sum of the entry's positive lines by the sign of its direction.
+        record Share(String key, String currency, BigDecimal incoming, BigDecimal outgoing) { }
+        List<Share> shares = jdbc.sql(with + """
+                , amounts AS (
+                    SELECT p.entry_id AS id, p.currency, sum(p.amount) AS amount
+                    FROM m JOIN posting p ON p.entry_id = m.id WHERE p.amount > 0
+                    GROUP BY p.entry_id, p.currency
+                ), keyed AS (
+                    SELECT DISTINCT id, key FROM dim
+                    UNION ALL
+                    SELECT m.id, NULL FROM m WHERE NOT EXISTS (SELECT FROM dim d WHERE d.id = m.id)
+                )
+                SELECT k.key, a.currency,
+                       coalesce(sum(a.amount) FILTER (WHERE d.net < 0), 0) AS incoming,
+                       coalesce(sum(a.amount) FILTER (WHERE d.net > 0), 0) AS outgoing
+                FROM keyed k JOIN amounts a ON a.id = k.id JOIN direction d ON d.id = k.id
+                GROUP BY k.key, a.currency ORDER BY a.currency""")
+                .params(params)
+                .query((row, n) -> new Share(row.getString("key"), row.getString("currency"),
+                        row.getBigDecimal("incoming"), row.getBigDecimal("outgoing")))
+                .list();
+        String none = by == EntryBreakdown.By.CATEGORY ? "No category" : "No payee";
+        List<EntryBreakdown.Row> rows = counts.stream()
+                .filter(c -> c.key() != null || c.entries() > 0)
+                .map(c -> new EntryBreakdown.Row(c.key(), c.key() == null ? none : c.name(), c.entries(),
+                        shares.stream()
+                                .filter(s -> Objects.equals(s.key(), c.key()))
+                                .filter(s -> s.incoming().signum() != 0 || s.outgoing().signum() != 0)
+                                .map(s -> new EntryBreakdown.Amounts(s.currency(), Money.normalize(s.incoming()),
+                                        Money.normalize(s.outgoing())))
+                                .toList()))
+                .sorted(Comparator.comparingLong(EntryBreakdown.Row::entries).reversed()
+                        .thenComparing(EntryBreakdown.Row::name, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        return new EntryBreakdown(by, rows);
     }
 
     /**
@@ -423,27 +513,10 @@ public class EntryService {
             // D-880: the summary's own classification over the entries every other filter matches, so that the
             // entries a direction shows add up to that row of the summary: the sign of the net of the categorized
             // lines, and the paying side of a family record that the summary counts once (UX-18's counted and
-            // shown_once) with its record's counted share entry.
-            where.append(" AND e.id IN (WITH b AS (SELECT e.id, e.kind" + from + " WHERE " + where + """
-                    ), net AS (
-                        SELECT b.id, sign(coalesce(sum(p.amount) FILTER (WHERE p.category_id IS NOT NULL), 0)) AS net
-                        FROM b JOIN posting p ON p.entry_id = b.id GROUP BY b.id
-                    ), counted AS (
-                        SELECT DISTINCT ON (r.id) b.id, r.id AS record_id
-                        FROM b
-                        JOIN family_entry_link l ON l.entry_id = b.id AND l.link_type = 'SHARE' AND l.detached_at IS NULL
-                        JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
-                        WHERE :rpOn AND b.kind = 'FAMILY_SHARE' AND r.type IN ('EXPENSE', 'INCOME')
-                          AND r.deleted_at IS NULL
-                        ORDER BY r.id, b.id
-                    ), paid AS (
-                        SELECT b.id, n.net FROM b
-                        JOIN family_entry_link l ON l.entry_id = b.id AND l.link_type = 'PAYMENT' AND l.detached_at IS NULL
-                        JOIN counted c ON c.record_id = l.record_id JOIN net n ON n.id = c.id
-                        WHERE b.kind = 'FAMILY_PAYMENT'
-                    )
-                    SELECT n.id FROM net n LEFT JOIN paid ON paid.id = n.id
-                    WHERE coalesce(paid.net, n.net) IN (:directions))""");
+            // shown_once) with its record's counted share entry: {@link EntryClassification}, D-893.
+            where.append(" AND e.id IN (WITH b AS (SELECT e.id, e.kind" + from + " WHERE " + where + ")"
+                    + EntryClassification.ctes("b")
+                    + " SELECT id FROM classified WHERE net IN (:directions))");
             params.put("directions", filter.directions().stream().map(d -> d.net).toList());
         }
         return from + " WHERE " + where;

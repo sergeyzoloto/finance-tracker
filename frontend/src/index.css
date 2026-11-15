@@ -229,6 +229,18 @@ fieldset.choice legend { font-size: 12px; line-height: 16px; color: var(--muted)
 table.entries tr.clickable { cursor: pointer; }
 table.entries tr.clickable:hover, tr.clickable:hover { background: var(--surface-raised); }
 .stale { opacity: 0.6; }
+/* Entries' breakdown (ENT-3, D-873): tabs, then rows of a checkbox, the name, the count, My share and "only". Nothing
+   scrolls sideways at 375 px: the name wraps. */
+.breakdown { margin-top: 1rem; }
+.breakdown-tabs { margin-bottom: 0.5rem; }
+table.breakdown-rows { width: 100%; }
+table.breakdown-rows th, table.breakdown-rows td { padding: 0.25rem 0.5rem 0.25rem 0; border-bottom: 1px solid var(--border);
+  vertical-align: top; }
+table.breakdown-rows td.name { overflow-wrap: anywhere; }
+table.breakdown-rows td.amount, table.breakdown-rows th.amount { text-align: right; white-space: nowrap; }
+table.breakdown-rows td.shares span { display: block; }
+table.breakdown-rows td.check { width: 1.75rem; }
+table.breakdown-rows td.only button.link { padding: 0 0.25rem; }
 /* Entries' chosen filters as chips with × (ENT-2, D-873); they wrap, so nothing scrolls sideways at 375 px. */
 .filters ul.chips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.4rem; list-style: none; margin: 0; padding: 0; }
 .filters .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0.25rem 0.15rem 0.6rem;

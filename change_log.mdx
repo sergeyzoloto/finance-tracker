@@ -3,6 +3,34 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · ENT-1: Entries' default period, remembered pages, the summary as a folding panel
+
+The commit of this entry, on `main` on top of `3a59219` (FX-1), D-867 to D-887. Not pushed.
+
+**Changes**
+- `frontend/`: Entries' default period "Month of the latest entry", All time `period=all` (D-869); `pageState.ts`, each
+  path's query in session storage, the header's links to it, removed at sign-out (D-870, D-877, D-885); a link with
+  filters but no period gets the remembered period or the default (`withRememberedPeriod`, D-874, D-886); "Clear
+  filters" forgets Entries' state; `EntrySummaryPanel.tsx` with `amountTable` per currency and a fold button kept in
+  local storage (D-871, D-872, D-875, D-876, D-884).
+- Privacy policy, its draft and `privacy.test.ts`: both storage items (D-877).
+- Tests: `ENT1.test.tsx`; `UX18.test.ts` folded into it; `UX11`, `UX12`, `Robust` on `period=all` (D-887).
+- e2e: `11-entries` (default month, fold at 375 px, a filter kept via the dashboard), `09-payees` reads the panel;
+  `05-family-f8d`, `07-dashboard`, `08-new-entry` open `period=all`; `unfoldSummary` in `fixtures.ts`.
+- `ci.yml` on pushes to `main` only (D-878); CLAUDE.md; D-867 to D-887 and BATCH-1's stage lines in `requirements.md`.
+
+**Verified**
+- `npm test`: exit 0, 56 files, 785 tests passed; `npm run build` exit 0 (Node v22.19.0, npm 11.6.2).
+- `e2e:local` with `E2E_FAMILY=on` (Node 24): run 1 exit 1, 38 passed, `payees at 375 px` failed on its old URL
+  pattern (fixed for D-874); run 2 exit 1, 8 specs failed with 429 from D-29's invite limit (back to back); after
+  `docker restart finance-tracker-backend-1`, run 3 exit 0, "Result: PASSED", 39 passed.
+- `npm run test:guards` alone after it: exit 0, pass 39, fail 0.
+- Screenshots at 375 and 1440 px in `data/private/reports/ENT-1/`; `check-forbidden-names.sh` exit 0.
+
+**Open**
+- The runbook's current text names `feature/family-budget` in "Production now" and FX-1's checklist; ENT-4's
+  BATCH-1 checklist replaces both (D-878, D-879).
+
 ## 2026-11-15 · FX-1: the Bank of Russia's EUR rate in roubles as a shared rate source
 
 One commit, the commit of this entry, on `feature/family-budget` on top of `e84774a` (OPS-3-doc), "feat: the Bank of

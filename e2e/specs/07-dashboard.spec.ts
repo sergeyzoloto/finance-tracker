@@ -152,7 +152,7 @@ test('dashboard', async ({ as, family, target, watch }) => {
   await expect(page.getByRole('status').filter({ hasText: 'Saved. Today shows as' }))
     .toHaveText(`Saved. Today shows as ${inPattern(day, 'DD.MM.YYYY')}.`)
   expect(await dateFormatOf(page)).toBe('DD.MM.YYYY')
-  await page.goto('/entries')
+  await page.goto('/entries?period=all')
   const row = page.getByRole('row').filter({ hasText: 'Dashboard personal' })
   await expect(row.getByRole('link', { name: shownDay(day, 'DD.MM.YYYY') })).toBeVisible()
   await page.goto('/entries/new')
@@ -602,7 +602,7 @@ async function addExpense({ page }: Session, amount: string, memo: string) {
   await page.getByLabel('Category').selectOption({ label: 'Groceries' })
   await page.getByLabel('Memo').fill(memo)
   await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page).toHaveURL(/\/entries$/)
+  await expect(page).toHaveURL(/\/entries(\?|$)/)  // ENT-1: with the state remembered (D-870)
 }
 
 /**
@@ -720,7 +720,7 @@ async function expectHeaderMenus({ page }: Session, family: boolean) {
   await expect(header.getByText('My finances')).toHaveCount(0)
   await shot(page, 'dashboard-16-main-nav')
   await nav.getByRole('link', { name: 'Entries', exact: true }).click()
-  await expect(page).toHaveURL(/\/entries$/)
+  await expect(page).toHaveURL(/\/entries(\?|$)/)  // ENT-1: with the state remembered (D-870)
   await expect(page.getByRole('heading', { level: 2, name: 'Entries' })).toBeVisible()
   await expect(nav.locator('a[aria-current="page"]')).toHaveText(['Entries'])
 

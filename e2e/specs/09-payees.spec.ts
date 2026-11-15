@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { deleteAllMyData, expect, expectReloadAfterLeaving, shot, test, wholeNumber } from '../fixtures.ts'
+import { deleteAllMyData, expect, expectReloadAfterLeaving, shot, test, unfoldSummary, wholeNumber } from '../fixtures.ts'
 import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave } from '../family-steps.ts'
 
 // UX-9's check with two accounts (D-477 to D-482), the family budget switched on:
@@ -90,7 +90,7 @@ test('payees a member chooses to show', async ({ as, family, target, watch }) =>
   await bSees(b.page, budget, record, null)
 
   // 5. A's Entries: the payment with its record's category, not muted, and the kind and the budget under it.
-  await a.page.goto('/entries')
+  await a.page.goto('/entries?period=all')
   const payment = a.page.locator('tr').filter({ hasText: wholeNumber('10.00') }).filter({ hasText: 'Family payment' })
   await expect(payment).toHaveCount(1)
   await expect(payment.locator('.category-name')).toHaveText('Groceries')
@@ -103,7 +103,8 @@ test('payees a member chooses to show', async ({ as, family, target, watch }) =>
   // The family category finds the payment and the share (D-478).
   await a.page.goto('/categories')
   await a.page.getByRole('row').filter({ hasText: BUDGET }).getByRole('link', { name: 'Groceries', exact: true }).click()
-  await expect(a.page).toHaveURL(/\/entries\?categoryId=\d+$/)
+  // ENT-1 (D-874): the link gets the period remembered for Entries, else the default.
+  await expect(a.page).toHaveURL(/\/entries\?period=[a-z-]+&categoryId=\d+$/)
   await expect(a.page.locator('tr').filter({ hasText: 'Family payment' })).toHaveCount(1)
   await expect(a.page.locator('tr').filter({ hasText: 'Family share' })).toHaveCount(1)
 
@@ -165,12 +166,12 @@ async function bSees(page: Page, budget: string, record: string, by: string | nu
  * and the text search finds the share by it only then.
  */
 async function bsShare(page: Page, shown: boolean) {
-  const rows = page.locator('table.entry-list > tbody:not(.entry-summary) > tr')
-  await page.goto('/entries')
+  const rows = page.locator('table.entry-list > tbody > tr')
+  await page.goto('/entries?period=all')
   const share = rows.filter({ hasText: 'Family share' })
   await expect(share).toHaveCount(1)
   await expect(share.locator('td.payee')).toHaveText(shown ? PAYEE : '—')
-  await page.goto('/entries?q=Odido')
+  await page.goto('/entries?period=all&q=Odido')
   if (shown) {
     await expect(rows).toHaveCount(1)
     await expect(rows.first()).toContainText('Family share')
@@ -178,7 +179,7 @@ async function bsShare(page: Page, shown: boolean) {
     await expect(page.getByText('No entries match these filters.')).toBeVisible()
   }
   // UX-12 (D-547): "Payee or person" lists the payee with its budget's name only while it is shown.
-  await page.goto('/entries')
+  await page.goto('/entries?period=all')
   const select = page.getByLabel('Payee or person')
   const option = select.locator('option').filter({ hasText: `${PAYEE} · ${BUDGET}` })
   if (!shown) {
@@ -191,11 +192,12 @@ async function bsShare(page: Page, shown: boolean) {
   expect(new URL(page.url()).searchParams.get('payee')).toBe(PAYEE)
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).toContainText('Family share')
-  const summary = page.getByRole('rowgroup', { name: 'Summary of all matching entries' })
+  const summary = page.getByRole('region', { name: 'Summary of all matching entries' })
   await expect(summary).not.toHaveClass(/stale/)
-  await expect(summary.locator('td.sum-date')).toContainText('1 entry · ')
-  await expect(summary.locator('td.sum-payee')).toContainText('1 payee')
-  await expect(summary.locator('td.sum-payee')).not.toContainText('without')
+  await unfoldSummary(page)
+  await expect(summary.locator('.sum-date')).toContainText('1 entry · ')
+  await expect(summary.locator('.sum-payee')).toContainText('1 payee')
+  await expect(summary.locator('.sum-payee')).not.toContainText('without')
   await shot(page, 'ux12-02-entries-family-payee')
 }
 

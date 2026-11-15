@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router'
 import type { FamilyLedger } from './api'
 import { logOut } from './auth'
 import { SharedIcon } from './components'
+import { pageLink } from './pageState'
 
 /** Whether a path is inside a family budget (D-435): `/family/<id>…`, not `/family/new`. */
 export const insideFamilyBudget = (pathname: string) => /^\/family\/(?!new(?:\/|$))[^/]+/.test(pathname)
@@ -65,7 +66,10 @@ export function accountLink(url: string | null | undefined): string | null {
  * family budget". The current link is marked; under 40rem the row scrolls inside itself, the current link in view.
  */
 function MainNav({ families }: { families: FamilyLedger[] | undefined | null }) {
-  const { pathname } = useLocation()
+  const location = useLocation()
+  const { pathname } = location
+  // Each link leads back to the state its page last showed in this tab (D-870).
+  const to = (path: string) => pageLink(path, location)
   const nav = useRef<HTMLElement>(null)
   const sorted = [...(families ?? [])].sort((a, b) => a.name.localeCompare(b.name))
   useEffect(() => {
@@ -81,16 +85,16 @@ function MainNav({ families }: { families: FamilyLedger[] | undefined | null }) 
   }, [pathname, families])
   return (
     <nav className="main-nav" aria-label="Main" ref={nav}>
-      <NavLink to="/" end>Dashboard</NavLink>
-      <NavLink to="/entries">Entries</NavLink>
-      <NavLink to="/accounts">Accounts</NavLink>
-      <NavLink to="/categories">Categories</NavLink>
-      <NavLink to="/rates">Rates</NavLink>
+      <NavLink to={to('/')} end>Dashboard</NavLink>
+      <NavLink to={to('/entries')}>Entries</NavLink>
+      <NavLink to={to('/accounts')}>Accounts</NavLink>
+      <NavLink to={to('/categories')}>Categories</NavLink>
+      <NavLink to={to('/rates')}>Rates</NavLink>
       {families !== null && (
         <>
           <span className="nav-divider" aria-hidden="true" />
-          {sorted.map((f) => <NavLink key={f.id} to={`/family/${f.id}`}><SharedIcon />{f.name}</NavLink>)}
-          <NavLink to="/family/new"><PlusIcon />New family budget</NavLink>
+          {sorted.map((f) => <NavLink key={f.id} to={to(`/family/${f.id}`)}><SharedIcon />{f.name}</NavLink>)}
+          <NavLink to={to('/family/new')}><PlusIcon />New family budget</NavLink>
         </>
       )}
     </nav>

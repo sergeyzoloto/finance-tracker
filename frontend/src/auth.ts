@@ -3,6 +3,7 @@
 
 import { clearPendingInvite } from './invite'
 import { LOGIN_URL } from './links'
+import { forgetAllPages } from './pageState'
 
 const RETURN_TO = 'returnTo' // sessionStorage: the page to reopen after the round trip through Keycloak
 
@@ -26,6 +27,7 @@ export function finishLogin() {
 /** Ends the session here and at Keycloak. A form post, so the browser follows the redirects to Keycloak and back. */
 export function logOut() {
   clearPendingInvite()
+  forgetAllPages()
   const form = document.createElement('form')
   form.method = 'POST'
   form.action = '/logout'

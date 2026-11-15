@@ -229,10 +229,19 @@ fieldset.choice legend { font-size: 12px; line-height: 16px; color: var(--muted)
 table.entries tr.clickable { cursor: pointer; }
 table.entries tr.clickable:hover, tr.clickable:hover { background: var(--surface-raised); }
 .stale { opacity: 0.6; }
-/* Entries' summary row (UX-11, D-524): every matching entry, under the column headers; labelled lines under 40rem. */
-table.entry-list tbody.entry-summary td { color: var(--muted); vertical-align: top; border-bottom: 2px solid var(--border-control); }
-table.entry-list tbody.entry-summary td.sum-amount { text-align: right; white-space: nowrap; }
-table.entry-list .summary-label { display: none; }
+/* Entries' summary panel (ENT-1, D-871, D-872, D-875): between the filters and the list; the counts line, then a table
+   of amounts per currency; folded to one line. Nothing scrolls sideways at 375 px. */
+.entry-summary-panel { margin: 0 0 1rem; }
+.entry-summary-panel .summary-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
+.entry-summary-panel .summary-counts { margin: 0; color: var(--muted); overflow-wrap: anywhere; flex: 1 1 16rem; }
+.entry-summary-panel .summary-toggle { order: 2; margin-left: auto; }
+.entry-summary-panel .summary-body { margin-top: 0.5rem; }
+table.summary-amounts { width: auto; max-width: 100%; margin: 0.5rem 0 0; }
+table.summary-amounts caption { text-align: left; font-weight: 600; padding: 0.25rem 0; }
+table.summary-amounts th, table.summary-amounts td { padding: 0.2rem 0.75rem 0.2rem 0; border-bottom: 1px solid var(--border); }
+table.summary-amounts thead th { color: var(--muted); font-weight: 500; white-space: normal; }
+table.summary-amounts th[scope="row"] { text-align: left; font-weight: 500; }
+table.summary-amounts td.amount { text-align: right; white-space: nowrap; }
 .pager { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; justify-content: center; margin: 1rem 0; }
 table.nested { margin: 0 0 0 1.5rem; width: calc(100% - 1.5rem); }
 tr.details > td { background: var(--surface-raised); }
@@ -613,10 +622,9 @@ ul.report-members li { color: var(--muted); font-size: 0.9em; overflow-wrap: any
   table.entry-list td.flow { order: 4; color: var(--muted); }
   table.entry-list td.amount { order: 5; font-weight: 600; }
   table.entry-list .family-line { order: 6; }
-  table.entry-list tbody.entry-summary tr { background: var(--surface-raised); padding: 0.5rem; border-bottom: 2px solid var(--border-control); }
-  table.entry-list tbody.entry-summary td, table.entry-list tbody.entry-summary td.sum-amount { border: none; text-align: left; white-space: normal; }
-  table.entry-list .summary-label { display: inline; font-weight: 600; color: var(--text); margin-right: 0.5ch; }
-  table.entry-list .sum-amount .summary-label { display: block; }
+  .entry-summary-panel .summary-toggle { order: 0; margin-left: 0; }
+  table.summary-amounts { width: 100%; font-size: 13px; }
+  table.summary-amounts th, table.summary-amounts td { padding-right: 0.4rem; }
   table.categories, table.categories tbody { display: block; }
   table.categories tr { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
     gap: 0.3rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }

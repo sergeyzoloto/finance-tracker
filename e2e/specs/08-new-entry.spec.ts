@@ -97,7 +97,7 @@ test('new entry', async ({ as, family }) => {
 
   // 4. At 375 px, nothing scrolls sideways; the header's user button is an icon there.
   await expectNoSidewaysScroll(page, '/entries/new with the list', narrow)
-  await page.goto('/entries')
+  await page.goto('/entries?period=all')
   await expect(page.getByRole('row').filter({ hasText: 'E2E weekly' })).toHaveCount(1)
   await shot(page, 'new-entry-03-entries')
   await expectNoSidewaysScroll(page, '/entries', narrow)

@@ -50,7 +50,7 @@ test('family F8d', async ({ as, family, target, watch }) => {
   await expect(b.page.locator('main')).not.toContainText('Corner shop')
   await shot(b.page, 'f8d-05-record-for-b')
   // A's own payment entry has it as its payee.
-  await a.page.goto('/entries')
+  await a.page.goto('/entries?period=all')
   await expect(a.page.getByRole('row').filter({ hasText: wholeNumber('40.00') })).toContainText('Corner shop')
 
   // 3. A refund of €10.00: the same category, a minus, and each member getting their share back.

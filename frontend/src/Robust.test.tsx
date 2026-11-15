@@ -256,7 +256,7 @@ describe('the error boundaries', () => {
       'GET /api/counterparties': { status: 200, body: [] },
       'GET /api/settings': { status: 200, body: { baseCurrency: 'EUR', sharedAccountId: null, defaultShareRatio: '0.50' } },
     })
-    render(<MemoryRouter initialEntries={['/entries']}><App me={{ ...ON, features: { familyLedgers: false } }} /></MemoryRouter>)
+    render(<MemoryRouter initialEntries={['/entries?period=all']}><App me={{ ...ON, features: { familyLedgers: false } }} /></MemoryRouter>)
 
     expect(await screen.findByText(/Couldn’t show this page/)).toBeDefined()
     // The header's rows (D-498).

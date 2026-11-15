@@ -1,4 +1,4 @@
-# Build and test on every push. The backend tests need Docker for Testcontainers (PostgreSQL 17);
+# Build and test on every push to main (D-878, BATCH-1: work is on main only; feature/family-budget is no longer pushed). The backend tests need Docker for Testcontainers (PostgreSQL 17);
 # GitHub's ubuntu runners provide it. They don't need Keycloak: FakeKeycloak stands in for it.
 #
 # D-44 (OPS-2, decided by the PM): every job runs on ubuntu-24.04, named, so that nothing changes on its own when
@@ -11,7 +11,7 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:

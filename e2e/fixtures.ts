@@ -283,3 +283,10 @@ export const today = () => new Date().toISOString().slice(0, 10)
 export const todayIn = (zone: string) => new Intl.DateTimeFormat('en-CA', {
   timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(new Date())
+
+/** Unfolds Entries' summary panel if it is folded (D-872), keeping that choice for the rest of the run (D-876). */
+export async function unfoldSummary(page: Page) {
+  const button = page.getByRole('region', { name: 'Summary of all matching entries' }).locator('button.summary-toggle')
+  if (await button.getAttribute('aria-expanded') === 'false') await button.click()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+}

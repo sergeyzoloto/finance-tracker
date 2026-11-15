@@ -4,25 +4,44 @@ import { dateOfIso, formatDate, useApi, type EntryPage, type EntrySummary } from
 import { SharedMark } from './CashFlowTable'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
 import DateInput from './DateInput'
-import { summaryTexts } from './entrySummary'
+import EntrySummaryPanel from './EntrySummaryPanel'
 import { payeeFilterOf, payeeFilterOptions, payeeFilterValue, useFamilyPayees } from './familyPayees'
 import { describeEntry, entryKindLabel, kindLabel, useLedger } from './ledger'
 import { useToday } from './me'
 import { formatMoney, negate } from './money'
-import { PERIOD_LABELS, presetNamed, presetRange, PRESETS, useLatestEntryDay, type Preset } from './periods'
+import { forgetPage, rememberedSearch } from './pageState'
+import { DEFAULT_PRESET, PERIOD_LABELS, presetNamed, presetRange, PRESETS, useLatestEntryDay, type Preset } from './periods'
 
 const PAGE_SIZE = 50
 const FILTERS = ['from', 'to', 'accountId', 'categoryId', 'counterpartyId', 'payee', 'q'] as const
 type Filter = (typeof FILTERS)[number]
 
+const PERIOD_KEYS = ['period', 'from', 'to'] as const
+
 /**
- * The Period list's choice from the URL (D-522): a preset by name (`period=<preset>`), else "custom" for typed dates
- * (`from`, `to`, either or both), else "all", Entries' default.
+ * The Period list's choice from the URL (D-522, D-869): a preset by name (`period=<preset>`), `period=all` for All
+ * time, else "custom" for typed dates (`from`, `to`, either or both), else the default, "Month of the latest entry".
  */
 export function entriesPeriod(params: URLSearchParams): Preset | 'custom' | 'all' {
+  if (params.get('period') === 'all') return 'all'
   const preset = presetNamed(params.get('period'))
   if (preset) return preset
-  return params.get('from') || params.get('to') ? 'custom' : 'all'
+  return params.get('from') || params.get('to') ? 'custom' : DEFAULT_PRESET
+}
+
+/**
+ * A link into Entries with filters of its own but no period (D-874): the period this tab last showed on Entries, else
+ * the default, put first; the link's own filters replace the remembered ones. Null when the URL needs nothing: it has a
+ * period, or nothing at all (the default).
+ */
+export function withRememberedPeriod(params: URLSearchParams, remembered: string): URLSearchParams | null {
+  if (PERIOD_KEYS.some((k) => params.has(k)) || [...params.keys()].length === 0) return null
+  const before = new URLSearchParams(remembered)
+  const next = new URLSearchParams()
+  PERIOD_KEYS.forEach((k) => { const v = before.get(k); if (v) next.set(k, v) })
+  if (!PERIOD_KEYS.some((k) => next.has(k))) next.set('period', DEFAULT_PRESET)
+  params.forEach((value, k) => next.append(k, value))
+  return next
 }
 
 /**
@@ -39,6 +58,11 @@ export default function Entries() {
   const { ledger, error: ledgerError } = useLedger()
   const page = Math.max(0, Number(params.get('page') ?? 0) || 0)
   const period = entriesPeriod(params)
+  // D-874: a link with filters but no period takes the remembered one, shown in the URL, before any request.
+  const completed = withRememberedPeriod(params, rememberedSearch('/entries'))
+  useEffect(() => {
+    if (completed) setParams(completed, { replace: true })
+  })
   // "Month of the latest entry" is the whole ledger's, whatever the other filters (D-522).
   const latest = useLatestEntryDay(period === 'latest-entry-month', today)
   const range = period === 'all' || period === 'custom' ? null
@@ -54,7 +78,7 @@ export default function Entries() {
   // One of the two payee filters (D-547): a counterparty wins when, by hand, the URL has both (D-556).
   if (filter.counterpartyId !== '') filter.payee = ''
   // No request for another month before the latest entry's is known.
-  const waiting = period === 'latest-entry-month' && latest.day === undefined
+  const waiting = completed !== null || (period === 'latest-entry-month' && latest.day === undefined)
 
   const filters = new URLSearchParams(Object.entries(filter).filter(([, v]) => v !== ''))
   const query = new URLSearchParams(filters)
@@ -71,8 +95,8 @@ export default function Entries() {
     next.delete('page')
     setParams(next, { replace })
   }
-  /** A preset by name, or All time; typed dates go (D-522). */
-  const choosePeriod = (choice: string) => setFilter({ period: choice === 'all' ? '' : choice, from: '', to: '' })
+  /** A preset by name, or All time (`period=all`, D-869); typed dates go (D-522). */
+  const choosePeriod = (choice: string) => setFilter({ period: choice, from: '', to: '' })
   /** A typed From or To: Custom, keeping the other end of the period shown. */
   const setDay = (key: 'from' | 'to', day: string) =>
     setFilter({ period: '', from: filter.from, to: filter.to, [key]: day })
@@ -92,10 +116,14 @@ export default function Entries() {
     return () => clearTimeout(timer)
   })
 
-  const filtered = FILTERS.some((f) => filter[f] !== '')
+  // "Clear filters" shows whenever the state differs from the default (D-874).
+  const filtered = period !== DEFAULT_PRESET || FILTERS.some((f) => f !== 'from' && f !== 'to' && filter[f] !== '')
+  const clear = () => {
+    forgetPage('/entries')
+    setParams(new URLSearchParams())
+  }
   const familyPayees = useFamilyPayees()
   const payeeOptions = ledger ? payeeFilterOptions(ledger.counterparties, familyPayees, filter.payee) : []
-  const texts = summary.data && summaryTexts(summary.data)
   const open = (id: number) => navigate(`/entries/${id}`, { state: { from: location.pathname + location.search } })
   const data = entries.data
 
@@ -146,10 +174,11 @@ export default function Entries() {
           Text{' '}
           <input type="search" value={text} placeholder="Memo or payee" maxLength={100} onChange={(e) => setText(e.target.value)} />
         </label>
-        {filtered && <button type="button" onClick={() => setParams(new URLSearchParams())}>Clear filters</button>}
+        {filtered && <button type="button" onClick={clear}>Clear filters</button>}
       </fieldset>
 
       <Errors messages={[ledgerError ?? latest.error ?? entries.error ?? summary.error]} />
+      {summary.data && summary.data.count > 0 && <EntrySummaryPanel summary={summary.data} loading={summary.loading} />}
       {(!data || !ledger) && !(ledgerError ?? entries.error) && <Loading what="entries" />}
       {data && ledger && data.content.length === 0 && (
         filtered ? <p className="empty">No entries match these filters.</p>
@@ -161,27 +190,6 @@ export default function Entries() {
             <thead>
               <tr><th>Date</th><th>Payee</th><th>Category</th><th>Accounts</th><th className="amount">Amount</th></tr>
             </thead>
-            {texts && (
-              // D-524: every entry the filters match, on every page; while it reloads, the old figures stay, dimmed.
-              <tbody className={`entry-summary ${summary.loading ? 'stale' : ''}`} aria-label="Summary of all matching entries">
-                <tr>
-                  <td className="sum-date"><span className="summary-label">Entries</span>{texts.date}</td>
-                  <td className="sum-payee"><span className="summary-label">Payees</span>{texts.payee}</td>
-                  <td className="sum-category"><span className="summary-label">Categories</span>{texts.category}</td>
-                  <td className="sum-accounts"><span className="summary-label">Accounts</span>{texts.accounts}</td>
-                  <td className="sum-amount">
-                    <span className="summary-label">Amount</span>
-                    {texts.amounts.map((line, i) => (
-                      <div key={`${line.currency} ${i}`} className="amount-line">
-                        <span className="muted">{line.label}</span>{' '}
-                        <span className={`amount ${line.label === 'In' || line.label === 'Received' ? 'income'
-                          : line.label === 'Out' || line.label === 'Spent' ? 'expense' : ''}`}>{line.text}</span>
-                      </div>
-                    ))}
-                  </td>
-                </tr>
-              </tbody>
-            )}
             <tbody>
               {data.content.map((entry) => {
                 const summary = describeEntry(entry, ledger, true)

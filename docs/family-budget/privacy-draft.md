@@ -171,6 +171,9 @@ The app also keeps a few things in your browser, on this device only:
   the same. It is sent to the server only as part of a record you save.
 - In local storage, that you dismissed the hint about your browser’s time zone, with the two time zones it named, so
   that it isn’t shown again for them. It is never sent to the server.
+- In session storage, the filters and period each page last showed, so that the app’s links lead back to them, until
+  you close the tab; they are removed when you sign out.
+- In local storage, whether you folded or unfolded the summary on the Entries page. It is never sent to the server.
 
 What is in local storage stays until you clear your browser’s data for the site; “Delete all my data” doesn’t remove
 it. Because all of this is strictly necessary or keeps a choice you made, the app doesn’t ask for your consent.

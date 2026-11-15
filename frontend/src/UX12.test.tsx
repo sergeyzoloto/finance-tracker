@@ -127,7 +127,7 @@ describe('Entries’ payee filter in the page (D-547)', () => {
   const payeeSelect = () => screen.getByRole('combobox', { name: 'Payee or person' }) as HTMLSelectElement
 
   it('lists a family payee with its budgets, and choosing it filters the list and the summary by name', async () => {
-    const calls = renderEntries('/entries?counterpartyId=22&page=2')
+    const calls = renderEntries('/entries?period=all&counterpartyId=22&page=2')
     await waitFor(() => expect([...payeeSelect().options].map((o) => o.textContent)).toContain('Trefpunt Coffeeshop · Away, Home'))
     expect(payeeSelect().value).toBe('c:22')
     fireEvent.change(payeeSelect(), { target: { value: 'p:Trefpunt Coffeeshop' } })
@@ -148,12 +148,12 @@ describe('Entries’ payee filter in the page (D-547)', () => {
   })
 
   it('keeps a chosen name the list no longer has, and sends only the counterparty when the URL has both', async () => {
-    const calls = renderEntries('/entries?payee=Gone%20shop')
+    const calls = renderEntries('/entries?period=all&payee=Gone%20shop')
     await waitFor(() => expect(payeeSelect().value).toBe('p:Gone shop'))
     expect(payeeSelect().selectedOptions[0].textContent).toBe('Gone shop')
     cleanup()
 
-    const both = renderEntries('/entries?payee=Gone%20shop&counterpartyId=21')
+    const both = renderEntries('/entries?period=all&payee=Gone%20shop&counterpartyId=21')
     await waitFor(() => expect(payeeSelect().value).toBe('c:21'))
     await waitFor(() => expect(both.some((c) => c.url.startsWith('/api/entries?'))).toBe(true))
     expect(both.filter((c) => c.url.startsWith('/api/entries?') || c.url.startsWith('/api/entries/summary'))
@@ -162,7 +162,7 @@ describe('Entries’ payee filter in the page (D-547)', () => {
   })
 
   it('chooses a counterparty whose name the URL’s payee has in another case, listed once, the URL kept (D-568)', async () => {
-    const calls = renderEntries('/entries?payee=ALBERT%20HEIJN')
+    const calls = renderEntries('/entries?period=all&payee=ALBERT%20HEIJN')
     await waitFor(() => expect(payeeSelect().value).toBe('c:21'))
     expect([...payeeSelect().options].filter((o) => o.textContent!.toLowerCase().startsWith('albert heijn')))
       .toHaveLength(1)

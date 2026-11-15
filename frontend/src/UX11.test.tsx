@@ -6,7 +6,7 @@ import { accountDays, comparedLines, defaultCompare } from './accounts'
 import type { Account, AccountBalance, Category, Entry, EntrySummary } from './api'
 import Categories from './Categories'
 import Entries, { entriesPeriod } from './Entries'
-import { amountLines, summaryTexts } from './entrySummary'
+import { summaryTexts } from './entrySummary'
 import { PERIOD_LABELS, PRESETS } from './periods'
 
 /** A currency without family records counted (UX-18): Spent and Received are Out and In. */
@@ -93,7 +93,7 @@ function renderEntries(path: string, entries: Entry[] = [entry(1, '2026-09-12')]
 
 describe('Entries’ periods (D-522)', () => {
   it('lists All time, the dashboard’s presets in its order with its labels, and Custom', async () => {
-    renderEntries('/entries')
+    renderEntries('/entries?period=all')
     const period = await screen.findByRole('combobox', { name: 'Period' }) as HTMLSelectElement
     expect([...period.options].map((o) => o.value)).toEqual(['all', ...PRESETS, 'custom'])
     expect([...period.options].map((o) => o.textContent))
@@ -114,7 +114,7 @@ describe('Entries’ periods (D-522)', () => {
     await waitFor(() => expect(where).toBe('?period=this-year&accountId=1'))
     await waitFor(() => expect(calls).toContain('/api/entries?from=2026-01-01&to=2026-12-31&accountId=1&page=0&size=50'))
     fireEvent.change(period, { target: { value: 'all' } })
-    await waitFor(() => expect(where).toBe('?accountId=1'))
+    await waitFor(() => expect(where).toBe('?period=all&accountId=1'))
   })
 
   it('makes the month of the latest entry the whole ledger’s, and asks for no other month first', async () => {
@@ -134,21 +134,20 @@ describe('Entries’ periods (D-522)', () => {
     expect(period.value).toBe('custom')
     await waitFor(() => expect(calls).toContain('/api/entries?from=2026-08-15&to=2026-08-31&page=0&size=50'))
     expect(entriesPeriod(new URLSearchParams('to=2026-08-31'))).toBe('custom')
-    expect(entriesPeriod(new URLSearchParams(''))).toBe('all')
+    expect(entriesPeriod(new URLSearchParams(''))).toBe('latest-entry-month')
+    expect(entriesPeriod(new URLSearchParams('period=all'))).toBe('all')
     expect(entriesPeriod(new URLSearchParams('period=last-year'))).toBe('previous-year')
-    expect(entriesPeriod(new URLSearchParams('period=forever'))).toBe('all')
+    expect(entriesPeriod(new URLSearchParams('period=forever'))).toBe('latest-entry-month')
   })
 })
 
-describe('Entries’ summary row (D-524)', () => {
-  it('says each column’s figures for every matching entry', () => {
+describe('Entries’ summary counts (D-524, D-875)', () => {
+  it('says the counts for every matching entry', () => {
     const texts = summaryTexts(summary)
     expect(plain(texts.date)).toBe('214 entries · Sep 1 – 30, 2026')
     expect(texts.payee).toBe('12 payees · 3 without')
     expect(texts.category).toBe('7 categories')
     expect(texts.accounts).toBe('4 accounts')
-    expect(texts.amounts.map((l) => `${l.label} ${plain(l.text)}`)).toEqual([
-      'In +€2,000.00', 'Out -€1,234.50', 'Net +€765.50', 'Out -$20.00', 'Transfers $300.00'])
     const one = summaryTexts({ ...summary, count: 1, firstDate: '2026-09-05', lastDate: '2026-09-05', payees: 1,
       withoutPayee: 0, categories: 1, withoutCategory: 1, accounts: 1 })
     expect(plain(one.date)).toBe('1 entry · Sep 5, 2026')
@@ -156,28 +155,10 @@ describe('Entries’ summary row (D-524)', () => {
     expect(one.category).toBe('1 category · 1 without')
   })
 
-  it('shows a currency’s lines only when not 0, the Net only with both In and Out', () => {
-    const lines = (i: string, o: string, t: string) =>
-      amountLines({ currency: 'EUR', incoming: i, outgoing: o, transfers: t, ...noFamily(i, o) })
-        .map((l) => `${l.label} ${plain(l.text)}`)
-    expect(lines('0', '0', '0')).toEqual([])
-    expect(lines('5.00', '0', '0')).toEqual(['In +€5.00'])
-    expect(lines('0', '5.00', '0')).toEqual(['Out -€5.00'])
-    expect(lines('5.00', '5.00', '0')).toEqual(['In +€5.00', 'Out -€5.00', 'Net €0.00'])
-    expect(lines('5.00', '7.25', '1.00')).toEqual(['In +€5.00', 'Out -€7.25', 'Net -€2.25', 'Transfers €1.00'])
-  })
-
-  it('stands under the column headers, labelled, and asks again when the filters change, not the page', async () => {
-    renderEntries('/entries')
-    const row = await screen.findByRole('rowgroup', { name: 'Summary of all matching entries' })
-    expect(plain(row.textContent)).toContain('214 entries')
-    expect(plain(row.querySelector('td.sum-payee')!.textContent)).toBe('Payees12 payees · 3 without')
-    const amounts = row.querySelector('td.sum-amount')!
-    expect([...amounts.querySelectorAll('.amount-line')].map((l) => plain(l.textContent)))
-      .toEqual(['In +€2,000.00', 'Out -€1,234.50', 'Net +€765.50', 'Out -$20.00', 'Transfers $300.00'])
-    // The labels of its lines under 40rem.
-    expect([...row.querySelectorAll('.summary-label')].map((l) => l.textContent))
-      .toEqual(['Entries', 'Payees', 'Categories', 'Accounts', 'Amount'])
+  it('asks again when the filters change, not the page', async () => {
+    renderEntries('/entries?period=all')
+    const panel = await screen.findByRole('region', { name: 'Summary of all matching entries' })
+    expect(plain(panel.textContent)).toContain('214 entries')
     const before = calls.filter((c) => c.startsWith('/api/entries/summary')).length
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'rent' } })
     await waitFor(() => expect(calls).toContain('/api/entries/summary?q=rent'))

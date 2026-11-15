@@ -1,4 +1,4 @@
-import { startTransition, useCallback } from 'react'
+import { startTransition, useCallback, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router'
 import Accounts from './Accounts'
 import { familyLedgersOn, useApi, type FamilyLedger, type Me } from './api'
@@ -13,6 +13,7 @@ import Header from './Header'
 import { MeProvider, useMe } from './me'
 import { PRIVACY_URL, SOURCE_URL } from './links'
 import NewFamily from './NewFamily'
+import { rememberPage } from './pageState'
 import Rates from './Rates'
 import Settings from './Settings'
 import { ZoneHint } from './TimeZone'
@@ -32,6 +33,8 @@ export default function App({ me }: { me: Me }) {
 function Shell() {
   const { me, reload: reloadMe } = useMe()
   const location = useLocation()
+  // Every page's last URL state in this tab (D-870), for the header's links.
+  useEffect(() => rememberPage(location.pathname, location.search), [location.pathname, location.search])
   // The family budget (D-25) exists on these screens only while the backend has it switched on: no switcher, no
   // family routes, and no request for family budgets otherwise.
   const familyOn = familyLedgersOn(me)

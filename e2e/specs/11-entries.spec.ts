@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { deleteAllMyData, expect, loadDemoData, shot, test, type Session } from '../fixtures.ts'
+import { deleteAllMyData, expect, loadDemoData, mainMenu, shot, test, unfoldSummary, type Session } from '../fixtures.ts'
 
 // UX-11's Entries (D-522, D-524) and Categories (D-527) with A, on the demo:
 // 1. Entries' Period list holds "All time", the dashboard's Period list in its order (its "Custom" last), and "Custom".
@@ -15,11 +15,14 @@ import { deleteAllMyData, expect, loadDemoData, shot, test, type Session } from 
 //    accessible name, and renamed back; with E2E_FAMILY=on a family category's link opens its budget's categories.
 //    Since UX-12 (D-552), each category's name is centred on its buttons, on Categories and the family budget's.
 // 4. Screenshots at 375 px (local-narrow); nothing scrolls sideways. Delete all my data at the end.
+// ENT-1 (D-869 to D-876): step 1 opens Entries by the header's link on the month of the latest entry, the summary
+// panel folded at 375 px and unfolded at 1280; step 2 reads the panel's counts line and amount tables; after it a
+// filter is kept going to the dashboard and back by the header's links.
 // (A family record's payee on a share, D-523, and Entries' family payees, D-547, are 09-payees' steps 2 to 4.)
 
-const ROWS = 'table.entry-list > tbody:not(.entry-summary) > tr'
+const ROWS = 'table.entry-list > tbody > tr'
 
-test('entries: periods and the summary row; categories: icon buttons', async ({ as, family }) => {
+test('entries: periods, the summary panel and remembered state; categories: icon buttons', async ({ as, family }) => {
   const a = await as('A')
   const { page } = a
   await deleteAllMyData(a)
@@ -31,16 +34,34 @@ test('entries: periods and the summary row; categories: icon buttons', async ({ 
   // The demo opens "Past year" (D-692; its whole period, a custom range, until UX-17).
   await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('past-year')
   const dashboard = await page.getByRole('combobox', { name: 'Period' }).locator('option').allTextContents()
-  await page.goto('/entries')
+  // ENT-1 (D-869): Entries opens on the month of the latest entry, by the header's link with nothing remembered.
+  const opening = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/entries/summary')
+  const latestAnswer = page.waitForResponse((r) => {
+    const url = new URL(r.url())
+    return url.pathname === '/api/entries' && url.searchParams.get('size') === '1' && url.searchParams.has('to')
+  })
+  await (await mainMenu(page)).getByRole('link', { name: 'Entries' }).click()
   // allTextContents doesn't wait: the list first (UX-12, D-557; UX-11's run read the page before it rendered once).
+  await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('latest-entry-month')
+  const latest = (await (await latestAnswer).json() as { content: { entryDate: string }[] }).content[0].entryDate
+  const asked = new URL((await opening).url()).searchParams
+  const [y, m] = latest.split('-').map(Number)
+  expect(asked.get('from'), 'the latest entry’s month').toBe(`${latest.slice(0, 7)}-01`)
+  expect(asked.get('to'), 'the latest entry’s month').toBe(`${latest.slice(0, 7)}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`)
+  // D-872: the summary panel starts folded under 40rem and unfolded from it, before any choice.
+  const fold = page.getByRole('region', { name: 'Summary of all matching entries' }).locator('button.summary-toggle')
+  await expect(fold).toHaveAttribute('aria-expanded', narrow(page) ? 'false' : 'true')
+  await expectNoSidewaysScroll(page, 'Entries with its summary')
+  await shot(page, 'ent1-01-entries-default')
+  await page.getByRole('combobox', { name: 'Period' }).selectOption('all')
+  await expect(page).toHaveURL(/period=all/)
   await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('all')
   const entries = await page.getByRole('combobox', { name: 'Period' }).locator('option').allTextContents()
   expect(dashboard.at(-1)).toBe('Custom')
   expect(entries, 'All time, the dashboard’s presets in its order, Custom').toEqual(['All time', ...dashboard])
-  await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('all')
   // Its list and summary answered, so that step 2's waits take none of them for their own (D-557).
   await expect(page.locator(ROWS).first()).toBeVisible()
-  await expect(page.getByRole('rowgroup', { name: 'Summary of all matching entries' })).not.toHaveClass(/stale/)
+  await expect(page.getByRole('region', { name: 'Summary of all matching entries' })).not.toHaveClass(/stale/)
   await page.waitForLoadState('networkidle')
   await shot(page, 'ux11-01-entries-all-time')
 
@@ -64,6 +85,16 @@ test('entries: periods and the summary row; categories: icon buttons', async ({ 
   for (const filter of filters) await expectSummaryMatchesRows(a, filter)
   await page.goto('/entries?period=previous-month')
   await shot(page, 'ux11-02-entries-month')
+
+  // ENT-1 (D-870): a filter is kept after going to the dashboard and back by the header's links.
+  await page.goto(`/entries?period=previous-month&accountId=${usd.id}`)
+  await expect(page.locator(ROWS).first()).toBeVisible()
+  await (await mainMenu(page)).getByRole('link', { name: 'Dashboard' }).click()
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+  await (await mainMenu(page)).getByRole('link', { name: 'Entries' }).click()
+  await expect(page).toHaveURL(new RegExp(`/entries\\?period=previous-month&accountId=${usd.id}$`))
+  await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('previous-month')
+  await shot(page, 'ent1-02-entries-kept')
 
   // 3. Categories through their icon buttons.
   await page.goto('/categories')
@@ -149,9 +180,10 @@ async function expectSummaryMatchesRows({ page }: Session, filter: string) {
   await summary
   expect(answer.totalElements, `${filter}: fits on one page`).toBeGreaterThan(0)
   expect(answer.totalElements, `${filter}: fits on one page`).toBeLessThanOrEqual(50)
-  const row = page.getByRole('rowgroup', { name: 'Summary of all matching entries' })
+  const row = page.getByRole('region', { name: 'Summary of all matching entries' })
   await expect(row).toBeVisible()
   await expect(row).not.toHaveClass(/stale/)
+  await unfoldSummary(page)
   await expect(page.locator(ROWS)).toHaveCount(answer.totalElements)
 
   const cells = await page.locator(ROWS).evaluateAll((rows) => rows.map((tr) => {
@@ -211,29 +243,47 @@ async function expectSummaryMatchesRows({ page }: Session, filter: string) {
     const day = (iso: string) => new Date(`${iso}T00:00`)
     return from === to ? format.format(day(from)) : format.formatRange(day(from), day(to))
   }, [dates[0], dates.at(-1)!])
-  const text = async (cell: string) => (await row.locator(`td.${cell}`).textContent())!.replace(/[   ]/g, ' ')
-  const plainRange = range.replace(/[   ]/g, ' ')
+  const plainText = (t: string | null) => (t ?? '').replace(/[\u00a0\u2009\u202f]/g, ' ').trim()
+  const plainRange = plainText(range)
   const n = answer.totalElements
-  expect(await text('sum-date'), filter).toBe(`Entries${n} ${n === 1 ? 'entry' : 'entries'} · ${plainRange}`)
+  const counts = [`${n} ${n === 1 ? 'entry' : 'entries'} · ${plainRange}`]
   const without = (k: number) => (k > 0 ? ` · ${k} without` : '')
-  expect(await text('sum-payee'), filter)
-    .toBe(`Payees${payees.size} ${payees.size === 1 ? 'payee' : 'payees'}${without(withoutPayee)}`)
-  expect(await text('sum-category'), filter)
-    .toBe(`Categories${categories.size} ${categories.size === 1 ? 'category' : 'categories'}${without(withoutCategory)}`)
-  expect(await text('sum-accounts'), filter).toBe(`Accounts${accounts.size} ${accounts.size === 1 ? 'account' : 'accounts'}`)
+  counts.push(`${payees.size} ${payees.size === 1 ? 'payee' : 'payees'}${without(withoutPayee)}`)
+  counts.push(`${categories.size} ${categories.size === 1 ? 'category' : 'categories'}${without(withoutCategory)}`)
+  counts.push(`${accounts.size} ${accounts.size === 1 ? 'account' : 'accounts'}`)
+  expect(plainText(await row.locator('.summary-counts').textContent()), filter).toBe(counts.join(' · '))
 
-  const lines = await row.locator('.amount-line').allTextContents()
+  // D-871: each currency's table, read back into the lines it replaced: Amount or My share is In and Out; with
+  // others' shares, Full amount is Received and Spent and the middle column their others' shares.
+  const tables = await row.locator('table.summary-amounts').evaluateAll((list) => list.map((t) => ({
+    currency: t.getAttribute('data-currency')!,
+    columns: [...t.querySelectorAll('thead th')].map((th) => th.textContent ?? ''),
+    rows: [...t.querySelectorAll('tbody tr')].map((tr) => ({
+      label: tr.querySelector('th')!.textContent ?? '',
+      cells: [...tr.querySelectorAll('td')].map((td) => td.textContent ?? ''),
+    })),
+  })))
   const shown = new Map<string, Record<string, bigint>>()
-  let side = ''
-  for (const line of lines) {
-    const [label, amount] = line.replace(/[  ]/g, '').split(/\s+(?=[+\-−]?[€$])/)
-    const m = amountOf(amount)
-    const own = shown.get(m.currency) ?? {}
-    const name = label.trim()
-    if (name === 'Received' || name === 'Spent') side = name
-    // The two "Others’ shares" lines are told apart by the side they follow (D-799).
-    own[name === 'Others’ shares' ? `${name} (${side})` : name] = m.sign === '-' ? -m.cents : m.cents
-    shown.set(m.currency, own)
+  for (const t of tables) {
+    const own: Record<string, bigint> = {}
+    const put = (name: string, cell: string | undefined) => {
+      if (!cell) return
+      const m = amountOf(cell)
+      expect(m.currency, `${filter}: ${name}`).toBe(t.currency)
+      own[name] = m.sign === '-' ? -m.cents : m.cents
+    }
+    const shared = t.columns.length === 3
+    for (const r of t.rows) {
+      const mine = r.cells.at(-1)
+      if (r.label === 'Income') {
+        if (shared && r.cells[1]) { put('Received', r.cells[0]); put('Others’ shares (Received)', r.cells[1]) }
+        put('In', mine)
+      } else if (r.label === 'Expenses') {
+        if (shared && r.cells[1]) { put('Spent', r.cells[0]); put('Others’ shares (Spent)', r.cells[1]) }
+        put('Out', mine)
+      } else put(r.label, mine)
+    }
+    if (Object.keys(own).length > 0) shown.set(t.currency, own)
   }
   const expected = new Map<string, Record<string, bigint>>()
   for (const [currency, t] of totals) {
@@ -261,6 +311,9 @@ interface ListedEntry {
   kind: string
   family?: { ledgerId: number; recordId: number | null; link: string; recordType?: string }
 }
+
+/** Whether the window is narrower than 40rem. */
+const narrow = (page: Page) => (page.viewportSize()?.width ?? 1280) < 640
 
 /** At 375 px, the page is no wider than the window. */
 async function expectNoSidewaysScroll(page: Page, what: string) {

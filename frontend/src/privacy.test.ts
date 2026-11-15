@@ -85,7 +85,9 @@ describe('the privacy policy', () => {
       ...Array.from(list.querySelectorAll('li')).map((li) => words(li.textContent!)),
       words(list.nextElementSibling!.textContent!)]
     expect(published).toEqual(blocks)
-    expect(published).toHaveLength(7)
+    expect(published).toHaveLength(9)
+    // ENT-1, D-877: each page's filters in session storage, the summary's fold in local storage.
+    expect(published.join(' ')).toContain('the filters and period each page last showed')
     expect(published.join(' ')).toContain("kept in your browser's local storage on this device, which is never sent to the server")
     expect(published.join(' ')).not.toContain('reloads only once')
   })

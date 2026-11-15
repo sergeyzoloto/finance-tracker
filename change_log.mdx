@@ -3,6 +3,37 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · UX-19-doc: UX-19's deploy recorded
+
+One commit on `feature/family-budget` on top of `d9cf51f` (UX-19), the commit of this entry, "docs: UX-19's deploy
+recorded, D-838 to D-845 (UX-19-doc)", and one in auth_server, `8d6bcd2` ("UX-19-doc: UX-19's deploy recorded", its
+own change log entry). **Neither pushed**; `main` stays at `d9cf51f`. Documents only, no deploy of its own: production
+stays at `d9cf51f` and auth at `8b19e36`.
+
+**Changes**
+- `deploy/RUNBOOK.md` (D-838 to D-843): "Deployed revisions" gets UX-19's row from the owner's output (auth A2 to A6,
+  CI #157 and #156 and the failed #155, steps 2 to 9, the images, dumps and run folders in full, D-838's differences
+  from the checklist); UX-18's and IMP-1's rows close their reboot item (D-839, D-842). "Production now" names
+  `d9cf51f`, its images, the reboot that happened, auth's `8b19e36` and its backup, step 12's `verify UX-19` and
+  `d9cf51f`, the rollback state `6296e69` then `0c1bfb6` then `388c90a`, `28c0cee`'s tags gone (D-843), and UX-19's
+  dumps. Step 12's 12.1 and 12.10 run `verify UX-19`, and 12.11 checks out `d9cf51f`.
+- `CLAUDE.md`: the deployment paragraph names UX-19 and auth's `8b19e36`, the rollback state, step 12's `verify UX-19`,
+  and UX-19-doc without a deploy; "State on 2026-11-15".
+- `docs/family-budget/requirements.md`: D-838 to D-841 (the PM), D-842 to D-845 (the agent), the amendment line and the
+  planned stage's line.
+
+**Verified**
+- Every figure, hash, time and name in UX-19's row and in "Production now" was compared with the owner's output as the
+  PM gave it.
+- `change_log.mdx` of both repositories compiles with `@mdx-js/mdx` 3.1.1.
+- `scripts/check-forbidden-names.sh` on both repositories' working trees, and `--log 0f842ae..HEAD` on auth_server after
+  its commit: exit 0; on this repository `--log d9cf51f..HEAD` after the commit: see the report.
+- No code changed, so no test suite was run.
+
+**Open**
+- Not recorded (D-841): the laptop's pull of the dumps since UX-18. Not read: whether `28c0cee`'s images are still in
+  the server's store (D-843).
+
 ## 2026-11-15 · UX-19, third commit: lines sorted independently of the ids' digits
 
 One commit on `feature/family-budget` on top of `2b8e620` (UX-19's second), the commit of this entry, "test: lines

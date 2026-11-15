@@ -3,6 +3,38 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · UX-19, third commit: lines sorted independently of the ids' digits
+
+One commit on `feature/family-budget` on top of `2b8e620` (UX-19's second), the commit of this entry, "test: lines
+sorted independently of the ids' digits, D-832 to D-837 (UX-19)". **Not pushed**; `main` not moved. Same stage and
+deploy; UX-19's checklist now has four commits from `6296e69` to M and a new api image.
+
+**Changes**
+- `FamilyEntryCategoryApiTests` (D-833, D-834): `paymentsReceiptsAndSharesNameTheRecordsCategory` compares
+  `linked()`'s lines in any order (`containsExactlyInAnyOrder`); `linked()`'s comment says it sorts as text. No
+  production code changed.
+- `deploy/RUNBOOK.md`, UX-19's checklist (D-835): M on `2b8e620`; four commits in 1.3 and "What runs"; A0's and step
+  1's commits and parent; both images built and recreated in 3.3 and 3.4, signed-in sessions ending; the new api's
+  Flyway line; step 7's contents; the rollback restoring both images.
+- `docs/family-budget/requirements.md`: D-832 and D-833 (the PM), D-834 to D-837 (the agent), a "Later" item for a
+  reproducible api jar.
+
+**Verified**
+- Reproduced before the fix: with `app.category`'s sequence set so that Groceries was 999998 and Rent 1000000 (a
+  temporary override of `createTheFamily`), `./mvnw -B test -Dtest=FamilyEntryCategoryApiTests#paymentsReceiptsAndSharesNameTheRecordsCategory`
+  failed with CI's four swaps (index 0, 1, 4, 5); after the fix, the same run passed (Tests run: 1, Failures: 0) and
+  the class without the override passed (Tests run: 3, Failures: 0). The override was then removed.
+- `./mvnw -B clean verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=155` (CI's Backend command with
+  #155's seed): exit 0, Tests run: 697, Failures: 0, Errors: 0, Skipped: 0, BUILD SUCCESS. The unfixed commit was not
+  run at seed 155 locally.
+- The api image built from `backend/` at `2b8e620` and at this tree: image IDs `b8c4f3c6…` and `7d4bec90…`, jar
+  SHA-256 `ca177357…` and `84432d8e…`, every jar entry the same; both test images removed.
+- `scripts/check-forbidden-names.sh` on the working tree and `--log 95cf827..HEAD`: exit 0. `change_log.mdx` compiles
+  with `@mdx-js/mdx` 3.1.1. `frontend/` and `e2e/` unchanged, so no frontend or end-to-end run.
+
+**Open**
+- CI on M (the Backend job on both branches), then the deploy by UX-19's checklist.
+
 ## 2026-11-15 · UX-19, second commit: everything the app keeps in the browser in the privacy policy
 
 One commit on `feature/family-budget` on top of `b2c4276` (UX-19's first), the commit of this entry, "fix: the privacy

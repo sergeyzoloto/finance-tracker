@@ -20,7 +20,10 @@ class FamilyEntryCategoryApiTests extends FamilyApiTest {
 
     private static final String LATER = "\"paymentLater\": true,";
 
-    /** The user's entries linked to the family budget, by link type, then entry id: "link:recordCategory name". */
+    /**
+     * The user's entries linked to the family budget as "link:recordType:recordCategory id name", sorted as text, which
+     * isn't the ids' order once they differ in digits (D-833): compare them in any order.
+     */
     private List<String> linked(String user) throws IOException {
         List<String> lines = new ArrayList<>();
         for (JsonNode entry : ok(get(user, "/api/entries?size=200")).get("content")) {
@@ -62,7 +65,7 @@ class FamilyEntryCategoryApiTests extends FamilyApiTest {
                 {"date": "2026-09-13", "amount": "5.00", "payerMemberId": %d, "payeeMemberId": %d, "paymentLater": true}"""
                 .formatted(mum, dad)));
 
-        assertThat(linked(alice)).containsExactly(
+        assertThat(linked(alice)).containsExactlyInAnyOrder(
                 "PAYMENT:EXPENSE:%d Groceries".formatted(groceries),
                 "PAYMENT:EXPENSE:%d Rent".formatted(rent),
                 "PAYMENT:INCOME:%d Salary".formatted(salary),
@@ -70,7 +73,7 @@ class FamilyEntryCategoryApiTests extends FamilyApiTest {
                 "SHARE:EXPENSE:%d Groceries".formatted(groceries),
                 "SHARE:EXPENSE:%d Rent".formatted(rent),
                 "SHARE:INCOME:%d Salary".formatted(salary));
-        assertThat(linked(bob)).containsExactly(
+        assertThat(linked(bob)).containsExactlyInAnyOrder(
                 "SETTLEMENT:SETTLEMENT:none",
                 "SHARE:EXPENSE:%d Groceries".formatted(groceries),
                 "SHARE:EXPENSE:%d Rent".formatted(rent),

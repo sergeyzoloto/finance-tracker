@@ -1862,8 +1862,8 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
 
 **Commits to deploy.** auth_server: `8b19e36c5d8fcdaf1ab09cb3f1eb4da238919182` (A, "UX-19: the emails without the
 plain link and with a footer naming the service, …"), on top of `0f842ae57fa785f66a062d438f53bf86e9233573`
-(UX-15-doc, auth's `origin/main`). finance: `<M>`, `feature/family-budget`'s head after UX-19's second commit (D-828), on
-top of UX-19's first, `b2c4276`, itself on top of UX-18-doc's `95cf8277…` (D-818); the commit the PM names in full once UX-19 is accepted. M holds
+(UX-15-doc, auth's `origin/main`). finance: `<M>`, `feature/family-budget`'s head after UX-19's third commit (D-832, D-833: a test's
+order), on top of `2b8e620` (UX-19's second, D-828), on `b2c4276` (UX-19's first), on UX-18-doc's `95cf8277…` (D-818); the commit the PM names in full once UX-19 is accepted. M holds
 this checklist, so it can't name M's hash itself: type M's full hash (40 characters) where a block says `<M>` before
 pasting it (D-226); pasted as it is, bash reads `<M>` as a redirection and runs nothing of the line. If the PM asks for
 another auth commit than A, the PM restates A. **Stage:** `UX-19` (`deploy/checks/UX-19.sql` and `UX-19.expected`,
@@ -1872,8 +1872,10 @@ IMP-1's after-dump, at V17; UX-18's after-dump wasn't pulled yet). UX-19 is four
 emails without the plain link under the button and with the footer "Finance Tracker · app.finance-nl.com" (D-819),
 and "Select login method"'s descriptions in `--muted` (D-822, `login-2.css`, D-823); in finance, the privacy policy's
 list of what the app keeps in the browser (D-821, D-824, D-828, D-829) and Node 24 for `frontend/` (`.nvmrc`,
-`engines`, D-820). **Web image only in finance, no migration**: `backend/` doesn't change, so the api's content must
-stay the running one (`c8b569f7…`) and its container isn't recreated. **The switch:** on
+`engines`, D-820). **No migration; both images new in finance**: `backend/`'s application code doesn't change, but
+its image does (D-835): the Dockerfile copies `src/`, tests included, so the third commit's test change rebuilds the
+jar, whose classes and resources are byte for byte the same and whose zip timestamps are new; the api's content is
+new, its container recreated, and signed-in sessions end (they live in the api's memory). **The switch:** on
 (`FAMILY_LEDGERS_ENABLED=true` since 2026-10-03T09:25:40Z) before, during and after. **The order (as UX-15, D-622):**
 auth first, then finance. Neither needs the other, but the theme's deploy restarts Keycloak, so it comes first and
 alone. **The realm's values don't change:** no kcadm and no maintenance access. **Keycloak's theme cache:**
@@ -1910,19 +1912,22 @@ What runs and why:
   refuses a scheduled shutdown less than 2 hours away, a passed one, or a file it can't parse (D-126, D-128, D-131);
   its gate (1.5) counts only the check runs of `ci.yml`'s runs (D-280) on M itself. Step 1.3 requires M to be
   `origin/main` after `git fetch` and a fast-forward of `HEAD` (`6296e69`, or `95cf827` if the clone was pulled
-  since), lists the commits from `6296e69` to M, three: `95cf827` (UX-18-doc), `b2c4276` (UX-19's first) and M; `Migrations added: none`; under
+  since), lists the commits from `6296e69` to M, four: `95cf827` (UX-18-doc), `b2c4276` (UX-19's first), `2b8e620` (UX-19's
+  second) and M; `Migrations added: none`; under
   `deploy/`: `RUNBOOK.md`, `checks/UX-19.expected`, `checks/UX-19.sql`. `finance.caddy`, the postgres service and
   `pg-backup/finance.conf` don't change. (DOC-2's `288c84f` came before `6296e69` and is deployed already.)
-- `frontend/` changes, `backend/` doesn't: 3.3 builds the api from cache with the running content and the web anew
-  (`privacy.html`; the `engines` field, which `node:24-alpine` satisfies, and `.nvmrc`, which the image doesn't read);
-  3.4 recreates the web only. Signed-in sessions stay (the api isn't restarted).
-- The Flyway lines (D-519): each is what that container's own start printed: UX-18's api (or the reboot's start),
-  `Schema "app" is up to date. No migration necessary.`, before and after; never `Successfully applied`.
+- 3.3 builds both images anew: the web (`privacy.html`; the `engines` field, which `node:24-alpine` satisfies, and
+  `.nvmrc`, which the image doesn't read), and the api, since `backend/src/test/` changed (D-835: on the laptop, the
+  api built at `2b8e620` and at the third commit gave different image contents and jar checksums, every entry of the
+  two jars the same). 3.4 recreates both; the api's restart ends signed-in sessions, which sign in again.
+- The Flyway lines (D-519): each is what that container's own start printed: UX-18's api (or the reboot's start)
+  before, the new api's start after, each `Schema "app" is up to date. No migration necessary.`; never `Successfully
+  applied`.
 - 1.7 and 4.3: `numbers.sql`'s 24 numbers, the same before and after. 3.2 keeps `6296e69`'s images as
   `:6296e69ff9c66c824fc15764fedc403fd1c1e2a6` and `:previous`; `/root/finance-tracker.previous` then names
   `6296e69`. 4.4 compares `UX-19.sql`'s output with `UX-19.expected`: a difference in any line is a fault.
 - **The rollback target after this deploy is `6296e69`**, with no condition of its own: its web serves the policy
-  without the sentence. The api is the same.
+  without the list, and `rollback.sh` puts back both of `6296e69`'s images (3.2 keeps them), the api the same code.
 
 **A0. On the laptop, read only: where things stand.** Type M.
 
@@ -1932,7 +1937,7 @@ cd ~/dev/finance-tracker && A=8b19e36c5d8fcdaf1ab09cb3f1eb4da238919182 && M=<M> 
 ```
 
 You should see `HEAD` M with UX-19's subject (on `feature/family-budget`); `origin/main` `95cf8277…` (UX-18-doc);
-`origin/feature/family-budget` the same or M; `origin/main..feature/family-budget` `b2c4276` and M; `FF-OK`; nothing from `git
+`origin/feature/family-budget` the same or M; `origin/main..feature/family-budget` `b2c4276`, `2b8e620` and M; `FF-OK`; nothing from `git
 status --porcelain`; `auth HEAD` A with UX-19's subject, `auth origin/main` `0f842ae57fa785f66a062d438f53bf86e9233573`,
 `origin/main..main` A alone, `AUTH-FF-OK`, and nothing from auth's `git status --porcelain`. Anything else: stop and
 tell the PM.
@@ -2050,7 +2055,7 @@ cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git
 ```
 
 You should see `Updating 95cf827..<M's 7 characters>` and `Fast-forward`, the push of both branches, and M in full
-with its parent (`b2c4276…`, UX-19's first) and its subject. A dirty tree stops the chain before the merge, with no
+with its parent (`2b8e620…`, UX-19's second) and its subject. A dirty tree stops the chain before the merge, with no
 message: run `git status` and tell the PM. `Not possible to fast-forward`, or another hash: stop.
 
 CI on M, read only, from GitHub's public API, once the jobs have had time to finish (about fifteen minutes). First the
@@ -2162,8 +2167,8 @@ It prints ("Deploying with deploy.sh" lists the steps):
 - 1.2: `HEAD: 6296e69 feat: the Entries summary shows family spending in full, …` (or `95cf827`'s), the running
   images, `Last good deploy: 6296e69 … (deploy)`, status `good`, both images "the recorded image", the read-only
   role's line.
-- 1.3: the fetch; the commits from `6296e69` to M, three: `95cf827`, `b2c4276` and M (fewer if the clone was pulled
-  since);
+- 1.3: the fetch; the commits from `6296e69` to M, four: `95cf827`, `b2c4276`, `2b8e620` and M (fewer if the clone
+  was pulled since);
   `Migrations added: none`; under `deploy/`: `RUNBOOK.md`, `checks/UX-19.expected`, `checks/UX-19.sql`.
 - 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
   success (Backend, Dependency updates, Deploy scripts, Frontend, Web image)`, CI's own only (D-280). 1.6: the UX-19
@@ -2171,11 +2176,10 @@ It prints ("Deploying with deploy.sh" lists the steps):
 - 1.8: a fresh dump, `PASS`, the before-dump preserved with its SHA-256. Note the dump's name.
 - 2: `Deploy <M's 7 characters> (<its subject>), stage UX-19, over 6296e69.`; type the 7 characters.
 - 3.1: `Fast-forward`. 3.2: `6296e69`'s images kept as `:6296e69ff9c66c824fc15764fedc403fd1c1e2a6` and `:previous`,
-  the oldest kept revision's tags removed. 3.3: api built from cache with the running content (`c8b569f7…`), web
-  built with a new content. 3.4: the web recreated; the api `Running` (not recreated). The api recreated, or a new api
-  content: not a stop by itself, but send it to the PM after the step. 3.5: `api: healthy, web: healthy`. 3.6: `Pages:
+  the oldest kept revision's tags removed. 3.3: api and web built, each with a new content (D-835). 3.4: both
+  recreated. The api `Running` with its old content: not a stop by itself, but send it to the PM after the step. 3.5: `api: healthy, web: healthy`. 3.6: `Pages:
   5 of 5 as expected`.
-- 4.1: `Schema "app" is up to date. No migration necessary.` (the api's own start, D-519), `Latest row: 17 member shows
+- 4.1: `Schema "app" is up to date. No migration necessary.` (the new api's own start, D-519), `Latest row: 17 member shows
   payees true; the highest migration in <M>: V17`. No `Successfully applied` line: that would be a fault, stop. 4.2:
   the D-25 line "on". 4.3: `The same numbers`. 4.4: `UX-19.expected`'s 12 lines. 4.5: `finance.conf: not installed
   (unchanged)`. 4.6: an after-dump, `PASS`.
@@ -2245,7 +2249,7 @@ cd /opt/finance-tracker && deploy/deploy.sh verify UX-19
 ```
 
 You should see `verify UX-19 at <M's 7 characters> …: OK`, its `Scheduled shutdown:` line, both images "the recorded
-image" (the api's content `c8b569f7…` as before), the pages 5 of 5, Flyway V17, the D-25 line "on",
+image" (both new contents, as 3.3 printed them), the pages 5 of 5, Flyway V17, the D-25 line "on",
 `UX-19.expected`'s 12 lines, and step 3's 24 numbers, the same. A participant writing meanwhile explains a difference
 in his own lines only; judge it before going on. From UX-19's deploy on, step 12's 12.1 and 12.10 use `verify UX-19`,
 and 12.11 checks out M.

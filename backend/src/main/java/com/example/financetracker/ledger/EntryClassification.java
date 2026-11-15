@@ -7,7 +7,7 @@ package com.example.financetracker.ledger;
  * summary, the Direction filter, the breakdown and the monthly chart all take their CTEs from here, so that they agree
  * by construction.
  *
- * <p>The fragment is a list of CTEs, each starting with a comma, to put after a CTE named {@code base} with the columns
+ * <p>The fragment is a list of CTEs, each starting with a comma, named {@code <prefix>direction} and so on, to put after a CTE named {@code base} with the columns
  * {@code id} and {@code kind} (the matching entries). It needs the parameter {@code rpOn} (the family switch, as
  * {@link RecordPayees#params} puts it). It defines:
  * <ul>
@@ -24,13 +24,13 @@ final class EntryClassification {
     private EntryClassification() {
     }
 
-    /** The CTEs after {@code base}, each starting with a comma. */
-    static String ctes(String base) {
+    /** The CTEs after {@code base}, each starting with a comma, their names starting with {@code prefix}. */
+    static String ctes(String base, String prefix) {
         return """
-                , direction AS (
+                , %2$sdirection AS (
                     SELECT %1$s.id, sign(coalesce(sum(p.amount) FILTER (WHERE p.category_id IS NOT NULL), 0)) AS net
                     FROM %1$s JOIN posting p ON p.entry_id = %1$s.id GROUP BY %1$s.id
-                ), counted AS (
+                ), %2$scounted AS (
                     SELECT DISTINCT ON (r.id) %1$s.id, r.id AS record_id, r.currency, abs(r.base_amount) AS full_amount
                     FROM %1$s
                     JOIN family_entry_link l ON l.entry_id = %1$s.id AND l.link_type = 'SHARE' AND l.detached_at IS NULL
@@ -38,16 +38,16 @@ final class EntryClassification {
                     WHERE :rpOn AND %1$s.kind = 'FAMILY_SHARE' AND r.type IN ('EXPENSE', 'INCOME')
                       AND r.deleted_at IS NULL
                     ORDER BY r.id, %1$s.id
-                ), shown_once AS (
+                ), %2$sshown_once AS (
                     SELECT %1$s.id, c.id AS share_id FROM %1$s
                     JOIN family_entry_link l ON l.entry_id = %1$s.id AND l.link_type = 'PAYMENT'
                       AND l.detached_at IS NULL
-                    JOIN counted c ON c.record_id = l.record_id
+                    JOIN %2$scounted c ON c.record_id = l.record_id
                     WHERE %1$s.kind = 'FAMILY_PAYMENT'
-                ), classified AS (
-                    SELECT d.id, coalesce(paid.net, d.net) AS net FROM direction d
-                    LEFT JOIN (SELECT s.id, n.net FROM shown_once s JOIN direction n ON n.id = s.share_id) paid
+                ), %2$sclassified AS (
+                    SELECT d.id, coalesce(paid.net, d.net) AS net FROM %2$sdirection d
+                    LEFT JOIN (SELECT s.id, n.net FROM %2$sshown_once s JOIN %2$sdirection n ON n.id = s.share_id) paid
                       ON paid.id = d.id
-                )""".formatted(base);
+                )""".formatted(base, prefix);
     }
 }

@@ -3,6 +3,66 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · ENT-3b: the same answers, faster
+
+The commit of this entry, on `main` on top of `fb59451` (ENT-3), D-897 to D-906. Not pushed.
+
+**Changes**
+- `RecordPayees`: one rule text (`RULE_FROM`, `RULE_WHERE`), two joins: `join` (correlated, for a page's few entries) and
+  `joinSet` (worked out once for the ledger, joined by entry id), only where something reads it (D-897, D-900).
+- `EntryService`: the matching set once per request (`matched`: the CTEs `b` and `m`); the list in one pass (`count(*)
+  OVER ()`); the summary in two statements, the currencies one without the payees' set; the breakdown in one statement
+  with its My share summed from the postings per key; the Category filter as one set of ids; no nested loops for the
+  summary, the breakdown and a list that reads the set (`SET LOCAL enable_nestloop = off`, D-901 to D-903).
+- `EntryClassification` takes a prefix for its CTE names, so that the Direction filter and the summary each have theirs.
+- Breakdown rows of equal count and name are ordered by key (D-904).
+- Docs: D-897, D-898, D-900 to D-906 and the stage lines in `requirements.md`; CLAUDE.md.
+
+**Verified**
+- `./mvnw -B clean verify`: exit 0, Tests run: 718, Failures: 0, Errors: 0, BUILD SUCCESS (run 1 exit 1, 718 tests,
+  1 failure: `ArchitectureTests` wanted `noNestedLoops` to take a `LedgerScope`; two builds in between were spoilt by
+  VS Code's Java compiler rewriting `target/classes` while sources changed, and not counted).
+- On the restored dump of 2026-11-15, the owner's 23,997 entries, a signed-in scripted session, one warm-up then the
+  median of 3, ms. The twenty answers saved at `fb59451` (`/entries` page 0, `/summary` and the three breakdowns for
+  D-894's three scenarios and the default view) and those after the change: identical, 20 of 20 files, byte for byte.
+
+| request, scenario | `d9cf51f` | `fb59451` | after |
+|---|---|---|---|
+| `/entries` p0, All time | 370 | 371 | 109 |
+| `/summary`, All time | 2,910 | 2,976 | 664 |
+| breakdown category, All time | – | 1,934 | 203 |
+| breakdown payee, All time | – | 1,785 | 398 |
+| breakdown account, All time | – | 2,533 | 322 |
+| `/entries` p0, + Expenses | – | 1,430 | 196 |
+| `/summary`, + Expenses | – | 1,746 | 635 |
+| breakdown category / payee / account, + Expenses | – | 1,749 / 1,726 / 1,736 | 276 / 435 / 326 |
+| `/entries` p0, + Expenses + one category | 826 (one category) | 3,721 | 179 |
+| `/summary`, + Expenses + one category | 2,990 (one category) | 5,167 | 559 |
+| breakdown category / payee / account, + Expenses + one category | – | 1,799 / 4,868 / 4,722 | 283 / 379 / 252 |
+| default view: `/entries` p0, `/summary` | – | 131, 117 | 67, 242 |
+| default view: breakdown category / payee / account | – | 119 / 93 / 129 | 51 / 228 / 46 |
+| the page's requests together (list, summary, category breakdown), Expenses + one category | – | 5,487 | 555 |
+
+- Targets (D-898): every request of D-894's scenarios at most 1,000 ms (the slowest, 664); every request of the default
+  view at most 300 ms (the slowest, 242); met.
+- Where the time went at `fb59451`, from `EXPLAIN (ANALYZE, BUFFERS)` (`auto_explain`) of the three slowest requests (the
+  summary and the payee and account breakdowns with Expenses and one category): each ran two statements of about 2.5 s,
+  and in each the correlated record-payee lookup (nine index scans, 12,509 loops, 12,463 rows each, about 850,000 shared
+  buffer hits) was nearly all of it; the entries' date index (12,509 rows), two bitmap scans of postings by category
+  (14,080 and 27,206 rows) and the hash aggregates were tens of ms each. The Direction filter repeated the whole matching
+  set once more. After the set join, the planner read the set again for every entry (a Materialize with 19,464 rows and
+  12,509 loops) until the nested loops were switched off; then the Category filter's per-entry subqueries (4.9 s to 0.5 s)
+  and the breakdown's join of two 24,000-row sets (1 s to 0.2 s) were what was left.
+- `d9cf51f`'s timings ran on the same database (read only; its Flyway warned that the schema, V18, is newer than the code).
+  `fb59451`'s ran with `auto_explain` set to `log_analyze` (timing off) on the database, the later ones with it off.
+- `check-forbidden-names.sh`: see the commit.
+
+**Open**
+- The dump of 2026-11-15T1544Z holds Flyway V18 and 1,168 CBR rate rows although CLAUDE.md names `d9cf51f` (V17) as
+  production's code (D-905): the PM to check what ran at 15:44Z.
+- The end-to-end suite and its guards run on the final tree of this batch stage's report (ENT-4); this stage changes
+  queries only, and its check is the saved answers.
+
 ## 2026-11-15 · ENT-3: one classification, timings, the breakdown with "only"
 
 The commit of this entry, on `main` on top of `5f2b5b1` (ENT-2), D-893 to D-896.

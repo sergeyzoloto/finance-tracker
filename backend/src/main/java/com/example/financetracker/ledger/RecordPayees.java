@@ -21,32 +21,47 @@ final class RecordPayees {
     private RecordPayees() {
     }
 
+    /** The rule's tables, the same for both joins. */
+    private static final String RULE_FROM = """
+            FROM family_entry_link rl
+            JOIN family_record rr ON rr.id = rl.record_id AND rr.ledger_id = rl.family_ledger_id
+            JOIN ledger_member reader ON reader.ledger_id = rr.ledger_id AND reader.user_sub = :rpReader
+                 AND reader.status = 'ACTIVE'
+            JOIN ledger_member payer ON payer.ledger_id = rr.ledger_id AND payer.id = rr.payer_member_id
+            JOIN family_entry_link pl ON pl.family_ledger_id = rr.ledger_id AND pl.record_id = rr.id
+                 AND pl.member_id = payer.id AND pl.link_type = 'PAYMENT' AND pl.detached_at IS NULL
+            JOIN journal_entry pe ON pe.id = pl.entry_id
+            JOIN ledger_member payers ON payers.ledger_id = pe.ledger_id AND payers.ledger_type = 'PERSONAL'
+                 AND payers.user_sub = payer.user_sub
+            JOIN counterparty pc ON pc.id = pe.payee_id AND pc.ledger_id = pe.ledger_id""";
+
+    /** The rule's conditions on a link: live, of an expense or an income, to a payer the reader may see. */
+    private static final String RULE_WHERE = """
+            :rpOn AND rl.detached_at IS NULL
+              AND rl.link_type IN ('SHARE', 'PAYMENT') AND rr.type IN ('EXPENSE', 'INCOME')
+              AND payer.status = 'ACTIVE' AND payer.user_sub IS NOT NULL
+              AND (payer.id = reader.id OR payer.shows_payees)""";
+
     /**
      * A {@code LEFT JOIN LATERAL} that gives the entry aliased {@code e} the column {@code alias.name}, null when the
      * entry has no family record's payee the reader may see, and {@code alias.family_ledger_id}, that record's family
-     * budget (UX-12, D-548).
+     * budget (UX-12, D-548). Evaluated per entry: for a few entries, such as a page's.
      */
     static String join(String alias) {
-        return " " + """
-                LEFT JOIN LATERAL (
-                    SELECT pc.name, rr.ledger_id AS family_ledger_id
-                    FROM family_entry_link rl
-                    JOIN family_record rr ON rr.id = rl.record_id AND rr.ledger_id = rl.family_ledger_id
-                    JOIN ledger_member reader ON reader.ledger_id = rr.ledger_id AND reader.user_sub = :rpReader
-                         AND reader.status = 'ACTIVE'
-                    JOIN ledger_member payer ON payer.ledger_id = rr.ledger_id AND payer.id = rr.payer_member_id
-                    JOIN family_entry_link pl ON pl.family_ledger_id = rr.ledger_id AND pl.record_id = rr.id
-                         AND pl.member_id = payer.id AND pl.link_type = 'PAYMENT' AND pl.detached_at IS NULL
-                    JOIN journal_entry pe ON pe.id = pl.entry_id
-                    JOIN ledger_member payers ON payers.ledger_id = pe.ledger_id AND payers.ledger_type = 'PERSONAL'
-                         AND payers.user_sub = payer.user_sub
-                    JOIN counterparty pc ON pc.id = pe.payee_id AND pc.ledger_id = pe.ledger_id
-                    WHERE :rpOn AND rl.entry_id = e.id AND rl.detached_at IS NULL
-                      AND rl.link_type IN ('SHARE', 'PAYMENT') AND rr.type IN ('EXPENSE', 'INCOME')
-                      AND payer.status = 'ACTIVE' AND payer.user_sub IS NOT NULL
-                      AND (payer.id = reader.id OR payer.shows_payees)
-                    LIMIT 1) %s ON TRUE
-                """.formatted(alias);
+        return " LEFT JOIN LATERAL (SELECT pc.name, rr.ledger_id AS family_ledger_id " + RULE_FROM
+                + " WHERE " + RULE_WHERE + " AND rl.entry_id = e.id LIMIT 1) " + alias + " ON TRUE ";
+    }
+
+    /**
+     * The same rule, worked out once for the ledger's entries and joined by entry id (ENT-3b, D-897): the columns of
+     * {@link #join}, for the entries of the ledger {@code :ledgerId} (a parameter). An entry has at most one family link
+     * ({@code family_entry_link.entry_id} is unique, V7), so it has at most one row. For the entry list, summary,
+     * breakdown and the like, which would otherwise evaluate the rule for every matching entry.
+     */
+    static String joinSet(String alias) {
+        return " LEFT JOIN (SELECT rl.entry_id, pc.name, rr.ledger_id AS family_ledger_id " + RULE_FROM
+                + " JOIN journal_entry re ON re.id = rl.entry_id AND re.ledger_id = :ledgerId"
+                + " WHERE " + RULE_WHERE + ") " + alias + " ON " + alias + ".entry_id = e.id ";
     }
 
     /** The join's parameters: the reader, and whether the family budget is switched on for this ledger. */

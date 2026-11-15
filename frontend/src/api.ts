@@ -472,6 +472,16 @@ export interface BreakdownRow {
 }
 export interface EntryBreakdown { by: 'CATEGORY' | 'PAYEE' | 'ACCOUNT'; rows: BreakdownRow[] }
 /**
+ * `GET /api/entries/monthly` (ENT-4, D-882, D-883): the filtered entries' My share by calendar month, for the monthly
+ * result chart. `firstMonth` and `lastMonth` (`YYYY-MM`) are the span, null when nothing matches; `months` has the
+ * months and currencies with something in them, oldest first.
+ */
+export interface EntryMonthly {
+  firstMonth: string | null
+  lastMonth: string | null
+  months: { month: string; currency: string; incoming: string; outgoing: string }[]
+}
+/**
  * A payee that family records show on the user's entries (UX-12, D-548; `GET /api/entries/family-payees`): its name,
  * once in any case, and the family budgets it comes from.
  */

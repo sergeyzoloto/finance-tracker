@@ -7,6 +7,7 @@ import java.util.List;
 
 import com.example.financetracker.ledger.EntryBreakdown;
 import com.example.financetracker.ledger.EntryFilter;
+import com.example.financetracker.ledger.EntryMonthly;
 import com.example.financetracker.ledger.EntryMatchFilter;
 import com.example.financetracker.ledger.EntryMatchPage;
 import com.example.financetracker.ledger.EntryMatchService;
@@ -119,6 +120,25 @@ class EntryController {
             @RequestParam(required = false) Set<EntryFilter.Origin> origin) {
         return entries.breakdown(ledger, EntryBreakdown.By.named(by), new EntryFilter(from, to, accountId, categoryId,
                 counterpartyId, payee, q, direction, origin));
+    }
+
+    /**
+     * The filtered entries' My share by calendar month, for the monthly result chart (ENT-4, D-882, D-883): the 12
+     * calendar months ending with the To month (without a To, the latest matching entry's month), whatever the From,
+     * less the months before the first matching entry; every other filter applies. In and Out per month and currency,
+     * never added across either. Read only.
+     */
+    @GetMapping("/monthly")
+    EntryMonthly monthly(LedgerScope ledger, @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to, @RequestParam(required = false) List<Long> accountId,
+            @RequestParam(required = false) List<Long> categoryId,
+            @RequestParam(required = false) List<Long> counterpartyId,
+            @RequestParam(required = false) List<String> payee,
+            @RequestParam(required = false) @Size(max = 100) String q,
+            @RequestParam(required = false) Set<EntryFilter.Direction> direction,
+            @RequestParam(required = false) Set<EntryFilter.Origin> origin) {
+        return entries.monthly(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, payee, q,
+                direction, origin));
     }
 
     /**

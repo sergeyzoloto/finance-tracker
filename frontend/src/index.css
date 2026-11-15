@@ -229,6 +229,33 @@ fieldset.choice legend { font-size: 12px; line-height: 16px; color: var(--muted)
 table.entries tr.clickable { cursor: pointer; }
 table.entries tr.clickable:hover, tr.clickable:hover { background: var(--surface-raised); }
 .stale { opacity: 0.6; }
+/* Entries' monthly result (ENT-4, D-882, D-883): a waterfall per currency in HTML and CSS. The values stand on their
+   columns' tops, upright from 60rem of panel width and turned upright-to-read-upwards below it, so that thirteen columns
+   fit 375 px without sideways scrolling. */
+.monthly { margin-top: 1.25rem; container-type: inline-size; }
+.monthly h4 { margin: 0 0 0.5rem; }
+.monthly h5 { margin: 0.5rem 0 0.25rem; }
+.monthly-chart { --monthly-room: 6.5rem; }
+.monthly-plot { position: relative; height: calc(11rem + var(--monthly-room)); padding-top: var(--monthly-room); box-sizing: border-box; }
+.monthly-columns { position: absolute; left: 0; right: 0; bottom: 0; top: var(--monthly-room); display: grid; gap: 3px; }
+.monthly-zero { position: absolute; left: 0; right: 0; height: 1px; background: var(--chart-grid); grid-column: 1 / -1; }
+.monthly-column { position: relative; min-width: 0; }
+.monthly-bar { position: absolute; left: 12%; right: 12%; min-height: 2px; border-radius: 3px; }
+.monthly-bar.up { background: var(--chart-income); }
+.monthly-bar.down { background: var(--chart-expense); }
+.monthly-bar.flat { background: var(--border); }
+.monthly-value { position: absolute; left: 50%; font-size: 11px; line-height: 1; white-space: nowrap; color: var(--text);
+  writing-mode: vertical-rl; transform: translate(-50%, 0) rotate(180deg); padding-bottom: 4px; }
+.monthly-labels { display: grid; gap: 3px; margin-top: 4px; }
+.monthly-label { font-size: 11px; text-align: center; overflow: hidden; line-height: 1.2; color: var(--muted); }
+.monthly-label .muted { display: block; }
+.monthly-column.total .monthly-bar { border: 1px solid var(--surface); }
+@container (min-width: 60rem) {
+  .monthly-chart { --monthly-room: 2rem; }
+  .monthly-value { writing-mode: horizontal-tb; transform: translateX(-50%); font-size: 12px; padding-bottom: 4px; }
+  .monthly-label { font-size: 12px; }
+  .monthly-label .muted { display: inline; }
+}
 /* Entries' breakdown (ENT-3, D-873): tabs, then rows of a checkbox, the name, the count, My share and "only". Nothing
    scrolls sideways at 375 px: the name wraps. */
 .breakdown { margin-top: 1rem; }

@@ -67,6 +67,11 @@ public record EntryFilter(LocalDate from, LocalDate to, List<Long> accountIds, L
         origins = origins == null ? Set.of() : Set.copyOf(origins);
     }
 
+    /** The same filter from another first day, or from none (the monthly chart's window, ENT-4, D-882). */
+    public EntryFilter withFrom(LocalDate day) {
+        return new EntryFilter(day, to, accountIds, categoryIds, counterpartyIds, payees, text, directions, origins);
+    }
+
     /** The same filter without the filters of one dimension: the breakdown's own tab leaves them out (D-881). */
     public EntryFilter without(EntryBreakdown.By by) {
         return switch (by) {

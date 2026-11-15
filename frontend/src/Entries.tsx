@@ -6,6 +6,7 @@ import { AccountSelect, CategorySelect, Errors, Loading } from './components'
 import DateInput from './DateInput'
 import Breakdown from './Breakdown'
 import EntrySummaryPanel from './EntrySummaryPanel'
+import MonthlyChart from './MonthlyChart'
 import { DIRECTIONS, LIST_FILTERS, ORIGINS, toggled, valuesOf, withValue, withValues, type ListFilter } from './entryFilters'
 import { payeeFilterOf, payeeFilterOptions, payeeFilterValue, useFamilyPayees, type PayeeOption } from './familyPayees'
 import { categoryLabel, describeEntry, entryKindLabel, kindLabel, useLedger, type Ledger } from './ledger'
@@ -216,6 +217,8 @@ export default function Entries() {
         <EntrySummaryPanel summary={summary.data} loading={summary.loading}>
           {/* ENT-3: the breakdown by category, payee and account, folding with the panel. */}
           {ledger && <Breakdown filters={filters.toString()} counterparties={ledger.counterparties} />}
+          {/* ENT-4: the monthly result, under the breakdown, folding with it. */}
+          <MonthlyChart filters={filters.toString()} />
         </EntrySummaryPanel>
       )}
       {(!data || !ledger) && !(ledgerError ?? entries.error) && <Loading what="entries" />}

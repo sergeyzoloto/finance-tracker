@@ -3,6 +3,38 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · ENT-4: the monthly result chart, BATCH-1's deploy checklist
+
+The commit of this entry, on `main` on top of `e639681` (REH-1), D-910 to D-913. Not pushed.
+
+**Changes**
+- `GET /api/entries/monthly` (`EntryMonthly`, `EntryService.monthly`, `EntryFilter.withFrom`): My share by month over the
+  12 months ending with the To month, whatever the From (D-882, D-910).
+- `MonthlyChart.tsx`, `monthly.ts`: a waterfall per currency under the breakdown, folding with the panel (D-883, D-911).
+- `deploy/RUNBOOK.md`: "BATCH-1's deploy checklist with the suite" in place of FX-1's; `deploy/checks/BATCH-1.sql` and
+  `.expected`; CLAUDE.md's template for batches (D-879, D-912).
+- Tests: `EntryMonthlyApiTests`, `ENT4.test.tsx`, `11-entries`' monthly step; D-910 to D-913.
+
+**Verified**
+- `./mvnw -B clean verify`: exit 0, Tests run: 722, Failures: 0, Errors: 0, BUILD SUCCESS (earlier runs spoilt by VS
+  Code's compiler rewriting classes during edits, or by my test's fixture, are not counted).
+- `npm test` (Node v24.21.0, npm 11.19.0): exit 0, 59 files, 801 tests passed; `npm run build` exit 0.
+- `e2e:local` with `E2E_FAMILY=on` (Node v24.21.0, the dev stack rebuilt and the api restarted first): run 1 exit 1, 37
+  passed, `entries` and `entries at 375 px` failed in the spec (the monthly step sent the page's `period` to the API,
+  and the summary check read a late list answer of the previous URL; both fixed in the spec, the app agreeing with
+  itself when asked directly); run 2 exit 0, "Result: PASSED", 39 passed. `npm run test:guards` alone after it: exit
+  0, pass 39, fail 0. This run covers ENT-3b and ENT-4 together (D-913).
+- `BATCH-1.sql` on the Flyway-migrated dev database: output equal to `BATCH-1.expected` (18 lines).
+- Timings on the restored dump (restored with the two dev users swapped, so that `testuser` is the member with 23,997
+  personal entries, as in ENT-3b), median of 3, ms: `/entries/monthly` 60 / 192 / 182 / 87 (All time, + Expenses, + one
+  category, default view); every other request as ENT-3b's table, the slowest 633 and the default view's 260; the page's
+  requests together with the monthly (list, summary, breakdown, monthly; Expenses + one category) 526. The 20 saved
+  answers of `fb59451` identical on the same data, again.
+- Screenshots at 375 and 1440 px in `data/private/reports/ENT-4/`; `check-forbidden-names.sh` exit 0.
+
+**Open**
+- Nothing of ENT-4's own. The batch's questions for the PM are in ENT-3b's and REH-1's entries (D-905, D-907).
+
 ## 2026-11-15 · REH-1: the rehearsal with several family budgets
 
 The commit of this entry, on `main` on top of `1ddce05` (ENT-3b), D-899, D-907 to D-909. Not pushed.

@@ -1876,23 +1876,33 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
 
-## FX-1's deploy checklist with the suite
+## BATCH-1's deploy checklist with the suite
 
-**Commit to deploy.** finance: `<M>`, `feature/family-budget`'s head after FX-1's commit, on top of `e84774a6aaad6d3822e52a7ed8fab2609fa7a64b`
-(OPS-3-doc), on `e295f96` (UX-19-doc), on `d9cf51f69e9f81420485355a719f91ccd7c8f2f0` (UX-19, running); the commit the PM names in full once
-FX-1 is accepted. M holds this checklist, so it can't name M's hash itself: type M's full hash (40 characters) where a
-block says `<M>` before pasting it (D-226); pasted as it is, bash reads `<M>` as a redirection and runs nothing of the
-line. **Stage:** `FX-1` (`deploy/checks/FX-1.sql` and `FX-1.expected`: V18's constraints and invariants, no count,
-tried on a throwaway database migrated to V18 with a CBR and an ECB row). FX-1 (D-851 to D-858) loads the Bank of
-Russia's EUR rate in roubles as a shared rate (`source` CBR, `user_id` NULL) at the api's start and at 13:00 and 17:00
-Europe/Moscow, and its first load deletes every manual RUB rate equal to the CBR's of its date (D-858). **One migration,
-V18** (`V18__cbr_rates.sql`: `CBR` in `exchange_rate_source_check`, `source` in `exchange_rate_key`); **both images
-new** (the api's code, the web's wording). **The switch:** on before, during and after. **Auth:** unchanged. **The
-suite:** from a clean checkout of M with `E2E_FAMILY=on`; `family F8` reads production's RUB rate from `/api/rates`
-and expects the CBR's total where it applies (D-864). **The rollback target:** `d9cf51f` on V17, **with a condition**
-(D-859): its code can't run on V18 (its upserts name the old key, and it can't read a `CBR` row), so step 10 first
-puts V17's key and check back, deleting the CBR rows and V18's Flyway row, then runs `rollback.sh`. **The time
-(D-125):** no step between 03:30 and 04:30 UTC; the last block is the exception. This checklist is for this deploy only.
+**Commit to deploy.** finance: `<M>`, `main`'s head after ENT-4's commit, which holds this checklist (D-867, D-879), on
+`e639681` (REH-1), `1ddce05` (ENT-3b), `fb59451` (ENT-3), `5f2b5b1` (ENT-2), `9b53332` (ENT-1), `3a59219` (FX-1),
+`e84774a` (OPS-3-doc), `e295f96` (UX-19-doc) and `d9cf51f69e9f81420485355a719f91ccd7c8f2f0` (UX-19, running); the commit
+the PM names in full once ENT-4 is accepted. M holds this checklist, so it can't name M's hash itself: type M's full
+hash (40 characters) where a block says `<M>` before pasting it (D-226); pasted as it is, bash reads `<M>` as a
+redirection and runs nothing of the line. M is on `origin/main` already: the owner pushes after each of the agent's
+reports (D-867, D-878); `feature/family-budget` is no longer pushed and stays as it was. **Stage:** `BATCH-1`
+(`deploy/checks/BATCH-1.sql` and `BATCH-1.expected`: V18's constraints and invariants, and what ENT-3b's queries rely on,
+18 lines, no count and no time, tried on a database migrated by Flyway to V18). **The batch** (D-867): FX-1 (D-851 to
+D-866: the Bank of Russia's EUR rate in roubles as a shared rate, loaded at the api's start and at 13:00 and 17:00
+Europe/Moscow, its first load deleting every manual RUB rate equal to the CBR's of its date, D-858), ENT-1 (D-869 to D-877,
+D-884 to D-887: Entries opens on the month of the latest entry, each tab remembers its pages' state, the summary is a panel
+with an amount table that folds), ENT-2 (D-873, D-880, D-888 to D-892: several values per filter, Direction and Origin),
+ENT-3 (D-873, D-881, D-893 to D-896: the breakdown with "only"), ENT-3b (D-897, D-898, D-900 to D-906: the same answers, under
+a second on the restored dump of 2026-11-15), REH-1 (D-899, D-907 to D-909: `scripts/rehearsal-db.sh` only, nothing on the
+server) and ENT-4 (D-882, D-883: the monthly result chart, `GET /api/entries/monthly`). **One migration, V18**
+(`V18__cbr_rates.sql`: `CBR` in `exchange_rate_source_check`, `source` in `exchange_rate_key`; the batch's only one,
+D-879); **both images new** (the api's code, the web's pages). **The switch:** on before, during and after. **Auth:**
+unchanged. **The suite:** from a clean checkout of M with `E2E_FAMILY=on`; `family F8` reads production's RUB rate from
+`/api/rates` and expects the CBR's total where it applies (D-864); `entries` runs the batch's steps (the default month,
+a filter kept through the dashboard, chips and toggles, the breakdown's "only", the monthly chart against
+`/api/entries/monthly`). **The rollback target:** `d9cf51f` on V17, **with a condition** (D-859): its code can't run on
+V18 (its upserts name the old key, and it can't read a `CBR` row), so step 10 first puts V17's key and check back,
+deleting the CBR rows and V18's Flyway row, then runs `rollback.sh`. **The time (D-125):** no step between 03:30 and
+04:30 UTC; the last block is the exception. This checklist is for this deploy only.
 
 **When.** At any time the PM chooses, never during a step 12.
 
@@ -1905,11 +1915,14 @@ stops a chain (D-127). Don't start "CI on Ubuntu 26.04" before step 9.
 
 What runs and why:
 
-- `run` is the clone's script, `d9cf51f`'s. Step 1.3 lists the commits from `d9cf51f` to M, three: `e295f96`
-  (UX-19-doc), `e84774a` (OPS-3-doc) and M (fewer if the clone was pulled since); `Migrations added:
-  V18__cbr_rates.sql`; under `deploy/`: `RUNBOOK.md`, `checks/FX-1.expected`, `checks/FX-1.sql`. `finance.caddy`, the
-  postgres service and `pg-backup/finance.conf` don't change; `numbers.sql` doesn't either (V18 adds no table, and
-  `exchange_rate` isn't among its keys, so D-858's deletion changes no number).
+- `run` is the clone's script, `d9cf51f`'s. Step 1.3 lists the commits from `d9cf51f` to M, nine: `e295f96`
+  (UX-19-doc), `e84774a` (OPS-3-doc), `3a59219` (FX-1), `9b53332` (ENT-1), `5f2b5b1` (ENT-2), `fb59451` (ENT-3),
+  `1ddce05` (ENT-3b), `e639681` (REH-1) and M (ENT-4), fewer if the clone was pulled since; `Migrations added:
+  V18__cbr_rates.sql`; under `deploy/`: `RUNBOOK.md`, `checks/BATCH-1.expected`, `checks/BATCH-1.sql`,
+  `checks/FX-1.expected`, `checks/FX-1.sql`. `finance.caddy`, the postgres service and `pg-backup/finance.conf` don't
+  change; `numbers.sql` doesn't either (V18 adds no table, and `exchange_rate` isn't among its keys, so D-858's deletion
+  changes no number). `.github/workflows/ci.yml` changed (D-878): the gate counts only that workflow's runs, and now
+  there is one push, to `main`, so 5 check runs, not 10.
 - The Flyway line (D-519): the new api's own start prints `Successfully applied 1 migration to schema "app", now at
   version v18`; `Schema "app" is up to date` there would be a fault.
 - The api's start loads the CBR's rates in the background, about 1170 rows from 2022-03-02 to tomorrow, in one request
@@ -1924,25 +1937,15 @@ What runs and why:
 
 ```bash
 # On the laptop
-cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
+cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git branch --show-current && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log --oneline d9cf51f69e9f81420485355a719f91ccd7c8f2f0..origin/main && { git merge-base --is-ancestor "$M" origin/main && echo PUSHED || echo NOT-PUSHED; } && git status --porcelain
 ```
 
-You should see `HEAD` M with FX-1's subject (on `feature/family-budget`); `origin/main` `d9cf51f…`;
-`origin/feature/family-budget` the same or M; `origin/main..feature/family-budget` `e295f96`, `e84774a` and M;
-`FF-OK`; nothing from `git status --porcelain`. Anything else: stop and tell the PM.
+You should see `HEAD` M with ENT-4's subject, `main`, `origin/main` M (or a later documents commit: say so), the nine
+commits (`e295f96` to M, newest first), `PUSHED` and nothing from `git status --porcelain`. `NOT-PUSHED`, or anything
+else: stop and tell the PM (M must be on `origin/main` before anything runs on the server; the owner pushes it, D-867).
 
-**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted
-FX-1.
-
-```bash
-# On the laptop
-cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
-```
-
-You should see `Updating d9cf51f..<M's 7 characters>` and `Fast-forward`, the push of both branches, and M in full
-with its parent (`e84774a…`) and its subject. Nothing after the first checkout: a dirty tree, stop.
-
-CI on M, read only, once the jobs have had time to finish (about fifteen minutes). The runs with their jobs; type M:
+**1. On the laptop: CI on M**, read only (D-878: no merge, no push here; M was pushed to `main` after ENT-4's report, and
+CI ran on that push), once the jobs have had time to finish (about fifteen minutes). The runs with their jobs; type M:
 
 ```bash
 # On the laptop
@@ -1959,7 +1962,7 @@ for r in runs["workflow_runs"]:
 }
 ```
 
-You should see `CI`, `push`, once on `main` and once on `feature/family-budget` (D-95), attempt 1, each `completed
+You should see `CI`, `push`, once, on `main` (D-878; none on `feature/family-budget`), attempt 1, `completed
 success` with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` and `Dependency updates`, `completed
 success`; and none or some `Monitor` runs (D-280). No "CI on Ubuntu 26.04" run. Then the check runs:
 
@@ -1968,7 +1971,7 @@ success`; and none or some `Monitor` runs (D-280). No "CI on Ubuntu 26.04" run. 
 cd ~/dev/finance-tracker && M=<M> && curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
 ```
 
-You should see 10 plus the number of `Monitor` runs, the five names twice each, each `completed success`. A failure of
+You should see 5 plus the number of `Monitor` runs, the five names once each, each `completed success`. A failure of
 `Backend` is a real fault: stop. A failure only of a Frontend job may be re-run once (D-94). Anything else: stop.
 
 **2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
@@ -2028,24 +2031,25 @@ confirmation.
 
 ```bash
 # On the server
-cd /opt/finance-tracker && deploy/deploy.sh run <M> FX-1
+cd /opt/finance-tracker && deploy/deploy.sh run <M> BATCH-1
 ```
 
 It prints:
 
 - 1.1: `Scheduled shutdown: none (…)` (or a reboot at least 2 hours away). 1.2: `HEAD: d9cf51f …`, `Last good deploy:
   d9cf51f … (deploy)`, status `good`, both images "the recorded image", the read-only role's line.
-- 1.3: the commits from `d9cf51f` to M, three (`e295f96`, `e84774a`, M); `Migrations added: V18__cbr_rates.sql`; under
-  `deploy/`: `RUNBOOK.md`, `checks/FX-1.expected`, `checks/FX-1.sql`.
-- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
-  success (…)`. 1.6: the FX-1 files. 1.7: step 3's 24 numbers. 1.8: a fresh dump, `PASS`; note its name.
-- 2: `Deploy <M's 7 characters> (<its subject>), stage FX-1, over d9cf51f.`; type the 7 characters.
+- 1.3: the commits from `d9cf51f` to M, nine (`e295f96`, `e84774a`, `3a59219`, `9b53332`, `5f2b5b1`, `fb59451`,
+  `1ddce05`, `e639681`, M); `Migrations added: V18__cbr_rates.sql`; under `deploy/`: `RUNBOOK.md`,
+  `checks/BATCH-1.expected`, `checks/BATCH-1.sql`, `checks/FX-1.expected`, `checks/FX-1.sql`.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 5 check runs, every one completed with
+  success (…)`. 1.6: the BATCH-1 files. 1.7: step 3's 24 numbers. 1.8: a fresh dump, `PASS`; note its name.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage BATCH-1, over d9cf51f.`; type the 7 characters.
 - 3.1: `Fast-forward`. 3.2: `d9cf51f`'s images kept as `:d9cf51f69e9f81420485355a719f91ccd7c8f2f0` and `:previous`.
   3.3: both built, each with a new content. 3.4: both recreated. 3.5: `api: healthy, web: healthy`. 3.6: `Pages: 5 of
   5 as expected`.
 - 4.1: `Successfully applied 1 migration to schema "app", now at version v18` (the new api's start, D-519), `Latest
   row: 18 cbr rates true; the highest migration in <M>: V18`. 4.2: the D-25 line "on". 4.3: `The same numbers`. 4.4:
-  `FX-1.expected`'s 8 lines. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump, `PASS`.
+  `BATCH-1.expected`'s 18 lines. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump, `PASS`.
 - 5: the summary, then `Left for you: … deploy/deploy.sh finish`: here, after steps 4b and 5.
 
 A FAILED line: stop, send it to the PM; it prints the rollback command, which isn't run (step 10).
@@ -2088,15 +2092,19 @@ cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:p
 ```
 
 Paste its summary, from `===== E2E summary =====` to `=======================`. You should see `Commit:` M `(clean
-tree)`, `E2E_FAMILY: on`, every spec as in UX-19's run passed (19 passed, `new-family` skipped, D-163), `cleanup
+tree)`, `E2E_FAMILY: on`, every spec as in UX-19's run passed (19 passed, `new-family` skipped, D-163; `entries` now with the batch's steps), `cleanup
 passed`, `Password search over the artifacts: 0 hits`, `Result: PASSED`. `family F8` now reads the CBR's RUB rate in
 production: before A's own rate, A's and B's totals "≈ €…" with "RUB, CBR rate of …" (D-864).
 
 If any spec fails, or the cleanup does: don't run the suite again and don't run `finish`; send the whole summary to the
 PM, who decides (D-58, D-59).
 
-Left to check by hand, before `finish`, because no spec reaches production's own RUB figures (the test accounts have
-none but the F8 spec's, and the suite deletes them): sign in with your own account, open `/rates`: RUB's row with
+Left to check by hand, before `finish`, because no spec reaches production's own data (the test accounts have none but
+the specs', and the suite deletes them): sign in with your own account and open `/entries` with no query: it opens on
+the month of your latest entry, with no "Clear filters"; the summary panel is unfolded at desktop width, its amount table,
+the three breakdown tabs and the monthly result chart show, and the browser's network panel (requests of `/api/entries`)
+shows each answer within about a second (ENT-3b's targets were met on the restored dump, on the laptop: say the times
+if any is slower, D-898). Then `/rates`: RUB's row with
 the CBR's rate of today or the latest working day, source `CBR`, no "not used"; and the dashboard in EUR over a period
 with rouble entries: no "rate missing" for RUB after 2022-03-01, the Rates card naming "CBR rate of …".
 
@@ -2111,16 +2119,16 @@ cd /opt/finance-tracker && deploy/deploy.sh finish
 You should see the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before
 the deploy", the images and "Done". After `no`: `NOT PASSED: …`, exit status 3.
 
-**7. On the server: verify FX-1, read only.**
+**7. On the server: verify BATCH-1, read only.**
 
 ```bash
 # On the server (read only)
-cd /opt/finance-tracker && deploy/deploy.sh verify FX-1
+cd /opt/finance-tracker && deploy/deploy.sh verify BATCH-1
 ```
 
-You should see `verify FX-1 at <M's 7 characters> …: OK`, both images "the recorded image", the pages 5 of 5, Flyway
-V18, the D-25 line "on", `FX-1.expected`'s 8 lines and step 3's 24 numbers. From FX-1's deploy on, step 12's 12.1 and
-12.10 use `verify FX-1`, and 12.11 checks out M.
+You should see `verify BATCH-1 at <M's 7 characters> …: OK`, both images "the recorded image", the pages 5 of 5, Flyway
+V18, the D-25 line "on", `BATCH-1.expected`'s 18 lines and step 3's 24 numbers. From BATCH-1's deploy on, step 12's 12.1 and
+12.10 use `verify BATCH-1`, and 12.11 checks out M (the first commit of the next batch records this, D-867).
 
 **8. Acceptance: `rollback.sh d9cf51f` goes to its question**, changing nothing; type `no`.
 
@@ -2158,15 +2166,15 @@ Deploy scripts each `completed success`.
 **10. Last, only for a failed deploy: the rollback**, at any hour. First V17's key and check back (D-859), as the
 database's owner `finance`, in one transaction: the CBR rows deleted, `exchange_rate_key` without `source`,
 `exchange_rate_source_check` without `CBR`, and V18's row of Flyway's history deleted, so that `d9cf51f`'s api starts
-on V17 and a later deploy of FX-1 applies V18 again. The manual RUB rates D-858 deleted stay deleted. Tried on a
-throwaway database at V18 (FX-1's report).
+on V17 and a later deploy of BATCH-1 applies V18 again. The manual RUB rates D-858 deleted stay deleted. Tried on a
+throwaway database at V18 (FX-1's report, D-859).
 
 ```bash
-# On the server: only for a failed deploy of FX-1, before rollback.sh
+# On the server: only for a failed deploy of BATCH-1, before rollback.sh
 cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U finance -d finance -c "DELETE FROM app.exchange_rate WHERE source = 'CBR'; ALTER TABLE app.exchange_rate DROP CONSTRAINT exchange_rate_key; ALTER TABLE app.exchange_rate ADD CONSTRAINT exchange_rate_key UNIQUE NULLS NOT DISTINCT (base_currency, quote_currency, rate_date, user_id); ALTER TABLE app.exchange_rate DROP CONSTRAINT exchange_rate_source_check; ALTER TABLE app.exchange_rate ADD CONSTRAINT exchange_rate_source_check CHECK (source IN ('ECB', 'MANUAL')); DELETE FROM app.flyway_schema_history WHERE version = '18';" </dev/null
 ```
 
-You should see `DELETE <about 1170>`, four `ALTER TABLE` and `DELETE 1`. The running FX-1 api may log a failed CBR or
+You should see `DELETE <about 1170>`, four `ALTER TABLE` and `DELETE 1`. The running new api may log a failed CBR or
 ECB load until the next step replaces it; harmless. Then `rollback.sh`, alone in its block; type `ROLLBACK d9cf51f` at
 its question. A scheduled shutdown is only a warning here (D-126, D-131).
 

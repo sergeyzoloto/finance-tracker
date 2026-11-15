@@ -19,7 +19,8 @@ import { deleteAllMyData, expect, loadDemoData, mainMenu, shot, test, unfoldSumm
 // panel folded at 375 px and unfolded at 1280; step 2 reads the panel's counts line and amount tables; after it a
 // filter is kept going to the dashboard and back by the header's links. ENT-2 (D-873): two accounts as chips,
 // Direction and Origin toggles in the URL, the summary against the rows, a chip removed; Income and Transfers.
-// ENT-3 (D-873, D-881): the breakdown's "only", checkbox, chips and the other tabs.
+// ENT-3 (D-873, D-881): the breakdown's "only", checkbox, chips and the other tabs. ENT-4 (D-882, D-883): the monthly
+// result's columns against /api/entries/monthly, per currency.
 // (A family record's payee on a share, D-523, and Entries' family payees, D-547, are 09-payees' steps 2 to 4.)
 
 const ROWS = 'table.entry-list > tbody > tr'
@@ -172,6 +173,64 @@ test('entries: periods, the summary panel and remembered state; categories: icon
   await expectNoSidewaysScroll(page, 'Entries with the breakdown')
   await shot(page, 'ent3-01-entries-breakdown')
 
+  // ENT-4 (D-882, D-883): the monthly result. "Previous month" (its From ignored): 12 months ending with its To month, a
+  // column for each and a Total; each column's change equals what /api/entries/monthly says (In less Out) and the Total
+  // the span's sum, per currency; nothing scrolls sideways.
+  await page.goto('/entries?period=previous-month')
+  await expect(page.locator(ROWS).first()).toBeVisible()
+  await unfoldSummary(page)
+  const chart = page.locator('.monthly-currency').first()
+  await expect(chart).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  const cents = (text: string) => {
+    const [whole, part = ''] = text.replace('-', '').split('.')
+    return (text.startsWith('-') ? -1n : 1n) * BigInt(whole + part.padEnd(2, '0').slice(0, 2))
+  }
+  const monthsOf = (first: string, last: string) => {
+    const out: string[] = []
+    let [y, m] = first.split('-').map(Number)
+    const [ly, lm] = last.split('-').map(Number)
+    while (y < ly || (y === ly && m <= lm)) {
+      out.push(`${y}-${String(m).padStart(2, '0')}`)
+      if (++m === 13) { m = 1; y++ }
+    }
+    return out
+  }
+  // The previous month by the app's own today (the user's zone), as the page's period computes it: its From and To are
+  // what the page sends, and the API leaves the From out.
+  const today = (await api<{ today: string }>('/api/me')).today
+  const [ty, tm] = today.split('-').map(Number)
+  const [py, pm] = tm === 1 ? [ty - 1, 12] : [ty, tm - 1]
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const lastDay = new Date(py, pm, 0).getDate()
+  const monthlyAnswer = await api<{ firstMonth: string; lastMonth: string;
+    months: { month: string; currency: string; incoming: string; outgoing: string }[] }>(
+    `/api/entries/monthly?from=${py}-${pad(pm)}-01&to=${py}-${pad(pm)}-${pad(lastDay)}`)
+  expect(monthlyAnswer.lastMonth, 'the To month ends the span').toBe(`${py}-${pad(pm)}`)
+  const span = monthsOf(monthlyAnswer.firstMonth, monthlyAnswer.lastMonth)
+  expect(span.length, 'at most 12 months').toBeLessThanOrEqual(12)
+  const currencies = [...new Set(monthlyAnswer.months.map((m) => m.currency))]
+  expect(currencies.length).toBeGreaterThan(0)
+  for (const currency of currencies) {
+    const waterfall = page.locator(`.monthly-currency[data-currency="${currency}"]`)
+    await expect(waterfall.locator('.monthly-column')).toHaveCount(span.length + 1)
+    const shown = (await waterfall.locator('.monthly-value').allTextContents()).map((t) => {
+      const match = /^([+\-−]?)\D*([\d,]+)\.(\d{2})$/.exec(t.replace(/[\u00a0\u2009\u202f]/g, '').trim())
+      if (!match) throw new Error(`Not an amount: ${t}`)
+      return (match[1] === '' || match[1] === '+' ? 1n : -1n) * BigInt(match[2].replace(/,/g, '') + match[3])
+    })
+    const expected = span.map((month) => {
+      const row = monthlyAnswer.months.find((m) => m.month === month && m.currency === currency)
+      return row ? cents(row.incoming) - cents(row.outgoing) : 0n
+    })
+    expect(shown.slice(0, -1), `${currency}: each month's change`).toEqual(expected)
+    expect(shown.at(-1), `${currency}: the Total`).toBe(expected.reduce((a, b) => a + b, 0n))
+    await expect(waterfall.locator('.monthly-label').last()).toHaveText('Total')
+  }
+  await expectNoSidewaysScroll(page, 'Entries with the monthly result')
+  await expect(page.getByRole('region', { name: 'Summary of all matching entries' })).not.toHaveClass(/stale/)
+  await shot(page, 'ent4-01-entries-monthly')
+
   // 3. Categories through their icon buttons.
   await page.goto('/categories')
   const pencil = page.getByRole('button', { name: /^Rename / }).first()
@@ -246,11 +305,15 @@ function amountOf(text: string): { sign: '+' | '-' | ''; currency: string; cents
  * the Amount cell per currency by its sign.
  */
 async function expectSummaryMatchesRows({ page }: Session, filter: string) {
+  // The answers to this filter's requests, not a late one to the page before it: every parameter of the filter other
+  // than the period (which the page turns into From and To) must be in the request.
+  const wanted = [...new URLSearchParams(filter)].filter(([key]) => key !== 'period')
+  const asked = (url: URL) => wanted.every(([key, value]) => url.searchParams.getAll(key).includes(value))
   const list = page.waitForResponse((r) => {
     const url = new URL(r.url())
-    return url.pathname === '/api/entries' && url.searchParams.get('size') === '50'
+    return url.pathname === '/api/entries' && url.searchParams.get('size') === '50' && asked(url)
   })
-  const summary = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/entries/summary')
+  const summary = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/entries/summary' && asked(new URL(r.url())))
   await page.goto(`/entries?${filter}`)
   const answer = await (await list).json() as { totalElements: number; content: ListedEntry[] }
   await summary

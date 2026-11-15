@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -429,6 +430,52 @@ public class EntryService {
                 .toList();
         return new EntryBreakdown(by, rows);
     }
+
+    /**
+     * The filtered entries' My share by calendar month (ENT-4, D-882, D-883): In and Out per month and currency from the
+     * summary's classification ({@link EntryClassification}), over the 12 calendar months ending with the filter's To
+     * month, or without a To the month of the latest matching entry, whatever the filter's From, less the months before
+     * the first matching entry. Two statements in one snapshot: the matching entries' first and last day, then the months.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public EntryMonthly monthly(LedgerScope ledger, EntryFilter filter) {
+        noNestedLoops(ledger);
+        // Every filter but From: its first and last matching day.
+        Map<String, Object> params = new HashMap<>();
+        LocalDate[] days = jdbc.sql(matched(ledger, filter.withFrom(null), params, false)
+                + " SELECT min(entry_date) AS first_day, max(entry_date) AS last_day FROM m")
+                .params(params)
+                .query((row, n) -> new LocalDate[] {row.getObject("first_day", LocalDate.class),
+                        row.getObject("last_day", LocalDate.class)})
+                .single();
+        if (days[0] == null) {
+            return new EntryMonthly(null, null, List.of());
+        }
+        YearMonth last = filter.to() != null ? YearMonth.from(filter.to()) : YearMonth.from(days[1]);
+        YearMonth window = last.minusMonths(MONTHLY_SPAN - 1);
+        YearMonth first = YearMonth.from(days[0]).isAfter(window) ? YearMonth.from(days[0]) : window;
+        Map<String, Object> monthParams = new HashMap<>();
+        List<EntryMonthly.Month> months = jdbc.sql(matched(ledger, filter.withFrom(first.atDay(1)), monthParams, false)
+                + EntryClassification.ctes("m", "") + """
+                SELECT to_char(m.entry_date, 'YYYY-MM') AS month, p.currency,
+                       coalesce(sum(p.amount) FILTER (WHERE d.net < 0), 0) AS incoming,
+                       coalesce(sum(p.amount) FILTER (WHERE d.net > 0), 0) AS outgoing
+                FROM m JOIN direction d ON d.id = m.id
+                JOIN posting p ON p.entry_id = m.id AND p.amount > 0
+                GROUP BY 1, 2 ORDER BY 1, 2""")
+                .params(monthParams)
+                .query((row, n) -> new EntryMonthly.Month(row.getString("month"), row.getString("currency"),
+                        Money.normalize(row.getBigDecimal("incoming")), Money.normalize(row.getBigDecimal("outgoing"))))
+                .list()
+                .stream()
+                // A month of transfers alone has no My share.
+                .filter(m -> m.incoming().signum() != 0 || m.outgoing().signum() != 0)
+                .toList();
+        return new EntryMonthly(first.toString(), last.toString(), months);
+    }
+
+    /** The monthly chart's span: the filter's last month and the 11 before it (ENT-4, D-882). */
+    private static final int MONTHLY_SPAN = 12;
 
     /**
      * The distinct payees that family records show on the ledger's entries (UX-12, D-548): every name the Payee cell

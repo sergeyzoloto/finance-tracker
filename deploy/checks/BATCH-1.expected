@@ -1,0 +1,18 @@
+flyway latest 18 cbr rates true
+constraint exchange_rate_key UNIQUE NULLS NOT DISTINCT (base_currency, quote_currency, rate_date, user_id, source)
+constraint exchange_rate_owner_check CHECK ((((source)::text = 'MANUAL'::text) = (user_id IS NOT NULL)))
+constraint exchange_rate_source_check CHECK (((source)::text = ANY ((ARRAY['ECB'::character varying, 'CBR'::character varying, 'MANUAL'::character varying])::text[])))
+CBR rates with a user, another currency, a non-positive rate or before 2022-03-02 0
+shared rates of another source 0
+manual rates without a user 0
+unbalanced entries 0
+unique index on family_entry_link(entry_id) 1
+entries with more than one family link 0
+family links of an unknown type 0
+entries without a posting 0
+index family_entry_link_entry_id_key
+index family_entry_link_key
+index journal_entry_ledger_id_entry_date_idx
+index posting_category_id_idx
+index posting_counterparty_id_idx
+index posting_entry_id_line_no_key

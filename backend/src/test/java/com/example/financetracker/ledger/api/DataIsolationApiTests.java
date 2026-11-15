@@ -86,6 +86,9 @@ class DataIsolationApiTests extends LedgerApiTest {
             // once Alice's budget merges, as /api/categories shows; the other dimensions' keys stay.
             "/api/entries/breakdown?by=payee",
             "/api/entries/breakdown?by=account",
+            // ENT-4 (D-882): the monthly result, unfiltered and with a To.
+            "/api/entries/monthly",
+            "/api/entries/monthly?to=2026-08-31&direction=EXPENSES",
             "/api/entries/breakdown?by=payee&direction=EXPENSES" + AUGUST.replace("?", "&"),
             "/api/reports/balances" + AS_OF,
             "/api/reports/balances" + AS_OF + "&currency=BASE",

@@ -1,19 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { dateOfIso, formatDate, useApi, type EntryPage, type EntrySummary } from './api'
 import { SharedMark } from './CashFlowTable'
 import { AccountSelect, CategorySelect, Errors, Loading } from './components'
 import DateInput from './DateInput'
 import EntrySummaryPanel from './EntrySummaryPanel'
-import { payeeFilterOf, payeeFilterOptions, payeeFilterValue, useFamilyPayees } from './familyPayees'
-import { describeEntry, entryKindLabel, kindLabel, useLedger } from './ledger'
+import { DIRECTIONS, LIST_FILTERS, ORIGINS, toggled, valuesOf, withValue, withValues, type ListFilter } from './entryFilters'
+import { payeeFilterOf, payeeFilterOptions, payeeFilterValue, useFamilyPayees, type PayeeOption } from './familyPayees'
+import { categoryLabel, describeEntry, entryKindLabel, kindLabel, useLedger, type Ledger } from './ledger'
 import { useToday } from './me'
 import { formatMoney, negate } from './money'
 import { forgetPage, rememberedSearch } from './pageState'
 import { DEFAULT_PRESET, PERIOD_LABELS, presetNamed, presetRange, PRESETS, useLatestEntryDay, type Preset } from './periods'
 
 const PAGE_SIZE = 50
-const FILTERS = ['from', 'to', 'accountId', 'categoryId', 'counterpartyId', 'payee', 'q'] as const
+const FILTERS = ['from', 'to', 'q'] as const
 type Filter = (typeof FILTERS)[number]
 
 const PERIOD_KEYS = ['period', 'from', 'to'] as const
@@ -75,12 +76,18 @@ export default function Entries() {
     filter.from = ''
     filter.to = ''
   }
-  // One of the two payee filters (D-547): a counterparty wins when, by hand, the URL has both (D-556).
-  if (filter.counterpartyId !== '') filter.payee = ''
+  // Several values per filter, any of them, all filters (ENT-2, D-873); a counterparty and a name are one Payee
+  // filter (D-888).
+  const lists = Object.fromEntries(LIST_FILTERS.map((f) => [f, valuesOf(params, f)])) as Record<ListFilter, string[]>
   // No request for another month before the latest entry's is known.
   const waiting = completed !== null || (period === 'latest-entry-month' && latest.day === undefined)
 
-  const filters = new URLSearchParams(Object.entries(filter).filter(([, v]) => v !== ''))
+  const filters = new URLSearchParams()
+  if (filter.from) filters.set('from', filter.from)
+  if (filter.to) filters.set('to', filter.to)
+  for (const f of ['accountId', 'categoryId', 'counterpartyId', 'payee'] as const) lists[f].forEach((v) => filters.append(f, v))
+  if (filter.q) filters.set('q', filter.q)
+  for (const f of ['direction', 'origin'] as const) lists[f].forEach((v) => filters.append(f, v))
   const query = new URLSearchParams(filters)
   query.set('page', String(page))
   query.set('size', String(PAGE_SIZE))
@@ -100,6 +107,11 @@ export default function Entries() {
   /** A typed From or To: Custom, keeping the other end of the period shown. */
   const setDay = (key: 'from' | 'to', day: string) =>
     setFilter({ period: '', from: filter.from, to: filter.to, [key]: day })
+  /** Adds a value to a list filter, or removes it (D-873). */
+  const setValue = (f: ListFilter, value: string, add: boolean) => setParams(withValue(params, f, value, add))
+  /** A toggle group's button (D-873): none pressed is all. */
+  const toggle = (f: 'direction' | 'origin', value: string, all: readonly string[]) =>
+    setParams(withValues(params, f, toggled(lists[f], value, all)))
   const setPage = (p: number) => {
     const next = new URLSearchParams(params)
     if (p === 0) next.delete('page')
@@ -117,13 +129,14 @@ export default function Entries() {
   })
 
   // "Clear filters" shows whenever the state differs from the default (D-874).
-  const filtered = period !== DEFAULT_PRESET || FILTERS.some((f) => f !== 'from' && f !== 'to' && filter[f] !== '')
+  const filtered = period !== DEFAULT_PRESET || filter.q !== '' || LIST_FILTERS.some((f) => lists[f].length > 0)
   const clear = () => {
     forgetPage('/entries')
     setParams(new URLSearchParams())
   }
   const familyPayees = useFamilyPayees()
-  const payeeOptions = ledger ? payeeFilterOptions(ledger.counterparties, familyPayees, filter.payee) : []
+  const payeeOptions = ledger ? payeeFilterOptions(ledger.counterparties, familyPayees, lists.payee) : []
+  const chips = ledger ? filterChips(lists, ledger, payeeOptions) : []
   const open = (id: number) => navigate(`/entries/${id}`, { state: { from: location.pathname + location.search } })
   const data = entries.data
 
@@ -150,20 +163,25 @@ export default function Entries() {
           <>
             <label>
               Account{' '}
-              <AccountSelect accounts={ledger.accounts} value={filter.accountId} placeholder="All accounts"
-                onChange={(accountId) => setFilter({ accountId })} />
+              <AccountSelect accounts={ledger.accounts.filter((a) => !lists.accountId.includes(String(a.id)))} value=""
+                placeholder={lists.accountId.length ? 'Add an account' : 'All accounts'}
+                onChange={(id) => id && setValue('accountId', id, true)} />
             </label>
             <label>
               Category{' '}
-              <CategorySelect categories={ledger.categories.filter((c) => !c.archived || String(c.id) === filter.categoryId)}
-                value={filter.categoryId} placeholder="All categories" onChange={(categoryId) => setFilter({ categoryId })} />
+              <CategorySelect categories={ledger.categories.filter((c) => !c.archived && !lists.categoryId.includes(String(c.id)))}
+                value="" placeholder={lists.categoryId.length ? 'Add a category' : 'All categories'}
+                onChange={(id) => id && setValue('categoryId', id, true)} />
             </label>
             <label>
               Payee or person{' '}
-              <select value={payeeFilterValue(filter.counterpartyId, filter.payee, payeeOptions)}
-                onChange={(e) => setFilter(payeeFilterOf(e.target.value))}>
-                <option value="">Anyone</option>
-                {payeeOptions.map((o) => (
+              <select value="" onChange={(e) => {
+                const { counterpartyId, payee } = payeeFilterOf(e.target.value)
+                if (counterpartyId) setValue('counterpartyId', counterpartyId, true)
+                else if (payee) setValue('payee', payee, true)
+              }}>
+                <option value="">{lists.counterpartyId.length + lists.payee.length ? 'Add a payee' : 'Anyone'}</option>
+                {payeeOptions.filter((o) => !chips.some((c) => c.option === o.value)).map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
@@ -174,7 +192,22 @@ export default function Entries() {
           Text{' '}
           <input type="search" value={text} placeholder="Memo or payee" maxLength={100} onChange={(e) => setText(e.target.value)} />
         </label>
+        <ToggleGroups label="Direction" options={DIRECTIONS} chosen={lists.direction}
+          onToggle={(v) => toggle('direction', v, DIRECTIONS.map((d) => d.value))} />
+        <ToggleGroups label="Origin" options={ORIGINS} chosen={lists.origin}
+          onToggle={(v) => toggle('origin', v, ORIGINS.map((o) => o.value))} />
         {filtered && <button type="button" onClick={clear}>Clear filters</button>}
+        {chips.length > 0 && (
+          <ul className="chips" aria-label="Chosen filters">
+            {chips.map((chip) => (
+              <li key={`${chip.filter}:${chip.value}`} className="chip">
+                <span className="muted">{chip.kind}</span> {chip.label}
+                <button type="button" className="chip-remove" aria-label={`Remove ${chip.label}`} title={`Remove ${chip.label}`}
+                  onClick={() => setValue(chip.filter, chip.value, false)}>×</button>
+              </li>
+            ))}
+          </ul>
+        )}
       </fieldset>
 
       <Errors messages={[ledgerError ?? latest.error ?? entries.error ?? summary.error]} />
@@ -241,5 +274,61 @@ export default function Entries() {
         <button type="button" onClick={() => setPage(0)}>Back to the first page</button>
       )}
     </>
+  )
+}
+
+/** A chosen value of a list filter, as a chip (D-873): its filter's name, its label, and the URL value × removes. */
+interface Chip {
+  filter: ListFilter
+  value: string
+  kind: string
+  label: string
+  /** The payee option it stands for, so that the Payee list doesn't offer it again. */
+  option?: string
+}
+
+/** The chips of the chosen accounts, categories and payees, in that order, each by its name. */
+export function filterChips(lists: Record<ListFilter, string[]>, ledger: Ledger, payeeOptions: PayeeOption[]): Chip[] {
+  const chips: Chip[] = []
+  for (const value of lists.accountId) {
+    const account = ledger.accounts.find((a) => String(a.id) === value)
+    chips.push({ filter: 'accountId', value, kind: 'Account', label: account?.name ?? `Account ${value}` })
+  }
+  for (const value of lists.categoryId) {
+    const category = ledger.categories.find((c) => String(c.id) === value)
+    chips.push({ filter: 'categoryId', value, kind: 'Category', label: category ? categoryLabel(category) : `Category ${value}` })
+  }
+  for (const value of lists.counterpartyId) {
+    const option = payeeOptions.find((o) => o.value === `c:${value}`)
+    chips.push({ filter: 'counterpartyId', value, kind: 'Payee', label: option?.name ?? `Payee ${value}`, option: `c:${value}` })
+  }
+  for (const value of lists.payee) {
+    // A name an option has in another case is that option (D-568).
+    const option = payeeFilterValue('', value, payeeOptions)
+    const name = payeeOptions.find((o) => o.value === option)?.name ?? value
+    chips.push({ filter: 'payee', value, kind: 'Payee', label: name, option })
+  }
+  return chips
+}
+
+/** A toggle group whose buttons each add or remove their value (D-873); none pressed is all of them. */
+function ToggleGroups({ label, options, chosen, onToggle }: {
+  label: string
+  options: readonly { value: string; label: string }[]
+  chosen: string[]
+  onToggle: (value: string) => void
+}) {
+  const id = useId()
+  return (
+    <div className="toggle-group">
+      <span id={id} className="toggle-label">{label}</span>
+      <div role="group" aria-labelledby={id} className="toggles">
+        {options.map((o) => (
+          <button key={o.value} type="button" aria-pressed={chosen.includes(o.value)} onClick={() => onToggle(o.value)}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }

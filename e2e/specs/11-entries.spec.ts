@@ -17,7 +17,8 @@ import { deleteAllMyData, expect, loadDemoData, mainMenu, shot, test, unfoldSumm
 // 4. Screenshots at 375 px (local-narrow); nothing scrolls sideways. Delete all my data at the end.
 // ENT-1 (D-869 to D-876): step 1 opens Entries by the header's link on the month of the latest entry, the summary
 // panel folded at 375 px and unfolded at 1280; step 2 reads the panel's counts line and amount tables; after it a
-// filter is kept going to the dashboard and back by the header's links.
+// filter is kept going to the dashboard and back by the header's links. ENT-2 (D-873): two accounts as chips,
+// Direction and Origin toggles in the URL, the summary against the rows, a chip removed; Income and Transfers.
 // (A family record's payee on a share, D-523, and Entries' family payees, D-547, are 09-payees' steps 2 to 4.)
 
 const ROWS = 'table.entry-list > tbody > tr'
@@ -95,6 +96,36 @@ test('entries: periods, the summary panel and remembered state; categories: icon
   await expect(page).toHaveURL(new RegExp(`/entries\\?period=previous-month&accountId=${usd.id}$`))
   await expect(page.getByRole('combobox', { name: 'Period' })).toHaveValue('previous-month')
   await shot(page, 'ent1-02-entries-kept')
+
+  // ENT-2 (D-873, D-880): a second account added through the select becomes a chip, Direction and Origin through their
+  // toggles, each in the URL as repeated values; the summary still equals the visible rows; a chip's × removes it.
+  const cash = accounts.find((x) => x.code === 'CASH')!
+  await page.goto(`/entries?${recent}&accountId=${usd.id}`)
+  await expect(page.locator(ROWS).first()).toBeVisible()
+  await page.getByRole('combobox', { name: 'Account' }).selectOption(String(cash.id))
+  await expect(page).toHaveURL(new RegExp(`accountId=${usd.id}&accountId=${cash.id}`))
+  const chosen = page.getByRole('list', { name: 'Chosen filters' }).getByRole('listitem')
+  await expect(chosen).toHaveCount(2)
+  const direction = page.getByRole('group', { name: 'Direction' })
+  await direction.getByRole('button', { name: 'Expenses' }).click()
+  await expect(direction.getByRole('button', { name: 'Expenses' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page).toHaveURL(/direction=EXPENSES/)
+  await page.getByRole('group', { name: 'Origin' }).getByRole('button', { name: 'Personal' }).click()
+  await expect(page).toHaveURL(/origin=PERSONAL/)
+  await expectNoSidewaysScroll(page, 'Entries with chips and toggles')
+  await shot(page, 'ent2-01-entries-chips')
+  const both = new URL(page.url()).search.slice(1)
+  await expectSummaryMatchesRows(a, both)
+  // Every row an expense: its amount below 0.
+  for (const amount of await page.locator(`${ROWS} td.amount`).allTextContents()) {
+    expect(amount.trim(), 'an expense').toMatch(/^[-−]/)
+  }
+  await chosen.first().getByRole('button').click()
+  await expect(chosen).toHaveCount(1)
+  await expect(page).not.toHaveURL(new RegExp(`accountId=${usd.id}(&|$)`))
+  for (const filter of [`${recent}&direction=INCOME`, `${recent}&direction=TRANSFERS`]) {
+    await expectSummaryMatchesRows(a, filter)
+  }
 
   // 3. Categories through their icon buttons.
   await page.goto('/categories')

@@ -126,46 +126,50 @@ describe('Entries’ payee filter in the page (D-547)', () => {
   }
   const payeeSelect = () => screen.getByRole('combobox', { name: 'Payee or person' }) as HTMLSelectElement
 
-  it('lists a family payee with its budgets, and choosing it filters the list and the summary by name', async () => {
+  /** The chips' labels, as the Remove buttons name them (ENT-2, D-873). */
+  const chipNames = () => screen.queryAllByRole('button', { name: /^Remove / }).map((b) => b.getAttribute('aria-label'))
+
+  it('lists a family payee with its budgets, and choosing it adds it to the Payee filter by name (D-873, D-888)', async () => {
     const calls = renderEntries('/entries?period=all&counterpartyId=22&page=2')
     await waitFor(() => expect([...payeeSelect().options].map((o) => o.textContent)).toContain('Trefpunt Coffeeshop · Away, Home'))
-    expect(payeeSelect().value).toBe('c:22')
+    // The select adds a value; what is chosen is a chip, and the list doesn't offer it again.
+    expect(payeeSelect().value).toBe('')
+    expect([...payeeSelect().options].map((o) => o.value)).not.toContain('c:22')
+    await waitFor(() => expect(chipNames()).toHaveLength(1))
     fireEvent.change(payeeSelect(), { target: { value: 'p:Trefpunt Coffeeshop' } })
     expect(new URLSearchParams(where).get('payee')).toBe('Trefpunt Coffeeshop')
-    expect(new URLSearchParams(where).has('counterpartyId')).toBe(false)
+    expect(new URLSearchParams(where).getAll('counterpartyId')).toEqual(['22'])
     expect(new URLSearchParams(where).has('page')).toBe(false)
     await waitFor(() => expect(calls.map((c) => c.url))
-      .toContain('/api/entries/summary?payee=Trefpunt+Coffeeshop'))
-    expect(calls.map((c) => c.url)).toContain('/api/entries?payee=Trefpunt+Coffeeshop&page=0&size=50')
+      .toContain('/api/entries/summary?counterpartyId=22&payee=Trefpunt+Coffeeshop'))
+    expect(calls.map((c) => c.url)).toContain('/api/entries?counterpartyId=22&payee=Trefpunt+Coffeeshop&page=0&size=50')
+    expect(chipNames()).toContain('Remove Trefpunt Coffeeshop')
 
     fireEvent.change(payeeSelect(), { target: { value: 'c:21' } })
-    expect(new URLSearchParams(where).get('counterpartyId')).toBe('21')
+    expect(new URLSearchParams(where).getAll('counterpartyId')).toEqual(['22', '21'])
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Trefpunt Coffeeshop' }))
     expect(new URLSearchParams(where).has('payee')).toBe(false)
 
-    fireEvent.change(payeeSelect(), { target: { value: 'p:Trefpunt Coffeeshop' } })
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(where).toBe('')
   })
 
-  it('keeps a chosen name the list no longer has, and sends only the counterparty when the URL has both', async () => {
-    const calls = renderEntries('/entries?period=all&payee=Gone%20shop')
-    await waitFor(() => expect(payeeSelect().value).toBe('p:Gone shop'))
-    expect(payeeSelect().selectedOptions[0].textContent).toBe('Gone shop')
+  it('keeps a chosen name the list no longer has, and sends both a name and a counterparty (D-888)', async () => {
+    renderEntries('/entries?period=all&payee=Gone%20shop')
+    await waitFor(() => expect(chipNames()).toEqual(['Remove Gone shop']))
     cleanup()
 
     const both = renderEntries('/entries?period=all&payee=Gone%20shop&counterpartyId=21')
-    await waitFor(() => expect(payeeSelect().value).toBe('c:21'))
-    await waitFor(() => expect(both.some((c) => c.url.startsWith('/api/entries?'))).toBe(true))
-    expect(both.filter((c) => c.url.startsWith('/api/entries?') || c.url.startsWith('/api/entries/summary'))
-      .every((c) => !c.url.includes('payee='))).toBe(true)
-    expect(calls.length).toBeGreaterThan(0)
+    await waitFor(() => expect(chipNames()).toHaveLength(2))
+    await waitFor(() => expect(both.map((c) => c.url)).toContain('/api/entries/summary?counterpartyId=21&payee=Gone+shop'))
   })
 
   it('chooses a counterparty whose name the URL’s payee has in another case, listed once, the URL kept (D-568)', async () => {
     const calls = renderEntries('/entries?period=all&payee=ALBERT%20HEIJN')
-    await waitFor(() => expect(payeeSelect().value).toBe('c:21'))
-    expect([...payeeSelect().options].filter((o) => o.textContent!.toLowerCase().startsWith('albert heijn')))
-      .toHaveLength(1)
+    // The chip names the counterparty; the list offers it no more.
+    await waitFor(() => expect(chipNames()).toHaveLength(1))
+    expect(chipNames()[0]!.toLowerCase()).toBe('remove albert heijn')
+    expect([...payeeSelect().options].map((o) => o.value)).not.toContain('c:21')
     expect(new URLSearchParams(where).get('payee')).toBe('ALBERT HEIJN')
     await waitFor(() => expect(calls.map((c) => c.url)).toContain('/api/entries/summary?payee=ALBERT+HEIJN'))
     expect(calls.some((c) => c.url.includes('counterpartyId='))).toBe(false)

@@ -364,51 +364,89 @@ public class EntryService {
             where.append(" AND e.entry_date <= :to");
             params.put("to", filter.to());
         }
-        if (filter.accountId() != null) {
-            where.append(" AND EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.account_id = :accountId)");
-            params.put("accountId", filter.accountId());
+        if (!filter.accountIds().isEmpty()) {
+            where.append(" AND EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.account_id IN (:accountIds))");
+            params.put("accountIds", filter.accountIds());
         }
-        if (filter.categoryId() != null) {
+        if (!filter.categoryIds().isEmpty()) {
             // A categorized line, or (UX-9, D-478) for an entry without one a family link whose record has the
             // category, read as families() reads links: exactly the entries whose Category cell shows it.
-            where.append(" AND (EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.category_id = :categoryId)"
+            where.append(" AND (EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id"
+                    + " AND p.category_id IN (:categoryIds))"
                     + " OR (NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.category_id IS NOT NULL)"
                     + " AND EXISTS (SELECT FROM family_entry_link l JOIN family_record r ON r.id = l.record_id"
                     + " AND r.ledger_id = l.family_ledger_id WHERE l.entry_id = e.id AND l.detached_at IS NULL"
-                    + " AND r.category_id = :categoryId)))");
-            params.put("categoryId", filter.categoryId());
+                    + " AND r.category_id IN (:categoryIds))))");
+            params.put("categoryIds", filter.categoryIds());
         }
-        if (filter.counterpartyId() != null) {
-            // The entry's payee or a line's counterparty, or (UX-11, D-523) for an entry with neither its family
-            // record's payee by the chosen counterparty's name, ignoring case: exactly the entries whose Payee cell
-            // shows it.
-            where.append(" AND (e.payee_id = :counterpartyId OR EXISTS"
-                    + " (SELECT FROM posting p WHERE p.entry_id = e.id AND p.counterparty_id = :counterpartyId)"
-                    + " OR (e.payee_id IS NULL"
-                    + " AND NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.counterparty_id IS NOT NULL)"
-                    + " AND lower(rp.name) = (SELECT lower(c.name) FROM counterparty c"
-                    + " WHERE c.id = :counterpartyId AND c.ledger_id = :ledgerId)))");
-            params.put("counterpartyId", filter.counterpartyId());
+        // The Payee filter (D-873, D-888): any of its counterparties or names, exactly the entries whose Payee cell
+        // shows one of them.
+        List<String> payee = new ArrayList<>();
+        // An entry with neither a payee nor a line's counterparty shows its family record's payee (UX-11, D-523).
+        String recordPayeeOnly = "(e.payee_id IS NULL AND NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id"
+                + " AND p.counterparty_id IS NOT NULL))";
+        if (!filter.counterpartyIds().isEmpty()) {
+            // The entry's payee or a line's counterparty, or for an entry with neither its family record's payee by a
+            // chosen counterparty's name, ignoring case.
+            payee.add("e.payee_id IN (:counterpartyIds) OR EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id"
+                    + " AND p.counterparty_id IN (:counterpartyIds)) OR (" + recordPayeeOnly
+                    + " AND lower(rp.name) IN (SELECT lower(c.name) FROM counterparty c"
+                    + " WHERE c.id IN (:counterpartyIds) AND c.ledger_id = :ledgerId))");
+            params.put("counterpartyIds", filter.counterpartyIds());
         }
-        if (filter.payee() != null) {
-            // UX-12, D-548: by name, ignoring case as D-531 does, exactly the entries whose Payee cell shows it: the
-            // entry's payee, a line's counterparty, or for an entry with neither its shown family record's payee
-            // (null with the switch off, so that only the first two match then).
-            where.append(" AND (lower(payee.name) = lower(:payee) OR EXISTS (SELECT FROM posting p"
+        if (!filter.payees().isEmpty()) {
+            // UX-12, D-548: by name, ignoring case as D-531 does: the entry's payee, a line's counterparty, or for an
+            // entry with neither its shown family record's payee (null with the switch off).
+            String names = "(SELECT lower(n) FROM unnest(CAST(:payees AS text[])) n)";
+            payee.add("lower(payee.name) IN " + names + " OR EXISTS (SELECT FROM posting p"
                     + " JOIN counterparty pc ON pc.id = p.counterparty_id AND pc.ledger_id = :ledgerId"
-                    + " WHERE p.entry_id = e.id AND lower(pc.name) = lower(:payee))"
-                    + " OR (e.payee_id IS NULL"
-                    + " AND NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = e.id AND p.counterparty_id IS NOT NULL)"
-                    + " AND lower(rp.name) = lower(:payee)))");
-            params.put("payee", filter.payee());
+                    + " WHERE p.entry_id = e.id AND lower(pc.name) IN " + names + ")"
+                    + " OR (" + recordPayeeOnly + " AND lower(rp.name) IN " + names + ")");
+            params.put("payees", filter.payees().toArray(String[]::new));
+        }
+        if (!payee.isEmpty()) {
+            where.append(" AND (").append(String.join(" OR ", payee)).append(")");
         }
         if (filter.text() != null) {
             where.append(" AND (e.memo ILIKE :text OR payee.name ILIKE :text OR rp.name ILIKE :text)");
             params.put("text", "%" + likeLiteral(filter.text()) + "%");
         }
+        if (filter.origins().size() == 1) {
+            // D-880: Family is an entry with a live family link, Personal one without.
+            where.append(filter.origins().contains(EntryFilter.Origin.FAMILY) ? " AND " : " AND NOT ")
+                    .append("EXISTS (SELECT FROM family_entry_link l WHERE l.entry_id = e.id AND l.detached_at IS NULL)");
+        }
         // The composite foreign key (ledger_id, payee_id) keeps the payee in the entry's ledger.
-        return " FROM journal_entry e LEFT JOIN counterparty payee ON payee.id = e.payee_id" + RecordPayees.join("rp")
-                + " WHERE " + where;
+        String from = " FROM journal_entry e LEFT JOIN counterparty payee ON payee.id = e.payee_id"
+                + RecordPayees.join("rp");
+        if (!filter.directions().isEmpty() && filter.directions().size() < EntryFilter.Direction.values().length) {
+            // D-880: the summary's own classification over the entries every other filter matches, so that the
+            // entries a direction shows add up to that row of the summary: the sign of the net of the categorized
+            // lines, and the paying side of a family record that the summary counts once (UX-18's counted and
+            // shown_once) with its record's counted share entry.
+            where.append(" AND e.id IN (WITH b AS (SELECT e.id, e.kind" + from + " WHERE " + where + """
+                    ), net AS (
+                        SELECT b.id, sign(coalesce(sum(p.amount) FILTER (WHERE p.category_id IS NOT NULL), 0)) AS net
+                        FROM b JOIN posting p ON p.entry_id = b.id GROUP BY b.id
+                    ), counted AS (
+                        SELECT DISTINCT ON (r.id) b.id, r.id AS record_id
+                        FROM b
+                        JOIN family_entry_link l ON l.entry_id = b.id AND l.link_type = 'SHARE' AND l.detached_at IS NULL
+                        JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
+                        WHERE :rpOn AND b.kind = 'FAMILY_SHARE' AND r.type IN ('EXPENSE', 'INCOME')
+                          AND r.deleted_at IS NULL
+                        ORDER BY r.id, b.id
+                    ), paid AS (
+                        SELECT b.id, n.net FROM b
+                        JOIN family_entry_link l ON l.entry_id = b.id AND l.link_type = 'PAYMENT' AND l.detached_at IS NULL
+                        JOIN counted c ON c.record_id = l.record_id JOIN net n ON n.id = c.id
+                        WHERE b.kind = 'FAMILY_PAYMENT'
+                    )
+                    SELECT n.id FROM net n LEFT JOIN paid ON paid.id = n.id
+                    WHERE coalesce(paid.net, n.net) IN (:directions))""");
+            params.put("directions", filter.directions().stream().map(d -> d.net).toList());
+        }
+        return from + " WHERE " + where;
     }
 
     /** The text with LIKE's wildcards escaped by backslash, which is PostgreSQL's default escape character. */

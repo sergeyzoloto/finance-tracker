@@ -38,7 +38,8 @@ export function payeeFilterOf(value: string): { counterpartyId: string; payee: s
  * counterparty of the user's names, in any case, each labelled with its family budgets; one list sorted by name ignoring
  * case. The chosen payee is always listed, as its name alone when no family payee is it any more.
  */
-export function payeeFilterOptions(counterparties: Counterparty[], familyPayees: FamilyPayee[], chosenPayee: string): PayeeOption[] {
+export function payeeFilterOptions(counterparties: Counterparty[], familyPayees: FamilyPayee[],
+  chosen: string | string[]): PayeeOption[] {
   const options: PayeeOption[] = counterparties.map((c) => ({
     value: `c:${c.id}`, name: c.name, label: c.archived ? `${c.name} (archived)` : c.name,
   }))
@@ -48,9 +49,11 @@ export function payeeFilterOptions(counterparties: Counterparty[], familyPayees:
     taken.add(key(p.name))
     options.push({ value: `p:${p.name}`, name: p.name, label: `${p.name} · ${p.budgets.map((b) => b.name).join(', ')}` })
   }
-  // The chosen payee, once: unless an option has its name in any case (D-568).
-  if (chosenPayee !== '' && !options.some((o) => key(o.name) === key(chosenPayee))) {
-    options.push({ value: `p:${chosenPayee}`, name: chosenPayee, label: chosenPayee })
+  // Each chosen payee, once: unless an option has its name in any case (D-568). Several since ENT-2 (D-873).
+  for (const chosenPayee of typeof chosen === 'string' ? [chosen] : chosen) {
+    if (chosenPayee !== '' && !options.some((o) => key(o.name) === key(chosenPayee))) {
+      options.push({ value: `p:${chosenPayee}`, name: chosenPayee, label: chosenPayee })
+    }
   }
   return options.sort((a, b) => byName(a.name, b.name))
 }

@@ -3,6 +3,33 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · ENT-2: several values per filter, Direction and Origin
+
+The commit of this entry, on `main` on top of `9b53332` (ENT-1), D-888 to D-892.
+
+**Changes**
+- Backend: `EntryFilter` with lists (`accountIds`, `categoryIds`, `counterpartyIds`, `payees`), `Direction` and
+  `Origin`; `EntryService.matching` builds them for `/entries` and `/entries/summary` alike; `EntryController` takes
+  repeated parameters (D-873, D-880, D-888 to D-890).
+- Frontend: `entryFilters.ts`; Entries' selects add a value, chips with ×, Direction and Origin toggles (D-891);
+  `payeeFilterOptions` takes several chosen names.
+- Tests: `EntryFilterListApiTests`; `FamilyPayeeFilterApiTests` (D-888); `ENT2.test.tsx`; `UX12.test.tsx`;
+  `11-entries`' chips, toggles and the summary against the rows.
+- Docs: D-888 to D-892, CLAUDE.md. ENT-1's entry says "(Node 24)" for its three e2e runs: runs 1 and 2 ran on Node
+  v22.19.0, only run 3 on Node 24 (D-892).
+
+**Verified**
+- `./mvnw -B clean verify`: run 1 exit 1, 714 tests, 1 failure (`TestHygieneTests`: a debug message in
+  `EntryFilterListApiTests` read an answer as text, D-119; removed); run 2 exit 0, Tests run: 714, Failures: 0, Errors: 0.
+- `npm test` (Node v24.21.0, npm 11.19.0): exit 0, 57 files, 789 tests passed; `npm run build` exit 0.
+- `e2e:local` with `E2E_FAMILY=on` (Node v24.21.0, the local api rebuilt and restarted first): exit 0, "Result:
+  PASSED", 39 passed. `npm run test:guards` alone after it: exit 0, pass 39, fail 0.
+- Screenshots at 375 and 1440 px in `data/private/reports/ENT-2/`; `check-forbidden-names.sh` exit 0.
+
+**Open**
+- `ent2-375-entries-chips-e2e.png` was taken before the answer to its last toggle came back: its rows and summary are
+  the two-account filter's, not yet Expenses and Personal. The spec checks them after the answer.
+
 ## 2026-11-15 · ENT-1: Entries' default period, remembered pages, the summary as a folding panel
 
 The commit of this entry, on `main` on top of `3a59219` (FX-1), D-867 to D-887. Not pushed.

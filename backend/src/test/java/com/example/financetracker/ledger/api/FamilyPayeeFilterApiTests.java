@@ -137,7 +137,10 @@ class FamilyPayeeFilterApiTests extends FamilyApiTest {
         assertThat(found(carol, byName(SHOP))).isZero();
     }
 
-    /** The entry's own payee and a line's counterparty, by name; with {@code counterpartyId} 400; over 100, 400. */
+    /**
+     * The entry's own payee and a line's counterparty, by name; since ENT-2 (D-888) with {@code counterpartyId} one
+     * filter, either matching; over 100, 400.
+     */
     @Test
     void ownEntriesByTheirPayeeOrALinesCounterparty() throws IOException {
         long baker = newCounterparty(alice, "Baker UX12");
@@ -150,8 +153,10 @@ class FamilyPayeeFilterApiTests extends FamilyApiTest {
         assertThat(found(alice, byName("FRIEND UX12"))).isEqualTo(1);
         assertThat(counted(alice, byName("Friend UX12"))).isEqualTo(1);
 
-        for (String query : List.of(byName("Baker UX12") + "&counterpartyId=" + baker,
-                byName("x".repeat(101)))) {
+        // D-888: a name and a counterparty are one Payee filter: either.
+        assertThat(found(alice, byName("Baker UX12") + "&counterpartyId=" + friend)).isEqualTo(2);
+        assertThat(counted(alice, byName("Baker UX12") + "&counterpartyId=" + friend)).isEqualTo(2);
+        for (String query : List.of(byName("x".repeat(101)))) {
             assertThat(get(alice, "/api/entries?" + query)).as(query).hasStatus(HttpStatus.BAD_REQUEST);
             assertThat(get(alice, "/api/entries/summary?" + query)).as(query).hasStatus(HttpStatus.BAD_REQUEST);
         }

@@ -2,6 +2,7 @@ package com.example.financetracker.ledger.api;
 
 import java.net.URI;
 import java.time.LocalDate;
+import java.util.Set;
 import java.util.List;
 
 import com.example.financetracker.ledger.EntryFilter;
@@ -57,8 +58,12 @@ class EntryController {
      * @param accountId entries with a posting to this account
      * @param categoryId entries with a posting in this category
      * @param counterpartyId entries with this payee, or with a posting with this counterparty
-     * @param payee entries whose Payee cell shows this name, in any case (UX-12, D-548); not with
-     *        {@code counterpartyId}
+     * @param payee entries whose Payee cell shows one of these names, in any case (UX-12, D-548); with
+     *        {@code counterpartyId} one filter, either matching (ENT-2, D-873, D-888). {@code accountId},
+     *        {@code categoryId}, {@code counterpartyId} and {@code payee} may each be repeated: any of a filter's
+     *        values, all filters (D-873)
+     * @param direction {@code INCOME}, {@code EXPENSES}, {@code TRANSFERS}, repeated: the summary's rows (D-880)
+     * @param origin {@code PERSONAL} or {@code FAMILY}, repeated (D-880)
      * @param q entries whose memo, payee's name or (UX-11, D-523) shown family record's payee contains this text, in
      *        any case
      * @param page the page, from 0
@@ -66,14 +71,17 @@ class EntryController {
      */
     @GetMapping
     EntryPage list(LedgerScope ledger, @RequestParam(required = false) LocalDate from,
-            @RequestParam(required = false) LocalDate to, @RequestParam(required = false) Long accountId,
-            @RequestParam(required = false) Long categoryId, @RequestParam(required = false) Long counterpartyId,
-            @RequestParam(required = false) String payee,
+            @RequestParam(required = false) LocalDate to, @RequestParam(required = false) List<Long> accountId,
+            @RequestParam(required = false) List<Long> categoryId,
+            @RequestParam(required = false) List<Long> counterpartyId,
+            @RequestParam(required = false) List<String> payee,
             @RequestParam(required = false) @Size(max = 100) String q,
+            @RequestParam(required = false) Set<EntryFilter.Direction> direction,
+            @RequestParam(required = false) Set<EntryFilter.Origin> origin,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "50") @Min(1) @Max(200) int size) {
-        return entries.search(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q, payee), page,
-                size);
+        return entries.search(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, payee, q,
+                direction, origin), page, size);
     }
 
     /**
@@ -83,11 +91,15 @@ class EntryController {
      */
     @GetMapping("/summary")
     EntrySummary summary(LedgerScope ledger, @RequestParam(required = false) LocalDate from,
-            @RequestParam(required = false) LocalDate to, @RequestParam(required = false) Long accountId,
-            @RequestParam(required = false) Long categoryId, @RequestParam(required = false) Long counterpartyId,
-            @RequestParam(required = false) String payee,
-            @RequestParam(required = false) @Size(max = 100) String q) {
-        return entries.summary(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, q, payee));
+            @RequestParam(required = false) LocalDate to, @RequestParam(required = false) List<Long> accountId,
+            @RequestParam(required = false) List<Long> categoryId,
+            @RequestParam(required = false) List<Long> counterpartyId,
+            @RequestParam(required = false) List<String> payee,
+            @RequestParam(required = false) @Size(max = 100) String q,
+            @RequestParam(required = false) Set<EntryFilter.Direction> direction,
+            @RequestParam(required = false) Set<EntryFilter.Origin> origin) {
+        return entries.summary(ledger, new EntryFilter(from, to, accountId, categoryId, counterpartyId, payee, q,
+                direction, origin));
     }
 
     /**

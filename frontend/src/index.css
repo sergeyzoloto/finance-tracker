@@ -229,6 +229,12 @@ fieldset.choice legend { font-size: 12px; line-height: 16px; color: var(--muted)
 table.entries tr.clickable { cursor: pointer; }
 table.entries tr.clickable:hover, tr.clickable:hover { background: var(--surface-raised); }
 .stale { opacity: 0.6; }
+/* Entries' chosen filters as chips with × (ENT-2, D-873); they wrap, so nothing scrolls sideways at 375 px. */
+.filters ul.chips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.4rem; list-style: none; margin: 0; padding: 0; }
+.filters .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0.25rem 0.15rem 0.6rem;
+  border: 1px solid var(--border-control); border-radius: 999px; background: var(--surface-raised); max-width: 100%;
+  overflow-wrap: anywhere; }
+.filters .chip-remove { min-height: 0; height: 1.6rem; width: 1.6rem; padding: 0; border-radius: 999px; line-height: 1; }
 /* Entries' summary panel (ENT-1, D-871, D-872, D-875): between the filters and the list; the counts line, then a table
    of amounts per currency; folded to one line. Nothing scrolls sideways at 375 px. */
 .entry-summary-panel { margin: 0 0 1rem; }

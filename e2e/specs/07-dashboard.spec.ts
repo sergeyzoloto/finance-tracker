@@ -1120,7 +1120,7 @@ async function expectRatesCard({ page }: Session, last: string, each: boolean) {
     expect(shown.endsWith(` ${rate.currency}`), `the rate of ${rate.currency} in "${shown}"`).toBe(true)
     expect(plainRate(shown.slice(0, -` ${rate.currency}`.length)), `the rate of ${rate.currency}`).toBe(plainRate(rate.perEuro))
     await expect(item.locator('.rate-pair + span')).toHaveText(
-      `${rate.source === 'MANUAL' ? 'Manual' : 'ECB'} rate of ${shownDay(rate.date, null)}${rate.stale ? ' (rate stale)' : ''}`)
+      `${rate.source === 'MANUAL' ? 'Manual' : rate.source} rate of ${shownDay(rate.date, null)}${rate.stale ? ' (rate stale)' : ''}`)
   }
 }
 

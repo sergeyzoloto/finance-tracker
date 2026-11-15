@@ -1,8 +1,10 @@
 # The command-line importer of the Excel ledger (ledger.importer.ImportRunner; CLAUDE.md shows the command).
-# No web server and no login: only the database, from the SPRING_DATASOURCE_* environment variables. No ECB rates.
+# No web server and no login: only the database, from the SPRING_DATASOURCE_* environment variables. No ECB or CBR rates.
 app:
   rates:
     ecb:
+      enabled: false
+    cbr:
       enabled: false
 spring:
   main:

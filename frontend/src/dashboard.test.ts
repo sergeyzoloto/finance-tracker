@@ -328,6 +328,9 @@ describe('the rates a figure used (D-49, D-90, D-596)', () => {
     expect(rateSourceText(usd)).toBe('ECB rate of Sep 29, 2026')
     expect(rateText(rub)).toBe('95.5 RUB')
     expect(rateSourceText(rub)).toBe('Manual rate of Aug 1, 2026 (rate stale)')
+    // D-857: the Bank of Russia's rate of roubles.
+    expect(rateSourceText({ currency: 'RUB', date: '2026-11-03', perEuro: '90.4635', source: 'CBR', stale: false }))
+      .toBe('CBR rate of Nov 3, 2026')
   })
 })
 

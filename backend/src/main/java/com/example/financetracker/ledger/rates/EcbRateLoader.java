@@ -60,7 +60,7 @@ public class EcbRateLoader {
      *         written then
      */
     public Result load() {
-        Optional<LocalDate> latest = rates.latestSharedDate();
+        Optional<LocalDate> latest = rates.latestEcbDate();
         EcbDay daily = ecb.daily();
         Map<LocalDate, EcbDay> days = new TreeMap<>();
         boolean fromHistory = latest.isEmpty() || weekdayBetween(latest.get(), daily.date());
@@ -108,7 +108,7 @@ public class EcbRateLoader {
                     SELECT rate_date, 'EUR', quote_currency, rate, 'ECB'
                     FROM unnest(CAST(:dates AS DATE[]), CAST(:currencies AS CHAR(3)[]), CAST(:rates AS NUMERIC[]))
                         AS t (rate_date, quote_currency, rate)
-                    ON CONFLICT (base_currency, quote_currency, rate_date, user_id) DO UPDATE SET rate = EXCLUDED.rate""")
+                    ON CONFLICT (base_currency, quote_currency, rate_date, user_id, source) DO UPDATE SET rate = EXCLUDED.rate""")
                     .param("dates", dates.subList(from, to).toArray(String[]::new))
                     .param("currencies", currencies.subList(from, to).toArray(String[]::new))
                     .param("rates", values.subList(from, to).toArray(String[]::new))

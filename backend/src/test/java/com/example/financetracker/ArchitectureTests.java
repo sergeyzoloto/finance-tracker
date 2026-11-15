@@ -18,6 +18,7 @@ import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerInvites;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService;
+import com.example.financetracker.ledger.rates.CbrRateLoader;
 import com.example.financetracker.ledger.rates.EcbRateLoader;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -60,9 +61,12 @@ class ArchitectureTests {
             UserSettingsRepository.class,
             "the settings are the person's, keyed by the sub (1:1 with the personal ledger)",
             ExchangeRateRepository.class,
-            "rates belong to no ledger: the ECB's are shared by all users, a manual one is the person's",
+            "rates belong to no ledger: the ECB's and the CBR's are shared by all users, a manual one is the person's",
             EcbRateLoader.class,
-            "writes the ECB's rates, which belong to no user; runs on a schedule, never for a request");
+            "writes the ECB's rates, which belong to no user; runs on a schedule, never for a request",
+            CbrRateLoader.class,
+            "writes the CBR's rates, which belong to no user, and once deletes manual RUB rates equal to them (D-858); "
+                    + "runs on a schedule, never for a request");
 
     private static final JavaClasses APPLICATION = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

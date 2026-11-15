@@ -134,11 +134,11 @@ class LedgerRepositoryTests extends IntegrationTest {
         // The user's own rate for the same day is a row of its own.
         exchangeRates.save(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("80.00000000"), "MANUAL", user));
 
-        assertThat(exchangeRates.find(day, "EUR", "RUB", null))
+        assertThat(exchangeRates.find(day, "EUR", "RUB", "ECB", null))
                 .contains(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("75.50000000"), "ECB", null));
-        assertThat(exchangeRates.find(day, "EUR", "RUB", user))
+        assertThat(exchangeRates.find(day, "EUR", "RUB", "MANUAL", user))
                 .contains(new ExchangeRate(day, "EUR", "RUB", new BigDecimal("80.00000000"), "MANUAL", user));
-        assertThat(exchangeRates.find(day, "EUR", "RUB", other)).isEmpty();
+        assertThat(exchangeRates.find(day, "EUR", "RUB", "MANUAL", other)).isEmpty();
         assertThat(exchangeRates.findManual(user)).hasSize(1);
         assertThat(exchangeRates.findManual(other)).isEmpty();
     }

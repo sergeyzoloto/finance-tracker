@@ -514,12 +514,13 @@ export interface IntegrityViolation {
 }
 
 // Reports with currency=BASE: every amount converted to the user's base currency by D-49's rules (D-90, D-91): the
-// latest rate on or before its day, an ECB rate at most 7 days old, the user's own from its day until their next. A
+// latest rate on or before its day, an ECB rate at most 7 days old, a CBR rate (RUB) at most 15 days old (D-855), the
+// user's own from its day until their next. A
 // figure that needs a rate that doesn't apply is null, and `missingRates` says which.
 
 /** No rate for `currency` on `days` days from `from` to `to`. */
 export interface MissingRate { currency: string; from: string; to: string; days: number }
-export type RateSource = 'ECB' | 'MANUAL'
+export type RateSource = 'ECB' | 'CBR' | 'MANUAL'
 /**
  * Units of `currency` for one euro, from `date` on, as a figure used it: `stale` for a manual rate more than 31 days
  * older than the day it converted on (D-49).
@@ -562,7 +563,8 @@ export interface ConvertedNetWorth {
   unrealizedRevaluation: string | null
   /** What currency exchanges gained: FX_EXCHANGE's displayed balance; positive for a gain. */
   realizedExchangeResult: string | null
-  /** The rate used for each currency with a balance: an ECB one at most 7 days old, or the user's own (D-49). */
+  /** The rate used for each currency with a balance: an ECB one at most 7 days old, a CBR one at most 15, or the user's
+   * own (D-49, D-854). */
   rates: Rate[]
   missingRates: MissingRate[]
 }
@@ -608,7 +610,7 @@ export interface ConvertedDailyCashFlow { currency: string; rows: ConvertedDaily
 
 /**
  * A currency's rate as the user sees it today: the one that applies (D-49, D-91), else the latest there is, which
- * `applies` false marks (an ECB rate more than 7 days old); `date` is null for a currency without any.
+ * `applies` false marks (an ECB rate more than 7 days old, a CBR rate more than 15); `date` is null for a currency without any.
  */
 export interface LatestRate {
   currency: string; date: string | null; perEuro: string | null; source: RateSource | null; inLedger: boolean

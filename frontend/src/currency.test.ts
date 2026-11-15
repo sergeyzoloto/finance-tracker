@@ -50,6 +50,10 @@ describe('a total’s rates (D-47, D-49)', () => {
     expect(rateNotes([ecb, mine])).toEqual([
       '1 EUR = 1.1 USD, ECB rate of Oct 10, 2026', '1 EUR = 95.5 RUB, manual rate of Aug 1, 2026, rate stale'])
     expect(marks([ecb])).toEqual({ manual: false, stale: false })
+    // D-857: the Bank of Russia's, by its short name, not marked as the reader's own.
+    const cbr: Rate = { currency: 'RUB', date: '2026-11-03', perEuro: '90.4635', source: 'CBR', stale: false }
+    expect(rateNotes([cbr])).toEqual(['1 EUR = 90.4635 RUB, CBR rate of Nov 3, 2026'])
+    expect(marks([cbr])).toEqual({ manual: false, stale: false })
     expect(marks([ecb, mine])).toEqual({ manual: true, stale: true })
   })
 })

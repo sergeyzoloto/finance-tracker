@@ -399,9 +399,10 @@ export const periodTotals = (table: CashFlowTable): { income: Cell; expense: Cel
   net: table.net.total,
 })
 
-/** Where a rate comes from, for the Rates card (D-596): "ECB rate of <date>" or "Manual rate of <date>", and stale. */
+/** Where a rate comes from, for the Rates card (D-596): "ECB rate of <date>", "CBR rate of <date>" (D-857) or
+ * "Manual rate of <date>", and stale. */
 export const rateSourceText = (r: Rate) =>
-  `${r.source === 'MANUAL' ? 'Manual' : 'ECB'} rate of ${formatDate(r.date)}${r.stale ? ' (rate stale)' : ''}`
+  `${r.source === 'MANUAL' ? 'Manual' : r.source} rate of ${formatDate(r.date)}${r.stale ? ' (rate stale)' : ''}`
 
 /** A rate as the Rates card shows it (D-596): what 1 EUR is in the currency, "1.1193 USD". */
 export const rateText = (r: Rate) => `${formatRate(r.perEuro)} ${r.currency}`

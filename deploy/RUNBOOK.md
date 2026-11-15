@@ -927,7 +927,7 @@ first on the laptop, never production, **from production's latest dump** (D-220)
    `testuser2` (the partner) and nothing else, checks that no column holds their subs any more, and prints the restore
    test's numbers, which must equal the dump's (its restore test, as 12.2 printed it).
 3. The api of the deployed commit on the host against it (`SERVER_PORT=8081`, `FAMILY_LEDGERS_ENABLED=true`,
-   `ECB_RATES_ENABLED=false`, the `KEYCLOAK_*` of `.env`, `SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5434/finance`),
+   `ECB_RATES_ENABLED=false`, `CBR_RATES_ENABLED=false` (from FX-1's code on, D-863), the `KEYCLOAK_*` of `.env`, `SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5434/finance`),
    and Vite (`npx vite` in `frontend/`); then 12.3 to 12.7 in the browser, signed in as `testuser` and `testuser2`, with
    both participants' transactions files, and the integrity check for both; the backups are the database's own (`pg_dump` in its
    container), the restore drill B2's over it.
@@ -1872,6 +1872,305 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   2026-10-08 04:00Z), and the strict rule would block deploys for most of that day. `verify` and `finish` print the line
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
+
+## FX-1's deploy checklist with the suite
+
+**Commit to deploy.** finance: `<M>`, `feature/family-budget`'s head after FX-1's commit, on top of `e84774a6aaad6d3822e52a7ed8fab2609fa7a64b`
+(OPS-3-doc), on `e295f96` (UX-19-doc), on `d9cf51f69e9f81420485355a719f91ccd7c8f2f0` (UX-19, running); the commit the PM names in full once
+FX-1 is accepted. M holds this checklist, so it can't name M's hash itself: type M's full hash (40 characters) where a
+block says `<M>` before pasting it (D-226); pasted as it is, bash reads `<M>` as a redirection and runs nothing of the
+line. **Stage:** `FX-1` (`deploy/checks/FX-1.sql` and `FX-1.expected`: V18's constraints and invariants, no count,
+tried on a throwaway database migrated to V18 with a CBR and an ECB row). FX-1 (D-851 to D-858) loads the Bank of
+Russia's EUR rate in roubles as a shared rate (`source` CBR, `user_id` NULL) at the api's start and at 13:00 and 17:00
+Europe/Moscow, and its first load deletes every manual RUB rate equal to the CBR's of its date (D-858). **One migration,
+V18** (`V18__cbr_rates.sql`: `CBR` in `exchange_rate_source_check`, `source` in `exchange_rate_key`); **both images
+new** (the api's code, the web's wording). **The switch:** on before, during and after. **Auth:** unchanged. **The
+suite:** from a clean checkout of M with `E2E_FAMILY=on`; `family F8` reads production's RUB rate from `/api/rates`
+and expects the CBR's total where it applies (D-864). **The rollback target:** `d9cf51f` on V17, **with a condition**
+(D-859): its code can't run on V18 (its upserts name the old key, and it can't read a `CBR` row), so step 10 first
+puts V17's key and check back, deleting the CBR rows and V18's Flyway row, then runs `rollback.sh`. **The time
+(D-125):** no step between 03:30 and 04:30 UTC; the last block is the exception. This checklist is for this deploy only.
+
+**When.** At any time the PM chooses, never during a step 12.
+
+Rules for every block (CLAUDE.md, "Deploy checklists"): paste one block at a time, and the next only once the shell
+prompt has returned. A server block starts with `cd /opt/finance-tracker`, or is wrapped in `cd /opt/finance-tracker
+&& {` … `}`; a laptop block starts with `cd ~/dev/finance-tracker` or is wrapped likewise (D-330, D-334). Every server
+command is written out; nothing is piped into a remote shell. A command that asks a question is alone in its block;
+type its answer, never paste it. Every laptop git command that can page runs as `git --no-pager`, and a dirty tree
+stops a chain (D-127). Don't start "CI on Ubuntu 26.04" before step 9.
+
+What runs and why:
+
+- `run` is the clone's script, `d9cf51f`'s. Step 1.3 lists the commits from `d9cf51f` to M, three: `e295f96`
+  (UX-19-doc), `e84774a` (OPS-3-doc) and M (fewer if the clone was pulled since); `Migrations added:
+  V18__cbr_rates.sql`; under `deploy/`: `RUNBOOK.md`, `checks/FX-1.expected`, `checks/FX-1.sql`. `finance.caddy`, the
+  postgres service and `pg-backup/finance.conf` don't change; `numbers.sql` doesn't either (V18 adds no table, and
+  `exchange_rate` isn't among its keys, so D-858's deletion changes no number).
+- The Flyway line (D-519): the new api's own start prints `Successfully applied 1 migration to schema "app", now at
+  version v18`; `Schema "app" is up to date` there would be a fault.
+- The api's start loads the CBR's rates in the background, about 1170 rows from 2022-03-02 to tomorrow, in one request
+  of under a second and one transaction; the first load deletes the equal manual RUB rates (D-858) in that transaction.
+  It is over long before 4.6's after-dump; the restore test's `CHECK_MANUAL_RATES` compares the dump with its own
+  restore, so a lower count after the deletion is no mismatch.
+- **The rollback target after this deploy is `d9cf51f`**, with step 10's database step first (D-859). The manual RUB
+  rates D-858 deleted don't come back with it: after a rollback the owner uploads his CSV again (or the PM decides on a
+  restore of 1.8's before-dump).
+
+**0. On the laptop, read only: where things stand.** Type M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && M=<M> && git fetch origin && git --no-pager log -1 --format='HEAD %H %s' && git --no-pager log -1 --format='origin/main %H' origin/main && git --no-pager log -1 --format='origin/feature/family-budget %H' origin/feature/family-budget && git --no-pager log --oneline origin/main..feature/family-budget && { git merge-base --is-ancestor origin/main "$M" && echo FF-OK || echo NOT-FF; } && git status --porcelain
+```
+
+You should see `HEAD` M with FX-1's subject (on `feature/family-budget`); `origin/main` `d9cf51f…`;
+`origin/feature/family-budget` the same or M; `origin/main..feature/family-budget` `e295f96`, `e84774a` and M;
+`FF-OK`; nothing from `git status --porcelain`. Anything else: stop and tell the PM.
+
+**1. On the laptop: `main` and `feature/family-budget` to M, the push, and CI on M.** Only once the PM has accepted
+FX-1.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout feature/family-budget && test -z "$(git status --porcelain)" && git checkout main && git merge --ff-only feature/family-budget && git push origin main feature/family-budget && git --no-pager log -1 --format='%H %P %s'
+```
+
+You should see `Updating d9cf51f..<M's 7 characters>` and `Fast-forward`, the push of both branches, and M in full
+with its parent (`e84774a…`) and its subject. Nothing after the first checkout: a dirty tree, stop.
+
+CI on M, read only, once the jobs have had time to finish (about fifteen minutes). The runs with their jobs; type M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `CI`, `push`, once on `main` and once on `feature/family-budget` (D-95), attempt 1, each `completed
+success` with its five jobs `Backend`, `Frontend`, `Web image`, `Deploy scripts` and `Dependency updates`, `completed
+success`; and none or some `Monitor` runs (D-280). No "CI on Ubuntu 26.04" run. Then the check runs:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && M=<M> && curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/sergeyzoloto/finance-tracker/commits/$M/check-runs?per_page=100" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["total_count"]); [print(r["name"], r["status"], r["conclusion"]) for r in d["check_runs"]]'
+```
+
+You should see 10 plus the number of `Monitor` runs, the five names twice each, each `completed success`. A failure of
+`Backend` is a real fault: stop. A failure only of a Frontend job may be re-run once (D-94). Anything else: stop.
+
+**2. On the server: the pre-flight, read only.** Send its whole output to the PM before going on.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'; docker compose version
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short; echo "previous file: $(cat /root/finance-tracker.previous)"
+cat /var/lib/finance-deploy/last-good
+cat /var/lib/finance-deploy/contents
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 5
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+docker image ls -a --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | grep finance-tracker-
+for i in finance-tracker-api:previous finance-tracker-api:latest finance-tracker-web:previous finance-tracker-web:latest; do echo "$i content: $(docker image inspect --platform linux/amd64 -f '{{.Id}}' "$i" 2>&1)"; done
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Successfully applied|Schema "app" is up to date|Family ledgers \(D-25\)|Started FinanceTrackerApplication'
+grep -c '^FAMILY_LEDGERS_ENABLED=true$' deploy/app/.env; stat -c '%a %U %n' deploy/app/.env deploy/app/.env.2*
+(cd deploy/app && docker compose exec -T -e PGOPTIONS='-c default_transaction_read_only=on' postgres psql -X -q -At -U finance_checks -d finance -c "SELECT 'rates ' || source || ' ' || count(*) || ' ' || min(rate_date) || ' ' || max(rate_date) FROM app.exchange_rate WHERE quote_currency = 'RUB' GROUP BY source ORDER BY source" </dev/null)
+}
+```
+
+You should see:
+
+- `Now:` outside 03:30 to 04:30 UTC (D-125); `Scheduled shutdown:` `No such file or directory`, or a reboot at least 2
+  hours after you start step 4 (D-131); `Reboot required:` either answer, neither a stop by itself.
+- Docker server 29.9.3, linux/amd64 (D-812); `Image store: [["driver-type","io.containerd.snapshotter.v1"]]`.
+- `Clone: d9cf51f69e9f81420485355a719f91ccd7c8f2f0 test: lines sorted independently of the ids' digits, …` (or a later
+  documents commit if the clone was pulled since: say so); `git status --short` printing **nothing**; `previous file:
+  6296e69ff9c66c824fc15764fedc403fd1c1e2a6`.
+- `last-good`, `contents` and the history as UX-19's `finish` left them (`commit=d9cf51f…`, `finish=passed
+  2026-11-15T10:46:03Z`); compare with UX-19's row in "Deployed revisions". Both containers on UX-19's images, or
+  restarted by a later reboot (say so). D-519: send the images as printed.
+- The api's start: `Schema "app" is up to date. No migration necessary.`, the D-25 line "on", `Started
+  FinanceTrackerApplication`; `1`; `600 root`.
+- The RUB rates before: `rates ECB <n> <first> 2022-03-01` (the ECB's history up to its last RUB rate) and `rates MANUAL
+  <n> 2022-03-02 2026-11-14` or later (the owner's CSV, and any other user's), and no `rates CBR` line.
+
+If anything differs, stop and send it to the PM.
+
+**3. On the server: verify, read only**, with the running script.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify UX-19
+```
+
+You should see `verify UX-19 at d9cf51f …: OK`, both images "the recorded image", the pages 5 of 5, Flyway V17, the
+D-25 line "on", `UX-19.expected`'s 12 lines and the 24 numbers. Keep them for step 7.
+
+**4. On the server: the deploy**, alone in its block, not between 03:30 and 04:30 UTC; type M's 7 characters at the
+confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> FX-1
+```
+
+It prints:
+
+- 1.1: `Scheduled shutdown: none (…)` (or a reboot at least 2 hours away). 1.2: `HEAD: d9cf51f …`, `Last good deploy:
+  d9cf51f … (deploy)`, status `good`, both images "the recorded image", the read-only role's line.
+- 1.3: the commits from `d9cf51f` to M, three (`e295f96`, `e84774a`, M); `Migrations added: V18__cbr_rates.sql`; under
+  `deploy/`: `RUNBOOK.md`, `checks/FX-1.expected`, `checks/FX-1.sql`.
+- 1.4: `deploy/finance.caddy and the postgres service unchanged`. 1.5: `CI: 10 check runs, every one completed with
+  success (…)`. 1.6: the FX-1 files. 1.7: step 3's 24 numbers. 1.8: a fresh dump, `PASS`; note its name.
+- 2: `Deploy <M's 7 characters> (<its subject>), stage FX-1, over d9cf51f.`; type the 7 characters.
+- 3.1: `Fast-forward`. 3.2: `d9cf51f`'s images kept as `:d9cf51f69e9f81420485355a719f91ccd7c8f2f0` and `:previous`.
+  3.3: both built, each with a new content. 3.4: both recreated. 3.5: `api: healthy, web: healthy`. 3.6: `Pages: 5 of
+  5 as expected`.
+- 4.1: `Successfully applied 1 migration to schema "app", now at version v18` (the new api's start, D-519), `Latest
+  row: 18 cbr rates true; the highest migration in <M>: V18`. 4.2: the D-25 line "on". 4.3: `The same numbers`. 4.4:
+  `FX-1.expected`'s 8 lines. 4.5: `finance.conf: not installed (unchanged)`. 4.6: an after-dump, `PASS`.
+- 5: the summary, then `Left for you: … deploy/deploy.sh finish`: here, after steps 4b and 5.
+
+A FAILED line: stop, send it to the PM; it prints the rollback command, which isn't run (step 10).
+
+**4b. On the server: the CBR's first load, read only**, a minute after step 4. The load runs in the background after
+the api starts and its first one fetches about 1170 days: it has finished once the api's log shows the line `Loaded …
+CBR rates from 2022-03-02 to …` (or a `Could not load the CBR's exchange rates` warning). If neither line has appeared
+yet, wait a minute and run the block again; it is read only.
+
+```bash
+# On the server (read only). Finished when the log shows "Loaded … CBR rates"; if not yet, wait a minute and run it again.
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ'
+docker logs --since "$(docker inspect -f '{{.State.StartedAt}}' finance-tracker-api)" finance-tracker-api 2>&1 | grep -E 'Successfully applied|CBR|ECB'
+(cd deploy/app && docker compose exec -T -e PGOPTIONS='-c default_transaction_read_only=on' postgres psql -X -q -At -U finance_checks -d finance -c "SELECT 'CBR rows ' || count(*) || ' from ' || min(rate_date) || ' to ' || max(rate_date) FROM app.exchange_rate WHERE source = 'CBR'" -c "SELECT 'manual RUB, user ' || row_number() OVER (ORDER BY min(rate_date), count(*)) || ': ' || count(*) || ' from ' || min(rate_date) || ' to ' || max(rate_date) FROM app.exchange_rate WHERE source = 'MANUAL' AND quote_currency = 'RUB' GROUP BY user_id" -c "SELECT 'manual RUB rows ' || count(*) FROM app.exchange_rate WHERE source = 'MANUAL' AND quote_currency = 'RUB'" </dev/null)
+}
+```
+
+You should see the migration's line; `Loaded 1170 CBR rates from 2022-03-02 to <today or tomorrow>` (about 1170: the
+CBR's working days since 2022-03-02), `The first CBR load deleted <n> manual RUB rates equal to the CBR's; <r> manual
+RUB rates remain` (D-858; for the owner's CSV of 1168 rows `n` close to 1168), and the ECB's `Loaded … ECB rates …`
+line; `CBR rows <about 1170> from 2022-03-02 to <today or tomorrow>`; no line for the owner under `manual RUB, user …`
+(the users are numbered, never named), and `manual RUB rows <r>`. A `Could not load the CBR's exchange rates` warning
+instead: send it to the PM (the next load, at 13:00 or 17:00 Moscow time, tries again; nothing else depends on it).
+
+**5. On the laptop: the end-to-end suite against production** (D-51, D-56), not between 03:30 and 04:30 UTC, from a
+clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout main && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. Then the suite, alone in its block. Read its banner (https://app.finance-nl.com, `e2e-a`,
+`e2e-b`, `E2E_FAMILY: on`, M and "clean tree"), then type `E2E PROD` after the question.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary, from `===== E2E summary =====` to `=======================`. You should see `Commit:` M `(clean
+tree)`, `E2E_FAMILY: on`, every spec as in UX-19's run passed (19 passed, `new-family` skipped, D-163), `cleanup
+passed`, `Password search over the artifacts: 0 hits`, `Result: PASSED`. `family F8` now reads the CBR's RUB rate in
+production: before A's own rate, A's and B's totals "≈ €…" with "RUB, CBR rate of …" (D-864).
+
+If any spec fails, or the cleanup does: don't run the suite again and don't run `finish`; send the whole summary to the
+PM, who decides (D-58, D-59).
+
+Left to check by hand, before `finish`, because no spec reaches production's own RUB figures (the test accounts have
+none but the F8 spec's, and the suite deletes them): sign in with your own account, open `/rates`: RUB's row with
+the CBR's rate of today or the latest working day, source `CBR`, no "not used"; and the dashboard in EUR over a period
+with rouble entries: no "rate missing" for RUB after 2022-03-01, the Rates card naming "CBR rate of …".
+
+**6. On the server: finish**, only after step 5, alone in its block; `yes` to both only if step 5's summary says
+`Result: PASSED` with 0 password hits and the checks by hand were as described; otherwise `no` to both.
+
+```bash
+# On the server: only after the end-to-end suite of step 5 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+You should see the pages 5 of 5, the two answers, "Family numbers after the smoke test: the family lines as before
+the deploy", the images and "Done". After `no`: `NOT PASSED: …`, exit status 3.
+
+**7. On the server: verify FX-1, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify FX-1
+```
+
+You should see `verify FX-1 at <M's 7 characters> …: OK`, both images "the recorded image", the pages 5 of 5, Flyway
+V18, the D-25 line "on", `FX-1.expected`'s 8 lines and step 3's 24 numbers. From FX-1's deploy on, step 12's 12.1 and
+12.10 use `verify FX-1`, and 12.11 checks out M.
+
+**8. Acceptance: `rollback.sh d9cf51f` goes to its question**, changing nothing; type `no`.
+
+```bash
+# On the server: type no at the question
+cd /opt/finance-tracker && deploy/rollback.sh d9cf51f
+```
+
+You should see step 2 `Target: d9cf51f test: lines sorted independently of the ids' digits, …, the commit HEAD's
+deploy replaced`; step 4 `Flyway's latest row: 18 cbr rates true; the target's highest migration: V17` and no
+condition line (`rollback.sh` has none for V18: step 10's database step is the condition, D-859); then the question,
+and after `no`: `REFUSED at "5. Confirmation": not confirmed` and "Nothing changed."
+
+**9. CI on Ubuntu 26.04 (D-44, D-124)**, last, only now, on M deployed and finished: Actions → "CI on Ubuntu 26.04" →
+"Run workflow" on `main`, exactly once (D-60 if `main` has moved past M). Then, read only, type M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], "id", r["id"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `1 runs`, `workflow_dispatch main attempt 1 completed success`, and Backend, Frontend, Web image and
+Deploy scripts each `completed success`.
+
+**10. Last, only for a failed deploy: the rollback**, at any hour. First V17's key and check back (D-859), as the
+database's owner `finance`, in one transaction: the CBR rows deleted, `exchange_rate_key` without `source`,
+`exchange_rate_source_check` without `CBR`, and V18's row of Flyway's history deleted, so that `d9cf51f`'s api starts
+on V17 and a later deploy of FX-1 applies V18 again. The manual RUB rates D-858 deleted stay deleted. Tried on a
+throwaway database at V18 (FX-1's report).
+
+```bash
+# On the server: only for a failed deploy of FX-1, before rollback.sh
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U finance -d finance -c "DELETE FROM app.exchange_rate WHERE source = 'CBR'; ALTER TABLE app.exchange_rate DROP CONSTRAINT exchange_rate_key; ALTER TABLE app.exchange_rate ADD CONSTRAINT exchange_rate_key UNIQUE NULLS NOT DISTINCT (base_currency, quote_currency, rate_date, user_id); ALTER TABLE app.exchange_rate DROP CONSTRAINT exchange_rate_source_check; ALTER TABLE app.exchange_rate ADD CONSTRAINT exchange_rate_source_check CHECK (source IN ('ECB', 'MANUAL')); DELETE FROM app.flyway_schema_history WHERE version = '18';" </dev/null
+```
+
+You should see `DELETE <about 1170>`, four `ALTER TABLE` and `DELETE 1`. The running FX-1 api may log a failed CBR or
+ECB load until the next step replaces it; harmless. Then `rollback.sh`, alone in its block; type `ROLLBACK d9cf51f` at
+its question. A scheduled shutdown is only a warning here (D-126, D-131).
+
+```bash
+# On the server: only for a failed deploy, after the block above
+cd /opt/finance-tracker && deploy/rollback.sh d9cf51f
+```
 
 ## UX-19's deploy checklist with the suite
 

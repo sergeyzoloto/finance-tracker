@@ -110,7 +110,7 @@ function ReportBody({ report, family }: { report: Report; family: FamilyData }) 
         <div className="total-note small muted">
           <p>
             The totals in {total.currency} are approximate, for display only: each month at its month-end rate, the
-            current month at today’s, by your own rates where you have entered them, else the ECB’s.
+            current month at today’s, by your own rates where you have entered them, else the ECB’s or, for roubles, the Bank of Russia’s.
           </p>
           <RateNotes rates={total.rates} />
         </div>

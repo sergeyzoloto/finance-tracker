@@ -421,6 +421,7 @@ describe('the rates page (D-49)', () => {
       { currency: 'RUB', date: '2026-08-01', perEuro: '95.50', source: 'MANUAL', inLedger: true, applies: true, stale: true },
       { currency: 'USD', date: '2026-09-29', perEuro: '1.1', source: 'ECB', inLedger: true, applies: true, stale: false },
       { currency: 'CHF', date: '2026-09-01', perEuro: '0.93', source: 'ECB', inLedger: true, applies: false, stale: false },
+      { currency: 'KZT', date: '2026-09-01', perEuro: '500', source: 'CBR', inLedger: true, applies: false, stale: false },
     ],
   }
 
@@ -434,6 +435,9 @@ describe('the rates page (D-49)', () => {
     expect((await screen.findByTestId('rate-RUB')).textContent).toContain('manualrate stale')
     expect(screen.getByTestId('rate-USD').textContent).not.toContain('manual')
     expect(screen.getByTestId('rate-CHF').textContent).toContain('not used: more than 7 days old')
+    // D-855, D-857: a CBR rate's own limit, and its source by name.
+    expect(screen.getByTestId('rate-KZT').textContent).toContain('not used: more than 15 days old')
+    expect(screen.getByTestId('rate-KZT').textContent).toContain('CBR')
     fireEvent.change(screen.getByLabelText('Rate'), { target: { value: '95,50' } })
     fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'RUB' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save rate' }))

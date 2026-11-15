@@ -1,5 +1,5 @@
 import Big from 'big.js'
-import { formatDate, type Account, type DisplayRate } from './api'
+import { formatDate, type Account, type DisplayRate, type RateSource } from './api'
 import { fromMinor, parseMinor } from './minorUnits'
 import { formatMoney, negate } from './money'
 
@@ -78,15 +78,18 @@ export function sidePatch(args: {
 export const recordAmount = (r: { amount: string; currency: string; refund?: boolean }) =>
   formatMoney(r.refund ? negate(r.amount) : r.amount, r.currency)
 
-/** A rate's source in words: the ECB's, or the reader's own, "manual". */
-export const sourceWord = (rate: Pick<DisplayRate, 'source'>) => (rate.source === 'MANUAL' ? 'manual' : 'ECB')
+/** A rate's source in words: the ECB's, the Bank of Russia's ("CBR", D-857), or the reader's own, "manual". */
+export const sourceWord = (rate: Pick<DisplayRate, 'source'>) => (rate.source === 'MANUAL' ? 'manual' : rate.source)
+
+/** The age in days after which a shared rate is never used (D-49, D-855): the ECB's 7, the CBR's 15. */
+export const notUsedAfter = (source: RateSource | null) => (source === 'CBR' ? 15 : 7)
 
 /**
- * The rates a displayed total used (D-47, D-49): "ECB rate of Oct 10, 2026", "manual rate of Aug 1, 2026, rate stale",
+ * The rates a displayed total used (D-47, D-49): "ECB rate of Oct 10, 2026", "CBR rate of Nov 3, 2026", "manual rate of Aug 1, 2026, rate stale",
  * one per rate, by currency and date.
  */
 export function rateNotes(rates: DisplayRate[]): string[] {
-  return rates.map((r) => `1 EUR = ${new Big(r.perEuro).toString()} ${r.currency}, ${r.source === 'MANUAL' ? 'manual' : 'ECB'} rate of ${formatDate(r.date)}${r.stale ? ', rate stale' : ''}`)
+  return rates.map((r) => `1 EUR = ${new Big(r.perEuro).toString()} ${r.currency}, ${sourceWord(r)} rate of ${formatDate(r.date)}${r.stale ? ', rate stale' : ''}`)
 }
 
 /** Whether any rate of a total is the reader's own, or stale: what the screens mark it with. */

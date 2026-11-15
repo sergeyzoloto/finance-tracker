@@ -85,7 +85,7 @@ export default function FamilyBalances({ family }: { family: FamilyData }) {
         <div className="total-note small muted">
           <p>
             The total in {total.currency} is approximate, for display only: it is never posted or settled. It uses your own
-            rates where you have entered them, else the ECB’s, as of today.
+            rates where you have entered them, else the ECB’s or, for roubles, the Bank of Russia’s, as of today.
           </p>
           <RateNotes rates={total.rates} />
         </div>

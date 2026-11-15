@@ -15,14 +15,15 @@ import com.example.financetracker.ledger.domain.Money;
 
 /**
  * Euro rates of some currencies as one user sees them, and conversions between currencies through the euro, by the
- * rules of every displayed conversion (D-49, D-90, D-91). Plain Java, without a database.
+ * rules of every displayed conversion (D-49, D-90, D-91, D-854). Plain Java, without a database.
  * <ul>
  * <li>The rate on a day is the latest published on or before it. Of the ECB's, only one at most
- * {@value #ECB_DAYS} days old applies; an older one is never used, so that no figure rests on a stale rate (D-49: the
+ * {@value #ECB_DAYS} days old applies, and of the Bank of Russia's (CBR, RUB only, D-851) one at most
+ * {@value #CBR_DAYS} days old (D-855); an older one is never used, so that no figure rests on a stale rate (D-49: the
  * ECB stopped publishing RUB on 2022-03-01). A manual rate is its user's, and applies from its day until that user's
  * next one, at any age.
- * <li>Among the rates that apply on a day, the one of the most recent date wins; on the same date the manual one
- * (D-91).
+ * <li>Among the rates that apply on a day, the one of the most recent date wins; on the same date the manual one, then
+ * the ECB's, then the CBR's (D-91, D-854).
  * <li>A manual rate more than {@value #STALE_DAYS} days older than the day it converts on is marked stale (D-49):
  * the figure that uses it says so.
  * <li>A currency without an applicable rate can't be converted: nothing is guessed, no later rate is used, and no rate
@@ -37,6 +38,12 @@ public final class RateBook {
     /** The age, in days, up to which an ECB rate applies (D-49). */
     public static final int ECB_DAYS = 7;
 
+    /**
+     * The age, in days, up to which a CBR rate applies (D-855): its longest pause between rates is 13 days, over the
+     * January holidays.
+     */
+    public static final int CBR_DAYS = 15;
+
     /** The age, in days, past which a manual rate is marked stale (D-49). */
     public static final int STALE_DAYS = 31;
 
@@ -44,11 +51,13 @@ public final class RateBook {
     private static final MathContext PRECISION = MathContext.DECIMAL128;
 
     private final Map<String, NavigableMap<LocalDate, Rate>> ecb;
+    private final Map<String, NavigableMap<LocalDate, Rate>> cbr;
     private final Map<String, NavigableMap<LocalDate, Rate>> manual;
 
-    private RateBook(Map<String, NavigableMap<LocalDate, Rate>> ecb,
+    private RateBook(Map<String, NavigableMap<LocalDate, Rate>> ecb, Map<String, NavigableMap<LocalDate, Rate>> cbr,
             Map<String, NavigableMap<LocalDate, Rate>> manual) {
         this.ecb = ecb;
+        this.cbr = cbr;
         this.manual = manual;
     }
 
@@ -56,7 +65,7 @@ public final class RateBook {
      * Units of {@code currency} for one euro from {@code date} on, as published or entered.
      *
      * @param perEuro positive
-     * @param source ECB or MANUAL; null for the euro itself
+     * @param source ECB, CBR or MANUAL; null for the euro itself
      * @param stale whether it is a manual rate more than {@value #STALE_DAYS} days older than the day it was looked up
      *        for (D-49); false as stored
      */
@@ -81,26 +90,35 @@ public final class RateBook {
     }
 
     /**
-     * The rate that applies on {@code day} (D-49, D-91): of the ECB's latest on or before it, if at most
-     * {@value #ECB_DAYS} days old, and the user's latest manual one on or before it, the more recent, the manual one on
-     * the same date; none if neither applies. A manual rate is marked stale as it is old on {@code day}.
+     * The rate that applies on {@code day} (D-49, D-91, D-854): of the ECB's latest on or before it, if at most
+     * {@value #ECB_DAYS} days old, the CBR's latest, if at most {@value #CBR_DAYS} days old, and the user's latest
+     * manual one on or before it, the most recent; on the same date the manual one, then the ECB's, then the CBR's;
+     * none if none applies. A manual rate is marked stale as it is old on {@code day}.
      */
     public Optional<Rate> rate(String currency, LocalDate day) {
         if (currency.equals(EURO)) {
             return Optional.of(new Rate(EURO, day, BigDecimal.ONE, null));
         }
-        Rate published = floor(ecb, currency, day);
-        if (published != null && published.date().plusDays(ECB_DAYS).isBefore(day)) {
-            published = null;
-        }
         Rate entered = floor(manual, currency, day);
         if (entered != null && entered.date().plusDays(STALE_DAYS).isBefore(day)) {
             entered = new Rate(entered.currency(), entered.date(), entered.perEuro(), entered.source(), true);
         }
-        if (entered == null || published != null && published.date().isAfter(entered.date())) {
-            return Optional.ofNullable(published);
+        // In order of precedence on the same date: a later candidate wins only with a later date.
+        Rate best = null;
+        for (Rate candidate : new Rate[] {entered, applying(ecb, currency, day, ECB_DAYS),
+                applying(cbr, currency, day, CBR_DAYS)}) {
+            if (candidate != null && (best == null || candidate.date().isAfter(best.date()))) {
+                best = candidate;
+            }
         }
-        return Optional.of(entered);
+        return Optional.ofNullable(best);
+    }
+
+    /** The latest published rate on or before {@code day}, if at most {@code days} days old. */
+    private static Rate applying(Map<String, NavigableMap<LocalDate, Rate>> rates, String currency, LocalDate day,
+            int days) {
+        Rate published = floor(rates, currency, day);
+        return published == null || published.date().plusDays(days).isBefore(day) ? null : published;
     }
 
     private static Rate floor(Map<String, NavigableMap<LocalDate, Rate>> rates, String currency, LocalDate day) {
@@ -161,17 +179,23 @@ public final class RateBook {
     public static final class Builder {
 
         private final Map<String, NavigableMap<LocalDate, Rate>> ecb = new HashMap<>();
+        private final Map<String, NavigableMap<LocalDate, Rate>> cbr = new HashMap<>();
         private final Map<String, NavigableMap<LocalDate, Rate>> manual = new HashMap<>();
 
         private Builder() {
         }
 
-        /** Adds a rate, the ECB's or the user's own; one of each per currency and day. */
+        /** Adds a rate, the ECB's, the CBR's or the user's own; one of each per currency and day. */
         public Builder add(Rate rate) {
             if (rate.currency().equals(EURO) || rate.perEuro().signum() <= 0 || rate.source() == null) {
                 throw new IllegalArgumentException("Not a euro rate: " + rate);
             }
-            (rate.manual() ? manual : ecb).computeIfAbsent(rate.currency(), currency -> new TreeMap<>())
+            Map<String, NavigableMap<LocalDate, Rate>> rates = switch (rate.source()) {
+                case MANUAL -> manual;
+                case ECB -> ecb;
+                case CBR -> cbr;
+            };
+            rates.computeIfAbsent(rate.currency(), currency -> new TreeMap<>())
                     .put(rate.date(), rate);
             return this;
         }
@@ -181,7 +205,7 @@ public final class RateBook {
         }
 
         public RateBook build() {
-            return new RateBook(copy(ecb), copy(manual));
+            return new RateBook(copy(ecb), copy(cbr), copy(manual));
         }
 
         private static Map<String, NavigableMap<LocalDate, Rate>> copy(Map<String, NavigableMap<LocalDate, Rate>> rates) {

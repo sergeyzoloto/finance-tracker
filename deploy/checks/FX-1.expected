@@ -1,0 +1,8 @@
+flyway latest 18 cbr rates true
+constraint exchange_rate_key UNIQUE NULLS NOT DISTINCT (base_currency, quote_currency, rate_date, user_id, source)
+constraint exchange_rate_owner_check CHECK ((((source)::text = 'MANUAL'::text) = (user_id IS NOT NULL)))
+constraint exchange_rate_source_check CHECK (((source)::text = ANY ((ARRAY['ECB'::character varying, 'CBR'::character varying, 'MANUAL'::character varying])::text[])))
+CBR rates with a user, another currency, a non-positive rate or before 2022-03-02 0
+shared rates of another source 0
+manual rates without a user 0
+unbalanced entries 0

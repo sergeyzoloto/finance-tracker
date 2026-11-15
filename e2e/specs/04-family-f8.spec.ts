@@ -9,10 +9,12 @@ import { createTheBudget, fact, inviteSomeoneNew, joinThroughTheLink, leave, mon
 // 3. The paying side is A's alone (D-88): A's page of the rouble record names the euros, B's names only the record.
 // 3b. D4a's export, read only: each one's file holds the records he paid, never the other's (D-239), and its rows
 //    move his balances with his shares of the other's records (D-242).
-// 4. Balances per currency: B owes A €45.00 and RUB 1,500.00, A owes B $20.00. The total in EUR: none for A while
-//    nobody has a RUB rate, "No RUB rate" with its link to the rates page.
-// 5. A enters "1 EUR = 95,50 RUB" there; A's total appears, "≈", labelled manual, with each rate's date and source;
-//    B, who has no rate of their own, still sees "No RUB rate" (D-49: each member's own rates).
+// 4. Balances per currency: B owes A €45.00 and RUB 1,500.00, A owes B $20.00. The total in EUR: where no shared RUB
+//    rate applies (locally, where the CBR's aren't loaded), none for A, "No RUB rate" with its link to the rates page;
+//    where the Bank of Russia's applies (production since FX-1, D-851), the total with "CBR rate of …" (D-857).
+// 5. A enters "1 EUR = 95,50 RUB" on the rates page; A's total appears, "≈", labelled manual, with each rate's date and
+//    source (A's own, of today, wins over the CBR's of the same day or earlier, D-854); B, who has no rate of their own,
+//    still sees "No RUB rate", or the CBR's where it applies (D-49: each member's own rates).
 // 6. The month's report per currency, with the total for A.
 // 7. Settle up per currency (D-46): B pays A €45.00 and RUB 1,500.00, A pays B $20.00, all "Specify later".
 // 8. Everyone settled in every currency; the integrity check passes for both.
@@ -75,12 +77,18 @@ test('family F8', async ({ as, family, target, watch }) => {
     `You owe ${nameB} ${money('20', 'USD')}.`])
   const totalA = a.page.locator('.balances-table tbody tr').filter({ has: a.page.locator('.badge', { hasText: 'You' }) })
     .locator('.no-rate, .total-amount')
-  await expect(totalA).toHaveText('No RUB rate: enter a rate')
+  const cbr = await sharedRubRate(a)
+  if (cbr) {
+    await expect(totalA).toHaveText(/^≈ -?€[\d,]+\.\d\d$/)
+    await expect(a.page.locator('.rate-notes')).toContainText(/RUB, CBR rate of /)
+  } else {
+    await expect(totalA).toHaveText('No RUB rate: enter a rate')
+  }
   await shot(a.page, 'f8-05-balances-no-rub-rate')
 
   // 5. A's own RUB rate, entered as "1 EUR = 95,50 RUB".
-  await totalA.getByRole('link', { name: 'enter a rate' }).click()
-  await expect(a.page).toHaveURL(/\/rates$/)
+  await a.page.goto('/rates')
+  await expect(a.page.getByRole('heading', { name: 'Exchange rates' })).toBeVisible()
   await a.page.getByLabel('Rate', { exact: true }).fill('95,50')
   await a.page.getByLabel('Currency', { exact: true }).fill('RUB')
   await a.page.getByRole('button', { name: 'Save rate' }).click()
@@ -94,8 +102,14 @@ test('family F8', async ({ as, family, target, watch }) => {
   await expect(a.page.locator('.rate-notes')).toContainText(/USD, ECB rate of /)
   await shot(a.page, 'f8-07-balances-total')
   await b.page.goto(`${budget}/balances`)
-  await expect(b.page.locator('.balances-table tbody tr').filter({ has: b.page.locator('.badge', { hasText: 'You' }) })
-    .locator('.no-rate')).toHaveText('No RUB rate: enter a rate')
+  const totalB = b.page.locator('.balances-table tbody tr').filter({ has: b.page.locator('.badge', { hasText: 'You' }) })
+    .locator('.no-rate, .total-amount')
+  if (cbr) {
+    await expect(totalB).toHaveText(/^≈ -?€[\d,]+\.\d\d$/)
+    await expect(b.page.locator('.rate-notes')).toContainText(/RUB, CBR rate of /)
+  } else {
+    await expect(totalB).toHaveText('No RUB rate: enter a rate')
+  }
 
   // 6. The month's report, per currency, with A's total.
   const month = today().slice(0, 7)
@@ -132,6 +146,17 @@ test('family F8', async ({ as, family, target, watch }) => {
   expect(rates.status()).toBe(200)
   expect(await rates.json(), "A's manual rates after Delete all my data").toEqual([])
 })
+
+/**
+ * Whether a shared RUB rate applies today for the account (FX-1): the Bank of Russia's in production, none locally,
+ * where the CBR's rates aren't loaded. No spec may expect RUB to be missing in production.
+ */
+async function sharedRubRate({ context }: Session): Promise<boolean> {
+  const response = await context.request.get('/api/rates')
+  expect(response.status(), 'GET /api/rates').toBe(200)
+  const overview = await response.json() as { latest: { currency: string; source: string | null; applies?: boolean }[] }
+  return overview.latest.some((rate) => rate.currency === 'RUB' && rate.source === 'CBR' && rate.applies === true)
+}
 
 /**
  * A family expense of today in Groceries, in its own currency (D-45), paid from the account named or "Specify later";

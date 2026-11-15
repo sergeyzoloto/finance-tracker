@@ -156,3 +156,21 @@ the one today of the api when the image's zone was UTC.
 The cash flow's scopes (UX-1, D-302; UX-6, D-421) apply in both shapes; in the base currency a scope other than `ALL`
 has no exchange results (`ReportService`). Later dashboard stages show
 these figures (UX-5's comparisons, UX-14's Rates card naming net worth's `rates`) without changing how a rate is chosen.
+
+## Amendment, FX-1: the Bank of Russia's EUR rate in roubles (D-851 to D-858)
+
+The ECB stopped publishing RUB on 2022-03-01. From 2022-03-02 on, RUB per EUR comes from the Bank of Russia (CBR):
+its official EUR rate, currency id R01239, which is already roubles for one euro (`Value / Nominal`).
+
+- **A second shared source.** `exchange_rate.source` is `ECB`, `CBR` or `MANUAL`; a CBR rate has `user_id` NULL like
+  the ECB's. V18 puts `source` into `exchange_rate_key`, so an ECB and a CBR rate of the same day and currency are two
+  rows that never overwrite each other. The ECB loader's latest day reads ECB rows only.
+- **Which rate applies** (D-854, D-855). Of an ECB rate at most 7 days old, a CBR rate at most 15 days old (its longest
+  pause is 13 days, over the January holidays) and the user's latest manual rate at any age, the latest date wins; on
+  the same date manual, then ECB, then CBR. A manual rate older than 31 days is still marked stale.
+- **Loading** (D-856). `CbrRateLoader` at startup and at 13:00 and 17:00 Europe/Moscow: 2022-03-02 to tomorrow on its
+  first load, later from its latest day less 10 days, in one transaction. Its first load deletes every user's manual
+  RUB rate equal to the CBR's of its date (D-858), once.
+- **Rollback.** The code before V18 can't run on it (its upserts name the old key, and it can't read a CBR row): going
+  back deletes the CBR rows and puts V17's key and check back first (D-859, FX-1's checklist).
+

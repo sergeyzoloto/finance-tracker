@@ -24,6 +24,12 @@ app:
       history-url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
       # Europe/Berlin. The ECB publishes at about 16:00 CET on TARGET working days; 18:30 catches a late one.
       cron: "0 30 16,18 * * MON-FRI"
+    # The Bank of Russia's EUR rate in roubles (ledger.rates.CbrRateLoader, D-851 to D-856): at startup and twice a day.
+    cbr:
+      enabled: ${CBR_RATES_ENABLED:true}
+      url: https://www.cbr.ru/scripts/XML_dynamic.asp
+      # Europe/Moscow. The CBR sets the next working day's rate in the early afternoon.
+      cron: "0 0 13,17 * * *"
 spring:
   application:
     name: finance-tracker

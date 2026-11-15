@@ -1,5 +1,6 @@
 package com.example.financetracker.ledger.rates;
 
+import static com.example.financetracker.ledger.rates.RateSource.CBR;
 import static com.example.financetracker.ledger.rates.RateSource.ECB;
 import static com.example.financetracker.ledger.rates.RateSource.MANUAL;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -9,7 +10,7 @@ import java.time.LocalDate;
 
 import org.junit.jupiter.api.Test;
 
-/** The conversion rules of {@link RateBook} (D-49, D-90, D-91), without a database. */
+/** The conversion rules of {@link RateBook} (D-49, D-90, D-91, D-854, D-855), without a database. */
 class RateBookTests {
 
     private static final LocalDate THU = LocalDate.of(2026, 9, 24);
@@ -168,5 +169,61 @@ class RateBookTests {
 
     private static BigDecimal money(String amount) {
         return new BigDecimal(amount);
+    }
+
+    /** D-855: a CBR rate applies up to 15 days; the January holidays' 13-day pause is covered, 16 days isn't. */
+    @Test
+    void aCbrRateAppliesUpToFifteenDays() {
+        LocalDate lastOfDecember = LocalDate.of(2025, 12, 31);
+        RateBook rates = RateBook.builder().add("RUB", lastOfDecember, money("92.0"), CBR).build();
+
+        assertThat(rates.rate("RUB", lastOfDecember.plusDays(13))).hasValueSatisfying(rate -> {
+            assertThat(rate.source()).isEqualTo(CBR);
+            assertThat(rate.date()).isEqualTo(lastOfDecember);
+            assertThat(rate.stale()).isFalse();
+        });
+        assertThat(rates.rate("RUB", lastOfDecember.plusDays(RateBook.CBR_DAYS))).isPresent();
+        assertThat(rates.rate("RUB", lastOfDecember.plusDays(16))).isEmpty();
+        assertThat(rates.missing("RUB", "EUR", lastOfDecember.plusDays(16))).contains("RUB");
+    }
+
+    /** D-854: on the same date the manual rate wins over the CBR's, and a later CBR rate wins over an older manual one. */
+    @Test
+    void theLatestDateWinsAndOnTheSameDateManualThenEcbThenCbr() {
+        RateBook rates = RateBook.builder()
+                .add("RUB", THU, money("95.0"), MANUAL)
+                .add("RUB", FRI, money("90.0"), CBR)
+                .add("RUB", FRI, money("91.0"), MANUAL)
+                .add("RUB", MON, money("92.0"), CBR)
+                .add("USD", FRI, money("1.14"), ECB)
+                .add("USD", FRI, money("1.15"), CBR)
+                .build();
+
+        RateBook.Rate onFriday = rates.rate("RUB", FRI).orElseThrow();
+        assertThat(onFriday.source()).isEqualTo(MANUAL);
+        assertThat(onFriday.perEuro()).isEqualByComparingTo("91");
+        assertThat(rates.rate("RUB", MON).orElseThrow()).returns(CBR, RateBook.Rate::source)
+                .returns(MON, RateBook.Rate::date);
+        // ECB over CBR on the same date (only RUB comes from the CBR, but the rule holds for any currency).
+        assertThat(rates.rate("USD", FRI).orElseThrow().source()).isEqualTo(ECB);
+    }
+
+    /** D-851: the ECB's last RUB rate of 2022-03-01, then the CBR's from 2022-03-02. */
+    @Test
+    void rublesSwitchFromTheEcbToTheCbr() {
+        LocalDate lastEcb = LocalDate.of(2022, 3, 1);
+        LocalDate firstCbr = LocalDate.of(2022, 3, 2);
+        RateBook rates = RateBook.builder()
+                .add("RUB", lastEcb, money("117.201"), ECB)
+                .add("RUB", firstCbr, money("116.0847"), CBR)
+                .build();
+
+        assertThat(rates.rate("RUB", lastEcb).orElseThrow().source()).isEqualTo(ECB);
+        assertThat(rates.rate("RUB", firstCbr).orElseThrow().source()).isEqualTo(CBR);
+        assertThat(rates.convert(money("116.0847"), "RUB", "EUR", firstCbr)).hasValueSatisfying(
+                eur -> assertThat(eur).isEqualByComparingTo("1"));
+        // The ECB's is more than 7 days old by then, so without the CBR's RUB would be missing.
+        assertThat(RateBook.builder().add("RUB", lastEcb, money("117.201"), ECB).build()
+                .rate("RUB", lastEcb.plusDays(8))).isEmpty();
     }
 }

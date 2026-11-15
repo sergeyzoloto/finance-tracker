@@ -1,6 +1,7 @@
 package com.example.financetracker;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -22,7 +23,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * each known to other tables, and then V5. Every sub gets one personal ledger with itself as its one owner, and every
  * row its user's ledger, whether or not the sub has a users or user_settings row. Then each later migration on those
  * rows, to V12's time zone (F8c), V13's refunds and sync fields (F8d), V14's sync of personal entries (D3b), V15's
- * member import (D3c), V16's date format (UX-1) and V17's payees switch (UX-9).
+ * member import (D3c), V16's date format (UX-1), V17's payees switch (UX-9) and V18's CBR rates (FX-1).
  */
 class LedgerBackfillMigrationTests {
 
@@ -323,12 +324,39 @@ class LedgerBackfillMigrationTests {
                         || (%s)""".formatted(withoutFormat);
             String beforeV17 = strings(withoutShows).getFirst();
             Map<String, Long> rowsBeforeV17 = rows();
-            MigrateResult v17 = flyway(null).migrate();
+            MigrateResult v17 = flyway("17").migrate();
             assertThat(v17.success).isTrue();
             assertThat(v17.targetSchemaVersion).isEqualTo("17");
             assertThat(rows()).isEqualTo(rowsBeforeV17);
             assertThat(strings(withoutShows).getFirst()).isEqualTo(beforeV17);
             assertThat(strings("SELECT count(*) FROM ledger_member WHERE shows_payees")).containsExactly("0");
+
+            // V18 (FX-1, D-853) allows the source CBR and puts the source into the rates' key; no row changes, the
+            // ECB's and the manual rates included.
+            String allRates = """
+                    SELECT string_agg(to_jsonb(r)::text, '|' ORDER BY r.source, r.user_id, r.rate_date, r.quote_currency)
+                    FROM exchange_rate r""";
+            String ratesBeforeV18 = strings(allRates).getFirst();
+            assertThat(ratesBeforeV18).contains("\"ECB\"").contains("\"MANUAL\"");
+            Map<String, Long> rowsBeforeV18 = rows();
+            MigrateResult v18 = flyway(null).migrate();
+            assertThat(v18.success).isTrue();
+            assertThat(v18.targetSchemaVersion).isEqualTo("18");
+            assertThat(rows()).isEqualTo(rowsBeforeV18);
+            assertThat(strings(allRates).getFirst()).isEqualTo(ratesBeforeV18);
+            // A CBR rate beside the ECB's of the same day and currency, which the old key refused.
+            rate(null, "CBR");
+            assertThat(strings("SELECT count(*) FROM exchange_rate WHERE user_id IS NULL AND rate_date = '2026-09-01'"))
+                    .containsExactly("2");
+            // Still one rate per source, and a CBR rate belongs to nobody.
+            assertThatThrownBy(() -> rate(null, "CBR")).isInstanceOf(SQLException.class)
+                    .hasMessageContaining("exchange_rate_key");
+            assertThatThrownBy(() -> rate(null, "ECB")).isInstanceOf(SQLException.class)
+                    .hasMessageContaining("exchange_rate_key");
+            assertThatThrownBy(() -> rate(OWNER, "CBR")).isInstanceOf(SQLException.class)
+                    .hasMessageContaining("exchange_rate_owner_check");
+            assertThatThrownBy(() -> rate(null, "BOE")).isInstanceOf(SQLException.class)
+                    .hasMessageContaining("exchange_rate_source_check");
         } finally {
             db.close();
         }

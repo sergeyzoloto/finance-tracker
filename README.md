@@ -55,7 +55,8 @@ frontend, PostgreSQL. Sign-in goes through a shared Keycloak server.
   check of the ledger against the file, "Import up to" a date, and no commit while the check fails. The export writes
   the same format, so an export imported back changes nothing
   ([ADR 0005](docs/adr/0005-excel-import-and-export.md)).
-- **Rates:** the ECB's daily rates, loaded by the backend, and your own manual rates, one at a time or as a CSV file.
+- **Rates:** the ECB's daily rates and the Bank of Russia's euro rate in roubles, loaded by the backend, and your own
+  manual rates, one at a time or as a CSV file.
 - **Settings:** time zone (every "today" in the app is yours), date format, theme (Blue, Light or Dark), import,
   export, and Delete all my data after typing `DELETE`; the login account itself stays on the auth server.
 - **Sign-in:** single sign-on through the shared Keycloak, realm `myapps`, whose pages, account console and emails
@@ -161,7 +162,7 @@ backend/                      Spring Boot app
       domain/                 the ledger's rules, in plain Java
       family/                 family budgets, their records and the posting into members' ledgers
       report/                 reports computed from postings
-      rates/                  ECB and manual exchange rates
+      rates/                  ECB, CBR and manual exchange rates
       importer/               the Excel import and the export
       demo/                   the demo ledger and family
   src/main/resources/db/migration/   Flyway migrations V1 to V17
@@ -229,7 +230,7 @@ git.
 
 The compose files also set `FAMILY_LEDGERS_ENABLED` (the family budget's switch, on locally, off unless set in
 production) and `APP_PUBLIC_URL` (the address of the invite links). `ECB_RATES_ENABLED=false` stops the backend from
-downloading the ECB's rates. Production's `deploy/app/.env` is written on the server by [the runbook's step 5](deploy/RUNBOOK.md#5-write-the-secrets).
+downloading the ECB's rates, and `CBR_RATES_ENABLED=false` the Bank of Russia's (off in the local stack). Production's `deploy/app/.env` is written on the server by [the runbook's step 5](deploy/RUNBOOK.md#5-write-the-secrets).
 
 ## Development
 
@@ -307,7 +308,7 @@ as `"-12.50"`: debit positive, credit negative. The OpenAPI description, with ev
 | `/api/accounts`, `/api/categories`, `/api/counterparties` | Reference data: list, create, rename, archive, restore |
 | `/api/entries` | Entries: list with filters and a summary, one entry, create from a command, replace, delete (`?version=`); similar entries; the family payees shown to me; a family payment's own fields |
 | `/api/reports/…` | Balances, cash flow by month or by day, counterparty balances, net worth, the shared-account settlement, the integrity check; `currency=BASE` for the base currency |
-| `/api/rates`, `/api/settings` | Rates (ECB and manual, CSV upload); base currency and shared account, time zone, date format |
+| `/api/rates`, `/api/settings` | Rates (ECB, CBR and manual, CSV upload); base currency and shared account, time zone, date format |
 | `/api/import`, `/api/export/…`, `/api/demo-data` | The Excel import (dry run by default), the export, the demo |
 | `/api/family-ledgers/…`, `/api/invites/…` | Family budgets (only while switched on): members, split rule, categories, records and settlements, balances, journal, report, invites |
 

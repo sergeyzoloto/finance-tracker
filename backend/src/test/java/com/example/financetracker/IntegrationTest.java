@@ -90,6 +90,7 @@ public abstract class IntegrationTest {
         registry.add("app.keycloak.client-secret", () -> FakeKeycloak.CLIENT_SECRET);
         // No downloads from the ECB: EcbRateLoaderTests load from a stand-in.
         registry.add("app.rates.ecb.enabled", () -> "false");
+        registry.add("app.rates.cbr.enabled", () -> "false");
     }
 
     @Autowired

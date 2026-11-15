@@ -4,7 +4,7 @@ import {
   type RatesOverview,
 } from './api'
 import { CurrencyInput, Errors, Field, Loading } from './components'
-import { parseRateInput } from './currency'
+import { notUsedAfter, parseRateInput } from './currency'
 import { missingDays } from './dashboard'
 import DateInput from './DateInput'
 import { useToday } from './me'
@@ -14,8 +14,9 @@ import { formatRate } from './money'
  * Exchange rates for every displayed conversion (D-49, D-90, D-91): the dashboard in the base currency and the family
  * budgets' "≈" totals. Each currency's rate that applies today, with its date and source, "manual" for the user's own
  * and "rate stale" for one of theirs more than 31 days old, or the latest there is when none applies (an ECB rate more
- * than 7 days old, which is never used); what the user's entries lack; and the user's own rates, entered as
- * "1 EUR = 95,50 RUB" with a comma or a dot, for currencies the ECB doesn't publish, such as RUB since March 2022.
+ * than 7 days old or a CBR rate more than 15, which is never used, D-855); what the user's entries lack; and the user's
+ * own rates, entered as "1 EUR = 95,50 RUB" with a comma or a dot, for currencies neither source publishes. RUB from
+ * 2022-03-02 comes from the Bank of Russia (CBR, D-851).
  */
 export default function Rates() {
   const overview = useApi<RatesOverview>('/rates')
@@ -30,8 +31,9 @@ export default function Rates() {
       <h2>Exchange rates</h2>
       <p className="muted">
         The dashboard and the family budgets’ totals convert an amount at the latest rate on or before its day. The ECB’s
-        euro reference rates are loaded every working day, and one more than 7 days old is never used; add your own for
-        currencies it doesn’t publish. Yours apply from their date until your next one, take precedence on the same day,
+        euro reference rates are loaded every working day, and one more than 7 days old is never used; roubles come from
+        the Bank of Russia (CBR), whose rate is never used once more than 15 days old. Add your own for currencies
+        neither publishes. Yours apply from their date until your next one, take precedence on the same day,
         and only you see them; one more than 31 days old is marked “rate stale”.
       </p>
       <Errors messages={[overview.error, manual.error]} />
@@ -102,7 +104,7 @@ function RateTable({ rates }: { rates: LatestRate[] }) {
             <td className="nowrap">
               {r.date && formatDate(r.date)}
               {r.date && r.applies === false && (
-                <span className="badge stale-rate" title="An ECB rate more than 7 days old isn’t used">not used: more than 7 days old</span>
+                <span className="badge stale-rate" title={`A${r.source === 'ECB' ? 'n' : ''} ${r.source} rate more than ${notUsedAfter(r.source)} days old isn’t used`}>not used: more than {notUsedAfter(r.source)} days old</span>
               )}
             </td>
             <td>

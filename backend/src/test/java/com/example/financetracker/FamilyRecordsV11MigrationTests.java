@@ -87,6 +87,7 @@ class FamilyRecordsV11MigrationTests {
         registry.add("app.keycloak.client-id", () -> FakeKeycloak.CLIENT_ID);
         registry.add("app.keycloak.client-secret", () -> FakeKeycloak.CLIENT_SECRET);
         registry.add("app.rates.ecb.enabled", () -> "false");
+        registry.add("app.rates.cbr.enabled", () -> "false");
     }
 
     @Autowired

@@ -3,6 +3,44 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-15 · FX-1: the Bank of Russia's EUR rate in roubles as a shared rate source
+
+One commit, the commit of this entry, on `feature/family-budget` on top of `e84774a` (OPS-3-doc), "feat: the Bank of
+Russia's EUR rate in roubles as a shared rate source, V18, D-851 to D-866 (FX-1)". **Not pushed**; `main` not moved.
+
+**Changes**
+- `V18__cbr_rates.sql` (D-853): `CBR` allowed in `exchange_rate_source_check`; `source` added to `exchange_rate_key`.
+- `ledger/rates/`: `CbrClient`, `CbrProperties`, `CbrRateLoader`, `CbrSchedule` (D-852, D-856, D-858, D-861, D-862);
+  `RateSource.CBR`; `RateBook` with `CBR_DAYS = 15` and the precedence manual, ECB, CBR (D-854, D-855).
+- `ExchangeRateRepository`: `latestEcbDate` (ECB rows only) and `latestCbrDate`; `find` takes the source;
+  `findLatest` orders manual, ECB, CBR; every `ON CONFLICT` names the new key (D-853, D-860).
+- `application.yml` (`app.rates.cbr.*`, `CBR_RATES_ENABLED`), `application-import.yml`, the root `docker-compose.yml`
+  and every test context: the CBR loader off wherever the ECB's is, and in the local stack (D-863).
+- Frontend (D-857): "CBR rate of …", the Source column, each source's "not used" limit, the texts naming both sources.
+- e2e: `04-family-f8` reads `/api/rates` and expects the CBR's total in production (D-864); `07-dashboard`'s mirror.
+- Tests: `CbrClientTests`, `CbrRateLoaderTests` (D-858's cases), new `RateBookTests` cases, `EcbRateLoaderTests`'
+  CBR rows after the ECB's, `LedgerBackfillMigrationTests` (V18), `ArchitectureTests`' `PERSON_LEVEL`; Vitest cases.
+- `deploy/checks/FX-1.sql` and `.expected`; `deploy/RUNBOOK.md`: "FX-1's deploy checklist with the suite", the
+  rehearsal's `CBR_RATES_ENABLED=false`.
+- Docs: D-851 to D-866 in `requirements.md`, D-49 amended, "Later"; ADR 0002's amendment; CLAUDE.md; README.md.
+
+**Verified**
+- `FX-1.sql` on a throwaway database at V18; the rollback's database step there, then V18 applied again.
+- Local stack: V18 applied on the existing database, the ECB's load ran, no CBR load.
+- `npm test` (Node 24.21.0): 56 files, 774 tests passed, exit 0; `npm run build` exit 0.
+- `scripts/check-forbidden-names.sh` on the working tree before the commit and `--log e84774a..HEAD` after it: exit 0 both.
+- `./mvnw -B clean verify`: exit 0, `Tests run: 709, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- `npm run e2e:local` (Node 24.21.0), three runs: run 1 exit 1, `pages at 1280 px` alone failed (`expected 401 for
+  GET /api/me … which never came`, the run's first request; the same spec at 375 px passed); run 2 exit 1, seven
+  family and invite specs hit D-29's in-memory invite limit (429), the second full run within an hour; after a restart
+  of the local backend container, run 3 exit 0, every spec passed, `Result: PASSED`, 0 password hits.
+- `npm run test:guards`, alone after run 3: exit 0, `tests 39`, `pass 39`, `fail 0`.
+- Local stack: no file of `.claude/` or any hook changed; the session only checked out `feature/family-budget` (D-866).
+
+**Open**
+- No local spec shows "CBR rate of …" (D-864). A V18 condition in `rollback.sh` (D-859, "Later").
+- Decisions D-859 to D-866 for the PM to confirm.
+
 ## 2026-11-15 · OPS-3-doc: OPS-3's open checks done
 
 One commit, the commit of this entry, on `feature/family-budget` on top of `e295f96` (UX-19-doc), "docs: OPS-3's open checks

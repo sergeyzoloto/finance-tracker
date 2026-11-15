@@ -85,7 +85,7 @@ class EcbRateLoaderTests extends IntegrationTest {
         assertThat(result.rates()).isEqualTo(3 + 3 + 1);
         assertThat(ecbRate(LocalDate.of(2022, 3, 1), "RUB")).isEqualByComparingTo("117.201");
         assertThat(ecbRate(FRI, "USD")).isEqualByComparingTo("1.1403");
-        assertThat(rates.latestSharedDate()).contains(FRI);
+        assertThat(rates.latestEcbDate()).contains(FRI);
     }
 
     @Test
@@ -125,7 +125,7 @@ class EcbRateLoaderTests extends IntegrationTest {
         daily = "<html>Maintenance</html>".getBytes(StandardCharsets.UTF_8);
 
         assertThatThrownBy(loader::load).isInstanceOf(EcbClient.EcbFormatException.class);
-        assertThat(rates.latestSharedDate()).isEmpty();
+        assertThat(rates.latestEcbDate()).isEmpty();
     }
 
     @Test
@@ -135,13 +135,37 @@ class EcbRateLoaderTests extends IntegrationTest {
 
         loader.load();
 
-        assertThat(rates.find(FRI, "EUR", "USD", user).orElseThrow().rate()).isEqualByComparingTo("1.20");
+        assertThat(rates.find(FRI, "EUR", "USD", "MANUAL", user).orElseThrow().rate()).isEqualByComparingTo("1.20");
         assertThat(ecbRate(FRI, "USD")).isEqualByComparingTo("1.1403");
         jdbc.sql("DELETE FROM exchange_rate WHERE user_id = ?").param(user).update();
     }
 
+    /** D-853: the CBR's rates, dated up to a day ahead, never hide a gap in the ECB's. */
+    @Test
+    void theCbrsLaterRatesDontHideAGapInTheEcbs() {
+        loader.load();
+        jdbc.sql("""
+                INSERT INTO exchange_rate (rate_date, base_currency, quote_currency, rate, source)
+                VALUES ('2026-09-30', 'EUR', 'RUB', 90.1, 'CBR'), ('2026-10-01', 'EUR', 'RUB', 90.2, 'CBR')""")
+                .update();
+        assertThat(rates.latestEcbDate()).contains(FRI);
+        assertThat(rates.latestCbrDate()).contains(LocalDate.of(2026, 10, 1));
+        daily = daily(WED, "USD", "1.1600");
+        history = EcbClientTests.zip("eurofxref-hist.csv", """
+                Date,USD,
+                2026-09-30,1.16,
+                2026-09-29,1.155,
+                2026-09-28,1.15,
+                """);
+
+        EcbRateLoader.Result result = loader.load();
+
+        assertThat(result.fromHistory()).isTrue();
+        assertThat(result.days()).containsExactly(MON, TUE, WED);
+    }
+
     private BigDecimal ecbRate(LocalDate day, String currency) {
-        return rates.find(day, "EUR", currency, null).map(ExchangeRate::rate).orElseThrow();
+        return rates.find(day, "EUR", currency, "ECB", null).map(ExchangeRate::rate).orElseThrow();
     }
 
     private void deleteEcbRates() {

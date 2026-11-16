@@ -9,12 +9,27 @@
 SELECT 'flyway latest ' || version || ' ' || description || ' ' || success
 FROM app.flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;
 
--- FX-1, D-853: CBR allowed, and the source part of the key.
-SELECT 'constraint ' || conname || ' ' || pg_get_constraintdef(oid)
-FROM pg_constraint
-WHERE conrelid = 'app.exchange_rate'::regclass
-  AND conname IN ('exchange_rate_source_check', 'exchange_rate_key', 'exchange_rate_owner_check')
-ORDER BY conname;
+-- FX-1, D-853: CBR allowed, and the source part of the key. No constraint's own text is printed (D-917, D-912): a
+-- database restored from a dump renders a check constraint differently from one Flyway migrated, so the source check is
+-- asked which sources its definition names (by position), the key which columns it holds, and the owner check that it
+-- exists and names both columns.
+SELECT 'exchange_rate_source_check names ' || coalesce(string_agg(s, ',' ORDER BY s), 'nothing')
+FROM unnest(ARRAY['CBR', 'ECB', 'MANUAL', 'OTHER']) AS s
+JOIN pg_constraint c ON c.conrelid = 'app.exchange_rate'::regclass AND c.conname = 'exchange_rate_source_check'
+WHERE position(quote_literal(s) IN pg_get_constraintdef(c.oid)) > 0;
+
+SELECT 'exchange_rate_key unique on ' || string_agg(a.attname, ',' ORDER BY a.attname)
+       || ' nulls not distinct ' || (position('NULLS NOT DISTINCT' IN pg_get_constraintdef(c.oid)) > 0)
+FROM pg_constraint c
+JOIN LATERAL unnest(c.conkey) AS k(attnum) ON true
+JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+WHERE c.conrelid = 'app.exchange_rate'::regclass AND c.conname = 'exchange_rate_key' AND c.contype = 'u'
+GROUP BY c.oid;
+
+SELECT 'exchange_rate_owner_check names source and user_id '
+       || (position('source' IN pg_get_constraintdef(c.oid)) > 0 AND position('user_id' IN pg_get_constraintdef(c.oid)) > 0)
+FROM pg_constraint c
+WHERE c.conrelid = 'app.exchange_rate'::regclass AND c.conname = 'exchange_rate_owner_check' AND c.contype = 'c';
 
 -- FX-1, D-852, D-853: a CBR rate is shared, RUB per one euro, positive, and from 2022-03-02 on.
 SELECT 'CBR rates with a user, another currency, a non-positive rate or before 2022-03-02 ' || count(*)

@@ -3,6 +3,29 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-16 · OPS-4: Keycloak 26.8.2, rehearsed and tried, and its deploy checklist
+
+The commit of this entry, on `main` on top of `0ed597e` (OPS-4's first commit, D-928), D-921 to D-927 (the owner and the PM) and D-929 to D-935 (the agent). Not pushed, not deployed. auth_server's commit is `3c7b6bab43b3a4a906573640e1b426d6b7943ed9` ("OPS-4: Keycloak 26.8.2, login-3.css for its provider buttons, D-926's copies described as deleted", on `8d6bcd2`). Nothing was changed on production and no command was run there.
+
+**Changes**
+- `deploy/RUNBOOK.md`: "OPS-4's deploy checklist" at the top of the checklists: step 0 on the laptop, the server pre-flight (time, scheduled shutdown, free disk, `.deployed-revision`, image IDs, the auth backup's `last-success`, D-927's registrations query, the migration rows), `apt-get update` marked as changing package lists only, the image pulled by digest, the rollback point (a dump and `pg-restore-test auth`), `sync.sh --dry-run` and `sync.sh`, the upgrade's log lines, the smoke test and the sign-in page's title and CSS files, `e2e:prod` from M, the owner's Google sign-in and reset email pasted, the after-dump, `verify BATCH-1`, the monthly session (D-925), D-926's deletion (`ls -la`, `rm` of exactly the two paths, `ls -la`), and last, alone, D-924's rollback in the rehearsed order with `<DUMP>` and `<TS>`.
+- `docs/family-budget/requirements.md`: D-921 to D-927, D-929 to D-935, the planned-stages line and two "Later" items (Postgres 16.16 and Caddy 2.11.9, D-922; `automation-cli`'s audience scope, D-934).
+- `e2e/scripts/keycloak-brokering.ts`, `npm run brokering:keycloak` (D-935), and its paragraph in `e2e/README.md`. `docs/auth.md` needs no change (D-933).
+
+**Verified**
+- The rehearsal (D-930): the dump of 2026-11-16 restored in 0.7 s into Postgres 16.15; Keycloak 26.7.4 healthy in 17.6 s; 26.8.2 on the same database healthy in 21.8 s, the migration 6 s, no `ERROR`; the state before and after identical but for the changesets (210 to 237), one new table and `scimApiEnabled` `false`; the rollback (D-924's order) 21.4 s in all (1.9 + 0.1 + 0.7 + 18.7), the state afterwards equal to the state before; 26.7.4 on a migrated database only warns. The expected downtime on the server: 30 to 90 s.
+- Theme (D-931): `screens:keycloak` on 26.7.4 and 26.8.2, 156 images each, 102 identical; the differences are the provider buttons (fixed in `login-3.css`: the control border, a 16px icon, GitHub's black icon turned to the text's colour in Blue and Dark, stacked under 40rem), "Add to existing account" as the primary button, the OTP page's QR box, a clock time. No page wider than its window.
+- Brokering (D-932): ten cases and a logout case, on both versions; one difference: an existing unverified user linked by email stays unverified on 26.8.2. The smoke test's two answers are identical. Refresh (D-933): online tokens 1800 s on both, offline tokens now carry `exp`; the finance dev stack against 26.8.2: 8 parallel requests after the access token expired, one refresh, all 200, none refused.
+- `cd e2e && npm run e2e:local` against the dev stack on 26.8.2: exit 0, `Result: PASSED`, 0 password hits, every spec at 1280 and 375 px passed and the cleanup deleted both accounts' data. `cd e2e && npm run test:guards`, run alone afterwards: exit 0, 39 tests, 39 passed, 0 failed.
+- `scripts/check-forbidden-names.sh`: no hit on the tree before the commit and over `0ed597e..HEAD` after it. The dump's six user addresses against both repositories' diffs and the kept files: 0 hits.
+- `change_log.mdx` compiled with `@mdx-js/mdx`.
+- One slip, mine: while writing the checklist into the runbook I ran a heredoc with an unquoted delimiter (D-55), and the shell ran two backticked fragments of my own text (`&&`, a syntax error, and `docker compose up -d keycloak` in this repository's folder, which answered "no such service: keycloak"); nothing started, stopped or changed, the sentence in the runbook was repaired, and every later heredoc was quoted.
+
+**Open**
+- The deploy itself (OPS-4's checklist); then the first commit of the next batch records it (D-867), closes auth_server's "Open" and says what the dumps and `.deployed-revision` hold.
+- D-934's items that only production can show: the reset email over STARTTLS, Google's and GitHub's round trips, the time to healthy, `automation-cli`'s scope.
+- The PM decides: whether Postgres 16.16 and Caddy 2.11.9 get their own windows (D-922's "Later"), and whether the existing-unverified-user change (D-932) needs a line in the privacy or help texts (none is proposed).
+
 ## 2026-11-16 · OPS-4, first commit: FX-1's and BATCH-1's deploys recorded
 
 The commit of this entry, on `main` on top of `7fae522` (BATCH-1b), D-928 (the PM). Not pushed. Documents only; the first of OPS-4's two commits in this repository (D-867: a batch's deploy is recorded in the first commit of the next batch).

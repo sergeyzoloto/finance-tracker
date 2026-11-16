@@ -14,7 +14,8 @@
     "e2e:local": "node scripts/local.ts",
     "e2e:prod": "node scripts/prod.ts",
     "screens:local": "node scripts/screens.ts",
-    "screens:keycloak": "node scripts/keycloak-screens.ts"
+    "screens:keycloak": "node scripts/keycloak-screens.ts",
+    "brokering:keycloak": "node scripts/keycloak-brokering.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

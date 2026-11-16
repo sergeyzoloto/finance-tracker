@@ -1894,6 +1894,314 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
 
+## OPS-4's deploy checklist
+
+**Commits to deploy.** auth_server: `3c7b6bab43b3a4a906573640e1b426d6b7943ed9` (A, "OPS-4: Keycloak 26.8.2, login-3.css
+for its provider buttons, D-926's copies described as deleted"), on `8d6bcd21da9bb90351a9e21294e115581a24f1ab`
+(UX-19-doc, auth's `origin/main`). finance: `<M>`, OPS-4's second commit, on `0ed597ea27a6efcde060e1d3541d098ddd267a4a`
+(its first, D-928) on `7fae5223d89babb92db4987d1cf35a7b9d885fb4` (BATCH-1b, what production runs); the commit the PM
+names in full once OPS-4 is accepted. M holds this checklist, so it can't name M's hash itself: type M's full hash (40
+characters) where a block says `<M>` before pasting it (D-226); pasted as it is, bash reads `<M>` as a redirection and
+runs nothing of the line. **Stage:** `OPS-4` (D-921 to D-935): production's Keycloak goes from 26.7.4 to 26.8.2
+(`quay.io/keycloak/keycloak:26.8.2@sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0`, the
+manifest-list digest `docker pull` printed on the laptop) with the auth host's monthly session (D-925) and D-926's
+deletion of two safety copies. **The app is not deployed (D-921):** no `deploy.sh run`, no `finish`; `last-good`
+stays `7fae522` and the server's clone stays at `7fae522` (`/root/finance-tracker.previous` `d9cf51f`), the switch on.
+What stands in for `finish`: step 9's end-to-end suite and step 10's two checks by the owner, then step 11's
+`deploy.sh verify BATCH-1` (read only) and step 13's last look; the record of this deploy is the first commit of the next
+batch (D-867). **The suite** (`e2e:prod`, step 9) runs from a clean checkout of M with `E2E_FAMILY=on` (it prints M as its
+commit; the app it tests is `7fae522`, whose `e2e/` M changes only by one local script). **Postgres 16.15 and Caddy
+2.11.4 keep their pins (D-922).** **The downtime:** Keycloak's recreate by `sync.sh`'s `up -d`. Rehearsed on the laptop
+(D-930): the schema migration about 5 s, healthy 22 s after the start (18 to 22 s for every start); on the server's 2
+vCPU expect 30 to 90 s. Nobody can sign in meanwhile and the external monitors (UptimeRobot every 5 minutes, GitHub's
+every few hours) may email a failure; sessions of the app that are signed in continue (their access tokens last 5
+minutes; a refresh that falls into the downtime is retried by the next request). **The rollback of a failed upgrade is
+the pre-upgrade dump restored with 26.7.4 (D-924)**, in step 14's order: Keycloak stopped first, then the database
+replaced, then 26.7.4 started. Rehearsed (D-930): stop 1.9 s, rename and create 0.1 s, restore 0.7 s, start to healthy
+19 s, 21 s in all, and the realm's state afterwards equalled the state before. 26.7.4 does **not** refuse a migrated
+database (it only logs "Possibly incorrect state of migration" and runs on a 26.8 schema): never start it on one.
+**Registrations and changes made between step 4's dump and a rollback are lost.** **The time (D-125):** no step
+between 03:30 and 04:30 UTC (the host may reboot by itself), not across the nightly dumps at about 02:30Z and not
+while Hetzner's backup of the server runs (about 10:49Z: keep 10:30Z to 11:30Z free); step 14 is the exception. This
+checklist is for this deploy only.
+
+Rules for every block (CLAUDE.md, "Deploy checklists" and "Production safety"; auth_server's CLAUDE.md): paste one
+block at a time, and the next only once the shell prompt (`root@auth-1:…#` on the server, yours on the laptop) has
+returned. A server block starts with `cd /opt/finance-tracker &&`, or is wrapped in `cd /opt/finance-tracker && {` …
+`}`; where it needs `/opt/auth` its first line is `cd /opt/finance-tracker && cd /opt/auth && {`, so that pasted on the
+laptop, where neither folder exists, none of it runs. A laptop block starts with `cd ~/dev/finance-tracker &&`, `cd
+~/dev/finance-tracker/e2e &&` or `cd ~/dev/auth_server &&`, or is wrapped in `cd ~/dev/auth_server && {` … `}` (D-330,
+D-334). Every server command is written out; nothing is piped into a remote shell and no variable is filled from a
+file: a name printed by one step is typed into the next by hand (`<DUMP>`, `<TS>`: replace them, with nothing else,
+before pasting). A command that asks a question (`sync.sh`, `e2e:prod`) is alone in its block; type its answer, never
+paste it. Every laptop git command that can page runs as `git --no-pager`, and a dirty tree stops a chain (D-127). Each
+step closes with its output pasted (D-222). Don't start "CI on Ubuntu 26.04" for this deploy: no finance commit is
+deployed.
+
+What runs and why:
+
+- `sync.sh` copies `deploy/` of auth_server: five files change, `docker-compose.yml` (the image line),
+  `smoke-test.sh` (comments), `themes/finance-tracker/account/theme.properties` (a comment),
+  `themes/finance-tracker/login/theme.properties` (names `login-3.css`) and `themes/finance-tracker/login/resources/css/login-3.css`
+  (new); `login-2.css` stays on the server, unused, since `sync.sh` never deletes. Only the `keycloak` service's
+  definition changes, so `docker compose up -d` recreates `keycloak` alone (it reads the new theme) and `postgres` and
+  `caddy` keep running.
+- Keycloak's migration is run by the new container's start (27 changesets and the realms' migration to 26.8.0 and 26.8.2);
+  it can't migrate back, which is why step 4's dump is the rollback point.
+- What 26.8.2 changes for the sign-in (D-931 to D-933, tried in the dev stack): the provider buttons ("Sign in with
+  GitHub", "Sign in with Google", drawn by `login-3.css`), "Add to existing account" the primary button, a user who
+  exists but never verified their email and links a provider by the email link stays unverified (and is asked to verify),
+  the QR code in a box; refresh tokens of the app's online sessions and the smoke test's two answers are unchanged.
+
+**0. On the laptop, read only: where things stand.** Type M.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && A=3c7b6bab43b3a4a906573640e1b426d6b7943ed9 && M=<M> && git fetch origin && git --no-pager log -1 --format='finance HEAD %H %s' && git --no-pager log -1 --format='finance origin/main %H' origin/main && git --no-pager log --oneline 7fae522..HEAD && test "$(git rev-parse HEAD)" = "$M" && echo "HEAD-IS-M" && test -z "$(git status --porcelain)" && echo "FINANCE-CLEAN" && cd ~/dev/auth_server && git fetch origin && git --no-pager log -1 --format='auth HEAD %H %s' && git --no-pager log -1 --format='auth origin/main %H' origin/main && git --no-pager log --oneline origin/main..main && test "$(git rev-parse HEAD)" = "$A" && echo "AUTH-IS-A" && test -z "$(git status --porcelain)" && echo "AUTH-CLEAN"
+```
+
+You should see finance `HEAD` M with OPS-4's subject; `origin/main` M if the owner pushed, else `7fae522…`; the two commits
+since `7fae522`; `HEAD-IS-M`, `FINANCE-CLEAN`; auth `HEAD` A with its subject, `origin/main` `8d6bcd21…` before the push
+(or A after it), `origin/main..main` A alone before it; `AUTH-IS-A`, `AUTH-CLEAN`. Anything else: stop. The owner pushes
+both repositories after the PM's acceptance and before step 1 (D-867).
+
+**1. On the server: the pre-flight, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && cd /opt/auth && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "auth deployed: $(cat /opt/auth/.deployed-revision)"; ls -1 /root/auth-sync-backups | tail -n 2
+df -h / /var/lib/docker
+docker system df
+for c in auth-postgres-1 auth-keycloak-1 auth-caddy-1; do docker inspect -f '{{.Name}} {{.Image}} {{.Config.Image}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} started {{.State.StartedAt}}' "$c"; done
+docker compose ps
+cat /var/backups/pg/auth/last-success; ls -1 /var/backups/pg/auth | tail -n 3
+docker compose exec -T postgres psql -X -U keycloak -d keycloak -c "select to_char(to_timestamp(event_time/1000) at time zone 'UTC', 'YYYY-MM-DD') as day, coalesce(details_json::json->>'register_method', 'form') as method, count(*) from event_entity where type = 'REGISTER' and realm_id = (select id from realm where name = 'myapps') and event_time > (extract(epoch from now()) - 30*86400) * 1000 group by 1, 2 order by 1, 2" </dev/null
+docker compose exec -T postgres psql -X -U keycloak -d keycloak -At -c "select version from migration_model order by update_time" </dev/null
+}
+```
+
+You should see `Now:` outside the windows above and no scheduled shutdown within 2 hours (a nearer one: wait);
+`auth deployed: 8b19e36 20261115T103055Z`; the newest sync backup `20261115T103055Z`; the free space on `/var/lib/docker`
+at least 2 GB (the new image is 473 MB uncompressed and the old one stays, D-848); `docker system df` as a record;
+the three containers running, `keycloak` and `postgres` healthy, `keycloak` on
+`quay.io/keycloak/keycloak:26.7.4@sha256:82a77884…`; `last-success` of tonight's nightly dump (a file of
+`auth-2026-11-…T02…Z.dump`); the registrations of the last 30 days as counts per day and method (D-927: no address, no
+id; the dump of 2026-11-16 held one `form` registration, on 2026-10-24); and `26.7.4` as the last `migration_model`
+row (`26.7.4` alone, or `26.7.0` then `26.7.4`). A burst of registrations from one day: tell the PM before the upgrade.
+
+**2. On the server: the package lists, which changes the lists only.** `apt-get update` rewrites the package lists and
+nothing installed; the upgrade itself is step 12's.
+
+```bash
+# On the server (changes the package lists only)
+cd /opt/finance-tracker && { DEBIAN_FRONTEND=noninteractive apt-get update && apt list --upgradable; }
+```
+
+Send the list to the PM. `docker-ce`, `docker-ce-cli`, `containerd.io` or the Docker plugins among them mean step 12
+restarts every container of both stacks (about a minute).
+
+**3. On the server: the image, pulled by digest before the downtime.**
+
+```bash
+# On the server (pulls one image)
+cd /opt/finance-tracker && docker pull quay.io/keycloak/keycloak:26.8.2@sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0 && docker image inspect quay.io/keycloak/keycloak:26.8.2@sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0 --format '{{.Id}} {{.Size}} {{json .RepoDigests}}' && df -h /var/lib/docker
+```
+
+You should see `Digest: sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0` and `Status:
+Downloaded newer image …` (or `Image is up to date`), a size near 473 million bytes (a number of the store's own for
+the containerd store) and the digest in `RepoDigests`. A different digest: stop.
+
+**4. On the server: the rollback point.** A fresh dump of the pre-upgrade database and its restore test.
+
+```bash
+# On the server
+cd /opt/finance-tracker && { systemctl start pg-backup@auth.service; echo "exit $?"; cat /var/backups/pg/auth/last-success; ls -l /var/backups/pg/auth | tail -n 3; }
+```
+
+You should see `exit 0`, `last-success` naming the new dump (its time within a minute) and the dump listed last: note its
+name, `auth-YYYY-MM-DDTHHMMZ.dump`, as `<DUMP>` (step 14 needs it). Then, alone:
+
+```bash
+# On the server
+cd /opt/finance-tracker && pg-restore-test auth
+```
+
+You should see the newest dump (the one just written) restored in a throwaway container, its comparison with
+production's tables and checks, and `PASS`. `FAIL`: stop, nothing was changed.
+
+**5. On the laptop: `sync.sh --dry-run`, read only.**
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && git --no-pager log -1 --format='%H %s' && deploy/sync.sh --dry-run
+```
+
+You should see A; `== Dry run: root@2.28.108.199:/opt/auth (revision 3c7b6ba)` (no `-dirty`); exactly the five files
+above (`docker-compose.yml`, `smoke-test.sh`, the two `theme.properties` and `login-3.css`), and nothing else, with the
+diffs (the image line `26.7.4@sha256:82a77884…` to `26.8.2@sha256:c68e286c…`); `== Checking docker-compose.yml against
+the server's .env` `OK`; the Caddyfile validated (Caddy's warning on `srv1` as before); and `== Theme: a file under
+themes/ would change…`. Any other file, or a failed check: stop.
+
+**6. On the laptop: `sync.sh`**, alone in its block, outside the windows above; type `y` at its question. Sign-in is
+unavailable for 30 to 90 s.
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && deploy/sync.sh
+```
+
+You should see the dry run again, the question, `== Copying (replaced files go to /root/auth-sync-backups/<UTC time>/)`
+(**note that time** as `<TS>`: step 14 needs it, `YYYYMMDDTHHMMSSZ`), `themes/: files 644, directories 755`, `docker
+compose up -d` recreating `auth-keycloak-1` only (`auth-postgres-1` and `auth-caddy-1` `Running`), `== keycloak was
+recreated by docker compose up -d: it reads the new theme`, the three services up and `✅ All 3 services are up.
+Deployed revision 3c7b6ba.` Not healthy after 300 s: stop, send the output to the PM, who decides on step 14.
+
+**7. On the server: the upgrade's lines, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && cd /opt/auth && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ'
+echo "auth deployed: $(cat /opt/auth/.deployed-revision)"
+docker compose ps
+docker inspect -f '{{.Config.Image}} started {{.State.StartedAt}}' auth-keycloak-1
+docker compose logs --since 20m keycloak | grep -E 'Keycloak 26|Updating database|Migrating older model|migrated realm'
+echo "ERROR lines since 20m: $(docker compose logs --since 20m keycloak | grep -c ' ERROR ')"
+docker compose exec -T postgres psql -X -U keycloak -d keycloak -At -c "select version from migration_model order by update_time" </dev/null
+echo "files not 644: $(find /opt/auth/themes -type f ! -perm 644 | wc -l), directories not 755: $(find /opt/auth/themes -type d ! -perm 755 | wc -l)"
+}
+```
+
+You should see `auth deployed: 3c7b6ba… <TS>`; `keycloak` on `quay.io/keycloak/keycloak:26.8.2@sha256:c68e286c…`,
+healthy, started at about step 6's time, `postgres` and `caddy` not restarted; `Keycloak 26.8.2 on JVM (powered by
+Quarkus 3.40.1.1) started`, `Updating database. Using changelog META-INF/jpa-changelog-master.xml`, `Migrating older
+model to 26.8.0`, `migrated realm myapps to 26.8.0`, `migrated realm master to 26.8.0`, `Migrating older model to 26.8.2`
+and both realms migrated to 26.8.2; `ERROR lines since 20m: 0` (WARN lines are expected: the deprecated features
+`identity-brokering-api:v1, twitter-broker:v1`, the sticky-session `shouldAttachRoute` option; a `type=` event line is a
+WARN, not an ERROR); `migration_model` ending in `26.8.2`; `files not 644: 0, directories not 755: 0`. An `ERROR` or a
+migration line missing: send the output to the PM before anything else.
+
+**8. On the laptop: the smoke test and the sign-in page.**
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && deploy/smoke-test.sh
+```
+
+You should see `== Summary: 11 ok, 0 fail ==` (the two negative answers are the 26.7.4 ones, D-932). Then:
+
+```bash
+# On the laptop
+cd ~/dev/auth_server && curl -s 'https://auth.finance-nl.com/realms/myapps/protocol/openid-connect/auth?client_id=finance-tracker&redirect_uri=https%3A%2F%2Fapp.finance-nl.com%2Flogin%2Foauth2%2Fcode%2Fkeycloak&response_type=code&scope=openid&state=x&nonce=y&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256' | grep -oE '<title>[^<]*</title>|[A-Za-z0-9.-]+\.css|id="social-[a-z]+"|Sign in with [A-Za-z]+'
+```
+
+You should see `<title>Sign in to Finance Tracker</title>`, `patternfly.min.css`, `patternfly-addons.css`, `styles.css`,
+`tokens.css`, `login-3.css` (and neither `login-2.css` nor `login.css`), `id="social-github"`, `id="social-google"`, `Sign in
+with GitHub` and `Sign in with Google`. (The resource paths carry a new version since 26.8.2; only the file names
+count.)
+
+**9. On the laptop: the end-to-end suite**, by the owner, alone in its block, from a clean checkout of M (D-51, D-56;
+CLAUDE.md, "QA"); type its confirmation at its question.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git --no-pager log -1 --format='%H %s' && test -z "$(git status --porcelain)" && cd e2e && nvm use && E2E_FAMILY=on npm run e2e:prod
+```
+
+The summary is pasted whole: every spec passed (the 19 of BATCH-1's run, `new-family` skipped by design), the cleanup
+deleted both accounts' data, 0 password hits, `Result: PASSED`. If any spec fails, or the cleanup does: don't run the
+suite again and don't go on; send the whole summary to the PM, who decides (D-58, D-59).
+
+**10. By the owner, by hand, in a private window** (anything the suite can't do: it can't sign in with Google or read an
+inbox). Paste page text or the email's subject line, not a verbal yes:
+
+- Open https://app.finance-nl.com, sign in with Google (and with GitHub if that account has it linked), and paste the
+  text of the page's heading and the line in the header that names you. (Proves the provider button, Google's round
+  trip, the first-broker flow for a linked account and the app's callback on 26.8.2.)
+- At the sign-in page choose "Forgot Password?", give your own address, and paste the received email's subject line and
+  the sender's display name (do not open its link). It arrives through Brevo over STARTTLS, which 26.8.1 requires to
+  succeed (D-934); if it hasn't arrived after 5 minutes, send that to the PM and go on to nothing else.
+
+**11. On the server: the after-dump and the app's `verify`, read only but for the dump.**
+
+```bash
+# On the server
+cd /opt/finance-tracker && { systemctl start pg-backup@auth.service; echo "exit $?"; cat /var/backups/pg/auth/last-success; }
+```
+
+Then alone `cd /opt/finance-tracker && pg-restore-test auth` (`PASS`: a dump of the 26.8.2 schema restores and its
+checks match production), then alone:
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify BATCH-1
+```
+
+You should see `OK` (the app is unchanged: V18, the 24 numbers of BATCH-1's row, the pages, the images of `last-good`).
+Not OK: send the output to the PM.
+
+**12. On the server: the monthly session (D-925)**, only now that steps 7 to 11 are as expected, and not across the
+windows. `docker-ce` among step 2's list restarts both stacks' containers (about a minute without logins; the app's
+sessions end), and a reboot, if one is needed, is left to the 04:00 automatic one.
+
+```bash
+# On the server (installs the packages step 2 listed)
+cd /opt/finance-tracker && cd /opt/auth && { DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold upgrade; docker compose ps; test -e /var/run/reboot-required && echo "reboot needed"; docker ps --format '{{.Names}} {{.Status}}'; }
+```
+
+Then, one at a time: `cd /opt/finance-tracker && pg-restore-test auth` and `cd /opt/finance-tracker && pg-restore-test finance`
+(each `PASS`), and on the laptop `cd ~/dev/auth_server && deploy/smoke-test.sh` (`11 ok, 0 fail`). If Docker restarted
+the containers, check `cd /opt/finance-tracker && deploy/deploy.sh verify BATCH-1` again (`OK`) and say whether
+the app's api and web are healthy.
+
+**13. On the server: D-926's deletion** of `/root/keycloak-2026-09-27.sql` and `/root/auth-config-2026-09-27/`
+(the first a 26.7-era realm from before any user but the owner, the second an old `.env`), only after step 12 is as
+expected. The firewall-rule copies stay.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && ls -la /root/keycloak-2026-09-27.sql /root/auth-config-2026-09-27/
+```
+
+You should see the SQL file (about 348 KiB) and the folder with its files, and nothing else. Then, alone:
+
+```bash
+# On the server (deletes exactly these two paths)
+cd /opt/finance-tracker && rm -f /root/keycloak-2026-09-27.sql && rm -rf /root/auth-config-2026-09-27 && ls -la /root/keycloak-2026-09-27.sql /root/auth-config-2026-09-27/ ; ls -d /root/iptables-before-ufw-2026-09-27.rules /root/ip6tables-before-ufw-2026-09-27.rules
+```
+
+You should see two `No such file or directory` lines for the deleted paths and the two firewall-rule files listed.
+
+**14. Last, only for a failed upgrade: the rollback (D-924)**, at any hour, alone in its block, in the order rehearsed;
+the PM fills `<DUMP>` (step 4's name) and `<TS>` (step 6's time) in. It puts the old compose file back (so that
+`keycloak` runs 26.7.4), stops Keycloak, replaces the database by step 4's dump and starts 26.7.4: **registrations and
+changes after the dump are lost.** The failed upgrade's database stays as `keycloak_before_restore` until dropped
+(PRODUCTION.md, "Restore production from a dump").
+
+```bash
+# On the server: ONLY for a failed upgrade of Keycloak (OPS-4). Loses everything written after <DUMP>.
+cd /opt/finance-tracker && cd /opt/auth && {
+systemctl stop pg-backup@auth.timer &&
+docker compose stop keycloak &&
+cp /root/auth-sync-backups/<TS>/docker-compose.yml /opt/auth/docker-compose.yml &&
+docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U keycloak -d postgres -c 'ALTER DATABASE keycloak RENAME TO keycloak_before_restore' -c 'CREATE DATABASE keycloak OWNER keycloak' </dev/null &&
+docker compose exec -T postgres pg_restore -U keycloak -d keycloak --exit-on-error --single-transaction < /var/backups/pg/auth/<DUMP> &&
+docker compose up -d keycloak &&
+docker compose ps keycloak &&
+systemctl start pg-backup@auth.timer
+}
+```
+
+You should see `keycloak` recreated on `26.7.4@sha256:82a77884…` and `healthy` after about a minute, then on the
+laptop `deploy/smoke-test.sh` (`11 ok, 0 fail`) and the sign-in page of step 8 (the old provider buttons: no
+"Sign in with"). The laptop's `deploy/docker-compose.yml` in git still names 26.8.2: until it is put back and
+`sync.sh` run, a later `sync.sh` would upgrade again, so say so to the PM.
+
+A command of the block that fails stops it there (each is chained with `&&`): send the output to the PM and run nothing further, in particular not `docker compose up -d keycloak` on a database that wasn't restored.
+
 ## BATCH-1's deploy checklist with the suite
 
 **Commit to deploy.** finance: `<M>`, `main`'s head after BATCH-1b's commit, which holds this checklist (D-867, D-879,

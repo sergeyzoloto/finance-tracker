@@ -131,6 +131,8 @@ theme at 1280 and 375 px, the account console's Personal info, Signing in and Li
 link emails from Mailpit (http://127.0.0.1:8025), in throwaway realms of the dev Keycloak that it deletes afterwards
 (`KEEP_REALMS=1` keeps them for a look). It exits 1 if a page is wider than its window.
 
+A Keycloak upgrade's first sign-ins through an identity provider (OPS-4, D-932, D-935): `npm run brokering:keycloak -- <folder>` (local only) runs a matrix in two throwaway realms of the dev Keycloak (a stand-in OIDC provider and a copy of myapps's settings): a new address, an existing verified user and an existing unverified one, the provider's `email_verified` true and false, Trust Email on and off, then the realm's browser logout; it writes `brokering.json` (the user's emailVerified, required actions, linked identity and the emails sent per case) and deletes both realms. `KEYCLOAK_URL` and `SMTP_HOST` point it at another Keycloak on localhost, to compare versions.
+
 The invite limit (D-29: 10 a minute and 50 an hour per user, in the api's memory) counts B's invite requests, about 3
 per family spec and so about 12 per local run, which has F7 and F8 at 1280 and at 375 px: past about four local runs in
 an hour, a family spec stops at the invite with "B's invite requests hit D-29's limit". Wait, or restart the local backend, which

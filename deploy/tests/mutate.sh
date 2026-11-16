@@ -455,6 +455,53 @@ mutation "leave the extension blocks out of the postgres guard" \
   '' \
   refuse_logging_changed
 
+# OPS-5 (D-940, D-941): the build cache's bound and verify's comparison with the last run.
+mutation "never prune the build cache" \
+  $'  heading "3.7 Deploy: the build cache"\n  prune_build_cache\n' $'  heading "3.7 Deploy: the build cache"\n' \
+  build_cache_pruned_after_success
+mutation "prune the build cache before the pages are checked" \
+  $'  heading "3.6 Deploy: the pages"\n  page_checks || fail "a page isn\'t as expected: $PAGES_LINE"\n\n  heading "3.7 Deploy: the build cache"\n  prune_build_cache\n' \
+  $'  prune_build_cache\n  heading "3.6 Deploy: the pages"\n  page_checks || fail "a page isn\'t as expected: $PAGES_LINE"\n' \
+  build_cache_pruned_after_success no_build_cache_prune_after_a_failed_deploy
+mutation "let a failed prune fail the deploy" \
+  '    say "WARNING: the build cache wasn'"'"'t pruned: $BUILD_CACHE_LINE; the deploy goes on"' \
+  '    fail "the build cache wasn'"'"'t pruned: $BUILD_CACHE_LINE"' \
+  build_cache_prune_failure_only_warns
+mutation "prune everything unused, volumes included" \
+  'docker builder prune -f --filter "until=$BUILD_CACHE_AGE" --reserved-space "$BUILD_CACHE_KEEP"' \
+  'docker system prune -af --volumes' \
+  build_cache_pruned_after_success
+mutation "prune all of the cache regardless of its age" \
+  'docker builder prune -f --filter "until=$BUILD_CACHE_AGE" --reserved-space "$BUILD_CACHE_KEEP"' \
+  'docker builder prune -f -a' \
+  build_cache_pruned_after_success
+mutation "keep no space at all" \
+  'BUILD_CACHE_KEEP=3GB' 'BUILD_CACHE_KEEP=0' \
+  build_cache_pruned_after_success
+mutation "verify compares with the oldest run, not the newest" \
+  '  done < <(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r)
+  if [ -z "$file" ]; then' \
+  '  done < <(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+  if [ -z "$file" ]; then' \
+  verify_compares_numbers_with_the_last_run
+mutation "let a difference in the numbers fail verify" \
+  '      say "  $key: was ${was[$key]:-absent}, now $val"
+      diffs=$((diffs + 1))' \
+  '      say "  $key: was ${was[$key]:-absent}, now $val"
+      issues=$((issues + 1))
+      diffs=$((diffs + 1))' \
+  verify_compares_numbers_with_the_last_run
+mutation "verify never compares the numbers" \
+  '      numbers_vs_last_run "$out"' '      : numbers_vs_last_run' \
+  verify_compares_numbers_with_the_last_run
+mutation "prune-cache prunes nothing" \
+  $'  check_tools docker flock timeout df\n  prune_build_cache\n  [ "$BUILD_CACHE_RC" -eq 0 ]' $'  check_tools docker flock timeout df\n  BUILD_CACHE_RC=0\n  [ "$BUILD_CACHE_RC" -eq 0 ]' \
+  prune_cache_command
+mutation "prune-cache exits 0 when the prune failed" \
+  '  [ "$BUILD_CACHE_RC" -eq 0 ] || fail "the build cache wasn'"'"'t pruned: $BUILD_CACHE_LINE"' \
+  '  : "$BUILD_CACHE_RC"' \
+  prune_cache_failure_exits_1
+
 echo
 if [ "$survived" -eq 0 ]; then
   echo "Every mutation was caught."

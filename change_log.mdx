@@ -3,6 +3,28 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-16 · OPS-5: Postgres 16.16 and Caddy 2.11.9 rehearsed, the build cache's bound, verify's comparison, the deploy checklist
+
+The commit of this entry, on `main` on top of `54c9a3e` (OPS-5's first commit), D-938 to D-944 (the agent). Not pushed, not deployed. auth_server's commit is `b809f9d09e7f340ff34782db4488008adfebc786` (pins, PRODUCTION.md, its change log), on its documents commit `4c652fa`.
+
+**Changes**
+- `deploy/deploy.sh`: step 3.7 after the pages (`docker builder prune -f --filter until=72h --reserved-space 3GB`, best effort, never after a failed deploy), the command `prune-cache` (the same by hand, exit 1 on a failure), `Build cache:` in the summary, and in `verify` an informational comparison of the 24 numbers with the newest run's `numbers-after.txt` (D-940, D-941). `deploy/tests/run.sh`, `mutate.sh` and the docker stub: 6 new cases (115 in all) and 11 mutations.
+- `deploy/checks/OPS-5.sql` and `.expected`: BATCH-1's 18 lines (no migration).
+- `deploy/RUNBOOK.md`: "OPS-5's deploy checklist with the suite" (part A, the auth window; part B, the finance deploy with the disk's measurement in the pre-flight), step 3.7's row, `verify`'s paragraph and a section on the server's disk and the prune rule.
+- `docs/family-budget/requirements.md`: D-938 to D-944, an "Amended in" line and two "Later" items. `CLAUDE.md`: the server's prune rule, the template's two lessons, the deploy scripts' notes.
+- auth_server: the Postgres 16.16 and Caddy 2.11.9 pins by digest.
+
+**Verified**
+- Rehearsal (laptop, throwaway containers named `ops5r-*` on `--internal` networks, all removed by name): the dump of 2026-11-16 restored by 16.15 then started by 16.16 on the same volume (101 tables identical, schema identical, no `ERROR`), Keycloak 26.8.2 healthy in 19.8 s on it, the database container replaced under a running Keycloak (away 1.1 s, health 200 throughout), the downgrade 16.16 to 16.15 on the same volume; Keycloak's 252 indexes are all B-tree, none on `bpchar`: no `REINDEX`.
+- Caddy 2.11.4 against 2.11.9 with the real Caddyfile and `finance.caddy`, 53 requests: the same for valid hosts; invalid or dots-only hosts 400 (were 200), a POST over 20 MiB 413 at once, a 95 s api answer and a 15000-byte cookie pass on both. `deploy/check-site.sh`: exit 0 on 2.11.9. The notes of 2.11.6 to 2.11.9 read on GitHub.
+- The app's database on 17.12 (rehearsed, not deployed): `numbers.sql` identical on 17.11 and 17.12, no GIN, GiST or `pg_trgm`, the three `bpchar` indexes are on `CHAR(3)` columns. `OPS-5.sql` equals `OPS-5.expected` on a database migrated by Flyway to V18 and on the restored dump.
+- `bash deploy/tests/run.sh`, `bash deploy/tests/mutate.sh` and ShellCheck v0.11.0 over the scripts: see the task's report for each exit status and summary. `change_log.mdx` of both repositories compiled with `@mdx-js/mdx`. `scripts/check-forbidden-names.sh` before the commit and over the range after it: see the report.
+- Not run: `docker builder prune` itself (CLAUDE.md forbids prune on the laptop; the stub tests cover the calls, the flags were read in `docker builder prune --help` of Docker 29.8.1), the backend, frontend and e2e suites (no file under them changed).
+
+**Open**
+- The gate: the owner's `pg-restore-test finance` on a fresh dump must print PASS before the deploy. The deploy itself (the checklist), whose disk measurement confirms or rejects D-944's hypothesis; the first commit of the next batch records it.
+- Not tried: real certificates and ACME renewal on 2.11.9, whether `up -d` recreates `keycloak` with `postgres`, the real effect of the prune flags. The PM decides 17.12's deploy (D-939).
+
 ## 2026-11-16 · OPS-5, first commit: OPS-4's deploy recorded, D-936 and D-937, the new baseline of the 24 numbers
 
 The commit of this entry, on `main` on top of `5edec79` (OPS-4), D-936 and D-937 (the PM, as the task states them). Not committed yet. Documents only; the first of OPS-5's two commits in this repository (D-867). auth_server's counterpart is its own commit.

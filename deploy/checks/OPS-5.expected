@@ -1,0 +1,18 @@
+flyway latest 18 cbr rates true
+exchange_rate_source_check names CBR,ECB,MANUAL
+exchange_rate_key unique on base_currency,quote_currency,rate_date,source,user_id nulls not distinct true
+exchange_rate_owner_check names source and user_id true
+CBR rates with a user, another currency, a non-positive rate or before 2022-03-02 0
+shared rates of another source 0
+manual rates without a user 0
+unbalanced entries 0
+unique index on family_entry_link(entry_id) 1
+entries with more than one family link 0
+family links of an unknown type 0
+entries without a posting 0
+index family_entry_link_entry_id_key
+index family_entry_link_key
+index journal_entry_ledger_id_entry_date_idx
+index posting_category_id_idx
+index posting_counterparty_id_idx
+index posting_entry_id_line_no_key

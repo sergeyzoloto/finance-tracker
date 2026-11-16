@@ -301,6 +301,12 @@ case $1 in
     rm "$S/images/$repo/$tag"
     echo "Untagged: $2"
     ;;
+  builder)
+    # OPS-5: the only builder command deploy.sh may run is `builder prune`, which only ever touches build cache.
+    [ "$2" = prune ] || { echo "docker stub: unknown builder command: $*" >&2; exit 99; }
+    if [ -e "$S/fixtures/builder-prune-fails" ]; then echo "ERROR: failed to prune build cache (stub)" >&2; exit 1; fi
+    printf 'ID\tRECLAIMABLE\tSIZE\tLAST ACCESSED\nTotal:\t1.2GB\n'
+    ;;
   exec) cat "$S/containers/finance-tracker-api/env" ;;   # docker exec … env or printenv would print the secret
   *) echo "docker stub: unknown command: $*" >&2; exit 99 ;;
 esac

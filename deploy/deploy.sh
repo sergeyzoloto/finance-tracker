@@ -18,6 +18,9 @@
 #                                           with no unfinished run (F7). Never run against a stage whose stop you
 #                                           haven't resolved; on a failure after the change, it prints the way back
 #                                           and never switches back by itself.
+#   deploy/deploy.sh prune-cache            the build cache's bound by hand (OPS-5, D-940): what `run` does after its
+#                                           pages, as its own command, since a run executes the script the clone had
+#                                           before its merge; build cache only, never an image, container, volume or network
 #
 # Every check, the numbers and Flyway's row are read as the read-only database role finance_checks (F6b;
 # deploy/RUNBOOK.md, "A read-only role for the deploy checks"); preflight, finish and verify stop without it.
@@ -51,12 +54,13 @@ usage: deploy/deploy.sh run <commit> <stage>
        deploy/deploy.sh verify <stage>
        deploy/deploy.sh adopt
        deploy/deploy.sh switch on|off
+       deploy/deploy.sh prune-cache
 <commit> is origin/main's commit, 7 to 40 hex characters; <stage> names deploy/checks/<stage>.sql and .expected.
 EOF
   exit 2
 }
 
-TOOLS=(git docker flock curl python3 systemctl pg-restore-test install diff paste sha256sum)
+TOOLS=(git docker flock curl python3 systemctl pg-restore-test install diff paste sha256sum timeout df)
 
 # The check runs of CI's own runs of a commit (ci_check_runs), read by python3 (the server has no jq). Prints one line
 # per check run, then "NAMES <names>" and "VERDICT success|pending|failure|none".
@@ -319,6 +323,41 @@ keep_images() {
   prune_commit_tags
 }
 
+# The build cache's bound (OPS-5, D-940): `docker builder prune` leaves what a build used within BUILD_CACHE_AGE alone and
+# keeps BUILD_CACHE_KEEP of the rest (BuildKit's reserved space), so the cache that deploys leave behind can't grow
+# without bound (13.63 GB on 2026-11-16). It touches build cache only: never an image, container, volume or network.
+BUILD_CACHE_AGE=72h
+BUILD_CACHE_KEEP=3GB
+
+# prune_build_cache: best effort, after the deploy's health and pages passed. A failure or a timeout warns and never
+# fails the deploy, which is over by then; it is never called when the deploy failed (fail() ends the run first).
+prune_build_cache() {
+  local out
+  BUILD_CACHE_RC=0
+  say "Disk before: $(df -h / | tail -n 1 | tr -s ' ')"
+  out=$(timeout 300 docker builder prune -f --filter "until=$BUILD_CACHE_AGE" --reserved-space "$BUILD_CACHE_KEEP" 2>&1) || BUILD_CACHE_RC=$?
+  if [ "$BUILD_CACHE_RC" -eq 0 ]; then
+    BUILD_CACHE_LINE="pruned (used more than $BUILD_CACHE_AGE ago, $BUILD_CACHE_KEEP kept): $(printf '%s\n' "$out" | tail -n 1)"
+    say "Build cache: $BUILD_CACHE_LINE"
+  else
+    BUILD_CACHE_LINE="not pruned, exit $BUILD_CACHE_RC ($(one_line "$(printf '%s\n' "$out" | tail -n 3)"))"
+    say "WARNING: the build cache wasn't pruned: $BUILD_CACHE_LINE; the deploy goes on"
+  fi
+  say "Disk after: $(df -h / | tail -n 1 | tr -s ' ')"
+}
+
+# cmd_prune_cache: the same bound by hand (D-940). `run` executes the deploy.sh the clone had before its merge, so the
+# deploy that brings step 3.7 doesn't run it; this command does, once the clone holds it. Exits 1 when the prune failed.
+cmd_prune_cache() {
+  READ_ONLY=0
+  take_lock exclusive
+  say "prune-cache at $(now): the build cache only, never an image, container, volume or network"
+  check_tools docker flock timeout df
+  prune_build_cache
+  [ "$BUILD_CACHE_RC" -eq 0 ] || fail "the build cache wasn't pruned: $BUILD_CACHE_LINE"
+  say "prune-cache: done"
+}
+
 # prune_commit_tags: keeps the tags of the last three revisions (by their place in main's history), removes older ones.
 prune_commit_tags() {
   local repo tag n i
@@ -409,6 +448,7 @@ write_summary() {
     say "After: ${BACKUP_after:-backup not reached}; restore test ${RESTORE_after:-not reached}"
     say "Images: ${IMAGES_LINE:-${KEPT_LINE:-not reached}}"
     say "Pages: ${PAGES_LINE:-not reached}"
+    say "Build cache: ${BUILD_CACHE_LINE:-not reached}"
     say "Browser checks: not yet (deploy/deploy.sh finish)"
     say "Smoke test: not yet (deploy/deploy.sh finish)"
   } | tr '|' '/' >"$RUN_DIR/summary.txt"
@@ -636,6 +676,9 @@ cmd_run() {
   heading "3.6 Deploy: the pages"
   page_checks || fail "a page isn't as expected: $PAGES_LINE"
 
+  heading "3.7 Deploy: the build cache"
+  prune_build_cache
+
   PHASE=postflight
   heading "4.1 Postflight: Flyway"
   expected=$(highest_migration "$SHA")
@@ -848,6 +891,40 @@ cmd_finish() {
 # ---------------------------------------------------------------------------------------------------------------------
 # verify
 
+# numbers_vs_last_run NUMBERS (OPS-5, D-941): informational only, never a problem and never a stop. Compares the numbers
+# `verify` just read with those of the newest run folder that has a numbers-after.txt (a deploy's or a switch's
+# postflight), as data: each line must be key=count, any other is ignored, nothing is sourced. A user's own use of the
+# app changes the numbers, so a difference is no fault; the line says which keys and from what to what.
+numbers_vs_last_run() {
+  local dir='' file='' line key val diffs=0 name
+  local -A was=() now=()
+  while IFS= read -r name; do
+    if [ -f "$name/numbers-after.txt" ]; then dir=$name file=$name/numbers-after.txt; break; fi
+  done < <(find "$STATE_DIR/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r)
+  if [ -z "$file" ]; then
+    say "Compared with the last run: no earlier run left numbers to compare with (informational)"
+    return 0
+  fi
+  while IFS= read -r line; do
+    if [[ $line =~ ^([a-z_]+)=([0-9]+)$ ]]; then was[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}; fi
+  done <"$file"
+  while IFS= read -r line; do
+    if [[ $line =~ ^([a-z_]+)=([0-9]+)$ ]]; then now[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}; fi
+  done <<<"$1"
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    val=${now[$key]:-absent}
+    if [ "${was[$key]:-absent}" != "$val" ]; then
+      [ "$diffs" -gt 0 ] || say "Compared with the numbers after $(basename "$dir") (informational, never a problem: the users' own use changes them):"
+      say "  $key: was ${was[$key]:-absent}, now $val"
+      diffs=$((diffs + 1))
+    fi
+  done < <(printf '%s\n' "${!was[@]}" "${!now[@]}" | sort -u)
+  if [ "$diffs" -eq 0 ]; then
+    say "Compared with the numbers after $(basename "$dir"): same as the last run"
+  fi
+}
+
 cmd_verify() {
   local stage=$1 issues=0 api web row expected out api_log seen problem rc
   [[ $stage =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage
@@ -945,7 +1022,13 @@ cmd_verify() {
   if [ -n "$problem" ]; then
     say "Not read: no read-only role"
   else
-    sql_file deploy/checks/numbers.sql || { say "PROBLEM: numbers.sql failed"; issues=$((issues + 1)); }
+    if out=$(sql_file deploy/checks/numbers.sql); then
+      printf '%s\n' "$out"
+      numbers_vs_last_run "$out"
+    else
+      say "PROBLEM: numbers.sql failed"
+      issues=$((issues + 1))
+    fi
   fi
 
   say ""
@@ -1351,12 +1434,13 @@ main() {
   umask 077
   common_settings
   PHASE='' SHA='' STAGE='' HEAD_BEFORE='' BASE='' LG_COMMIT='' LG_API='' LG_WEB='' LG_FINISH='' LG_SOURCE='' RERUN=no
-  DUMP_before='' DUMP_after='' DUMP_SHA_before='' PRESERVED_LINE='' NUMBERS_WHY='' NUMBERS_LINE=''
+  DUMP_before='' DUMP_after='' DUMP_SHA_before='' PRESERVED_LINE='' NUMBERS_WHY='' NUMBERS_LINE='' BUILD_CACHE_LINE=''
   case ${1:-} in
     run) [ $# -eq 3 ] || usage; cmd_run "$2" "$3" ;;
     finish) [ $# -eq 1 ] || usage; cmd_finish ;;
     verify) [ $# -eq 2 ] || usage; cmd_verify "$2" ;;
     adopt) [ $# -eq 1 ] || usage; cmd_adopt ;;
+    prune-cache) [ $# -eq 1 ] || usage; cmd_prune_cache ;;
     switch) [ $# -eq 2 ] || usage; cmd_switch "$2" ;;
     *) usage ;;
   esac

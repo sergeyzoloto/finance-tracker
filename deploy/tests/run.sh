@@ -348,7 +348,7 @@ in_order() {
   done
 }
 
-STATE_CHANGING='^docker (tag|rmi|compose build|compose up|image prune)|^install '
+STATE_CHANGING='^docker (tag|rmi|compose build|compose up|image prune|builder prune)|^install '
 
 nothing_changed() {
   check "HEAD still D" head_is "$SHA_D"
@@ -403,6 +403,8 @@ case_happy_path() {
     '^docker compose up -d --no-deps api web$' \
     '^docker inspect -f \{\{\.State\.Health\.Status\}\} finance-tracker-api$' \
     '^docker image prune -f$' \
+    '^curl .*https://app\.finance-nl\.com/privacy$' \
+    '^docker builder prune -f --filter until=72h --reserved-space 3GB$' \
     'psql .* -c SELECT version .*app.flyway_schema_history' \
     '^docker compose logs --no-log-prefix --timestamps --since .* api$' \
     'psql .* -f -$' \
@@ -1651,6 +1653,109 @@ case_finish_records_failed_pages_without_asking() {
   check "fixed: status finished" status_is finished
 }
 
+# OPS-5 (D-940): after the deploy's health and pages passed, deploy.sh prunes the build cache with an age filter and a
+# reserved space, once, and never any other kind of prune (the server's volumes hold both stacks' databases).
+case_build_cache_pruned_after_success() {
+  setup_case
+  new_target api
+  deploy_e
+  check "exit code 0" rc_is 0
+  check "pruned after the pages, before Flyway's read" in_order \
+    '^docker compose up -d --no-deps api web$' \
+    '^curl .*https://app\.finance-nl\.com/privacy$' \
+    '^docker builder prune -f --filter until=72h --reserved-space 3GB$' \
+    'psql .* -c SELECT version .*app.flyway_schema_history'
+  check "the step is named" out_has "3.7 Deploy: the build cache"
+  check "disk before and after" bash -c "grep -q '^Disk before: ' '$C/out' && grep -q '^Disk after: ' '$C/out'"
+  check "the line says what was pruned" out_has "Build cache: pruned (used more than 72h ago, 3GB kept): Total:"
+  check "the summary has it" file_has "$(latest_run)/summary.txt" "Build cache: pruned (used more than 72h ago, 3GB kept)"
+  check "exactly two prune calls: image prune and builder prune" [ "$(count_calls 'prune')" -eq 2 ]
+  check "no system, volume, container, network or all-images prune" calls_lack '^docker (system|volume|container|network|buildx) prune|^docker builder prune .*(-a|--all)( |$)|^docker image prune .*(-a|--all)( |$)'
+  check "no other builder command" [ "$(count_calls '^docker builder ')" -eq 1 ]
+}
+
+case_build_cache_prune_failure_only_warns() {
+  setup_case
+  new_target api
+  touch "$STUB_STATE/fixtures/builder-prune-fails"
+  deploy_e
+  check "exit code 0" rc_is 0
+  check "says deployed" out_has "Deploy of ${SHA_E:0:7} (stage OPS-1): deployed"
+  check "warns, names the exit" out_has "WARNING: the build cache wasn't pruned: not pruned, exit 1"
+  check "says the deploy goes on" out_has "the deploy goes on"
+  check "postflight still ran" out_has "The same numbers"
+  check "last-good is E" last_good_is "$SHA_E"
+  check "the summary says not pruned" file_has "$(latest_run)/summary.txt" "Build cache: not pruned, exit 1"
+  check "run status finished or deployed, not failed" bash -c "! grep -qx failed '$(latest_run)/status'"
+}
+
+case_no_build_cache_prune_after_a_failed_deploy() {
+  setup_case
+  new_target
+  fixture pages "/privacy 403"
+  deploy_e
+  failed_after_merge "a page isn't as expected"
+  check "no builder prune call" calls_lack '^docker builder '
+  check "the step never starts" out_lacks "3.7 Deploy: the build cache"
+  check "the summary says not reached" file_has "$(latest_run)/summary.txt" "Build cache: not reached"
+}
+
+# OPS-5 (D-941): verify compares the numbers it reads with the newest run's numbers-after.txt, informationally.
+case_verify_compares_numbers_with_the_last_run() {
+  setup_case
+  local run=$C/state/runs/2026-10-01T000000Z-aaaaaaa
+  # no run folder with numbers
+  run_deploy verify OPS-1
+  check "no earlier numbers: exit 0" rc_is 0
+  check "no earlier numbers: said so" out_has "Compared with the last run: no earlier run left numbers to compare with"
+  # the same numbers
+  mkdir -p "$run" "$C/state/runs/2026-09-30T000000Z-0000000"
+  numbers 0 | sed 's/^entries=138$/entries=1/' >"$C/state/runs/2026-09-30T000000Z-0000000/numbers-after.txt"
+  numbers 0 >"$run/numbers-after.txt"
+  run_deploy verify OPS-1
+  check "same: exit 0" rc_is 0
+  check "same: says so, naming the run" out_has "Compared with the numbers after 2026-10-01T000000Z-aaaaaaa: same as the last run"
+  # different numbers, and an older folder without the file in between, and garbage lines ignored
+  numbers 0 | sed 's/^entries=138$/entries=100/; s/^accounts=22$/accounts=30/' >"$run/numbers-after.txt"
+  printf 'not a number line\nUSERS=9; rm -rf /\n' >>"$run/numbers-after.txt"
+  mkdir -p "$C/state/runs/2026-10-02T000000Z-bbbbbbb"
+  run_deploy verify OPS-1
+  check "differs: still exit 0" rc_is 0
+  check "differs: still OK" out_has "verify OPS-1: OK"
+  check "differs: the header says informational" out_has "(informational, never a problem: the users' own use changes them):"
+  check "differs: entries named" out_has "  entries: was 100, now 138"
+  check "differs: accounts named" out_has "  accounts: was 30, now 22"
+  check "differs: nothing else named" bash -c "[ \"\$(grep -c '^  [a-z_]*: was ' '$C/out')\" -eq 2 ]"
+  check "garbage is data, never run" bash -c "! grep -q 'USERS' '$C/out'"
+  check "verify wrote nothing into the state folder" bash -c "[ ! -e '$C/state/runs/2026-10-02T000000Z-bbbbbbb/numbers-after.txt' ]"
+}
+
+# OPS-5 (D-940): the bound by hand, since a run executes the script the clone had before its merge.
+case_prune_cache_command() {
+  setup_case
+  local before after
+  before=$(cd "$C" && find state -exec stat -c '%n %s %Y' {} + | sort)
+  run_deploy prune-cache
+  after=$(cd "$C" && find state -exec stat -c '%n %s %Y' {} + | sort)
+  check "exit code 0" rc_is 0
+  check "says done" out_has "prune-cache: done"
+  check "disk before and after" bash -c "grep -q '^Disk before: ' '$C/out' && grep -q '^Disk after: ' '$C/out'"
+  check "one builder prune, with the age and the reserved space" [ "$(count_calls '^docker builder prune -f --filter until=72h --reserved-space 3GB$')" -eq 1 ]
+  check "that is the only docker call that prunes or changes anything" calls_lack '^docker (system|volume|container|network|image|tag|rmi|buildx|exec) |^docker compose (build|up|exec|down|rm|stop|restart) |^docker builder (du|ls|rm)'
+  check "no state written" [ "$before" = "$after" ]
+  check "HEAD unchanged" head_is "$SHA_D"
+}
+
+case_prune_cache_failure_exits_1() {
+  setup_case
+  touch "$STUB_STATE/fixtures/builder-prune-fails"
+  run_deploy prune-cache
+  check "exit code 1" rc_is 1
+  check "names the failure" out_has "ERROR: the build cache wasn't pruned: not pruned, exit 1"
+  check "warned too" out_has "WARNING: the build cache wasn't pruned"
+  check "only the one prune was tried" [ "$(count_calls 'prune')" -eq 1 ]
+}
+
 # The merge writes the files E changes as 644 and its new folders as 755, under umask 022, while the run folder stays
 # under 077; the rollback's checkout too.
 case_merged_files_land_644() {
@@ -2221,7 +2326,7 @@ refused_on_e() {
   check "says REFUSED at 1.3" out_has 'REFUSED at "1.3 Preflight: git fetch, the commit and what it brings"'
   check "names why: $1" out_has "$1"
   check "never asked" out_lacks "Type the first 7"
-  check "before CI, any backup and any image" calls_lack '^curl .*check-runs|^systemctl|^pg-restore-test|^docker (tag|rmi|compose build|compose up|image prune)'
+  check "before CI, any backup and any image" calls_lack '^curl .*check-runs|^systemctl|^pg-restore-test|^docker (tag|rmi|compose build|compose up|image prune|builder prune)'
   check "HEAD still E" head_is "$SHA_E"
   check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
   check "history unchanged" same_file "$C/state/history" "$C/history.orig"
@@ -2982,6 +3087,8 @@ CASES=(
   shutdown_none_is_named run_refused_by_an_unparseable_shutdown_file shutdown_lines_of_verify_finish_and_rollback
   run_goes_on_with_a_reboot_hours_away run_refused_by_a_reboot_less_than_2_hours_away run_at_the_2_hour_boundary
   run_refused_by_a_passed_shutdown_time a_usec_without_a_mode_is_a_shutdown
+  build_cache_pruned_after_success build_cache_prune_failure_only_warns no_build_cache_prune_after_a_failed_deploy
+  verify_compares_numbers_with_the_last_run prune_cache_command prune_cache_failure_exits_1
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

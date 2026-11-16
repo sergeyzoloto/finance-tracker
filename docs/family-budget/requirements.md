@@ -152,6 +152,8 @@ Amended in UX-19-doc on 2026-11-15: new D-838 to D-841 (the PM): UX-19's deploy 
 
 Amended in OPS-3-doc on 2026-11-15: new D-846 to D-848 (the PM): OPS-3's four open checks done, Hetzner's backup time, the disk's growth in "Later"; new D-849 and D-850 (the agent).
 
+Amended in OPS-4's first commit on 2026-11-16: new D-928 (the PM): FX-1's and BATCH-1's deploys recorded in the runbook, CLAUDE.md's Deployment line and "Production now", from the owner's outputs.
+
 Amended in FX-1 on 2026-11-15: D-49 (RUB after 2022-03-01 from the Bank of Russia), new D-851 (the owner) and D-852 to D-858 (the PM): the CBR's EUR rate in roubles as a shared rate source; new D-859 to D-866 (the agent).
 
 Amended in IMP-1 on 2026-11-14: new D-767 to D-769 (the PM): the benefit check takes the file's period, its deploy checklist, D-758 done in "Later"; new D-770 to D-773, the agent's.
@@ -1348,6 +1350,7 @@ Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
 - D-918 (the agent, BATCH-1b; D-915). The planner workaround stays. On the nightly dump of 2026-11-16 restored and analyzed (the same 20 answers, byte for byte), with `SET LOCAL enable_nestloop = off`: every D-894 request at most 664 ms, the default view's summary 245 ms and payee breakdown 225 ms, the page's requests together 545 ms; without it: the summary 945 to 959 ms (D-894's limit is 1,000), the default view's summary 555 ms and payee breakdown 538 ms (D-898's limit is 300), together 937 ms. With statistics the planner is better, not good enough: the set of the family payees still looks small to it. Not measured: without statistics and without the workaround, which ENT-3b's EXPLAINs had shown (a Materialize read again for every entry). An index or extended statistics would be a second migration (D-879) and stays a proposal.
 - D-919 (the agent, BATCH-1b; D-916). `scripts/rehearsal-db.sh`'s choice of the family budget is tried by `deploy/tests/rehearsal-db-test.sh`, which uses Docker (the pinned postgres image, a source database with a minimal schema `app` dumped by `pg_dump`, a stand-in for the dev Keycloak's database): the deploy scripts' suite (`run.sh`) uses stubs and no container, and CI's "Deploy scripts" job runs that suite, so the new one runs on the laptop only and is not in CI; its cases are in step 12's notes in the runbook as well. Broken on purpose (the count check made always true), four cases fail.
 - D-920 (the agent, BATCH-1b; D-917, amending D-912). `BATCH-1.sql` prints no constraint's own text: the source check is asked which sources its definition names (by `position`), the key which columns it holds and whether it is `NULLS NOT DISTINCT`, the owner check whether it names both columns. Its 18 lines are the same on a database migrated by Flyway and on the restored dump of 2026-11-16, so no read-only step before the deploy is needed.
+- D-928 (the PM, OPS-4's first commit; D-867, D-917). FX-1's deploy (`3a59219`, 2026-11-15) and BATCH-1's (`7fae522`, 2026-11-16) are recorded in the batch's first commit, from the owner's outputs as the PM read them: two rows of the runbook's "Deployed revisions", "Production now" (the app at `7fae522`, the rollback target `3a59219`, unconditional) and CLAUDE.md's Deployment line. What the outputs don't hold stays "not recorded" (the run's and `finish`'s own full outputs, FX-1's dump names, the laptop's pull of the dumps). Nothing else changes in that commit; it is documents only.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
@@ -1431,6 +1434,7 @@ Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
   - REH-1: the rehearsal with several family budgets (D-899; done, D-907 to D-909).
   - ENT-4: the monthly result chart (D-882, D-883), then BATCH-1's deploy checklist (D-879; done, D-910 to D-913).
   - BATCH-1b (D-914 to D-920): the planner workaround measured again on an analyzed dump (kept, D-918), REH-1's cases as tests (D-919), the checklist from FX-1's `3a59219` on V18 (D-917), `BATCH-1.sql` independent of constraint rendering (D-920).
+- After BATCH-1's deploy (2026-11-16, `7fae522`, Flyway V18, decided by the PM, D-928): OPS-4's first commit records FX-1's and BATCH-1's deploys (D-928); documents only.
 
 ## Later
 Found along the way; not part of a stage yet.

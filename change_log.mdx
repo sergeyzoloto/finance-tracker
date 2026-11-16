@@ -3,6 +3,24 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-16 · OPS-5, first commit: OPS-4's deploy recorded, D-936 and D-937, the new baseline of the 24 numbers
+
+The commit of this entry, on `main` on top of `5edec79` (OPS-4), D-936 and D-937 (the PM, as the task states them). Not committed yet. Documents only; the first of OPS-5's two commits in this repository (D-867). auth_server's counterpart is its own commit.
+
+**Changes**
+- `deploy/RUNBOOK.md`: a row at the top of "Deployed revisions" for OPS-4 (not an app deploy: auth_server `3c7b6ba`, Keycloak 26.8.2, Docker 29.10.0, the pre-flight, steps 1 to 14 as the owner's outputs gave them, the rollback point `auth-2026-11-16T1609Z.dump`, `pg-restore-test finance` FAIL against a stale dump and its re-run PENDING), and a paragraph at the top of "Production now". The pasted document's numbers are quoted as they were.
+- The baseline: the 24 numbers of 2026-11-16 16:32Z are in OPS-4's row (accounts=75, categories=93, counterparties=1416, entries=43029, family_journal=12648, family_links=36430, family_records=12635, family_shares=24000, the others unchanged), with their cause (the owner's own second account, not a deploy).
+- `CLAUDE.md`: the Deployment line names the auth server's `3c7b6ba` and Docker 29.10.0.
+- `docs/family-budget/requirements.md`: D-936 and D-937, an "Amended in" line and the planned-stages line.
+- auth_server: `PRODUCTION.md` and `change_log.mdx` (its own commit).
+
+**Verified**
+- Every number and digest was copied from the pasted document; nothing in it contradicted the repository (the "Open" of OPS-4's entry and of auth_server's, the Keycloak pin `c68e286c…`, the images' started times). `change_log.mdx` compiled with `@mdx-js/mdx`. `scripts/check-forbidden-names.sh` before the commit and over the range after it (the task's report has both exit statuses).
+
+**Open**
+- The gate: the owner's `pg-restore-test finance` on a fresh dump must print PASS before OPS-5's deploy starts.
+- OPS-5's second commit: D-936's rehearsal and checklist, the disk (D-848), the checklist lessons, `verify`'s comparison.
+
 ## 2026-11-16 · OPS-4: Keycloak 26.8.2, rehearsed and tried, and its deploy checklist
 
 The commit of this entry, on `main` on top of `0ed597e` (OPS-4's first commit, D-928), D-921 to D-927 (the owner and the PM) and D-929 to D-935 (the agent). Not pushed, not deployed. auth_server's commit is `3c7b6bab43b3a4a906573640e1b426d6b7943ed9` ("OPS-4: Keycloak 26.8.2, login-3.css for its provider buttons, D-926's copies described as deleted", on `8d6bcd2`). Nothing was changed on production and no command was run there.

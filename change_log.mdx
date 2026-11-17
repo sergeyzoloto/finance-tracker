@@ -3,6 +3,24 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-17 · OPS-6, first commit: OPS-5's deploy and UptimeRobot recorded, the checklist template's two fixes
+
+The commit of this entry, on `main` on top of `132670e` (OPS-5). Not committed yet. Not pushed. Documents only; the first of OPS-6's three commits in this repository (D-867). auth_server's counterpart is `1b5549f`. Nothing was changed on the server and no command was run there.
+
+**Changes**
+- `deploy/RUNBOOK.md`: a row at the top of "Deployed revisions" for OPS-5 (auth `b809f9d`, finance `132670e`, the gate, parts A and B as the owner's outputs gave them, the disk before and after `prune-cache`), a paragraph at the top of "Production now" (the app on `132670e`, the auth stack on Postgres 16.16 and Caddy 2.11.9, the disk after the prune, the rollback state), UptimeRobot marked configured in "UptimeRobot (D-335)" and in the table "What runs where", with the note that the api isn't covered.
+- `CLAUDE.md`: the Deployment line (`132670e`, auth `b809f9d`, UptimeRobot configured and not covering the api); the checklist template's two fixes: step 0's commit list is printed by `git --no-pager log --oneline` and never counted in prose, and Keycloak's sign-in page is asked for with `code_challenge` and `code_challenge_method=S256`, a verifier made in the command.
+- `docs/family-budget/requirements.md`: the "Later" item for 17.12 says the owner decided on 2026-11-17 that `deploy.sh db-image` is built in OPS-6 (D-948 for the old images).
+
+**Verified**
+- Every figure was copied from the PM's record; nothing in it contradicted the repository (OPS-5's commits, the pins, the revision). The owner's email address in the record is left out of the committed text.
+- The sign-in page check as the template now words it, run once from the laptop against the public page: `<title>Sign in to Finance Tracker</title>`, `login-3.css`, `id="social-github"`, `id="social-google"`.
+- `change_log.mdx` compiled with `@mdx-js/mdx` (installed in the scratchpad, not in the repository); `scripts/check-forbidden-names.sh` before the commit exit 0 (the report has the one after).
+
+**Open**
+- Which of UptimeRobot's two monitors of the site the owner keeps; no alert email was tested.
+- OPS-6's second and third commits: A (`deploy.sh db-image`) and B (the 17.12 pin).
+
 ## 2026-11-16 · OPS-5: Postgres 16.16 and Caddy 2.11.9 rehearsed, the build cache's bound, verify's comparison, the deploy checklist
 
 The commit of this entry, on `main` on top of `54c9a3e` (OPS-5's first commit), D-938 to D-944 (the agent). Not pushed, not deployed. auth_server's commit is `b809f9d09e7f340ff34782db4488008adfebc786` (pins, PRODUCTION.md, its change log), on its documents commit `4c652fa`.

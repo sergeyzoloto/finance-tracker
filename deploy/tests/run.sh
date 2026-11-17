@@ -42,7 +42,7 @@ make_template() {
     cd "$t/work" || exit 1
     mkdir -p deploy/checks deploy/app deploy/pg-backup backend/src/main/resources/db/migration
     cp "$SCRIPTS/deploy.sh" "$SCRIPTS/rollback.sh" "$SCRIPTS/common.sh" deploy/
-    cp "$ROOT/deploy/checks/numbers.sql" "$ROOT/deploy/checks/OPS-1.sql" "$ROOT/deploy/checks/OPS-1.expected" deploy/checks/
+    cp "$ROOT/deploy/checks/numbers.sql" "$ROOT/deploy/checks/OPS-1.sql" "$ROOT/deploy/checks/OPS-1.expected" "$ROOT/deploy/checks/db-image-indexes.sql" deploy/checks/
     cp "$ROOT/deploy/app/docker-compose.yml" "$ROOT/deploy/app/postgres-init.sh" deploy/app/
     cp "$ROOT/deploy/finance.caddy" deploy/
     cp "$ROOT/deploy/pg-backup/finance.conf" deploy/pg-backup/
@@ -132,6 +132,25 @@ setup_case() {
     printf 'SPRING_DATASOURCE_PASSWORD=%s\nKEYCLOAK_CLIENT_SECRET=%s\nKEYCLOAK_CLIENT_ID=finance-tracker\nPATH=/usr/bin\n' \
       "$SECRET" "$SECRET" >"$cdir/env"
   done
+  # OPS-6: the database container, created from the pin of D's compose file, with its image kept, its log and fixtures.
+  local pgd=$s/containers/finance-tracker-postgres pin tag
+  mkdir -p "$pgd" "$s/images/postgres"
+  pin=$(sed -nE 's/^    image: (postgres:[^[:space:]]+)$/\1/p' "$C/server/deploy/app/docker-compose.yml")
+  tag=${pin#postgres:}
+  tag=${tag%%@*}
+  echo "$pin" >"$pgd/config-image"
+  echo 2026-10-01T16:56:30.000000000Z >"$pgd/started"
+  echo healthy >"$pgd/health"
+  id_of "postgres-$pin" >"$s/images/postgres/$tag"
+  printf '2026-09-20T10:00:00.000000000Z 2026-09-20 10:00:00.000 UTC [1] LOG:  database system is ready to accept connections\n' >"$s/log-postgres"
+  echo healthy >"$s/fixtures/health-postgres"
+  cat >"$s/fixtures/start-log-postgres" <<'EOF'
+2026-11-17 13:04:38.950 UTC [35] LOG:  database system was shut down at 2026-11-17 13:04:38 UTC
+2026-11-17 13:04:38.952 UTC [36] FATAL:  the database system is starting up
+2026-11-17 13:04:38.959 UTC [1] LOG:  database system is ready to accept connections
+EOF
+  echo "PostgreSQL $tag (Debian stub) on x86_64-pc-linux-gnu, compiled by gcc, 64-bit" >"$s/fixtures/version"
+  : >"$s/fixtures/indexes"
   # The api's log: an older start that logged the switch on, then the current start.
   cat >"$s/log-api" <<'EOF'
 2026-09-20T10:00:00.000000000Z Family ledgers (D-25): on
@@ -3044,6 +3063,594 @@ case_shutdown_lines_of_verify_finish_and_rollback() {
   check "rollback: D runs again" head_is "$SHA_D"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# deploy.sh db-image (OPS-6, D-939, D-945 to D-947)
+
+PIN_RE='^    image: (postgres:[^[:space:]]+)$'
+# pin_of FILE: the postgres service's image line of a compose file.
+pin_of() { sed -nE "s/$PIN_RE/\\1/p" "$1"; }
+
+# db_setup: a case whose clone D is the last good deploy with a clean finish, which db-image starts from.
+db_setup() {
+  setup_case
+  printf 'finish=passed 2026-10-01T17:00:00Z\n' >>"$C/state/last-good"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  PIN_D=$(pin_of "$C/server/deploy/app/docker-compose.yml")
+  PIN_E=
+}
+
+# new_pin PIN: the postgres image line of the scratch repository's work copy.
+new_pin() { sed -i -E "s|^    image: postgres:.*|    image: $1|" deploy/app/docker-compose.yml; }
+FAKE_DIGEST=sha256:$(printf '%064x' 4660)
+# minor_of PIN: its minor number.
+minor_of() { local v=${1#postgres:}; v=${v%%@*}; printf '%s' "${v#*.}"; }
+
+# db_target CHANGE...: a commit E on origin's main that bumps the postgres pin by one minor release (the first change
+# named "pin"), with the other changes named; SHA_E, PIN_E. It never touches the scratch repository's README: that file
+# is outside the rule's allowlist, like any root file but a *.md.
+db_target() {
+  local change n
+  n=$(minor_of "$PIN_D")
+  PIN_E="postgres:17.$((n + 1))@$FAKE_DIGEST"
+  (
+    cd "$C/work" || exit 1
+    for change in "$@"; do
+      case $change in
+        pin) new_pin "$PIN_E" ;;
+        pin-major) new_pin "postgres:18.0@$FAKE_DIGEST" ;;
+        pin-same-minor) new_pin "postgres:17.$n@$FAKE_DIGEST" ;;
+        pin-older) new_pin "postgres:17.$((n - 1))@$FAKE_DIGEST" ;;
+        pin-no-digest) new_pin "postgres:17.$((n + 1))" ;;
+        mem) sed -i 's/mem_limit: 384m/mem_limit: 512m/' deploy/app/docker-compose.yml ;;
+        api-mem) sed -i 's/mem_limit: 768m/mem_limit: 769m/' deploy/app/docker-compose.yml ;;
+        volume) sed -i 's|postgres-data:/var/lib/postgresql/data|postgres-data2:/var/lib/postgresql/data|' deploy/app/docker-compose.yml ;;
+        env) sed -i '/^      POSTGRES_PASSWORD:/a\      EXTRA: "1"' deploy/app/docker-compose.yml ;;
+        healthcheck) sed -i 's/interval: 10s/interval: 20s/' deploy/app/docker-compose.yml ;;
+        logging) sed -i 's/^  driver: journald$/  driver: local/' deploy/app/docker-compose.yml ;;
+        init) echo "# changed" >>deploy/app/postgres-init.sh ;;
+        app-file) echo "x" >deploy/app/other.txt ;;
+        # what may change beside the pin: nothing that is deployed
+        docs) mkdir -p docs/family-budget && echo "x" >docs/family-budget/requirements.md ;;
+        e2e) mkdir -p e2e/specs && echo "x" >e2e/specs/a.spec.ts ;;
+        scripts) mkdir -p scripts && echo "x" >scripts/a.sh ;;
+        github) mkdir -p .github/workflows && echo "x" >.github/workflows/ci.yml ;;
+        tests) mkdir -p deploy/tests && echo "x" >deploy/tests/a.sh ;;
+        checks) echo "x" >deploy/checks/OPS-6.expected ;;
+        runbook) echo "x" >deploy/RUNBOOK.md ;;
+        root-md) echo "x" >README.md && echo "x" >CLAUDE.md ;;
+        change-log) echo "x" >change_log.mdx ;;
+        root-compose) echo "x" >docker-compose.yml && echo "x" >docker-compose.local.yml && echo "x" >docker-compose.dev.yml ;;
+        # what may not: anything deployed or built
+        backend) mkdir -p backend/src/test && echo "x" >backend/src/test/A.java ;;
+        frontend) mkdir -p frontend/src && echo "x" >frontend/src/a.ts ;;
+        nested-md) echo "x" >backend/README.md ;;
+        script-file) echo "# x" >>deploy/common.sh ;;
+        caddy) echo "# changed" >>deploy/finance.caddy ;;
+        conf) echo "# changed" >>deploy/pg-backup/finance.conf ;;
+        numbers) echo "-- x" >>deploy/checks/numbers.sql ;;
+        root-file) echo "x" >Dockerfile ;;
+        *) echo "unknown change $change" >&2; exit 1 ;;
+      esac
+    done
+    git add -A
+    git commit -qm "revision E, a pin"
+    git push -q origin main
+  )
+  SHA_E=$(git -C "$C/work" rev-parse HEAD)
+  fixture version "PostgreSQL 17.$((n + 1)) (Debian 17.$((n + 1))-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc, 64-bit"
+}
+
+run_db_image() {
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy db-image "$SHA_E"
+}
+
+db_refused() {
+  check "exit code not 0" rc_not
+  check "says REFUSED" out_has "REFUSED at"
+  check "names why: $1" out_has "$1"
+  check "HEAD still D" head_is "$SHA_D"
+  check "no container recreated, no tag, build, prune or install" calls_lack '^docker (tag|rmi|compose build|compose up|image prune|builder prune)|^install '
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "history unchanged" same_file "$C/state/history" "$C/history.orig"
+  [ -n "${SKIP_OLD:-}" ] || check "the old image is still there" [ -f "$STUB_STATE/images/postgres/$(minor_tag "$PIN_D")" ]
+}
+minor_tag() { local v=${1#postgres:}; printf '%s' "${v%%@*}"; }
+
+# db_failed_after_merge WHY: stopped after the merge, the way back written out, nothing rolled back by the script.
+db_failed_after_merge() {
+  check "exit code not 0" rc_not
+  check "says FAILED" out_has "FAILED at"
+  check "names why: $1" out_has "$1"
+  check "prints the way back: the old commit checked out" out_has "cd $C/server && git checkout --detach $SHA_D"
+  check "prints the way back: postgres recreated alone" out_has "cd $C/server/deploy/app && docker compose up -d --no-deps postgres"
+  check "prints the way back: the image and the version checked" out_has "docker inspect -f '{{.Config.Image}}' finance-tracker-postgres"
+  check "says nothing was rolled back" out_has "Nothing was rolled back (D-946)"
+  check "names the last resort" out_has "Restore from a backup"
+  check "the script never rolls back by itself: one recreate at most" [ "$(count_calls '^docker compose up')" -le 1 ]
+  check "the api is never recreated, restarted or built" calls_lack '^docker compose (build|restart)|^docker compose up .*(api|web)'
+  check "no tag, no image removal, no prune" calls_lack '^docker (tag|rmi|image prune|builder prune)'
+  check "HEAD at E: no checkout back" head_is "$SHA_E"
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "no rollback event" bash -c "! grep -qE 'rolled-back-from|rollback-to' '$C/state/history'"
+  check "run status failed" status_is failed
+  check "the old image is kept (D-947)" [ -f "$STUB_STATE/images/postgres/$(minor_tag "$PIN_D")" ]
+}
+
+case_db_image_happy_path() {
+  db_setup
+  db_target pin docs e2e scripts github tests checks runbook root-md change-log root-compose
+  run_db_image
+  check "exit code 0" rc_is 0
+  check "says deployed" out_has "Database image of ${SHA_E:0:7} (db-image): deployed"
+  check "the order: the pin pulled and run, the dump and its restore test, the recreate, the dump and its restore test again" in_order \
+    "^docker pull $PIN_E\$" \
+    "^docker run --rm --network none --entrypoint postgres $PIN_E --version\$" \
+    '^systemctl start pg-backup@finance.service$' \
+    '^pg-restore-test finance$' \
+    '^docker compose up -d --no-deps postgres$' \
+    '^docker exec finance-tracker-postgres pg_isready ' \
+    'SELECT version' \
+    '^docker compose logs --no-log-prefix --timestamps --since .* postgres$' \
+    'psql .* -f -$' \
+    '^systemctl start pg-backup@finance.service$' \
+    '^pg-restore-test finance$'
+  check "postgres alone is recreated, once" [ "$(count_calls '^docker compose up')" -eq 1 ]
+  check "never down, never a volume" calls_lack 'compose down|volume|docker rm '
+  check "api and web neither built, started nor tagged" calls_lack '^docker compose build|^docker compose up .*(api|web)|^docker tag'
+  check "no image removed or pruned: the old pin stays (D-947)" calls_lack '^docker (rmi|image rm|image prune|builder prune|system prune)'
+  check "the old image is still there" [ -f "$STUB_STATE/images/postgres/$(minor_tag "$PIN_D")" ]
+  check "HEAD at E" head_is "$SHA_E"
+  check "last-good is E, from db-image" file_has "$C/state/last-good" "commit=$SHA_E"
+  check "last-good names db-image as its source" file_has "$C/state/last-good" "source=db-image"
+  check "the images in last-good are D's, unchanged" file_has "$C/state/last-good" "api_image=$API_D"
+  check "history: good E" file_has "$C/state/history" " good $SHA_E "
+  check "two restore tests" [ "$(count_calls '^pg-restore-test')" -eq 2 ]
+  check "the container is on the new pin" [ "$(cat "$STUB_STATE/containers/finance-tracker-postgres/config-image")" = "$PIN_E" ]
+  check "says the api was not restarted" out_has "The api was not restarted: it reconnected by itself"
+  check "prints the downtime" out_has "Downtime: postgres accepted connections "
+  check "prints the server's version" out_has "PostgreSQL 17.$(( $(minor_of "$PIN_D") + 1 )) "
+  check "the startup FATAL is tolerated and counted" out_has "no ERROR, FATAL or PANIC line but 1 of \"the database system is starting up\""
+  check "free disk shown before and after the pull" [ "$(grep -c '^Disk \(before\|after\): ' "$C/out")" -eq 2 ]
+  check "status deployed" status_is deployed
+  local summary run
+  run=$(latest_run)
+  summary=$run/summary.txt
+  for line in "Database image of ${SHA_E:0:7} (db-image): deployed" "Image: $PIN_D to $PIN_E" "Indexes to REINDEX: none" \
+    "Downtime: postgres accepted connections " "Server: PostgreSQL 17." "Numbers: the same before and after" \
+    "Images: api sha256:" "Browser checks: not yet"; do
+    check "summary has: $line" file_has "$summary" "$line"
+  done
+  check "summary without a pipe character" bash -c "! grep -q '|' '$summary'"
+  check "the run folder's meta is a db-image's" [ "$(meta_of "$run" kind)" = db-image ]
+  check "the before-dump is preserved" file_has "$run/meta" "before_dump_copy="
+  # after it: finish records the answers, as for a deploy, and the next run needs no flag (below)
+  type_at_terminal yes yes
+  run_deploy finish
+  check "finish exit code 0" rc_is 0
+  check "finish records the finish in last-good" file_has "$C/state/last-good" "finish=passed"
+  check "the run is finished" status_is finished
+}
+
+case_db_image_refuses_a_clone_not_at_the_last_good_deploy() {
+  db_setup
+  db_target pin
+  git -C "$C/server" reset -q --hard "$SHA_C"
+  run_db_image
+  check "exit code not 0" rc_not
+  check "says REFUSED" out_has "REFUSED at"
+  check "names why" out_has "isn't the last good deploy"
+  check "HEAD stays at C" head_is "$SHA_C"
+  check "nothing recreated or tagged" calls_lack '^docker (tag|rmi|compose build|compose up|image prune|builder prune)|^systemctl|^install '
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+}
+
+case_db_image_refuses_without_a_clean_finish() {
+  db_setup
+  db_target pin
+  sed -i 's/^finish=.*/finish=not passed 2026-10-01T17:00:00Z/' "$C/state/last-good"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  run_db_image
+  db_refused "has no clean finish"
+}
+
+case_db_image_refuses_after_an_unfinished_run() {
+  db_setup
+  db_target pin
+  mkdir -p "$C/state/runs/2026-10-01T170000Z-aaaaaaa"
+  echo deployed >"$C/state/runs/2026-10-01T170000Z-aaaaaaa/status"
+  run_db_image
+  db_refused "has no finish yet"
+}
+
+case_db_image_refuses_a_dirty_clone() {
+  db_setup
+  db_target pin
+  echo "# edit" >>"$C/server/deploy/app/docker-compose.yml"
+  run_db_image
+  db_refused "has changes to tracked files"
+  check "the edit stays" file_has "$C/server/deploy/app/docker-compose.yml" "# edit"
+}
+
+case_db_image_refuses_an_unhealthy_container() {
+  db_setup
+  db_target pin
+  echo starting >"$STUB_STATE/containers/finance-tracker-postgres/health"
+  run_db_image
+  db_refused "finance-tracker-postgres isn't healthy"
+  db_setup
+  db_target pin
+  echo starting >"$STUB_STATE/containers/finance-tracker-api/health"
+  run_db_image
+  db_refused "finance-tracker-api isn't healthy"
+}
+
+case_db_image_refuses_a_commit_that_is_not_origin_main() {
+  db_setup
+  db_target pin
+  (cd "$C/work" && echo more >>x && git add -A && git commit -qm "newer" && git push -q origin main)
+  run_db_image
+  db_refused "is not origin/main"
+}
+
+case_db_image_refuses_the_commit_that_runs() {
+  db_setup
+  type_at_terminal "${SHA_D:0:7}"
+  run_deploy db-image "$SHA_D"
+  db_refused "is the commit that runs: nothing to apply"
+}
+
+case_db_image_refuses_what_is_not_a_fast_forward() {
+  db_setup
+  db_target pin
+  git -C "$C/server" checkout -q -b side "$SHA_C"
+  echo side >"$C/server/side" && git -C "$C/server" add side && git -C "$C/server" commit -qm side
+  git -C "$C/server" checkout -q main
+  git -C "$C/server" reset -q --hard "$SHA_D"
+  (cd "$C/work" && git checkout -q --orphan other && git rm -rqf . && echo x >x && git add x && git commit -qm other && git push -q -f origin other:main)
+  SHA_E=$(git -C "$C/work" rev-parse HEAD)
+  run_db_image
+  db_refused "is not a fast-forward"
+}
+
+# Every other change of the postgres service, or of the stack's folder, stays manual, with the pin changed or not.
+case_db_image_refuses_more_than_the_image_line() {
+  local change
+  for change in mem env volume healthcheck logging; do
+    db_setup
+    db_target pin "$change"
+    run_db_image
+    db_refused "more than the postgres service's image line changes"
+  done
+  db_setup
+  db_target pin api-mem
+  run_db_image
+  db_refused "more than the postgres service's image line changes"
+  for change in init app-file; do
+    db_setup
+    db_target pin "$change"
+    run_db_image
+    db_refused "in deploy/app/ only docker-compose.yml may change"
+  done
+  # a change of the block without a new pin is no upgrade at all
+  db_setup
+  db_target mem
+  run_db_image
+  db_refused "isn't a newer minor release"
+}
+
+case_db_image_refuses_a_pin_that_is_not_an_upgrade_of_the_same_major() {
+  db_setup
+  db_target pin-major
+  run_db_image
+  db_refused "a new major version"
+  db_setup
+  db_target pin-same-minor
+  run_db_image
+  db_refused "isn't a newer minor release"
+  db_setup
+  db_target pin-older
+  run_db_image
+  db_refused "isn't a newer minor release"
+  db_setup
+  db_target pin-no-digest
+  run_db_image
+  db_refused "pinned by version and digest"
+}
+
+# The one rule outside deploy/app/: only files that are never deployed. Each deployed or built kind is refused.
+case_db_image_refuses_deployed_files_outside_the_stack_folder() {
+  local change
+  for change in backend frontend nested-md script-file caddy conf numbers root-file; do
+    db_setup
+    db_target pin "$change"
+    run_db_image
+    db_refused "these are deployed or built:"
+    check "$change is named" out_has "these are deployed or built: "
+  done
+}
+
+case_db_image_refuses_a_container_not_on_the_old_pin() {
+  db_setup
+  db_target pin
+  echo "postgres:17.1@$FAKE_DIGEST" >"$STUB_STATE/containers/finance-tracker-postgres/config-image"
+  run_db_image
+  db_refused "was created from postgres:17.1@"
+}
+
+case_db_image_refuses_when_the_old_image_is_gone() {
+  db_setup
+  db_target pin
+  rm "$STUB_STATE/images/postgres/$(minor_tag "$PIN_D")"
+  run_db_image
+  SKIP_OLD=1 db_refused "the old image $PIN_D isn't on this host"
+}
+
+case_db_image_refuses_failed_ci() {
+  db_setup
+  db_target pin
+  cp "$HERE/fixtures/check-runs-failure.json" "$STUB_STATE/fixtures/ci" 2>/dev/null || sed 's/"success"/"failure"/' "$HERE/fixtures/check-runs-success.json" >"$STUB_STATE/fixtures/ci"
+  run_db_image
+  db_refused "did not succeed"
+}
+
+case_db_image_refuses_a_shutdown_less_than_2_hours_away() {
+  db_setup
+  db_target pin
+  export DEPLOY_SHUTDOWN_NOW=$NOW_2H_BEFORE_PLUS_1S
+  printf 'USEC=%s000000\nWARN_WALL=1\nMODE=reboot\n' "$((NOW_2H_BEFORE + 7200))" >"$DEPLOY_SHUTDOWN_FILE"
+  run_db_image
+  db_refused "a shutdown is scheduled less than 2 hours from now"
+  check "no dump spent" calls_lack '^systemctl|^pg-restore-test'
+}
+
+case_db_image_refuses_while_an_index_needs_a_reindex() {
+  db_setup
+  db_target pin
+  printf 'app.some_index|btree|btree on bpchar without a length\n' >"$STUB_STATE/fixtures/indexes"
+  run_db_image
+  db_refused "the release notes advise REINDEX for the indexes above"
+  check "the index is listed" out_has "app.some_index|btree|btree on bpchar without a length"
+  check "no dump spent" calls_lack '^systemctl|^pg-restore-test'
+}
+
+case_db_image_refuses_when_the_pull_fails() {
+  db_setup
+  db_target pin
+  : >"$STUB_STATE/fixtures/pull-fails"
+  run_db_image
+  db_refused "pull failed"
+  check "no dump spent" calls_lack '^systemctl|^pg-restore-test'
+}
+
+case_db_image_refuses_an_image_that_is_not_the_pin() {
+  db_setup
+  db_target pin
+  echo "postgres (PostgreSQL 17.99 (Debian 17.99-1.stub))" >"$STUB_STATE/fixtures/pulled-version"
+  run_db_image
+  db_refused "the pulled image says"
+}
+
+# A failed before-dump or restore test stops before anything is recreated, merged or changed.
+case_db_image_stops_before_the_recreate_when_the_before_dump_fails() {
+  db_setup
+  db_target pin
+  : >"$STUB_STATE/fixtures/backup-fails"
+  run_db_image
+  db_refused "the backup failed"
+  check "postgres was never recreated" calls_lack '^docker compose up'
+  db_setup
+  db_target pin
+  fixture restore.1 FAIL
+  run_db_image
+  db_refused "the restore test did not PASS"
+  check "postgres was never recreated" calls_lack '^docker compose up'
+}
+
+case_db_image_wrong_confirmation() {
+  db_setup
+  db_target pin
+  type_at_terminal "${SHA_D:0:7}"
+  run_deploy db-image "$SHA_E"
+  db_refused "not confirmed"
+  check "no run is deploying" status_is refused
+}
+
+case_db_image_refuses_without_a_terminal() {
+  db_setup
+  db_target pin
+  export DEPLOY_TTY=$C/no-such-terminal
+  run_db_image
+  db_refused "can't read $C/no-such-terminal"
+  check "no backup spent" calls_lack '^systemctl|^pg-restore-test'
+}
+
+case_db_image_fails_when_postgres_never_answers() {
+  db_setup
+  db_target pin
+  export DEPLOY_PROBE_TRIES=4 DEPLOY_PROBE_INTERVAL=0.01
+  echo never >"$STUB_STATE/fixtures/pg-ready"
+  run_db_image
+  db_failed_after_merge "not both within 4 probes"
+  check "no after-dump" [ "$(count_calls '^systemctl start')" -eq 1 ]
+}
+
+case_db_image_fails_when_the_api_does_not_reconnect() {
+  db_setup
+  db_target pin
+  export DEPLOY_PROBE_TRIES=4 DEPLOY_PROBE_INTERVAL=0.01
+  echo always >"$STUB_STATE/fixtures/api-health-fails"
+  run_db_image
+  db_failed_after_merge "the api did not reconnect by itself; it was not restarted"
+}
+
+case_db_image_fails_when_a_container_is_unhealthy() {
+  db_setup
+  db_target pin
+  echo starting >"$STUB_STATE/fixtures/health-postgres"
+  run_db_image
+  db_failed_after_merge "postgres, api and web not all healthy"
+  check "no further step: no version query, no log read, no second dump or restore test" \
+    bash -c "[ \"$(count_calls '^systemctl start')\" -eq 1 ] && [ \"$(count_calls '^pg-restore-test')\" -eq 1 ] && ! grep -q 'SELECT version' '$STUB_STATE/calls' && ! grep -q 'compose logs' '$STUB_STATE/calls'"
+}
+
+case_db_image_fails_on_a_wrong_server_version() {
+  db_setup
+  db_target pin
+  run_db_image_with_version "PostgreSQL 17.$(minor_of "$PIN_D") (Debian stub) on x86_64-pc-linux-gnu"
+  db_failed_after_merge "not PostgreSQL 17."
+}
+# run_db_image_with_version TEXT: db_target has set the version fixture; this one overrides it before the run.
+run_db_image_with_version() {
+  fixture version "$1"
+  run_db_image
+}
+
+case_db_image_fails_on_an_error_in_postgres_log() {
+  db_setup
+  db_target pin
+  printf '%s\n' '2026-11-17 13:04:38.959 UTC [1] LOG:  database system is ready to accept connections' \
+    '2026-11-17 13:04:39.000 UTC [40] ERROR:  could not read block 3 in file "base/16384/16385" (stub)' >"$STUB_STATE/fixtures/start-log-postgres"
+  run_db_image
+  db_failed_after_merge "has ERROR, FATAL or PANIC lines other than"
+  check "the line is shown" out_has "could not read block 3"
+  db_setup
+  db_target pin
+  printf '%s\n' '2026-11-17 13:04:39.000 UTC [40] PANIC:  stub' >"$STUB_STATE/fixtures/start-log-postgres"
+  run_db_image
+  db_failed_after_merge "has ERROR, FATAL or PANIC lines other than"
+  db_setup
+  db_target pin
+  printf '%s\n' '2026-11-17 13:04:39.000 UTC [40] FATAL:  password authentication failed for user "finance" (stub)' >"$STUB_STATE/fixtures/start-log-postgres"
+  run_db_image
+  db_failed_after_merge "has ERROR, FATAL or PANIC lines other than"
+}
+
+case_db_image_ignores_lines_from_before_its_start() {
+  db_setup
+  db_target pin
+  printf '2026-09-20T10:00:00.000000000Z 2026-09-20 10:00:00.000 UTC [40] ERROR:  an old line, before the recreate\n' >>"$STUB_STATE/log-postgres"
+  run_db_image
+  check "exit code 0" rc_is 0
+  check "the old line isn't shown" out_lacks "an old line, before the recreate"
+}
+
+case_db_image_fails_on_other_numbers() {
+  db_setup
+  db_target pin
+  numbers 5 >"$STUB_STATE/fixtures/numbers.2"
+  numbers 0 >"$STUB_STATE/fixtures/numbers.1"
+  run_db_image
+  db_failed_after_merge "the numbers differ from preflight's"
+}
+
+case_db_image_fails_on_flyway_below() {
+  db_setup
+  db_target pin
+  echo "8 family invites true" >"$STUB_STATE/fixtures/flyway"
+  run_db_image
+  db_failed_after_merge "Flyway isn't at V9 with success"
+}
+
+case_db_image_fails_on_a_failed_page() {
+  db_setup
+  db_target pin
+  fixture pages "/privacy 403"
+  run_db_image
+  db_failed_after_merge "a page isn't as expected"
+}
+
+case_db_image_fails_when_the_after_restore_test_fails() {
+  db_setup
+  db_target pin
+  fixture restore.2 FAIL
+  run_db_image
+  db_failed_after_merge "the restore test did not PASS"
+}
+
+# The next ordinary run after db-image needs no flag; the guard of run accepts only the pin the running container has.
+case_run_after_db_image_goes_on_without_a_flag() {
+  db_setup
+  db_target pin docs
+  run_db_image
+  check "db-image exit code 0" rc_is 0
+  type_at_terminal yes yes
+  run_deploy finish
+  check "finish exit code 0" rc_is 0
+  # F: an ordinary change on top of E, deployed by run with no flag
+  (cd "$C/work" && echo "revision F" >README && git add -A && git commit -qm "revision F" && git push -q origin main)
+  SHA_E_DB=$SHA_E
+  SHA_E=$(git -C "$C/work" rev-parse HEAD)
+  cp "$C/state/last-good" "$C/last-good.orig"
+  type_at_terminal "${SHA_E:0:7}"
+  run_deploy run "$SHA_E" OPS-1
+  check "run exit code 0" rc_is 0
+  check "run deployed F" out_has "Deploy of ${SHA_E:0:7} (stage OPS-1): deployed"
+  check "the base of that run is E, the db-image's commit" out_has "Previous commit: ${SHA_E_DB:0:7}"
+}
+
+# The same guard on a clone whose base still holds the old pin: the container has the new pin, so it is accepted.
+case_run_accepts_the_pin_the_running_container_has() {
+  setup_case
+  PIN_D=$(pin_of "$C/server/deploy/app/docker-compose.yml")
+  local n
+  n=$(minor_of "$PIN_D")
+  PIN_E="postgres:17.$((n + 1))@$FAKE_DIGEST"
+  (cd "$C/work" && new_pin "$PIN_E" && echo "revision E" >README && git add -A && git commit -qm "revision E" && git push -q origin main)
+  SHA_E=$(git -C "$C/work" rev-parse HEAD)
+  echo "$PIN_E" >"$STUB_STATE/containers/finance-tracker-postgres/config-image"
+  deploy_e
+  check "exit code 0" rc_is 0
+  check "says it accepts the applied pin" out_has "it is the one the running container already has: $PIN_E"
+  check "says deployed" out_has "Deploy of ${SHA_E:0:7} (stage OPS-1): deployed"
+}
+
+case_run_refuses_a_pin_the_running_container_does_not_have() {
+  setup_case
+  PIN_D=$(pin_of "$C/server/deploy/app/docker-compose.yml")
+  local n
+  n=$(minor_of "$PIN_D")
+  (cd "$C/work" && new_pin "postgres:17.$((n + 1))@$FAKE_DIGEST" && echo "revision E" >README && git add -A && git commit -qm "revision E" && git push -q origin main)
+  SHA_E=$(git -C "$C/work" rev-parse HEAD)
+  deploy_e
+  refused "the postgres service changes (its block, other than the image line the running container already has)"
+  check "names db-image" out_has "a new image is applied by deploy.sh db-image"
+}
+
+case_run_refuses_the_applied_pin_with_another_postgres_change() {
+  setup_case
+  PIN_D=$(pin_of "$C/server/deploy/app/docker-compose.yml")
+  local n
+  n=$(minor_of "$PIN_D")
+  PIN_E="postgres:17.$((n + 1))@$FAKE_DIGEST"
+  (cd "$C/work" && new_pin "$PIN_E" && sed -i 's/mem_limit: 384m/mem_limit: 512m/' deploy/app/docker-compose.yml && echo "revision E" >README && git add -A && git commit -qm "revision E" && git push -q origin main)
+  SHA_E=$(git -C "$C/work" rev-parse HEAD)
+  echo "$PIN_E" >"$STUB_STATE/containers/finance-tracker-postgres/config-image"
+  deploy_e
+  refused "the postgres service changes (its block, other than the image line the running container already has)"
+}
+
+case_run_refuses_the_applied_pin_with_a_changed_extension_block() {
+  setup_case
+  PIN_D=$(pin_of "$C/server/deploy/app/docker-compose.yml")
+  local n
+  n=$(minor_of "$PIN_D")
+  PIN_E="postgres:17.$((n + 1))@$FAKE_DIGEST"
+  (cd "$C/work" && new_pin "$PIN_E" && sed -i 's/^  driver: journald$/  driver: local/' deploy/app/docker-compose.yml && echo "revision E" >README && git add -A && git commit -qm "revision E" && git push -q origin main)
+  SHA_E=$(git -C "$C/work" rev-parse HEAD)
+  echo "$PIN_E" >"$STUB_STATE/containers/finance-tracker-postgres/config-image"
+  deploy_e
+  refused "the postgres service changes (the extension blocks it may merge in, the volumes or postgres-init.sh)"
+}
+
+case_verify_names_the_database_image() {
+  setup_case
+  run_deploy verify OPS-1
+  check "exit code 0" rc_is 0
+  check "names the image the container was created from" out_has "finance-tracker-postgres was created from: $(pin_of "$C/server/deploy/app/docker-compose.yml")"
+  check "prints the server's version" out_has "Server: PostgreSQL "
+}
+
 CASES=(
   happy_path first_run
   refuse_ci_failed refuse_ci_still_running ci_waits_then_succeeds refuse_ci_none refuse_not_origin_main
@@ -3089,6 +3696,44 @@ CASES=(
   run_refused_by_a_passed_shutdown_time a_usec_without_a_mode_is_a_shutdown
   build_cache_pruned_after_success build_cache_prune_failure_only_warns no_build_cache_prune_after_a_failed_deploy
   verify_compares_numbers_with_the_last_run prune_cache_command prune_cache_failure_exits_1
+  db_image_happy_path
+  db_image_refuses_a_clone_not_at_the_last_good_deploy
+  db_image_refuses_without_a_clean_finish
+  db_image_refuses_after_an_unfinished_run
+  db_image_refuses_a_dirty_clone
+  db_image_refuses_an_unhealthy_container
+  db_image_refuses_a_commit_that_is_not_origin_main
+  db_image_refuses_the_commit_that_runs
+  db_image_refuses_what_is_not_a_fast_forward
+  db_image_refuses_more_than_the_image_line
+  db_image_refuses_a_pin_that_is_not_an_upgrade_of_the_same_major
+  db_image_refuses_deployed_files_outside_the_stack_folder
+  db_image_refuses_a_container_not_on_the_old_pin
+  db_image_refuses_when_the_old_image_is_gone
+  db_image_refuses_failed_ci
+  db_image_refuses_a_shutdown_less_than_2_hours_away
+  db_image_refuses_while_an_index_needs_a_reindex
+  db_image_refuses_when_the_pull_fails
+  db_image_refuses_an_image_that_is_not_the_pin
+  db_image_stops_before_the_recreate_when_the_before_dump_fails
+  db_image_wrong_confirmation
+  db_image_refuses_without_a_terminal
+  db_image_fails_when_postgres_never_answers
+  db_image_fails_when_the_api_does_not_reconnect
+  db_image_fails_when_a_container_is_unhealthy
+  db_image_fails_on_a_wrong_server_version
+  db_image_fails_on_an_error_in_postgres_log
+  db_image_ignores_lines_from_before_its_start
+  db_image_fails_on_other_numbers
+  db_image_fails_on_flyway_below
+  db_image_fails_on_a_failed_page
+  db_image_fails_when_the_after_restore_test_fails
+  run_after_db_image_goes_on_without_a_flag
+  run_accepts_the_pin_the_running_container_has
+  run_refuses_a_pin_the_running_container_does_not_have
+  run_refuses_the_applied_pin_with_another_postgres_change
+  run_refuses_the_applied_pin_with_a_changed_extension_block
+  verify_names_the_database_image
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

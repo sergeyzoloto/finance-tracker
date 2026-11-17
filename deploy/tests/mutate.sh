@@ -450,9 +450,8 @@ mutation "take a run of another workflow as CI's" \
   '        pass' \
   refuse_ci_run_of_another_workflow
 mutation "leave the extension blocks out of the postgres guard" \
-  '    || [ "$(compose_extensions "$BASE")" != "$(compose_extensions "$SHA")" ] \
-' \
-  '' \
+  $'  if [ "$(compose_extensions "$BASE")" != "$(compose_extensions "$SHA")" ] \\\n    || [ "$(compose_part "$BASE" volumes:)"' \
+  $'  if false \\\n    || [ "$(compose_part "$BASE" volumes:)"' \
   refuse_logging_changed
 
 # OPS-5 (D-940, D-941): the build cache's bound and verify's comparison with the last run.
@@ -501,6 +500,133 @@ mutation "prune-cache exits 0 when the prune failed" \
   '  [ "$BUILD_CACHE_RC" -eq 0 ] || fail "the build cache wasn'"'"'t pruned: $BUILD_CACHE_LINE"' \
   '  : "$BUILD_CACHE_RC"' \
   prune_cache_failure_exits_1
+
+# --- db-image (OPS-6, D-939, D-945 to D-947)
+mutation "db-image starts from any clone, not the last good deploy" \
+  $'  [ "$LG_COMMIT" = "$HEAD_BEFORE" ] \\\n    || fail "HEAD ($(git rev-parse --short HEAD)) isn\'t the last good deploy' \
+  $'  true \\\n    || fail "HEAD ($(git rev-parse --short HEAD)) isn\'t the last good deploy' \
+  db_image_refuses_a_clone_not_at_the_last_good_deploy
+mutation "db-image doesn't need a clean finish" \
+  '  clean_finish "$HEAD_BEFORE" || fail "the last good deploy' '  true || fail "the last good deploy' \
+  db_image_refuses_without_a_clean_finish
+mutation "db-image goes on after an unfinished run" \
+  '    [ -z "$why" ] || fail "$why"' '    :' \
+  db_image_refuses_after_an_unfinished_run
+mutation "db-image doesn't look at the containers' health" \
+  '    [ "$(health_of "$f")" = healthy ] || fail "$f isn'"'"'t healthy"' '    :' \
+  db_image_refuses_an_unhealthy_container
+mutation "db-image lets the compose file change beyond the image line" \
+  '    || fail "more than the postgres service'"'"'s image line changes in deploy/app/docker-compose.yml"' '    || :' \
+  db_image_refuses_more_than_the_image_line
+mutation "db-image lets other files of deploy/app change" \
+  '= deploy/app/docker-compose.yml ] \
+    || fail "in deploy/app/ only' '!= deploy/app/never ] \
+    || fail "in deploy/app/ only' \
+  db_image_refuses_more_than_the_image_line
+mutation "db-image lets any file outside deploy/app change" \
+  '    [ "$f" = deploy/app/docker-compose.yml ] || never_deployed "$f" || outside+=("$f")' '    :' \
+  db_image_refuses_deployed_files_outside_the_stack_folder
+mutation "the rule of never-deployed files allows the api's folder" \
+  '    docs/* | e2e/* |' '    backend/* | docs/* | e2e/* |' \
+  db_image_refuses_deployed_files_outside_the_stack_folder
+mutation "the rule of never-deployed files allows numbers.sql" \
+  '    deploy/checks/numbers.sql) return 1 ;;
+' '' \
+  db_image_refuses_deployed_files_outside_the_stack_folder
+mutation "db-image accepts a new major version" \
+  '    || fail "a new major version ($old_major to $new_major) needs a dump and a restore, not db-image"' '    || :' \
+  db_image_refuses_a_pin_that_is_not_an_upgrade_of_the_same_major
+mutation "db-image accepts the same or an older minor release" \
+  '[ "$new_minor" -gt "$old_minor" ] ||' 'true ||' \
+  db_image_refuses_a_pin_that_is_not_an_upgrade_of_the_same_major
+mutation "db-image accepts a pin without a digest" \
+  "POSTGRES_PIN_RE='^postgres:([0-9]+)\\.([0-9]+)@sha256:[0-9a-f]{64}\$'" "POSTGRES_PIN_RE='^postgres:([0-9]+)\\.([0-9]+)(@sha256:[0-9a-f]{64})?\$'" \
+  db_image_refuses_a_pin_that_is_not_an_upgrade_of_the_same_major
+mutation "db-image doesn't compare the container with the old pin" \
+  '  [ "$running" = "$OLD_PIN" ] || fail "$PG_CONTAINER was created from' '  true || fail "$PG_CONTAINER was created from' \
+  db_image_refuses_a_container_not_on_the_old_pin
+mutation "db-image doesn't need the old image to stay" \
+  '    || fail "the old image $OLD_PIN isn'"'"'t on this host: the way back needs it (D-947)"' '    || :' \
+  db_image_refuses_when_the_old_image_is_gone
+mutation "db-image doesn't check CI" \
+  '  ci_check # CI passed on the commit (D-945)' '  : ci_check # CI passed on the commit (D-945)' \
+  db_image_refuses_failed_ci
+mutation "db-image doesn't pull the new image" \
+  $'  docker pull "$NEW_PIN"\n' $'  : pull\n' \
+  db_image_happy_path
+mutation "db-image doesn't run the pulled image" \
+  '  out=$(docker run --rm --network none --entrypoint postgres "$NEW_PIN" --version)' '  out="PostgreSQL $new_major.$new_minor "; : $(true)' \
+  db_image_happy_path
+mutation "db-image goes on with an index to REINDEX" \
+  '    fail "the release notes advise REINDEX for the indexes above (index|method|why): decide with the PM before the upgrade; db-image goes on only when none is listed"' '    say ignored' \
+  db_image_refuses_while_an_index_needs_a_reindex
+mutation "db-image confirmation accepts anything" \
+  '[ "$ANSWER" = "${SHA:0:7}" ] || fail "not confirmed (db-image)"' ': accepts "$ANSWER"' \
+  db_image_wrong_confirmation
+mutation "db-image takes postgres down with the stack" \
+  '(cd "$APP_DIR" && docker compose up -d --no-deps postgres)
+  db_image_probe' '(cd "$APP_DIR" && docker compose down && docker compose up -d postgres)
+  db_image_probe' \
+  db_image_happy_path
+mutation "db-image recreates api and web too" \
+  '(cd "$APP_DIR" && docker compose up -d --no-deps postgres)
+  db_image_probe' '(cd "$APP_DIR" && docker compose up -d --no-deps postgres api web)
+  db_image_probe' \
+  db_image_happy_path
+mutation "db-image rolls back by itself when it fails" \
+  '    print_db_image_rollback
+  fi' '    print_db_image_rollback
+    git checkout -q --detach "$HEAD_BEFORE"
+    (cd "$APP_DIR" && docker compose up -d --no-deps postgres)
+  fi' \
+  db_image_fails_when_postgres_never_answers db_image_fails_on_flyway_below
+mutation "db-image restarts the api when it doesn't answer" \
+  '  db_image_probe || fail "postgres accepted' '  db_image_probe || (cd "$APP_DIR" && docker compose restart api) || fail "postgres accepted' \
+  db_image_fails_when_the_api_does_not_reconnect
+mutation "db-image prints no way back" \
+  '    print_db_image_rollback
+  fi' '    :
+  fi' \
+  db_image_fails_when_postgres_never_answers db_image_fails_on_flyway_below
+mutation "db-image tolerates every FATAL line of the log" \
+  "grep -vF 'FATAL:  the database system is starting up' || true)" "grep -vF 'FATAL' || true)" \
+  db_image_fails_on_an_error_in_postgres_log
+mutation "db-image reads postgres's whole log, not since its start" \
+  $' --since "$(docker inspect -f \'{{.State.StartedAt}}\' "$PG_CONTAINER")" postgres)' $' postgres)' \
+  db_image_ignores_lines_from_before_its_start
+mutation "db-image doesn't check the server's version" \
+  '  [[ $out == "PostgreSQL $new_major.$new_minor "* ]] || fail "the server says' '  true || fail "the server says' \
+  db_image_fails_on_a_wrong_server_version
+mutation "db-image ignores other numbers" \
+  '    fail "the numbers differ from preflight'"'"'s ($RUN_DIR/numbers.diff); a user'"'"'s entry during the upgrade shows up here too, so judge before going back"' '    say ignored' \
+  db_image_fails_on_other_numbers
+mutation "db-image doesn't check Flyway" \
+  '  [ "${row##* }" = true ] && [ "$version" = "$expected" ] || fail "Flyway isn'"'"'t at V$expected with success: $row"' '  :' \
+  db_image_fails_on_flyway_below
+mutation "db-image doesn't check the pages" \
+  '  page_checks || fail "a page isn'"'"'t as expected after the upgrade: $PAGES_LINE"' '  page_checks || :' \
+  db_image_fails_on_a_failed_page
+mutation "db-image doesn't record the last good deploy" \
+  '  write_last_good "$SHA" "$RUN_API" "$RUN_WEB" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" db-image' '  :' \
+  db_image_happy_path
+mutation "db-image removes the old image" \
+  '  say "The old image $OLD_PIN is on this host and stays (D-947)"' '  say "The old image $OLD_PIN is on this host and stays (D-947)"; docker rmi "${OLD_PIN%@*}"' \
+  db_image_happy_path
+mutation "run accepts any new postgres image line" \
+  '  [ "$running" = "$pin" ] || return 1' '  true || return 1' \
+  run_refuses_a_pin_the_running_container_does_not_have
+mutation "run accepts the applied pin with another change of the block" \
+  '  [ "$(postgres_block_without_image "$1")" = "$(postgres_block_without_image "$2")" ] || return 1' '  true || return 1' \
+  run_refuses_the_applied_pin_with_another_postgres_change
+mutation "run lets the extension blocks change with the applied pin" \
+  $'  if [ "$(compose_extensions "$BASE")" != "$(compose_extensions "$SHA")" ] \\' $'  if false \\' \
+  run_refuses_the_applied_pin_with_a_changed_extension_block
+mutation "run never accepts the applied pin" \
+  '  [ "$running" = "$pin" ] || return 1' '  return 1' \
+  run_accepts_the_pin_the_running_container_has run_after_db_image_goes_on_without_a_flag
+mutation "verify doesn't name the database image" \
+  '  say "$PG_CONTAINER was created from: $(docker inspect -f '"'"'{{.Config.Image}}'"'"' "$PG_CONTAINER" 2>/dev/null || echo '"'"'unknown (no such container)'"'"')"' '  :' \
+  verify_names_the_database_image
 
 echo
 if [ "$survived" -eq 0 ]; then

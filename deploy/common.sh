@@ -31,6 +31,11 @@ common_settings() {
   SHUTDOWN_MARGIN=7200
   SHUTDOWN_NOW=${DEPLOY_SHUTDOWN_NOW:-}
   APP_DIR=$REPO_DIR/deploy/app
+  # OPS-6: the database container, and how db-image watches it come back (a probe every PROBE_INTERVAL seconds, at most
+  # PROBE_TRIES of them; the tests shorten both).
+  PG_CONTAINER=finance-tracker-postgres
+  PROBE_INTERVAL=${DEPLOY_PROBE_INTERVAL:-0.2}
+  PROBE_TRIES=${DEPLOY_PROBE_TRIES:-300}
   CONF_TARGET=/etc/pg-backup/finance.conf
   GITHUB_API=https://api.github.com/repos/sergeyzoloto/finance-tracker
   MIGRATIONS=backend/src/main/resources/db/migration
@@ -38,6 +43,8 @@ common_settings() {
   for v in CI_WAIT CI_INTERVAL HEALTH_TRIES HEALTH_INTERVAL; do
     [[ ${!v} =~ ^[0-9]+$ ]] || { echo "ERROR: DEPLOY_$v must be a whole number" >&2; exit 2; }
   done
+  [[ $PROBE_INTERVAL =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "ERROR: DEPLOY_PROBE_INTERVAL must be a number of seconds" >&2; exit 2; }
+  [[ $PROBE_TRIES =~ ^[0-9]+$ ]] || { echo "ERROR: DEPLOY_PROBE_TRIES must be a whole number" >&2; exit 2; }
   [ -z "$SHUTDOWN_NOW" ] || [[ $SHUTDOWN_NOW =~ ^[1-9][0-9]{0,11}$ ]] \
     || { echo "ERROR: DEPLOY_SHUTDOWN_NOW must be seconds since the epoch" >&2; exit 2; }
   RUN_DIR=

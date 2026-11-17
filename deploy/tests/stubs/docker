@@ -9,6 +9,13 @@
 #   log-api                        the api's log, "<timestamp> <line>"
 #   fixtures/                      what psql, a build and a start answer (deploy/tests/run.sh, setup_case); psql answers
 #                                  only as finance_checks (or, with STUB_ALLOW_FINANCE=1, as OPS-1's finance)
+# OPS-6 (db-image): a third container, finance-tracker-postgres, with containers/finance-tracker-postgres/config-image (the
+# image reference it was created from, .Config.Image), started and health like the others; images/postgres/<tag> for the
+# pulled and the kept postgres images; log-postgres its log; fixtures: pg-ready (the number of failing pg_isready probes
+# before the first answer, default 1, or never), api-health-fails (failing health probes of the api, default 1, or
+# always), version (what SELECT version() answers), indexes (what the REINDEX query answers, default nothing),
+# pull-fails, pulled-version (what the pulled image says it is, default its tag), start-log-postgres (what a recreated
+# postgres logs). Compose recreates postgres only when ./docker-compose.yml's image line differs from config-image.
 # The image store (OPS-2, defect 4), from the file store: classic (the default), containerd, broken (no daemon: docker
 # info and docker version fail), or unrecognised (docker info answers null). In the classic store an image's ID is its config digest, so its content identity is its ID, and a build of
 # the same content (fixtures/same-content-<service>) keeps the ID. In the containerd store the ID is a manifest list's
@@ -53,6 +60,7 @@ content_of() {
 
 resolve() {
   local ref=$1 repo tag
+  [[ $ref == sha256:* ]] || ref=${ref%%@*}   # postgres:17.11@sha256:… is the image of the tag 17.11 here
   if [[ $ref == sha256:* ]]; then
     present "$ref" || { echo "Error response from daemon: No such image: $ref" >&2; return 1; }
     echo "$ref"
@@ -80,6 +88,7 @@ inspect() {
       fi
       ;;
     '{{.State.StartedAt}}') cat "$S/containers/$name/started" ;;
+    '{{.Config.Image}}') cat "$S/containers/$name/config-image" ;;
     '{{.State.Health.Status}}')
       f=$S/containers/$name/health
       head -n 1 "$f"
@@ -117,6 +126,7 @@ psql_call() {
   if [[ $args == *" -f -"* ]]; then
     sql=$(cat)
     case $sql in
+      *gist_trgm_ops*) f=$(next_fixture indexes) ;;
       *"'outside_their_ledger'"*)
         f=$(next_fixture numbers)
         # fixtures/numbers-fails: the numbers can't be read, from its n-th call on (any call when it is empty; D-50).
@@ -131,6 +141,7 @@ psql_call() {
     esac
   else
     case $args in
+      *"SELECT version()"*) f=$(next_fixture version) ;;
       *flyway_schema_history*) f=$(next_fixture flyway) ;;
       # rollback.sh's count of the records an image before V11 would misread (ADR 0004).
       *"r.currency <> l.base_currency"*) f=$(next_fixture family_records_misread) ;;
@@ -159,6 +170,17 @@ up() {
     esac
   done
   [ ${#services[@]} -gt 0 ] || services=(api web)
+  if [ "${services[*]}" = postgres ]; then
+    local want cur=$S/containers/finance-tracker-postgres
+    want=$(sed -nE 's/^    image: (postgres:[^[:space:]]+)$/\1/p' ./docker-compose.yml)
+    [ "$want" = "$(cat "$cur/config-image")" ] && return 0   # unchanged: compose leaves it running
+    echo "$want" >"$cur/config-image"
+    now >"$cur/started"
+    cp "$S/fixtures/health-postgres" "$cur/health"
+    while IFS= read -r line; do printf '%s %s\n' "$(now)" "$line" >>"$S/log-postgres"; done <"$S/fixtures/start-log-postgres"
+    echo " Container finance-tracker-postgres  Started"
+    return 0
+  fi
   # What ./.env (deploy/app/.env, the real compose project's) says now: compose always runs from there (common.sh).
   want_switch=$(grep '^FAMILY_LEDGERS_ENABLED=' ./.env 2>/dev/null || true)
   for svc in "${services[@]}"; do
@@ -204,14 +226,15 @@ up() {
 }
 
 logs() {
-  local since=''
+  local since='' service=api
   while [ $# -gt 0 ]; do
     case $1 in
       --since) since=$2; shift ;;
+      api | postgres) service=$1 ;;
     esac
     shift
   done
-  awk -v since="$since" 'since == "" || $1 >= since' "$S/log-api"
+  awk -v since="$since" 'since == "" || $1 >= since' "$S/log-$service"
 }
 
 # build SERVICE: a new :latest. The same content (fixtures/same-content-<service>) keeps the ID in the classic store and
@@ -307,6 +330,39 @@ case $1 in
     if [ -e "$S/fixtures/builder-prune-fails" ]; then echo "ERROR: failed to prune build cache (stub)" >&2; exit 1; fi
     printf 'ID\tRECLAIMABLE\tSIZE\tLAST ACCESSED\nTotal:\t1.2GB\n'
     ;;
-  exec) cat "$S/containers/finance-tracker-api/env" ;;   # docker exec … env or printenv would print the secret
+  pull)
+    [ ! -f "$S/fixtures/pull-fails" ] || { echo "Error response from daemon: pull failed (stub)" >&2; exit 1; }
+    ref=${2%%@*}
+    mkdir -p "$S/images/${ref%%:*}"
+    [ -f "$S/images/${ref%%:*}/${ref#*:}" ] || new_id >"$S/images/${ref%%:*}/${ref#*:}"
+    echo "Digest: ${2#*@}"
+    ;;
+  run)
+    # docker run --rm --network none --entrypoint postgres <ref> --version
+    [ "$*" = "run --rm --network none --entrypoint postgres $7 --version" ] && [ "$6" = postgres ] || { echo "docker stub: unknown run: $*" >&2; exit 99; }
+    [ ! -f "$S/fixtures/pulled-version" ] || { cat "$S/fixtures/pulled-version"; exit 0; }
+    ref=${7%%@*}
+    echo "postgres (PostgreSQL ${ref#*:} (Debian ${ref#*:}-1.stub))"
+    ;;
+  exec)
+    case $2 in
+      finance-tracker-postgres)
+        # pg_isready: the first PG_READY probes fail (fixtures/pg-ready, default 1; never = always).
+        n=$(($(cat "$S/count-pg-ready" 2>/dev/null || echo 0) + 1))
+        echo "$n" >"$S/count-pg-ready"
+        fails=$(cat "$S/fixtures/pg-ready" 2>/dev/null || echo 1)
+        [ "$fails" != never ] && [ "$n" -gt "$fails" ]
+        ;;
+      finance-tracker-api)
+        # the api's health probe: the first fixtures/api-health-fails answer failure (default 1; always = never UP).
+        [ "$3" = curl ] || { cat "$S/containers/finance-tracker-api/env"; exit 0; }
+        n=$(($(cat "$S/count-api-health" 2>/dev/null || echo 0) + 1))
+        echo "$n" >"$S/count-api-health"
+        fails=$(cat "$S/fixtures/api-health-fails" 2>/dev/null || echo 1)
+        [ "$fails" != always ] && [ "$n" -gt "$fails" ]
+        ;;
+      *) cat "$S/containers/finance-tracker-api/env" ;;   # docker exec … env or printenv would print the secret
+    esac
+    ;;
   *) echo "docker stub: unknown command: $*" >&2; exit 99 ;;
 esac

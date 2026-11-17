@@ -135,7 +135,7 @@ Key decisions:
 | Backend  | Java 21, Spring Boot 3.5 (Web, Security with OAuth2 client and resource server, Data JDBC, Validation, Actuator), Flyway, springdoc-openapi, Maven 3.9 (wrapper) |
 | Frontend | React 19, React Router 7, TypeScript 7, Vite 8, big.js; charts in plain HTML and CSS; IBM Plex Sans and Mono             |
 | Serving  | Production: nginx-unprivileged 1.30 (static files only) behind the auth server's Caddy. Locally: nginx 1.30 as a reverse proxy |
-| Database | PostgreSQL 17: production `postgres:17.11` pinned by digest, local runs and tests `postgres:17-alpine`                  |
+| Database | PostgreSQL 17: production `postgres:17.12` pinned by digest, local runs and tests `postgres:17-alpine`                  |
 | Auth     | Keycloak 26: the shared auth server, realm `myapps`, client `finance-tracker`                                         |
 | Tests    | JUnit 5, MockMvc, Testcontainers, ArchUnit, an in-process fake Keycloak; Vitest and Testing Library; Playwright end to end |
 | Runtime  | Docker Compose; GitHub Actions for CI and an external monitor                                                         |

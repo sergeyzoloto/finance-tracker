@@ -97,7 +97,7 @@ with no date (D-720 of [the requirements](family-budget/requirements.md)).
 **finance-tracker in production** ([deploy/app/docker-compose.yml](../deploy/app/docker-compose.yml),
 [deploy/RUNBOOK.md](../deploy/RUNBOOK.md)):
 
-- `postgres:17.11`, pinned by digest, as the container `finance-tracker-postgres`, `mem_limit: 384m`, on the stack's
+- `postgres:17.12` (17.11 until OPS-6's `deploy.sh db-image`), pinned by digest, as the container `finance-tracker-postgres`, `mem_limit: 384m`, on the stack's
   own network only: neither published on the host nor on the shared network `edge`.
 - The database `finance`, owned by the login `finance`, which is no superuser
   ([postgres-init.sh](../deploy/app/postgres-init.sh)); Flyway creates the schema `app` in it (V1 to V17).

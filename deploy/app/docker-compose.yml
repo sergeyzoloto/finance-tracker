@@ -23,7 +23,7 @@ services:
   postgres:
     # An exact version and build: the nightly backup and its restore test (deploy/pg-backup/finance.conf) use the
     # image this container runs, and a new major version needs a dump and a restore.
-    image: postgres:17.11@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    image: postgres:17.12@sha256:0d938e975177bef9f1f61f3f9dbcf2e0aa0a139568f66d3415ed8892eb97f6ac
     # The api's name for the database. Not "postgres": the api is also on edge, where a container of another project
     # could take that name. The prefix finance- is this project's on edge.
     container_name: finance-tracker-postgres

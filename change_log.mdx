@@ -3,6 +3,22 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-17 · OPS-6b, second commit (B'): the app database's pin, Postgres 17.12 by digest
+
+The commit of this entry (B'), on `main` on top of C (OPS-6b's first commit; its full hash is in the report), D-945, D-955, D-962: exactly the changes of the dropped B (`618ba4d`, never deployed), cherry-picked. Not committed yet. Not pushed, not deployed: applied by `deploy.sh db-image <B'>` in Part B of OPS-6b's checklist, after C's deploy and `finish`. Nothing was changed on the server and no command was run there.
+
+**Changes**
+- `deploy/app/docker-compose.yml`: the postgres service's image line only, `postgres:17.11@sha256:d74eeac9…` to `postgres:17.12@sha256:0d938e975177bef9f1f61f3f9dbcf2e0aa0a139568f66d3415ed8892eb97f6ac` (Docker Hub's index digest of 17.12, released 2026-11-12, the newest 17.x on 2026-11-17; `linux/amd64` among its manifests; already on the production host, pulled by the refused part B).
+- Where else the pin is named, moved with it (D-955): `README.md`'s database row, `docs/database-hosting.md`'s description of production's database, `CLAUDE.md`'s Deployment line (the container runs 17.11 until the window). Read from the compose file or the running container, so not edited: `scripts/rehearsal-db.sh`, `deploy/tests/rehearsal-db-test.sh`, `pg-restore-test`. Not moved by design: the root `docker-compose.yml`'s and Testcontainers' `postgres:17-alpine`, the Keycloak stack's `postgres:16.16`, `deploy/tests/stubs/pg-restore-test`'s fake table, and every historical record.
+
+**Verified**
+- The diff from C is exactly B's: `deploy/app/docker-compose.yml` (the image line), `README.md`, `docs/database-hosting.md`, `CLAUDE.md`'s Deployment line and this entry; `db-image`'s own rule on it (the repository's functions, a local script): `RULE: accepted`. It was rehearsed by `deploy.sh db-image` itself on real docker as the target commit (see C's entry).
+- `deploy/tests/run.sh` on a worktree of this commit: 155 passed, 0 failed, of 155 cases, exit 0; `deploy/tests/mutate.sh`: Every mutation was caught, exit 0; the Frontend steps on its archive: `Test Files  59 passed (59)`, `Tests  801 passed (801)`, build ok, exit 0 (all in C's entry). `scripts/check-forbidden-names.sh` exit 0 on the tree before the commit.
+
+**Open**
+- The window of OPS-6b's checklist (push C alone, Part A, push B', Part B, Part C); the first record of the deploy goes into the next batch's first commit.
+
+
 ## 2026-11-17 · OPS-6b, first commit (C): db-image reads the real version formats, OPS-6's part A recorded, D-959 to D-968, OPS-6b's checklist
 
 The commit of this entry (C), on `main` on top of `d6f6f3664694ba6dbe7b1ad0dacafd8e480c85b2` (OPS-6's A, deployed): local main was reset to A (`618ba4d`, B, stays on GitHub until the owner's force-push, D-962) and B' follows as the next commit. Not committed yet. Not pushed, not deployed. Nothing under `deploy/app/` changes. Nothing was changed on the server and no command was run there.

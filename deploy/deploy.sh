@@ -201,6 +201,23 @@ postgres_image_of() {
   printf '%s' "$lines"
 }
 
+# pg_cli_version TEXT: "17.12" from what `postgres --version` prints, as run on 2026-11-17 for 17.11 and 17.12:
+# "postgres (PostgreSQL) 17.12 (Debian 17.12-1.pgdg13+1)"; nothing for any other text (OPS-6b, D-963: the first version of
+# this check expected the SELECT version() form and refused the real image).
+pg_cli_version() {
+  local re='^postgres \(PostgreSQL\) ([0-9]+)\.([0-9]+)( |$)'
+  [[ $1 =~ $re ]] || return 0
+  printf '%s.%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+# pg_sql_version TEXT: "17.12" from what `SELECT version()` prints, "PostgreSQL 17.12 (Debian 17.12-1.pgdg13+1) on
+# x86_64-pc-linux-gnu, compiled by gcc …"; nothing for any other text.
+pg_sql_version() {
+  local re='^PostgreSQL ([0-9]+)\.([0-9]+)( |$)'
+  [[ $1 =~ $re ]] || return 0
+  printf '%s.%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
 # postgres_block_without_image REV: the postgres service's block at REV with its image line blanked, so that two
 # revisions compare equal when only that line differs (OPS-6, D-945).
 postgres_block_without_image() {
@@ -1033,7 +1050,7 @@ cmd_db_image() {
   docker pull "$NEW_PIN"
   out=$(docker run --rm --network none --entrypoint postgres "$NEW_PIN" --version) || fail "the pulled image doesn't run: docker run --rm --entrypoint postgres $NEW_PIN --version"
   say "$out"
-  [[ $out == *"PostgreSQL $new_major.$new_minor "* ]] || fail "the pulled image says '$out', not PostgreSQL $new_major.$new_minor"
+  [ "$(pg_cli_version "$out")" = "$new_major.$new_minor" ] || fail "the pulled image says '$out', not PostgreSQL $new_major.$new_minor"
   PULLED_LINE="$NEW_PIN, $out"
   say "Disk after: $(df -h / | tail -n 1 | tr -s ' ')"
 
@@ -1103,7 +1120,7 @@ cmd_db_image() {
   heading "3.4 Deploy: the server's version"
   out=$(sql_query "SELECT version()") || fail "SELECT version() failed"
   say "$out"
-  [[ $out == "PostgreSQL $new_major.$new_minor "* ]] || fail "the server says '${out%% on *}', not PostgreSQL $new_major.$new_minor"
+  [ "$(pg_sql_version "$out")" = "$new_major.$new_minor" ] || fail "the server says '${out%% on *}', not PostgreSQL $new_major.$new_minor"
   VERSION_LINE=${out%% on *}
 
   heading "3.5 Deploy: postgres's log since its start"

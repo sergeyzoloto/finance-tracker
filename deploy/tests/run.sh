@@ -149,7 +149,7 @@ setup_case() {
 2026-11-17 13:04:38.952 UTC [36] FATAL:  the database system is starting up
 2026-11-17 13:04:38.959 UTC [1] LOG:  database system is ready to accept connections
 EOF
-  echo "PostgreSQL $tag (Debian stub) on x86_64-pc-linux-gnu, compiled by gcc, 64-bit" >"$s/fixtures/version"
+  echo "PostgreSQL $tag (Debian $tag-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit" >"$s/fixtures/version"
   : >"$s/fixtures/indexes"
   # The api's log: an older start that logged the switch on, then the current start.
   cat >"$s/log-api" <<'EOF'
@@ -3137,7 +3137,7 @@ db_target() {
     git push -q origin main
   )
   SHA_E=$(git -C "$C/work" rev-parse HEAD)
-  fixture version "PostgreSQL 17.$((n + 1)) (Debian 17.$((n + 1))-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc, 64-bit"
+  fixture version "PostgreSQL 17.$((n + 1)) (Debian 17.$((n + 1))-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit"
 }
 
 run_db_image() {
@@ -3426,9 +3426,54 @@ case_db_image_refuses_when_the_pull_fails() {
 case_db_image_refuses_an_image_that_is_not_the_pin() {
   db_setup
   db_target pin
-  echo "postgres (PostgreSQL 17.99 (Debian 17.99-1.stub))" >"$STUB_STATE/fixtures/pulled-version"
+  echo "postgres (PostgreSQL) 17.99 (Debian 17.99-1.pgdg13+1)" >"$STUB_STATE/fixtures/pulled-version"
   run_db_image
   db_refused "the pulled image says"
+}
+
+# OPS-6b (D-963): the real `postgres --version` line, written out here and not by the stub, must pass; the invented format
+# of the first version, a major or minor that only contains the right one, and a text that isn't a version must not.
+case_db_image_reads_the_real_postgres_version_line() {
+  local n
+  db_setup
+  db_target pin
+  n=$(( $(minor_of "$PIN_D") + 1 ))
+  echo "postgres (PostgreSQL) 17.$n (Debian 17.$n-1.pgdg13+1)" >"$STUB_STATE/fixtures/pulled-version"
+  run_db_image
+  check "the real line is accepted: exit code 0" rc_is 0
+  check "says deployed" out_has "Database image of ${SHA_E:0:7} (db-image): deployed"
+  local bad
+  for bad in "postgres (PostgreSQL 17.$n (Debian 17.$n-1.stub))" "postgres (PostgreSQL) 17.${n}0 (Debian x)" \
+    "postgres (PostgreSQL) 7.$n (Debian x)" "postgres (PostgreSQL) 117.$n (Debian x)" "postgres (PostgreSQL) 17.${n}beta1 (Debian x)" "postgres (PostgreSQL) 17.$((n - 1)) (Debian x)" \
+    "PostgreSQL 17.$n (Debian 17.$n-1.pgdg13+1) on x86_64-pc-linux-gnu" "17.$n" ""; do
+    db_setup
+    db_target pin
+    printf '%s\n' "$bad" >"$STUB_STATE/fixtures/pulled-version"
+    run_db_image
+    SKIP_OLD='' db_refused "the pulled image says"
+    check "refused: $bad" out_has "REFUSED at"
+  done
+}
+
+# SELECT version() as the server prints it: another minor, a longer minor or major that contains the right digits, and
+# text that isn't a version are refused after the recreate, with the way back.
+case_db_image_reads_the_real_server_version_line() {
+  local n bad
+  db_setup
+  db_target pin
+  n=$(( $(minor_of "$PIN_D") + 1 ))
+  fixture version "PostgreSQL 17.$n (Debian 17.$n-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit"
+  run_db_image
+  check "the real line is accepted: exit code 0" rc_is 0
+  for bad in "PostgreSQL 17.${n}0 (Debian x) on x86_64" "PostgreSQL 7.$n (Debian x) on x86_64" "PostgreSQL 117.$n (Debian x) on x86_64" \
+    "PostgreSQL 17.${n}beta1 (Debian x) on x86_64" \
+    "PostgreSQL 17.$((n - 1)) (Debian x) on x86_64" "postgres (PostgreSQL) 17.$n (Debian x)" ""; do
+    db_setup
+    db_target pin
+    fixture version "$bad"
+    run_db_image
+    db_failed_after_merge "the server says"
+  done
 }
 
 # A failed before-dump or restore test stops before anything is recreated, merged or changed.
@@ -3497,7 +3542,7 @@ case_db_image_fails_when_a_container_is_unhealthy() {
 case_db_image_fails_on_a_wrong_server_version() {
   db_setup
   db_target pin
-  run_db_image_with_version "PostgreSQL 17.$(minor_of "$PIN_D") (Debian stub) on x86_64-pc-linux-gnu"
+  run_db_image_with_version "PostgreSQL 17.$(minor_of "$PIN_D") (Debian 17.$(minor_of "$PIN_D")-1.pgdg13+2) on x86_64-pc-linux-gnu"
   db_failed_after_merge "not PostgreSQL 17."
 }
 # run_db_image_with_version TEXT: db_target has set the version fixture; this one overrides it before the run.
@@ -3734,6 +3779,7 @@ CASES=(
   run_refuses_the_applied_pin_with_another_postgres_change
   run_refuses_the_applied_pin_with_a_changed_extension_block
   verify_names_the_database_image
+  db_image_reads_the_real_postgres_version_line db_image_reads_the_real_server_version_line
 )
 
 if [ "${1:-}" = --list ]; then printf '%s\n' "${CASES[@]}"; exit 0; fi

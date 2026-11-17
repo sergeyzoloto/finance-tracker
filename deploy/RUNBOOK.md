@@ -1563,6 +1563,7 @@ prints a row's text (no pipe character in it).
 
 | Date | Commit the images were built from | What |
 | --- | --- | --- |
+| 2026-11-17 | `d6f6f3664694ba6dbe7b1ad0dacafd8e480c85b2` (deploy.sh db-image, run's guard for an applied postgres pin, the index query, OPS-6's checklist, D-945 to D-958 (OPS-6)), A; neither image recreated, the database container still `postgres:17.11@sha256:d74eeac9…` | OPS-6 part A, recorded by OPS-6b's commit C from the owner's outputs as the PM read them. **Step 0** (laptop, about 16:25Z): `HEAD` = `origin/main` = `618ba4d` (B), commits `7e385e4`, `d6f6f36`, `618ba4d`. **CI:** the three commits were pushed together, so CI ran only on B (#171 push, success) and A had 0 runs (D-960: the branch `ops-6-a` at A, CI dispatched on it, #172 `workflow_dispatch` `d6f6f36` success at 18:28Z; the branch stays on GitHub until OPS-6b's last step). **Pre-flight 18:43:11Z:** no shutdown, no reboot required, Docker 29.10.0 (containerd), clone `132670e` clean, `last-good` `132670e` (`finish` passed 11:37:56Z), postgres created from `postgres:17.11@sha256:d74eeac9…`, healthy, started 2026-11-16T16:32:47Z, `PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2)`, the index query nothing (exit 0), `/` 19G free. **Images on the host (for part C):** postgres `<none>` `dd2bf3ce` (16.16, the auth stack's), postgres `<none>` `d74eeac9` (17.11, kept: the way back), `postgres:16` `a3b7f434`, `quay.io/keycloak/keycloak` `<none>` `c68e286c` (26.8.2, the auth stack's), `keycloak:26.7` `82a77884`, caddy `<none>` `4e2425f6` (2.11.9, the auth stack's), `caddy:2` `14a9c00d`, `hello-world:latest` `5e230903`; **there is no `postgres:16.15` and no `caddy:2.11.4`** (OPS-6's C2 and C3 named them wrongly); 16 images, 4.321GB, 1.608GB reclaimable. **First A1 at 18:44:27Z:** REFUSED at 1.3, `d6f6f36 is not origin/main (618ba4d)` (`run` deploys only origin/main, D-961, PM): main was moved back to A with `git push --force-with-lease=main:618ba4d origin d6f6f36:main`, CI #173 push `main` `d6f6f36` success. **A1 at 19:09:55Z**, run folder `2026-11-17T190955Z-d6f6f36`: commits `7e385e4` and `d6f6f36`, no migration, 9 files under `deploy/`, `finance.caddy and the postgres service unchanged`, CI 10 check runs success, the 24 numbers OPS-4's baseline, before-dump `finance-2026-11-17T1910Z.dump` (4851395 bytes, SHA-256 `3f50605eab9a3be13de49431f1c5443488647bd041d4ce8a562caca7cbb7b0ef`) PASS and preserved; `132670e`'s images kept as `:132670e…` and `:previous`, `d9cf51f`'s tags removed; api and web built from cache with the same content and neither recreated; pages 5/5; step 3.7 pruned 127.4MB; Flyway V18 up to date; D-25 on; the same numbers; `OPS-6.expected` 18 lines; after-dump `finance-2026-11-17T1911Z.dump` (4851395 bytes, SHA-256 `d95edd62f9a133f83596ff77717244a8658827b0f166a36dd1e0e4dbd770ea29`) PASS. B was pushed back to main (fast-forward `d6f6f36..618ba4d`) at about 19:12Z, CI #174 success. **A2** `e2e:prod` 19:12:55Z to 19:17:47Z from `d6f6f36` (clean tree, `E2E_FAMILY=on`): 19 passed, `new-family` skipped, cleanup passed, 0 password hits, PASSED. **A3** `finish`: answers 19:18:31Z and 19:18:32Z, family numbers as before; `last-good` `d6f6f36` at 19:18:33Z. **A4** `verify OPS-6` at 19:18:40Z OK (`postgres:17.11`, `PostgreSQL 17.11`, same as the last run). **Part B was REFUSED** at B1, 19:20:50Z, run folder `2026-11-17T192050Z-618ba4d-db-image`: 1.2 and 1.3 as expected (only the postgres image line; the old image on the host), 1.4 CI waited about 4 minutes then 10 check runs success, 1.5 pulled `postgres:17.12@sha256:0d938e97…` and `postgres --version` printed `postgres (PostgreSQL) 17.12 (Debian 17.12-1.pgdg13+1)`, which `db-image`'s check for `PostgreSQL 17.12 ` refused (D-963); nothing changed, the 17.12 image stays on the host, unused. |
 | 2026-11-17 | `132670ec0a9241955f9f5e05c9a37b3d0b479adc` (ops: build cache bound, prune-cache, verify's comparison, OPS-5's checklist, D-938 to D-944 (OPS-5)), M; the api rebuilt and recreated, the web the running content and not recreated; auth_server `b809f9d09e7f340ff34782db4488008adfebc786` (Postgres 16.16, Caddy 2.11.9) | OPS-5 (D-936 to D-944), recorded by OPS-6's first commit from the owner's outputs as the PM read them. **Gate:** `pg-restore-test finance` on the fresh dump `finance-2026-11-17T0759Z.dump` (4851204 bytes, 07:59:01Z) PASS, all 19 lines ok (entries 43029, postings 86429, posted_amounts 72138552.8394); it also closes OPS-4's pending re-run. **Part A, the auth window (08:54Z to 10:03Z, outside the proposed 13:00Z to 15:00Z and outside every forbidden window).** A0: finance `HEAD` = `origin/main` = `132670e`, clean, and four commits since `7fae522` (`0ed597e`, `5edec79`, `54c9a3e`, `132670e`; the checklist said three, a miscount in its prose, now printed by `git` in the template); auth `HEAD` = `origin/main` = `b809f9d` (`4c652fa`, `b809f9d`), clean. A1 at 08:08:59Z: no scheduled shutdown, no reboot required; `auth deployed: 3c7b6ba 20261116T161042Z`; Docker 29.10.0; postgres 16.15, keycloak 26.8.2, caddy 2.11.4, all started 2026-11-16T16:32:47Z; upgradable only distro-info, python3-distro-info, python3-software-properties and software-properties-common (phased); auth `last-success` 2026-11-17T02:31:44Z; `migration_model` 26.7.4 and 26.8.2. **A1b at 08:09:09Z (D-944):** `/` 38G, 22G used, 15G free (60%); `du`: `/var/lib/containerd` 16G, `/var/lib/docker` 341M, `/var/log` 184M, `/var/backups/pg` 318M, `/var/lib/finance-deploy` 111M, `/root/auth-sync-backups` 216K, `/opt` 84M; journal 157.1M; images 14 (3.563GB, 996.6MB reclaimable: keycloak:26.7 756MB, untagged postgres and keycloak, hello-world); build cache 442 records, 13.63GB (Private 12.83GB, Shared 797.8MB), the Maven cache mount one record of 124.5MB used 24 hours before; `docker buildx du --filter until=…` counted all 442 records for 72, 168 and 336 hours (`du` does not apply the filter, so those age counts are not usable); `docker builder prune --help` lists `--filter`, `--force`, `--reserved-space`, `--max-used-space`, `--min-free-space`. **D-944's hypothesis is confirmed: the build cache is the bulk of the disk.** A2: pulled `postgres:16.16@sha256:dd2bf3ce…` (661045846) and `caddy:2.11.9@sha256:4e2425f6…` (91673747); `/` 14G free. A3: dumps `auth-2026-11-17T0854Z.dump` (297234) and `finance-2026-11-17T0854Z.dump` (4851204), both restore tests PASS (auth: tables 101, realms 2, users 6, clients 9). A4: `sync.sh --dry-run` at `b809f9d` sent exactly `docker-compose.yml`, the two image lines; `.env` OK; Caddyfile valid (the `srv1` warning). A5: backup `/root/auth-sync-backups/20261117T085513Z/`; postgres and caddy recreated, keycloak **not** recreated (Running, then Healthy); "All 3 services are up. Deployed revision b809f9d." A6 at 08:57:50Z: `auth deployed: b809f9d 20261117T085513Z`; postgres 16.16 started 08:55:15.565Z, healthy; caddy 2.11.9 started 08:55:21.260Z; keycloak unchanged (started 2026-11-16T16:32:47Z); `PostgreSQL 16.16 (Debian 16.16-1.pgdg13+1)`, `v2.11.9`; `migration_model` 26.7.4 and 26.8.2; postgres `ERROR`/`FATAL`/`PANIC` lines none; caddy error 0, certificate requests 0; keycloak `ERROR` 0. A7: the smoke test 11 ok, 0 fail; `monitor.sh` every check passed (app certificate ends 2026-12-27, auth's 2026-12-21); valid host 200, invalid host (`Host: ..`) 400; **the checklist's sign-in page curl had no PKCE parameters and printed nothing** (the client requires `code_challenge`; the template in CLAUDE.md now says so); re-run with PKCE: title `Sign in to Finance Tracker`, `login-3.css`, `social-github`, `social-google`. A8: the owner signed in with Google (the page "Finance Tracker", "New entry", his name). A9: `verify BATCH-1` at 10:03:01Z OK (the numbers are OPS-4's baseline); `pg-backup@auth` exit 0, `auth-2026-11-17T1003Z.dump` (299596) restored by 16.16: PASS. A10 not used. **Part B, the finance deploy.** B0: CI #170 (push, `main`, attempt 1) success (Backend, Web image, Dependency updates, Frontend, Deploy scripts) and Monitor #87. B1 at 10:04:25Z as expected: clone `7fae522` clean, previous file `3a59219`, `last-good` `7fae522` (`finish` passed 2026-11-16T13:12:17Z), containers started 2026-11-16T16:32:47Z, Flyway up to date 16:33:02Z, D-25 on, `/` 14G free, images 16 (4.323GB, 1.61GB reclaimable). B2: run folder `2026-11-17T113032Z-132670e`; typed `132670e`; fast-forward `7fae522..132670e` (13 files); before-dump `finance-2026-11-17T1130Z.dump`, 4851204 bytes, SHA-256 `76aba51876531bff28e8865d7f60667600b44b2676eb3c5255dbadb21aa36c62`, PASS, preserved; `7fae522`'s images kept as `:7fae522…` and `:previous`, `6296e69`'s tags removed; api rebuilt (content `sha256:c8b68ed7…`, image `sha256:35efe359536ad0ece70e13c111efad1dec7b3597a9bac9c525ddb005be376c91`), web the same content (`sha256:ad3c147b…`, image `sha256:6fc2258e…`); api recreated, web kept; healthy; pages 5/5; Flyway up to date 11:31:08Z, api started 11:31:11Z (7.872 s), D-25 on; the same numbers; `OPS-5.expected` 18 lines; after-dump `finance-2026-11-17T1131Z.dump`, 4851205 bytes, SHA-256 `47434d82f641f2354dc41913b9ab8390d15a85c107c13a61a16a173672459a1a`, PASS. B3: `e2e:prod` 11:31:53Z to 11:37:11Z from `132670e` (clean tree, `E2E_FAMILY=on`), 19 passed, `new-family` skipped, cleanup passed, 0 password hits, PASSED. B4: `finish`: browser checks yes 11:37:55Z, smoke test yes 11:37:56Z, pages 5/5, family numbers as before; `last-good` `132670e` at 2026-11-17T11:37:56Z. B5: `verify OPS-5` at 11:38:02Z OK; "Compared with the numbers after 2026-11-17T113032Z-132670e: same as the last run". **B6, `prune-cache` (D-940) at 11:38:15Z:** "Build cache: pruned (used more than 72h ago, 3GB kept): Total: 5.55GB"; disk before 22G used, 14G free (62%), after **17G used, 19G free (48%)**; build cache 445 records 13.71GB to 272 records 8.159GB (Private 7.363GB, Shared 796.4MB); the rest is cache used within 72 hours, and from the next deploy step 3.7 prunes it by itself. B7: "CI on Ubuntu 26.04" #40 (id 44076109649, `workflow_dispatch`, `main` at `132670e`, attempt 1) success (Web image, Backend, Frontend, Deploy scripts). B8 not used. The 24 numbers are unchanged from OPS-4's baseline (`entries=43029` and the rest). |
 | 2026-11-16 | Not an app deploy: OPS-4, auth_server `3c7b6bab43b3a4a906573640e1b426d6b7943ed9` (Keycloak 26.8.2); finance `5edec79fbe4c092dac8e74b1e58402c15219b8df` is the checklist's commit, the app stays on `7fae522` | OPS-4 (D-921 to D-935), recorded by OPS-5's first commit from the owner's outputs as the PM read them. The app is not deployed: `last-good` stays `7fae522` (2026-11-16T13:12:17Z), the server's clone `7fae522`. Step 0: both repositories' HEAD = `origin/main`, clean (auth_server `8d6bcd2..3c7b6ba` pushed by the owner before it). Step 1, pre-flight at 2026-11-16T16:05:10Z: no scheduled shutdown; `auth deployed: 8b19e36 20261115T103055Z`; `/` 38G, 21G used, 16G available (58%); `docker system df`: images 13 (2.813GB, 240.4MB reclaimable), containers 6 (181.2MB), local volumes 4 (291.9MB), build cache 442 (13.63GB, 12.83GB reclaimable); postgres 16.15 `sha256:a3b7f434…`, keycloak 26.7.4 `sha256:82a77884…`, caddy 2.11.4 `sha256:14a9c00d…` (all three started 2026-11-15T04:00:21Z, keycloak 10:30:58Z); auth `last-success` 2026-11-16T02:39:46Z, `auth-2026-11-16T0239Z.dump`, 286947 bytes; REGISTER events in the last 30 days 1 (2026-10-24, form, D-927); `migration_model` 26.7.4. Step 2: upgradable docker-ce, docker-ce-cli and docker-ce-rootless-extras 5:29.9.3 to 5:29.10.0, distro-info and python3-distro-info 1.15 to 1.15ubuntu0.1, python3-software-properties and software-properties-common 0.120.1 to 0.120.2; `apt list` opened a pager (apt 3), so the checklists pipe it through `cat`. Step 3: pulled `quay.io/keycloak/keycloak:26.8.2@sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0` (the digest as pinned; image id `sha256:c68e286c…`, size 750101353 in the containerd store); `/` 22G used, 15G available. Step 4, the rollback point: `auth-2026-11-16T1609Z.dump`, 289003 bytes, `last_success` 16:09:12Z, `pg-restore-test auth` PASS (tables 100, realms 2, myapps_users 6, myapps_clients 9). Step 5: `sync.sh --dry-run` at 3c7b6ba sent exactly the five files (plus the `css/` directory's time); the `.env` check OK; the Caddyfile valid (Caddy's warning on `srv1` as before). Step 6: `sync.sh`, backup `/root/auth-sync-backups/20261116T161042Z/`, `caddy-site` installed (every run); `docker compose up -d` recreated `auth-keycloak-1` only; healthy; "Deployed revision 3c7b6ba". Step 7 at 16:12:08Z: `auth deployed: 3c7b6ba 20261116T161042Z`; keycloak 26.8.2 `sha256:c68e286c…`, started 2026-11-16T16:10:45.860680069Z, healthy; postgres and caddy not restarted; "Keycloak 26.8.2 on JVM (powered by Quarkus 3.40.1.1) started in 7.883s" at 16:11:15,585, "Updating database" 16:11:17,431, the model migrated to 26.8.0 (myapps and master 16:11:23,900) and to 26.8.2 (myapps 16:11:24,176, master 16:11:24,417); 0 `ERROR` lines; `migration_model` 26.7.4 and 26.8.2; theme files not 644: 0, directories not 755: 0; sign-in unavailable for under a minute (16:10:45 to about 16:11:25). Step 8: the smoke test 11 ok, 0 fail (the two negative answers unchanged); the sign-in page `Sign in to Finance Tracker` with `patternfly.min.css`, `patternfly-addons.css`, `styles.css`, `tokens.css` and `login-3.css` (no `login-2.css`), `social-github` and `social-google`. Step 9: `e2e:prod` 16:17:08Z to 16:22:51Z from `5edec79` (clean tree, `E2E_FAMILY=on`), 19 passed, `new-family` skipped, cleanup passed, 0 password hits, PASSED. Step 10, the owner: signed in with Google and with GitHub; the password-reset email arrived at 16:25Z (subject "Reset your Finance Tracker password", from "Finance Tracker <noreply@finance-nl.com>", footer "Finance Tracker · app.finance-nl.com"; Brevo over STARTTLS works on 26.8.2, D-934). Step 11: after-dump `auth-2026-11-16T1631Z.dump`, 298098 bytes, 16:31:45Z, `pg-restore-test auth` PASS (tables 101, realms 2, myapps_users 6, myapps_clients 9); `verify BATCH-1` at 16:32:21Z OK. Step 12 (D-925): `apt-get upgrade` installed docker-ce, docker-ce-cli and docker-ce-rootless-extras **29.10.0**, the other four packages deferred by Ubuntu's phasing; needrestart found nothing to restart, no reboot needed; the daemon's restart restarted every container (all "Up 6 seconds"; the api's Flyway "up to date" 16:33:02Z, the D-25 line on 16:33:10Z); `pg-restore-test auth` PASS on the 16:31Z dump; `pg-restore-test finance` **FAIL** against the 08:35Z dump because production had changed since (the numbers below), its re-run on a fresh dump PENDING (OPS-5's gate); the smoke test 11 ok, 0 fail; `verify BATCH-1` at 16:34:29Z OK (api and web healthy, images = `last-good`, pages 5 of 5, `BATCH-1.expected`). Step 13 (D-926): `/root/keycloak-2026-09-27.sql` (355766 bytes) and `/root/auth-config-2026-09-27/` deleted; the two firewall-rule copies stay. Step 14, the rollback: not used. **The 24 numbers changed between 13:13Z and 16:32Z, not by a deploy:** accounts 77 to 75, categories 95 to 93, counterparties 1425 to 1416, entries 43919 to 43029, family_journal 12740 to 12648, family_links 36562 to 36430, family_records 12728 to 12635, family_shares 24156 to 24000; unchanged: family_accounts=3, family_import_cutoffs=2, family_invites=1, family_ledgers=2, family_members=4 (active 4, former 0, left 0), import_batches=12, imported_entries_deleted=0, imported_family_sides=8784, outside_their_ledger=0, personal_ledgers=4, personal_members=4, settings=4, users=4. Cause: the owner exploring the app in his second (test) account with the demo household (he said so at 16:37Z); the imported ledgers' counters are unchanged. **These 24 numbers are the baseline since 2026-11-16 16:32Z**; `verify` prints them without comparing them with a record (OPS-5 adds an informational comparison with the latest run's). Docker 29.10.0 on the host since 16:33Z. |
 | 2026-11-16 | `7fae5223d89babb92db4987d1cf35a7b9d885fb4` (docs: BATCH-1's checklist from FX-1 on V18, BATCH-1.sql without constraint text, REH-1's tests, the workaround measured again, D-914 to D-920 (BATCH-1b)), M; both images new | BATCH-1, recorded by D-928 from the owner's outputs as the PM read them: the commits `3a59219..7fae522`, ENT-1 `9b53332`, ENT-2 `5f2b5b1`, ENT-3 `fb59451`, ENT-3b `1ddce05`, REH-1 `e639681`, ENT-4 `49d8ead` and BATCH-1b `7fae522`, **no migration** (Flyway V18), the switch on, by "BATCH-1's deploy checklist with the suite". CI #168, a push on `main`, 5 check runs success (Backend, Dependency updates, Deploy scripts, Frontend, Web image). Pre-flight 2026-11-16T08:19:23Z: Docker 29.9.3, the containerd store, clone `3a59219`, the previous-commit file `d9cf51f`, `last-good` `3a59219` `finish=passed`; RUB rates CBR 1168 (2022-03-02 to 2026-11-14) and ECB 4333 (2005-04-01 to 2022-03-01). `deploy/deploy.sh run`, run folder `2026-11-16T083434Z-7fae522`, `7fae522` typed; fast-forward `3a59219..7fae522` (54 files); `3a59219`'s images kept as `:3a59219…` and `:previous`; `0c1bfb6`'s tags removed (older than the last three). Before-dump `finance-2026-11-16T0834Z.dump` (4895902 bytes, SHA-256 `2f7c10faa93219fa46680131551f4161ef219f4f331b131248900b63bc24730b`), restore test PASS, preserved in the run folder; after-dump `finance-2026-11-16T0835Z.dump` (4895905 bytes, SHA-256 `f6c530598d479966c34c308bcd570040013591bd923ee28401ed2a98290623ae`), restore test PASS. Flyway `Schema "app" is up to date` at 08:35:27Z, the api started 08:35:30Z (7.819 s), the D-25 line on, the same 24 numbers as before, `BATCH-1.expected` 18 lines. Images: api `sha256:3cdc2d5ae6989fc483f9dadfe356db092160bb7239748c1b3aaf9f1f6e28ae7f` (content `sha256:e7be308846808b5ee39916fa3303e635f7dfa512a1bb57c0ceed0c7d6bcaadc2`), web `sha256:6fc2258ed5ceef99411b31a6c0e3b4ccb2bc58e040422c36d9aebc0a4078c2a3` (content `sha256:ad3c147bc14858325af5d1c1800e2ad2071b77ffc9eb467696e0e2545d0986bb`). The end-to-end suite from `7fae522` (2026-11-16T08:36:14Z to 08:41:20Z, clean tree, `E2E_FAMILY=on`): 19 passed (`entries` 29.6 s), `new-family` skipped by design, cleanup passed, 0 password hits, `Result: PASSED`. The PM's check by hand before `finish`, in the built-in browser on the owner's account: Entries with no query opens on "Month of the latest entry" (Nov 1 to 13, 2026, 98 entries), no "Clear filters", the panel unfolded at 745 px with the amount table, the three breakdown tabs and the monthly chart Dec 2025 to Nov 2026; request times in the default view: list 105 ms, summary 392 ms, breakdown 120 ms, monthly 114 ms; All time (19,027 entries): list 282 ms, summary 902 ms, category breakdown 478 ms (on the server; the laptop's restored dump took 664 ms for the summary: within D-898's 1 s, to watch as the ledger grows). `finish`: browser checks yes 13:12:14Z, smoke test yes 13:12:17Z, pages 5 of 5, the family numbers as before; `last-good` `7fae522` at 2026-11-16T13:12:17Z; `verify BATCH-1` at 13:13:00Z OK. The rollback drill `2026-11-16T131309Z-rollback-3a59219` (target `3a59219`, V18 to V18, no condition): "bo" typed in place of "no", refused with "not confirmed", nothing changed. "CI on Ubuntu 26.04" #39 (id `43873769623`), `workflow_dispatch` on `main`, attempt 1, success (Backend, Frontend, Web image, Deploy scripts). The 24 numbers, the same before and after the checks of 2026-11-16: `accounts=77`, `categories=95`, `counterparties=1425`, `entries=43919`, `family_accounts=3`, `family_import_cutoffs=2`, `family_invites=1`, `family_journal=12740`, `family_ledgers=2`, `family_links=36562`, `family_members=4`, `family_members_active=4`, `family_members_former=0`, `family_members_left=0`, `family_records=12728`, `family_shares=24156`, `import_batches=12`, `imported_entries_deleted=0`, `imported_family_sides=8784`, `outside_their_ledger=0`, `personal_ledgers=4`, `personal_members=4`, `settings=4`, `users=4`; `family_ledgers=2` is the demo household of the owner's own second account, created 2026-11-15 at 15:14Z by loading the demo, not the end-to-end suite's and not a bug (D-916). Not recorded: the run's and `finish`'s own full outputs. |
@@ -1690,6 +1691,8 @@ prints a row's text (no pipe character in it).
 | 2026-09-28 | `070fab2` (Change log: D2c's commit) | First deploy, steps 1 to 9 of this runbook (D3). Step 10, the import, is still to do. Certificate from Let's Encrypt (YE2), valid until 2026-12-27; Caddy renews it. |
 
 ### Production now
+
+**Added by OPS-6b's commit C (2026-11-17, after OPS-6's part A):** the app runs `d6f6f3664694ba6dbe7b1ad0dacafd8e480c85b2` (OPS-6's A: `deploy.sh db-image`, run's guard for an applied postgres pin, the index query; no migration, no application change), Flyway V18, `last-good` naming `d6f6f36` (`finish` passed 2026-11-17T19:18:33Z); both images are OPS-5's (the builds were from cache, the same content) and neither container was recreated. The rollback state is `rollback.sh 132670e`, unconditional. **The app's database is still `postgres:17.11@sha256:d74eeac9…`** (created 2026-11-16T16:32:47Z); `postgres:17.12@sha256:0d938e97…` is on the host, pulled by the refused `db-image` and unused (D-947 keeps 17.11). The clone is at `d6f6f36`; `origin/main` was `618ba4d` (B, not deployed) until OPS-6b's history is pushed (D-962). The auth stack is as OPS-5 left it. The 24 numbers are still OPS-4's baseline.
 
 **Added by OPS-6's first commit (2026-11-17, after OPS-5's deploy):** the app runs `132670ec0a9241955f9f5e05c9a37b3d0b479adc` (OPS-5: step 3.7, `prune-cache`, `verify`'s comparison; no migration; no application change), Flyway V18, `last-good` naming `132670e` (`finish=passed 2026-11-17T11:37:56Z`), the api image `sha256:35efe359536ad0ece70e13c111efad1dec7b3597a9bac9c525ddb005be376c91` (content `sha256:c8b68ed7…`, started 11:31Z) and the web the running one (content `sha256:ad3c147b…`). The rollback state is `rollback.sh 7fae522`, unconditional (the same code and schema; `:previous` holds `7fae522`'s images). The auth server runs auth_server's `b809f9d09e7f340ff34782db4488008adfebc786` (`/opt/auth/.deployed-revision` `b809f9d 20261117T085513Z`; newest backup `/root/auth-sync-backups/20261117T085513Z/`): **Postgres 16.16** (`sha256:dd2bf3ce…`, started 2026-11-17T08:55:15Z), **Caddy 2.11.9** (`sha256:4e2425f6…`, started 08:55:21Z) and Keycloak 26.8.2, not restarted (since 2026-11-16T16:32:47Z); the auth stack's way back is the old compose file from that backup and `docker compose up -d` (OPS-5's checklist, part A). Docker 29.10.0. **Disk after OPS-5's `prune-cache`:** `/` 17G used, 19G free (48%), against 22G used, 14G free (62%) before it; the build cache 272 records, 8.159GB (was 445 records, 13.71GB); from the next deploy step 3.7 bounds it by itself (D-940). **UptimeRobot is configured** (D-335, 2026-11-17, free plan, the owner's own account; see [UptimeRobot](#uptimerobot-d-335)): two HTTP(S) monitors, every 5 minutes, email alerts; the api isn't covered by it. The 24 numbers are still OPS-4's baseline (2026-11-16 16:32Z). Where the paragraphs below say that UptimeRobot's setup "isn't reported yet" or name `7fae522` as what runs, this paragraph replaces them.
 
@@ -1900,6 +1903,271 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
 
+## OPS-6b's deploy checklist with the suite
+
+**What happened, in one paragraph.** OPS-6's part A is deployed and finished (`d6f6f36`, `last-good` `d6f6f36`, 19:18:33Z); part B was refused at its step 1.5 with nothing changed, because `db-image` expected the wrong format of `postgres --version` (D-963); OPS-6's part C named two images the host doesn't have. B (`618ba4d`) is on GitHub and not deployed. This checklist replaces OPS-6's parts B and C (D-962) and is used only for this deploy.
+
+**Commits.** finance: `<C>`, OPS-6b's first commit (the fixed version checks and their tests, the records of OPS-6's part A, the two new template rules, this checklist; **nothing under `deploy/app/`**), on `d6f6f3664694ba6dbe7b1ad0dacafd8e480c85b2` (A, what production runs), and `<B2>`, its second (exactly B's changes: the pin `postgres:17.12@sha256:0d938e975177bef9f1f61f3f9dbcf2e0aa0a139568f66d3415ed8892eb97f6ac` and the places that name it), on `<C>`. Type each full hash (40 characters) where a block says `<C>` or `<B2>` (D-226): pasted as it is, bash reads it as a redirection and runs nothing. **Stage:** `OPS-6b` (`deploy/checks/OPS-6b.sql` and `.expected`: OPS-6's, the 18 lines and the index query). **State expected: production runs A on V18, the family switch on, the app's database container created from `postgres:17.11@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f`, `postgres:17.12@sha256:0d938e97…` already on the host and unused, `origin/main` = `618ba4d` (B) until step 1.**
+
+**The order (D-965).** `deploy.sh run` and `db-image` deploy only `origin/main`, and every commit that is deployed has its own CI run. So: step 1 pushes C alone (replacing B on GitHub); CI on C; Part A deploys C and its `finish`; only then step 4 pushes B2 (a fast-forward); CI on B2; Part B applies it.
+
+**The time (D-125, D-945).** 13:00Z to 15:00Z; not between 03:30Z and 04:30Z, not across the dumps at about 02:30Z, not while Hetzner's backup runs (about 10:49Z: keep 10:30Z to 11:30Z free); only the rollback is the exception. A scheduled shutdown less than 2 hours away stops both commands (D-131). **The downtime of part B, rehearsed (OPS-6, OPS-6b):** the database is away for about a second (the recreate to accepting connections 0.44 s to 0.85 s; Docker's own `healthy` about 10 s later); the api reconnects by itself and answers one or two requests with an error meanwhile. UptimeRobot checks every 5 minutes and doesn't touch the database, so an email is unlikely. **Part A changes no container** (neither image is recreated). **The rollback** is the last block.
+
+Rules for every block: as OPS-6's (CLAUDE.md, "Deploy checklists" and "Production safety"): one block at a time and the next only once the prompt has returned; server blocks start with `cd /opt/finance-tracker &&` or are wrapped in `cd /opt/finance-tracker && {` … `}`; laptop blocks start with `cd ~/dev/finance-tracker &&` (or `~/dev/finance-tracker/e2e`) or are wrapped likewise; a command that asks a question (`deploy.sh run`, `db-image`, `finish`, `e2e:prod`) is alone in its block and its answer is typed; every laptop git command that can page runs as `git --no-pager`; each step closes with its output pasted. **Read-only steps say "read only"; every other step changes something.** Don't start "CI on Ubuntu 26.04" before the end of part B.
+
+### Step 0. On the laptop, read only: where things stand
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+C=<C>; B2=<B2>
+git fetch origin
+git --no-pager log -1 --format='HEAD %H %s'
+git --no-pager log -1 --format='origin/main %H' origin/main
+git --no-pager log --oneline d6f6f3664694ba6dbe7b1ad0dacafd8e480c85b2..HEAD
+test "$(git rev-parse HEAD)" = "$B2" && echo HEAD-IS-B2
+test "$(git rev-parse "$B2^")" = "$C" && echo B2-PARENT-IS-C
+test "$(git rev-parse "$C^")" = d6f6f3664694ba6dbe7b1ad0dacafd8e480c85b2 && echo C-PARENT-IS-A
+test "$(git rev-parse origin/main)" = 618ba4db31a36ed8dccee888388c53f0ea5b1963 && echo ORIGIN-MAIN-STILL-B
+git --no-pager diff --name-only d6f6f3664694ba6dbe7b1ad0dacafd8e480c85b2 "$C" -- deploy/app/ | wc -l
+git --no-pager diff --name-only "$C" "$B2"
+test -z "$(git status --porcelain)" && echo CLEAN
+}
+```
+
+You should see `HEAD` = B2, the commits **as git prints them** from `d6f6f36` (C and B2; compare with the report, don't count), `HEAD-IS-B2`, `B2-PARENT-IS-C`, `C-PARENT-IS-A`, `ORIGIN-MAIN-STILL-B`, `0` (nothing under `deploy/app/` in C), the files B2 changes (`CLAUDE.md`, `README.md`, `change_log.mdx`, `deploy/app/docker-compose.yml`, `docs/database-hosting.md`), `CLEAN`. Anything else: stop.
+
+### Step 1. On the laptop: push C alone (D-962)
+
+```bash
+# On the laptop: replaces B (618ba4d) on GitHub's main by C; the lease makes it fail if main is not B
+cd ~/dev/finance-tracker && git push --force-with-lease=main:618ba4db31a36ed8dccee888388c53f0ea5b1963 origin <C>:main
+```
+
+You should see `+ 618ba4d...<C's 7 characters> <C> -> main (forced update)`. A rejection (`stale info`): stop, someone moved main.
+
+**CI on C, read only**, once its jobs have finished (about fifteen minutes); type C:
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+M=<C>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(sys.argv[1][:7], runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `CI`, `push`, `main`, attempt 1, `completed success` with its five jobs `completed success`. A failure of `Backend` or `Deploy scripts` is a real fault: stop; only a Frontend job may be re-run once (D-94). No run, or a failure: don't go on.
+
+### Pre-flight. On the server, read only (send the whole output to the PM before part A)
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short
+cat /var/lib/finance-deploy/last-good
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 4
+docker inspect -f '{{.Name}} created from {{.Config.Image}} image {{.Image}} started {{.State.StartedAt}} {{.State.Health.Status}}' finance-tracker-postgres
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+(cd deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT version()" </dev/null)
+docker image ls --digests --format '{{.Repository}}:{{.Tag}} {{.Digest}} {{.ID}} {{.Size}}'
+docker image inspect --platform linux/amd64 -f '17.12 present: {{.Id}}' postgres:17.12@sha256:0d938e975177bef9f1f61f3f9dbcf2e0aa0a139568f66d3415ed8892eb97f6ac 2>&1
+docker image inspect --platform linux/amd64 -f '17.11 present: {{.Id}}' postgres:17.11@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f 2>&1
+(cd deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT c.oid::regclass, am.amname FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_am am ON am.oid = c.relam JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND (am.amname = 'gin' OR (am.amname = 'gist' AND EXISTS (SELECT 1 FROM unnest(i.indclass::oid[]) AS k(oid) JOIN pg_opclass o ON o.oid = k.oid WHERE o.opcname = 'gist_trgm_ops')) OR (am.amname = 'btree' AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND a.atttypid = 'bpchar'::regtype AND a.atttypmod = -1))) ORDER BY 1" </dev/null; echo "indexes to REINDEX: exit status $?")
+df -h /
+docker system df
+}
+```
+
+You should see: `Now:` outside 03:30 to 04:30 UTC and 10:30Z to 11:30Z; no scheduled shutdown (or one at least 2 hours after part B starts); Docker 29.10.0 containerd; `Clone:` `d6f6f36…` clean; `last-good` `commit=d6f6f36…` with `finish=passed 2026-11-17T19:18:33Z`, source `deploy`; the postgres container `created from postgres:17.11@sha256:d74eeac9…`, healthy; `PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on x86_64-pc-linux-gnu, …`; the image list with `postgres:17.12` (or `<none>`) digest `sha256:0d938e97…` and the 17.11 one (`d74eeac9…`); both `present:` lines with an image ID (no error: **an error here, on the containerd store, is a finding to send to the PM before part B**); the index query nothing and `exit status 0`; the disk before. Anything else: stop and send it to the PM.
+
+### Part A: C (`deploy.sh run <C> OPS-6b`)
+
+**A1. On the server: the deploy**, alone in its block; type C's 7 characters at the confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <C> OPS-6b
+```
+
+It prints: 1.1 the shutdown line; 1.2 `HEAD: d6f6f36 …`, `Last good deploy: d6f6f36 …`, status `good`; 1.3 `<C> is origin/main` accepted, the commits **git prints** from `d6f6f36` to C, `Migrations added: none`, the files under `deploy/` (`RUNBOOK.md`, `checks/OPS-6b.expected`, `checks/OPS-6b.sql`, `deploy.sh`, `tests/mutate.sh`, `tests/run.sh`, `tests/stubs/docker`); 1.4 `deploy/finance.caddy and the postgres service unchanged`; 1.5 CI (10 check runs success); 1.6 the OPS-6b files; 1.7 the 24 numbers (OPS-4's baseline; your own use may have changed some: say so, D-941); 1.8 a fresh dump, `PASS`. 2: type the 7 characters. 3.2 `d6f6f36`'s images kept as `:d6f6f36…` and `:previous`; 3.3 both built from cache (the same content), neither recreated; 3.5 healthy; 3.6 `Pages: 5 of 5`; 3.7 `Build cache: pruned …`. 4.1 `Schema "app" is up to date. No migration necessary.`, V18; 4.2 D-25 "on"; 4.3 the same numbers; 4.4 `OPS-6b.expected`'s 18 lines; 4.6 an after-dump `PASS`; 5 the summary, `Left for you: … finish`. A FAILED line: stop and send it to the PM; the rollback command it prints is `rollback.sh d6f6f36` (images only), run only if the PM says so.
+
+**A2. On the laptop: the end-to-end suite** from a clean checkout of C:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout <C> && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see C in full. Then the suite, alone in its block; read its banner (https://app.finance-nl.com, `e2e-a`, `e2e-b`, `E2E_FAMILY: on`, C and "clean tree"), type `E2E PROD` after the question.
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste its summary, from `===== E2E summary =====` to `=======================`: `Commit:` C `(clean tree)`, 19 passed (`new-family` skipped, D-163), `cleanup passed`, 0 password hits, `Result: PASSED`. **D-959:** a lone failure of `dashboard at 375 px` or `entries at 375 px`, everything else passed and the cleanup too, may be re-run once (the whole suite once more, alone in its block). If any other spec fails, or the cleanup does: don't run the suite again and don't run `finish`; send the whole summary to the PM, who decides (D-58, D-59).
+
+**A3. On the server: finish**, only after step A2, alone in its block; `yes` to both only if A2's summary says `Result: PASSED` with 0 password hits.
+
+```bash
+# On the server: only after the end-to-end suite of step A2 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+**A4. On the server: verify OPS-6b, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-6b
+```
+
+You should see `verify OPS-6b at <C's 7 characters> …: OK`, `finance-tracker-postgres was created from: postgres:17.11@sha256:d74eeac9…`, `Server: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2)`, the pages 5 of 5, V18, `OPS-6b.expected`'s 18 lines and `Compared with the numbers after …: same as the last run`. **Part B starts only now.**
+
+### Step 4. On the laptop: push B2 (a fast-forward), then CI on B2, read only
+
+```bash
+# On the laptop: C is on GitHub's main; this adds B2 on top of it (no force)
+cd ~/dev/finance-tracker && git push origin <B2>:main
+```
+
+You should see `<C's 7 characters>..<B2's 7 characters>  <B2> -> main`. Then, once the jobs have finished, the read-only block of step 1's CI check with `M=<B2>`: `CI`, `push`, `main`, attempt 1, `completed success`, five jobs. No run or a failure: don't start part B.
+
+### Part B: the database image (`deploy.sh db-image <B2>`)
+
+**B1. On the server: the upgrade**, alone in its block; type B2's 7 characters at the confirmation. `db-image` refuses, with nothing changed, unless the clone is clean at the last good deploy C with a clean finish, B2 is `origin/main` and a fast-forward, CI passed on B2, **in `deploy/app/` only the postgres image line changes**, outside it only files that are never deployed, the pin is a newer minor of the same major, the old image is on the host and the index query prints nothing; it pulls the new image and runs `postgres --version` from it, which must print `postgres (PostgreSQL) 17.12 (Debian …)` (D-963).
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh db-image <B2>
+```
+
+It prints: 1.2 `HEAD: <C> …`, `Last good deploy … finish passed …`, `postgres, api and web healthy`; 1.3 the commits **git prints** from C to B2, `Files changed: …`, `Only deploy/app/docker-compose.yml's postgres image line changes among the deployed files: postgres:17.11@sha256:d74eeac9… to postgres:17.12@sha256:0d938e97…`, `The old image … is on this host and stays (D-947)`; 1.4 CI; 1.5 `Disk before:`, `Status: Image is up to date …` (already pulled), `postgres (PostgreSQL) 17.12 (Debian 17.12-1.pgdg13+1)`, `Disk after:`; 1.6 `No such index`; 1.7 the 24 numbers; 1.8 a fresh dump `PASS`. 2: type B2's 7 characters. 3.1 `Fast-forward`; 3.2 `Downtime: postgres accepted connections about 0.4 to 1 s after the recreate began; the api's health answered UP again …`; 3.3 healthy (up to 10 s) and `The api was not restarted: it reconnected by itself`; 3.4 `PostgreSQL 17.12 (Debian 17.12-1.pgdg13+1) on x86_64-pc-linux-gnu, …`; 3.5 `database system is ready to accept connections` and no `ERROR`, `FATAL` or `PANIC` but possibly "the database system is starting up"; 4.1 `Latest row: 18 cbr rates true …: V18`; 4.2 `Pages: 5 of 5`; 4.3 the same numbers; 4.4 an after-dump restored by **17.12**, `PASS`; 5 the summary, `Left for you: … finish`. **A FAILED line: stop, don't run `finish`, send the output to the PM; it prints the way back written out (the last block of this checklist). Nothing is rolled back by the script (D-946).**
+
+**B2. On the laptop: the end-to-end suite** from a clean checkout of B2:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout <B2> && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on npm run e2e:prod
+```
+
+Paste the summary: `Commit:` B2 `(clean tree)`, 19 passed, `new-family` skipped, `cleanup passed`, 0 password hits, `Result: PASSED` (D-959's one re-run for a lone `dashboard at 375 px` or `entries at 375 px`). Otherwise: don't run it again and don't run `finish`; send the whole summary to the PM (D-58, D-59).
+
+**B3. On the server: finish**, only after step B2, alone in its block; `yes` to both only if B2's summary says `Result: PASSED`.
+
+```bash
+# On the server: only after the end-to-end suite of step B2 (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+**B4. On the server: verify OPS-6b, read only.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-6b
+```
+
+You should see `verify OPS-6b at <B2's 7 characters> …: OK`, `finance-tracker-postgres was created from: postgres:17.12@sha256:0d938e97…`, `Server: PostgreSQL 17.12 (Debian 17.12-1.pgdg13+1)`, the images "the recorded image", the pages 5 of 5, the 18 lines with no index line, and the numbers as the run printed them. The next ordinary `deploy.sh run` needs no flag (D-954).
+
+**B5. On the server: one more dump and its restore test by 17.12.**
+
+```bash
+# On the server (read only but for the dump pg-backup writes)
+cd /opt/finance-tracker && systemctl start pg-backup@finance.service && cat /var/backups/pg/finance/last-success && pg-restore-test finance
+```
+
+You should see `last_success=` a time just now and `pg-restore-test finance` ending `PASS` with `Image: postgres:17.12@sha256:0d938e97…`.
+
+### Part C: the old images (D-948, D-966)
+
+Only after part B passed. **Never `docker image prune`, `docker system prune` or any prune.** Kept, untouched: every image a container uses (the auth stack's postgres 16.16, keycloak 26.8.2 and caddy 2.11.9, all pulled by digest and listed as `<none>`), `postgres:17.11` (`d74eeac9…`, listed `<none>`, the way back, D-947), `postgres:17.12`, the api and web tags. **Candidates, by tag only:** `quay.io/keycloak/keycloak:26.7`, `postgres:16`, `caddy:2` and `hello-world:latest`. No untagged image is removed in this package.
+
+**C0. On the laptop, read only: no compose file names those tags for the server.** The auth stack's deployed `deploy/docker-compose.yml` names `postgres:16.16@sha256:dd2bf3ce…`, `quay.io/keycloak/keycloak:26.8.2@sha256:c68e286c…` and `caddy:2.11.9@sha256:4e2425f6…`; the finance stack's names `postgres:17.11` (then `17.12`) by digest and builds api and web; auth_server's root `docker-compose.yml` is the laptop's dev stack and names `postgres:16`, which never runs on the server.
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && grep -rnE 'image:' deploy/app/docker-compose.yml ../auth_server/deploy/docker-compose.yml; echo "--- the candidates in either repository's deploy folder (none expected):"; grep -rnE 'keycloak:26\.7|postgres:16([^.0-9]|$)|caddy:2([^.0-9]|$)|hello-world' deploy/app deploy/finance.caddy ../auth_server/deploy --include='docker-compose.yml' --include='*.sh' --include='Caddyfile'; echo "grep exit $?"
+```
+
+You should see the finance stack's three `image:` lines (postgres by digest, `finance-tracker-api`, `finance-tracker-web`) and the auth stack's three (postgres 16.16, keycloak 26.8.2 and caddy 2.11.9, each by digest), then `--- the candidates …`, `grep exit 1` and nothing between them. A line before it: stop.
+
+**C1. On the server, read only: which image each container uses.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+docker system df
+docker image ls --digests
+docker ps -a --format '{{.Names}} {{.Image}} {{.Status}}'
+docker inspect -f '{{.Name}} {{.Config.Image}} {{.Image}}' $(docker ps -aq)
+df -h /
+}
+```
+
+Send it to the PM: no container (running or stopped) uses an image whose tag is one of the four candidates.
+
+**C2. On the server: remove the four tags**, one command each, written in full; each fails by itself, harmlessly, if a container uses the image.
+
+```bash
+# On the server (removes exactly these four tags; nothing is pruned)
+cd /opt/finance-tracker && {
+docker image rm quay.io/keycloak/keycloak:26.7
+docker image rm postgres:16
+docker image rm caddy:2
+docker image rm hello-world:latest
+}
+```
+
+**C4. On the server, read only: the disk after.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && { docker system df; docker image ls --digests; df -h /; docker ps --format '{{.Names}} {{.Image}} {{.Status}}'; }
+```
+
+You should see the images' size down by `keycloak:26.7` (about 750 MB), `postgres:16` (about 450 MB), `caddy:2` (about 60 MB) and `hello-world` (about 10 KB) at most (shared layers may stay), every container still running and healthy, `postgres:17.11` and `postgres:17.12` present. Paste the before and after.
+
+**CI on Ubuntu 26.04 (D-44, D-124)**, last: Actions → "CI on Ubuntu 26.04" → "Run workflow" on `main`, exactly once; then OPS-5's read-only block of step B7 with `M=<B2>`.
+
+### Last step. On the laptop: delete the branch `ops-6-a` (D-960, D-968)
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git push origin --delete ops-6-a
+```
+
+You should see `- [deleted] ops-6-a`.
+
+### The rollback (last, only for a failed upgrade of part B)
+
+```bash
+# On the server: ONLY FOR A FAILED UPGRADE (part B), at any hour, one line at a time; type C's hash where <C> stands
+cd /opt/finance-tracker && git checkout --detach <C>
+cd /opt/finance-tracker/deploy/app && docker compose up -d --no-deps postgres
+docker inspect -f '{{.Config.Image}}' finance-tracker-postgres
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT version()" </dev/null
+cd /opt/finance-tracker && deploy/deploy.sh verify OPS-6b
+```
+
+The first line puts C's compose file (the old pin) back in the clone, the second recreates `postgres` alone on the same volume (never `down`, never the volume), the third must print `postgres:17.11@sha256:d74eeac9…` and the fourth `PostgreSQL 17.11`. The old image is on the host (D-947). Rehearsed on the laptop with these lines: 0.7 s to 1.7 s to accepting connections (the checkout included), `verify` OK. The clone is then detached at C while `main` stays at B2: tell the PM before anything else runs. If the container does not start, or its data directory is unreadable: "Restore from a backup", from the before-dump of the run (`/var/lib/finance-deploy/runs/<the run's folder>/finance-….dump`).
+
 ## OPS-6's deploy checklist with the suite
 
 **Commits to deploy.** finance: `<A>`, OPS-6's second commit (`deploy.sh db-image`, its tests and this checklist; the
@@ -2108,6 +2376,8 @@ query, the 24 numbers and `Compared with the numbers after …: same as the last
 
 ### Part B: the database image (`deploy.sh db-image <B>`)
 
+**Superseded by [OPS-6b's checklist](#ops-6bs-deploy-checklist-with-the-suite) (D-962):** B (`618ba4d`) was refused at 1.5 (D-963) and is replaced by a fixed C and B'. Don't run this part.
+
 **B1. On the server: the upgrade**, alone in its block, inside the window; type B's 7 characters at the confirmation.
 `db-image` refuses, with nothing changed, unless the clone is clean at the last good deploy A with a clean finish, B is
 `origin/main` and a fast-forward, CI passed on B, **in `deploy/app/` only the postgres image line of the compose file
@@ -2185,6 +2455,8 @@ cd /opt/finance-tracker && systemctl start pg-backup@finance.service && cat /var
 You should see `last_success=` a time just now, and `pg-restore-test finance` ending `PASS` with `Image: postgres:17.12@sha256:0d938e97…`.
 
 ### Part C: the old images (D-948)
+
+**Superseded by OPS-6b's checklist:** its C2 and C3 named `postgres:16.15` and `caddy:2.11.4`, which the host doesn't have. Don't run this part.
 
 Not removed by any script. **Only after part B passed**, and never `docker image prune -a`, `docker system prune` or any
 prune on this host (CLAUDE.md). Kept: `postgres:17.11` (the way back of part B, D-947), the previous api and web tags and

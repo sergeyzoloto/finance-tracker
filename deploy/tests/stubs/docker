@@ -342,7 +342,8 @@ case $1 in
     [ "$*" = "run --rm --network none --entrypoint postgres $7 --version" ] && [ "$6" = postgres ] || { echo "docker stub: unknown run: $*" >&2; exit 99; }
     [ ! -f "$S/fixtures/pulled-version" ] || { cat "$S/fixtures/pulled-version"; exit 0; }
     ref=${7%%@*}
-    echo "postgres (PostgreSQL ${ref#*:} (Debian ${ref#*:}-1.stub))"
+    # The real format (2026-11-17, `docker run --rm --entrypoint postgres postgres:17.12@sha256:0d938e97… --version`).
+    echo "postgres (PostgreSQL) ${ref#*:} (Debian ${ref#*:}-1.pgdg13+1)"
     ;;
   exec)
     case $2 in

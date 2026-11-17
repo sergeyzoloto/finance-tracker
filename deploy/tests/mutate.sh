@@ -595,7 +595,7 @@ mutation "db-image reads postgres's whole log, not since its start" \
   $' --since "$(docker inspect -f \'{{.State.StartedAt}}\' "$PG_CONTAINER")" postgres)' $' postgres)' \
   db_image_ignores_lines_from_before_its_start
 mutation "db-image doesn't check the server's version" \
-  '  [[ $out == "PostgreSQL $new_major.$new_minor "* ]] || fail "the server says' '  true || fail "the server says' \
+  '  [ "$(pg_sql_version "$out")" = "$new_major.$new_minor" ] || fail "the server says' '  true || fail "the server says' \
   db_image_fails_on_a_wrong_server_version
 mutation "db-image ignores other numbers" \
   '    fail "the numbers differ from preflight'"'"'s ($RUN_DIR/numbers.diff); a user'"'"'s entry during the upgrade shows up here too, so judge before going back"' '    say ignored' \
@@ -627,6 +627,32 @@ mutation "run never accepts the applied pin" \
 mutation "verify doesn't name the database image" \
   '  say "$PG_CONTAINER was created from: $(docker inspect -f '"'"'{{.Config.Image}}'"'"' "$PG_CONTAINER" 2>/dev/null || echo '"'"'unknown (no such container)'"'"')"' '  :' \
   verify_names_the_database_image
+
+# --- OPS-6b (D-963): the version checks read the real formats, exactly
+mutation "db-image reads postgres --version as SELECT version() prints it (OPS-6's first check)" \
+  '  [ "$(pg_cli_version "$out")" = "$new_major.$new_minor" ] || fail "the pulled image says' \
+  '  [[ $out == *"PostgreSQL $new_major.$new_minor "* ]] || fail "the pulled image says' \
+  db_image_reads_the_real_postgres_version_line db_image_happy_path
+mutation "db-image takes any text that holds the version's digits for the pulled image's" \
+  '  [ "$(pg_cli_version "$out")" = "$new_major.$new_minor" ] || fail "the pulled image says' \
+  '  [[ $out == *"$new_major.$new_minor"* ]] || fail "the pulled image says' \
+  db_image_reads_the_real_postgres_version_line
+mutation "db-image takes any text that holds the version's digits for the server's" \
+  '  [ "$(pg_sql_version "$out")" = "$new_major.$new_minor" ] || fail "the server says' \
+  '  [[ $out == *"$new_major.$new_minor"* ]] || fail "the server says' \
+  db_image_reads_the_real_server_version_line
+mutation "the --version reader stops at the minor's first digits" \
+  "  local re='^postgres \\(PostgreSQL\\) ([0-9]+)\\.([0-9]+)( |\$)'" \
+  "  local re='^postgres \\(PostgreSQL\\) ([0-9]+)\\.([0-9]+)'" \
+  db_image_reads_the_real_postgres_version_line
+mutation "the --version reader takes the old, invented form" \
+  "  local re='^postgres \\(PostgreSQL\\) ([0-9]+)\\.([0-9]+)( |\$)'" \
+  "  local re='^postgres \\(PostgreSQL\\)? ?([0-9]+)\\.([0-9]+)( |\$)'" \
+  db_image_reads_the_real_postgres_version_line
+mutation "the SELECT version() reader drops its end of version" \
+  "  local re='^PostgreSQL ([0-9]+)\\.([0-9]+)( |\$)'" \
+  "  local re='^PostgreSQL ([0-9]+)\\.([0-9]+)'" \
+  db_image_reads_the_real_server_version_line
 
 echo
 if [ "$survived" -eq 0 ]; then

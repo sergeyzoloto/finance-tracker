@@ -164,8 +164,22 @@ public class DemoLedgerService {
         }
         LocalDate from = commands.getFirst().entryDate();
         Long familyLedgerId = familySwitch.enabled() ? family(personalLedger, from, today, displayName) : null;
+        analyze(personalLedger);
         return new DemoLedgerView(byKind, DemoLedger.ACCOUNTS.size(), DemoLedger.CATEGORIES.size(),
                 DemoLedger.COUNTERPARTIES.size(), from, commands.getLast().entryDate(), familyLedgerId);
+    }
+
+    /**
+     * The planner's statistics of the tables the demo filled, as the import refreshes them while it writes: a table that
+     * was emptied (delete-all) or never filled has statistics for no rows until autovacuum's next pass, and the Entries
+     * page's statements then plan nested loops for the tables' thousands of rows (HIST-1's A/B runs: the monthly
+     * statement took 132 s on a freshly loaded demo). ANALYZE is transactional, so it commits with the demo.
+     */
+    private void analyze(LedgerScope personalLedger) {
+        // A planner statement: it reads no row (the scope is only the rule's, ArchitectureTests).
+        jdbc.sql("""
+                ANALYZE journal_entry, posting, account, counterparty, category, family_record, family_share,
+                        family_entry_link""").update();
     }
 
     /** Creates the demo's family budget (H1) and records {@link DemoFamily#plan}; returns its id. */

@@ -3,6 +3,26 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-18 · HIST-1, fourth commit: the e2e flake proved and fixed (ANALYZE after the demo load)
+
+The commit of this entry, on `main` on top of HIST-1's third commit `8630df4`: see the report for its full hash. Not pushed, not deployed. D-1069 is the PM's, D-1070 and D-1071 the agent's. No migration.
+
+**Changes**
+- `DemoLedgerService.load` runs `ANALYZE` on the tables it filled (`journal_entry`, `posting`, `account`, `counterparty`, `category`, `family_record`, `family_share`, `family_entry_link`) once it has written everything, in its transaction (D-1071).
+- `requirements.md` D-1069 to D-1071 (the A/B result and the cause), `CLAUDE.md`'s line on the demo.
+
+**Verified**
+- **A/B of `e2e:local`** (D-1069; `E2E_FAMILY=on`, Node v24.21.0, each run on a freshly built stack from its own worktree, clean tree; HikariCP's `Pool stats` at DEBUG through the container's environment and `pg_stat_activity` sampled every 2 s for sessions waiting on a lock or idle in a transaction over 1 s; the tree on a temporary commit `60e6df2` for the fix, which holds exactly this commit's code): `d44df66` runs 1 and 2 passed (a first pass of the same four runs, without working pool statistics, gave `d44df66` 2 passes and `8630df4` 1 failure, `dashboard at 375 px`), `8630df4` run 1 passed, run 2 failed (`themes at 375 px`, `entries at 375 px`; slowest request `GET /api/entries/family-payees`, 21 s and 17 s, answered 200), runs 3 and 4 (with `auto_explain` and `log_min_duration_statement`) failed from `dashboard at 375 px` on and in the cleanup (a delete of the account's data timed out at 15 s), the slowest statement 132 s and 99 s. In all of them `HikariPool-1` never had a connection waiting (`waiting=0`; the pool of the history's committed reads logged no line), and the only sessions on a lock were the first sign-in's `INSERT INTO user_settings … ON CONFLICT` (13 samples in run 2, by design, D-1070) and, in runs 3 and 4, a `DELETE FROM user_settings` waiting behind the stalled page; none idle in a transaction over 1 s. Over both passes `d44df66` failed 0 of 4 and `8630df4` 4 of 6.
+- **The cause**, from `auto_explain` in runs 3 and 4: the Entries monthly chart's first statement (`matched(…)` then `min(entry_date)`) read the 894 entries of the freshly loaded demo as 1 row (`journal_entry`'s statistics said no rows after the previous spec's delete-all) and planned nested loops, 132 s and 99 s; the same statement and weakness are in `d44df66`. Why `8630df4` meets it far more often is not proven (the likely reason is that the versions' and the revision's writes delay autovacuum's analyze; no run measured it). D-976's explanation was the mechanism, and wrong to call it not HIST-1's.
+- **With the fix**: three runs on a clean tree, `60e6df2`: all three `Result: PASSED` (all specs but `apex`, cleanup passed, 0 password hits), `HikariPool-1` waiting 0, slowest statements 1.5, 2.0 and 1.5 s; lock waits only the first sign-in's upsert and, once, `ANALYZE` waiting briefly for another lock.
+- `cd backend && ./mvnw -B clean verify` on this tree: exit 0, `Tests run: 745, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`, 13:59 min. `cd e2e && npm run test:guards` (alone, after the runs): exit 0, `tests 39`, `pass 39`, `fail 0`.
+- `scripts/check-forbidden-names.sh` (tree) before the commit and `--log d44df66..HEAD` after it: see the report.
+
+**Open**
+- The monthly and breakdown statements stay sensitive to missing statistics after a delete-all and a load by other means than the demo (an import analyzes while it writes, D3b); the same would show after a bulk load of anything else. Not changed (D-1071).
+- Why HIST-1 widens the window is a hypothesis.
+- Runs 1 to 4 of the A/B used 8630df4's code before the fix, so the table's failure rate is that tree's.
+
 ## 2026-11-18 · HIST-1, third commit: the restore test counts versions and events, the marks checked
 
 The commit of this entry, on `main` on top of HIST-1's second commit `5c06b3a` (pushed): see the report for its full hash. Not pushed, not deployed. D-1062 to D-1065 are the PM's, D-1066 to D-1068 the agent's. No migration.

@@ -3,9 +3,27 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-18 · HIST-1, first commit: the deploys recorded, ADR 0006 accepted
+
+The commit of this entry, on `main` on top of `d44df66` (WEB-1, M): see the report for its full hash. Not pushed, not deployed. Documents only; the first of HIST-1's two commits (D-867). D-989 to D-1042 are recorded here: D-989 to D-1025 are HIST-0's, D-1026 to D-1038 the owner's answers, D-1039 to D-1042 the PM's.
+
+**Changes**
+- `deploy/RUNBOOK.md`, "Deployed revisions" and "Production now": the rows of PERF-1 and WEB-1 (2026-11-18, `d44df66`, no migration, the run folder, both dumps with their SHA-256, the images' content, the DNS change, the site file, the suite's third run, `finish` 12:05:11Z) and of OPS-6b (2026-11-17: part A `87b758d`, part B `4445627` with its downtime of 0.822 s, part C, "CI on Ubuntu 26.04" #41), from the owner's outputs as the PM read them. A note before the WEB-1 checklist's step D: after a DNS change check the laptop's own resolver before the suite.
+- `CLAUDE.md`: the deployment paragraph names `d44df66` as what runs; the template gets the resolver check.
+- `change_log.mdx`: WEB-1's line "Not committed yet." now names `d44df66` (the one edit of an older entry the task asked for; OPS-6b's second commit's entry still says "Not committed yet.").
+- `docs/adr/0006-history-versions-snapshots.md` (HIST-0's draft, status accepted) and `docs/adr/0006-measurements.md`; section 11 replaced by the owner's answers, sections 5.5, 5.6, 6.3, 6.4, 6.5, 7, 8 and 9 adjusted: **rollback must work** (D-1040: the backstop checks only connections that set `app.history = 'on'`, the replaced SQL functions keep their signatures, drift after a rollback is reconciled by a `BASELINE` version), imports after a restore (D-1038), the 13 months of sign-in events (D-1033, D-1042); D-1024 corrected. `docs/README.md` lists it; `requirements.md` D-989 to D-1042.
+
+**Verified**
+- `scripts/check-forbidden-names.sh` before the commit and `--log d44df66..HEAD` after: see the report.
+- `change_log.mdx` compiled with `@mdx-js/mdx`: see the report.
+
+**Open**
+- The ADR's tables are drafts until HIST-1's V19 (the second commit) fixes them.
+- OPS-6b's second-commit entry still says "Not committed yet." for `4445627`; an older entry is not edited without being asked.
+
 ## 2026-11-18 · WEB-1: the author's link in the footers, and the landing page on finance-nl.com
 
-The commit of this entry, on `main` on top of PERF-1's `12d51d2`: see the report for its full hash. Not committed yet. Not pushed, not deployed (the batch's checklist is in the runbook). D-979 to D-982 are the PM's, D-983 to D-988 the agent's. No migration.
+The commit of this entry, on `main` on top of PERF-1's `12d51d2`: `d44df66`. Pushed and deployed with PERF-1 on 2026-11-18 (the batch's checklist is in the runbook; recorded by HIST-1's first commit). D-979 to D-982 are the PM's, D-983 to D-988 the agent's. No migration.
 
 **Changes**
 - Both footers, the app's (`App.tsx`) and the landing page's (`Landing.tsx`), end with "Sergey Zolotko", a link to `AUTHOR_URL` (`links.ts`): "Privacy policy · Source code · Sergey Zolotko" (D-979).

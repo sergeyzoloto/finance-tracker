@@ -13,6 +13,7 @@ original decision and add dated amendments; a snapshot is never updated.
 | [adr/0003-family-budget-membership-and-cross-ledger-posting.md](adr/0003-family-budget-membership-and-cross-ledger-posting.md) | Ledgers, membership-based access, family budgets and posting into members' ledgers, F1 to F7 | Decision, amended |
 | [adr/0004-multi-currency-family-ledger.md](adr/0004-multi-currency-family-ledger.md) | Family records in any currency, F8 | Decision, amended |
 | [adr/0005-excel-import-and-export.md](adr/0005-excel-import-and-export.md) | The Excel import and the export, D3b to D4c | Decision, as built |
+| [adr/0006-history-versions-snapshots.md](adr/0006-history-versions-snapshots.md) | History, record versions, snapshots and family acceptance; HIST-1 to HIST-5 (with [0006-measurements.md](adr/0006-measurements.md)) | Decision, accepted; built from HIST-1 |
 | [family-budget/requirements.md](family-budget/requirements.md) | The decision log of the whole project (below), the planned stages and "Later", the open work | Current, appended |
 | [family-budget/current-state.md](family-budget/current-state.md) | What the code did before the family budget, written in F1 (2026-09-28) | Frozen snapshot |
 | [family-budget/privacy-draft.md](family-budget/privacy-draft.md) | The privacy policy's section "Family budgets", word for word as published in `frontend/public/privacy.html` (a test compares them) | Current |

@@ -1426,6 +1426,60 @@ Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
 - D-986 (the agent, WEB-1). The apex's static list is `/`, `/privacy`, `/privacy.html`, `/theme.js`, `/favicon.svg`, `/favicon.ico` and `/assets/*`, in `finance-apex.caddy`'s `@landing`; any other file under `frontend/public/` that the landing page later loads must be added there, or the apex answers it with a 308 to the app. `/index.html` is a 308 too. A POST (the logout form) to the apex follows the 308 with its method.
 - D-987 (the agent, WEB-1). Not changed, noted: the theme is kept per origin in `localStorage`, so a visitor who chose a theme at the app sees the device's on the apex's landing page (the cookie `ft_theme` is readable there, but `theme.js` reads only the storage; D-497); a privacy policy served at both hosts is the same file. Adding an A record for the apex does not touch the MX and TXT records of finance-nl.com (the sender `noreply@` and `serge@`); the checklist's DNS step prints every record of the apex and stops if one is not as expected.
 - D-988 (the agent, WEB-1). The batch's stage name for `deploy.sh run` is `WEB-1`; `deploy/checks/WEB-1.sql` and `.expected` are OPS-6b's 18 lines (no migration, no table added, `numbers.sql` unchanged), tried on the dev stack's database, which Flyway migrated to V18 (`docker exec … psql` as `finance`): the output equals `WEB-1.expected`. A database restored from a dump renders constraints differently, so none is printed (D-917).
+- D-989 (HIST-0, ADR 0006). HIST-0 is design only (the PM).
+- D-990 (HIST-0, ADR 0006). One model for the action log and record history: every change to a record makes a new immutable version (the PM).
+- D-991 (HIST-0, ADR 0006). A snapshot is a marker of a moment in the history, not a copy; the state then is derived from versions (the PM).
+- D-992 (HIST-0, ADR 0006). In a family budget a change by one member reaches the others only when they accept it; only "accept" for now (Sergey).
+- D-993 (HIST-0, ADR 0006). Restoring a snapshot gives "archived" status to every record changed since and makes the versions as of the snapshot current again; nothing is lost; no retention or cleanup yet (Sergey).
+- D-994 (HIST-0, ADR 0006). Versions, snapshots and restore cover personal ledgers and family budgets from the start, with notifications for family members (Sergey).
+- D-995 (HIST-0, ADR 0006). No new version when every field is unchanged; any change makes one; the Excel import follows the same rule (Sergey).
+- D-996 (HIST-0, ADR 0006). "Delete all my data" removes the user's history too; the privacy policy states what is kept and for how long (Sergey).
+- D-997 (HIST-0, ADR 0006). Notifications are in-app only (the PM).
+- D-998 (the agent, HIST-0, ADR 0006). A record is the user-visible unit (section 2.1); derived family rows are not records.
+- D-999 (the agent, HIST-0, ADR 0006). Settings, manual rates, memberships, invites and ledger settings are log events with old and new values, not versions.
+- D-1000 (the agent, HIST-0, ADR 0006). Option (b): application-written versions in one JSONB table; current state stays in the live tables.
+- D-1001 (the agent, HIST-0, ADR 0006). Canonical content, ids not names, bookkeeping excluded; hash equal means no write at all.
+- D-1002 (the agent, HIST-0, ADR 0006). Delete and archive remove the live row; the live tables hold only live records; hot paths gain no predicate.
+- D-1003 (the agent, HIST-0, ADR 0006). Revisions are per ledger and per change set; the log of record changes is read from versions; other events go to `activity_event`.
+- D-1004 (the agent, HIST-0, ADR 0006). Database backstop (a deferred trigger that wants a version in the same transaction) plus an integrity check and test oracle.
+- D-1005 (the agent, HIST-0, ADR 0006). `family_record_change`: dual write in HIST-1, versions are the source from HIST-2, table frozen and dropped later.
+- D-1006 (the agent, HIST-0, ADR 0006). `import_batch`, `imported_entry_deleted` and the sync stamps stay; stamps are not content.
+- D-1007 (the agent, HIST-0, ADR 0006). Sign-in, sign-out and expiry events by sub only, no email, IP or browser; restarts end sessions silently and the log says so.
+- D-1008 (the agent, HIST-0, ADR 0006). A snapshot is `(ledger, revision, name, kind)`; state is derived from versions.
+- D-1009 (the agent, HIST-0, ADR 0006). Restore semantics (section 6.3): all or nothing, preview first, records created after become archived, deleted ones return, memberships and derived rows untouched.
+- D-1010 (the agent, HIST-0, ADR 0006). Automatic snapshots before every import commit and every restore.
+- D-1011 (the agent, HIST-0, ADR 0006). Undoing a restore is restoring its `BEFORE_RESTORE` snapshot.
+- D-1012 (the agent, HIST-0, ADR 0006). Family acceptance as catch-up: per-member `accepted_revision`, accept advances to the head; the author is accepted automatically when caught up; a member with pending changes may not change family records or commit an import.
+- D-1013 (the agent, HIST-0, ADR 0006). D-10 becomes "debt account equals the family balance as of the accepted revision"; integrity shows pending, not a failure.
+- D-1014 (the agent, HIST-0, ADR 0006). The Family tab shows the latest family state with pending marks; labels (category and member names) are live; only record changes are revisions.
+- D-1015 (the agent, HIST-0, ADR 0006). Only owners restore a family snapshot; any ACTIVE member creates one.
+- D-1016 (the agent, HIST-0, ADR 0006). An import's dry run works with pending changes and says so; its commit is refused until the importer accepts.
+- D-1017 (the agent, HIST-0, ADR 0006). Notifications are references (range of revisions, author), no content, coalesced while unread, deleted with the user.
+- D-1018 (the agent, HIST-0, ADR 0006). Erasure: delete-all deletes the personal history, snapshots, notifications and events by sub; family versions stay without names and without the leaver's comments, erased by a window query inside `release_family_memberships`.
+- D-1019 (the agent, HIST-0, ADR 0006). No automatic deletion of history yet (D-993); sign-in events need a limit before release (proposal: 13 months).
+- D-1020 (the agent, HIST-0, ADR 0006). Baseline by an application job plus a lazy baseline on first change, no SQL backfill.
+- D-1021 (the agent, HIST-0, ADR 0006). Actor is a `ledger_member` id (personal ledgers have one) with kind USER, SYSTEM or IMPORT.
+- D-1022 (the agent, HIST-0, ADR 0006). Family versions hold the family fields only, never the payer's private side (D-16).
+- D-1023 (the agent, HIST-0, ADR 0006). Acceptance has its own switch, off by default, so HIST-3 deploys dark.
+- D-1024 (the agent, HIST-0, ADR 0006). All migrations additive; rollback is the previous image (corrected by D-1040: the previous image must write normally against the new schema, so the backstop only checks version-aware connections).
+- D-1025 (the agent, HIST-0, ADR 0006). The privacy policy section ships with HIST-1, before it collects anything.
+- D-1026 (Sergey, HIST-0, ADR 0006). Accept all pending changes at once (catch-up); no per-change accept.
+- D-1027 (Sergey, HIST-0, ADR 0006). A member with pending changes accepts first before changing family records or committing an import; the refusal offers "Accept" in the same place.
+- D-1028 (Sergey, HIST-0, ADR 0006). The Family tab shows the latest family state with "pending for you" marks.
+- D-1029 (Sergey, HIST-0, ADR 0006). While a change is pending, Entries shows live labels with a mark; "others' shares" may be off and the mark says so; HIST-3b only if the marks get in the way.
+- D-1030 (Sergey, HIST-0, ADR 0006). Only owners restore a family snapshot; archiving other members' records without a decline is accepted for now.
+- D-1031 (Sergey, HIST-0, ADR 0006). A personal snapshot does not undo what the family posted into the member's books.
+- D-1032 (Sergey, HIST-0, ADR 0006). Settings and manual rates are log-only, outside snapshots.
+- D-1033 (Sergey, HIST-0, ADR 0006). Sign-in events are kept 13 months; no IP address, no browser.
+- D-1034 (Sergey, HIST-0, ADR 0006). Notifications also for a member joining, leaving or claiming a seat; unread ones from the same author in the same ledger are merged.
+- D-1035 (Sergey, HIST-0, ADR 0006). D-993 as read in section 6.3.
+- D-1036 (Sergey, HIST-0, ADR 0006). Automatic snapshots before every import commit and every restore.
+- D-1037 (Sergey, HIST-0, ADR 0006). HIST-1 is invisible apart from the privacy policy text; history views come with HIST-2.
+- D-1038 (Sergey, HIST-0, ADR 0006). Imports after a restore: Excel stays the source; a record a restore archives is not an in-app deletion, a record it brings back leaves `imported_entry_deleted` (section 6.3).
+- D-1039 (the PM, HIST-0, ADR 0006). HIST-1 is the only feature stage of its batch.
+- D-1040 (the PM, HIST-0, ADR 0006). Rollback must work after V19 (section 5.5, section 9).
+- D-1041 (the PM, HIST-0, ADR 0006). HIST-1's acceptance numbers, on the rehearsal database, median of 3: the Entries timings within PERF-1's targets and plans, an import commit at most 20 % slower, a second import of the same file writing 0 versions and 0 revisions, the baseline job's rows, duration and idempotence, the integrity check passing after the baseline and the random tests.
+- D-1042 (the PM, HIST-0, ADR 0006). Sign-in events older than 13 months are deleted by a daily job in HIST-1; versions are never deleted automatically.
 
 ## Planned stages
 - F1: analysis and ADR 0003 (done).

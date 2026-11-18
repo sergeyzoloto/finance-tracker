@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { csrfToken, logIn } from './auth'
 import { chosenDay } from './dates'
+import { clearSessionHint } from './hint'
 
 // The ledger's API (docs/adr/0001-double-entry-ledger.md). Amounts are decimal strings; see money.ts.
 
@@ -888,6 +889,7 @@ export async function api<T = void>(path: string, method = 'GET', body?: unknown
     },
     body: json ? JSON.stringify(body) : (body as FormData | undefined),
   })
+  if (response.status === 401 || response.status === 403) clearSessionHint()
   if (response.status === 401) return logIn()
   if (response.status === 403) throw new Error('Access denied. Please reload the page.')
   if ([502, 503, 504].includes(response.status)) throw new ServerUnavailable()

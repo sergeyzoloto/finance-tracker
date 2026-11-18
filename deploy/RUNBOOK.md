@@ -1903,6 +1903,261 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
 
+## PERF-1 and WEB-1's deploy checklist with the suite
+
+**What this is, in one paragraph.** One deploy of two stages (D-879, D-971): PERF-1 (the Entries summary's query, D-969 to D-978; the api's image) and WEB-1 (the author's link in both footers, the landing page on finance-nl.com, the sign-in hint cookie `ft_session`, D-979 to D-988; the web image, the privacy policy, a new site file `deploy/finance-apex.caddy`). **No migration, no change of the postgres service, no change of `deploy/finance.caddy`** (D-983: the apex is a second site file because `deploy.sh run` refuses a changed `deploy/finance.caddy`). Used only for this deploy.
+
+**Commit.** finance: `<M>`, WEB-1's commit, on `main` on top of PERF-1's `12d51d2` (type the full 40 characters where a block says `<M>`, D-226). **Stage:** `WEB-1` (`deploy/checks/WEB-1.sql` and `.expected`: OPS-6b's 18 lines, no index line; tried on a database migrated by Flyway to V18). **State expected: production runs what `last-good` says (the pre-flight prints it; the checklist starts from that, D-917; it is `d6f6f36…` or OPS-6b's part B's commit `4445627…`), Flyway V18, the family switch on, the postgres container created from the image line that `deploy/app/docker-compose.yml` names at `<M>` (OPS-6b's part B applied: `run`'s guard accepts only the image line the running container already has, D-954; if the pre-flight shows otherwise, stop: OPS-6b's checklist comes first).** After the deploy: the same, both images new, `finance-apex.caddy` installed.
+
+**The time (D-125).** Not between 03:30Z and 04:30Z (the host may reboot by itself), not across the dumps at about 02:30Z, not while Hetzner's backup runs (about 10:49Z: keep 10:30Z to 11:30Z free); a scheduled shutdown less than 2 hours away stops `run` (D-131). Only the rollback is the exception. The api is recreated: everyone signs in again.
+
+**The order.** DNS first (nothing of this deploy depends on it until the site file is installed, but Caddy asks Let's Encrypt for the apex's certificate the moment it is, and fails if the name doesn't point here): step D. Then step 0 and 1 (push, CI), the pre-flight, part A (`run`), part B (the site file), the suite, `finish`.
+
+Rules for every block: as OPS-6b's (CLAUDE.md, "Deploy checklists" and "Production safety"): one block at a time and the next only once the prompt has returned; server blocks start with `cd /opt/finance-tracker &&` or are wrapped in `cd /opt/finance-tracker && {` … `}`; laptop blocks start with `cd ~/dev/finance-tracker &&` (or `~/dev/finance-tracker/e2e`) or are wrapped likewise; a command that asks a question (`deploy.sh run`, `finish`, `e2e:prod`) is alone in its block and its answer is typed; every laptop git command that can page runs as `git --no-pager`; each step closes with its output pasted. **Read-only steps say "read only"; every other step changes something.** Don't start "CI on Ubuntu 26.04" before the end of part B.
+
+### Step D. DNS for the apex and www
+
+**D1. On the laptop, read only: what the names resolve to now.**
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+for r in 1.1.1.1 8.8.8.8; do
+  echo "== resolver $r"
+  for h in app.finance-nl.com finance-nl.com www.finance-nl.com; do
+    echo "-- $h: A $(dig +short A "$h" @"$r" | paste -sd' ') | AAAA $(dig +short AAAA "$h" @"$r" | paste -sd' ') | CNAME $(dig +short CNAME "$h" @"$r" | paste -sd' ')"
+  done
+  echo "-- finance-nl.com: MX $(dig +short MX finance-nl.com @"$r" | paste -sd' ') | TXT $(dig +short TXT finance-nl.com @"$r" | paste -sd' ')"
+done
+}
+```
+
+You should see, for `app.finance-nl.com`, `A 2.28.108.199`, no AAAA, no CNAME. The apex and `www` probably show something else (a parking address of the registrar, or nothing). **Write down the apex's and www's records, MX and TXT included, before changing anything.**
+
+**D2. The owner, in the browser** (Squarespace: Domains → finance-nl.com → DNS → DNS Settings → Custom records): make the apex (`@`) an `A` record `2.28.108.199` and `www` an `A` record `2.28.108.199` (or a CNAME to `finance-nl.com`), replacing any other A, AAAA or CNAME of those two names (a default parking record included) and **leaving every other record, MX, TXT (SPF, DKIM, DMARC) and the `app` and `auth` records, as it is**; no AAAA (the auth server's Caddy network is IPv4-only, so one would send IPv6 visitors nowhere). The mail of `noreply@` and `serge@finance-nl.com` doesn't depend on the apex's A record.
+
+**D3. On the laptop, read only: the check that stops the deploy.** Repeat it until it prints `DNS-OK`, which can take minutes to hours.
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+ok=1
+for r in 1.1.1.1 8.8.8.8; do
+  want4=$(dig +short A app.finance-nl.com @"$r" | grep -E '^[0-9.]+$' | sort | paste -sd,)
+  want6=$(dig +short AAAA app.finance-nl.com @"$r" | grep ':' | sort | paste -sd,)
+  for h in finance-nl.com www.finance-nl.com; do
+    got4=$(dig +short A "$h" @"$r" | grep -E '^[0-9.]+$' | sort | paste -sd,)
+    got6=$(dig +short AAAA "$h" @"$r" | grep ':' | sort | paste -sd,)
+    echo "$r $h: A '$got4' AAAA '$got6' (app: A '$want4' AAAA '$want6')"
+    if [ -z "$want4" ] || [ "$got4" != "$want4" ] || [ "$got6" != "$want6" ]; then ok=0; fi
+  done
+done
+if [ "$ok" = 1 ]; then echo DNS-OK; else echo DNS-STOP; fi
+}
+```
+
+You should see four lines per resolver with the same `A '2.28.108.199'` and `AAAA ''` as app's, then `DNS-OK`. `DNS-STOP`: **stop, nothing else of this checklist runs**.
+
+### Step 0. On the laptop, read only: where things stand
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+M=<M>
+git fetch origin
+git --no-pager log -1 --format='HEAD %H %s'
+git --no-pager log -1 --format='origin/main %H %s' origin/main
+test "$(git rev-parse HEAD)" = "$M" && echo HEAD-IS-M
+git --no-pager log --oneline <last-good commit>..HEAD
+git --no-pager diff --name-only <last-good commit> "$M" -- deploy/
+git --no-pager diff --name-only --diff-filter=A <last-good commit> "$M" -- backend/src/main/resources/db/migration | wc -l
+git --no-pager diff --quiet <last-good commit> "$M" -- deploy/finance.caddy deploy/app/docker-compose.yml deploy/app/postgres-init.sh && echo SITE-AND-POSTGRES-UNCHANGED
+git merge-base --is-ancestor "$M" origin/main && echo PUSHED || echo NOT-PUSHED
+test -z "$(git status --porcelain)" && echo CLEAN
+}
+```
+
+Type the commit `last-good` will show (from the pre-flight below; if you haven't run it yet, run it first) where `<last-good commit>` stands. You should see `HEAD` = M, the commits **as git prints them** from production's commit to M (compare with the report; don't count), `HEAD-IS-M`, under `deploy/` `RUNBOOK.md`, `check-site.sh`, `checks/WEB-1.expected`, `checks/WEB-1.sql`, `finance-apex.caddy` (and whatever earlier commits of the range changed), `0` migrations, `SITE-AND-POSTGRES-UNCHANGED`, `NOT-PUSHED` (or `PUSHED` if the owner pushed already), `CLEAN`. A migration, or a changed `finance.caddy` or postgres service: stop.
+
+### Step 1. On the laptop: push M (a fast-forward), then CI on M, read only
+
+```bash
+# On the laptop: a fast-forward of main to M; refused if origin/main isn't an ancestor of M
+cd ~/dev/finance-tracker && git push origin <M>:main
+```
+
+Skip it if step 0 printed `PUSHED`. Then, once the jobs have finished (about fifteen minutes), type M:
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(sys.argv[1][:7], runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+You should see `CI`, `push`, `main`, attempt 1, `completed success` with its five jobs `completed success`. A failure of `Backend` or `Deploy scripts` is a real fault: stop; only a Frontend job may be re-run once (D-94). PERF-1's commit is deployed as part of M, so M's run is the one that counts (D-965).
+
+### Pre-flight. On the server, read only (send the whole output to the PM before part A)
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short
+cat /var/lib/finance-deploy/last-good
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 4
+docker inspect -f '{{.Name}} created from {{.Config.Image}} image {{.Image}} started {{.State.StartedAt}} {{.State.Health.Status}}' finance-tracker-postgres
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+grep -n 'image: postgres' deploy/app/docker-compose.yml
+ls -l /opt/caddy-sites
+(cd deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT version()" </dev/null)
+docker image ls --digests --format '{{.Repository}}:{{.Tag}} {{.Digest}} {{.ID}} {{.Size}}'
+df -h /
+docker system df
+}
+```
+
+You should see: `Now:` outside the forbidden windows; no scheduled shutdown (or one at least 2 hours after part A starts); Docker 29.10.0 containerd; `Clone:` equal to `last-good`'s commit, clean; `last-good` with `finish=passed`; the postgres container `created from postgres:17.12@sha256:0d938e97…` when the compose file's line says the same (the file at the clone, which is `last-good`'s commit: both must name the same image; **if the container is on 17.11 and the file's line says 17.12, or the reverse, stop**: OPS-6b's part B comes first); `/opt/caddy-sites` with `finance.caddy` only (no `finance-apex.caddy`); the disk before. Anything else: stop and send it to the PM.
+
+### Part A: the deploy (`deploy.sh run <M> WEB-1`)
+
+**A1. On the server: the deploy**, alone in its block; type M's 7 characters at the confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> WEB-1
+```
+
+It prints: 1.1 the shutdown line; 1.2 `HEAD` and `Last good deploy` equal, status `good`; 1.3 `<M> is origin/main`, the commits **git prints** from there to M, `Migrations added: none`, the files under `deploy/` (as step 0); 1.4 `deploy/finance.caddy and the postgres service unchanged`; 1.5 CI success; 1.6 the WEB-1 files; 1.7 the 24 numbers (your own use may have changed some: say so, D-941); 1.8 a fresh dump, `PASS`. 2: type the 7 characters. 3.2 the running images kept as `:<last-good>` and `:previous`; 3.3 **both images built (the api's and the web's content are new)**; 3.5 healthy; 3.6 `Pages: 5 of 5`; 3.7 the build cache pruned; 4.1 `Schema "app" is up to date. No migration necessary.`, V18; 4.2 D-25 "on"; 4.3 the same numbers; 4.4 `WEB-1.expected`'s 18 lines; 4.6 an after-dump `PASS`; 5 the summary, `Left for you: … finish`. A FAILED line: stop and send it to the PM; the rollback command it prints is the last block here, run only if the PM says so.
+
+### Part B: the apex's site file
+
+Only now (the web image serves the landing page's apex branch, and `run` has finished). The site file is a second one; the app's own stays as it is (D-983).
+
+**B1. On the laptop, read only: the file as the clone will install it.**
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && git --no-pager show <M>:deploy/finance-apex.caddy | head -n 40
+```
+
+You should see the file as the report describes it: the `finance-nl.com` block (`@landing path / /privacy /privacy.html /theme.js /favicon.svg /favicon.ico /assets/*` to `finance-tracker-web:8080`, everything else `redir https://app.finance-nl.com{uri} 308`) and the `www.finance-nl.com` block (`redir https://finance-nl.com{uri} 308`).
+
+**B2. On the server: install it**, one line at a time. `caddy-site` validates the file with the running Caddy's own image and environment before it goes live and keeps what it replaces.
+
+```bash
+# On the server
+cd /opt/finance-tracker && git log -1 --format='%H' && cp deploy/finance-apex.caddy /root/finance-apex.caddy
+caddy-site install /root/finance-apex.caddy
+```
+
+The first line must print M's full hash (the clone after `run`). You should see `✅ /opt/caddy-sites/finance-apex.caddy installed and live`. Caddy asks Let's Encrypt for the certificates of `finance-nl.com` and `www.finance-nl.com` now; the first request may take a few seconds. An error from `caddy-site` leaves everything as it was: send it to the PM.
+
+**B3. On the laptop, read only: the apex from outside.** The requests are plain GETs.
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+for u in https://finance-nl.com/ https://finance-nl.com/privacy https://finance-nl.com/favicon.svg 'https://finance-nl.com/entries?page=2' https://finance-nl.com/api/me https://finance-nl.com/oauth2/authorization/keycloak 'https://www.finance-nl.com/entries?x=1' https://www.finance-nl.com/ https://app.finance-nl.com/; do
+  echo "$u -> $(curl -s -o /dev/null -w '%{http_code} %{redirect_url} ssl_verify=%{ssl_verify_result}' "$u")"
+done
+curl -sI https://finance-nl.com/ | grep -iE '^(strict-transport-security|content-security-policy|x-content-type-options|referrer-policy|server|via):' | cut -c1-80
+echo | openssl s_client -connect finance-nl.com:443 -servername finance-nl.com 2>/dev/null | openssl x509 -noout -issuer -subject -dates
+}
+```
+
+You should see `200` with `ssl_verify=0` for the first three and for app's `/`; `308` to `https://app.finance-nl.com/entries?page=2`, `/api/me` and `/oauth2/authorization/keycloak` at app; `308` from `www` to `https://finance-nl.com/entries?x=1` and `https://finance-nl.com/`; the four security headers and no `server` or `via`; a certificate for `finance-nl.com` issued by Let's Encrypt. Anything else: **the way back of the site file** (below) and send it to the PM; the app's own host is unaffected by it.
+
+### Step 9a. The suite
+
+**On the laptop**, from a clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout <M> && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. Then the suite, alone in its block; read its banner (https://app.finance-nl.com, `e2e-a`, `e2e-b`, `E2E_FAMILY: on`, M and "clean tree"), type `E2E PROD` after the question. `E2E_APEX_LIVE=1` switches on the apex spec (`15-apex`: the landing page, the hint's redirect, the 308s, www; no account):
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on E2E_APEX_LIVE=1 npm run e2e:prod
+```
+
+Paste its summary, from `===== E2E summary =====` to `=======================`: `Commit:` M `(clean tree)`, every spec passed (`new-family` skipped, D-163; `apex` among them, 3 tests, not skipped), `cleanup passed`, 0 password hits, `Result: PASSED`. **D-959:** a lone failure of `dashboard at 375 px` or `entries at 375 px`, everything else passed and the cleanup too, may be re-run once. If any spec fails, or the cleanup does: don't run the suite again and don't run `finish`; send the whole summary to the PM, who decides (D-58, D-59).
+
+**Not automated, by hand after the suite and before `finish`:** with the owner's own browser signed in at https://app.finance-nl.com, open https://finance-nl.com/ in the same browser: it should land on the app. Sign out in the app, open https://finance-nl.com/ again: the landing page (the cookie `ft_session` is gone). Reason: the suite's accounts sign in at Keycloak with a password the spec never types in a page of the apex, and the hint's `Domain` cookie across `app.` and the apex is what the unit tests and the spec's own cookie only imitate.
+
+### Step 10. On the server: finish, then verify
+
+Only after step 9a, alone in its block; `yes` to both only if the summary says `Result: PASSED` with 0 password hits.
+
+```bash
+# On the server: only after the end-to-end suite of step 9a (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify WEB-1
+```
+
+You should see `verify WEB-1 at <M's 7 characters> …: OK`, the images `last-good`'s, the pages 5 of 5, V18, `WEB-1.expected`'s 18 lines and `Compared with the numbers after …: same as the last run`.
+
+### Step 11. The owner: UptimeRobot (D-982)
+
+Nothing in the scripts touches it. Add a monitor for `https://finance-nl.com/` (HTTP(s), 5 minutes, email alerts, as the two existing ones; the page answers 200 without a backend). Say here when it is done.
+
+### Step 12. On the laptop, read only: CI on Ubuntu 26.04
+
+After `finish`, the owner starts "CI on Ubuntu 26.04" on `main` in GitHub's Actions page, then (type M):
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+M=<M>; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("workflows/ci-ubuntu-26.yml/runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(sys.argv[1][:7], runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$M"
+}
+```
+
+### The way back of the site file (only if step B3 or the hand check shows the apex wrong; the app is unaffected)
+
+```bash
+# On the server: ONLY IF THE APEX IS WRONG; takes finance-apex.caddy offline and nothing else (the file is kept in /root/caddy-sites-removed/)
+caddy-site remove finance-apex
+```
+
+You should see the file moved and Caddy reloaded; finance-nl.com then answers as it did before (its DNS stays pointing here and gets no answer from this Caddy). The DNS records can stay.
+
+### The rollback (last, only for a failed deploy)
+
+```bash
+# On the server: ONLY FOR A FAILED DEPLOY, at any hour; images only, no database change; type last-good's commit (the pre-flight's) where it stands
+cd /opt/finance-tracker && deploy/rollback.sh <last-good commit>
+```
+
+It goes one step back to the commit the run replaced, with its images (both containers recreated), refuses nothing here (no migration, V18 stays); then `verify` of the earlier stage. The site file, if installed, can stay: the old web image shows the app's old landing page on the apex, which still links to the login at the apex (a path the apex sends on to the app with a 308), so nothing is lost.
+
 ## OPS-6b's deploy checklist with the suite
 
 **What happened, in one paragraph.** OPS-6's part A is deployed and finished (`d6f6f36`, `last-good` `d6f6f36`, 19:18:33Z); part B was refused at its step 1.5 with nothing changed, because `db-image` expected the wrong format of `postgres --version` (D-963); OPS-6's part C named two images the host doesn't have. B (`618ba4d`) is on GitHub and not deployed. This checklist replaces OPS-6's parts B and C (D-962) and is used only for this deploy.
@@ -15784,6 +16039,13 @@ fails there, because the live database is new and empty. Then steps 7 and 9.
    `✅ deploy/finance.caddy is valid`.
 2. Commit, then [Update the app](#update-the-app). Its diff lists `deploy/finance.caddy`, and the
    block "If `deploy/finance.caddy` changed" installs it.
+
+Since WEB-1 (D-983) the apex and www are a second site file, `deploy/finance-apex.caddy`, installed the same way
+(`cp /opt/finance-tracker/deploy/finance-apex.caddy /root/finance-apex.caddy`, then
+`caddy-site install /root/finance-apex.caddy`) and taken offline with `caddy-site remove finance-apex`;
+`deploy/check-site.sh` checks both files together. `deploy.sh run` refuses a commit that changes
+`deploy/finance.caddy`, so the apex's changes go in this file, and the app's headers, copied there, stay equal
+(`check-site.sh` warns when they don't).
 
 To take the site offline, **on the server**: `caddy-site remove finance`. It keeps the file in
 `/root/caddy-sites-removed/`; the auth server's `PRODUCTION.md`, "Remove a site", has the rest.

@@ -2,9 +2,11 @@ import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import App from './App'
+import { startApex } from './apex'
 import { familyLedgersOn } from './api'
 import { finishLogin, logIn, loginResult, logOut } from './auth'
 import { isMe } from './guards'
+import { clearSessionHint, setSessionHint } from './hint'
 import { captureInvite, inviteRedirect, watchInviteLinks } from './invite'
 import Landing from './Landing'
 import { startTheme } from './theme'
@@ -21,6 +23,9 @@ createRoot(document.getElementById('root')!).render(await start())
 async function start(): Promise<ReactNode> {
   // The landing page and the notices take the theme too (D-497).
   startTheme()
+  // The apex host has no backend and asks nothing of it (D-980).
+  const apex = startApex(window.location, document.cookie)
+  if (apex) return apex
   // An invite link's token leaves the address bar before anything else happens (D-17), also for a link opened later in
   // a tab that shows /invite already.
   captureInvite()
@@ -38,6 +43,7 @@ async function start(): Promise<ReactNode> {
       return <Notice message="The server’s answer was not what the app expects. Please try again in a moment." action="Reload" onAction={() => location.reload()} />
     }
     // A token that waits for an outcome opens the invite page, also in the tab a sign-in or a registration ends in.
+    setSessionHint()
     const toInvite = inviteRedirect(location.pathname, familyLedgersOn(me))
     if (toInvite) history.replaceState(null, '', toInvite)
     return (
@@ -48,6 +54,7 @@ async function start(): Promise<ReactNode> {
       </StrictMode>
     )
   }
+  if (response?.status === 401 || response?.status === 403) clearSessionHint()
   if (response?.status === 401 && loginResult !== 'done') return onStartPage ? <Landing /> : logIn()
   if (response?.status === 403) {
     return (

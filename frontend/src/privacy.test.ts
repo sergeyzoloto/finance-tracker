@@ -58,7 +58,7 @@ describe('the privacy policy', () => {
   })
 
   it('has the new date, names the time zone among what is stored, and no longer says nobody else sees anything of yours', () => {
-    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 15 November 2026')
+    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 18 November 2026')
     const data = words(page.getElementById('data')!.parentElement!.textContent!)
     // D-101 (F8c): the time zone is stored with the settings, from the browser, changeable, and decides today's date.
     expect(data).toContain('Your settings include your time zone, such as Europe/Amsterdam, which the app takes from your browser the first time you use it and which you can change in Settings')
@@ -66,6 +66,13 @@ describe('the privacy policy', () => {
     expect(data).toContain('No other user of the app can see it, apart from what you record in a family budget, which its members see')
     expect(words(page.getElementById('retention')!.nextElementSibling!.textContent!))
       .toContain('The records of a family budget are kept as long as the family budget exists')
+  })
+
+  it('lists the sign-in hint cookie: what it holds, why, when set and removed, its lifetime and where it goes (WEB-1, D-981)', () => {
+    const cookies = words(page.getElementById('cookies')!.nextElementSibling!.nextElementSibling!.textContent!)
+    expect(cookies).toContain('the sign-in hint cookie (ft_session), which holds only the value 1 and nothing about you')
+    expect(cookies).toContain('The app sets it when you are signed in')
+    expect(cookies).toContain('It is removed when you sign out or your session is no longer valid, ends when you close your browser, and is sent only to finance-nl.com')
   })
 
   it('lists the theme cookie among the cookies: what it holds and why (UX-15, D-617)', () => {

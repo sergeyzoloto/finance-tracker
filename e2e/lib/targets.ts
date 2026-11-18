@@ -28,7 +28,8 @@ export const PROD: Target = {
   name: 'prod',
   app: 'https://app.finance-nl.com',
   keycloak: 'https://auth.finance-nl.com',
-  hosts: ['app.finance-nl.com', 'auth.finance-nl.com'],
+  // The apex and www (WEB-1, D-980) are the apex spec's, which skips itself until the DNS is live.
+  hosts: ['app.finance-nl.com', 'auth.finance-nl.com', 'finance-nl.com', 'www.finance-nl.com'],
   roles: PROD_ACCOUNTS,
   server: 'nginx',
 }

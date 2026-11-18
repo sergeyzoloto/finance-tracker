@@ -2,6 +2,7 @@
 // HttpOnly session cookie. See docs/auth.md.
 
 import { clearPendingInvite } from './invite'
+import { clearSessionHint } from './hint'
 import { LOGIN_URL } from './links'
 import { forgetAllPages } from './pageState'
 
@@ -26,6 +27,7 @@ export function finishLogin() {
 
 /** Ends the session here and at Keycloak. A form post, so the browser follows the redirects to Keycloak and back. */
 export function logOut() {
+  clearSessionHint()
   clearPendingInvite()
   forgetAllPages()
   const form = document.createElement('form')

@@ -1,0 +1,43 @@
+# Finance Tracker's apex and www (WEB-1, D-980): https://finance-nl.com serves the landing page, https://www.finance-nl.com
+# sends on to it. A second site file, installed on the server with caddy-site install as
+# /opt/caddy-sites/finance-apex.caddy (deploy/RUNBOOK.md, "WEB-1's part"), because deploy.sh run refuses a commit that
+# changes deploy/finance.caddy (the app's own site file, left as it was) and `caddy-site remove finance-apex` is then the
+# way back. The apex has no backend: `/`, the privacy page and the static files the landing page loads go to
+# finance-tracker-web (the same image as the app's host); every other path (the SPA's routes, /api, /oauth2, /login,
+# /logout) is sent on to the same path and query at the app's host. The page itself sends a browser that has the
+# sign-in hint (ft_session, D-981) on to the app.
+# The headers are finance.caddy's, copied: a snippet can't be shared between two imported files safely. Keep them equal
+# (deploy/check-site.sh prints a difference).
+finance-nl.com {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://auth.finance-nl.com"
+		-Server
+		-Via
+	}
+
+	@landing path / /privacy /privacy.html /theme.js /favicon.svg /favicon.ico /assets/*
+	handle @landing {
+		reverse_proxy finance-tracker-web:8080
+	}
+
+	handle {
+		redir https://app.finance-nl.com{uri} 308
+	}
+}
+
+www.finance-nl.com {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+		-Via
+	}
+
+	redir https://finance-nl.com{uri} 308
+}

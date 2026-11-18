@@ -11,7 +11,7 @@ import Family from './Family'
 import InvitePage from './Invite'
 import Header from './Header'
 import { MeProvider, useMe } from './me'
-import { PRIVACY_URL, SOURCE_URL } from './links'
+import { AUTHOR_URL, PRIVACY_URL, SOURCE_URL } from './links'
 import NewFamily from './NewFamily'
 import { rememberPage } from './pageState'
 import Rates from './Rates'
@@ -81,7 +81,7 @@ function Shell() {
         </Safe>
       </main>
       <footer className="app-footer">
-        <a href={PRIVACY_URL}>Privacy policy</a> · <a href={SOURCE_URL}>Source code</a>
+        <a href={PRIVACY_URL}>Privacy policy</a> · <a href={SOURCE_URL}>Source code</a> · <a href={AUTHOR_URL}>Sergey Zolotko</a>
       </footer>
     </>
   )

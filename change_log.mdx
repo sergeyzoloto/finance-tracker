@@ -3,6 +3,32 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-18 · WEB-1: the author's link in the footers, and the landing page on finance-nl.com
+
+The commit of this entry, on `main` on top of PERF-1's `12d51d2`: see the report for its full hash. Not committed yet. Not pushed, not deployed (the batch's checklist is in the runbook). D-979 to D-982 are the PM's, D-983 to D-988 the agent's. No migration.
+
+**Changes**
+- Both footers, the app's (`App.tsx`) and the landing page's (`Landing.tsx`), end with "Sergey Zolotko", a link to `AUTHOR_URL` (`links.ts`): "Privacy policy · Source code · Sergey Zolotko" (D-979).
+- The apex host (D-980, D-984): `isApexHost` in `links.ts` (exactly two labels), `startApex` in `apex.tsx`, called first by `main.tsx`, never asks `/api/me`: with the cookie it does `location.replace` to the app's origin, else it renders `Landing` with `appOrigin`, so its sign-in links go to the app's host and its privacy link stays on the apex. Any other host (the app's, `localhost`, an address) starts as before.
+- The sign-in hint (D-981, D-985): `hint.ts`, the cookie `ft_session=1` with the domain rule of `ft_theme`, set by `main.tsx` after a valid `/api/me`, removed on a 401 or 403 there, in `api.ts` on any 401 or 403, and in `logOut` before the form posts. The privacy policy lists it in its cookies and says "Last updated: 18 November 2026"; `privacy.test.ts` follows.
+- Caddy (D-983): a second site file, `deploy/finance-apex.caddy` (`finance-nl.com` serves `/`, `/privacy`, `/privacy.html`, `/theme.js`, both favicons and `/assets/*` from `finance-tracker-web`, every other path gets a 308 to the same path and query at app.finance-nl.com; `www` a 308 to the apex; the app's headers and CSP). `deploy/finance.caddy` is unchanged, because `deploy.sh run` refuses a commit that changes it (`deploy.sh`, step 1.4). `deploy/check-site.sh` validates both files, runs `caddy fmt` on both and warns when the four security directives of the two differ.
+- `e2e/specs/15-apex.spec.ts` (3 tests, production only, skipped unless `E2E_APEX_LIVE=1`), the apex and www among production's allowed hosts (`e2e/lib/targets.ts`), `e2e/README.md`'s row.
+- `deploy/checks/WEB-1.sql` and `WEB-1.expected` (OPS-6b's 18 lines), the runbook's "PERF-1 and WEB-1's deploy checklist with the suite" (step D: the DNS check that stops the deploy; part A `run`; part B the site file with its own way back; the suite with `E2E_APEX_LIVE=1`; a hand check of the cookie across the two hosts; the UptimeRobot reminder; the rollback last) and a paragraph in "Change the site file". `CLAUDE.md` and requirements D-979 to D-988.
+
+**Verified**
+- `cd frontend && npm test` (Node v22.19.0, no `package.json` or lock change): exit 0, `Test Files` all passed, `Tests  809 passed (809)`; `npm run build`: exit 0. New: `WEB1.test.tsx` (7 tests: the host function, the cookie's text and its set and removal, the apex with the cookie redirecting with no fetch, without it the landing page with its links and no fetch, no apex branch on the app's host, `localhost` or an address, both footers) and a test in `privacy.test.ts`.
+- `deploy/check-site.sh`: exit 0, `Valid configuration` in `caddy:2.11.9@sha256:4e2425f6…` for both files, both formatted as `caddy fmt` formats them, "The apex's headers equal the app's"; with the apex's CSP changed on purpose it printed the warning, restored it does not. ShellCheck (`koalaman/shellcheck:v0.11.0`) on `check-site.sh`: exit 0.
+- A local try (Caddy of the pinned image with `tls internal`, a stub on port 8080 for `finance-tracker-web`, `curl --resolve`, containers and network removed afterwards): `finance-nl.com/`, `/privacy`, `/assets/a.js`: 200; `/entries?a=1`, `/api/me`, `/oauth2/authorization/keycloak`, `/logout`, `/login/oauth2/code/keycloak`, `/index.html`: 308 to the same address at `app.finance-nl.com`; `www.finance-nl.com/entries?x=2`: 308 to `https://finance-nl.com/entries?x=2`; the four security headers present. The real certificates, the real web image behind it and the DNS were not tried.
+- `deploy/checks/WEB-1.sql` run with `psql` against the dev stack's database (Flyway V18): output equals `WEB-1.expected` (`diff`, no output).
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node v24.21.0, from `main`'s tree with these changes uncommitted, so its banner says "TREE NOT CLEAN"): exit 0, every spec passed, `apex` skipped (3 tests, as designed), cleanup passed, `Password search over the artifacts: 0 hits`, `Result: PASSED`. `npm run test:guards` after it: exit 0, tests 39, pass 39, fail 0.
+- Footers screenshotted at 1280 and 375 px, the landing page and the signed-in app (the browser had the cookie `ft_session` after sign-in): `data/private/reports/WEB-1/`, not committed.
+
+**Open**
+- The apex branch cannot run in the dev stack or in `e2e:local` (no two-label host there, D-984): only the unit tests and, once the DNS is live, `15-apex` and the hand check in the checklist cover it. The cookie across `app.` and the apex in a real browser is the checklist's hand check.
+- The theme chosen at the app is not applied on the apex (the storage is per origin, D-987).
+- `deploy/tests/run.sh` and `mutate.sh` were not run: no deploy script changed.
+- The e2e prod spec and the checklist were not run against production; nothing was run on the server.
+
 ## 2026-11-18 · PERF-1: the Entries summary without the planner workaround where it isn't needed
 
 The commit of this entry, on `main` on top of `4445627`: see the report for its full hash. Not pushed. D-969 to D-978 (D-969 to D-971 the PM's, D-972 to D-978 the agent's). No migration, no V19.

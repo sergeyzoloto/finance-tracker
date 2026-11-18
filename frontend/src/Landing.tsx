@@ -1,19 +1,21 @@
 import dashboardScreenshot from './assets/demo-dashboard.webp'
 import entriesScreenshot from './assets/demo-entries.webp'
-import { LOGIN_URL, PRIVACY_URL, SOURCE_URL } from './links'
+import { AUTHOR_URL, LOGIN_URL, PRIVACY_URL, SOURCE_URL } from './links'
 
 /**
  * The start page for visitors who aren't signed in, and for everyone while the backend is down: it needs nothing from
  * the backend. Signing in is a plain link to the backend's login, which leads to Keycloak's page, where visitors can
  * also register.
  */
-export default function Landing() {
+export default function Landing({ appOrigin = '' }: { appOrigin?: string }) {
+  // On the apex host the login starts at the app's host (D-980); everywhere else, here.
+  const login = appOrigin + LOGIN_URL
   return (
     <div className="landing">
       <header>
         <div className="header-row">
           <strong className="wordmark brand">Finance Tracker</strong>
-          <a className="button primary" href={LOGIN_URL}>Sign in</a>
+          <a className="button primary" href={login}>Sign in</a>
         </div>
       </header>
 
@@ -25,7 +27,7 @@ export default function Landing() {
             earn, spend, lend and exchange, in any currency, and see where your money stands.
           </p>
           <p className="calls">
-            <a className="button primary" href={LOGIN_URL}>Sign in or create an account</a>
+            <a className="button primary" href={login}>Sign in or create an account</a>
             <a className="button" href={SOURCE_URL}>Source code on GitHub</a>
           </p>
           {/* Screenshots of a local instance with the demo data, which is invented. */}
@@ -84,7 +86,7 @@ export default function Landing() {
           <h2>Try it</h2>
           <ol className="steps">
             <li>
-              <a href={LOGIN_URL}>Sign in or create an account</a>, with an email address or with Google or GitHub.
+              <a href={login}>Sign in or create an account</a>, with an email address or with Google or GitHub.
             </li>
             <li>
               Your ledger starts empty. Press <strong>Load demo data</strong> on the dashboard to fill it with 36
@@ -119,7 +121,7 @@ export default function Landing() {
       <footer className="app-footer">
         <p>A personal portfolio project, provided as is, without any warranty.</p>
         <p>
-          <a href={PRIVACY_URL}>Privacy policy</a> · <a href={SOURCE_URL}>Source code</a>
+          <a href={PRIVACY_URL}>Privacy policy</a> · <a href={SOURCE_URL}>Source code</a> · <a href={AUTHOR_URL}>Sergey Zolotko</a>
         </p>
       </footer>
     </div>

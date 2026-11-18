@@ -3,6 +3,27 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-18 · HIST-1, third commit: the restore test counts versions and events, the marks checked
+
+The commit of this entry, on `main` on top of HIST-1's second commit `5c06b3a` (pushed): see the report for its full hash. Not pushed, not deployed. D-1062 to D-1065 are the PM's, D-1066 to D-1068 the agent's. No migration.
+
+**Changes**
+- `deploy/pg-backup/finance.conf` (D-1063, D-1067): `CHECK_RECORD_VERSIONS` and `CHECK_ACTIVITY_EVENTS`, so the restore test has 21 checks instead of 19. `run`'s postflight installs the file (it changed) and tests with it; the baseline job writes versions for about a minute after the api starts and a sign-in writes an event, so a dump and a test that straddle either differ: the checklist's A1 says to dump and test again after the baseline's line, and to send the output only if it differs twice.
+- `HistoryIntegrity` (D-1064, D-1068): a committed mark in `history_pending` for the ledger is a problem; `HistoryApiTests.aMarkLeftBetweenTransactionsIsReportedAndNormallyThereIsNone` leaves one by switching the deferred check off for a moment. `HIST-1.sql` (its line `pending marks left`, so `verify HIST-1`) and `numbers.sql` (`history_pending`) already counted it; the checklist's step 10 reads it after the suite and A3 after `run`.
+- D-1062 confirmed (D-1066): the health check `deploy.sh` waits for (`wait_healthy`) is the containers' own `docker inspect` health, from `/actuator/health` (the database and the disk); the baseline job runs on the scheduler's thread after the application is ready and takes no part in it.
+- `requirements.md` D-1062 to D-1068, the runbook's HIST-1 checklist.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify` (JDK 21, on this commit's tree): exit 0, `Tests run: 745, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`, 14:00 min.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node v24.21.0, port 5173 free, the stack built from this tree, the banner says "TREE NOT CLEAN" since the commit came after): run 1 (16:08Z to 16:19Z) `Result: FAILED`, 43 passed, `themes at 375 px` failed on `waitForLoadState('networkidle')`, 0 password hits; run 2 (16:20Z to 16:32Z, after a restart of the backend, with Postgres logging statements over 700 ms) **`Result: PASSED`**, every spec passed but `apex` (skipped by design), cleanup passed, 0 password hits. The slowest request of run 1's trace was `GET /api/entries/family-payees`, 21 s, completing with 200 as the test timed out; in run 2 the only slow statements in Postgres's log (2 to 5 s) were the Entries summary's `WITH b AS MATERIALIZED …` on the freshly loaded demo, which has no planner statistics yet (PERF-1's open point, D-976), at the moments the page fires its requests together; the same request answers in 44 ms on the same stack once the demo is loaded alone. D-1061's pool fix held: no request hangs for the pool in either run, and `HistoryApiTests.manyFirstChangesAtOnceDoNotStarveTheConnectionPool` passes. The flake is the Entries statements' timing under load, which HIST-1 doesn't touch, and I did not run the previous image through the same suite to prove it.
+- `cd e2e && npm run test:guards` (after run 2, alone): exit 0, `tests 39`, `pass 39`, `fail 0`.
+- `deploy/tests/run.sh`: exit 0, `155 passed, 0 failed, of 155 cases`.
+- `scripts/check-forbidden-names.sh` (tree) before the commit and `--log d44df66..HEAD` after it: see the report.
+
+**Open**
+- The restore test's two new checks can differ between a dump and a test around the baseline and any sign-in (D-1067); the checklist says what to do.
+- The Entries summary's slow plan on a database without statistics stays (D-976); it is what makes `e2e:local` flaky at `networkidle` on this machine.
+
 ## 2026-11-18 · HIST-1, second commit: record versions and the activity log (V19)
 
 The commit of this entry, on `main` on top of HIST-1's first commit `f8349ac` (and `d44df66`, what production runs): see the report for its full hash. Not pushed, not deployed (the checklist is in the runbook, "HIST-1's deploy checklist with the suite"). D-1043 to D-1061 are the agent's (D-989 to D-1042 came with the first commit). **One migration, V19.** Nothing visible to the user but the privacy policy's new section (D-1037).

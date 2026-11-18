@@ -42,6 +42,12 @@ public class HistoryIntegrity {
         int checked = 0;
         int unversioned = 0;
         List<Problem> problems = new ArrayList<>();
+        // D-1064: the backstop's marks live inside one transaction; a committed one is a transaction that was cut off.
+        long marks = jdbc.sql("SELECT count(*) FROM history_pending WHERE ledger_id = :l").param("l", ledgerId)
+                .query(Long.class).single();
+        if (marks > 0) {
+            problems.add(new Problem(RecordType.ENTRY, 0, "history_pending holds " + marks + " committed marks"));
+        }
         for (RecordType type : RecordType.values()) {
             for (long id : jobs.liveIds(type, ledgerId)) {
                 checked++;

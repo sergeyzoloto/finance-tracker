@@ -2010,7 +2010,7 @@ You should see: `Now:` outside the forbidden windows; no scheduled shutdown (or 
 cd /opt/finance-tracker && deploy/deploy.sh run <M> HIST-1
 ```
 
-It prints: 1.1 the shutdown line; 1.2 `HEAD` and `Last good deploy` equal, status `good`; 1.3 `<M> is origin/main`, the commits **git prints** from there to M (as step 0), `Migrations added: 1` naming V19, the files under `deploy/` (as step 0); 1.4 `deploy/finance.caddy and the postgres service unchanged`; 1.5 CI success; 1.6 the HIST-1 files; 1.7 the 24 numbers (the old file's: `numbers.sql` of the running commit is what counts, D-941); 1.8 a fresh dump, `PASS`. 2: type the 7 characters. 3.2 the running images kept as `:<last-good>` and `:previous`; 3.3 both images built (new content); 3.5 healthy; 3.6 `Pages: 5 of 5`; 3.7 the build cache pruned; 4.1 **`Successfully applied 1 migration to schema "app", now at version v19`**, Flyway V19; 4.2 D-25 "on"; 4.3 the same 24 numbers as before; 4.4 `HIST-1.expected`'s lines (WEB-1's 18 and V19's); 4.6 an after-dump `PASS`; 5 the summary, `Left for you: … finish`. A FAILED line: stop and send it to the PM; the rollback command it prints is the last block here, run only if the PM says so.
+It prints: 1.1 the shutdown line; 1.2 `HEAD` and `Last good deploy` equal, status `good`; 1.3 `<M> is origin/main`, the commits **git prints** from there to M (as step 0), `Migrations added: 1` naming V19, the files under `deploy/` (as step 0); 1.4 `deploy/finance.caddy and the postgres service unchanged`; 1.5 CI success; 1.6 the HIST-1 files; 1.7 the 24 numbers (the old file's: `numbers.sql` of the running commit is what counts, D-941); 1.8 a fresh dump, `PASS`. 2: type the 7 characters. 3.2 the running images kept as `:<last-good>` and `:previous`; 3.3 both images built (new content); 3.5 healthy; 3.6 `Pages: 5 of 5`; 3.7 the build cache pruned; 4.1 **`Successfully applied 1 migration to schema "app", now at version v19`**, Flyway V19; 4.2 D-25 "on"; 4.3 the same 24 numbers as before; 4.4 `HIST-1.expected`'s lines (WEB-1's 18 and V19's); 4.6 an after-dump `PASS` (**the restore test has two more checks since D-1063**: `finance.conf` changes, so 4.5 installs it, and the test compares `record_version` and `activity_event` counts, 21 lines instead of 19; the baseline job writes versions for about a minute after the api starts and a sign-in writes an event, so a count that differs between the dump and the test is **not a fault**: run `systemctl start pg-backup@finance.service` and `pg-restore-test finance` again once the baseline's line of A2 has appeared, and send the output to the PM only if it differs a second time); 5 the summary, `Left for you: … finish`. A FAILED line: stop and send it to the PM; the rollback command it prints is the last block here, run only if the PM says so.
 
 **A2. On the server, read only: the baseline job's line**, a minute after `run` returned.
 
@@ -2050,7 +2050,16 @@ Paste its summary, from `===== E2E summary =====` to `=======================`: 
 
 ### Step 10. On the server: finish, then verify
 
-Only after step 9a, alone in its block; `yes` to both only if the summary says `Result: PASSED` with 0 password hits.
+First, read only, the marks of the backstop after the suite (D-1064: the table is empty outside a transaction):
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT 'pending marks ' || count(*) FROM app.history_pending" </dev/null
+```
+
+You should see `pending marks 0`, as after `run` (A3). Anything else: stop and send it to the PM; `verify HIST-1` below prints the same line.
+
+Then, only after step 9a, alone in its block; `yes` to both only if the summary says `Result: PASSED` with 0 password hits.
 
 ```bash
 # On the server: only after the end-to-end suite of step 9a (the browser checks and the smoke test)

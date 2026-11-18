@@ -522,4 +522,22 @@ class HistoryApiTests extends FamilyApiTest {
                 .param(ledger).query(Long.class).single()).isEqualTo(2L * n);
         assertThat(integrity.check(ledger).problems()).isEmpty();
     }
+
+    @Test
+    void aMarkLeftBetweenTransactionsIsReportedAndNormallyThereIsNone() {
+        long ledger = personalLedger(alice);
+        assertThat(integrity.check(ledger).problems()).isEmpty();
+        assertThat(jdbc.sql("SELECT count(*) FROM history_pending").query(Long.class).single()).isZero();
+        // The deferred check removes a mark or refuses the commit, so a left mark needs it switched off for a moment.
+        rawSql("ALTER TABLE history_pending DISABLE TRIGGER history_pending_check; "
+                + "INSERT INTO history_pending (ledger_id, record_type, record_id) VALUES (" + ledger + ", 'ENTRY', 1); "
+                + "ALTER TABLE history_pending ENABLE TRIGGER history_pending_check");
+        try {
+            assertThat(integrity.check(ledger).problems()).extracting(p -> p.what())
+                    .containsExactly("history_pending holds 1 committed marks");
+        } finally {
+            rawSql("DELETE FROM history_pending WHERE ledger_id = ?", ledger);
+        }
+        assertThat(integrity.check(ledger).problems()).isEmpty();
+    }
 }

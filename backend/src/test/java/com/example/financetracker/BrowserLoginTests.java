@@ -63,6 +63,15 @@ class BrowserLoginTests extends IntegrationTest {
         assertThat(write("/api/categories", session, """
                 {"code": "RENT", "name": "Rent", "type": "EXPENSE"}""", csrfToken(session))).hasStatus(HttpStatus.CREATED);
         assertThat(Answers.of(get("/api/categories", session)).findValuesAsText("name")).contains("Rent");
+        // HIST-1 (D-1007): the sign-in is an activity event by the sub, with nothing else about the person.
+        assertThat(events("SIGN_IN")).containsExactly("SIGN_IN null null");
+    }
+
+    /** The user's events of a kind as "kind details ledger": no email, no address and no browser anywhere. */
+    private List<String> events(String kind) {
+        return jdbc.sql("SELECT kind || ' ' || coalesce(details::text, 'null') || ' ' || coalesce(ledger_id::text, 'null') "
+                + "FROM activity_event WHERE actor_sub = ? AND kind = ? ORDER BY id").param(subject).param(kind)
+                .query(String.class).list();
     }
 
     @Test
@@ -127,6 +136,7 @@ class BrowserLoginTests extends IntegrationTest {
 
         assertThat(get("/api/me", session)).hasStatus(HttpStatus.UNAUTHORIZED);
         assertThat(session.isInvalid()).isTrue();
+        assertThat(events("SESSION_ENDED")).containsExactly("SESSION_ENDED {\"reason\": \"REFRESH_REFUSED\"} null");
     }
 
     @Test
@@ -154,6 +164,7 @@ class BrowserLoginTests extends IntegrationTest {
         assertThat(param(endSessionUrl, "id_token_hint")).isNotBlank();
         assertThat(param(endSessionUrl, "post_logout_redirect_uri")).isEqualTo("http://localhost/");
         assertThat(session.isInvalid()).isTrue();
+        assertThat(events("SIGN_OUT")).containsExactly("SIGN_OUT null null");
     }
 
     @Test

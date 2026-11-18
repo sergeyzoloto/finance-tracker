@@ -339,7 +339,7 @@ class LedgerBackfillMigrationTests {
             String ratesBeforeV18 = strings(allRates).getFirst();
             assertThat(ratesBeforeV18).contains("\"ECB\"").contains("\"MANUAL\"");
             Map<String, Long> rowsBeforeV18 = rows();
-            MigrateResult v18 = flyway(null).migrate();
+            MigrateResult v18 = flyway("18").migrate();
             assertThat(v18.success).isTrue();
             assertThat(v18.targetSchemaVersion).isEqualTo("18");
             assertThat(rows()).isEqualTo(rowsBeforeV18);
@@ -357,6 +357,17 @@ class LedgerBackfillMigrationTests {
                     .hasMessageContaining("exchange_rate_owner_check");
             assertThatThrownBy(() -> rate(null, "BOE")).isInstanceOf(SQLException.class)
                     .hasMessageContaining("exchange_rate_source_check");
+
+            // V19 (HIST-1, ADR 0006) is additive: no row of any table changes, the new tables are empty and every
+            // ledger's revision is 0, whatever the rows it finds (the baseline is the application's job, D-1020).
+            Map<String, Long> rowsBeforeV19 = rows();
+            MigrateResult v19 = flyway(null).migrate();
+            assertThat(v19.success).isTrue();
+            assertThat(v19.targetSchemaVersion).isEqualTo("19");
+            assertThat(rows()).isEqualTo(rowsBeforeV19);
+            assertThat(number("SELECT count(*) FROM record_version")).isZero();
+            assertThat(number("SELECT count(*) FROM activity_event")).isZero();
+            assertThat(number("SELECT count(*) FROM ledger WHERE revision <> 0")).isZero();
         } finally {
             db.close();
         }

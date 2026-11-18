@@ -22,6 +22,8 @@ import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.history.HistoryService;
+import com.example.financetracker.ledger.history.RecordType;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.access.MemberRole;
 import com.example.financetracker.ledger.family.FamilyChangeView.Change;
@@ -115,8 +117,11 @@ public class FamilyRecordService {
     private final FamilyPostingService posting;
     private final ObjectMapper json;
     private final FamilyTotals totals;
+    private final HistoryService history;
 
-    FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, ObjectMapper json, FamilyTotals totals) {
+    FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, ObjectMapper json, FamilyTotals totals,
+            HistoryService history) {
+        this.history = history;
         this.jdbc = jdbc;
         this.posting = posting;
         this.json = json;
@@ -427,6 +432,8 @@ public class FamilyRecordService {
             if (!journal.isEmpty()) {
                 journal(family, recordId, "UPDATE", currency, journal);
             }
+            // A split rewritten with no field changed still changes the shares (and the record's version).
+            history.changed(family.ledgerId(), RecordType.FAMILY_RECORD, recordId);
         } else if (sideChanged) {
             updateSide(family, recordId, side, record.refund());
         }
@@ -1802,11 +1809,12 @@ public class FamilyRecordService {
     }
 
     /**
-     * The ledger, locked FOR SHARE until the transaction ends, so that its members, split rule and base currency
+     * The ledger, locked FOR NO KEY UPDATE until the transaction ends (HIST-1: the revision is taken on its row, and two
+     * transactions that each held FOR SHARE and then updated it would deadlock), so that its members, split rule and base currency
      * don't change meanwhile: those changes lock it FOR UPDATE (FamilyLedgerService).
      */
     private Ledger lockLedger(LedgerScope family) {
-        return jdbc.sql("SELECT start_date, base_currency, split_rule FROM ledger WHERE id = :ledgerId FOR SHARE")
+        return jdbc.sql("SELECT start_date, base_currency, split_rule FROM ledger WHERE id = :ledgerId FOR NO KEY UPDATE")
                 .param("ledgerId", family.ledgerId())
                 .query((row, n) -> new Ledger(row.getObject("start_date", LocalDate.class),
                         row.getString("base_currency"), SplitRule.valueOf(row.getString("split_rule"))))
@@ -1953,6 +1961,8 @@ public class FamilyRecordService {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Cannot write the journal", e);
         }
+        // The dual write (ADR 0006, D-1005): the record's version, from the same state the journal describes.
+        history.changed(family.ledgerId(), RecordType.FAMILY_RECORD, recordId, "CREATE".equals(action));
     }
 
     /** A change as the journal stores it: members and categories by id (topic H). */

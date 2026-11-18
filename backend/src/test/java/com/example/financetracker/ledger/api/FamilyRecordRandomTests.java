@@ -103,6 +103,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         Map<Long, Settlement> settlements = new LinkedHashMap<>();
         Map<Long, String> users = Map.of(mum, alice, dad, bob);
         Map<String, Integer> done = new LinkedHashMap<>();
+        List<HistoryOracle.Snapshot> snapshots = new java.util.ArrayList<>();
         for (int i = 0; i < OPERATIONS; i++) {
             int choice = random.nextInt(100);
             String actor = random.nextBoolean() ? alice : bob;
@@ -268,10 +269,21 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 done.merge("delete", 1, Integer::sum);
             }
             FamilyInvariants.check(jdbc, family);
+            // HIST-1: every record's latest version is the record, and the history says what the ledger held (the
+            // oracle: a copy every tenth operation, compared at the end with the versions at its revision).
+            checkHistory(family);
+            if (i % 10 == 0) {
+                snapshots.add(HistoryOracle.capture(jdbc, recordContents, family));
+            }
             // E1's report against the balances, and E3's check for both members with an account (F6c).
             checkFamilyReport(i % 2 == 0 ? alice : bob, family,
                     Map.of(alice, LocalDate.of(2026, 9, 1), bob, LocalDate.of(2026, 9, 1)));
         }
+
+        snapshots.forEach(snapshot -> HistoryOracle.verify(jdbc, snapshot));
+        assertThat(snapshots).hasSizeGreaterThan(10);
+        checkPersonalHistory(alice);
+        checkPersonalHistory(bob);
 
         // What the seed gives: every kind of operation, many times.
         assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.ofEntries(Map.entry("create", 70),

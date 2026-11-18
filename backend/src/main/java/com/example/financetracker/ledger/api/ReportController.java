@@ -163,10 +163,13 @@ class ReportController {
         return reports.sharedSettlement(ledger, asOfOrToday(ledger, asOf));
     }
 
-    /** The currencies in which the user's ledger doesn't add up; empty for a sound ledger. */
+    /**
+     * The currencies in which the user's ledger doesn't add up; empty for a sound ledger. With {@code history=true} also
+     * the records whose latest version differs from them (HIST-1), which reads every record.
+     */
     @GetMapping("/integrity")
-    List<IntegrityViolation> integrity(LedgerScope ledger) {
-        return reports.integrityCheck(ledger);
+    List<IntegrityViolation> integrity(LedgerScope ledger, @RequestParam(defaultValue = "false") boolean history) {
+        return history ? reports.integrityCheckWithHistory(ledger) : reports.integrityCheck(ledger);
     }
 
     /** The day asked about, by default the reader's own today ({@link Today}, D-53, D-100). */

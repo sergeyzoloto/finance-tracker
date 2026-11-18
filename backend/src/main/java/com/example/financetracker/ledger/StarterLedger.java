@@ -8,6 +8,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.history.Cause;
+import com.example.financetracker.ledger.history.HistoryContext;
+import com.example.financetracker.ledger.history.HistoryService;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.CategoryType;
@@ -34,9 +37,12 @@ public class StarterLedger {
     private final JdbcClient jdbc;
     private final UserSettingsRepository settings;
     private final LedgerAccess ledgers;
+    private final HistoryService history;
     private final Seed seed;
 
-    StarterLedger(JdbcClient jdbc, UserSettingsRepository settings, LedgerAccess ledgers, ObjectMapper json) {
+    StarterLedger(JdbcClient jdbc, UserSettingsRepository settings, LedgerAccess ledgers, ObjectMapper json,
+            HistoryService history) {
+        this.history = history;
         this.jdbc = jdbc;
         this.settings = settings;
         this.ledgers = ledgers;
@@ -56,7 +62,9 @@ public class StarterLedger {
         if (!settings.insertIfAbsent(userId, BASE_CURRENCY)) {
             return false;
         }
-        insertSeed(ledgers.provisionPersonal(userId), false);
+        try (HistoryContext.Frame provisioning = HistoryContext.open(Cause.PROVISION, userId)) {
+            insertSeed(ledgers.provisionPersonal(userId), false);
+        }
         return true;
     }
 
@@ -121,6 +129,7 @@ public class StarterLedger {
                     .param("type", category.type().name())
                     .update();
         }
+        history.changedAllReference(ledger.ledgerId());
     }
 
     private static Seed read(ObjectMapper json) {

@@ -38,7 +38,7 @@ class UserDataApiTests extends LedgerApiTest {
         // family budget (H1, F6c), in those of family ledgers but the invites.
         assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows > 0).as(table)
                 .isEqualTo(!List.of("import_batch", "imported_entry_deleted", "family ledger_invite",
-                        "family family_import_cutoff", "imported_family_side").contains(table)));
+                        "family family_import_cutoff", "imported_family_side", "activity_event").contains(table)));
 
         assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
 
@@ -114,8 +114,7 @@ class UserDataApiTests extends LedgerApiTest {
     @Test
     void theRunbooksDeleteAUserAlsoRemovesTheLedgerOfASubWithoutAUsersRow() {
         String sub = UUID.randomUUID().toString();
-        jdbc.sql("INSERT INTO account (user_id, code, name, type) VALUES (?, 'CASH', 'Cash', 'ASSET')").param(sub)
-                .update();
+        rawSql("INSERT INTO account (user_id, code, name, type) VALUES (?, 'CASH', 'Cash', 'ASSET')", sub);
         assertThat(rowsOf(sub)).containsEntry("users", 0L).containsEntry("account", 1L).containsEntry("ledger", 1L)
                 .containsEntry("ledger_member", 1L);
 

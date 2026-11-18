@@ -156,6 +156,10 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
                     .isIn(200, 201, 204, 409, 422);
             done.merge(status >= 400 ? "refused" : what, 1, Integer::sum);
             FamilyInvariants.check(jdbc, family);
+            checkHistory(family);
+            for (String user : users) {
+                checkPersonalHistory(user);
+            }
             for (String user : users) {
                 assertThat(ok(get(user, "/api/reports/integrity"))).as("integrity of %s after operation %d (%s)",
                         names.get(user), i, what).isEmpty();

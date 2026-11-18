@@ -425,10 +425,10 @@ class ImportApiTests extends LedgerApiTest {
                 {"code": "OLD_FOOD", "name": "Food, as it was", "type": "EXPENSE"}"""), HttpStatus.CREATED)
                 .get("id").asLong();
         // What older code wrote, as the database holds it, with no new version: row 21's memo, row 7's kind.
-        jdbc.sql("UPDATE journal_entry SET memo = 'as it was' WHERE external_ref = 'xls:21' AND ledger_id = ?")
-                .param(personalLedger(owner)).update();
-        jdbc.sql("UPDATE journal_entry SET kind = 'MANUAL' WHERE external_ref = 'xls:7' AND ledger_id = ?")
-                .param(personalLedger(owner)).update();
+        rawSql("UPDATE journal_entry SET memo = 'as it was' WHERE external_ref = 'xls:21' AND ledger_id = ?",
+                personalLedger(owner));
+        rawSql("UPDATE journal_entry SET kind = 'MANUAL' WHERE external_ref = 'xls:7' AND ledger_id = ?",
+                personalLedger(owner));
         jdbc.sql("UPDATE family_record SET category_id = ? WHERE id = ?").params(other, recordOf2).update();
 
         JsonNode dry = run(null);

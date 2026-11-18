@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Optional;
 
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.history.HistoryService;
+import com.example.financetracker.ledger.history.RecordType;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.domain.CategoryType;
@@ -29,8 +31,11 @@ public class CategoryService {
     private final LedgerCategoryRepository categories;
     private final JdbcClient jdbc;
     private final LedgerAccess access;
+    private final HistoryService history;
 
-    CategoryService(LedgerCategoryRepository categories, JdbcClient jdbc, LedgerAccess access) {
+    CategoryService(LedgerCategoryRepository categories, JdbcClient jdbc, LedgerAccess access,
+            HistoryService history) {
+        this.history = history;
         this.categories = categories;
         this.jdbc = jdbc;
         this.access = access;
@@ -125,7 +130,12 @@ public class CategoryService {
                     .formatted(category.code()));
         }
         try {
+            RecordType type = category.userId() == null ? RecordType.FAMILY_CATEGORY : RecordType.CATEGORY;
+            java.util.Map<String, Object> last = history.capture(type, ledger.ledgerId(), categoryId).orElse(null);
             categories.delete(category);
+            if (last != null) {
+                history.deleted(ledger.ledgerId(), type, categoryId, last);
+            }
         } catch (DbActionExecutionException e) {
             if (e.getCause() instanceof DataIntegrityViolationException) {
                 throw new ConflictException("The category %s is in use; archive it instead".formatted(category.code()));

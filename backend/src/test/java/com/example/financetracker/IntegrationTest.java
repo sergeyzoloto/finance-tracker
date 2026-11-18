@@ -83,6 +83,17 @@ public abstract class IntegrationTest {
         }
     }
 
+    /**
+     * A connection as the image before HIST-1 (d44df66) has them: it never says it is version-aware, so the database's
+     * backstop lets its writes through (D-1040). Tables are in schema app. The caller closes it.
+     */
+    protected static Connection previousImageConnection() throws SQLException {
+        Connection db = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+        db.createStatement().execute("SET search_path TO app");
+        return db;
+    }
+
     @DynamicPropertySource
     static void keycloakProperties(DynamicPropertyRegistry registry) {
         registry.add("app.keycloak.issuer-url", KEYCLOAK::issuer);

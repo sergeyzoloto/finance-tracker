@@ -61,6 +61,13 @@ final class SessionAccessTokenFilter extends OncePerRequestFilter implements Bea
                 .build());
     }
 
+    /** Told about a session that a refused refresh ends, before it ends (the activity log). */
+    private java.util.function.Consumer<HttpSession> refusal = session -> { };
+
+    void onRefusal(java.util.function.Consumer<HttpSession> refusal) {
+        this.refusal = refusal;
+    }
+
     /** With another way to refresh, for tests. */
     SessionAccessTokenFilter(ClientRegistrationRepository clientRegistrations,
             OAuth2AuthorizedClientRepository authorizedClients, OAuth2AuthorizedClientProvider refresher) {
@@ -82,6 +89,7 @@ final class SessionAccessTokenFilter extends OncePerRequestFilter implements Bea
                     // Refresh refused: the Keycloak session is over (logged out, expired, user disabled), so is ours.
                     HttpSession session = request.getSession(false);
                     if (session != null) {
+                        refusal.accept(session);
                         session.invalidate();
                     }
                 }

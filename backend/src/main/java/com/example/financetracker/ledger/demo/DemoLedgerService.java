@@ -18,6 +18,9 @@ import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.history.Cause;
+import com.example.financetracker.ledger.history.HistoryContext;
+import com.example.financetracker.ledger.history.HistoryService;
 import com.example.financetracker.ledger.demo.DemoLedger.DemoAccount;
 import com.example.financetracker.ledger.demo.DemoLedger.DemoCategory;
 import com.example.financetracker.ledger.demo.DemoLedger.DemoCounterparty;
@@ -46,6 +49,7 @@ public class DemoLedgerService {
     /** The partner's part of a shared expense (rule 7). */
     private static final BigDecimal SHARE_RATIO = new BigDecimal("0.50");
 
+    private final HistoryService history;
     private final JdbcClient jdbc;
     private final StarterLedger starterLedger;
     private final EntryService entries;
@@ -57,7 +61,8 @@ public class DemoLedgerService {
 
     DemoLedgerService(JdbcClient jdbc, StarterLedger starterLedger, EntryService entries,
             UserSettingsRepository settings, FamilySwitch familySwitch, LedgerAccess access,
-            FamilyLedgerService families, FamilyRecordService familyRecords) {
+            FamilyLedgerService families, FamilyRecordService familyRecords, HistoryService history) {
+        this.history = history;
         this.jdbc = jdbc;
         this.starterLedger = starterLedger;
         this.entries = entries;
@@ -94,6 +99,12 @@ public class DemoLedgerService {
      */
     @Transactional
     public DemoLedgerView load(LedgerScope personalLedger, LocalDate today, String displayName) {
+        try (HistoryContext.Frame demo = HistoryContext.open(Cause.DEMO, null)) {
+            return loadDemo(personalLedger, today, displayName);
+        }
+    }
+
+    private DemoLedgerView loadDemo(LedgerScope personalLedger, LocalDate today, String displayName) {
         // The settings row serializes this with a concurrent load into the same ledger, and with the deletion of all
         // the user's data, which deletes that row first. After such a deletion the ledger is gone.
         jdbc.sql("SELECT user_id FROM user_settings WHERE user_id = :userId FOR UPDATE")
@@ -142,6 +153,7 @@ public class DemoLedgerService {
                     .param("kind", counterparty.kind().name())
                     .update();
         }
+        history.changedAllReference(personalLedger.ledgerId());
         settings.save(new UserSettings(personalLedger.userId(), DemoLedger.BASE_CURRENCY, null, SHARE_RATIO));
 
         List<EntryCommand> commands = DemoLedger.entries(today, ids(personalLedger));

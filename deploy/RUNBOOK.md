@@ -1907,6 +1907,187 @@ was on 2026-10-08 (scheduled 2026-10-07T06:10:34Z, during F8c's and F8d's deploy
   with the distance and never refuse; `rollback.sh` only warns. A checklist whose `run` is still an older script applies
   the window by hand in its pre-flight (F8f's checklist does).
 
+## HIST-1's deploy checklist with the suite
+
+**What this is, in one paragraph.** One stage, HIST-1 (record versions and the activity log, ADR 0006, D-989 to D-1061), two commits: `f8349ac7a4858d1e57f938738a5b7593a7e24276` (documents only: the records of OPS-6b, PERF-1 and WEB-1, ADR 0006 accepted) and `<M>`, the stage (**one migration, V19**; both images new; nothing visible but the privacy policy's new section). The migration is additive and written so that the previous image runs on it and writes normally (D-1040): the checklist ends with a drill that shows `rollback.sh` going to `d44df66` is not refused, and the proof that the previous image works on V19 was made on the laptop (the report). The api, when it starts on V19, runs the baseline job in the background (D-1020) and everyone signs in again (the api is recreated).
+
+**Commits and state.** Production runs `d44df6674d527e05fa356b830912aec6491e7439` (WEB-1, `last-good`), Flyway V18, the family switch **on**, the database `postgres:17.12`, the apex site file installed. Stage name for `deploy.sh run`: `HIST-1` (`deploy/checks/HIST-1.sql` and `.expected`: WEB-1's 18 lines and V19's, tried on a database that Flyway migrated to V19; `numbers.sql` gets three keys, `record_versions`, `activity_events` and `history_pending`, which count from the next deploy; the deploy's own numbers are the 24 it knows). Type the full 40 characters where a block says `<M>` (D-226).
+
+**The time (D-125).** Not between 03:30Z and 04:30Z, not across the dumps at about 02:30Z, not while Hetzner's backup runs (about 10:49Z: keep 10:30Z to 11:30Z free); a scheduled shutdown less than 2 hours away stops `run` (D-131). Only the rollback is the exception. Allow the baseline about a minute after `run` returns before step A3.
+
+**The order (D-965).** Every commit that is deployed has its own CI run: step 1a pushes the first commit alone and waits for its CI, step 1b pushes M and waits for its CI. DNS and the apex are not touched.
+
+Rules for every block: as WEB-1's (CLAUDE.md, "Deploy checklists" and "Production safety"): one block at a time and the next only once the prompt has returned; server blocks start with `cd /opt/finance-tracker &&` or are wrapped in `cd /opt/finance-tracker && {` … `}`; laptop blocks start with `cd ~/dev/finance-tracker &&` (or `~/dev/finance-tracker/e2e`) or are wrapped likewise; a command that asks a question stands alone in its block and its answer is typed, never pasted. If the suite runs after a DNS change, check the laptop's resolver first (`resolvectl dns wlp4s0`): none is changed here.
+
+### Step 0. On the laptop, read only: where things stand
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+M=<M>
+git fetch origin
+git --no-pager log -1 --format='HEAD %H %s'
+git --no-pager log -1 --format='origin/main %H %s' origin/main
+test "$(git rev-parse HEAD)" = "$M" && echo HEAD-IS-M
+git --no-pager log --oneline d44df6674d527e05fa356b830912aec6491e7439..HEAD
+git --no-pager diff --name-only d44df6674d527e05fa356b830912aec6491e7439 "$M" -- deploy/
+git --no-pager diff --name-only --diff-filter=A d44df6674d527e05fa356b830912aec6491e7439 "$M" -- backend/src/main/resources/db/migration
+git --no-pager diff --quiet d44df6674d527e05fa356b830912aec6491e7439 "$M" -- deploy/finance.caddy deploy/finance-apex.caddy deploy/app/docker-compose.yml deploy/app/postgres-init.sh && echo SITE-AND-POSTGRES-UNCHANGED
+git merge-base --is-ancestor f8349ac7a4858d1e57f938738a5b7593a7e24276 origin/main && echo FIRST-PUSHED || echo FIRST-NOT-PUSHED
+git merge-base --is-ancestor "$M" origin/main && echo M-PUSHED || echo M-NOT-PUSHED
+test -z "$(git status --porcelain)" && echo CLEAN
+}
+```
+
+You should see `HEAD` = M, the commits **as git prints them** from `d44df66` to M (the first commit and M; compare with the report), under `deploy/` `checks/HIST-1.expected`, `checks/HIST-1.sql` and `checks/numbers.sql` (and the tests' files if the report lists them), the one added migration `V19__record_versions_and_activity_events.sql`, `SITE-AND-POSTGRES-UNCHANGED`, `FIRST-NOT-PUSHED` and `M-NOT-PUSHED` before step 1 (the report says the owner pushes after it) and `CLEAN`. Anything else: stop.
+
+### Step 1a. On the laptop: push the first commit alone, then CI on it, read only
+
+```bash
+# On the laptop: a fast-forward of main to the first commit
+cd ~/dev/finance-tracker && git push origin f8349ac7a4858d1e57f938738a5b7593a7e24276:main
+```
+
+Skip it if step 0 printed `FIRST-PUSHED`. When its CI has finished (about fifteen minutes), type the commit:
+
+```bash
+# On the laptop (read only)
+cd ~/dev/finance-tracker && {
+C=f8349ac7a4858d1e57f938738a5b7593a7e24276; python3 -c 'import json, sys, urllib.request
+api = "https://api.github.com/repos/sergeyzoloto/finance-tracker/actions/"
+get = lambda path: json.load(urllib.request.urlopen(urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})))
+runs = get("runs?head_sha=" + sys.argv[1] + "&per_page=100")
+print(sys.argv[1][:7], runs["total_count"], "runs")
+for r in runs["workflow_runs"]:
+    print(r["name"], "#%d" % r["run_number"], r["event"], r["head_branch"], "attempt", r["run_attempt"], r["status"], r["conclusion"])
+    for j in get("runs/%d/jobs?per_page=100" % r["id"])["jobs"]:
+        print("   ", j["name"], j["status"], j["conclusion"])' "$C"
+}
+```
+
+You should see `CI`, `push`, `main`, `completed success` with its five jobs `completed success`. Only a Frontend job may be re-run once (D-94).
+
+### Step 1b. On the laptop: push M, then CI on M, read only
+
+```bash
+# On the laptop: a fast-forward of main to M; refused if origin/main isn't an ancestor of M
+cd ~/dev/finance-tracker && git push origin <M>:main
+```
+
+Then the same read-only block with `C=<M>` in place of the first commit. You should see the same: `completed success`, five jobs. A failure of `Backend` or `Deploy scripts` is a real fault: stop.
+
+### Pre-flight. On the server, read only (send the whole output to the PM before part A)
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && {
+date -u '+Now: %Y-%m-%dT%H:%M:%SZ, %s seconds since the epoch'
+echo "Scheduled shutdown: $(cat /run/systemd/shutdown/scheduled 2>&1)"
+echo "Reboot required: $(cat /var/run/reboot-required 2>&1)"
+docker version -f 'Docker server {{.Server.Version}}, {{.Server.Os}}/{{.Server.Arch}}'
+docker info -f 'Image store: {{json .DriverStatus}}'
+git log -1 --format='Clone: %H %s'; git status --short
+cat /var/lib/finance-deploy/last-good
+tail -n 6 /var/lib/finance-deploy/history
+ls -1 /var/lib/finance-deploy/runs | tail -n 4
+docker inspect -f '{{.Name}} created from {{.Config.Image}} image {{.Image}} started {{.State.StartedAt}} {{.State.Health.Status}}' finance-tracker-postgres
+docker inspect -f '{{.Name}} image {{.Image}} content {{with .ImageManifestDescriptor}}{{.Digest}}{{end}} started {{.State.StartedAt}}' finance-tracker-api finance-tracker-web
+ls -l /opt/caddy-sites
+(cd deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT (SELECT max(installed_rank) FROM app.flyway_schema_history) || ' migrations, entries ' || (SELECT count(*) FROM app.journal_entry) || ', family records ' || (SELECT count(*) FROM app.family_record) || ', ledgers ' || (SELECT count(*) FROM app.ledger)" </dev/null)
+docker image ls --digests --format '{{.Repository}}:{{.Tag}} {{.Digest}} {{.ID}} {{.Size}}'
+df -h /
+}
+```
+
+You should see: `Now:` outside the forbidden windows; no scheduled shutdown (or one at least 2 hours after part A starts); Docker 29.10.0 containerd; `Clone:` equal to `last-good`'s commit (`d44df66…`), clean; `last-good` with `finish=passed 2026-11-18T12:05:13Z` (the file's own text decides); the postgres container on `postgres:17.12`, healthy; both app containers running; `/opt/caddy-sites` with `finance.caddy` and `finance-apex.caddy`; `18 migrations` and the counts (entries 43919 or more: the owner's use moves them); the disk before. Anything else: stop and send it to the PM.
+
+### Part A: the deploy (`deploy.sh run <M> HIST-1`)
+
+**A1. On the server: the deploy**, alone in its block; type M's 7 characters at the confirmation.
+
+```bash
+# On the server
+cd /opt/finance-tracker && deploy/deploy.sh run <M> HIST-1
+```
+
+It prints: 1.1 the shutdown line; 1.2 `HEAD` and `Last good deploy` equal, status `good`; 1.3 `<M> is origin/main`, the commits **git prints** from there to M (as step 0), `Migrations added: 1` naming V19, the files under `deploy/` (as step 0); 1.4 `deploy/finance.caddy and the postgres service unchanged`; 1.5 CI success; 1.6 the HIST-1 files; 1.7 the 24 numbers (the old file's: `numbers.sql` of the running commit is what counts, D-941); 1.8 a fresh dump, `PASS`. 2: type the 7 characters. 3.2 the running images kept as `:<last-good>` and `:previous`; 3.3 both images built (new content); 3.5 healthy; 3.6 `Pages: 5 of 5`; 3.7 the build cache pruned; 4.1 **`Successfully applied 1 migration to schema "app", now at version v19`**, Flyway V19; 4.2 D-25 "on"; 4.3 the same 24 numbers as before; 4.4 `HIST-1.expected`'s lines (WEB-1's 18 and V19's); 4.6 an after-dump `PASS`; 5 the summary, `Left for you: … finish`. A FAILED line: stop and send it to the PM; the rollback command it prints is the last block here, run only if the PM says so.
+
+**A2. On the server, read only: the baseline job's line**, a minute after `run` returned.
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && docker logs finance-tracker-api 2>&1 | grep -E 'History baseline|Flyway|Started FinanceTracker' | tail -n 6
+```
+
+You should see `History baseline: 8 ledgers, about 20800 baseline versions, 0 reconciled, 0 deleted records, and a duration of seconds` (the report gives the rehearsal's numbers; the ledger count and the rows move with use) after the application's start. If the line isn't there yet, wait a minute and run it again; if it says "failed", send it to the PM (the lazy baseline covers the gap, D-1020).
+
+**A3. On the server, read only: what has no version yet, and the history's own invariants.**
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker/deploy/app && docker compose exec -T postgres psql -X -At -U finance_checks -d finance -c "SELECT 'unversioned ' || t || ' ' || n FROM (SELECT 'entries' AS t, count(*) AS n FROM app.journal_entry e WHERE left(e.kind, 7) <> 'FAMILY_' AND NOT EXISTS (SELECT 1 FROM app.record_version v WHERE v.ledger_id = e.ledger_id AND v.record_type = 'ENTRY' AND v.record_id = e.id) UNION ALL SELECT 'accounts', count(*) FROM app.account a WHERE a.family_ledger_id IS NULL AND a.code <> 'UNSPECIFIED_PAYMENTS' AND NOT EXISTS (SELECT 1 FROM app.record_version v WHERE v.ledger_id = a.ledger_id AND v.record_type = 'ACCOUNT' AND v.record_id = a.id) UNION ALL SELECT 'categories', count(*) FROM app.category c WHERE NOT EXISTS (SELECT 1 FROM app.record_version v WHERE v.ledger_id = c.ledger_id AND v.record_type IN ('CATEGORY', 'FAMILY_CATEGORY') AND v.record_id = c.id) UNION ALL SELECT 'counterparties', count(*) FROM app.counterparty p WHERE NOT EXISTS (SELECT 1 FROM app.record_version v WHERE v.ledger_id = p.ledger_id AND v.record_type = 'COUNTERPARTY' AND v.record_id = p.id) UNION ALL SELECT 'family records', count(*) FROM app.family_record r WHERE NOT EXISTS (SELECT 1 FROM app.record_version v WHERE v.ledger_id = r.ledger_id AND v.record_type = 'FAMILY_RECORD' AND v.record_id = r.id)) x UNION ALL SELECT 'versions ' || count(*) || ', events ' || (SELECT count(*) FROM app.activity_event) || ', pending ' || (SELECT count(*) FROM app.history_pending) FROM app.record_version" </dev/null
+```
+
+You should see five `unversioned … 0` lines once the baseline has run (the idempotent job writes the rest if it has not: a number above 0 before the job's line appears is not a fault; above 0 after it, send it to the PM) and one line `versions N, events E, pending 0` (N about 20800 plus what was written since; E small).
+
+### Step 9a. The suite
+
+**On the laptop**, from a clean checkout of M:
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker && git checkout <M> && test -z "$(git status --porcelain)" && git --no-pager log -1 --format='%H %s'
+```
+
+You should see M in full. Then the suite, alone in its block; read its banner (https://app.finance-nl.com, `e2e-a`, `e2e-b`, `E2E_FAMILY: on`, M and "clean tree"), type `E2E PROD` after the question. `E2E_APEX_LIVE=1` keeps the apex spec on (the DNS is live).
+
+```bash
+# On the laptop
+cd ~/dev/finance-tracker/e2e && nvm use && npm ci && E2E_FAMILY=on E2E_APEX_LIVE=1 npm run e2e:prod
+```
+
+Paste its summary, from `===== E2E summary =====` to `=======================`: `Commit:` M `(clean tree)`, every spec passed (`new-family` skipped), `cleanup passed`, 0 password hits, `Result: PASSED`. The suite signs in, edits and deletes records and runs "Delete all my data" for both accounts, so it also exercises V19's versions, the backstop and the erasure in production. If any spec fails, or the cleanup does: don't run the suite again and don't run `finish`; send the whole summary to the PM, who decides (D-58, D-59).
+
+### Step 10. On the server: finish, then verify
+
+Only after step 9a, alone in its block; `yes` to both only if the summary says `Result: PASSED` with 0 password hits.
+
+```bash
+# On the server: only after the end-to-end suite of step 9a (the browser checks and the smoke test)
+cd /opt/finance-tracker && deploy/deploy.sh finish
+```
+
+```bash
+# On the server (read only)
+cd /opt/finance-tracker && deploy/deploy.sh verify HIST-1
+```
+
+You should see `verify HIST-1 at <M's 7 characters> …: OK`, the images `last-good`'s, the pages 5 of 5, V19, `HIST-1.expected`'s lines and `Compared with the numbers after …: same as the last run` (the suite's accounts leave nothing behind; if `family_*` or the versions differ, the deploy's own use may be the reason: say so).
+
+### Step 11. On the laptop, read only: CI on Ubuntu 26.04
+
+After `finish`, the owner starts "CI on Ubuntu 26.04" on `main` in GitHub's Actions page, then the read-only block of step 1a with `workflows/ci-ubuntu-26.yml/runs?head_sha=` in place of `runs?head_sha=` and `C=<M>`. You should see a run on `main`, `workflow_dispatch`, attempt 1, `completed success` with its jobs.
+
+### The rollback drill (read only in effect: it is refused at its confirmation)
+
+D-1040 says the previous image works on V19; this shows the script lets it. After `finish` and the suite, alone in its block, type `no` at the confirmation:
+
+```bash
+# On the server: DRILL ONLY, answer no at the confirmation; nothing changes
+cd /opt/finance-tracker && deploy/rollback.sh d44df6674d527e05fa356b830912aec6491e7439
+```
+
+You should see it name `d44df66…` as the commit HEAD's deploy replaced, find the images `:<last-good>` and `:previous`, **refuse nothing** (no V7, V11, V13 or V14 condition applies, and V19 has none), and ask for the confirmation; you answer `no` and it stops with nothing changed. If it refuses, send the refusal to the PM.
+
+### The rollback (last, only for a failed deploy)
+
+```bash
+# On the server: ONLY FOR A FAILED DEPLOY, at any hour; images only, V19 stays and the previous image ignores it; type last-good's commit (the pre-flight's) where it stands
+cd /opt/finance-tracker && deploy/rollback.sh d44df6674d527e05fa356b830912aec6491e7439
+```
+
+It goes one step back to the commit the run replaced, with its images (both containers recreated), refuses nothing (V19 is additive and the previous image writes normally on it, D-1040); then `verify WEB-1`. Versions and events stay in the database and the previous image ignores them; a later start of this stage's image reconciles what the previous image wrote (D-1044, D-1055).
+
 ## PERF-1 and WEB-1's deploy checklist with the suite
 
 **What this is, in one paragraph.** One deploy of two stages (D-879, D-971): PERF-1 (the Entries summary's query, D-969 to D-978; the api's image) and WEB-1 (the author's link in both footers, the landing page on finance-nl.com, the sign-in hint cookie `ft_session`, D-979 to D-988; the web image, the privacy policy, a new site file `deploy/finance-apex.caddy`). **No migration, no change of the postgres service, no change of `deploy/finance.caddy`** (D-983: the apex is a second site file because `deploy.sh run` refuses a changed `deploy/finance.caddy`). Used only for this deploy.
@@ -16169,6 +16350,8 @@ ledger of a sub without a `users` row: the command-line importer (CLAUDE.md, "Ho
 importer") writes rows without one. A ledger that still holds a row of theirs makes the statement
 fail, and the transaction with it. Deleting the `users` row would also delete the personal ledger,
 by V5's trigger, but only for a sub that has that row.
+
+Since V19 (HIST-1, D-1052) the same statements also remove the history: `release_family_memberships` deletes the user's activity events and erases their comments from the versions of the family records, a family ledger that goes takes its versions with it (`delete_family_ledger`), and deleting the personal ledger deletes its versions by the cascade; the guard of V19 lets these deletes through because the first statement sets `app.writer` to `delete-all`. Nothing else is needed in this section.
 
 Last, the Keycloak user. With `automation-cli`, in the shell of the first block:
 

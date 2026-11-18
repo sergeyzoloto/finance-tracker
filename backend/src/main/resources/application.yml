@@ -37,6 +37,9 @@ spring:
     hikari:
       # Own schema: Supabase publishes "public" through its Data API.
       schema: app
+      # Every connection of the application says it writes versions (HIST-1, ADR 0006, D-1004, D-1040): the database's
+      # backstop checks only such connections, so the image before it, psql and the runbook's SQL stay unchecked.
+      connection-init-sql: SET app.history = 'on'
   flyway:
     schemas: app
   jackson:

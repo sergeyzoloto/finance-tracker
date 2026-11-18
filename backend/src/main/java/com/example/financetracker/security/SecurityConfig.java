@@ -2,7 +2,12 @@ package com.example.financetracker.security;
 
 import java.util.List;
 
+import java.io.IOException;
+
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
@@ -39,7 +44,9 @@ import org.springframework.security.web.DefaultRedirectStrategy;
 import org.springframework.security.web.RedirectStrategy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
@@ -82,9 +89,19 @@ class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, KeycloakProperties keycloak, JwtDecoder jwtDecoder,
-            ClientRegistrationRepository clientRegistrations, OAuth2AuthorizedClientRepository authorizedClients)
-            throws Exception {
+            ClientRegistrationRepository clientRegistrations, OAuth2AuthorizedClientRepository authorizedClients,
+            SessionEvents sessionEvents) throws Exception {
         SessionAccessTokenFilter sessionAccessTokens = new SessionAccessTokenFilter(clientRegistrations, authorizedClients);
+        sessionAccessTokens.onRefusal(sessionEvents::refreshRefused);
+        SimpleUrlAuthenticationSuccessHandler loginDone = new SimpleUrlAuthenticationSuccessHandler(LOGIN_DONE_URL) {
+            @Override
+            public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
+                    Authentication authentication) throws IOException, ServletException {
+                sessionEvents.signedIn(authentication);
+                super.onAuthenticationSuccess(request, response, authentication);
+            }
+        };
+        loginDone.setAlwaysUseDefaultTargetUrl(true);
         AuthenticationFailureHandler loginFailed = loginFailedHandler(authorizedClients);
         return http
                 .authorizeHttpRequests(requests -> requests
@@ -101,7 +118,7 @@ class SecurityConfig {
                 .oauth2Login(login -> login
                         // Also switches off Spring's generated login and logout pages.
                         .loginPage("/oauth2/authorization/" + REGISTRATION_ID)
-                        .defaultSuccessUrl(LOGIN_DONE_URL, true)
+                        .successHandler(loginDone)
                         .failureHandler(loginFailed)
                         .withObjectPostProcessor(new ObjectPostProcessor<OAuth2AuthorizationRequestRedirectFilter>() {
                             @Override
@@ -110,7 +127,8 @@ class SecurityConfig {
                                 return filter;
                             }
                         }))
-                .logout(logout -> logout.logoutSuccessHandler(keycloakLogout(clientRegistrations)))
+                .logout(logout -> logout.addLogoutHandler(sessionEvents)
+                        .logoutSuccessHandler(keycloakLogout(clientRegistrations)))
                 // API callers get 401 and never a redirect; the frontend starts the login itself.
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(new BearerTokenAuthenticationEntryPoint()))
                 .requestCache(cache -> cache.requestCache(new NullRequestCache()))

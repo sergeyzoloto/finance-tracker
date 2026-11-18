@@ -28,6 +28,9 @@ import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.EntryCommand;
+import com.example.financetracker.ledger.history.HistoryService;
+import com.example.financetracker.ledger.history.RecordContents;
+import com.example.financetracker.ledger.history.RecordType;
 import com.example.financetracker.ledger.domain.EntryDraft;
 import com.example.financetracker.ledger.domain.EntryKind;
 import com.example.financetracker.ledger.domain.InvalidEntryException;
@@ -71,11 +74,13 @@ public class EntryService {
     private final LedgerAccess access;
     private final ObjectProvider<FamilyPayments> familyPayments;
     private final FamilySwitch familySwitch;
+    private final HistoryService history;
     private final LedgerValidator validator = new LedgerValidator();
 
     EntryService(JournalEntryRepository entries, AccountRepository accounts, LedgerCategoryRepository categories,
             CounterpartyRepository counterparties, UserSettingsRepository settings, JdbcClient jdbc,
-            LedgerAccess access, ObjectProvider<FamilyPayments> familyPayments, FamilySwitch familySwitch) {
+            LedgerAccess access, ObjectProvider<FamilyPayments> familyPayments, FamilySwitch familySwitch,
+            HistoryService history) {
         this.entries = entries;
         this.accounts = accounts;
         this.categories = categories;
@@ -85,6 +90,7 @@ public class EntryService {
         this.access = access;
         this.familyPayments = familyPayments;
         this.familySwitch = familySwitch;
+        this.history = history;
     }
 
     /** @throws InvalidEntryException naming every problem with the entry */
@@ -125,8 +131,13 @@ public class EntryService {
         requireOwn(ledger, entry);
         requireVersion(entry, expectedVersion);
         EntryDraft draft = validDraft(ledger, command);
+        JournalEntry replaced = entry.replacedBy(draft, WallClock.now());
+        // D-995: a save that changes no field writes nothing, so it makes no version and takes no revision.
+        if (history.unchanged(ledger.ledgerId(), RecordType.ENTRY, entryId, contentOf(replaced))) {
+            return EntryView.of(entry);
+        }
         try {
-            return EntryView.of(entries.save(entry.replacedBy(draft, WallClock.now())));
+            return EntryView.of(entries.save(replaced));
         } catch (OptimisticLockingFailureException e) {
             // Changed by a concurrent transaction since it was read above.
             throw stale(entryId, expectedVersion, e);
@@ -157,7 +168,11 @@ public class EntryService {
         requireOwn(ledger, entry);
         requireVersion(entry, expectedVersion);
         try {
+            Map<String, Object> last = history.capture(RecordType.ENTRY, ledger.ledgerId(), entryId).orElse(null);
             entries.delete(entry);
+            if (last != null) {
+                history.deleted(ledger.ledgerId(), RecordType.ENTRY, entryId, last);
+            }
         } catch (OptimisticLockingFailureException e) {
             throw stale(entryId, expectedVersion, e);
         }
@@ -848,5 +863,10 @@ public class EntryService {
             return Map.of();
         }
         return find.apply(ledger, ids).stream().collect(Collectors.toMap(id, value));
+    }
+
+    /** The content a version holds for this entry (ADR 0006, 5.2), for comparing with the live one. */
+    static Map<String, Object> contentOf(JournalEntry entry) {
+        return RecordContents.of(entry);
     }
 }

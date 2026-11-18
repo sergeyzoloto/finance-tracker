@@ -597,3 +597,28 @@ sections 5.5, 6.3, 6.4, 6.5, 7, 8 and 9.
 | 12 | History view in HIST-1 | invisible; views come with HIST-2 (D-1037) |
 
 New item (D-1038): imports after a restore; see section 6.3.
+
+## 12. HIST-1 as built (D-1043 to D-1061)
+
+What the first stage did, where it differs from the draft above. Nothing here changes a decision of sections 1 to 11;
+the backstop and rollback sections (5.5, 9) already carry D-1040.
+
+- **Tables (V19):** `record_version` as in 5.1, with `revision >= 1` for a change and a baseline's one revision lower
+  (down to 0, the ledger's state before its first change); `activity_event` with an optional ledger and no email, address
+  or browser; `ledger.revision`; `history_pending`, an unlogged table that holds one mark per changed record inside a
+  transaction and is empty at rest. No `snapshot`, `restore_run`, `restore_item`, `notification` or
+  `accepted_revision`: they come with their stages.
+- **Backstop (D-1045, D-1046):** row triggers mark a changed record at the write, where the writer is known; a deferred
+  constraint trigger on the marks requires the version at commit. The root tables only (`journal_entry`, `account`,
+  `category`, `counterparty`, `family_record`), because a save of an entry or a record always changes its row's version;
+  derived rows are exempt by what they are. A connection that did not set `app.history` to `on` is not checked.
+- **Writing a version (D-1043, D-1044, D-1047, D-1048):** after the write, from the live record; the state before is the
+  committed database, read through a pool of its own (D-1061: a nested transaction on the application's pool starves it); the revision is taken at the first version of a transaction by an
+  update of the ledger's row. An entry's save that changes nothing writes nothing at all.
+- **Content (D-1049):** as 5.2, with the family record's signed amount and deleted flag; the shapes are version 1.
+- **Events (D-1054):** only sign-in, sign-out, expiry and an ended session; the others of D-999 come with HIST-2.
+- **Erasure (D-1052):** inside `release_family_memberships`, as 8 says; the version's stored hash is stale after a comment
+  is erased, so comparisons recompute it from the stored content.
+- **Jobs (D-1055):** the baseline in chunks of 250 records at startup, in the background; the 13 months of sign-in events.
+- **Not done in HIST-1:** the History views and the family journal read from versions (HIST-2), the log events of
+  settings, manual rates, memberships and invites, snapshots and restore (HIST-4, HIST-5), acceptance (HIST-3).

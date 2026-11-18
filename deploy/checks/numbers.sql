@@ -28,6 +28,10 @@ FROM (VALUES
     ('family_invites', (SELECT count(*) FROM app.ledger_invite)),
     ('family_import_cutoffs', (SELECT count(*) FROM app.family_import_cutoff)),
     ('imported_family_sides', (SELECT count(*) FROM app.imported_family_side)),
+    -- HIST-1 (V19): the versions and the activity log, and the marks that live inside one transaction (0 at rest).
+    ('record_versions', (SELECT count(*) FROM app.record_version)),
+    ('activity_events', (SELECT count(*) FROM app.activity_event)),
+    ('history_pending', (SELECT count(*) FROM app.history_pending)),
     -- As F6a's checklist counted it: personal rows without a PERSONAL membership of their user in their ledger, and
     -- categories without a user (family categories) outside every SHARED ledger.
     ('outside_their_ledger',

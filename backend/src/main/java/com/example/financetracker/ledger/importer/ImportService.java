@@ -34,6 +34,8 @@ import com.example.financetracker.ledger.CounterpartyRepository;
 import com.example.financetracker.ledger.EntryService;
 import com.example.financetracker.ledger.ImportBatch;
 import com.example.financetracker.ledger.ImportBatchRepository;
+import com.example.financetracker.ledger.history.Cause;
+import com.example.financetracker.ledger.history.HistoryContext;
 import com.example.financetracker.ledger.Json;
 import com.example.financetracker.ledger.LedgerCategory;
 import com.example.financetracker.ledger.LedgerCategoryRepository;
@@ -184,14 +186,16 @@ public class ImportService {
         // D-165: the rows after "Import up to" are left out, and the check stops at it.
         LocalDate upTo = request.upTo();
         AfterCutoff after = upTo == null ? AfterCutoff.NONE : AfterCutoff.cut(upTo, transactionRows, partnerRows);
-        return transaction.execute(status -> {
-            Run run = new Run(personal, request, startedAt);
-            ImportReport report = run.execute(transactionRows, fileChart, partnerRows, gaps, after);
-            if (report.outcome() != Outcome.COMMITTED) {
-                status.setRollbackOnly();
-            }
-            return report;
-        });
+        try (HistoryContext.Frame importing = HistoryContext.open(Cause.IMPORT, personal.userId())) {
+            return transaction.execute(status -> {
+                Run run = new Run(personal, request, startedAt);
+                ImportReport report = run.execute(transactionRows, fileChart, partnerRows, gaps, after);
+                if (report.outcome() != Outcome.COMMITTED) {
+                    status.setRollbackOnly();
+                }
+                return report;
+            });
+        }
     }
 
     /** The Excel IDs missing between the file's lowest and highest, as ranges ("12", "40-45"). */
@@ -483,6 +487,7 @@ public class ImportService {
             ImportFile transactionsFile = transactionRows.file();
             batchId = batches.save(new ImportBatch(null, personal.userId(), personal.ledgerId(),
                     transactionsFile.name(), transactionsFile.sha256(), !commit, null, null, null)).id();
+            HistoryContext.batch(batchId);
             analyze(personal);
 
             for (Map.Entry<TransactionRow, Planned> e : owner) {
@@ -1662,6 +1667,7 @@ public class ImportService {
             findMissing(excelRows, familyItems, false, after);
             batchId = batches.save(new ImportBatch(null, personal.userId(), personal.ledgerId(),
                     transactionsFile.name(), transactionsFile.sha256(), !commit, null, null, null)).id();
+            HistoryContext.batch(batchId);
             analyze(personal);
 
             String file = transactionsFile.name();

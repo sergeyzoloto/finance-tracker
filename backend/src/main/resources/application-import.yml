@@ -1,10 +1,14 @@
 # The command-line importer of the Excel ledger (ledger.importer.ImportRunner; CLAUDE.md shows the command).
-# No web server and no login: only the database, from the SPRING_DATASOURCE_* environment variables. No ECB or CBR rates.
+# No web server and no login: only the database, from the SPRING_DATASOURCE_* environment variables. No ECB or CBR rates, no history jobs.
 app:
   rates:
     ecb:
       enabled: false
     cbr:
+      enabled: false
+  history:
+    # The baseline and the deletion of old sign-in events belong to the running application (ledger.history.HistoryJobs).
+    jobs:
       enabled: false
 spring:
   main:

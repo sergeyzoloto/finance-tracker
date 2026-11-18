@@ -153,6 +153,28 @@ data" deletes it with the rest.
 > of a former member are kept; and whether the change journal counts as personal data of the members it
 > names.
 
+## History and sign-in events
+
+> Outside the section "Family budgets": a section of its own after it, published with HIST-1 (ADR 0006, D-1025, D-1033).
+> `frontend/src/privacy.test.ts` compares it with the page word for word.
+
+When you add, change or delete an entry, an account, a category or a payee, the app keeps the earlier version: the
+values as they were, when the change was made, and what caused it (you, an import, the demo or the system). It is kept
+so that the app can show you what changed and, later, let you go back. Your history is kept until you use "Delete all my
+data", which deletes it with the rest.
+
+The history of a family record belongs to the family budget, like the record: it is kept as long as the family budget
+exists, and it never holds your payment account, your private notes or the payees you did not choose to show. If you
+leave a family budget or delete your data, your name in it becomes "Former member", and the comments you wrote are
+erased from the history as they are from the records.
+
+The app also records when you sign in, when you sign out and when your session ends without your signing out, with the
+time and your account's id, but not your email, your address or your browser. These events are kept for 13 months and
+deleted after that; "Delete all my data" deletes them at once. Restarting the app, which happens when it is updated,
+ends every session without a record, so the next event after an update is a sign-in.
+
+Backups keep copies for the periods stated under "How long it is kept".
+
 ## What the app keeps in the browser
 
 > Outside the section "Family budgets": the policy's "Cookies", after its list of cookies (UX-19, D-821, D-824; every

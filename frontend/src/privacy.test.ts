@@ -120,4 +120,20 @@ describe('the privacy policy', () => {
     expect(html).not.toContain('TODO')
     expect(page.querySelectorAll('script')).toHaveLength(0)
   })
+
+  it('publishes the history and sign-in events section as the draft holds it, with its 13 months (HIST-1, D-1033)', () => {
+    const text = draft.slice(draft.indexOf('## History and sign-in events'), draft.indexOf('## What the app keeps in the browser'))
+    const blocks = text.split(/\n\s*\n/).slice(2).map((block) => words(block.replace(/\n/g, ' '))).filter((block) => block !== '')
+    const start = page.getElementById('history')!
+    const published: string[] = []
+    for (let node = start.nextElementSibling; node && node.tagName !== 'H2'; node = node.nextElementSibling) {
+      published.push(words(node.textContent!))
+    }
+    expect(published).toEqual(blocks)
+    expect(published.join(' ')).toContain('These events are kept for 13 months')
+    expect(published.join(' ')).toContain('but not your email, your address or your browser')
+    const retention = words(page.getElementById('retention')!.nextElementSibling!.textContent!)
+    expect(retention).toContain('Your version history is kept until you delete your data')
+    expect(retention).toContain('sign-ins, sign-outs and ended sessions are kept for 13 months')
+  })
 })

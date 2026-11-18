@@ -28,6 +28,7 @@ import com.example.financetracker.ledger.SettingsService;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.history.HistoryIntegrity;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.family.FamilyBalances;
@@ -63,6 +64,7 @@ public class ReportService {
 
     private static final String FX_EXCHANGE = AccountRole.FX_EXCHANGE.defaultCode();
 
+    private final HistoryIntegrity history;
     private final JdbcClient jdbc;
     private final AccountRepository accounts;
     private final UserSettingsRepository settings;
@@ -74,7 +76,8 @@ public class ReportService {
 
     ReportService(JdbcClient jdbc, AccountRepository accounts, UserSettingsRepository settings,
             SettingsService settingsService, RateService rates, LedgerAccess access, FamilyRecordService records,
-            FamilySwitch familySwitch) {
+            FamilySwitch familySwitch, HistoryIntegrity history) {
+        this.history = history;
         this.jdbc = jdbc;
         this.accounts = accounts;
         this.settings = settings;
@@ -684,6 +687,23 @@ public class ReportService {
             for (LedgerScope family : access.families(ledger.userId())) {
                 violations.addAll(familyDifferences(ledger, family));
             }
+        }
+        return violations;
+    }
+
+    /**
+     * The integrity check and, for the ledger and each family budget of its member, the history's (HIST-1, ADR 0006,
+     * 5.5): a live record whose latest version differs from it. It reads every record, so it is asked for, not default.
+     */
+    public List<IntegrityViolation> integrityCheckWithHistory(LedgerScope ledger) {
+        List<IntegrityViolation> violations = new ArrayList<>(integrityCheck(ledger));
+        List<Long> ledgers = new ArrayList<>(List.of(ledger.ledgerId()));
+        if (ledger.type() == LedgerType.PERSONAL) {
+            access.families(ledger.userId()).forEach(family -> ledgers.add(family.ledgerId()));
+        }
+        for (long id : ledgers) {
+            history.check(id).problems().forEach(problem -> violations.add(
+                    IntegrityViolation.history(problem.type().name(), problem.recordId(), problem.what())));
         }
         return violations;
     }

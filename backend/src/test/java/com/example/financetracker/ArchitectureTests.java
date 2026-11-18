@@ -15,6 +15,11 @@ import com.example.financetracker.ledger.LedgerScopedRepository;
 import com.example.financetracker.ledger.UserDataService;
 import com.example.financetracker.ledger.UserSettingsRepository;
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.history.ActivityLog;
+import com.example.financetracker.ledger.history.HistoryIntegrity;
+import com.example.financetracker.ledger.history.HistoryJobs;
+import com.example.financetracker.ledger.history.HistoryService;
+import com.example.financetracker.ledger.history.RecordContents;
 import com.example.financetracker.ledger.access.LedgerInvites;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService;
@@ -50,7 +55,7 @@ class ArchitectureTests {
      * security context (the last rule below), and is covered by DataIsolationApiTests, UserDataApiTests or
      * EcbRateLoaderTests. Keep this list short: anything that reads or writes ledger rows takes a LedgerScope.
      */
-    static final Map<Class<?>, String> PERSON_LEVEL = Map.of(
+    static final Map<Class<?>, String> PERSON_LEVEL = new java.util.HashMap<>(Map.of(
             LedgerAccess.class,
             "decides access itself: finds the user's memberships by the sub, before there is a scope",
             LedgerInvites.class,
@@ -66,7 +71,22 @@ class ArchitectureTests {
             "writes the ECB's rates, which belong to no user; runs on a schedule, never for a request",
             CbrRateLoader.class,
             "writes the CBR's rates, which belong to no user, and once deletes manual RUB rates equal to them (D-858); "
-                    + "runs on a schedule, never for a request");
+                    + "runs on a schedule, never for a request"));
+
+    static {
+        PERSON_LEVEL.put(HistoryService.class,
+                "record versions (ADR 0006): writes a version for a record the caller names by its ledger id, after a "
+                        + "write that the caller's own scope already authorised");
+        PERSON_LEVEL.put(RecordContents.class,
+                "reads a live record into its version's content by ledger id and record id, for HistoryService");
+        PERSON_LEVEL.put(ActivityLog.class,
+                "the activity log: events by the Keycloak sub, sign-in and sign-out before any scope exists");
+        PERSON_LEVEL.put(HistoryIntegrity.class,
+                "reads every record of a ledger named by its id and its versions, for the integrity check and the tests");
+        PERSON_LEVEL.put(HistoryJobs.class,
+                "the baseline and the purge of old sign-in events run over every ledger, on a schedule, never for a "
+                        + "request");
+    }
 
     private static final JavaClasses APPLICATION = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

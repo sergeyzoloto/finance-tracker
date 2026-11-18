@@ -102,7 +102,8 @@ class LedgerSchemaTests {
                         "family_record", "family_share", "family_entry_link", "family_record_change", // V7
                         "ledger_invite", // V9
                         "imported_entry_deleted", // V14
-                        "family_import_cutoff", "imported_family_side"); // V15
+                        "family_import_cutoff", "imported_family_side", // V15
+                        "record_version", "activity_event", "history_pending"); // V19
     }
 
     /** A shared expense (rule 7): 10.01 paid in cash, 5.00 of it the user's groceries and 5.01 the family's. */

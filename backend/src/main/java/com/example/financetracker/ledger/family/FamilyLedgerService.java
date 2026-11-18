@@ -20,6 +20,10 @@ import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.history.Cause;
+import com.example.financetracker.ledger.history.HistoryContext;
+import com.example.financetracker.ledger.history.HistoryService;
+import com.example.financetracker.ledger.history.RecordType;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.access.MemberRole;
@@ -62,8 +66,11 @@ public class FamilyLedgerService {
     private final LedgerAccess access;
     private final LedgerCategoryRepository categories;
     private final Today today;
+    private final HistoryService history;
 
-    FamilyLedgerService(JdbcClient jdbc, LedgerAccess access, LedgerCategoryRepository categories, Today today) {
+    FamilyLedgerService(JdbcClient jdbc, LedgerAccess access, LedgerCategoryRepository categories, Today today,
+            HistoryService history) {
+        this.history = history;
         this.jdbc = jdbc;
         this.access = access;
         this.categories = categories;
@@ -132,6 +139,13 @@ public class FamilyLedgerService {
      * trigger lets them use it: the member is ACTIVE by now (V7).
      */
     void merge(LedgerScope personal, LedgerCategory mine, LedgerCategory family) {
+        List<Long> moved = jdbc.sql("""
+                SELECT DISTINCT entry_id FROM posting
+                WHERE category_id = :mine AND entry_id IN (SELECT id FROM journal_entry WHERE ledger_id = :ledgerId)""")
+                .param("mine", mine.id()).param("ledgerId", personal.ledgerId())
+                .query(Long.class).list();
+        java.util.Map<String, Object> last = history.capture(RecordType.CATEGORY, personal.ledgerId(), mine.id())
+                .orElse(null);
         jdbc.sql("""
                 UPDATE posting SET category_id = :family
                 WHERE category_id = :mine AND entry_id IN (SELECT id FROM journal_entry WHERE ledger_id = :ledgerId)""")
@@ -140,6 +154,12 @@ public class FamilyLedgerService {
         jdbc.sql("DELETE FROM category WHERE id = :mine AND ledger_id = :ledgerId")
                 .param("mine", mine.id()).param("ledgerId", personal.ledgerId())
                 .update();
+        try (HistoryContext.Frame merging = HistoryContext.open(Cause.MERGE, null)) {
+            moved.forEach(entry -> history.changed(personal.ledgerId(), RecordType.ENTRY, entry));
+            if (last != null) {
+                history.deleted(personal.ledgerId(), RecordType.CATEGORY, mine.id(), last);
+            }
+        }
     }
 
     /**

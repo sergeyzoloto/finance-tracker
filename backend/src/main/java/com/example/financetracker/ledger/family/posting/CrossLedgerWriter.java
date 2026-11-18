@@ -13,6 +13,10 @@ import java.util.function.Supplier;
 import com.example.financetracker.ledger.ConflictException;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.EntryKind;
+import com.example.financetracker.ledger.history.Cause;
+import com.example.financetracker.ledger.history.HistoryContext;
+import com.example.financetracker.ledger.history.HistoryService;
+import com.example.financetracker.ledger.history.RecordType;
 import com.example.financetracker.ledger.family.posting.PostedEntry.Line;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
@@ -52,9 +56,11 @@ class CrossLedgerWriter {
     /** The longest category code (V2). */
     private static final int CODE_LENGTH = 50;
 
+    private final HistoryService history;
     private final JdbcClient jdbc;
 
-    CrossLedgerWriter(JdbcClient jdbc) {
+    CrossLedgerWriter(JdbcClient jdbc, HistoryService history) {
+        this.history = history;
         this.jdbc = jdbc;
     }
 
@@ -455,6 +461,12 @@ class CrossLedgerWriter {
      * @return the personal categories the references moved to, by the family category's id
      */
     Map<Long, Long> detach(LedgerScope family, long memberId) {
+        try (HistoryContext.Frame leaving = HistoryContext.open(Cause.LEAVE, null)) {
+            return detachRows(family, memberId);
+        }
+    }
+
+    private Map<Long, Long> detachRows(LedgerScope family, long memberId) {
         MemberLedger member = memberLedger(family, memberId);
         asWriter(family, null, () -> jdbc.sql("""
                 UPDATE family_entry_link SET detached_at = now(), system_owned = FALSE
@@ -475,6 +487,7 @@ class CrossLedgerWriter {
                         row.getString("type")))
                 .list();
         Map<Long, Long> copies = new LinkedHashMap<>();
+        List<Long> movedEntries = new ArrayList<>();
         for (Used category : used) {
             Long copy = jdbc.sql("""
                     SELECT id FROM category WHERE ledger_id = :personalId AND code = :code AND type = :type""")
@@ -499,6 +512,12 @@ class CrossLedgerWriter {
             }
             // The links are detached by now, so these are ordinary personal entries: the posting guard (V7) lets
             // anyone but the writer change them, and the writer only writes family kinds to family categories.
+            movedEntries.addAll(jdbc.sql("""
+                    SELECT DISTINCT entry_id FROM posting
+                    WHERE category_id = :familyCategory
+                      AND entry_id IN (SELECT id FROM journal_entry WHERE ledger_id = :personalId)""")
+                    .param("familyCategory", category.id()).param("personalId", member.ledgerId())
+                    .query(Long.class).list());
             jdbc.sql("""
                     UPDATE posting SET category_id = :copy
                     WHERE category_id = :familyCategory
@@ -508,11 +527,22 @@ class CrossLedgerWriter {
                     .update();
             copies.put(category.id(), copy);
         }
+        List<Long> debtAccounts = jdbc.sql("""
+                SELECT id FROM account WHERE ledger_id = :personalId AND family_ledger_id = :familyId""")
+                .param("personalId", member.ledgerId()).param("familyId", family.ledgerId())
+                .query(Long.class).list();
         jdbc.sql("""
                 UPDATE account SET family_ledger_id = NULL, is_system = FALSE
                 WHERE ledger_id = :personalId AND family_ledger_id = :familyId""")
                 .param("personalId", member.ledgerId()).param("familyId", family.ledgerId())
                 .update();
+        // What the departure changed in the member's own ledger is the member's records, written by the system
+        // (ADR 0006, 2.2): the copies of the family categories, their entries, and the debt account, which is an
+        // ordinary liability from now on.
+        copies.values().stream().distinct()
+                .forEach(copy -> history.changed(member.ledgerId(), RecordType.CATEGORY, copy));
+        movedEntries.stream().distinct().forEach(entry -> history.changed(member.ledgerId(), RecordType.ENTRY, entry));
+        debtAccounts.forEach(account -> history.changed(member.ledgerId(), RecordType.ACCOUNT, account));
         return copies;
     }
 

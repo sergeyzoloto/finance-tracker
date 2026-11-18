@@ -71,12 +71,18 @@ abstract class LedgerApiTest extends IntegrationTest {
                 + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
         OWNED_ROWS.put("imported_family_side", "FROM imported_family_side t WHERE t.ledger_id IN "
                 + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL')");
+        // HIST-1 (V19, ADR 0006): the versions of every ledger the user is a member of, and the user's own events.
+        OWNED_ROWS.put("record_version", "FROM record_version t WHERE t.ledger_id IN "
+                + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL')");
+        OWNED_ROWS.put("family record_version", "FROM record_version t WHERE t.ledger_id IN "
+                + "(SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'SHARED')");
+        OWNED_ROWS.put("activity_event", "FROM activity_event t WHERE t.actor_sub = ?");
     }
 
     /** The tables of {@link #OWNED_ROWS} that only a user in a family ledger has rows in. */
     protected static final Set<String> FAMILY_ROWS = Set.of("family ledger_member", "family category",
             "family family_record", "family family_share", "family family_record_change", "family family_entry_link",
-            "family ledger_invite", "family family_import_cutoff", "imported_family_side");
+            "family ledger_invite", "family family_import_cutoff", "imported_family_side", "family record_version");
 
     @Autowired
     protected JdbcClient jdbc;
@@ -88,6 +94,46 @@ abstract class LedgerApiTest extends IntegrationTest {
      */
     protected static LocalDate utcToday() {
         return LocalDate.now(ZoneOffset.UTC);
+    }
+
+    /**
+     * A write as the image before HIST-1 or a hand with psql makes it, which the backstop doesn't check (D-1040): for a
+     * test that needs a row to stand as older code left it, with no version.
+     */
+    protected static int rawSql(String sql, Object... params) {
+        try (java.sql.Connection db = previousImageConnection();
+                java.sql.PreparedStatement statement = db.prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) {
+                statement.setObject(i + 1, params[i]);
+            }
+            return statement.executeUpdate();
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Autowired
+    private com.example.financetracker.ledger.history.HistoryIntegrity historyIntegrity;
+
+    @Autowired
+    protected com.example.financetracker.ledger.history.RecordContents recordContents;
+
+    /**
+     * HIST-1 (ADR 0006, 5.5): in the ledger, if it still exists, every versioned record's latest version equals it and
+     * no record is gone without a delete version. A test that writes rows past the application (a raw statement) has
+     * records without versions, which this doesn't count as a fault.
+     */
+    protected void checkHistory(long ledgerId) {
+        if (jdbc.sql("SELECT count(*) FROM ledger WHERE id = ?").param(ledgerId).query(Long.class).single() == 0) {
+            return;
+        }
+        assertThat(historyIntegrity.check(ledgerId).problems()).as("the history of ledger %d", ledgerId).isEmpty();
+    }
+
+    /** {@link #checkHistory} for the user's personal ledger, if the user has one. */
+    protected void checkPersonalHistory(String user) {
+        jdbc.sql("SELECT ledger_id FROM ledger_member WHERE user_sub = ? AND ledger_type = 'PERSONAL'").param(user)
+                .query(Long.class).optional().ifPresent(this::checkHistory);
     }
 
     protected static String newUser() {

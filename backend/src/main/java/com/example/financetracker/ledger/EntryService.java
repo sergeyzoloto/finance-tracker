@@ -182,9 +182,6 @@ public class EntryService {
     public EntryPage search(LedgerScope ledger, EntryFilter filter, int page, int size) {
         Map<String, Object> params = new HashMap<>();
         String matched = matched(ledger, filter, params, false);
-        if (readsRecordPayee(filter)) {
-            noNestedLoops(ledger);
-        }
         params.put("limit", size);
         params.put("offset", (long) page * size);
         // One pass over the matching set gives the page and, as a window over all of it, the total (ENT-3b, D-897).
@@ -220,47 +217,51 @@ public class EntryService {
         // The matching entries, with the payee their Payee cell shows when it shows none of the entry's own (D-523),
         // worked out once (ENT-3b, D-897) for both parts of the answer.
         String matched = matched(ledger, filter, params, true);
-        noNestedLoops(ledger);
         // The counts: how many entries, their dates, and the distinct payees, categories and accounts the cells show.
+        nestedLoops(ledger, false);
         EntrySummary counts = jdbc.sql(matched + """
-                , payees AS (
+                , pl AS MATERIALIZED (
+                    SELECT p.entry_id AS id, p.account_id, p.category_id, p.counterparty_id
+                    FROM m JOIN posting p ON p.entry_id = m.id
+                ), fx AS (
+                    SELECT a.id FROM account a WHERE a.ledger_id = :ledgerId AND a.code = :fx
+                ), ent AS (
+                    SELECT id, bool_or(counterparty_id IS NOT NULL) AS has_counterparty,
+                           bool_or(category_id IS NOT NULL) AS has_category,
+                           bool_or(account_id NOT IN (SELECT id FROM fx)) AS has_other_account
+                    FROM pl GROUP BY id
+                ), payees AS (
                     SELECT m.id, lower(c.name) AS name FROM m
                     JOIN counterparty c ON c.id = m.payee_id AND c.ledger_id = :ledgerId
                     UNION ALL
-                    SELECT m.id, lower(c.name) FROM m
-                    JOIN posting p ON p.entry_id = m.id
-                    JOIN counterparty c ON c.id = p.counterparty_id AND c.ledger_id = :ledgerId
-                    WHERE m.payee_id IS NULL
+                    SELECT pl.id, lower(c.name) FROM pl
+                    JOIN m ON m.id = pl.id AND m.payee_id IS NULL
+                    JOIN counterparty c ON c.id = pl.counterparty_id AND c.ledger_id = :ledgerId
                     UNION ALL
-                    SELECT m.id, lower(m.record_payee) FROM m
+                    SELECT m.id, lower(m.record_payee) FROM m LEFT JOIN ent ON ent.id = m.id
                     WHERE m.payee_id IS NULL AND m.record_payee IS NOT NULL
-                      AND NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = m.id AND p.counterparty_id IS NOT NULL)
+                      AND NOT coalesce(ent.has_counterparty, FALSE)
                 ), categories AS (
-                    SELECT p.entry_id AS id, p.category_id FROM m JOIN posting p ON p.entry_id = m.id
-                    WHERE p.category_id IS NOT NULL
+                    SELECT id, category_id FROM pl WHERE category_id IS NOT NULL
                     UNION ALL
                     SELECT m.id, c.id FROM m
                     JOIN family_entry_link l ON l.entry_id = m.id AND l.detached_at IS NULL
                     JOIN family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
                     JOIN category c ON c.id = r.category_id AND c.ledger_id = r.ledger_id
-                    WHERE NOT EXISTS (SELECT FROM posting p WHERE p.entry_id = m.id AND p.category_id IS NOT NULL)
-                ), fx AS (
-                    SELECT a.id FROM account a WHERE a.ledger_id = :ledgerId AND a.code = :fx
+                    LEFT JOIN ent ON ent.id = m.id
+                    WHERE NOT coalesce(ent.has_category, FALSE)
                 ), accounts AS (
-                    SELECT p.account_id FROM m JOIN posting p ON p.entry_id = m.id
-                    WHERE p.category_id IS NULL
-                      AND (p.account_id NOT IN (SELECT id FROM fx)
-                           OR NOT EXISTS (SELECT FROM posting q WHERE q.entry_id = m.id
-                                          AND q.account_id NOT IN (SELECT id FROM fx)))
+                    SELECT pl.account_id FROM pl LEFT JOIN ent ON ent.id = pl.id
+                    WHERE pl.category_id IS NULL
+                      AND (pl.account_id NOT IN (SELECT id FROM fx) OR NOT coalesce(ent.has_other_account, FALSE))
                 )
                 SELECT (SELECT count(*) FROM m) AS count,
                        (SELECT min(entry_date) FROM m) AS first_date,
                        (SELECT max(entry_date) FROM m) AS last_date,
                        (SELECT count(DISTINCT name) FROM payees) AS payees,
-                       (SELECT count(*) FROM m WHERE NOT EXISTS (SELECT FROM payees x WHERE x.id = m.id)) AS without_payee,
+                       (SELECT count(*) FROM m) - (SELECT count(DISTINCT id) FROM payees) AS without_payee,
                        (SELECT count(DISTINCT category_id) FROM categories) AS categories,
-                       (SELECT count(*) FROM m WHERE NOT EXISTS (SELECT FROM categories x WHERE x.id = m.id))
-                           AS without_category,
+                       (SELECT count(*) FROM m) - (SELECT count(DISTINCT id) FROM categories) AS without_category,
                        (SELECT count(DISTINCT account_id) FROM accounts) AS accounts""")
                 .params(params)
                 .query((row, n) -> new EntrySummary(row.getLong("count"),
@@ -268,6 +269,7 @@ public class EntryService {
                         row.getLong("payees"), row.getLong("without_payee"), row.getLong("categories"),
                         row.getLong("without_category"), row.getLong("accounts"), List.of()))
                 .single();
+        nestedLoops(ledger, true);
         // describeEntry's rule: per currency the sum of the entry's positive lines, its sign the opposite of the net of
         // its categorized lines (rule 5): below 0 an income or a refund (+), above 0 an expense (−), else a transfer.
         // UX-18, D-796 to D-798: a family record counts through the user's matched share entry (a live SHARE link),
@@ -277,11 +279,9 @@ public class EntryService {
         // With the family switch off nothing is counted (D-802).
         // It reads no payee: the matching set again, without the family records' payees (ENT-3b, D-897).
         List<EntrySummary.CurrencyTotals> currencies = jdbc.sql(matched(ledger, filter, params, false)
-                + EntryClassification.ctes("m", "") + """
+                + EntryClassification.ctes("m", "", true) + """
                 , amounts AS (
-                    SELECT p.entry_id AS id, p.currency, sum(p.amount) AS amount
-                    FROM m JOIN posting p ON p.entry_id = m.id WHERE p.amount > 0
-                    GROUP BY p.entry_id, p.currency
+                    SELECT id, currency, amount FROM lines WHERE amount IS NOT NULL
                 )
                 SELECT a.currency,
                        coalesce(sum(a.amount) FILTER (WHERE d.net < 0), 0) AS incoming,
@@ -326,7 +326,6 @@ public class EntryService {
         Map<String, Object> params = new HashMap<>();
         params.put("fx", AccountRole.FX_EXCHANGE.defaultCode());
         String matched = matched(ledger, filter.without(by), params, by == EntryBreakdown.By.PAYEE);
-        noNestedLoops(ledger);
         // dim (id, entry_date, key, name): the values each matching entry has in the dimension, as the summary's
         // categories, payees and accounts CTEs find them.
         // Categories and accounts name themselves by their key, so their names are looked up once per row, after grouping;
@@ -439,7 +438,6 @@ public class EntryService {
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public EntryMonthly monthly(LedgerScope ledger, EntryFilter filter) {
-        noNestedLoops(ledger);
         // Every filter but From: its first and last matching day.
         Map<String, Object> params = new HashMap<>();
         LocalDate[] days = jdbc.sql(matched(ledger, filter.withFrom(null), params, false)
@@ -517,16 +515,18 @@ public class EntryService {
     }
 
     /**
-     * For a statement that adds up a whole set of entries (the summary, the breakdown) or joins the family records'
-     * payees ({@link RecordPayees#joinSet}): no nested loops for this transaction (ENT-3b, D-897). Such a statement reads
-     * every posting and every family link of the matching entries, which hash joins do once; the planner, taking each
-     * CTE for a few hundred rows (it estimates one for the payees' set, as it does for any chain of many joins), plans
-     * nested loops that read the set again for every entry: 243 million row reads for 12,500 entries in the first
-     * attempt. {@code SET LOCAL} ends with the transaction.
+     * The one statement that still needs the planner workaround, and only it (PERF-1, D-972 to D-975): the summary's
+     * counts. It joins the family records' payees ({@link RecordPayees#joinSet}) and then reads that set (23,997 rows on
+     * the dump) in six passes; the planner takes the set for 12 rows (it multiplies the selectivities of a chain of eight
+     * joins), so it plans index nested loops that read the other CTEs again (the whole summary of All time: 540 ms against
+     * 462; with Expenses and one category 838 against 477). With {@code enable_nestloop = off} for it (and on again, {@code SET LOCAL}
+     * lasting to the end of the transaction, for the currencies statement, which reads no payee and does better with
+     * every plan) every request of D-894 and the default view meets its limit. No other statement sets it: the list, the
+     * breakdowns and the monthly chart are faster without (D-973).
      */
-    private void noNestedLoops(LedgerScope ledger) {
+    private void nestedLoops(LedgerScope ledger, boolean on) {
         // A planner setting: no ledger table is read (the scope is only the rule's, ArchitectureTests).
-        jdbc.sql("SET LOCAL enable_nestloop = off").update();
+        jdbc.sql(on ? "SET LOCAL enable_nestloop = on" : "SET LOCAL enable_nestloop = off").update();
     }
 
     /** Whether the filters read the family records' payees, which the page's list then joins (and sets the same). */

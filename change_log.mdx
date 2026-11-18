@@ -3,6 +3,30 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-18 · PERF-1: the Entries summary without the planner workaround where it isn't needed
+
+The commit of this entry, on `main` on top of `4445627`: see the report for its full hash. Not pushed. D-969 to D-978 (D-969 to D-971 the PM's, D-972 to D-978 the agent's). No migration, no V19.
+
+**Changes**
+- `RecordPayees`: four join conditions that composite foreign keys imply are dropped from the rule (D-973), each named in the code's comment:
+  - `rr.ledger_id = rl.family_ledger_id`, by `family_entry_link_family_ledger_id_record_id_fkey` (family_ledger_id, record_id) to `family_record (ledger_id, id)`;
+  - `pl.family_ledger_id = rr.ledger_id`, by the same key;
+  - `payer.ledger_id = rr.ledger_id`, by `family_record_ledger_id_payer_member_id_fkey` (ledger_id, payer_member_id) to `ledger_member (ledger_id, id)`;
+  - `pc.ledger_id = pe.ledger_id`, by `journal_entry_ledger_id_payee_id_fkey` (ledger_id, payee_id) to `counterparty (ledger_id, id)`.
+- `RecordPayeesConstraintsTests` (D-978): checks through `pg_constraint` that those three keys exist with the same columns; its message names `RecordPayees`; a second test breaks a database on purpose and requires both faults reported.
+- `EntryService`: the summary's counts read the postings once (`pl`, `ent`) and count "without" as a difference (D-974); `SET LOCAL enable_nestloop = off` only for that statement, on again for the currencies statement, and for no other (D-975; `nestedLoops` replaces `noNestedLoops`).
+- `EntryClassification.ctes(…, lines)`: one posting pass for the summary's currencies statement (D-974).
+- `docs/family-budget/requirements.md` D-969 to D-978, CLAUDE.md's line on the workaround.
+
+**Verified**
+- On `finance-2026-11-17T1131Z.dump` restored by `scripts/rehearsal-db.sh` and analyzed, `testuser2` (23,997 entries), median of 3 after one warm-up, ms (All time / + Expenses / + one category / default view), summary: 579 / 569 / 527 / 249 before, 448 / 548 / 499 / 157 after; every other request at most 456, the default view's at most 83; the page's requests together 462 / 565 / 538 (D-918: 536 / 581 / 545). The 20 answers of `fb59451`: `identical 20, different 0`. Without any switch: summary 540 / 638 / 838 / 95 (D-975).
+- `./mvnw -B clean verify`: exit 0, Tests run: 724, Failures: 0, Errors: 0, BUILD SUCCESS (an earlier run before the guard test: 722, exit 0).
+- `RecordPayeesConstraintsTests` broken once on purpose (the link's key dropped in its database): failed with "RecordPayees relies on the foreign key family_entry_link_family_ledger_id_record_id_fkey, which is missing"; put back, passes.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (Node v24.21.0): exit 0, 38 passed in the main run, "Result: PASSED", password search 0 hits. `npm run test:guards` after it: exit 0, tests 39, pass 39, fail 0.
+
+**Open**
+- A database without planner statistics and production's own timings were not measured (D-976).
+
 ## 2026-11-17 · OPS-6b, second commit (B'): the app database's pin, Postgres 17.12 by digest
 
 The commit of this entry (B'), on `main` on top of C (OPS-6b's first commit; its full hash is in the report), D-945, D-955, D-962: exactly the changes of the dropped B (`618ba4d`, never deployed), cherry-picked. Not committed yet. Not pushed, not deployed: applied by `deploy.sh db-image <B'>` in Part B of OPS-6b's checklist, after C's deploy and `finish`. Nothing was changed on the server and no command was run there.

@@ -21,19 +21,32 @@ final class RecordPayees {
     private RecordPayees() {
     }
 
-    /** The rule's tables, the same for both joins. */
+    /**
+     * The rule's tables, the same for both joins. PERF-1 (D-972, D-973): a join condition that a composite foreign key
+     * already guarantees is left out, so that the planner doesn't multiply its selectivity into the row estimate of the
+     * chain; each one is named here, and every one holds for any data the database accepts, not for today's:
+     * <ul>
+     * <li>{@code rr.ledger_id = rl.family_ledger_id}, and {@code pl.family_ledger_id = rr.ledger_id}: the foreign key
+     * {@code family_entry_link_family_ledger_id_record_id_fkey} (family_ledger_id, record_id) to
+     * {@code family_record (ledger_id, id)} (both columns of the link are NOT NULL or the join on record_id drops it);</li>
+     * <li>{@code payer.ledger_id = rr.ledger_id}: {@code family_record_ledger_id_payer_member_id_fkey} (ledger_id,
+     * payer_member_id) to {@code ledger_member (ledger_id, id)}, both NOT NULL;</li>
+     * <li>{@code pc.ledger_id = pe.ledger_id}: {@code journal_entry_ledger_id_payee_id_fkey} (ledger_id, payee_id) to
+     * {@code counterparty (ledger_id, id)}, the join on payee_id dropping an entry without a payee.</li>
+     * </ul>
+     */
     private static final String RULE_FROM = """
             FROM family_entry_link rl
-            JOIN family_record rr ON rr.id = rl.record_id AND rr.ledger_id = rl.family_ledger_id
+            JOIN family_record rr ON rr.id = rl.record_id
             JOIN ledger_member reader ON reader.ledger_id = rr.ledger_id AND reader.user_sub = :rpReader
                  AND reader.status = 'ACTIVE'
-            JOIN ledger_member payer ON payer.ledger_id = rr.ledger_id AND payer.id = rr.payer_member_id
-            JOIN family_entry_link pl ON pl.family_ledger_id = rr.ledger_id AND pl.record_id = rr.id
+            JOIN ledger_member payer ON payer.id = rr.payer_member_id
+            JOIN family_entry_link pl ON pl.record_id = rr.id
                  AND pl.member_id = payer.id AND pl.link_type = 'PAYMENT' AND pl.detached_at IS NULL
             JOIN journal_entry pe ON pe.id = pl.entry_id
             JOIN ledger_member payers ON payers.ledger_id = pe.ledger_id AND payers.ledger_type = 'PERSONAL'
                  AND payers.user_sub = payer.user_sub
-            JOIN counterparty pc ON pc.id = pe.payee_id AND pc.ledger_id = pe.ledger_id""";
+            JOIN counterparty pc ON pc.id = pe.payee_id""";
 
     /** The rule's conditions on a link: live, of an expense or an income, to a payer the reader may see. */
     private static final String RULE_WHERE = """

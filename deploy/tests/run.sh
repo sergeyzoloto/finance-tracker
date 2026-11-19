@@ -184,7 +184,7 @@ EOF
   # the shutdown check is fixed, 2026-10-07T06:10:34Z (when unattended-upgrades scheduled 2026-10-08's reboot), unless
   # a case sets another; no case reads the real clock for it.
   export DEPLOY_SHUTDOWN_FILE=$C/shutdown-scheduled DEPLOY_SHUTDOWN_NOW=$NOW_SCHEDULED
-  export DEPLOY_CI_WAIT=2 DEPLOY_CI_INTERVAL=1 DEPLOY_HEALTH_TRIES=3 DEPLOY_HEALTH_INTERVAL=0
+  export DEPLOY_CI_WAIT=2 DEPLOY_CI_INTERVAL=1 DEPLOY_HEALTH_TRIES=3 DEPLOY_HEALTH_INTERVAL=0 DEPLOY_RESTORE_RETRY_WAIT=0
   # The terminal (F6c): a FIFO that terminal_feeder writes into, as the operator would type and paste.
   mkfifo "$C/tty"
   : >"$C/typed"
@@ -720,12 +720,46 @@ case_fail_stage_diff() {
   check "the diff printed" out_has "> family_records 1"
 }
 
+# D-1073: the postflight restore test is tried twice (the api's baseline job may run during the first dump). Two FAILs
+# fail the run, with the first attempt's table kept.
 case_fail_second_restore_test() {
   setup_case
   new_target
   fixture restore.2 FAIL
+  fixture restore.3 FAIL
   deploy_e
-  failed_after_merge "the restore test did not PASS"
+  failed_after_merge "the restore test did not PASS, at either attempt"
+  check "a third restore test was the retry" [ "$(count_calls '^pg-restore-test')" -eq 3 ]
+  check "two after-dumps" [ "$(count_calls '^systemctl start pg-backup@finance.service')" -eq 3 ]
+  check "the first attempt's table is kept" test -s "$(latest_run)/restore-test-after-first.txt"
+}
+
+# The first attempt FAILs (the baseline raced the dump), the retry PASSes: the run ends deployed, and finish works.
+case_restore_test_retry_passes() {
+  setup_case
+  new_target
+  fixture restore.2 FAIL
+  deploy_e
+  check "deployed: exit code 0" rc_is 0
+  check "says the first attempt failed" out_has "Restore test FAILED at the first attempt"
+  check "says the second passed" out_has "Restore test: PASS at the second attempt"
+  check "three restore tests, a fresh dump before the third" [ "$(count_calls '^pg-restore-test')" -eq 3 ]
+  check "the first attempt's table is kept" test -s "$(latest_run)/restore-test-after-first.txt"
+  check "run status deployed" status_is deployed
+  check "last-good is E" bash -c "grep -q '${SHA_E}' '$C/state/last-good'"
+  type_at_terminal yes yes
+  run_deploy finish
+  check "finish: exit code 0" rc_is 0
+}
+
+# A PASS at the first attempt takes no retry.
+case_restore_test_no_retry_when_it_passes() {
+  setup_case
+  new_target
+  deploy_e
+  check "two restore tests only" [ "$(count_calls '^pg-restore-test')" -eq 2 ]
+  check "says PASS at the first attempt" out_has "Restore test: PASS at the first attempt"
+  check "no first-attempt file" test ! -e "$(latest_run)/restore-test-after-first.txt"
 }
 
 case_repeat_after_failure() {

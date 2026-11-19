@@ -362,6 +362,18 @@ mutation_in rollback.sh "count the settlement sides only from V15 on" \
   '[ "$db_version" -ge 15 ] && [ "$target_max" -lt 14 ]' \
   rollback_below_v14
 
+# D-1073: the postflight restore test is tried twice; a second FAIL fails the run, a first one alone does not.
+mutation "no retry of the postflight restore test" \
+  '  restore_test after soft && { say "Restore test: PASS at the second attempt' \
+  '  true && { say "Restore test: PASS at the second attempt' \
+  fail_second_restore_test
+mutation "the first FAIL of the postflight restore test is final" \
+  '  if restore_test after soft; then
+    say "Restore test: PASS at the first attempt"' \
+  '  if restore_test after; then
+    say "Restore test: PASS at the first attempt"' \
+  restore_test_retry_passes
+
 # D-126 (F8f): a scheduled shutdown stops run, is named by verify and finish, and only warns in rollback.sh. D-131
 # (F8f-fix): only when it is less than 2 hours away or its time has passed; D-128: USEC without MODE is a shutdown.
 mutation "let run go on despite a shutdown less than 2 hours away" \

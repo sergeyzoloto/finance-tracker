@@ -307,14 +307,39 @@ check_dumps() {
   say "The dumps: before $DUMP_before, after $DUMP_after; the preserved copy as recorded (SHA-256 $sum)"
 }
 
-# restore_test WHEN: pg-restore-test on the dump just written; PASS required. Its table is kept in the run folder.
+# restore_test WHEN [soft]: pg-restore-test on the dump just written; PASS required. Its table is kept in the run
+# folder. With "soft" a failure returns 1 instead of ending the run (restore_test_after's retry, D-1073).
 restore_test() {
   local out=$RUN_DIR/restore-test-$1.txt rc=0 checks
   pg-restore-test finance </dev/null >"$out" 2>&1 || rc=$?
   cat "$out"
-  [ "$rc" -eq 0 ] && [ "$(tail -n 1 "$out")" = PASS ] || fail "the restore test did not PASS ($out)"
+  if ! { [ "$rc" -eq 0 ] && [ "$(tail -n 1 "$out")" = PASS ]; }; then
+    [ "${2:-}" = soft ] && return 1
+    fail "the restore test did not PASS ($out)"
+  fi
   checks=$(awk '$1 == "tables" || $1 == "migration" || $1 ~ /^family_/ { printf "%s%s %s", sep, $1, $2; sep = ", " }' "$out")
   printf -v "RESTORE_$1" '%s' "PASS ($checks)"
+}
+
+# restore_test_after: step 4.6's restore test, with one retry (D-1073). The api's history baseline job (HIST-1, V19)
+# writes versions for a minute or so after the api starts; a dump taken while it runs restores with other counts than
+# the production database it is compared with, and the test FAILs although nothing is wrong (HIST-1's deploy:
+# record_versions 20,815 against 11,992). So the first FAIL is not final: after RESTORE_RETRY_WAIT seconds
+# (the baseline of 20,815 versions took 16.8 s) a fresh dump is taken and tested once more; only a second FAIL fails
+# the run. The first attempt's table stays as restore-test-after-first.txt. Not used by the pre-flight's tests or by
+# db-image, where nothing runs in the background.
+restore_test_after() {
+  if restore_test after soft; then
+    say "Restore test: PASS at the first attempt"
+    return 0
+  fi
+  cp "$RUN_DIR/restore-test-after.txt" "$RUN_DIR/restore-test-after-first.txt"
+  say "Restore test FAILED at the first attempt (kept as $RUN_DIR/restore-test-after-first.txt). The api's history baseline may have run during the dump: waiting ${RESTORE_RETRY_WAIT}s, then a fresh dump and one more attempt (D-1073)"
+  sleep "$RESTORE_RETRY_WAIT"
+  wait_for_another_minute
+  backup after
+  restore_test after soft && { say "Restore test: PASS at the second attempt; the first failure was not the database's (kept for the record)"; return 0; }
+  fail "the restore test did not PASS, at either attempt ($RUN_DIR/restore-test-after-first.txt, $RUN_DIR/restore-test-after.txt)"
 }
 
 # image_with_content REPO CONTENT ID...: the first of the images (IDs or tags) that exists with that content, or
@@ -804,7 +829,7 @@ cmd_run() {
   heading "4.6 Postflight: a fresh backup, then the restore test"
   wait_for_another_minute
   backup after
-  restore_test after
+  restore_test_after
   check_dumps
 
   running_images || fail "a container is gone"

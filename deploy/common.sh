@@ -34,6 +34,7 @@ common_settings() {
   # OPS-6: the database container, and how db-image watches it come back (a probe every PROBE_INTERVAL seconds, at most
   # PROBE_TRIES of them; the tests shorten both).
   PG_CONTAINER=finance-tracker-postgres
+  RESTORE_RETRY_WAIT=${DEPLOY_RESTORE_RETRY_WAIT:-90}
   PROBE_INTERVAL=${DEPLOY_PROBE_INTERVAL:-0.2}
   PROBE_TRIES=${DEPLOY_PROBE_TRIES:-300}
   CONF_TARGET=/etc/pg-backup/finance.conf

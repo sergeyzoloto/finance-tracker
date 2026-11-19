@@ -167,6 +167,24 @@ class BrowserLoginTests extends IntegrationTest {
         assertThat(events("SIGN_OUT")).containsExactly("SIGN_OUT null null");
     }
 
+    /** D-1072, D-1074: "Delete all my data" erases the events, and the sign-out that follows writes none. */
+    @Test
+    void signingOutAfterDeletingAllMyDataLeavesNoEvent() {
+        MockHttpSession session = login(claims(subject), LONG_LIVED);
+        String csrfToken = csrfToken(session);
+        assertThat(events("SIGN_IN")).hasSize(1);
+
+        assertThat(mvc.delete().uri("/api/me/data").session(session).cookie(new Cookie("XSRF-TOKEN", csrfToken))
+                .header("X-XSRF-TOKEN", csrfToken)).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(events("SIGN_IN")).isEmpty();
+
+        assertThat(mvc.post().uri("/logout").session(session).cookie(new Cookie("XSRF-TOKEN", csrfToken))
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED).param("_csrf", csrfToken)).hasStatus(HttpStatus.FOUND);
+        assertThat(session.isInvalid()).isTrue();
+        assertThat(jdbc.sql("SELECT count(*) FROM activity_event WHERE actor_sub = ?").param(subject).query(Long.class)
+                .single()).isZero();
+    }
+
     @Test
     void aFailedLoginReturnsToTheAppWithAnError() {
         MockHttpSession session = new MockHttpSession();

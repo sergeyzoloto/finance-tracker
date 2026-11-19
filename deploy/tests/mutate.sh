@@ -198,7 +198,8 @@ mutation "preserve the before-dump by a hard link" \
 
 # OPS-2, defect 3: no wait for the next minute before the after-dump.
 mutation "don't wait for the next minute" \
-  $'  wait_for_another_minute\n  backup after' $'  backup after' \
+  $'  heading "4.6 Postflight: a fresh backup, then the restore test"\n  wait_for_another_minute\n  backup after' \
+  $'  heading "4.6 Postflight: a fresh backup, then the restore test"\n  backup after' \
   dumps_in_the_same_minute
 
 # OPS-2, defect 3: the after-dump's name not compared with the before-dump's.

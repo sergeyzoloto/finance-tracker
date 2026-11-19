@@ -3,6 +3,27 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-19 · Maintenance package after the HIST-1 deploy: the record, the restore-test retry, no sign-out event after a deletion
+
+Three commits on `main` on top of `2ba4902`, not pushed: `d39caa1` (docs: HIST-1's deploy recorded, D-1072), `134fba6` (`deploy.sh`'s restore-test retry with its tests, the checklist text, D-1073) and the third (this entry's, `SessionEvents`, D-1074; see the report for its full hash). D-1072 is the PM's, D-1073 and D-1074 the agent's. No migration. Not deployed.
+
+**Changes**
+- Record of HIST-1's deploy (runbook's "Deployed revisions" and "Production now", CLAUDE.md): the failed step 4.6 (`record_versions` 20,815 against 11,992), `adopt` then `verify HIST-1` OK, the baseline's 20,815 versions in 16,837 ms, CI on Ubuntu 26.04 #43, the rollback drill refused at its prompt, the e2e flake and its fix (0 of 4 against 4 of 6, then 3 of 3). The image digests, run folder, dump SHA-256s and the dates and times of `run` and `adopt` were not handed to the agent and are marked as missing in the row.
+- `deploy/deploy.sh`, `common.sh`: `restore_test_after` (step 4.6): a first restore-test FAIL is followed after `DEPLOY_RESTORE_RETRY_WAIT` (default 90) seconds by a fresh dump and one more attempt; a second FAIL fails the run; a retry that passes leaves the run `deployed` (D-1073). The retry was chosen over waiting for the `History baseline:` line.
+- RUNBOOK: HIST-1's checklist no longer says "entries 43919 or more" and describes the new behaviour and, for a still failed run, `adopt` before `verify`.
+- `SessionEvents`: no `SIGN_OUT`, `SESSION_EXPIRED` or `SESSION_ENDED` for a sub whose "Delete all my data" has committed, until its next sign-in (D-1074). The privacy policy's wording is unchanged and accurate. No runbook or check file expected two `SIGN_OUT` events, so none changed; the runbook's HIST-1 row says where those two came from.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: exit 0, `Tests run: 752, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS` (745 before; 7 new: `SessionEventsErasureTests` 6, `BrowserLoginTests` 1).
+- `deploy/tests/run.sh`: exit 0, `155 passed, 0 failed, of 155 cases` (153 before plus 2 new: `restore_test_retry_passes` and `restore_test_no_retry_when_it_passes`; `fail_second_restore_test` rewritten for two FAILs). A first run failed `db_image_fails_when_the_after_restore_test_fails`: the retry had also been put into `db-image`'s postflight; it was taken out again, and the second full run passed. `deploy/tests/mutate.sh`: exit 0, `Every mutation was caught` (136 caught, two of them new; one existing mutant's text, the wait for the next minute, was narrowed to step 4.6's heading since the retry repeats the call). ShellCheck v0.11.0 on the five scripts: no finding.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local`: exit 0, `Result: PASSED`, every spec passed (`apex` skipped, 3 tests, locally by design), 0 password hits; run before this commit's files were committed, so the summary read `TREE NOT CLEAN`. Then `npm run test:guards` alone: exit 0, `tests 39, pass 39, fail 0`.
+- `scripts/check-forbidden-names.sh` on the tree before each commit: exit 0; `--log 2ba4902..HEAD` after the last: see the report.
+
+**Open**
+- The HIST-1 row's missing facts (digests, run folder, SHA-256s, dates, times) are for the PM to fill in.
+- A user who deletes their data and keeps the same session has no sign-out logged for it until they sign in again (D-1074).
+- The retry waits a fixed 90 s; a baseline longer than that on a much larger ledger would need the wait raised (`DEPLOY_RESTORE_RETRY_WAIT`).
+
 ## 2026-11-18 · HIST-1, fourth commit: the e2e flake proved and fixed (ANALYZE after the demo load)
 
 The commit of this entry, on `main` on top of HIST-1's third commit `8630df4`: see the report for its full hash. Not pushed, not deployed. D-1069 is the PM's, D-1070 and D-1071 the agent's. No migration.

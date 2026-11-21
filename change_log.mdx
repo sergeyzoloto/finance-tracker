@@ -3,6 +3,23 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-21 · CLAUDE.md split into a short root file, folder files, rules and archives
+
+Not committed yet. On the branch `claude-md-split`. Documents and settings only: no application, deploy or test change, no migration, nothing to deploy.
+
+**Changes**
+- `CLAUDE.md` is now about 9 KB (was about 265 KB): the definition of done, the git, shell, Docker and production rules, the domain rules and the private-data line.
+- New `backend/CLAUDE.md`, `frontend/CLAUDE.md`, `e2e/CLAUDE.md` and `deploy/CLAUDE.md`, loaded when Claude works under those folders; `.claude/rules/deploy.md` (only when `deploy/**` is touched) and `.claude/rules/frontend-deps.md` (only for a `package.json` or lock file).
+- `docs/claude/*.md`: the old text kept verbatim as archives (`rules-original.md` is the old rules with their history), never loaded by themselves.
+- `.claude/settings.json`: the `permissions.deny` list from the snippet merged in beside the Stop hook (no `git stash`, no `docker` prune of any kind); `.claude/settings.snippet.json` removed. `finance-tracker-claude-split/` (with its `APPLY.md`) is left untracked for the owner to delete.
+
+**Verified**
+- `wc -c CLAUDE.md`: 9438. `.claude/settings.json` parses as JSON.
+- Not verified: `/context` before and after, and the subfolder files loading on a read under their folder; both need a new Claude Code session.
+
+**Open**
+- The owner checks `/context` and the `/permissions` list in a new session.
+
 ## 2026-11-19 · Maintenance package after the HIST-1 deploy: the record, the restore-test retry, no sign-out event after a deletion
 
 Four commits on `main` on top of `2ba4902`, not pushed: `d39caa1` (docs: HIST-1's deploy recorded, D-1072), `134fba6` (`deploy.sh`'s restore-test retry with its tests, the checklist text, D-1073) and the third (this entry's, `SessionEvents`, D-1074; `44a6f2ba9d71bdaa83351ae7b3029c04ad184bb5`), and a fourth, "docs: HIST-1's deploy record completed", which replaces every "not given" of HIST-1's record with the facts the PM verified (see the report for its hash). D-1072 is the PM's, D-1073 and D-1074 the agent's. No migration. Not deployed.

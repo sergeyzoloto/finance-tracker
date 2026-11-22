@@ -3,6 +3,23 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-2 1b step 3: the backend map and the test catalog for HIST-2 part 1
+
+Committed on `main` in the commit `docs: backend map and test catalog for HIST-2 part 1 (1b step 3)` (on top of `b814b7e`, not pushed; the hash is the one in `git log` for that subject). Documentation only: no code, test, migration or deploy change.
+
+**Changes**
+- `docs/claude/backend-map.md`: a HIST-2 part 1 entry under `ledger/history/` (the history reads, the notifications, the activity log and the family journal read from versions, each checked against its class and endpoint), and a V20 entry (`notification`, the two replaced erasure functions, no trigger on a ledger table, the previous image still runs).
+- `docs/claude/test-catalog.md`: a HIST-2 part 1 entry listing the new test classes (`HistoryReadApiTests`, `NotificationApiTests`, `ImportNotificationApiTests`, `ActivityApiTests`, `FamilyJournalFromVersionsApiTests`, `FamilyJournalEquivalenceApiTests`, `NotificationTextTests`, `FamilyJournalDiffTests`) and what each covers.
+- Only added lines; no existing line changed.
+
+**Verified**
+- `git diff --stat -- docs/claude/backend-map.md docs/claude/test-catalog.md`: 6 insertions and 1 insertion, no deletion.
+- `scripts/check-forbidden-names.sh` on the tree: exit 0, `no hit (tree)`.
+
+**Open**
+- `docs/claude/test-catalog.md` still says `FamilySwitchOffApiTests` checks "34" family endpoints, which may be stale after the history and notification endpoints; left as it was, since this step changes nothing else.
+- The same catalog line's summaries of `LedgerSchemaTests` and `LedgerBackfillMigrationTests` still stop at V10 to V13 (V20 is now in the new bullet).
+
 ## 2026-11-23 · HIST-2 1b step 2: no import notification without a family change, a log line for a skipped version
 
 Committed on `main` as the commit `fix: no import notification without a family change, a log line for a skipped version (HIST-2, 1b step 2)` (on top of `d341503`, not pushed; the hash is the one in `git log` for that subject). Two corrections of part 1: D-1115 amends D-1113, and D-1116 adds a log line for a version skipped under D-1085. No migration; nothing is deployed.

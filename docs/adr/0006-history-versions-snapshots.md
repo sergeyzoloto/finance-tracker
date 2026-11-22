@@ -528,6 +528,10 @@ carries a rollback drill. A later stage whose rollback cannot work this way says
 | **HIST-4: personal snapshots and restore** | snapshots (manual, before import, before restore), preview, restore of a snapshot and of one version, archived status, undo | V23 (`snapshot`, `restore_run`, `restore_item`) | medium: restore invariants; mitigated by the all-or-nothing preview and the oracle test | about 1,800 lines | "Snapshots" in Settings; "Restore this version" in history; an import page's undo |
 | **HIST-5: family snapshots and restore** | the same for family budgets, owners only, as a change set that others accept | none or small | medium-high (meets HIST-3) | about 800 lines | family snapshots, restore preview by author, notifications |
 
+Amended 2026-11-22 (HIST-2 charter, D-1075): HIST-2's V20 holds only the `notification` table and the replaced
+erasure functions; `family_record_change` is not frozen in HIST-2 (HIST-1's dual write stays, so that rollback to
+the previous image keeps working) and is frozen and dropped in a later migration. See section 13.
+
 ## 10. Decisions of HIST-0 (D-998 onwards)
 
 D-998 a record is the user-visible unit (section 2.1); derived family rows are not records.
@@ -622,3 +626,70 @@ the backstop and rollback sections (5.5, 9) already carry D-1040.
 - **Jobs (D-1055):** the baseline in chunks of 250 records at startup, in the background; the 13 months of sign-in events.
 - **Not done in HIST-1:** the History views and the family journal read from versions (HIST-2), the log events of
   settings, manual rates, memberships and invites, snapshots and restore (HIST-4, HIST-5), acceptance (HIST-3).
+
+## 13. HIST-2 (charter)
+
+HIST-2 has two parts. **Part 1, backend** (this charter's four steps); **part 2, frontend** (the History views, the
+header badge and the notification list), chartered separately.
+
+Part 1:
+
+1. **Step 1: charter and the family journal from versions.** This section; the family journal
+   (`FamilyRecordService.journal`) reads a record's changes from its `FAMILY_RECORD` versions, each the difference of two
+   consecutive versions, in the shape `family_record_change` held. Before a record's first version (its first
+   BASELINE) the old rows are read; system changes (`SPLIT_RULE_RESET`) stay in the old table. No migration.
+2. **Step 2: history endpoints** for entries, accounts, categories, counterparties and family records; the
+   `notification` table (V20) and the unread-count endpoint.
+3. **Step 3: the log events of D-999**: settings, manual rates, ledger settings, memberships (joined, left, seat
+   claimed), invites and `SPLIT_RULE_RESET`, written as D-1079 says; the activity list endpoint.
+4. **Step 4: notifications** `FAMILY_CHANGES`, `FAMILY_IMPORTED`, `MEMBER_JOINED`, `MEMBER_LEFT` and `SEAT_CLAIMED`,
+   behind `FAMILY_LEDGERS_ENABLED`, with the merge rules of 7.3 and D-1034 (unread ones from the same author in the
+   same ledger merged into one row, its range widened).
+
+Decisions (author per entry; the owner can overrule):
+
+- D-1075 `family_record_change` is not frozen and not dropped in HIST-2. HIST-1's dual write stays (a rollback to the
+  previous image must keep working, and that image reads the old table). Only the reading of the family journal moves
+  to versions. No migration in step 1.
+- D-1076 the log events of D-999 (settings, manual rates, ledger settings, memberships: joined, left, seat claimed,
+  invites; SPLIT_RULE_RESET) are written in HIST-2 (step 3) and shown in a simple "Activity" list in part 2, next to the
+  user's own sign-in, sign-out and expiry events.
+- D-1077 notifications are informational only, no "Accept" (HIST-3): kinds FAMILY_CHANGES, FAMILY_IMPORTED,
+  MEMBER_JOINED, MEMBER_LEFT and SEAT_CLAIMED; recipients are the other ACTIVE members, never the author; no text or
+  content is stored; unread FAMILY_CHANGES from one author in one ledger merge, range widened (D-1034); the unread count
+  is one cheap indexed statement, fetched on load and after navigation, never by an interval poll; everything
+  family-related stays behind FAMILY_LEDGERS_ENABLED.
+- D-1078 history is shown as a side panel opened from a record (part 2); there is no "deleted records" list (HIST-4
+  brings restore). A personal record's history is for its owner only; a family record's for the ACTIVE members of that
+  ledger only.
+- D-1079 the D-999 events are written in the same transaction as the change they describe.
+- D-1080 (developer, HIST-2 step 1) the cut-over per record: if the record's first version is a BASELINE, journal
+  rows written strictly before its time are shown, and a row written at the same instant (the lazy baseline's own
+  transaction) belongs to the versions; a record whose first version is a CREATE shows versions only, a record without
+  versions its journal rows only. A change read from a version carries the version's id negated.
+- D-1081 (manager, HIST-2 step 1) the family journal's URL, request parameters and answer do not change when it is read
+  from versions; a create row names the currency only when it differs from the ledger's current main currency.
+- D-1082 (manager, HIST-2 step 1) changes the previous image writes to `family_record_change` after a rollback, between
+  two versions, are not shown as rows of their own: the next version-aware write's RECONCILE baseline makes them one
+  UPDATE diff at the reconcile's time, with no author. This is an accepted limitation, and criterion (a) is narrowed
+  for them.
+- D-1083 (manager, HIST-2 step 1) a comment that erasure removed is read from the old table's own row of the same
+  change (same record, instant and action, naming the comment field), and the row then shows "comment null→null"; the
+  journal reads `family_record_change` until the table is dropped, and the drop's migration must first leave the
+  erasure its own mark in the version.
+- D-1084 (manager, HIST-2 step 1) a create row lists its shares in join order, not in the request order of an AMOUNT
+  split, which no version stores; the shares and amounts are the same. Owner to confirm.
+- D-1085 (manager, HIST-2 step 1) a version whose previous version is missing is skipped as a row, unless it is a
+  CREATE, DELETE or ARCHIVE, instead of failing the request. No version can be missing today (only whole-ledger erasure
+  deletes versions), so the skip hides nothing yet; a known gap to close before any partial deletion of versions.
+
+Acceptance criteria of part 1:
+
+- (a) a record's family journal is identical before and after the cut-over: no change shown twice, none lost; narrowed
+  by D-1082 (changes of a rollback), D-1083 (an erased comment read from the old table), D-1084 (the join order of an
+  AMOUNT split's shares) and D-1085 (a version whose previous version is missing);
+- (b) the family journal's answer has the same shape;
+- (c) no version holds the payer's private side;
+- (d) a personal record's history is for its owner only, a family record's for the ACTIVE members of its ledger only;
+  a non-member gets the answer of a missing family budget (404);
+- (e) rollback to the previous image still works: the old table is still written.

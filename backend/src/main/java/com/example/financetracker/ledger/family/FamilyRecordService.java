@@ -541,23 +541,54 @@ public class FamilyRecordService {
     }
 
     /**
-     * The change journal, newest first, with members and categories named as they are now (D-16, D-20).
+     * The change journal, newest first, with members and categories named as they are now (D-16, D-20). A record's
+     * changes come from its versions (ADR 0006, section 13, D-1075): each is the difference of two consecutive versions
+     * ({@link FamilyJournalDiff}). What happened before versions began comes from {@code family_record_change}: for a
+     * record whose first version is a BASELINE, its rows written before that baseline; for a record without any
+     * version, all its rows; and the system changes, which are no record's (D-1080: a row written in the baseline's
+     * own transaction is the change the baseline is the state before, so the versions own it). A version whose previous
+     * one is missing has nothing to differ from and is no row, unless it is a creation or a deletion. Rows of the same
+     * instant keep their insertion order (the id), newest first.
      *
      * @param recordId only this record's changes; null for all, the system changes included
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public FamilyJournalPage journal(LedgerScope family, Long recordId, int page, int size) {
-        String where = "c.ledger_id = :ledgerId" + (recordId == null ? "" : " AND c.record_id = :recordId");
-        var count = jdbc.sql("SELECT count(*) FROM family_record_change c WHERE " + where)
-                .param("ledgerId", family.ledgerId());
-        var rows = jdbc.sql("""
-                SELECT c.id, c.changed_at, c.action, c.record_id, c.changed_by_member_id, c.about_member_id,
-                       c.changes::text AS changes, c.currency AS row_currency, r.type, r.record_date, r.category_id,
-                       r.base_amount, r.currency, r.deleted_at IS NOT NULL AS deleted
-                FROM family_record_change c
-                LEFT JOIN family_record r ON r.id = c.record_id AND r.ledger_id = c.ledger_id
-                WHERE %s
-                ORDER BY c.id DESC LIMIT :limit OFFSET :offset""".formatted(where))
+        String byRecord = recordId == null ? "" : " AND %s.record_id = :recordId";
+        String changes = """
+                WITH first AS (
+                    SELECT DISTINCT ON (f.record_id) f.record_id, f.op, f.at FROM record_version f
+                    WHERE f.ledger_id = :ledgerId AND f.record_type = 'FAMILY_RECORD'%s
+                    ORDER BY f.record_id, f.seq
+                ), changes AS (
+                    SELECT 'L' AS source, c.id, c.changed_at AS at, c.action, c.record_id, c.changed_by_member_id,
+                           c.about_member_id, c.changes::text AS changes, c.currency AS row_currency,
+                           NULL::text AS before, NULL::text AS after, false AS erased_comment
+                    FROM family_record_change c LEFT JOIN first f ON f.record_id = c.record_id
+                    WHERE c.ledger_id = :ledgerId%s
+                      AND (c.record_id IS NULL OR f.record_id IS NULL OR (f.op = 'BASELINE' AND c.changed_at < f.at))
+                    UNION ALL
+                    SELECT 'V', v.id, v.at, v.op, v.record_id, v.actor_member, NULL, NULL, v.content ->> 'currency',
+                           p.content::text, v.content::text, e.id IS NOT NULL
+                    FROM record_version v
+                    LEFT JOIN record_version p ON p.ledger_id = v.ledger_id AND p.record_type = v.record_type
+                         AND p.record_id = v.record_id AND p.seq = v.seq - 1
+                    LEFT JOIN LATERAL (
+                        SELECT c.id FROM family_record_change c
+                        WHERE c.ledger_id = v.ledger_id AND c.record_id = v.record_id AND c.changed_at = v.at
+                          AND c.action = v.op AND c.changes @> '[{"field": "comment"}]' LIMIT 1) e ON true
+                    WHERE v.ledger_id = :ledgerId AND v.record_type = 'FAMILY_RECORD'%s
+                      AND (v.op IN ('CREATE', 'DELETE', 'ARCHIVE')
+                           OR (p.id IS NOT NULL AND (%s IS DISTINCT FROM %s OR e.id IS NOT NULL)))
+                )""".formatted(byRecord.formatted("f"), byRecord.formatted("c"), byRecord.formatted("v"),
+                journalFields("v"), journalFields("p"));
+        var count = jdbc.sql(changes + " SELECT count(*) FROM changes").param("ledgerId", family.ledgerId());
+        var rows = jdbc.sql(changes + """
+                SELECT c.*, r.type, r.record_date, r.category_id, r.base_amount, r.currency,
+                       r.deleted_at IS NOT NULL AS deleted
+                FROM changes c
+                LEFT JOIN family_record r ON r.id = c.record_id AND r.ledger_id = :ledgerId
+                ORDER BY c.at DESC, c.source DESC, c.id DESC LIMIT :limit OFFSET :offset""")
                 .param("ledgerId", family.ledgerId()).param("limit", size).param("offset", (long) page * size);
         if (recordId != null) {
             count = count.param("recordId", recordId);
@@ -566,25 +597,72 @@ public class FamilyRecordService {
         long total = count.query(Long.class).single();
         Map<Long, Member> members = members(family);
         Map<Long, CategoryRef> categories = categories(family);
-        List<FamilyChangeView> content = rows.query((row, n) -> new FamilyChangeView(row.getLong("id"),
-                        row.getTimestamp("changed_at").toInstant(), row.getString("action"),
-                        row.getObject("record_id", Long.class),
-                        ref(members, row.getObject("changed_by_member_id", Long.class)),
-                        ref(members, row.getObject("about_member_id", Long.class)),
-                        changes(row.getString("changes"), members, categories,
-                                Objects.equals(row.getObject("changed_by_member_id", Long.class), family.memberId()),
-                                row.getString("row_currency")),
-                        row.getObject("record_id") == null ? null : new FamilyChangeView.RecordSummary(
-                                row.getObject("record_date", LocalDate.class),
-                                categoryName(categories, row.getObject("category_id", Long.class)),
-                                row.getBigDecimal("base_amount").abs()
-                                        .setScale(ShareSplit.minorUnit(row.getString("currency")),
-                                                RoundingMode.UNNECESSARY),
-                                row.getBoolean("deleted"), row.getString("type"), row.getString("currency"),
-                                row.getBigDecimal("base_amount").signum() < 0),
-                        row.getString("row_currency")))
-                .list();
+        String main = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
+                .param("ledgerId", family.ledgerId()).query(String.class).single();
+        List<FamilyChangeView> content = rows.query((row, n) -> {
+            boolean version = row.getString("source").equals("V");
+            String action = row.getString("action");
+            String stored = row.getString("changes");
+            if (version) {
+                // A version's change: its id negated, so that it never equals a journal row's (D-1080).
+                JsonNode after = tree(row.getString("after"));
+                action = switch (action) {
+                    case "CREATE" -> "CREATE";
+                    case "DELETE", "ARCHIVE" -> "DELETE";
+                    default -> "UPDATE";
+                };
+                List<Map<String, Object>> diff = switch (action) {
+                    case "CREATE" -> FamilyJournalDiff.created(after, main, List.copyOf(members.keySet()));
+                    case "DELETE" -> List.of();
+                    default -> FamilyJournalDiff.changed(tree(row.getString("before")), after);
+                };
+                // An erased comment (D-20) is in neither version; the journal's own row of the change still names it.
+                stored = write(row.getBoolean("erased_comment") ? FamilyJournalDiff.withErasedComment(diff) : diff);
+            }
+            Long author = row.getObject("changed_by_member_id", Long.class);
+            return new FamilyChangeView(version ? -row.getLong("id") : row.getLong("id"),
+                    row.getTimestamp("at").toInstant(), action, row.getObject("record_id", Long.class),
+                    ref(members, author), ref(members, row.getObject("about_member_id", Long.class)),
+                    changes(stored, members, categories, Objects.equals(author, family.memberId()),
+                            row.getString("row_currency")),
+                    row.getObject("record_id") == null || row.getObject("base_amount") == null ? null
+                            : new FamilyChangeView.RecordSummary(
+                            row.getObject("record_date", LocalDate.class),
+                            categoryName(categories, row.getObject("category_id", Long.class)),
+                            row.getBigDecimal("base_amount").abs()
+                                    .setScale(ShareSplit.minorUnit(row.getString("currency")),
+                                            RoundingMode.UNNECESSARY),
+                            row.getBoolean("deleted"), row.getString("type"), row.getString("currency"),
+                            row.getBigDecimal("base_amount").signum() < 0),
+                    row.getString("row_currency"));
+        }).list();
         return new FamilyJournalPage(content, page, size, total, Math.toIntExact((total + size - 1) / size));
+    }
+
+    /**
+     * A version's content as far as the journal shows it: without the import's reference and the shares' percentages,
+     * so that a version that changed only those is no row of the journal ({@link FamilyJournalDiff#changed} is then
+     * empty). The canonical content writes equal amounts alike (D-1001), so equal JSON is equal content.
+     */
+    private static String journalFields(String alias) {
+        return ("jsonb_set(%1$s.content - 'externalRef', '{shares}', coalesce((SELECT jsonb_agg(s - 'basisPoints') "
+                + "FROM jsonb_array_elements(%1$s.content -> 'shares') s), '[]'::jsonb))").formatted(alias);
+    }
+
+    private JsonNode tree(String text) {
+        try {
+            return json.readTree(text);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Cannot read a version", e);
+        }
+    }
+
+    private String write(List<Map<String, Object>> changes) {
+        try {
+            return json.writeValueAsString(changes);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Cannot write the journal's changes", e);
+        }
     }
 
     // --- Settlements (F4d; D2, D-24) ---

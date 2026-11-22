@@ -28,6 +28,7 @@ import com.example.financetracker.ledger.domain.Money;
 import com.example.financetracker.ledger.access.LedgerInvites.Invite;
 import com.example.financetracker.ledger.access.LedgerInvites.Preview;
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.history.ActivityLog;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.family.FamilyInviteView.InviteKind;
 import com.example.financetracker.ledger.family.FamilyInviteView.InviteStatus;
@@ -93,9 +94,11 @@ public class FamilyInviteService {
     private final LedgerCategoryRepository categories;
     private final FamilyPostingService posting;
     private final Today today;
+    private final ActivityLog activity;
 
     FamilyInviteService(JdbcClient jdbc, LedgerInvites invites, FamilyLedgerService families,
-            LedgerCategoryRepository categories, FamilyPostingService posting, Today today) {
+            LedgerCategoryRepository categories, FamilyPostingService posting, Today today, ActivityLog activity) {
+        this.activity = activity;
         this.jdbc = jdbc;
         this.invites = invites;
         this.families = families;
@@ -174,6 +177,12 @@ public class FamilyInviteService {
                 .param("seatId", seatMemberId).param("joinDate", joinDate).param("memberId", owner.memberId())
                 .param("hours", lifetime)
                 .query(Long.class).single();
+        // In this transaction (D-999, D-1079): never the token, which only its link holds.
+        Map<String, Object> details = new HashMap<>();
+        details.put("inviteId", inviteId);
+        details.put("seatMemberId", seatMemberId);
+        details.put("hours", lifetime);
+        activity.log(owner.userId(), owner.ledgerId(), "INVITE_CREATED", null, null, details);
         return new CreatedInvite(invite(owner, inviteId), token);
     }
 
@@ -208,6 +217,7 @@ public class FamilyInviteService {
         jdbc.sql("UPDATE ledger_invite SET revoked_at = now() WHERE id = :inviteId AND ledger_id = :ledgerId")
                 .param("inviteId", inviteId).param("ledgerId", owner.ledgerId())
                 .update();
+        activity.log(owner.userId(), owner.ledgerId(), "INVITE_REVOKED", null, null, Map.of("inviteId", inviteId));
     }
 
     private FamilyInviteView invite(LedgerScope owner, long inviteId) {
@@ -331,6 +341,10 @@ public class FamilyInviteService {
         if (invite.claim()) {
             takeOverImportedRecords(member);
         }
+        // The invite is used (D-999, D-1079): who joined, by which invite, in this transaction.
+        activity.log(personal.userId(), member.ledgerId(), invite.claim() ? "SEAT_CLAIMED" : "MEMBER_JOINED",
+                ActivityLog.MEMBER, member.memberId(),
+                Map.of("inviteId", invite.id(), "returned", returning != null));
         Map<String, LedgerCategory> familyCategories = new HashMap<>();
         categories.findAll(member).forEach(c -> familyCategories.put(c.code(), c));
         // Same code and type: merged into the family's, which keeps its name (D-11 as amended).

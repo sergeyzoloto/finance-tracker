@@ -135,6 +135,7 @@ class ApiTests extends IntegrationTest {
                 new Object[] {GET, "/api/me/family-memberships", null},
                 new Object[] {GET, "/api/history/ACCOUNT/1", null},
                 new Object[] {GET, "/api/notifications/unread-count", null},
+                new Object[] {GET, "/api/activity", null},
                 new Object[] {GET, "/api/family-ledgers/1/categories", null},
                 new Object[] {POST, "/api/family-ledgers/1/categories", """
                         {"code": "RENT", "name": "Rent", "type": "EXPENSE"}"""},
@@ -323,6 +324,7 @@ class ApiTests extends IntegrationTest {
                 Map.entry("/api/me/family-memberships", List.of("get")),
                 Map.entry("/api/history/{recordType}/{recordId}", List.of("get")),
                 Map.entry("/api/notifications/unread-count", List.of("get")),
+                Map.entry("/api/activity", List.of("get")),
                 Map.entry("/api/family-ledgers/{ledgerId}/categories", List.of("get", "post")),
                 Map.entry("/api/family-ledgers/{ledgerId}/categories/{categoryId}", List.of("delete", "patch")),
                 Map.entry("/api/family-ledgers/{ledgerId}/records", List.of("get", "post")),

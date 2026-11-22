@@ -5,11 +5,13 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 import com.example.financetracker.ledger.ConflictException;
 import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.history.ActivityLog;
 import com.example.financetracker.ledger.access.MemberRole;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -75,8 +77,11 @@ public class FamilyMembershipService {
     private final FamilyPostingService posting;
     private final FamilyRecordService records;
     private final Today today;
+    private final ActivityLog activity;
 
-    FamilyMembershipService(JdbcClient jdbc, FamilyPostingService posting, FamilyRecordService records, Today today) {
+    FamilyMembershipService(JdbcClient jdbc, FamilyPostingService posting, FamilyRecordService records, Today today,
+            ActivityLog activity) {
+        this.activity = activity;
         this.jdbc = jdbc;
         this.posting = posting;
         this.records = records;
@@ -251,6 +256,9 @@ public class FamilyMembershipService {
             throw new ConflictException((self ? "You are" : member.name() + " is") + " the family budget's last owner: "
                     + "make another member with an account an owner first", LAST_OWNER);
         }
+        // In this transaction (D-999, D-1079); the ledger's deletion below takes it along.
+        activity.log(family.userId(), family.ledgerId(), "MEMBER_LEFT", ActivityLog.MEMBER, memberId,
+                Map.of("removed", !self));
         if (!member.hasAccount() && (member.share() == null || member.share() == 0) && !named(family, memberId)) {
             // Nothing names them, so nothing would freeze or read "a member who left": they go, with the invites
             // for their place (V9).
@@ -281,6 +289,9 @@ public class FamilyMembershipService {
                             jsonb_build_array(jsonb_build_object('field', 'splitRule', 'old', 'CUSTOM', 'new', 'EQUAL')))""")
                     .param("ledgerId", family.ledgerId()).param("memberId", memberId)
                     .update();
+            // Also in the activity list (D-1099); the journal's row above stays as it was.
+            activity.log(family.userId(), family.ledgerId(), "SPLIT_RULE_RESET", ActivityLog.MEMBER, memberId,
+                    Map.of("old", SplitRule.CUSTOM.name(), "new", SplitRule.EQUAL.name()));
         }
         jdbc.sql("""
                 UPDATE ledger_member SET status = 'LEFT', role = 'MEMBER', share_bp = NULL,

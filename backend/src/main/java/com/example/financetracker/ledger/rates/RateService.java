@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -19,6 +20,7 @@ import com.example.financetracker.ledger.SettingsService;
 import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.Money;
+import com.example.financetracker.ledger.history.ActivityLog;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,12 +38,15 @@ public class RateService {
     private final ExchangeRateRepository rates;
     private final SettingsService settings;
     private final Today today;
+    private final ActivityLog activity;
 
-    RateService(JdbcClient jdbc, ExchangeRateRepository rates, SettingsService settings, Today today) {
+    RateService(JdbcClient jdbc, ExchangeRateRepository rates, SettingsService settings, Today today,
+            ActivityLog activity) {
         this.jdbc = jdbc;
         this.rates = rates;
         this.settings = settings;
         this.today = today;
+        this.activity = activity;
     }
 
     /**
@@ -163,9 +168,11 @@ public class RateService {
     /** @throws NotFoundException if the user has no manual rate for the currency on that day */
     @Transactional
     public void deleteManual(String userId, LocalDate date, String currency) {
+        BigDecimal old = manual(userId, date, currency);
         if (!rates.deleteManual(userId, date, currency)) {
             throw new NotFoundException("No manual rate for %s on %s".formatted(currency, date));
         }
+        logRate(userId, "MANUAL_RATE_REMOVED", date, currency, old, null);
     }
 
     private static RateBook.Rate rate(ExchangeRate rate) {
@@ -175,8 +182,29 @@ public class RateService {
     private ExchangeRate save(String userId, ManualRate rate) {
         ExchangeRate stored = new ExchangeRate(rate.date(), RateBook.EURO, rate.currency(), rate.perEuro(),
                 RateSource.MANUAL.name(), userId);
+        BigDecimal old = manual(userId, rate.date(), rate.currency());
         rates.save(stored);
+        if (old == null || old.compareTo(rate.perEuro()) != 0) {
+            logRate(userId, old == null ? "MANUAL_RATE_SET" : "MANUAL_RATE_CHANGED", rate.date(), rate.currency(), old,
+                    rate.perEuro());
+        }
         return stored;
+    }
+
+    private BigDecimal manual(String userId, LocalDate date, String currency) {
+        return rates.find(date, RateBook.EURO, currency, RateSource.MANUAL.name(), userId).map(ExchangeRate::rate)
+                .orElse(null);
+    }
+
+    /** The change of a manual rate as an event in this transaction (D-999, D-1079). */
+    private void logRate(String userId, String kind, LocalDate date, String currency, BigDecimal old,
+            BigDecimal now) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("date", date.toString());
+        details.put("currency", currency);
+        details.put("old", old == null ? null : Money.normalize(old));
+        details.put("new", now == null ? null : Money.normalize(now));
+        activity.log(userId, null, kind, null, null, details);
     }
 
     /**

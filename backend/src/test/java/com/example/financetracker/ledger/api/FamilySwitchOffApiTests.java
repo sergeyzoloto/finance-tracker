@@ -196,6 +196,24 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         }
     }
 
+    /** D-1098: with the switch off, the activity list holds the user's own events and none of a family budget's. */
+    @Test
+    void theActivityListHoldsNoFamilyEvents() throws IOException {
+        long family = jdbc.sql("""
+                INSERT INTO ledger (type, name, base_currency, split_rule, start_date)
+                VALUES ('SHARED', 'Home', 'EUR', 'EQUAL', DATE '2024-01-01') RETURNING id""").query(Long.class).single();
+        join(family, user, "Owner", "OWNER", java.time.LocalDate.of(2024, 1, 1));
+        jdbc.sql("INSERT INTO activity_event (actor_sub, ledger_id, kind) VALUES (?, ?, 'INVITE_CREATED'), (?, NULL, "
+                + "'SIGN_IN')").params(user, family, user).update();
+        ok(put(user, "/api/settings/date-format", """
+                {"dateFormat": "DD.MM.YYYY"}"""));
+        JsonNode answer = ok(get(user, "/api/activity"));
+        assertThat(answer.get("total").asLong()).isEqualTo(2);
+        List<String> kinds = new java.util.ArrayList<>();
+        answer.get("content").forEach(e -> kinds.add(e.get("kind").asText()));
+        assertThat(kinds).containsExactlyInAnyOrder("SETTINGS_CHANGED", "SIGN_IN");
+    }
+
     /**
      * The demo with the switch off is exactly as before F6c (H1): no family budget, no new field in its answer, the
      * same entries and balances as {@code DemoDataApiTests} counted before the demo family, and the categories that the

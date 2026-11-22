@@ -38,7 +38,7 @@ class UserDataApiTests extends LedgerApiTest {
         // family budget (H1, F6c), in those of family ledgers but the invites.
         assertThat(rowsOf(user)).allSatisfy((table, rows) -> assertThat(rows > 0).as(table)
                 .isEqualTo(!List.of("import_batch", "imported_entry_deleted", "family ledger_invite",
-                        "family family_import_cutoff", "imported_family_side", "activity_event").contains(table)));
+                        "family family_import_cutoff", "imported_family_side").contains(table)));
 
         assertThat(delete(user, "/api/me/data")).hasStatus(HttpStatus.NO_CONTENT);
 

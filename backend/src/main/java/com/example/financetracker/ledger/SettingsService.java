@@ -3,10 +3,13 @@ package com.example.financetracker.ledger;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.Money;
+import com.example.financetracker.ledger.history.ActivityLog;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,11 +23,29 @@ public class SettingsService {
     private final UserSettingsRepository settings;
     private final AccountRepository accounts;
     private final Today today;
+    private final ActivityLog activity;
 
-    SettingsService(UserSettingsRepository settings, AccountRepository accounts, Today today) {
+    SettingsService(UserSettingsRepository settings, AccountRepository accounts, Today today, ActivityLog activity) {
         this.settings = settings;
         this.accounts = accounts;
         this.today = today;
+        this.activity = activity;
+    }
+
+    /** A change of the settings as an event in this transaction (D-999, D-1079): none if nothing changed. */
+    private void logChanges(String userId, Map<String, ?> before, Map<String, ?> after) {
+        List<Map<String, Object>> changes = ActivityLog.changes(before, after);
+        if (!changes.isEmpty()) {
+            activity.log(userId, null, "SETTINGS_CHANGED", null, null, Map.of("changes", changes));
+        }
+    }
+
+    private static Map<String, Object> fields(SettingsView view) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("baseCurrency", view.baseCurrency());
+        fields.put("sharedAccountId", view.sharedAccountId());
+        fields.put("defaultShareRatio", view.defaultShareRatio());
+        return fields;
     }
 
     /** The user's settings, or the defaults for a user who has none. */
@@ -50,10 +71,13 @@ public class SettingsService {
                 && accounts.find(personalLedger, sharedAccountId).isEmpty()) {
             throw new RuleViolationException("account %d does not exist".formatted(sharedAccountId));
         }
+        SettingsView before = get(personalLedger.userId());
         UserSettings updated = new UserSettings(personalLedger.userId(), baseCurrency, sharedAccountId,
                 defaultShareRatio);
         settings.save(updated);
-        return view(updated);
+        SettingsView after = view(updated);
+        logChanges(personalLedger.userId(), fields(before), fields(after));
+        return after;
     }
 
     /** The user's time zone as {@code /api/me} reports it, with today's date in it (D-100, D-101). */
@@ -82,9 +106,11 @@ public class SettingsService {
             throw new RuleViolationException("'%s' is not a time zone: use an IANA name such as Europe/Amsterdam"
                     .formatted(timeZone));
         }
+        String before = settings.findTimeZone(userId).orElse(null);
         if (!settings.updateTimeZone(userId, timeZone)) {
             throw new NotFoundException("Settings not found");
         }
+        logChanges(userId, single("timeZone", before), single("timeZone", timeZone));
         return new TimeZoneView(timeZone, today.date(ZoneId.of(timeZone)));
     }
 
@@ -111,10 +137,18 @@ public class SettingsService {
             throw new RuleViolationException("'%s' is not a date format: use one of %s, or null for the browser's"
                     .formatted(dateFormat, String.join(", ", DATE_FORMATS)));
         }
+        String before = settings.findDateFormat(userId).orElse(null);
         if (!settings.updateDateFormat(userId, dateFormat)) {
             throw new NotFoundException("Settings not found");
         }
+        logChanges(userId, single("dateFormat", before), single("dateFormat", dateFormat));
         return new DateFormatView(dateFormat);
+    }
+
+    private static Map<String, Object> single(String field, Object value) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put(field, value);
+        return fields;
     }
 
     private static SettingsView view(UserSettings settings) {

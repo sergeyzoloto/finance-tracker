@@ -206,6 +206,13 @@ class DataIsolationApiTests extends LedgerApiTest {
                     .hasStatus(HttpStatus.NOT_FOUND);
         }
         assertThat(bobReads("/api/notifications/unread-count").get("count").asLong()).isZero();
+        // D-1098: none of Alice's events is in Bob's activity list.
+        ok(put(alice, "/api/settings/date-format", """
+                {"dateFormat": "YYYY-MM-DD"}"""));
+        List<Long> hers = ok(get(alice, "/api/activity")).findValues("id").stream().map(JsonNode::asLong).toList();
+        assertThat(hers).isNotEmpty();
+        assertThat(bobReads("/api/activity").findValues("id").stream().map(JsonNode::asLong).toList())
+                .doesNotContainAnyElementsOf(hers);
     }
 
     /** D-239: Bob's export (D4a) is his own rows, the same before and after Alice writes hers, and none of hers. */
@@ -1508,6 +1515,9 @@ class DataIsolationApiTests extends LedgerApiTest {
         Map<String, String> alicesAfter = digestOf(alice);
         Map<String, String> bobsAfter = digestOf(bob);
         alicesAfter.keySet().removeAll(FAMILY_ROWS);
+        // Her invite is her event (D-999), not a row of her personal ledger.
+        alicesPersonal.remove("activity_event");
+        alicesAfter.remove("activity_event");
         bobsAfter.keySet().removeAll(FAMILY_ROWS);
         assertThat(alicesAfter).isEqualTo(alicesPersonal);
         assertThat(bobsAfter).isEqualTo(bobsPersonal);

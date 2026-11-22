@@ -11,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 import com.example.financetracker.ledger.ConflictException;
 import com.example.financetracker.ledger.LedgerCategory;
@@ -20,6 +21,7 @@ import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.history.ActivityLog;
 import com.example.financetracker.ledger.history.Cause;
 import com.example.financetracker.ledger.history.HistoryContext;
 import com.example.financetracker.ledger.history.HistoryService;
@@ -67,10 +69,12 @@ public class FamilyLedgerService {
     private final LedgerCategoryRepository categories;
     private final Today today;
     private final HistoryService history;
+    private final ActivityLog activity;
 
     FamilyLedgerService(JdbcClient jdbc, LedgerAccess access, LedgerCategoryRepository categories, Today today,
-            HistoryService history) {
+            HistoryService history, ActivityLog activity) {
         this.history = history;
+        this.activity = activity;
         this.jdbc = jdbc;
         this.access = access;
         this.categories = categories;
@@ -232,12 +236,33 @@ public class FamilyLedgerService {
     @Transactional
     public FamilyLedgerView update(LedgerScope owner, String name, String baseCurrency) {
         lock(owner);
+        FamilyLedgerView before = get(owner);
         jdbc.sql("""
                 UPDATE ledger SET name = coalesce(:name, name), base_currency = coalesce(:currency, base_currency)
                 WHERE id = :ledgerId""")
                 .param("name", name).param("currency", baseCurrency).param("ledgerId", owner.ledgerId())
                 .update();
-        return get(owner);
+        FamilyLedgerView after = get(owner);
+        logSettings(owner, Map.of("name", before.name(), "baseCurrency", before.baseCurrency()),
+                Map.of("name", after.name(), "baseCurrency", after.baseCurrency()));
+        return after;
+    }
+
+    /** A change of the ledger's settings as an event in this transaction (D-999, D-1079): none if nothing changed. */
+    private void logSettings(LedgerScope owner, Map<String, ?> before, Map<String, ?> after) {
+        List<Map<String, Object>> changes = ActivityLog.changes(new TreeMap<>(before), after);
+        if (!changes.isEmpty()) {
+            activity.log(owner.userId(), owner.ledgerId(), "LEDGER_SETTINGS_CHANGED", null, null,
+                    Map.of("changes", changes));
+        }
+    }
+
+    /** The split rule and each member's share, by member id, for {@link #logSettings}. */
+    private Map<String, Object> splitSettings(LedgerScope family) {
+        Map<String, Integer> shares = new TreeMap<>();
+        members(family).stream().filter(m -> m.share() != null)
+                .forEach(m -> shares.put(String.valueOf(m.id()), m.share()));
+        return Map.of("splitRule", get(family).splitRule().name(), "shares", shares);
     }
 
     /** The ledger's members, by join date. */
@@ -338,6 +363,7 @@ public class FamilyLedgerService {
     @Transactional
     public List<FamilyMemberView> setSplitRule(LedgerScope owner, SplitRule rule, Map<Long, Integer> shares) {
         lock(owner);
+        Map<String, Object> before = splitSettings(owner);
         List<FamilyMemberView> members = members(owner);
         List<Violation> violations = new ArrayList<>();
         if (rule == SplitRule.EQUAL) {
@@ -369,6 +395,7 @@ public class FamilyLedgerService {
                     .param("memberId", member.id()).param("ledgerId", owner.ledgerId())
                     .update();
         }
+        logSettings(owner, before, splitSettings(owner));
         return members(owner);
     }
 

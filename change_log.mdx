@@ -3,6 +3,30 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-22 · HIST-2 step 4: the notifications, the last step of part 1
+
+Committed on `main` as `b5847f9` (`docs: HIST-2 step 4's decisions, D-1105 to D-1114`) and `657ee0b` (`feat: notifications for family changes, imports and members (HIST-2 step 4)`), on top of `3452fcf`, not pushed. This closes part 1 (backend) of HIST-2: four steps, the frontend (part 2) not started. No migration; nothing is deployed.
+
+**Changes**
+- Family notifications written in the transaction of the change they describe (D-1105): `FAMILY_CHANGES` for a family record's create, update, delete and settlement (with the ledger revision range), `FAMILY_IMPORTED` once per committed import into a family budget, `MEMBER_LEFT` on leave and removal, `MEMBER_JOINED` and `SEAT_CLAIMED` on an accepted invite. Recipients are the other ACTIVE members with an account, never the author (D-1111, D-1112, D-1108); nothing is written with the family switch off.
+- Two unread `FAMILY_CHANGES` from one author in one ledger merge into one row with the range widened and the count added, in one atomic statement that never joins a read row (D-1106, D-1110). A test has two transactions merge into the same row while the second waits on its lock; the count is 3, so none is lost. The merge is safe under the ledger lock (`lockLedger`); its Javadoc says so.
+- `GET /api/notifications` (`NotificationController`, `NotificationText`): the caller's rows in their ACTIVE family budgets, newest first, with the text built at read time from the kind, the author's current name ("Former member" for a FORMER or missing one) and the count; no content stored (D-1087, D-1107, D-1114). `POST /api/notifications/{id}/read` and `POST /api/notifications/read-all` mark them; another user's or a missing row answers 404, and a budget the caller has left shows nothing.
+- No migration: V20's table and erasure functions cover the new rows (D-1109).
+- ADR 0006 section 13 and `requirements.md`: D-1105 to D-1114.
+- Tests: `NotificationApiTests` (each kind's recipients, the merge, the read rows, the marks, the switch off, erasure, editing or deleting a personal payment entry), `ImportNotificationApiTests`, `NotificationTextTests`, and the existing guards extended (`ApiTests`, `DataIsolationApiTests`, `FamilySwitchOffApiTests`); the `Notifications` reason on the `ArchitectureTests` allowlist was rewritten to cover its new SQL, not only added to.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify` on the code as committed: exit 0, `Tests run: 789, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (with the local stack up by `./dev.sh`): exit 0, `Result: PASSED`, `2 passed (5.7s)`, `6 skipped`, `38 passed (11.1m)`; the apex specs are skipped locally by design; `Password search over the artifacts: 0 hits`.
+- `cd e2e && npm run test:guards` run alone after it: exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- `scripts/check-forbidden-names.sh` on the tree: exit 0, `no hit (tree)`; `--log 3452fcf..HEAD`: exit 0, `no hit (--log 3452fcf..HEAD)`.
+- Strict-reviewer, one round: APPROVED with five minor findings; three fixed (the merge's Javadoc on the lock, a test for editing or deleting a personal payment entry, two inline names), two left as open questions below.
+
+**Open**
+- Owner to confirm D-1105 to D-1114, and in particular D-1113: a committed family import notifies the members even when it changed nothing on the family budget. If silence for a no-op import is wanted, D-1113 must say so.
+- The `ArchitectureTests` reason for `Notifications` was rewritten rather than only extended; the new text covers the old one and weakens no guard. Owner to accept or ask for the old sentence back.
+- The frontend (part 2 of HIST-2: the History panel, the Activity list, the notification badge and list) is not started. `docs/claude/backend-map.md` and `docs/claude/test-catalog.md` are not updated for HIST-2.
+
 ## 2026-11-22 · HIST-2 step 3: the D-999 log events and the Activity list
 
 Committed on `main` as `c9b2105` (`docs: HIST-2 step 3's decisions, D-1098 to D-1104`) and `96b42dd` (`feat: the D-999 log events and the activity list (HIST-2 step 3)`), on top of `21fdf93`, not pushed. Part 1 of HIST-2, step 3 of four. No migration; nothing is deployed.

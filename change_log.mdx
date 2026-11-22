@@ -3,6 +3,30 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-22 · HIST-2 step 2: history reads and the notification table
+
+Committed on `main` as `f2c59fd` (`docs: HIST-2 step 2's decisions, D-1086 to D-1097`) and `94ae9aa` (`feat: history reads and the notification table (HIST-2 step 2)`), on top of `7fd740e`, not pushed. Part 1 of HIST-2, step 2 of four. V20 is additive; nothing is deployed.
+
+**Changes**
+- V20 `notification`: references only (kind, author, the revision range, the count, `read_at`), with a partial index on unread rows and CHECKs on the range and counts. No text or content is stored (D-1087).
+- V20 replaces `release_family_memberships` and `delete_family_ledger` so that they also delete notifications, with their signatures and the rest of their text unchanged (D-1089). The table has no immutability trigger, since `read_at` must be updatable (D-1090). No trigger is added to a ledger table, so the previous image (V19) still runs and writes on the new schema (D-1040), checked in `LedgerBackfillMigrationTests`.
+- `GET /api/history/{recordType}/{recordId}` (`HistoryController`, `RecordHistory`): a page of versions, newest first, for ENTRY, ACCOUNT, CATEGORY and COUNTERPARTY (owner only; another user's or a missing record answers 404), and FAMILY_RECORD (ACTIVE members of the budget that holds the record; a non-member gets the same 404 as a missing record, D-1093; behind the family switch). Each version has `seq`, `revision`, `op`, `at`, `cause`, `actor` and `changes` (D-1095). A family record's changes reuse the journal's diff code (D-1096). An unknown `recordType` and FAMILY_CATEGORY answer like an unknown path (D-1094).
+- `GET /api/notifications/unread-count` (`NotificationController`, `Notifications`): one SQL statement counting the caller's unread notifications on their ACTIVE member rows (D-1088, D-1097). Behind the family switch.
+- ADR 0006 section 13 and `requirements.md`: D-1086 to D-1097 (D-1086 to D-1088 the manager's, D-1089 to D-1097 the developer's). D-1086 says a non-member answers as a missing family record, as D-1093.
+- Tests: `HistoryReadApiTests` (the four personal kinds, a family record's changes equal the journal's, 404 for a non-owner, a non-member, an unknown kind and a member who has left; a FORMER member reads "Former member"; paging over 5 versions; the unread count; erasure), with the existing guards extended (`ApiTests`, `DataIsolationApiTests`, `FamilySwitchOffApiTests`, `LedgerSchemaTests`, `LedgerBackfillMigrationTests`, `ArchitectureTests` allows `Notifications` to run SQL keyed by the user's sub, with its reason).
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify` on the code as committed: exit 0, `Tests run: 774, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (with the local stack up by `./dev.sh`): exit 0, `Result: PASSED`, `2 passed (5.9s)`, `6 skipped`, `38 passed (11.0m)`; the apex specs are skipped locally by design; `Password search over the artifacts: 0 hits`.
+- `cd e2e && npm run test:guards` run alone after it: exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- `scripts/check-forbidden-names.sh` on the tree: exit 0, `no hit (tree)`; `--log 7fd740e..HEAD`: exit 0, `no hit (--log 7fd740e..HEAD)`.
+- Strict-reviewer: one round, APPROVED with nits; the nits fixed (a misplaced javadoc, a LEFT-member assertion, the D-1086 wording). The fixes are test and wording changes; the gate was rerun after them.
+
+**Open**
+- Owner to confirm the developer's D-1089 to D-1097 (the erasure of notifications, the constraints, the family-record lookup across budgets, the answer shape).
+- Nits not taken: the `family_record_change` subquery in `RecordHistory` runs for personal kinds too (harmless, always false there), and a family lookup runs one query per ACTIVE budget (fine at today's scale).
+- Step 3 (the D-999 log events and the activity list) and step 4 (the notifications themselves) are not started.
+
 ## 2026-11-22 · HIST-2 step 1: the family journal read from record versions
 
 Committed on `main` as `583f5df` (`docs: HIST-2's charter, D-1075 to D-1079`) and `9956390` (`feat: the family journal is read from record versions (HIST-2 step 1)`), on top of `301935e`, not pushed. Part 1 of HIST-2 (backend), step 1 of four; no migration, nothing to deploy.

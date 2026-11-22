@@ -682,6 +682,23 @@ Decisions (author per entry; the owner can overrule):
 - D-1085 (manager, HIST-2 step 1) a version whose previous version is missing is skipped as a row, unless it is a
   CREATE, DELETE or ARCHIVE, instead of failing the request. No version can be missing today (only whole-ledger erasure
   deletes versions), so the skip hides nothing yet; a known gap to close before any partial deletion of versions.
+- D-1086 (manager, HIST-2 step 2) one history endpoint per record kind, `GET /api/history/{recordType}/{recordId}`,
+  paged; a personal record's history is for its owner only (404 for anyone else), a family record's for the ACTIVE
+  members of its ledger only, a non-member answering exactly as a missing family record (D-1093) (404), and off behind the
+  family switch.
+- D-1087 (manager, HIST-2 step 2) the notification table holds no text and no content; a notification row is a
+  reference (kind, author, the revision range, the count); its text is built when read (step 4 builds the text).
+- D-1088 (manager, HIST-2 step 2) the unread count is one indexed statement over the partial index on unread rows; the
+  frontend fetches it on load and after navigation, never by a timer (part 2 decides the client side).
+- D-1089 (developer, HIST-2 step 2) The personal delete-all deletes notifications inside `release_family_memberships`, where V19 deletes `activity_event`: by sub through `ledger_member` before the rows lose the sub, and per membership after the lock. `delete_family_ledger` deletes the ledger's notifications explicitly, in V19's order. Same `app.writer` handling; the rest of each function is V19's text.
+- D-1090 (developer, HIST-2 step 2) `notification` has no immutability trigger, since `read_at` must be updatable; its erasure needs no guard, and the functions still set the writer as V19 does.
+- D-1091 (developer, HIST-2 step 2) The author's foreign key is `ON DELETE CASCADE`, as the spec says. Member rows are never deleted today, only marked FORMER.
+- D-1092 (developer, HIST-2 step 2) `notification` has the CHECKs `from_revision >= 0`, `changes_count >= 0` and `to_revision >= from_revision`, and indexes on (recipient, created_at), ledger_id and author_member_id beside the required partial index on unread rows.
+- D-1093 (developer, HIST-2 step 2) A family record's history has no ledger id in its path: the API looks through the caller's ACTIVE family budgets for the one holding the record's versions, each lookup scoped to that budget's ledger. A non-member and a missing record both answer 404 "Family record N not found", not "Family budget N not found", since no budget id is known.
+- D-1094 (developer, HIST-2 step 2) An unknown `recordType`, FAMILY_CATEGORY, and a FAMILY_RECORD history with the family switch off all answer like an unknown path (404 by NoResourceFoundException). The personal history endpoint works whatever the switch.
+- D-1095 (developer, HIST-2 step 2) The answer is `{content, page, size, total, totalPages}`; each version has `seq`, `revision`, `op`, `at`, `cause`, `actor{kind, memberId, name}` and `changes`. `name` is null for SYSTEM and IMPORT and "Former member" for a FORMER or missing member. Personal changes are `[{field, old, new}]` over the top-level keys of the canonical content, values and ids as stored; a first version lists every key with old null.
+- D-1096 (developer, HIST-2 step 2) A family version reuses `FamilyJournalDiff` and the journal's own change-building code, so names resolve exactly as in the journal. Unlike the journal, every version is listed: a BASELINE with no earlier version reads as a creation, and a version with no visible change has empty `changes`. The erased-comment rule matches the journal's.
+- D-1097 (developer, HIST-2 step 2) The unread count runs one SQL statement (notification joined to `ledger_member` by sub and ACTIVE status, `read_at IS NULL`) in `ledger.history.Notifications`, which is added to the ArchitectureTests list of classes allowed SQL keyed by the user's sub.
 
 Acceptance criteria of part 1:
 

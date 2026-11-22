@@ -47,6 +47,11 @@ Production is the auth server's shared host. Read-only by default unless the tas
 
 Checklist format, templates and the deploy scripts' rules are in `.claude/rules/deploy.md` (loaded when you work under `deploy/`); read it before writing any deploy checklist.
 
+## Working with the owner
+
+- Product decisions are the owner's. Where a prompt leaves one open, take the simplest option that needs the fewest actions on his side, and name it in the report as your own choice (with the D-number the prompt gives) so he can correct it before launch.
+- (D-120) The laptop's free-disk floor is not a condition of acceptance or deploy: neither report on it nor stop for it. A command that fails with "No space left on device" is reported and that step stops.
+
 ## QA
 
 The end-to-end suite is `e2e/` (Playwright; `e2e/README.md`).

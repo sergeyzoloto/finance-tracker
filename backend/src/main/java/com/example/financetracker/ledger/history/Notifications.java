@@ -3,7 +3,6 @@ package com.example.financetracker.ledger.history;
 import java.time.Instant;
 import java.sql.Types;
 import java.util.List;
-import java.util.OptionalLong;
 
 import com.example.financetracker.ledger.NotFoundException;
 import org.springframework.beans.factory.annotation.Value;
@@ -101,14 +100,13 @@ public class Notifications {
     }
 
     /**
-     * After a family import committed, once per commit: FAMILY_IMPORTED at the revision it took on the ledger, or
-     * without one when it changed only the importer's own side of the records.
+     * After a family import committed, once per commit: FAMILY_IMPORTED at the revision it took on the ledger. An
+     * import that took none (it changed only the importer's own side of the records, or nothing) tells no one.
      */
     public void familyImported(long ledgerId, long author) {
         if (familyOn) {
-            OptionalLong revision = history.revisionTaken(ledgerId);
-            insert(ledgerId, Kind.FAMILY_IMPORTED, author, author,
-                    revision.isPresent() ? Long.valueOf(revision.getAsLong()) : null);
+            history.revisionTaken(ledgerId).ifPresent(revision ->
+                    insert(ledgerId, Kind.FAMILY_IMPORTED, author, author, revision));
         }
     }
 

@@ -42,6 +42,8 @@ import com.example.financetracker.ledger.family.posting.FamilyPostingService.Pay
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -77,6 +79,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class FamilyRecordService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(FamilyRecordService.class);
 
     /** The codes of the violations of a record's rules, with the member each is about where there is one. */
     public static final String CATEGORY = "CATEGORY";
@@ -575,13 +579,17 @@ public class FamilyRecordService {
                 ), changes AS (
                     SELECT 'L' AS source, c.id, c.changed_at AS at, c.action, c.record_id, c.changed_by_member_id,
                            c.about_member_id, c.changes::text AS changes, c.currency AS row_currency,
-                           NULL::text AS before, NULL::text AS after, false AS erased_comment
+                           NULL::text AS before, NULL::text AS after, false AS erased_comment, false AS skipped,
+                           NULL::int AS gap_seq
                     FROM family_record_change c LEFT JOIN first f ON f.record_id = c.record_id
                     WHERE c.ledger_id = :ledgerId%s
                       AND (c.record_id IS NULL OR f.record_id IS NULL OR (f.op = 'BASELINE' AND c.changed_at < f.at))
                     UNION ALL
                     SELECT 'V', v.id, v.at, v.op, v.record_id, v.actor_member, NULL, NULL, v.content ->> 'currency',
-                           p.content::text, v.content::text, e.id IS NOT NULL
+                           p.content::text, v.content::text, e.id IS NOT NULL,
+                           p.id IS NULL AND v.op NOT IN ('CREATE', 'DELETE', 'ARCHIVE'),
+                           CASE WHEN p.id IS NULL AND v.seq > 1 AND v.op NOT IN ('CREATE', 'DELETE', 'ARCHIVE')
+                                THEN v.seq END
                     FROM record_version v
                     LEFT JOIN record_version p ON p.ledger_id = v.ledger_id AND p.record_type = v.record_type
                          AND p.record_id = v.record_id AND p.seq = v.seq - 1
@@ -590,23 +598,39 @@ public class FamilyRecordService {
                         WHERE c.ledger_id = v.ledger_id AND c.record_id = v.record_id AND c.changed_at = v.at
                           AND c.action = v.op AND c.changes @> '[{"field": "comment"}]' LIMIT 1) e ON true
                     WHERE v.ledger_id = :ledgerId AND v.record_type = 'FAMILY_RECORD'%s
-                      AND (v.op IN ('CREATE', 'DELETE', 'ARCHIVE')
-                           OR (p.id IS NOT NULL AND (%s IS DISTINCT FROM %s OR e.id IS NOT NULL)))
+                      AND (v.op IN ('CREATE', 'DELETE', 'ARCHIVE') OR p.id IS NULL
+                           OR %s IS DISTINCT FROM %s OR e.id IS NOT NULL)
                 )""".formatted(byRecord.formatted("f"), byRecord.formatted("c"), byRecord.formatted("v"),
                 journalFields("v"), journalFields("p"));
-        var count = jdbc.sql(changes + " SELECT count(*) FROM changes").param("ledgerId", family.ledgerId());
+        // The count's one scan also finds the versions skipped for a gap (D-1085), logged by D-1116: no extra statement.
+        var count = jdbc.sql(changes + """
+                SELECT count(*) FILTER (WHERE NOT skipped) AS total,
+                       string_agg(record_id || ':' || gap_seq, ',' ORDER BY record_id, gap_seq)
+                           FILTER (WHERE gap_seq IS NOT NULL) AS gaps
+                FROM changes""").param("ledgerId", family.ledgerId());
         var rows = jdbc.sql(changes + """
                 SELECT c.*, r.type, r.record_date, r.category_id, r.base_amount, r.currency,
                        r.deleted_at IS NOT NULL AS deleted
                 FROM changes c
                 LEFT JOIN family_record r ON r.id = c.record_id AND r.ledger_id = :ledgerId
+                WHERE NOT c.skipped
                 ORDER BY c.at DESC, c.source DESC, c.id DESC LIMIT :limit OFFSET :offset""")
                 .param("ledgerId", family.ledgerId()).param("limit", size).param("offset", (long) page * size);
         if (recordId != null) {
             count = count.param("recordId", recordId);
             rows = rows.param("recordId", recordId);
         }
-        long total = count.query(Long.class).single();
+        long total = count.query((row, n) -> {
+            String gaps = row.getString("gaps");
+            if (gaps != null) {
+                for (String gap : gaps.split(",")) {
+                    String[] parts = gap.split(":");
+                    LOG.warn("family journal: version without its previous one skipped, ledger {} record {} seq {}",
+                            family.ledgerId(), parts[0], parts[1]);
+                }
+            }
+            return row.getLong("total");
+        }).single();
         Map<Long, Member> members = members(family);
         Map<Long, CategoryRef> categories = categories(family);
         String main = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")

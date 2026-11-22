@@ -3,6 +3,27 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-2 1b step 2: no import notification without a family change, a log line for a skipped version
+
+Committed on `main` as the commit `fix: no import notification without a family change, a log line for a skipped version (HIST-2, 1b step 2)` (on top of `d341503`, not pushed; the hash is the one in `git log` for that subject). Two corrections of part 1: D-1115 amends D-1113, and D-1116 adds a log line for a version skipped under D-1085. No migration; nothing is deployed.
+
+**Changes**
+- D-1115 (PM): `FAMILY_IMPORTED` is written only when the import took a revision on the family budget, with that revision as its range. An import that changed only the importer's own side of the records, or nothing, notifies nobody; a dry run and a refused import write none. `Notifications` checks `HistoryService.revisionTaken`. The text of D-1113 is unchanged in the ADR and in `requirements.md`; D-1115 is an amendment after D-1114.
+- D-1116 (PM): a version skipped under D-1085 (its previous version is missing, it is past seq 1, and it is not a CREATE, DELETE or ARCHIVE) is logged at WARN with the ledger id, the record id and its seq, and no content. A seq 1 BASELINE is no gap and is not logged. The count is not added to `HistoryIntegrity`, which has no place for it.
+- D-1117 (developer): the gap is found inside the journal's own count query (a `skipped` flag and one aggregate), so a healthy read runs no extra statement. A page query skips the flagged rows; the total and the rows are the same as before. The WARN is logged once per skipped version on each read that meets the gap.
+- Tests: `ImportNotificationApiTests` (a second import of the same file writes none; an import that changes family records writes one to the other members with its revision range, checked through `/api/notifications`; an import of only the importer's side writes none; the refused import), `FamilyJournalFromVersionsApiTests` (the skipped version still answers without a failure, and exactly one WARN with the ledger, the record and the seq).
+- The fix of step 1's test (`FamilyJournalEquivalenceApiTests`): the full gate found that it called `Answers.rawText` from two helpers the hygiene guard does not list; the calls were removed, and the commit of step 1 was amended with that change (its entry is unchanged).
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify` on the tree as committed: exit 0, `Tests run: 810, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (with the local stack up by `./dev.sh`): exit 0, `Result: PASSED`, `2 passed (6.4s)`, `6 skipped`, `38 passed (11.1m)`; the apex specs are skipped locally by design; `Password search over the artifacts: 0 hits`.
+- `cd e2e && npm run test:guards` run alone after it: exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- `scripts/check-forbidden-names.sh` on the tree: exit 0, `no hit (tree)`.
+- Strict-reviewer, one round: APPROVED with four minor findings, three fixed (an API-level check of the import text, the logger's import, a test import's place), and one answered by a clarification of D-1116 about seq 1 in both documents.
+
+**Open**
+- The owner to confirm D-1115 and D-1116; D-1117 is the developer's choice (the WARN repeats on every read that meets a gap, which is acceptable only while gaps cannot occur: see D-1085).
+
 ## 2026-11-22 · HIST-2 1b step 1: the equivalence test on random sequences
 
 Committed on `main` as the commit `test: the family journal from versions equals the old table's rows on random sequences (HIST-2, 1b step 1)` (on top of `09282ba`, not pushed); the hash is the one in `git log` for that subject. Test only: no production code changed. It answers criterion (a) of section 13 of ADR 0006, which part 1 had not delivered as asked.

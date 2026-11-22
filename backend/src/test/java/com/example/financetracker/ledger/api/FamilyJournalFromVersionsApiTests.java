@@ -10,9 +10,16 @@ import java.util.List;
 import java.util.Set;
 
 import com.example.financetracker.Answers;
+import com.example.financetracker.ledger.family.FamilyRecordService;
 import com.example.financetracker.ledger.history.HistoryJobs;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 
@@ -256,9 +263,23 @@ class FamilyJournalFromVersionsApiTests extends FamilyApiTest {
             }
             db.commit();
         }
-        JsonNode journal = journal(alice, id);
+        Logger logger = (Logger) LoggerFactory.getLogger(FamilyRecordService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        JsonNode journal;
+        try {
+            journal = journal(alice, id);
+        } finally {
+            logger.detachAppender(appender);
+        }
         assertThat(journal.get("totalElements").asInt()).isEqualTo(1);
         assertThat(changes(journal).getFirst()).startsWith("CREATE by Mum: ");
+        // D-1116: the skip is one WARN naming the ledger, the record and the seq, nothing of the content.
+        List<ILoggingEvent> warnings = appender.list.stream().filter(e -> e.getLevel() == Level.WARN).toList();
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.getFirst().getArgumentArray()).containsExactly(family, String.valueOf(id), "3");
+        assertThat(warnings.getFirst().getFormattedMessage()).doesNotContain("30.00", "two", "comment", "Mum");
     }
 
     @Test

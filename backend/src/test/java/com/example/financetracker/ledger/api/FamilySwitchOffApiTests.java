@@ -91,6 +91,21 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     }
 
     @Test
+    void aFamilyRecordsHistoryAndTheUnreadCountAnswer404LikeAnUnknownPathAndAPersonalHistoryWorks()
+            throws IOException {
+        for (String path : List.of("/api/history/FAMILY_RECORD/1", "/api/notifications/unread-count")) {
+            String unknown = "/api/no-such-thing/x";
+            MvcTestResult answer = get(user, path);
+            assertThat(answer.getResponse().getStatus()).as(path).isEqualTo(404);
+            assertThat(Answers.rawText(answer).replace(path.substring(1), "PATH").replace(path, "PATH")).as(path)
+                    .isEqualTo(Answers.rawText(get(user, unknown)).replace(unknown.substring(1), "PATH")
+                            .replace(unknown, "PATH"));
+        }
+        long cash = find(ok(get(user, "/api/accounts")), "code", "CASH").get("id").asLong();
+        assertThat(ok(get(user, "/api/history/ACCOUNT/" + cash)).get("total").asLong()).isEqualTo(1);
+    }
+
+    @Test
     void theRestOfTheApiWorksAndMeSaysTheSwitchIsOff() throws IOException {
         assertThat(ok(get(user, "/api/me")).get("features").get("familyLedgers").asBoolean()).isFalse();
         assertThat(ok(get(user, "/api/accounts"))).isNotEmpty();

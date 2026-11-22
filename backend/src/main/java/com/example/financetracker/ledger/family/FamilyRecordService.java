@@ -23,6 +23,8 @@ import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.history.HistoryService;
+import com.example.financetracker.ledger.history.RecordHistory;
+import com.example.financetracker.ledger.history.RecordHistory.HistoryPage;
 import com.example.financetracker.ledger.history.RecordType;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.access.MemberRole;
@@ -118,10 +120,12 @@ public class FamilyRecordService {
     private final ObjectMapper json;
     private final FamilyTotals totals;
     private final HistoryService history;
+    private final RecordHistory recordHistory;
 
     FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, ObjectMapper json, FamilyTotals totals,
-            HistoryService history) {
+            HistoryService history, RecordHistory recordHistory) {
         this.history = history;
+        this.recordHistory = recordHistory;
         this.jdbc = jdbc;
         this.posting = posting;
         this.json = json;
@@ -637,6 +641,31 @@ public class FamilyRecordService {
                     row.getString("row_currency"));
         }).list();
         return new FamilyJournalPage(content, page, size, total, Math.toIntExact((total + size - 1) / size));
+    }
+
+    /**
+     * A family record's versions, newest first (D-1086), each with the changes the journal shows for it, named alike
+     * ({@link FamilyJournalDiff}); a version without one before it (a baseline) reads as a creation, a deletion as no
+     * change.
+     *
+     * @throws NotFoundException if the record has no version in the family ledger
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public HistoryPage history(LedgerScope family, long recordId, int page, int size) {
+        Map<Long, Member> members = members(family);
+        Map<Long, CategoryRef> categories = categories(family);
+        String main = jdbc.sql("SELECT base_currency FROM ledger WHERE id = :ledgerId")
+                .param("ledgerId", family.ledgerId()).query(String.class).single();
+        return recordHistory.page(family, RecordType.FAMILY_RECORD, recordId, page, size, version -> {
+            List<Map<String, Object>> diff = new ArrayList<>(switch (version.op()) {
+                case "DELETE", "ARCHIVE" -> List.<Map<String, Object>>of();
+                default -> version.before() == null || "CREATE".equals(version.op())
+                        ? FamilyJournalDiff.created(version.after(), main, List.copyOf(members.keySet()))
+                        : FamilyJournalDiff.changed(version.before(), version.after());
+            });
+            return changes(write(version.erasedComment() ? FamilyJournalDiff.withErasedComment(diff) : diff), members,
+                    categories, Objects.equals(version.actorMember(), family.memberId()), version.currency());
+        });
     }
 
     /**

@@ -192,6 +192,22 @@ class DataIsolationApiTests extends LedgerApiTest {
         assertThat(bobsView.get("/api/reports/integrity")).isEmpty();
     }
 
+    /** HIST-2 (D-1086, D-1088): Alice's records' histories answer Bob 404, and his unread count is his own. */
+    @Test
+    void bobReadsNoHistoryOfAlicesAndOnlyHisOwnUnreadCount() throws IOException {
+        for (String type : List.of("ACCOUNT", "COUNTERPARTY", "CATEGORY")) {
+            long id = switch (type) {
+                case "ACCOUNT" -> alicesBank;
+                case "COUNTERPARTY" -> alicesLandlord;
+                default -> alicesHobby;
+            };
+            assertThat(ok(get(alice, "/api/history/" + type + "/" + id)).get("total").asLong()).isPositive();
+            assertThat(bobsRequest(HttpMethod.GET, "/api/history/" + type + "/" + id, null))
+                    .hasStatus(HttpStatus.NOT_FOUND);
+        }
+        assertThat(bobReads("/api/notifications/unread-count").get("count").asLong()).isZero();
+    }
+
     /** D-239: Bob's export (D4a) is his own rows, the same before and after Alice writes hers, and none of hers. */
     @Test
     void bobsExportIsHisOwnLedgerOnly() throws IOException {

@@ -83,6 +83,8 @@ class ArchitectureTests {
                 "the activity log: events by the Keycloak sub, sign-in and sign-out before any scope exists");
         PERSON_LEVEL.put(HistoryIntegrity.class,
                 "reads every record of a ledger named by its id and its versions, for the integrity check and the tests");
+        PERSON_LEVEL.put(com.example.financetracker.ledger.history.Notifications.class,
+                "the unread count of a person's notifications over all their ACTIVE family memberships, by the sub");
         PERSON_LEVEL.put(HistoryJobs.class,
                 "the baseline and the purge of old sign-in events run over every ledger, on a schedule, never for a "
                         + "request");

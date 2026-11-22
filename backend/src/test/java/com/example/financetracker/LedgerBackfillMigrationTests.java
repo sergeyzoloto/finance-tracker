@@ -361,13 +361,50 @@ class LedgerBackfillMigrationTests {
             // V19 (HIST-1, ADR 0006) is additive: no row of any table changes, the new tables are empty and every
             // ledger's revision is 0, whatever the rows it finds (the baseline is the application's job, D-1020).
             Map<String, Long> rowsBeforeV19 = rows();
-            MigrateResult v19 = flyway(null).migrate();
+            MigrateResult v19 = flyway("19").migrate();
             assertThat(v19.success).isTrue();
             assertThat(v19.targetSchemaVersion).isEqualTo("19");
             assertThat(rows()).isEqualTo(rowsBeforeV19);
             assertThat(number("SELECT count(*) FROM record_version")).isZero();
             assertThat(number("SELECT count(*) FROM activity_event")).isZero();
             assertThat(number("SELECT count(*) FROM ledger WHERE revision <> 0")).isZero();
+
+            // V20 (HIST-2 step 2, D-1087) is additive: the notifications' table, empty, with its checks and the partial
+            // index of the unread rows; the two erasure functions keep their signatures (D-1040).
+            Map<String, Long> rowsBeforeV20 = rows();
+            String functions = """
+                    SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') '
+                           || pg_get_function_result(p.oid)
+                    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                    WHERE n.nspname = 'app' AND p.proname IN ('release_family_memberships', 'delete_family_ledger')
+                    ORDER BY 1""";
+            List<String> signatures = strings(functions);
+            MigrateResult v20 = flyway(null).migrate();
+            assertThat(v20.success).isTrue();
+            assertThat(v20.targetSchemaVersion).isEqualTo("20");
+            assertThat(rows()).isEqualTo(rowsBeforeV20);
+            assertThat(strings(functions)).isEqualTo(signatures)
+                    .containsExactly("delete_family_ledger(family bigint) void",
+                            "release_family_memberships(sub text) integer");
+            assertThat(number("SELECT count(*) FROM notification")).isZero();
+            assertThat(strings("SELECT indexdef FROM pg_indexes WHERE schemaname = 'app' "
+                    + "AND indexname = 'notification_unread_idx'")).singleElement().asString()
+                    .contains("(recipient_member_id)").contains("WHERE (read_at IS NULL)");
+            long member = number("SELECT min(id) FROM ledger_member");
+            long ledger = number("SELECT ledger_id FROM ledger_member WHERE id = ?", member);
+            assertThatThrownBy(() -> update("INSERT INTO notification (ledger_id, recipient_member_id, kind) "
+                    + "VALUES (?, ?, 'SOMETHING')", ledger, member)).isInstanceOf(SQLException.class)
+                    .hasMessageContaining("notification_kind_check");
+            assertThatThrownBy(() -> update("INSERT INTO notification (ledger_id, recipient_member_id, kind, "
+                    + "from_revision, to_revision) VALUES (?, ?, 'FAMILY_CHANGES', 5, 4)", ledger, member))
+                    .isInstanceOf(SQLException.class).hasMessageContaining("notification_check");
+            // The previous image writes as before on the new schema: this connection never says it writes versions.
+            long payee = insert("INSERT INTO counterparty (user_id, ledger_id, name) VALUES (?, ?, 'After V20')",
+                    OWNER, number("SELECT ledger_id FROM ledger_member WHERE user_sub = ? "
+                            + "AND ledger_type = 'PERSONAL'", OWNER));
+            update("UPDATE counterparty SET name = 'After V20, renamed' WHERE id = ?", payee);
+            update("DELETE FROM counterparty WHERE id = ?", payee);
+            assertThat(number("SELECT count(*) FROM record_version")).isZero();
         } finally {
             db.close();
         }

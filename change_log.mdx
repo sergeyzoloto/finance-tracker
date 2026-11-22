@@ -3,6 +3,31 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-22 · HIST-2 step 3: the D-999 log events and the Activity list
+
+Committed on `main` as `c9b2105` (`docs: HIST-2 step 3's decisions, D-1098 to D-1104`) and `96b42dd` (`feat: the D-999 log events and the activity list (HIST-2 step 3)`), on top of `21fdf93`, not pushed. Part 1 of HIST-2, step 3 of four. No migration; nothing is deployed.
+
+**Changes**
+- Every D-999 change writes its activity event in the same transaction as the change (D-1079): settings (including the time zone and the date format), manual rates (set, changed and removed; a CSV upload writes one event per changed rate), ledger settings, members joining, leaving or being removed, seats claimed, invites created and revoked, and `SPLIT_RULE_RESET` (which is also still written to `family_record_change`, D-1099). An unchanged save writes nothing. A failing event write rolls the change back; a test pins this.
+- The events hold values and ids, never names or the invite token. Names are read at read time: the current name, or "Former member" for a FORMER or missing member (D-1102).
+- `GET /api/activity?page=&size=` (`ActivityController`, `ActivityLog`): the caller's own events (by sub) and the events of the family budgets where the caller is ACTIVE; the family rows are behind the family switch. Answer `{content, page, size, total, totalPages}`; each row has `id`, `at`, `kind`, `ledgerId`, `actor`, `details` and, for membership events, `subject` (D-1098 to D-1104).
+- No migration: `activity_event.kind` has no CHECK, and the V20 erasure functions already delete a user's rows by sub, including the ledger rows the user wrote (D-1100, D-1101).
+- ADR 0006 section 13 and `requirements.md`: D-1098 to D-1104 (D-1098 and D-1100 manager's; D-1099 and D-1103 manager's kinds list; D-1101, D-1102 and D-1104 the developer's).
+- Tests: `ActivityApiTests` (new): the events per change, no event for an unchanged save, the rollback, the list's scope and paging, a LEFT member's own events, erasure, and the switch off; `UserDataApiTests` now requires delete-all to remove the activity rows; `DataIsolationApiTests`, `FamilySwitchOffApiTests` and `ApiTests` extended.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify` on the code as committed: exit 0, `Tests run: 780, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (with the local stack up by `./dev.sh`): exit 0, `Result: PASSED`, `2 passed (5.9s)`, `6 skipped`, `38 passed (11.1m)`; the apex specs are skipped locally by design; `Password search over the artifacts: 0 hits`.
+- `cd e2e && npm run test:guards` run alone after it: exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- `scripts/check-forbidden-names.sh` on the tree: exit 0, `no hit (tree)`; `--log 21fdf93..HEAD`: exit 0, `no hit (--log 21fdf93..HEAD)`.
+- Strict-reviewer, one round: APPROVED with three minor findings (an added sentence to D-1102 about join events, an orphaned javadoc, inline fully qualified names), all fixed; the gate was rerun after them.
+
+**Open**
+- Owner to confirm D-1098 to D-1104. In particular D-1102: events hold member ids, and a renamed member shows under the current name, not the name at the time, as the brief asked. This is the trade-off that keeps erased names out of the stored events (D-1018).
+- Owner to confirm that a join event goes with the joiner's own erasure, so the rows kept about a leaver are other users' (`MEMBER_LEFT`, `SPLIT_RULE_RESET`, the seat's `INVITE_CREATED`).
+- No Activity page in the frontend yet (part 2). `docs/claude/backend-map.md` and `docs/claude/test-catalog.md` are not updated.
+- Step 4 (the notifications themselves: FAMILY_CHANGES, FAMILY_IMPORTED, MEMBER_JOINED, MEMBER_LEFT, SEAT_CLAIMED) is not started.
+
 ## 2026-11-22 · HIST-2 step 2: history reads and the notification table
 
 Committed on `main` as `f2c59fd` (`docs: HIST-2 step 2's decisions, D-1086 to D-1097`) and `94ae9aa` (`feat: history reads and the notification table (HIST-2 step 2)`), on top of `7fd740e`, not pushed. Part 1 of HIST-2, step 2 of four. V20 is additive; nothing is deployed.

@@ -3,6 +3,33 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-22 · HIST-2 step 1: the family journal read from record versions
+
+Committed on `main` as `583f5df` (`docs: HIST-2's charter, D-1075 to D-1079`) and `9956390` (`feat: the family journal is read from record versions (HIST-2 step 1)`), on top of `301935e`, not pushed. Part 1 of HIST-2 (backend), step 1 of four; no migration, nothing to deploy.
+
+**Changes**
+- ADR 0006 section 13 "HIST-2 (charter)": the two parts and four steps, the decisions D-1075 to D-1079, and the acceptance criteria (a) to (e) of part 1, with (a) narrowed by D-1082 to D-1085. Section 9's HIST-2 row is amended: V20 holds only the `notification` table and the replaced erasure functions; `family_record_change` is frozen and dropped only in a later migration.
+- `docs/family-budget/requirements.md`: D-1075 to D-1085. D-1075 to D-1079 are the owner's brief's decisions, D-1080 is the developer's (the cut-over rule), D-1081 to D-1085 are the manager's.
+- `FamilyRecordService.journal` reads a family record's changes from its `FAMILY_RECORD` versions. A change is the diff of two consecutive versions (`FamilyJournalDiff`), in the shape `family_record_change` held, with names resolved at read time (a FORMER member reads "Former member"). The union of the old rows and the version diffs is counted, ordered and paged in one statement under REPEATABLE READ, scoped by `ledger_id`.
+- Cut-over per record: the record's first version, when it is a BASELINE, is the cut-over point. Old rows strictly before its time are read from `family_record_change`; the rows at the same instant belong to the versions. A record with no version reads its old rows only; a record whose first version is a CREATE reads its versions only. System changes (`SPLIT_RULE_RESET`) still come from the old table.
+- An erased comment: the row of an update that changed only it reads the old table's own row of the same change, so the change still shows as `comment null→null` (D-1083).
+- A create row lists its shares in join order (D-1084). A version whose previous version is missing is skipped rather than failing the request (D-1085).
+- The response shape, the URL, the parameters and the paging are unchanged (D-1081). `family_record_change` is still written (dual write, D-1075), so rollback to the previous image keeps working (D-1040).
+- Tests: `FamilyJournalDiffTests` (4, the diff), `FamilyJournalFromVersionsApiTests` (the cut-over with the baseline's own transaction, erasure, the payer's private side through an allowlist of version keys, scoping, paging across both sources, a gap, a non-member's 404).
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify` on the code as committed (the Java is unchanged since this run): exit 0, `Tests run: 766, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- `cd e2e && E2E_FAMILY=on npm run e2e:local` (with the local stack up by `./dev.sh`): exit 0, `Result: PASSED`, `2 passed (6.2s)`, `6 skipped`, `38 passed (11.1m)`; the apex specs are skipped locally by design; `Password search over the artifacts: 0 hits`.
+- `cd e2e && npm run test:guards` run alone after it: exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- A first `e2e:local` run before `./dev.sh` failed at its first `localhost:5173` request (no stack): not a result, rerun as above.
+- `scripts/check-forbidden-names.sh` on the tree: exit 0, `no hit (tree)`; `--log 301935e..HEAD`: exit 0, `no hit (--log 301935e..HEAD)`.
+- Strict-reviewer, three rounds: round 1 APPROVED with nits (fixed); round 2 REJECTED on the ADR (D-1085 missing; fixed); round 3 APPROVED (docs only).
+
+**Open**
+- Owner to confirm D-1082 (a rollback's own writes show as one unattributed diff), D-1083 (the erased-comment row reads the old table, so the drop needs a migration first), D-1084 (AMOUNT-split shares in join order, not request order) and D-1085 (a version gap is skipped and its change is not shown; no version can be missing today).
+- The `family_record_change` drop needs the erasure to leave its own mark in the version first (D-1083).
+- Step 2 (history endpoints, the `notification` table, the unread count) is not started.
+
 ## 2026-11-22 · Project subagents `developer` and `strict-reviewer` and the `/team` command
 
 Committed on the branch `claude-md-split` as `7ca128a` (`7ca128ae05e2ec131b33a76f60de01f3e65fbc4e`), not pushed; this line was added by a second commit, "docs: change log commit line". Settings and prompts only: no application, deploy or test change, no migration, nothing to deploy. Also records `5869981` (already committed on the branch): `CLAUDE.md` gained the product-decision rule ("Working with the owner") and `frontend/CLAUDE.md` one line on chart display.

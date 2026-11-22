@@ -12,7 +12,7 @@ Committed on `main` as `c9b2105` (`docs: HIST-2 step 3's decisions, D-1098 to D-
 - The events hold values and ids, never names or the invite token. Names are read at read time: the current name, or "Former member" for a FORMER or missing member (D-1102).
 - `GET /api/activity?page=&size=` (`ActivityController`, `ActivityLog`): the caller's own events (by sub) and the events of the family budgets where the caller is ACTIVE; the family rows are behind the family switch. Answer `{content, page, size, total, totalPages}`; each row has `id`, `at`, `kind`, `ledgerId`, `actor`, `details` and, for membership events, `subject` (D-1098 to D-1104).
 - No migration: `activity_event.kind` has no CHECK, and the V20 erasure functions already delete a user's rows by sub, including the ledger rows the user wrote (D-1100, D-1101).
-- ADR 0006 section 13 and `requirements.md`: D-1098 to D-1104 (D-1098 and D-1100 manager's; D-1099 and D-1103 manager's kinds list; D-1101, D-1102 and D-1104 the developer's).
+- ADR 0006 section 13 and `requirements.md`: D-1098 to D-1100 (manager's) and D-1101 to D-1104 (developer's).
 - Tests: `ActivityApiTests` (new): the events per change, no event for an unchanged save, the rollback, the list's scope and paging, a LEFT member's own events, erasure, and the switch off; `UserDataApiTests` now requires delete-all to remove the activity rows; `DataIsolationApiTests`, `FamilySwitchOffApiTests` and `ApiTests` extended.
 
 **Verified**

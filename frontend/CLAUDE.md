@@ -8,6 +8,7 @@ React 19, react-router 7, Vite, TypeScript, Node 24 (`.nvmrc`; `engines` `>=24 <
 - Dates: no screen reads the browser's clock for a date. Today is `useToday()` (from `MeProvider`, `/api/me`'s `today`). Use `DateInput` in place of `<input type="date">`; show dates with `formatDate` / `formatInstant` in the user's format (`dates.ts`).
 - Screen text: never "debit" or "credit" (users pick a direction; only Advanced shows signed amounts); no decision number (`D-nnn`) in any string, template or JSX text (`screenTexts.test.ts`); the family feature says "family budget", never "ledger".
 - The family UI exists only while `familyLedgersOn(me)`; with the switch off there is no switcher, no family request and no family route (`/family/…` redirects to `/`).
+- Charts: where there is no data, show no empty chart and no columns of empty or zero sums (e.g. a year-earlier comparison with nothing in it). The dashboard's charts are horizontal bars; only the daily-spending columns stay vertical.
 - Page state that a user may share or reload (period, scope, filters, page) lives in the URL only.
 - Layout: nothing scrolls sideways at 375 px; under 40rem tables become blocks of labelled lines. Check 375, 1024 and 1280 px.
 - Theming: three themes (Blue, Light, Dark) as CSS custom properties in `index.css`. Every colour in the stylesheet and components is one of those tokens; no hex or `rgb(` outside the three blocks, and each block must meet WCAG contrast (`themeGuards.test.ts`). The theme choice is the browser's (`localStorage` and the `ft_theme` cookie), never the server's.

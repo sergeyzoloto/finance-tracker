@@ -36,6 +36,7 @@ import com.example.financetracker.ledger.ImportBatch;
 import com.example.financetracker.ledger.ImportBatchRepository;
 import com.example.financetracker.ledger.history.Cause;
 import com.example.financetracker.ledger.history.HistoryContext;
+import com.example.financetracker.ledger.history.Notifications;
 import com.example.financetracker.ledger.Json;
 import com.example.financetracker.ledger.LedgerCategory;
 import com.example.financetracker.ledger.LedgerCategoryRepository;
@@ -141,12 +142,14 @@ public class ImportService {
     private final ObjectMapper json;
     private final TransactionTemplate transaction;
     private final TransactionTemplate savepoint;
+    private final Notifications notifications;
 
     ImportService(AccountRepository accounts, LedgerCategoryRepository categories,
             CounterpartyRepository counterparties, ImportBatchRepository batches, EntryService entries,
             ReportService reports, LedgerAccess access, FamilySwitch familySwitch, FamilyLedgerService familyLedgers,
             FamilyRecordService records, FamilyImportSync familySync, ExportService exports, JdbcClient jdbc,
-            ObjectMapper json, PlatformTransactionManager transactionManager) {
+            ObjectMapper json, PlatformTransactionManager transactionManager, Notifications notifications) {
+        this.notifications = notifications;
         this.accounts = accounts;
         this.categories = categories;
         this.counterparties = counterparties;
@@ -192,6 +195,9 @@ public class ImportService {
                 ImportReport report = run.execute(transactionRows, fileChart, partnerRows, gaps, after);
                 if (report.outcome() != Outcome.COMMITTED) {
                     status.setRollbackOnly();
+                } else if (run.family != null) {
+                    // Once per commit, in its transaction (D-1105), if it changed the family budget.
+                    notifications.familyImported(run.family.scope().ledgerId(), run.family.scope().memberId());
                 }
                 return report;
             });

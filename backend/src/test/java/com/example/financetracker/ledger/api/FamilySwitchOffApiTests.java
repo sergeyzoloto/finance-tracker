@@ -105,6 +105,40 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
         assertThat(ok(get(user, "/api/history/ACCOUNT/" + cash)).get("total").asLong()).isEqualTo(1);
     }
 
+    @Autowired
+    private com.example.financetracker.ledger.history.Notifications notifications;
+
+    @Test
+    void theNotificationsListAndMarksAnswer404LikeAnUnknownPathAndNoneIsWritten() throws IOException {
+        for (String[] endpoint : List.of(new String[] {"GET", "/api/notifications"},
+                new String[] {"POST", "/api/notifications/1/read"}, new String[] {"POST", "/api/notifications/read-all"})) {
+            HttpMethod method = HttpMethod.valueOf(endpoint[0]);
+            String path = endpoint[1];
+            String unknown = path.replace("/api/notifications", "/api/no-such-thing");
+            MvcTestResult answer = call(user, method, path, null);
+            assertThat(answer.getResponse().getStatus()).as(path).isEqualTo(404);
+            assertThat(Answers.rawText(answer).replace(path.substring(1), "PATH").replace(path, "PATH")).as(path)
+                    .isEqualTo(Answers.rawText(call(user, method, unknown, null)).replace(unknown.substring(1), "PATH")
+                            .replace(unknown, "PATH"));
+        }
+        // A family budget left from when it was on, with two members with an account: a writer writes nothing.
+        long family = jdbc.sql("""
+                INSERT INTO ledger (type, name, base_currency, split_rule, start_date)
+                VALUES ('SHARED', 'Home', 'EUR', 'EQUAL', DATE '2024-01-01') RETURNING id""").query(Long.class).single();
+        List<Long> members = new ArrayList<>();
+        for (String sub : List.of(user, newUser())) {
+            members.add(jdbc.sql("""
+                    INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date)
+                    VALUES (?, 'SHARED', ?, ?, 'OWNER', 'ACTIVE', DATE '2024-01-01') RETURNING id""")
+                    .params(family, sub, "M" + members.size()).query(Long.class).single());
+        }
+        new TransactionTemplate(transactions).executeWithoutResult(status -> notifications.membership(family,
+                com.example.financetracker.ledger.history.Notifications.Kind.MEMBER_JOINED, members.get(0),
+                members.get(0)));
+        assertThat(jdbc.sql("SELECT count(*) FROM notification WHERE ledger_id = ?").param(family).query(Long.class)
+                .single()).isZero();
+    }
+
     @Test
     void theRestOfTheApiWorksAndMeSaysTheSwitchIsOff() throws IOException {
         assertThat(ok(get(user, "/api/me")).get("features").get("familyLedgers").asBoolean()).isFalse();

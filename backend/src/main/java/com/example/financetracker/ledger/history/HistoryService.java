@@ -255,6 +255,14 @@ public class HistoryService {
         return committedContents.load(type, ledgerId, id);
     }
 
+    /** The ledger's revision this transaction took, if it changed a record of it (for its notification, D-1105). */
+    public java.util.OptionalLong revisionTaken(long ledgerId) {
+        State state = TransactionSynchronizationManager.isSynchronizationActive()
+                ? (State) TransactionSynchronizationManager.getResource(STATE_KEY) : null;
+        Long revision = state == null ? null : state.revisions.get(ledgerId);
+        return revision == null ? java.util.OptionalLong.empty() : java.util.OptionalLong.of(revision);
+    }
+
     private long revision(State state, long ledgerId) {
         return state.revisions.computeIfAbsent(ledgerId, l -> jdbc.sql(
                 "UPDATE ledger SET revision = revision + 1 WHERE id = :id RETURNING revision")

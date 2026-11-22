@@ -84,7 +84,9 @@ class ArchitectureTests {
         PERSON_LEVEL.put(HistoryIntegrity.class,
                 "reads every record of a ledger named by its id and its versions, for the integrity check and the tests");
         PERSON_LEVEL.put(com.example.financetracker.ledger.history.Notifications.class,
-                "the unread count of a person's notifications over all their ACTIVE family memberships, by the sub");
+                "a person's notifications over all their ACTIVE family memberships, by the sub: the unread count, the "
+                        + "list and the marks; and the writers, called by the family services with their scope's "
+                        + "ledger id");
         PERSON_LEVEL.put(HistoryJobs.class,
                 "the baseline and the purge of old sign-in events run over every ledger, on a schedule, never for a "
                         + "request");

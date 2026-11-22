@@ -12,6 +12,7 @@ import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.Today;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.history.ActivityLog;
+import com.example.financetracker.ledger.history.Notifications;
 import com.example.financetracker.ledger.access.MemberRole;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -78,9 +79,11 @@ public class FamilyMembershipService {
     private final FamilyRecordService records;
     private final Today today;
     private final ActivityLog activity;
+    private final Notifications notifications;
 
     FamilyMembershipService(JdbcClient jdbc, FamilyPostingService posting, FamilyRecordService records, Today today,
-            ActivityLog activity) {
+            ActivityLog activity, Notifications notifications) {
+        this.notifications = notifications;
         this.activity = activity;
         this.jdbc = jdbc;
         this.posting = posting;
@@ -259,6 +262,8 @@ public class FamilyMembershipService {
         // In this transaction (D-999, D-1079); the ledger's deletion below takes it along.
         activity.log(family.userId(), family.ledgerId(), "MEMBER_LEFT", ActivityLog.MEMBER, memberId,
                 Map.of("removed", !self));
+        // The others are told, in this transaction too (D-1105); the member who left, or was removed, is the author.
+        notifications.membership(family.ledgerId(), Notifications.Kind.MEMBER_LEFT, family.memberId(), memberId);
         if (!member.hasAccount() && (member.share() == null || member.share() == 0) && !named(family, memberId)) {
             // Nothing names them, so nothing would freeze or read "a member who left": they go, with the invites
             // for their place (V9).

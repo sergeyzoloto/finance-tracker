@@ -206,6 +206,12 @@ class DataIsolationApiTests extends LedgerApiTest {
                     .hasStatus(HttpStatus.NOT_FOUND);
         }
         assertThat(bobReads("/api/notifications/unread-count").get("count").asLong()).isZero();
+        // D-1107: his list is his own, and a mark of a row not his answers 404; marking all touches his rows only.
+        assertThat(bobReads("/api/notifications").get("total").asLong()).isZero();
+        long notMine = jdbc.sql("SELECT coalesce(max(id), 0) + 1000000 FROM notification").query(Long.class).single();
+        assertThat(bobsRequest(HttpMethod.POST, "/api/notifications/" + notMine + "/read", null))
+                .hasStatus(HttpStatus.NOT_FOUND);
+        assertThat(bobsRequest(HttpMethod.POST, "/api/notifications/read-all", null)).hasStatus(HttpStatus.NO_CONTENT);
         // D-1098: none of Alice's events is in Bob's activity list.
         ok(put(alice, "/api/settings/date-format", """
                 {"dateFormat": "YYYY-MM-DD"}"""));

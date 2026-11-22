@@ -29,6 +29,7 @@ import com.example.financetracker.ledger.access.LedgerInvites.Invite;
 import com.example.financetracker.ledger.access.LedgerInvites.Preview;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.history.ActivityLog;
+import com.example.financetracker.ledger.history.Notifications;
 import com.example.financetracker.ledger.access.LedgerType;
 import com.example.financetracker.ledger.family.FamilyInviteView.InviteKind;
 import com.example.financetracker.ledger.family.FamilyInviteView.InviteStatus;
@@ -95,9 +96,12 @@ public class FamilyInviteService {
     private final FamilyPostingService posting;
     private final Today today;
     private final ActivityLog activity;
+    private final Notifications notifications;
 
     FamilyInviteService(JdbcClient jdbc, LedgerInvites invites, FamilyLedgerService families,
-            LedgerCategoryRepository categories, FamilyPostingService posting, Today today, ActivityLog activity) {
+            LedgerCategoryRepository categories, FamilyPostingService posting, Today today, ActivityLog activity,
+            Notifications notifications) {
+        this.notifications = notifications;
         this.activity = activity;
         this.jdbc = jdbc;
         this.invites = invites;
@@ -345,6 +349,9 @@ public class FamilyInviteService {
         activity.log(personal.userId(), member.ledgerId(), invite.claim() ? "SEAT_CLAIMED" : "MEMBER_JOINED",
                 ActivityLog.MEMBER, member.memberId(),
                 Map.of("inviteId", invite.id(), "returned", returning != null));
+        notifications.membership(member.ledgerId(),
+                invite.claim() ? Notifications.Kind.SEAT_CLAIMED : Notifications.Kind.MEMBER_JOINED,
+                member.memberId(), member.memberId());
         Map<String, LedgerCategory> familyCategories = new HashMap<>();
         categories.findAll(member).forEach(c -> familyCategories.put(c.code(), c));
         // Same code and type: merged into the family's, which keeps its name (D-11 as amended).

@@ -23,6 +23,7 @@ import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.RuleViolationException.Violation;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.history.HistoryService;
+import com.example.financetracker.ledger.history.Notifications;
 import com.example.financetracker.ledger.history.RecordHistory;
 import com.example.financetracker.ledger.history.RecordHistory.HistoryPage;
 import com.example.financetracker.ledger.history.RecordType;
@@ -121,9 +122,11 @@ public class FamilyRecordService {
     private final FamilyTotals totals;
     private final HistoryService history;
     private final RecordHistory recordHistory;
+    private final Notifications notifications;
 
     FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, ObjectMapper json, FamilyTotals totals,
-            HistoryService history, RecordHistory recordHistory) {
+            HistoryService history, RecordHistory recordHistory, Notifications notifications) {
+        this.notifications = notifications;
         this.history = history;
         this.recordHistory = recordHistory;
         this.jdbc = jdbc;
@@ -144,7 +147,9 @@ public class FamilyRecordService {
      */
     @Transactional
     public FamilyRecordView create(LedgerScope family, LedgerScope personal, NewFamilyRecord request) {
-        return get(family, createRecord(family, personal, request));
+        long id = createRecord(family, personal, request);
+        notifications.familyChanged(family.ledgerId(), family.memberId());
+        return get(family, id);
     }
 
     /**
@@ -275,7 +280,9 @@ public class FamilyRecordService {
     @Transactional
     public FamilyRecordView update(LedgerScope family, LedgerScope personal, long recordId, Integer expectedVersion,
             FamilyRecordChanges changes) {
-        return get(family, updateRecord(family, personal, recordId, expectedVersion, changes));
+        long id = updateRecord(family, personal, recordId, expectedVersion, changes);
+        notifications.familyChanged(family.ledgerId(), family.memberId());
+        return get(family, id);
     }
 
     /** As {@link #update}, for the Excel import (D3b): no view is built. */
@@ -491,6 +498,7 @@ public class FamilyRecordService {
                 .update();
         journal(family, recordId, "DELETE", record.currency(), List.of());
         posting.post(family, recordId, new FamilyPostingService.Unchanged());
+        notifications.familyChanged(family.ledgerId(), family.memberId());
     }
 
     /**
@@ -710,7 +718,9 @@ public class FamilyRecordService {
      */
     @Transactional
     public FamilyRecordView settle(LedgerScope family, LedgerScope personal, NewSettlement request) {
-        return get(family, settleRecord(family, personal, request));
+        long id = settleRecord(family, personal, request);
+        notifications.familyChanged(family.ledgerId(), family.memberId());
+        return get(family, id);
     }
 
     /** As {@link #settle}, for the Excel import (D3b): no view is built. */

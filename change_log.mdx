@@ -3,6 +3,22 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-22 · Project subagents `developer` and `strict-reviewer` and the `/team` command
+
+Not committed yet. On the branch `claude-md-split`, staged. Settings and prompts only: no application, deploy or test change, no migration, nothing to deploy. Also records `5869981` (already committed on the branch): `CLAUDE.md` gained the product-decision rule ("Working with the owner") and `frontend/CLAUDE.md` one line on chart display.
+
+**Changes**
+- `.claude/agents/developer.md` (model `sonnet`; tools `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Bash`): implements a task from a written spec with tests, reads the folder's `CLAUDE.md` first, never commits, never writes the change log, never touches production, `data/private/` or `~/.config/finance-tracker/`, and reports changed paths and each test command with exit status and summary.
+- `.claude/agents/strict-reviewer.md` (model `opus`; tools `Read`, `Grep`, `Glob`, so it cannot edit): reviews after the tests pass against the spec and this repository's rules (money, `LedgerScope`, theme tokens, no browser clock, additive migrations), marks findings BLOCKER or MINOR and ends with `VERDICT: APPROVED` or `VERDICT: REJECTED`.
+- `.claude/commands/team.md`: `/team <task>` runs the manager, developer, reviewer workflow: spec, build, the manager re-runs the tests itself (two failed rounds stop), review (three rounds stop), then the Definition of done (change log entry, `scripts/check-forbidden-names.sh`); no commit unless asked, never the prod e2e suite or a server.
+
+**Verified**
+- Read the three files through; frontmatter fields present. Not run: no `/team` or subagent invocation was tried, and `scripts/check-forbidden-names.sh` was not run for this entry.
+
+**Open**
+- A trial `/team` run on a small task, to confirm the agents load from `.claude/agents/` and the models resolve.
+- The agent files are staged but not committed; `scripts/check-forbidden-names.sh` (tree, exit 0) must pass before the commit.
+
 ## 2026-11-21 · CLAUDE.md split into a short root file, folder files, rules and archives
 
 Not committed yet. On the branch `claude-md-split`. Documents and settings only: no application, deploy or test change, no migration, nothing to deploy.

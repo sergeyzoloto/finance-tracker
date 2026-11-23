@@ -3,6 +3,31 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-2 part 2 step 1: the History panel on records
+
+Committed on `main` in the commit `feat: the History panel on records (HIST-2 part 2, step 1)`, on top of `443d41d` (`docs: HIST-2 part 2's decisions, D-1118 to D-1121`), not pushed; the hash is the one in `git log` for that subject.
+
+**Changes**
+- `docs/adr/0006-history-versions-snapshots.md`: section 14 "HIST-2 part 2 (frontend and deploy)", in progress; the PM's decisions D-1118 to D-1121 and the manager's D-1122 to D-1128.
+- `docs/family-budget/requirements.md`: the same decisions, in the file's format.
+- `frontend/src/history.ts` and `frontend/src/HistoryPanel.tsx`: the History side panel (a sheet below 40rem): versions newest first, load more (20 per page), the baseline mark "State when history began", Import and System actors, the cause line, and "field: old → new" with human labels and money through `formatMoney`.
+- The History action on `Entries.tsx` rows and in `EntryEditor.tsx` (saved entries only), `Accounts.tsx` rows, `Categories.tsx` rows (not family categories) and the family record page `FamilyExpenses.tsx` (only with `familyLedgersOn(me)`).
+- `frontend/src/icons.tsx` and `frontend/src/index.css`: a clock icon and the panel's styles, from theme tokens only.
+- `frontend/src/UX2.test.tsx` and `frontend/src/UX4.test.tsx`: the expected button lists of a row now include History.
+- New unit tests: `frontend/src/history.test.ts` and `frontend/src/HistoryPanel.test.tsx`.
+- `frontend/src/FamilyExpenses.tsx` and its test: a family record with no category is named by its kind ("Expense" or "Income") in the heading and in the History panel's subject, not "undefined".
+- Not done: the payee History action (D-1124): it comes with a payees screen, which this step does not build.
+
+**Verified**
+- `npx vitest run` in `frontend/`: exit 0; Test Files 62 passed (62); Tests 838 passed (838).
+- `npx tsc -b` and `npm run build` in `frontend/`: exit 0 each.
+- `npm run test:guards` in `e2e/`: exit 0, 39 of 39.
+- `scripts/check-forbidden-names.sh`: exit 0, no hit.
+
+**Open**
+- The step is about 900 lines with its docs (about 860 for code and tests), above the 800 guide; the PM accepted it as one code commit.
+- The payee History action (D-1124, manager) comes with a payees screen; no such screen exists yet, so none is built here.
+
 ## 2026-11-23 · HIST-2 1b step 3: the backend map and the test catalog for HIST-2 part 1
 
 Committed on `main` in the commit `docs: backend map and test catalog for HIST-2 part 1 (1b step 3)` (on top of `b814b7e`, not pushed; the hash is the one in `git log` for that subject). Documentation only: no code, test, migration or deploy change.

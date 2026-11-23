@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { api, formatDate, useApi, type Counterparty, type Entry, type FamilyLedger } from './api'
 import { Errors, Loading } from './components'
@@ -6,6 +6,7 @@ import {
   formFromEntry, newCounterpartyNames, newForm, serverErrors, TABS, tabOf, toCommand, type EntryForm, type Tab,
 } from './entryForm'
 import { EntryFormView } from './EntryForms'
+import HistoryPanel from './HistoryPanel'
 import { counterpartyNamed, describeEntry, entryKindLabel, useLedger, type Ledger } from './ledger'
 import { useToday } from './me'
 import { formatMoney } from './money'
@@ -31,6 +32,7 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
   // Back to the list as the user left it, filters and page included.
   const back = (location.state as { from?: string } | null)?.from ?? '/entries'
 
+  const [history, setHistory] = useState(false)
   const title = <h2>{id ? 'Edit entry' : 'New entry'}</h2>
   if (error ?? entry.error) return <>{title}<Errors messages={[error ?? entry.error]} /></>
   if (!ledger || (id && !entry.data)) return <>{title}<Loading /></>
@@ -101,7 +103,17 @@ export default function EntryEditor({ families }: { families?: FamilyLedger[] })
 
   return (
     <>
-      {title}
+      {/* The History action is for a saved entry only. */}
+      {entry.data ? (
+        <div className="page-title">
+          {title}
+          <button type="button" onClick={() => setHistory(true)}>History</button>
+        </div>
+      ) : title}
+      {history && entry.data && (
+        <HistoryPanel kind="ENTRY" id={entry.data.id} subject={`Entry of ${formatDate(entry.data.entryDate)}`} ledger={ledger}
+          onClose={() => setHistory(false)} />
+      )}
       <EntryFormView
         key={entry.data ? `${entry.data.id}:${entry.data.version}` : 'new'}
         ledger={ledger}

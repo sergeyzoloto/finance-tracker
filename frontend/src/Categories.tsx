@@ -2,7 +2,8 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { api, fieldMessages, useApi, useMutation, type Category, type CategoryType } from './api'
 import { Errors, Loading } from './components'
-import { ArchiveIcon, ExternalIcon, PencilIcon, RestoreIcon } from './icons'
+import HistoryPanel from './HistoryPanel'
+import { ArchiveIcon, ExternalIcon, HistoryIcon, PencilIcon, RestoreIcon } from './icons'
 
 const SECTIONS: { type: CategoryType; title: string }[] = [
   { type: 'EXPENSE', title: 'Expenses' },
@@ -77,6 +78,7 @@ export default function Categories() {
 
 function CategoryRow({ category, onChanged }: { category: Category; onChanged: () => void }) {
   const [renaming, setRenaming] = useState(false)
+  const [history, setHistory] = useState(false)
   const { run, failure, pending, clear } = useMutation(onChanged)
 
   async function rename(event: FormEvent<HTMLFormElement>) {
@@ -124,6 +126,7 @@ function CategoryRow({ category, onChanged }: { category: Category; onChanged: (
             name={`Change ${category.name} in the family budget ${category.familyLedgerName}`}><ExternalIcon /></IconLink>
         ) : (
           <>
+            <IconButton name={`History of ${category.name}`} onClick={() => setHistory(true)}><HistoryIcon /></IconButton>
             {!renaming && !category.archived && (
               <IconButton name={`Rename ${category.name}`} onClick={() => { clear(); setRenaming(true) }}><PencilIcon /></IconButton>
             )}
@@ -136,6 +139,7 @@ function CategoryRow({ category, onChanged }: { category: Category; onChanged: (
           </>
         )}
       </td>
+      {history && <HistoryPanel kind="CATEGORY" id={category.id} subject={category.name} onClose={() => setHistory(false)} />}
     </tr>
   )
 }

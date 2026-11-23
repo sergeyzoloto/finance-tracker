@@ -161,7 +161,7 @@ describe('the Accounts page at 375 px (D-382)', () => {
       const row = (await screen.findByRole('link', { name: 'Loans given' })).closest('tr')!
       const actions = row.querySelector('td.actions')!
       expect(within(actions as HTMLElement).getAllByRole('button').map((b) => b.textContent))
-        .toEqual(['By person', 'Rename', 'Archive'])
+        .toEqual(['History', 'By person', 'Rename', 'Archive'])
     })
   }
 })

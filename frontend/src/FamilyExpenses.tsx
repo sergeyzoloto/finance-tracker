@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
-  api, ApiError, formatDate, formatInstant, useApi, type Account, type Category, type Counterparty, type FamilyJournalPage,
+  api, ApiError, familyLedgersOn, formatDate, formatInstant, useApi, type Account, type Category, type Counterparty, type FamilyJournalPage,
   type FamilyRecord, type FamilyRecordPage, type YourPayment,
 } from './api'
 import { basisPointsToPercent } from './basisPoints'
@@ -21,6 +21,8 @@ import { RECORD_NOUNS, recordTitle, recordWho, settlementSentence, shownAmount }
 import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { isRecordPage } from './guards'
 import { JournalList } from './FamilyJournal'
+import HistoryPanel from './HistoryPanel'
+import { useMe } from './me'
 import { LATER, sideLabel } from './FamilySettlement'
 import { SplitEditor } from './FamilySplit'
 import { fromMinor, parseMinor, toMinor } from './minorUnits'
@@ -133,6 +135,9 @@ export function RecordDetail({ family }: { family: FamilyData }) {
   const record = useFamilyApi<FamilyRecord>(family, valid ? `${family.path}/records/${recordId}` : null)
   const journal = useApi<FamilyJournalPage>(valid ? `${family.path}/journal?recordId=${recordId}&size=200` : null)
   const [saved, setSaved] = useState(false)
+  const [history, setHistory] = useState(false)
+  // The record's history is a family request: none, and no action, while the family budget is switched off.
+  const historyOn = familyLedgersOn(useMe().me)
   // The reader's own counterparty and payee, named on their record page by their own list (D-80, D-81).
   const own = record.data?.yourPayment
   const counterparties = useApi<Counterparty[]>(own?.counterpartyId !== undefined || own?.payeeId !== undefined ? '/counterparties' : null)
@@ -164,6 +169,8 @@ export function RecordDetail({ family }: { family: FamilyData }) {
   const me = family.ledger.memberId
   const noun = RECORD_NOUNS[r.type]
   const settlement = r.type === 'SETTLEMENT'
+  // A record with no category is named by its kind, never "undefined" (the heading and the History panel's subject).
+  const named = settlement ? 'Settlement' : (r.category?.name ?? (r.type === 'INCOME' ? 'Income' : 'Expense'))
   const payerHasAccount = family.members.some((m) => m.id === r.payer.memberId && m.hasAccount)
 
   function remove() {
@@ -200,11 +207,16 @@ export function RecordDetail({ family }: { family: FamilyData }) {
     <section>
       {back}
       <div className="page-title">
-        <h3>{settlement ? 'Settlement' : r.category?.name}, {formatDate(r.date)}</h3>
+        <h3>{named}, {formatDate(r.date)}</h3>
         {r.type === 'INCOME' && <span className="badge">Income</span>}
         {r.refund && <span className="badge">Refund</span>}
         {r.frozen && <span className="badge">Frozen</span>}
+        {historyOn && <button type="button" onClick={() => setHistory(true)}>History</button>}
       </div>
+      {historyOn && history && (
+        <HistoryPanel kind="FAMILY_RECORD" id={r.id} subject={`${named}, ${formatDate(r.date)}`}
+          onClose={() => setHistory(false)} />
+      )}
       {r.frozen && (
         <p className="notice">A member this {noun} involves has left the family budget or deleted their data, so nobody can change it.</p>
       )}

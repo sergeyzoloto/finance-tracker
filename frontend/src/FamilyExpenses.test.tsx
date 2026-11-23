@@ -305,6 +305,18 @@ describe('an expense’s page', () => {
     expect(calls.some((c) => c.url.startsWith('/api/entries') && c.url !== '/api/entries/family-payees')).toBe(false)
   })
 
+  it('names a record with no category by its kind, in the heading and in the History panel, never “undefined”', async () => {
+    detail({ category: null }, {
+      'GET /api/history/FAMILY_RECORD/5?page=0&size=20': { status: 200, body: { content: [], page: 0, size: 20, total: 0, totalPages: 0 } },
+    })
+    renderApp('/family/7/expenses/5')
+
+    expect(await screen.findByRole('heading', { name: 'Expense, Sep 12, 2026' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'History' }))
+    expect(await screen.findByText('Expense, Sep 12, 2026', { selector: 'p' })).toBeDefined()
+    expect(screen.queryByText(/undefined/)).toBeNull()
+  })
+
   it('shows “Specify later” to the payer, and no account to anyone else', async () => {
     detail({ yourPayment: { entryId: 90, accountId: null, accountName: null, later: true, amount: '1.00', currency: 'EUR' } })
     renderApp('/family/7/expenses/5')

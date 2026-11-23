@@ -8,6 +8,7 @@ import { accountDays, comparedLines, defaultCompare, totalsOf, type ComparedLine
 import { Amounts, Errors, Loading } from './components'
 import { belowMinorUnit, listedInBalances } from './dashboard'
 import DateInput from './DateInput'
+import HistoryPanel from './HistoryPanel'
 import { ACCOUNT_TYPES, TYPE_LABELS } from './ledger'
 import { useToday } from './me'
 import { formatMoney } from './money'
@@ -182,6 +183,7 @@ function AccountRow({ account, balances, days, columns, onChanged }: {
 }) {
   const [renaming, setRenaming] = useState(false)
   const [details, setDetails] = useState(false)
+  const [history, setHistory] = useState(false)
   const { run, failure, pending, clear } = useMutation(onChanged)
 
   async function rename(event: FormEvent<HTMLFormElement>) {
@@ -224,6 +226,7 @@ function AccountRow({ account, balances, days, columns, onChanged }: {
         </td>
         <Figures amounts={shown} days={days} dash />
         <td className="actions nowrap">
+          <button type="button" aria-label={`History of ${account.name}`} onClick={() => setHistory(true)}>History</button>
           {account.requiresCounterparty && !account.archived && (
             <button type="button" aria-expanded={details} onClick={() => setDetails(!details)}>By person</button>
           )}
@@ -237,6 +240,7 @@ function AccountRow({ account, balances, days, columns, onChanged }: {
           )}
         </td>
       </tr>
+      {history && <HistoryPanel kind="ACCOUNT" id={account.id} subject={account.name} onClose={() => setHistory(false)} />}
       {otherError && (
         // Such as the refusal to archive an account that still holds money (D-366), across the row under the account.
         <tr className="row-error">

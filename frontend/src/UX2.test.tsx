@@ -295,7 +295,7 @@ describe('the category lists’ buttons (D-352)', () => {
       expect(cell.closest('table')!.className).toBe('categories')
       const name = rename.getAttribute('aria-label')!.slice('Rename '.length)
       expect(within(cell).getAllByRole('button').map((b) => b.getAttribute('aria-label')))
-        .toEqual([`Rename ${name}`, `Archive ${name}`])
+        .toEqual([`History of ${name}`, `Rename ${name}`, `Archive ${name}`])
     })
   }
 })

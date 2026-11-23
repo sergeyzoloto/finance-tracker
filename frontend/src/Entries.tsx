@@ -6,6 +6,7 @@ import { AccountSelect, CategorySelect, Errors, Loading } from './components'
 import DateInput from './DateInput'
 import Breakdown from './Breakdown'
 import EntrySummaryPanel from './EntrySummaryPanel'
+import HistoryPanel from './HistoryPanel'
 import MonthlyChart from './MonthlyChart'
 import { DIRECTIONS, LIST_FILTERS, ORIGINS, toggled, valuesOf, withValue, withValues, type ListFilter } from './entryFilters'
 import { payeeFilterOf, payeeFilterOptions, payeeFilterValue, useFamilyPayees, type PayeeOption } from './familyPayees'
@@ -141,6 +142,8 @@ export default function Entries() {
   const chips = ledger ? filterChips(lists, ledger, payeeOptions) : []
   const open = (id: number) => navigate(`/entries/${id}`, { state: { from: location.pathname + location.search } })
   const data = entries.data
+  // The History panel's entry: component state, not the URL.
+  const [historyOf, setHistoryOf] = useState<{ id: number; subject: string }>()
 
   return (
     <>
@@ -243,6 +246,12 @@ export default function Entries() {
                     <td className="date nowrap">
                       <Link to={`/entries/${entry.id}`} state={{ from: location.pathname + location.search }}
                         onClick={(e) => e.stopPropagation()}>{formatDate(entry.entryDate)}</Link>
+                      <div>
+                        <button type="button" className="link small" aria-label={`History of the entry of ${formatDate(entry.entryDate)}`}
+                          onClick={(e) => { e.stopPropagation(); setHistoryOf({ id: entry.id, subject: `Entry of ${formatDate(entry.entryDate)}` }) }}>
+                          History
+                        </button>
+                      </div>
                     </td>
                     <td className="payee">
                       {summary.payee || <span className="muted">—</span>}
@@ -281,6 +290,9 @@ export default function Entries() {
       )}
       {data && data.content.length === 0 && page > 0 && (
         <button type="button" onClick={() => setPage(0)}>Back to the first page</button>
+      )}
+      {historyOf && (
+        <HistoryPanel kind="ENTRY" id={historyOf.id} subject={historyOf.subject} ledger={ledger} onClose={() => setHistoryOf(undefined)} />
       )}
     </>
   )

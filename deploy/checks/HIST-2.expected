@@ -1,0 +1,60 @@
+flyway latest 20 notifications and history reads true
+exchange_rate_source_check names CBR,ECB,MANUAL
+exchange_rate_key unique on base_currency,quote_currency,rate_date,source,user_id nulls not distinct true
+exchange_rate_owner_check names source and user_id true
+CBR rates with a user, another currency, a non-positive rate or before 2022-03-02 0
+shared rates of another source 0
+manual rates without a user 0
+unbalanced entries 0
+unique index on family_entry_link(entry_id) 1
+entries with more than one family link 0
+family links of an unknown type 0
+entries without a posting 0
+index family_entry_link_entry_id_key
+index family_entry_link_key
+index journal_entry_ledger_id_entry_date_idx
+index posting_category_id_idx
+index posting_counterparty_id_idx
+index posting_entry_id_line_no_key
+table activity_event p id,actor_sub,ledger_id,at,kind,subject_type,subject_id,revision,details
+table history_pending u tx_id,ledger_id,record_type,record_id
+table record_version p id,ledger_id,record_type,record_id,seq,revision,op,content,content_hash,content_ver,actor_kind,actor_member,at,cause,cause_batch,restored_from,tx_id
+ledger.revision bigint NO 0
+trigger account account_history
+trigger activity_event activity_event_immutable
+trigger category category_history
+trigger counterparty counterparty_history
+trigger family_record family_record_history
+trigger history_pending history_pending_check
+trigger journal_entry journal_entry_history
+trigger record_version record_version_immutable
+deferred history_pending_check true true
+function delete_family_ledger(family bigint) returns void
+function history_check() returns trigger
+function history_immutable() returns trigger
+function history_mark() returns trigger
+function release_family_memberships(sub text) returns integer
+versions after their ledger's revision 0
+records whose versions have a gap in seq 0
+versions of an unknown type or op 0
+versions that name an email-like or address-like key 0
+activity events older than 14 months 0
+activity events with an email or an address in their details 0
+pending marks left 0
+table notification p id,ledger_id,recipient_member_id,kind,author_member_id,from_revision,to_revision,changes_count,created_at,read_at
+notification columns of a text, json or binary type besides kind 0
+index notification_author_idx
+index notification_ledger_idx
+index notification_recipient_idx
+index notification_unread_idx
+notification_unread_idx is partial true
+notifications of a kind other than the five 0
+notifications whose range ends before it starts 0
+notifications whose recipient belongs to another ledger 0
+notifications to their own author 0
+notifications of a ledger that is not a family one 0
+unversioned accounts 0
+unversioned categories 0
+unversioned counterparties 0
+unversioned entries 0
+unversioned family records 0

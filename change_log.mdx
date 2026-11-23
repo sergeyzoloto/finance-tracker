@@ -3,6 +3,32 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-2 part 2 step 4: privacy text, deploy checks and the e2e spec
+
+Committed on `main` in the commit `feat: privacy text, deploy checks and the e2e spec for HIST-2 (HIST-2 part 2, step 4)`, on top of `b6aba68` (`feat: the notification badge and list (HIST-2 part 2, step 3)`), not pushed; the hash is the one in `git log` for that subject.
+
+**Changes**
+- `frontend/public/privacy.html`: two new sections, "Record history" and "Activity and notifications", outside the Family budgets section (which still matches `docs/family-budget/privacy-draft.md` word for word); a new bullet in "How long it is kept"; "Last updated" 23 November 2026 (D-1121, D-1141, D-1142).
+- `frontend/src/privacy.test.ts`: checks for the two sections, their key promises, the absence of decision numbers and technical words, and the family section's equality with the draft.
+- Deploy side, the developer's pass (see the report): `deploy/checks/HIST-2.sql` and `.expected`, the `numbers.sql` and restore-test lines, and a "Deployed revisions" stub in `deploy/RUNBOOK.md` (D-1143, D-1145).
+- E2E and docs, the developer's pass: the spec for two accounts (D-1144), `frontend-map.md`, `test-catalog.md`, and ADR section 14 as built.
+- Fixes after the first e2e runs: `e2e/specs/13-account.spec.ts` expects the Activity entry in the name menu (step 2 added it); `e2e/specs/16-history-notifications.spec.ts` matches the unread rows by their text without the end anchor (the row's button also holds the time), and its `badgeCount` reads the badge once with a short wait, since a badge that vanishes between two reads used up the poll's whole budget. No product change.
+
+**Verified**
+- `npx vitest run` in `frontend/`: exit 0; Test Files 66 passed (66); Tests 875 passed (875).
+- `npx tsc -b`, `npm run build` in `frontend/`: exit 0 each.
+- `npm run test:guards` in `e2e/`: exit 0; tests 39, pass 39, fail 0; `npx tsc --noEmit -p .` in `e2e/`: exit 0.
+- `deploy/tests/run.sh`: exit 0; 155 passed, 0 failed, of 155 cases.
+- `deploy/tests/mutate.sh`: exit 0; every mutation caught (136 lines of "caught").
+- `scripts/check-forbidden-names.sh`: exit 0, no hit.
+- `E2E_FAMILY=on npm run e2e:local` on a freshly restarted dev stack, on the tree with these fixes: exit 0; `2 passed (6.2s)` (setup and cleanup), `6 skipped` (the apex specs, which the spec skips outside production: "The apex is production's only."), `40 passed (11.5m)`; Result PASSED; 0 password hits.
+
+**Open**
+- Notifications are not deleted when a member leaves a family budget; the text says the leaver no longer sees them (D-1121 says "deleted when you leave"): the owner decides between this text and a backend change.
+- Activity events other than sign-in, sign-out and ended sessions are not purged at 13 months; they are kept until "Delete all my data" or the budget's closure (D-1121 says "13 months"): the owner decides.
+- The older privacy sections disagree on whether a leaver's name becomes "Former member" (not changed here).
+- `deploy/tests` and `deploy/tests/mutate.sh` are unchanged: HIST-1's pattern does not reach them. The notification invariant of `HIST-2.sql` was checked by hand on a throwaway database.
+
 ## 2026-11-23 · HIST-2 part 2 step 3: the notification badge and list
 
 Committed on `main` in the commit `feat: the notification badge and list (HIST-2 part 2, step 3)`, on top of `37b5322` (`feat: the Activity page (HIST-2 part 2, step 2)`), not pushed; the hash is the one in `git log` for that subject.

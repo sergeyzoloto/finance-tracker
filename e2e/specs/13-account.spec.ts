@@ -10,7 +10,7 @@ test('account', async ({ as, target }) => {
   await page.goto('/accounts')
   await expect(page.getByRole('heading', { level: 2, name: 'Accounts' })).toBeVisible()
   const menu = await userMenu(page)
-  await expect(menu.locator('li')).toHaveText(['Settings', 'Account', 'Log out'])
+  await expect(menu.locator('li')).toHaveText(['Settings', 'Account', 'Activity', 'Log out'])
   const account = menu.getByRole('link', { name: 'Account', exact: true })
   await expect(account).toHaveAttribute('href', `${target.keycloak}/realms/myapps/account?referrer=finance-tracker`)
   await expect(account).not.toHaveAttribute('target', /./)

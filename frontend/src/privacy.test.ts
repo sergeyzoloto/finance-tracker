@@ -58,7 +58,7 @@ describe('the privacy policy', () => {
   })
 
   it('has the new date, names the time zone among what is stored, and no longer says nobody else sees anything of yours', () => {
-    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 18 November 2026')
+    expect(page.querySelector('.updated')!.textContent).toBe('Last updated: 23 November 2026')
     const data = words(page.getElementById('data')!.parentElement!.textContent!)
     // D-101 (F8c): the time zone is stored with the settings, from the browser, changeable, and decides today's date.
     expect(data).toContain('Your settings include your time zone, such as Europe/Amsterdam, which the app takes from your browser the first time you use it and which you can change in Settings')
@@ -135,5 +135,47 @@ describe('the privacy policy', () => {
     const retention = words(page.getElementById('retention')!.nextElementSibling!.textContent!)
     expect(retention).toContain('Your version history is kept until you delete your data')
     expect(retention).toContain('sign-ins, sign-outs and ended sessions are kept for 13 months')
+  })
+
+  /** The text of a section, from its h2 to the next h2. */
+  function sectionText(id: string) {
+    const parts: string[] = [words(page.getElementById(id)!.textContent!)]
+    for (let node = page.getElementById(id)!.nextElementSibling; node && node.tagName !== 'H2'; node = node.nextElementSibling) {
+      parts.push(words(node.textContent!))
+    }
+    return parts.join(' ')
+  }
+
+  it('has the record history and the activity and notifications sections, outside the family budgets section (HIST-2, D-1121, D-1141, D-1142)', () => {
+    const history = sectionText('record-history')
+    const activity = sectionText('activity-notifications')
+    expect(history).toContain('Record history')
+    expect(activity).toContain('Activity and notifications')
+    // What an item holds, who sees it, how long it is kept, and the erasure.
+    expect(history).toContain('holds the record as it was after a change, with all its details, when the change was made, and who made it')
+    expect(history).toContain('seen only by the members of that family budget')
+    expect(history).toContain('Your own history is kept until you use "Delete all my data", which erases it')
+    expect(history).toContain('the changes you made stay in it, with your name replaced by "Former member" and the comments you wrote removed')
+    expect(history).toContain('until the family budget is closed')
+    expect(activity).toContain('are kept for 13 months')
+    expect(activity).toContain('"Delete all my data"')
+    expect(activity).toContain('in the app only')
+    expect(activity).toContain('holds no content of the change')
+    expect(activity).toContain('deleted when you use "Delete all my data"')
+    // Neither new section sits inside the family budgets section, which stays the draft's text.
+    const family = page.getElementById('family')!
+    expect(family.contains(page.getElementById('record-history'))).toBe(false)
+    expect(family.contains(page.getElementById('activity-notifications'))).toBe(false)
+    expect(publishedSection().join(' ')).not.toContain('Record history')
+    expect(publishedSection()).toEqual(draftSection())
+  })
+
+  it('writes the new sections in plain words: no decision number and no technical word (D-1142)', () => {
+    for (const text of [sectionText('record-history'), sectionText('activity-notifications')]) {
+      expect(text).not.toMatch(/\bD-\d+/)
+      for (const word of ['table', 'row', 'rows', 'version_id', 'kind', 'API', 'JSON', 'FAMILY_CHANGES']) {
+        expect(text).not.toMatch(new RegExp(`\\b${word}\\b`, 'i'))
+      }
+    }
   })
 })

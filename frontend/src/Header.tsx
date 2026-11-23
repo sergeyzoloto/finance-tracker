@@ -46,6 +46,7 @@ export default function Header({ families, name, accountUrl }: {
             <ul>
               <li><NavLink to="/settings">Settings</NavLink></li>
               {account && <li><a href={account}>Account</a></li>}
+              <li><NavLink to="/activity">Activity</NavLink></li>
               <li><button type="button" className="link" onClick={logOut}>Log out</button></li>
             </ul>
           </Disclosure>

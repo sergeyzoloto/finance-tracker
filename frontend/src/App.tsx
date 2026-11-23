@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router'
 import Accounts from './Accounts'
+import Activity from './Activity'
 import { familyLedgersOn, useApi, type FamilyLedger, type Me } from './api'
 import Categories from './Categories'
 import { Safe } from './components'
@@ -67,6 +68,7 @@ function Shell() {
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/categories" element={<Categories />} />
           <Route path="/rates" element={<Rates />} />
+          <Route path="/activity" element={<Activity />} />
           <Route path="/import" element={<Moved to="/settings/import" />} />
           <Route path="/export" element={<Moved to="/settings/export" />} />
           <Route path="/settings/*" element={

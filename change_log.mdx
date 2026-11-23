@@ -3,6 +3,30 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-2 part 2 step 2: the Activity page
+
+Committed on `main` in the commit `feat: the Activity page (HIST-2 part 2, step 2)`, on top of `25639a3` (`feat: the History panel on records (HIST-2 part 2, step 1)`), not pushed; the hash is the one in `git log` for that subject.
+
+**Changes**
+- `frontend/src/activity.ts`: the request path, the fixed map from each activity kind to a plain sentence (D-1131), the name fallbacks ("Former member", "Someone") and the "Other activity" fallback for an unknown kind.
+- `frontend/src/Activity.tsx`: the page at `/activity` (`App.tsx`), titled "Activity", with a session note (D-1132), a paged list with "Newer" and "Older" buttons whose page is in the URL as `?page=N` (D-1129), and the loading, empty and error states.
+- `frontend/src/Header.tsx`: an "Activity" entry in the name menu, directly above "Log out" and below "Settings" (D-1130).
+- `frontend/src/index.css`: the list's styles from theme tokens.
+- `frontend/src/UX7.test.tsx` and `frontend/src/UX15.test.tsx`: the menu's expected items include Activity.
+- New unit tests: `frontend/src/activity.test.ts` and `frontend/src/Activity.test.tsx`.
+- Review fixes: a page past the end says "No activity on this page." with its "Back to the first page" button; the range text uses the address's page; a test documents that a page number above six digits reads as page 0.
+- Not done: the end-to-end spec (step 4); no backend change.
+
+**Verified**
+- `npx vitest run` in `frontend/`: exit 0; Test Files 64 passed (64); Tests 854 passed (854).
+- `npx tsc -b` and `npm run build` in `frontend/`: exit 0 each.
+- `npm run test:guards` in `e2e/`: exit 0; tests 39, pass 39, fail 0.
+- `scripts/check-forbidden-names.sh`: exit 0, no hit.
+
+**Open**
+- The layout at 375, 1024 and 1280 px was not checked in a browser (the unit tests run in jsdom); nothing in the step's plan checks it yet.
+- The wording for the kinds the spec did not give (SESSION_ENDED, SEAT_CLAIMED, INVITE_CREATED, INVITE_REVOKED, SPLIT_RULE_RESET) is the developer's choice, listed in its report and open to the owner's review.
+
 ## 2026-11-23 · HIST-2 part 2 step 1: the History panel on records
 
 Committed on `main` in the commit `feat: the History panel on records (HIST-2 part 2, step 1)`, on top of `443d41d` (`docs: HIST-2 part 2's decisions, D-1118 to D-1121`), not pushed; the hash is the one in `git log` for that subject.

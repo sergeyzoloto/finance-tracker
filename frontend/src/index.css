@@ -761,6 +761,11 @@ td.actions .icon-button + .icon-button { margin-left: 6px; }
   .wordmark { font-size: 15px; min-height: 44px; }
 }
 
+/* The Activity page: a row per event, the sentence and its time; blocks of lines under 40rem, no sideways scroll. */
+.activity-list { list-style: none; margin: 0; padding: 0; }
+.activity-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+@media (max-width: 40rem) { .activity-row { flex-direction: column; } }
+
 /* The History panel: a right-side panel, a full-screen sheet under 40rem (the `sheet` class follows the same query).
    The dimmed page behind it is the page colour at partial opacity; no colour is written here, only tokens. */
 .history-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: flex-end; }

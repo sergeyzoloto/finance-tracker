@@ -118,7 +118,7 @@ describe('Account in the user menu (D-619)', () => {
     renderApp(ME)
     const panel = userMenu('Anna')
     const items = [...panel.querySelectorAll('li')].map((li) => li.textContent)
-    expect(items).toEqual(['Settings', 'Account', 'Log out'])
+    expect(items).toEqual(['Settings', 'Account', 'Activity', 'Log out'])
     const account = within(panel).getByRole('link', { name: 'Account' })
     expect(account.getAttribute('href')).toBe(ME.accountUrl)
     expect(account.getAttribute('target')).toBeNull()

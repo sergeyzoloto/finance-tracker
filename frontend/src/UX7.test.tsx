@@ -70,11 +70,11 @@ describe('the user’s menu (D-433, D-464; restyled by D-498)', () => {
     expect(screen.queryByRole('link', { name: 'Export' })).toBeNull()
   })
 
-  it('stays inside a family budget, with Settings alone as its link', () => {
+  it('stays inside a family budget, with Settings and Activity as its links', () => {
     stubApi()
     renderApp('/family/7/members')
     expect(within(header()).getAllByRole('button').map((b) => b.textContent)).toEqual(['Anna'])
-    expect(within(userMenu('Anna')).getAllByRole('link').map((a) => a.textContent)).toEqual(['Settings'])
+    expect(within(userMenu('Anna')).getAllByRole('link').map((a) => a.textContent)).toEqual(['Settings', 'Activity'])
   })
 
   it('gives the name as the panel’s first line, for the person icon under 40rem (D-464)', () => {

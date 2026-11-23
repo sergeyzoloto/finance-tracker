@@ -5,7 +5,8 @@ import {
   type CounterpartyBalance,
 } from './api'
 import { accountDays, comparedLines, defaultCompare, totalsOf, type ComparedLine } from './accounts'
-import { Amounts, Errors, Loading } from './components'
+import { accountCode } from './accountCode'
+import { Amounts, CurrencyInput, Errors, Loading } from './components'
 import { belowMinorUnit, listedInBalances } from './dashboard'
 import DateInput from './DateInput'
 import HistoryPanel from './HistoryPanel'
@@ -41,7 +42,11 @@ export default function Accounts() {
   const first = useApi<AccountBalance[]>(`/reports/balances?asOf=${days[0]}`)
   const second = useApi<AccountBalance[]>(comparing ? `/reports/balances?asOf=${days[1]}` : null)
   const [showArchived, setShowArchived] = useState(false)
+  const [creating, setCreating] = useState(false)
   const reload = () => { accounts.reload(); first.reload(); if (comparing) second.reload() }
+  const newButton = (
+    <button type="button" disabled={creating} onClick={() => setCreating(true)}>New account</button>
+  )
 
   const setDay = (key: 'on' | 'compare', day: string | null) => {
     const next = new URLSearchParams(params)
@@ -59,6 +64,7 @@ export default function Accounts() {
     <>
       <div className="page-title">
         <h2>Accounts</h2>
+        {newButton}
         <label className="check">
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
           Show archived{archivedCount > 0 && ` (${archivedCount})`}
@@ -76,8 +82,16 @@ export default function Accounts() {
         )}
       </div>
       <Errors messages={[error]} />
+      {creating && accounts.data && (
+        <NewAccount accounts={accounts.data} onClose={() => setCreating(false)} onCreated={reload} />
+      )}
       {!error && !loaded && <Loading what="accounts" />}
-      {accounts.data?.length === 0 && <p className="empty">You have no accounts yet.</p>}
+      {accounts.data?.length === 0 && (
+        <>
+          <p className="empty">You have no accounts yet.</p>
+          {!creating && newButton}
+        </>
+      )}
       {loaded && (
         <table className={`accounts ${comparing ? 'compared' : ''} ${first.loading || second.loading ? 'stale' : ''}`}>
           <thead>
@@ -119,6 +133,75 @@ export default function Accounts() {
         </table>
       )}
     </>
+  )
+}
+
+const CODE_OF_CURRENCY = /^[A-Z]{3}$/
+
+/**
+ * The form for a new account. Its code is made from the name (`accountCode`), avoiding the codes the page has loaded,
+ * archived accounts' too; a refusal of the server, a taken code too, is shown as it comes and not retried (D-1148).
+ */
+function NewAccount({ accounts, onClose, onCreated }: {
+  accounts: Account[]
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState<AccountType>('ASSET')
+  const [currency, setCurrency] = useState('')
+  const [perPerson, setPerPerson] = useState(false)
+  const [nameError, setNameError] = useState<string>()
+  const [currencyError, setCurrencyError] = useState<string>()
+  const { run, failure, pending, clear } = useMutation()
+  const suggestions = [...new Set(accounts.flatMap((a) => (a.defaultCurrency ? [a.defaultCurrency] : [])))].sort()
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const trimmed = name.trim()
+    setNameError(trimmed === '' ? 'Enter a name for the account.' : undefined)
+    const badCurrency = currency !== '' && !CODE_OF_CURRENCY.test(currency)
+    setCurrencyError(badCurrency ? 'Use a three-letter currency code, such as EUR.' : undefined)
+    if (trimmed === '' || badCurrency) return
+    const code = accountCode(trimmed, accounts.map((a) => a.code))
+    const body = { code, name: trimmed, type, defaultCurrency: currency === '' ? null : currency, requiresCounterparty: perPerson }
+    if (await run(() => api('/accounts', 'POST', body))) {
+      onClose()
+      onCreated()
+    }
+  }
+
+  const serverNameErrors = fieldMessages(failure, 'name')
+  const nameErrors = [...(nameError ? [nameError] : []), ...serverNameErrors]
+  const otherError = failure && serverNameErrors.length === 0 ? failure.message : undefined
+  return (
+    <form className="inline" onSubmit={create} aria-label="New account">
+      <input name="name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} autoFocus
+        aria-label="Account name" aria-invalid={nameErrors.length > 0} />
+      {nameErrors.map((m) => <small key={m} className="error" role="alert">{m}</small>)}
+      <fieldset>
+        <legend>Type</legend>
+        {ACCOUNT_TYPES.map((t) => (
+          <label key={t} className="check">
+            <input type="radio" name="type" value={t} checked={type === t} onChange={() => setType(t)} />
+            {TYPE_LABELS[t]}
+          </label>
+        ))}
+      </fieldset>
+      <CurrencyInput currencies={suggestions} value={currency} onChange={setCurrency} aria-label="Default currency"
+        name="defaultCurrency" />
+      {currencyError && <small className="error" role="alert">{currencyError}</small>}
+      <label className="check">
+        <input type="checkbox" name="requiresCounterparty" checked={perPerson}
+          onChange={(e) => setPerPerson(e.target.checked)} />
+        Per person
+      </label>
+      <small className="muted">every posting to it needs a person; its balance is kept per person</small>
+      <small className="muted">This cannot be changed later.</small>
+      {otherError && <small className="error" role="alert">{otherError}</small>}
+      <button className="primary" disabled={pending}>Create</button>
+      <button type="button" onClick={() => { clear(); onClose() }}>Cancel</button>
+    </form>
   )
 }
 

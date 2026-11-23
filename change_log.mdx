@@ -3,9 +3,38 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
-## 2026-11-23 · HIST-2 tail: notification privacy text, D-1146, 13-month rule, deploy 412b76d
+## 2026-11-23 · Accounts: a new account from the Accounts page, code generated from the name
 
 Not committed yet.
+
+**Changes**
+- `frontend/src/accountCode.ts` (new, no React): `accountCode(name, existing)` makes an account's code from its name: upper case, each run of other characters one `_`, none at either end, `ACCOUNT` where nothing is left or the first character is not a letter, cut to 40 characters, then `_2`, `_3`, … while the code is taken. Decision D-1148 (made by the manager, to be confirmed by the owner): the code is generated in the frontend, with no backend change.
+- `frontend/src/accountCode.test.ts` (new): Latin, punctuation, Cyrillic, a digit-led name, a 60-character name, collisions, and a property check that every code matches `^[A-Z][A-Z0-9_]*$` and is at most 50 characters.
+- `frontend/src/Accounts.tsx`: a "New account" button in the page title and after "You have no accounts yet."; an inline form (`NewAccount`) with Name (required, trimmed, at most 100), Type (Assets, Liabilities, Equity; default Assets), Default currency (`CurrencyInput`, may be left empty and then sent as null), and "Per person" with its hint and the note that it cannot be changed later. On submit the code comes from `accountCode` over every code the page has loaded, archived included, and `POST /api/accounts` runs through `useMutation`; on success the form closes and the page reloads. A blank name is refused on the page and nothing is sent. A 400 on the name shows under the name field; any other failure (such as a 409) shows the server's message in the form and is not retried. Show archived, balances and compare are unchanged.
+- `frontend/src/Accounts.create.test.tsx` (new): the button in both places, a blank name refused with no request, a created account listed, a 409 shown as a message, and a currency that is not three letters refused.
+- `e2e/specs/17-new-account.spec.ts` (new): on the demo, the button, the blank-name refusal, creating "Test savings" under Assets, and the same after a reload; deletes the data at the end.
+- `docs/claude/frontend-map.md`: one sentence in the Accounts entry: the form, the generated code, where the function lives.
+- No backend, database or deploy file changed.
+
+**Verified**
+- `npx vitest run src/accountCode.test.ts src/Accounts.create.test.tsx` in `frontend/`: exit 0; Test Files 2 passed (2), Tests 21 passed (21) (the developer's run).
+- `npx vitest run` in `frontend/`: exit 0; Test Files 68 passed (68), Tests 896 passed (896) (run by the manager).
+- `npx tsc -b` and `npm run build` in `frontend/`: exit 0 each (the developer's run).
+- `npx tsc --noEmit` in `e2e/`: exit 0 (the developer's run).
+- `npm run e2e:local` in `e2e/` with `E2E_FAMILY=on`: exit 0; Result PASSED; `2 passed (6.2s)` (setup and cleanup), `6 skipped` (the apex specs, which the spec skips outside production), `42 passed (11.8m)`; 0 password hits; the summary's row `new-account at 375 px` passed (the spec as run in the 375 px project; the spec itself checks no width).
+- `npm run test:guards` in `e2e/`, run alone after `e2e:local`: exit 0; tests 39, pass 39, fail 0.
+- `scripts/check-forbidden-names.sh` on the working tree: run before commit (see the commit step).
+
+**Open**
+- The developer suggests the currency list from the already-loaded accounts' default currencies, not the base currency: the page has no ledger request, and the brief forbade a new request. The owner decides whether the base currency should be suggested too.
+- The backend's 409 message names the generated code ("You have an account with the code SAVINGS already"), which the user never typed; it appears only when the loaded list is stale or another tab created the code.
+- The name input is `required`, so a real browser stops an empty submit before the page's own message; only a name of spaces reaches the message.
+- The 375 px layout of the form is checked by the e2e spec's page only by its text, not by a width check; no CSS was added, and it relies on the existing `form.inline` wrapping.
+- D-1148 is for the owner to confirm.
+
+## 2026-11-23 · HIST-2 tail: notification privacy text, D-1146, 13-month rule, deploy 412b76d
+
+Committed on `main` in the commit `docs(history): record D-1146 privacy text, 13-month retention, deploy 412b76d summary` (`551df5a`), not pushed.
 
 **Changes**
 - `docs/adr/0006-history-versions-snapshots.md`: D-1146 (after D-1042 in the decision list): the notification privacy text follows the code, with the code path named by file and method; section 7.3 states that notifications have no time limit; the bullet "Notifications about a leaver" now says the rows are kept but hidden from a leaver, and that others see the leaver's name while LEFT and "Former member" once FORMER.

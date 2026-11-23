@@ -155,7 +155,28 @@ public final class FamilyInvariants {
                 WHERE l.family_ledger_id = ? AND m.status <> 'ACTIVE' AND l.detached_at IS NULL""")
                 .param(family).query(Long.class).list()).as("attached links of members who left or deleted their "
                         + "data").isEmpty();
+        checkCounters(jdbc, family);
         return today;
+    }
+
+    /**
+     * The acceptance counters with acceptance off (HIST-3, D-1157): nothing is pending. Every ACTIVE member with an
+     * account has accepted the ledger's revision, no other member has a counter, and every attached link of a record
+     * is posted at the record's last revision.
+     */
+    public static void checkCounters(JdbcClient jdbc, long family) {
+        assertThat(jdbc.sql("""
+                SELECT m.id FROM ledger_member m JOIN ledger l ON l.id = m.ledger_id
+                WHERE m.ledger_id = ? AND CASE WHEN m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
+                                               THEN m.accepted_revision IS DISTINCT FROM l.revision
+                                               ELSE m.accepted_revision IS NOT NULL END""")
+                .param(family).query(Long.class).list()).as("members whose accepted revision isn't the ledger's")
+                .isEmpty();
+        assertThat(jdbc.sql("""
+                SELECT l.id FROM family_entry_link l JOIN family_record r ON r.id = l.record_id
+                WHERE l.family_ledger_id = ? AND l.detached_at IS NULL AND l.posted_revision <> r.last_revision""")
+                .param(family).query(Long.class).list()).as("links not posted at their record's last revision")
+                .isEmpty();
     }
 
     private static Map<Long, BigDecimal> checkOn(JdbcClient jdbc, long family, String currency, LocalDate day) {

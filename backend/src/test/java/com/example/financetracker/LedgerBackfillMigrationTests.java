@@ -379,7 +379,7 @@ class LedgerBackfillMigrationTests {
                     WHERE n.nspname = 'app' AND p.proname IN ('release_family_memberships', 'delete_family_ledger')
                     ORDER BY 1""";
             List<String> signatures = strings(functions);
-            MigrateResult v20 = flyway(null).migrate();
+            MigrateResult v20 = flyway("20").migrate();
             assertThat(v20.success).isTrue();
             assertThat(v20.targetSchemaVersion).isEqualTo("20");
             assertThat(rows()).isEqualTo(rowsBeforeV20);
@@ -405,6 +405,13 @@ class LedgerBackfillMigrationTests {
             update("UPDATE counterparty SET name = 'After V20, renamed' WHERE id = ?", payee);
             update("DELETE FROM counterparty WHERE id = ?", payee);
             assertThat(number("SELECT count(*) FROM record_version")).isZero();
+
+            // V21 (HIST-3 part 1, D-1155) is additive: three counters, no row added or removed.
+            Map<String, Long> rowsBeforeV21 = rows();
+            MigrateResult v21 = flyway(null).migrate();
+            assertThat(v21.success).isTrue();
+            assertThat(v21.targetSchemaVersion).isEqualTo("21");
+            assertThat(rows()).isEqualTo(rowsBeforeV21);
         } finally {
             db.close();
         }

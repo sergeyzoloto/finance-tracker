@@ -282,6 +282,7 @@ public class FamilyPostingService {
             }
         }
         wanted.values().forEach(entry -> writer.write(family, entry));
+        writer.stampPosted(family, recordId);
     }
 
     /**

@@ -3,6 +3,33 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-3 part 1: revision counters and the acceptance switch, dark (D-1154 to D-1158)
+
+Not committed yet.
+
+**Changes**
+- Migration `backend/src/main/resources/db/migration/V21__family_acceptance_counters.sql` (additive): `ledger_member.accepted_revision` (BIGINT NULL), `family_record.last_revision` and `family_entry_link.posted_revision` (BIGINT NOT NULL DEFAULT 0), with a backfill so that nothing is pending after it (D-1155, D-1157).
+- Writers keep the counters: family change sets set `last_revision` on the records they touch, `CrossLedgerWriter` sets `posted_revision` on the links it writes, and `accepted_revision` is set for ACTIVE members with an account; join, claim and return set the head, leave and FORMER set NULL (D-1158).
+- `FamilyAcceptanceSwitch` reads `app.family.acceptance.enabled` (env `FAMILY_ACCEPTANCE_ENABLED`, default false); nothing branches on it yet (D-1156).
+- `FamilyInvariants` checks the counters (switch off). `/api/reports/integrity` and every read statement are unchanged.
+
+- The migration's trigger `ledger_member_accepted_revision` (BEFORE INSERT OR UPDATE on `ledger_member`) sets `accepted_revision` to NULL for a row that is not an ACTIVE member with an account, and to the ledger's current revision for one that becomes one (join, claim, return). Leave, FORMER and the erasure functions are covered by it; the existing functions are not replaced.
+- `HistoryService`'s revision `UPDATE` is now a CTE that also sets `accepted_revision` for ACTIVE members of SHARED ledgers, in the change set's transaction.
+
+**Verified**
+- `cd backend && ./mvnw -B clean verify`: developer's run, exit 0, `Tests run: 816, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- `cd backend && ./mvnw test` (the CLAUDE.md command), run by the PM: exit 0, `[INFO] Tests run: 816, Failures: 0, Errors: 0, Skipped: 0`, `[INFO] BUILD SUCCESS`. The log holds `ERROR` lines from `ApiExceptionHandler` and `refused` PSQL messages from tests that expect a refusal; the summary is clean.
+- `scripts/check-forbidden-names.sh` (working tree): exit 0.
+- Strict review of this change's diff (read-only reviewer, from the diff of the paths listed above): APPROVED, no blocker.
+- `cd e2e && npm run e2e:local` (against `./dev.sh`, local only): exit 0, `2 passed (6.6s)`, `6 skipped`, `42 passed (12.1m)`, `Result: PASSED`. The apex spec (`15-apex.spec.ts`, 3 tests) is skipped in both projects; the run's log does not give the reason. Cleanup deleted the local test accounts' data.
+- `cd e2e && npm run test:guards` (run alone, after `e2e:local`): exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- The e2e suite was not run against production (`e2e:prod`), by instruction.
+
+**Open**
+- DECISION for the owner: a family category rename (`FAMILY_CATEGORY` version) takes a ledger revision and moves `accepted_revision`. This contradicts D-1014 ("renames take no revision"). With the switch off nothing differs; before acceptance is switched on (part 2), either D-1014 is changed to count category changes as revisions, or the acceptance comparison counts only record revisions. The PM's default until he answers: the code stays as it is.
+- Before acceptance is switched on: a rollback to the V20 image writes no counters, so records it changed would look pending; the V21 backfill must be re-run or a startup reconcile added (part 2).
+- ADR 0006 section 7.4 and part 2: "posted" means "checked as matching", and part 2 must ignore detached links (`family_entry_link` rows with `detached_at` set).
+
 ## 2026-11-23 · Base currency first in the new account form; the privacy draft matches the page (D-1150, D-1151)
 
 Not committed yet.

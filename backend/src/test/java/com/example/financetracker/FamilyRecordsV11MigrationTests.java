@@ -215,7 +215,7 @@ class FamilyRecordsV11MigrationTests {
                 SELECT (SELECT string_agg((to_jsonb(e) - 'import_hash' - 'import_version')::text, '|' ORDER BY e.id)
                         FROM journal_entry e)
                     || (SELECT string_agg(p::text, '|' ORDER BY p.id) FROM posting p)
-                    || (SELECT string_agg(l::text, '|' ORDER BY l.id) FROM family_entry_link l)
+                    || (SELECT string_agg((to_jsonb(l) - 'posted_revision')::text, '|' ORDER BY l.id) FROM family_entry_link l)
                     || (SELECT string_agg(s::text, '|' ORDER BY s.record_id, s.member_id) FROM family_share s)
                     || (SELECT string_agg(a::text, '|' ORDER BY a.id) FROM account a)""").getFirst();
     }

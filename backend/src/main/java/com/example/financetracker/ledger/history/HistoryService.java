@@ -264,8 +264,14 @@ public class HistoryService {
     }
 
     private long revision(State state, long ledgerId) {
-        return state.revisions.computeIfAbsent(ledgerId, l -> jdbc.sql(
-                "UPDATE ledger SET revision = revision + 1 WHERE id = :id RETURNING revision")
+        // With the revision, every ACTIVE member with an account of a family ledger has accepted it (HIST-3, D-1157):
+        // with acceptance off, each change set is posted to everybody at once. Written, never read yet.
+        return state.revisions.computeIfAbsent(ledgerId, l -> jdbc.sql("""
+                WITH taken AS (UPDATE ledger SET revision = revision + 1 WHERE id = :id RETURNING id, type, revision),
+                accepted AS (UPDATE ledger_member m SET accepted_revision = t.revision FROM taken t
+                             WHERE t.type = 'SHARED' AND m.ledger_id = t.id AND m.status = 'ACTIVE'
+                               AND m.user_sub IS NOT NULL)
+                SELECT revision FROM taken""")
                 .param("id", l).query(Long.class).single());
     }
 

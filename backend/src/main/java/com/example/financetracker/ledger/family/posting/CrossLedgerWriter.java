@@ -426,6 +426,20 @@ class CrossLedgerWriter {
         });
     }
 
+    /**
+     * The record's attached links take its last_revision (HIST-3, D-1157): they were just written, re-posted or found
+     * to hold what the record wants, so they are posted at it. Only links whose counter differs are written.
+     */
+    void stampPosted(LedgerScope family, long recordId) {
+        asWriter(family, null, () -> jdbc.sql("""
+                UPDATE family_entry_link l SET posted_revision = r.last_revision
+                FROM family_record r
+                WHERE l.family_ledger_id = :familyId AND l.record_id = :recordId AND l.detached_at IS NULL
+                  AND r.id = l.record_id AND r.ledger_id = :familyId AND l.posted_revision <> r.last_revision""")
+                .param("familyId", family.ledgerId()).param("recordId", recordId)
+                .update());
+    }
+
     /** Deletes the link and its entry, with the entry's postings. */
     void delete(LedgerScope family, Link link) {
         requireOwnIfTheirs(family, link);

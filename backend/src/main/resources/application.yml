@@ -12,6 +12,10 @@ app:
     # The family budget's feature switch (D-25, ledger.family.FamilySwitch): off by default; on in production since 2026-10-03 (deploy.sh switch on).
     # Off, the family endpoints answer 404 like unknown paths. Local runs (docker-compose.yml) and the tests turn it on.
     enabled: ${FAMILY_LEDGERS_ENABLED:false}
+    # Family acceptance (HIST-3, ledger.family.FamilyAcceptanceSwitch): off by default, and nothing reads it yet; it has
+    # no effect without the family budget's switch.
+    acceptance:
+      enabled: ${FAMILY_ACCEPTANCE_ENABLED:false}
     # Looking up, accepting and declining invites, per user and per client address (ledger.api.InviteRateLimit).
     invites:
       per-minute: 10

@@ -449,6 +449,7 @@ public class FamilyRecordService {
             }
             // A split rewritten with no field changed still changes the shares (and the record's version).
             history.changed(family.ledgerId(), RecordType.FAMILY_RECORD, recordId);
+            stampRevision(family, recordId);
         } else if (sideChanged) {
             updateSide(family, recordId, side, record.refund());
         }
@@ -2104,6 +2105,19 @@ public class FamilyRecordService {
         }
         // The dual write (ADR 0006, D-1005): the record's version, from the same state the journal describes.
         history.changed(family.ledgerId(), RecordType.FAMILY_RECORD, recordId, "CREATE".equals(action));
+        stampRevision(family, recordId);
+    }
+
+    /**
+     * The record's last_revision (HIST-3, D-1157): the revision this change set took on the ledger, before the record
+     * is posted, whose links take it from the record. None taken, nothing changed: the counter stays.
+     */
+    private void stampRevision(LedgerScope family, long recordId) {
+        history.revisionTaken(family.ledgerId()).ifPresent(revision -> jdbc.sql("""
+                UPDATE family_record SET last_revision = :revision
+                WHERE id = :recordId AND ledger_id = :ledgerId AND last_revision <> :revision""")
+                .param("revision", revision).param("recordId", recordId).param("ledgerId", family.ledgerId())
+                .update());
     }
 
     /** A change as the journal stores it: members and categories by id (topic H). */

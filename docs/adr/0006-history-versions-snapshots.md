@@ -455,7 +455,7 @@ kinds `FAMILY_CHANGES` (pending change set(s) by another member), `FAMILY_RESTOR
 and no record content; the text is made when read ("Mum changed 3 records"), names resolved then (FORMER reads
 "Former member"). In-app only: a badge in the header and a list page with Accept. Unread `FAMILY_CHANGES` from
 the same author in the same ledger are merged into one row (range widened), so a day of edits is one entry.
-HIST-2 delivers notifications as information, before acceptance exists, so the model is proven first.
+HIST-2 delivers notifications as information, before acceptance exists, so the model is proven first. Retention: no time limit; a row goes with its recipient's data, or with the budget (D-1146).
 
 ### 7.4 Cost, plainly
 
@@ -486,7 +486,7 @@ its own switch (`app.family.acceptance.enabled`, off by default, D-1023), so HIS
   (`delete_family_ledger`).
 - **Leaving (LEFT):** the name stays in the history, the personal ledger and its history stay. **Removed or FORMER:**
   the actor of old versions reads "Former member"; the leaving itself is a log event naming him by id.
-- **Notifications about a leaver** are deleted for him; others' notifications show "Former member".
+- **Notifications about a leaver** are kept in the database but are not shown to him once he has left; they go when he deletes his data or the budget is closed. Others' notifications show his name while his membership is LEFT and "Former member" once it is FORMER (D-1146).
 - **Backups** keep copies as the policy already states (14 days on the server, 60 days on the laptop, Hetzner's 7).
 - **Retention (D-993, D-1019, D-1033, D-1042):** versions are never deleted automatically. Sign-in, sign-out and
   expiry events are kept 13 months, with no IP address and no browser, and a daily job (HIST-1) deletes older ones, so
@@ -579,6 +579,7 @@ D-1039 (PM) HIST-1 is the only feature stage of its batch.
 D-1040 (PM) rollback must work after V19 (section 5.5, section 9).
 D-1041 (PM) HIST-1's acceptance numbers, on the rehearsal database, median of 3: the Entries timings within PERF-1's targets and plans, an import commit at most 20 % slower, a second import of the same file writing 0 versions and 0 revisions, the baseline job's rows, duration and idempotence, the integrity check passing after the baseline and the random tests.
 D-1042 (PM) sign-in events older than 13 months are deleted by a daily job in HIST-1; versions are never deleted automatically.
+D-1146 (manager, HIST-2 tail) the privacy text about notifications after a member leaves follows what the code does. Code path (file and method names only): `FamilyMembershipService.end` writes MEMBER_LEFT through `Notifications.membership`; recipients are fixed in `Notifications` (RECIPIENTS: the ACTIVE members with an account, never the actor or the leaver); `Notifications.page` shows only rows of ACTIVE memberships and reads the author's name at read time ("Former member" only for a FORMER or missing member); `NotificationText.of` builds the text; the only deletions are in V20's `release_family_memberships` and `delete_family_ledger` and the cascades; the only time rule is `HistoryJobs.purgeSignInEvents`. As the code does it: a leave gives one MEMBER_LEFT notification to each other member with an account, and the leaver is named there while their membership is LEFT; the leaver no longer sees their notifications but the rows are kept until "Delete all my data" or the budget's closure; a removed member with no account and no share, not named by any record, is deleted at once and its MEMBER_LEFT notification goes with it (no notification is shown for that case). No notification and no family history record expires by time. The 13 months apply to sign-in, sign-out and ended-session events only (`purgeSignInEvents`). This states what D-1121 meant by "deleted when you leave" differently: a leave does not delete notifications (D-1142 already says so).
 
 ## 11. The owner's answers (Sergey, 2026-11-18)
 

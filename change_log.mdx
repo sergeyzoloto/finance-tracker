@@ -3,6 +3,35 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-2 tail: notification privacy text, D-1146, 13-month rule, deploy 412b76d
+
+Not committed yet.
+
+**Changes**
+- `docs/adr/0006-history-versions-snapshots.md`: D-1146 (after D-1042 in the decision list): the notification privacy text follows the code, with the code path named by file and method; section 7.3 states that notifications have no time limit; the bullet "Notifications about a leaver" now says the rows are kept but hidden from a leaver, and that others see the leaver's name while LEFT and "Former member" once FORMER.
+- `frontend/public/privacy.html`, "Activity and notifications": the notice goes to the other members who have an account; after a leave the others' notifications keep the leaver's name until the leaver deletes their data; notifications have no time limit. The "Family budgets" section (matching `docs/family-budget/privacy-draft.md`) and "How long it is kept" are unchanged.
+- `deploy/RUNBOOK.md`, "Deployed revisions": the row for `412b76d` (deployed 2026-11-23, run folder `2026-11-23T114741Z-412b76d`, V20 `notification`, verify HIST-2 OK, training rollback to `2ba4902` answered "no", nothing changed); the "Not deployed yet" sentence removed.
+- `change_log.mdx`: this entry.
+- No code, migration, deploy script or test changed. The optional mutation test is skipped: there is no timer or expiry branch for notifications (see Open).
+
+**Verified**
+- Code read for the privacy text (step 1): `FamilyMembershipService.end` writes MEMBER_LEFT through `Notifications.membership`; `Notifications.page` reads only ACTIVE memberships and names an author "Former member" only when FORMER or missing; `NotificationText.of` builds the text; deletions only in V20's `release_family_memberships` and `delete_family_ledger` and the cascades.
+- 13-month rule: exists only for sign-in, sign-out, session-expired and session-ended events: `backend/src/main/java/com/example/financetracker/ledger/history/HistoryJobs.java` line 180 (`interval '13 months'`), scheduled at line 208 (daily, 05:10 UTC); kinds in `ActivityLog.java` line 38. Notifications and family history have no time limit.
+- `npx vitest run src/privacy.test.ts` in `frontend/`: exit 0; Test Files 1 passed (1), Tests 11 passed (11).
+- `npx vitest run` in `frontend/`: exit 0; Test Files 66 passed (66), Tests 875 passed (875).
+- `npm run build` in `frontend/`: exit 0.
+- `./mvnw -B clean verify` in `backend/`: exit 0; Tests run: 810, Failures: 0, Errors: 0, Skipped: 0; BUILD SUCCESS (the backend was not changed by this task; the run was made on the same tree).
+- `bash deploy/tests/run.sh`: exit 0; 155 passed, 0 failed, of 155 cases.
+- `scripts/check-forbidden-names.sh` on the working tree: exit 0, no hit.
+
+**Open**
+- The "History" section of `frontend/public/privacy.html` (line 263-264) says that when you leave a family budget your name in its history becomes "Former member". The code (`RecordHistory`, line 117) shows the name while the membership is LEFT, and "Former member" only when FORMER. Not changed here: it is history, not notifications; the owner decides the text.
+- A removed member with no account, no share and no record naming them is deleted at once, and the `MEMBER_LEFT` notification about them goes with them (`ON DELETE CASCADE` on `author_member_id`). The privacy text says the other members get a notification when a member leaves; for this case none is shown. Not changed: the text would need an edge case the owner must accept.
+- D-1121 (ADR 0006) says notifications are "deleted when you leave". The code does not delete them on leave (they are hidden). D-1146 states the code's behaviour; D-1121 is not edited.
+- Activity events other than sign-in kinds are not purged at 13 months, as D-1121 reads; the privacy page says they are kept until "Delete all my data" or the budget's closure, which is what the code does. Owner decision, as before.
+- The root `CLAUDE.md` has no revisions list; its only deploy line points to `deploy/RUNBOOK.md`, so no entry was added there.
+- Mutation test skipped: the only time-based branch is `HistoryJobs.purgeSignInEvents`, which is not used for notifications; a test of it would test a different rule and needs a production change to be a test of notifications.
+
 ## 2026-11-23 · HIST-2 part 2 step 4: privacy text, deploy checks and the e2e spec
 
 Committed on `main` in the commit `feat: privacy text, deploy checks and the e2e spec for HIST-2 (HIST-2 part 2, step 4)`, on top of `b6aba68` (`feat: the notification badge and list (HIST-2 part 2, step 3)`), not pushed; the hash is the one in `git log` for that subject.

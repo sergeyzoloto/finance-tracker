@@ -153,6 +153,19 @@ data" deletes it with the rest.
 > of a former member are kept; and whether the change journal counts as personal data of the members it
 > names.
 
+## Activity and notifications
+
+> Outside the section "Family budgets": a section of its own after it, published with HIST-2 part 2 (ADR 0006, D-1121, D-1142, D-1151).
+> `frontend/src/privacy.test.ts` compares it with the page word for word.
+
+The Activity page lists what happened around your account: when you signed in, signed out or your session ended, when you changed your settings or your exchange rates and, in a family budget you belong to, changes to its members and settings. Each event holds the time, what happened and your account’s id, but not your email, your address or your browser.
+
+Events about signing in, signing out and ended sessions are kept for 13 months and deleted after that. The other events are kept until you use “Delete all my data”, which erases every event you caused, or, for the events of a family budget, until the family budget is closed.
+
+When another member of a family budget changes its records, imports into it, joins it, leaves it or takes a place in it, the other members who have an account get a notification. A notification appears in the app only, as a badge in the header and a list; nothing is sent by email or in any other way. It holds no content of the change, only that something happened, who did it and how many changes there were; its text is made when you read it. A member who is removed and had no account, no share and no record naming them is deleted at once, and their notification about the removal goes with them.
+
+Your notifications are deleted when you use “Delete all my data”, and all notifications of a family budget are deleted when it is closed. When you leave a family budget you no longer see its notifications. A notification another member received about a change you made stays for them, with your name replaced by “Former member” once you have deleted your data. After you leave a family budget, the notifications the other members received about you keep your name until you delete your data, and the notifications you received stop showing. Notifications are not deleted after a set time: they stay until one of those things happens.
+
 ## History and sign-in events
 
 > Outside the section "Family budgets": a section of its own after it, published with HIST-1 (ADR 0006, D-1025, D-1033).

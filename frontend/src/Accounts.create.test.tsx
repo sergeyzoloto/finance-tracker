@@ -17,7 +17,10 @@ let calls: { call: string; body?: unknown }[] = []
 const posted = () => calls.filter((c) => c.call === 'POST /api/accounts')
 
 /** The stub: `list` is what GET /api/accounts answers (read at each call), `post` the answer to the POST. */
-function stubApi(list: () => Account[], post: () => { status: number; body: unknown } = () => ({ status: 201, body: {} })) {
+function stubApi(
+  list: () => Account[], post: () => { status: number; body: unknown } = () => ({ status: 201, body: {} }),
+  settings: { status: number; body: unknown } = { status: 404, body: { status: 404 } },
+) {
   calls = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
@@ -31,6 +34,7 @@ function stubApi(list: () => Account[], post: () => { status: number; body: unkn
     }
     if (path === '/api/accounts') return json(200, list())
     if (path === '/api/reports/balances') return json(200, [])
+    if (path === '/api/settings') return json(settings.status, settings.body)
     return json(404, { status: 404 })
   }))
 }
@@ -122,5 +126,45 @@ describe('New account', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(false))
     await waitFor(() => expect(listed()).toBe(before + 1))
     expect(posted()).toHaveLength(1)
+  })
+})
+
+describe('New account: currency suggestions (D-1150)', () => {
+  const withCurrency = (id: number, defaultCurrency: string | null) =>
+    ({ ...cash, id, code: `A${id}`, name: `Account ${id}`, defaultCurrency }) as Account
+  const settingsOk = { status: 200, body: { baseCurrency: 'EUR', sharedAccountId: null, defaultShareRatio: '0.50' } }
+  const suggested = () => {
+    const input = screen.getByLabelText('Default currency')
+    const list = document.getElementById(input.getAttribute('list')!)!
+    return [...list.querySelectorAll('option')].map((o) => o.getAttribute('value'))
+  }
+  const settingsAnswered = () => calls.some((c) => c.call === 'GET /api/settings')
+
+  it('puts the base currency first, then the other currencies sorted, without repeating it', async () => {
+    stubApi(() => [withCurrency(1, 'USD'), withCurrency(2, 'EUR'), withCurrency(3, 'CZK')], undefined, settingsOk)
+    renderAccounts()
+    await open()
+    await waitFor(() => expect(suggested()).toEqual(['EUR', 'CZK', 'USD']))
+  })
+
+  it('falls back to the accounts currencies, sorted, when the settings request fails, and shows no error', async () => {
+    stubApi(() => [withCurrency(1, 'USD'), withCurrency(2, 'EUR'), withCurrency(3, 'CZK')], undefined,
+      { status: 500, body: { status: 500, detail: 'settings broke' } })
+    renderAccounts()
+    await open()
+    await waitFor(settingsAnswered)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(suggested()).toEqual(['CZK', 'EUR', 'USD'])
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText(/settings broke/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('lists each currency once', async () => {
+    stubApi(() => [withCurrency(1, 'EUR'), withCurrency(2, 'USD'), withCurrency(3, 'USD'), withCurrency(4, null)],
+      undefined, settingsOk)
+    renderAccounts()
+    await open()
+    await waitFor(() => expect(suggested()).toEqual(['EUR', 'USD']))
   })
 })

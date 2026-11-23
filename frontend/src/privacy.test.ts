@@ -137,6 +137,18 @@ describe('the privacy policy', () => {
     expect(retention).toContain('sign-ins, sign-outs and ended sessions are kept for 13 months')
   })
 
+  it('publishes the activity and notifications section as the draft holds it (HIST-2 part 2, D-1151)', () => {
+    const text = draft.slice(draft.indexOf('## Activity and notifications'), draft.indexOf('## History and sign-in events'))
+    const blocks = text.split(/\n\s*\n/).slice(2).map((block) => words(block.replace(/\n/g, ' '))).filter((block) => block !== '')
+    const start = page.getElementById('activity-notifications')!
+    const published: string[] = []
+    for (let node = start.nextElementSibling; node && node.tagName !== 'H2'; node = node.nextElementSibling) {
+      published.push(words(node.textContent!))
+    }
+    expect(published).toEqual(blocks)
+    expect(published.join(' ')).toContain('A member who is removed and had no account, no share and no record naming them')
+  })
+
   /** The text of a section, from its h2 to the next h2. */
   function sectionText(id: string) {
     const parts: string[] = [words(page.getElementById(id)!.textContent!)]

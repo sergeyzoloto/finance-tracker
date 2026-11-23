@@ -3,9 +3,31 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
-## 2026-11-23 · Owner decisions D-1149, D-1150: 409 text, privacy text follows the code, spec 17 not run in production
+## 2026-11-23 · Base currency first in the new account form; the privacy draft matches the page (D-1150, D-1151)
 
 Not committed yet.
+
+**Changes**
+- `frontend/src/Accounts.tsx` (D-1150): `NewAccount` loads `/settings` once when the form opens (`useApi<Settings>('/settings')`, line 158). There is no shared settings source: `useApi` keeps its state per hook, and `ledger.ts`, the Dashboard and `NewFamily.tsx` load it on their own pages. The base currency is the first suggestion, then the distinct default currencies of the loaded accounts, sorted, with no duplicates. A failed or slow `/settings` leaves the list as the accounts' currencies; nothing is shown for it.
+- `frontend/src/Accounts.create.test.tsx`: three tests for the suggestions: the base currency first (`['EUR','CZK','USD']`), a failed `/settings` keeps the list (`['CZK','EUR','USD']`, no alert, the form works), and no duplicates (`['EUR','USD']`).
+- `docs/family-budget/privacy-draft.md` (D-1151): a new "Activity and notifications" section, before "History and sign-in events", outside the Family budgets part, with the note the other sections use and the same text as `frontend/public/privacy.html`, including the sentence on a removed member with no account, no share and no record naming them. The draft had no notifications text before; this copies the whole page section rather than one sentence, because there was no paragraph to copy the sentence into.
+- `frontend/src/privacy.test.ts`: one new test that the draft's section equals the page's section word for word, placed beside the history test. The Family budgets check and the history check are unchanged.
+- The "Not committed yet." line of the 259537a entry is replaced by its commit line.
+
+**Verified**
+- `npx vitest run` in `frontend/`: exit 0; Test Files 68 passed (68), Tests 900 passed (900).
+- `npx vitest run src/privacy.test.ts` in `frontend/`: exit 0; Tests 12 passed (12).
+- `npx tsc -b` and `npm run build` in `frontend/`: exit 0 each.
+- `npx tsc --noEmit` in `e2e/`: exit 0.
+- `e2e:local` not run: this change touches no e2e spec.
+
+**Open**
+- The reviewer's earlier nits are still open: an `aria-describedby` link from each error to its input; a test for two 409s in a row; a unit test for a trailing `_` left by the 40-character cut.
+- The sort is the default code-unit order (an editor hint suggests `localeCompare`); for the three-letter codes it makes no difference.
+
+## 2026-11-23 · Owner decisions D-1149, D-1150: 409 text, privacy text follows the code, spec 17 not run in production
+
+Committed on `main` in the commit `docs(accounts,history): owner decisions D-1149, D-1150; privacy text follows the code; spec 17 skipped in production` (`259537a`), not pushed.
 
 **Changes**
 - `frontend/src/Accounts.tsx` (D-1150): on a 409 the new account form shows "An account with this name already exists. The list has been updated; try again." and reloads the accounts list once for each failure; the generated code is never shown. The 400 handling and the other failures are unchanged. Currency suggestions: unchanged. The base currency is in `/settings`, which the Accounts page does not load; adding a request was not allowed, so the list stays the distinct default currencies of the loaded accounts.

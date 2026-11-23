@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import {
   api, ApiError, fieldMessages, formatDate, useApi, useMutation, type Account, type AccountBalance, type AccountType,
-  type CounterpartyBalance,
+  type CounterpartyBalance, type Settings,
 } from './api'
 import { accountDays, comparedLines, defaultCompare, totalsOf, type ComparedLine } from './accounts'
 import { accountCode } from './accountCode'
@@ -155,7 +155,10 @@ function NewAccount({ accounts, onClose, onCreated, onConflict }: {
   const [nameError, setNameError] = useState<string>()
   const [currencyError, setCurrencyError] = useState<string>()
   const { run, failure, pending, clear } = useMutation()
-  const suggestions = [...new Set(accounts.flatMap((a) => (a.defaultCurrency ? [a.defaultCurrency] : [])))].sort()
+  const settings = useApi<Settings>('/settings')
+  const base = settings.data?.baseCurrency
+  const others = [...new Set(accounts.flatMap((a) => (a.defaultCurrency && a.defaultCurrency !== base ? [a.defaultCurrency] : [])))].sort()
+  const suggestions = base ? [base, ...others] : others
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

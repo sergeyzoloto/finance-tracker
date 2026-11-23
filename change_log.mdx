@@ -3,9 +3,37 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
-## 2026-11-23 · Accounts: a new account from the Accounts page, code generated from the name
+## 2026-11-23 · Owner decisions D-1149, D-1150: 409 text, privacy text follows the code, spec 17 not run in production
 
 Not committed yet.
+
+**Changes**
+- `frontend/src/Accounts.tsx` (D-1150): on a 409 the new account form shows "An account with this name already exists. The list has been updated; try again." and reloads the accounts list once for each failure; the generated code is never shown. The 400 handling and the other failures are unchanged. Currency suggestions: unchanged. The base currency is in `/settings`, which the Accounts page does not load; adding a request was not allowed, so the list stays the distinct default currencies of the loaded accounts.
+- `frontend/src/Accounts.create.test.tsx`: the 409 test checks the new text, that the generated code is absent, and that the list is read again.
+- `frontend/public/privacy.html` (D-1150, D-1146; text only): the history paragraph now says that a leave keeps the name in the history while the membership is LEFT, and that "Former member" follows deleting one's data, with the comments erased on deletion only; the notifications paragraph gets one sentence on a removed member with no account, no share and no record naming them, whose notification goes with them. The "Family budgets" section is unchanged.
+- `docs/family-budget/privacy-draft.md`: the same history sentence as the page, outside its Family budgets part.
+- `docs/adr/0006-history-versions-snapshots.md` (D-1121, D-1150): the notifications are "hidden when you leave, and deleted with your data or when the budget is closed"; the note says a leave deletes none, and deletion happens only through `delete_family_ledger` and the release of memberships in V20. No decision renumbered.
+- `e2e/specs/17-new-account.spec.ts` (D-1149): a `beforeEach` skips the spec when `target.name === 'prod'`, with a comment saying why; local and test runs still run it.
+- `change_log.mdx`: the "Not committed yet." line of the 3e536b2 entry is replaced by its commit line.
+- No backend, database, Flyway or deploy file changed.
+
+**Verified**
+- `npx vitest run` in `frontend/`: exit 0; Test Files 68 passed (68), Tests 896 passed (896).
+- `npx tsc -b` in `frontend/`: exit 0. `npm run build` in `frontend/`: exit 0.
+- `npx tsc --noEmit` in `e2e/`: exit 0.
+- `npm run e2e:local` in `e2e/` with `E2E_FAMILY=on`: first run exit 1, Result FAILED: 31 passed, every failure the local invite limit of D-29 (429, "B's invite requests hit D-29's limit"), hit by the second full family run within an hour. The dev stack was restarted (`./stop.sh`, `./dev.sh`) as the e2e README says. Rerun: exit 0, Result PASSED; `2 passed (6.0s)` (setup and cleanup), `6 skipped` (the apex specs, which skip outside production), `42 passed (11.9m)`; 0 password hits.
+- `npm run test:guards` in `e2e/`, run alone after the rerun: exit 0; tests 39, pass 39, fail 0.
+- `scripts/check-forbidden-names.sh` on the working tree: exit 0, "check-forbidden-names: no hit (tree)." (run after the last edit, before the commit).
+- After the review: the `eslint-disable-line` comment on the `useEffect` in `Accounts.tsx` was removed (comment only); `npx vitest run src/Accounts.create.test.tsx` in `frontend/` re-run: exit 0 (see the commit step for the count).
+
+**Open**
+- The base-currency suggestion (D-1150) needs the Accounts page to load `/settings`, which is a new request; the owner decides whether that is acceptable.
+- The reviewer's minor points from the earlier review are still open: an `aria-describedby` link from the error text to the input, and a unit test for a trailing `_` left by the 40-character cut.
+- The reviewer's nit: a test with two 409s in a row (the once-per-failure reload) is not written; the reload is checked for one 409 only.
+
+## 2026-11-23 · Accounts: a new account from the Accounts page, code generated from the name
+
+Committed on `main` in the commit `feat(accounts): create an account from the Accounts page, code generated from the name` (`3e536b2`), not pushed.
 
 **Changes**
 - `frontend/src/accountCode.ts` (new, no React): `accountCode(name, existing)` makes an account's code from its name: upper case, each run of other characters one `_`, none at either end, `ACCOUNT` where nothing is left or the first character is not a letter, cut to 40 characters, then `_2`, `_3`, … while the code is taken. Decision D-1148 (made by the manager, to be confirmed by the owner): the code is generated in the frontend, with no backend change.

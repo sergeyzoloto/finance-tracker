@@ -165,8 +165,9 @@ data", which deletes it with the rest.
 
 The history of a family record belongs to the family budget, like the record: it is kept as long as the family budget
 exists, and it never holds your payment account, your private notes or the payees you did not choose to show. If you
-leave a family budget or delete your data, your name in it becomes "Former member", and the comments you wrote are
-erased from the history as they are from the records.
+leave a family budget, your name stays in its history while you are a member who left. If you delete your data, your
+name in it becomes "Former member", and the comments you wrote are erased from the history as they are from the
+records.
 
 The app also records when you sign in, when you sign out and when your session ends without your signing out, with the
 time and your account's id, but not your email, your address or your browser. These events are kept for 13 months and

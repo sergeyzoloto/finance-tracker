@@ -6,6 +6,11 @@ import { deleteAllMyData, expect, loadDemoData, test } from '../fixtures.ts'
 //    account is listed under Assets, and still after a reload.
 // Delete all my data at the end.
 
+test.beforeEach(({ target }) => {
+  // D-1149: this spec creates an account on the demo; production's accounts are the owner's, so it runs locally (and on the test target) only.
+  test.skip(target.name === 'prod', 'The new-account spec creates an account; production runs it never (D-1149).')
+})
+
 test('a new account from the Accounts page', async ({ as }) => {
   const a = await as('A')
   const { page } = a

@@ -105,18 +105,22 @@ describe('New account', () => {
     expect(posted()).toHaveLength(0)
   })
 
-  it('shows the server’s 409 as it comes, keeps the form and does not try again', async () => {
+  it('says a 409 neutrally, reloads the list once, keeps the form and does not try again', async () => {
     const detail = 'You have an account with the code SAVINGS already'
     stubApi(() => [cash], () => ({ status: 409, body: { status: 409, detail } }))
     renderAccounts()
     await open()
+    const listed = () => calls.filter((c) => c.call === 'GET /api/accounts').length
+    const before = listed()
     fireEvent.change(nameField(), { target: { value: 'Savings' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe(detail)
+    expect(alert.textContent).toBe('An account with this name already exists. The list has been updated; try again.')
+    expect(alert.textContent).not.toMatch(/SAVINGS/)
     expect(nameField()).toHaveProperty('value', 'Savings')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(false))
+    await waitFor(() => expect(listed()).toBe(before + 1))
     expect(posted()).toHaveLength(1)
   })
 })

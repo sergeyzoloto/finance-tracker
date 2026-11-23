@@ -1,7 +1,7 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import {
-  api, fieldMessages, formatDate, useApi, useMutation, type Account, type AccountBalance, type AccountType,
+  api, ApiError, fieldMessages, formatDate, useApi, useMutation, type Account, type AccountBalance, type AccountType,
   type CounterpartyBalance,
 } from './api'
 import { accountDays, comparedLines, defaultCompare, totalsOf, type ComparedLine } from './accounts'
@@ -83,7 +83,7 @@ export default function Accounts() {
       </div>
       <Errors messages={[error]} />
       {creating && accounts.data && (
-        <NewAccount accounts={accounts.data} onClose={() => setCreating(false)} onCreated={reload} />
+        <NewAccount accounts={accounts.data} onClose={() => setCreating(false)} onCreated={reload} onConflict={reload} />
       )}
       {!error && !loaded && <Loading what="accounts" />}
       {accounts.data?.length === 0 && (
@@ -140,12 +140,13 @@ const CODE_OF_CURRENCY = /^[A-Z]{3}$/
 
 /**
  * The form for a new account. Its code is made from the name (`accountCode`), avoiding the codes the page has loaded,
- * archived accounts' too; a refusal of the server, a taken code too, is shown as it comes and not retried (D-1148).
+ * archived accounts' too; a refusal of the server is shown as it comes and not retried; a 409 gets a neutral text and reloads the list (D-1148, D-1150).
  */
-function NewAccount({ accounts, onClose, onCreated }: {
+function NewAccount({ accounts, onClose, onCreated, onConflict }: {
   accounts: Account[]
   onClose: () => void
   onCreated: () => void
+  onConflict: () => void
 }) {
   const [name, setName] = useState('')
   const [type, setType] = useState<AccountType>('ASSET')
@@ -173,7 +174,12 @@ function NewAccount({ accounts, onClose, onCreated }: {
 
   const serverNameErrors = fieldMessages(failure, 'name')
   const nameErrors = [...(nameError ? [nameError] : []), ...serverNameErrors]
-  const otherError = failure && serverNameErrors.length === 0 ? failure.message : undefined
+  const conflict = failure instanceof ApiError && failure.status === 409
+  // A taken name or code: the list is stale, so it is read again, once for each failure (the text names no code).
+  useEffect(() => { if (conflict) onConflict() }, [failure])
+  const otherError = conflict
+    ? 'An account with this name already exists. The list has been updated; try again.'
+    : failure && serverNameErrors.length === 0 ? failure.message : undefined
   return (
     <form className="inline" onSubmit={create} aria-label="New account">
       <input name="name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} autoFocus

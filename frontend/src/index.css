@@ -782,3 +782,13 @@ td.actions .icon-button + .icon-button { margin-left: 6px; }
 .history-changes { margin-top: 0.25rem; font-size: 0.9em; }
 .history-changes li { padding: 0.1rem 0; }
 .history-more { margin: 1rem 0; }
+
+/* The notifications badge in the header and the notifications page (HIST-2 part 2, step 3). */
+.unread-badge { display: inline-flex; align-items: center; gap: 0.25rem; flex: 0 0 auto; padding: 0.2rem 0.5rem; border-radius: 999px; background: var(--accent); color: var(--on-accent); text-decoration: none; font-weight: 600; font-size: 0.85rem; }
+.notification-list { list-style: none; margin: 0; padding: 0; }
+.notification-list li { border-bottom: 1px solid var(--border); }
+.notification-item { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.25rem 1rem; width: 100%; padding: 0.6rem 0; border: 0; background: transparent; color: var(--text); text-align: left; font: inherit; overflow-wrap: anywhere; cursor: pointer; }
+.notification-item.unread .notification-text { font-weight: 700; }
+.notification-item .unread-label { color: var(--accent); font-weight: 700; font-size: 0.8rem; margin-right: 0.5rem; }
+.notification-item:disabled { cursor: progress; }
+@media (max-width: 40rem) { .notification-item { flex-direction: column; } }

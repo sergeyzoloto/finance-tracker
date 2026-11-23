@@ -4,6 +4,7 @@ import type { FamilyLedger } from './api'
 import { logOut } from './auth'
 import { SharedIcon } from './components'
 import { pageLink } from './pageState'
+import { UnreadBadge } from './unread'
 
 /** Whether a path is inside a family budget (D-435): `/family/<id>…`, not `/family/new`. */
 export const insideFamilyBudget = (pathname: string) => /^\/family\/(?!new(?:\/|$))[^/]+/.test(pathname)
@@ -19,10 +20,14 @@ export const insideFamilyBudget = (pathname: string) => /^\/family\/(?!new(?:\/|
  * @param accountUrl Keycloak's account console, `/api/me`'s (D-619): a plain link, same tab, between Settings and Log
  *        out; none without one
  */
-export default function Header({ families, name, accountUrl }: {
+export default function Header({ families, name, accountUrl, unread = null, familyOn = false }: {
   families: FamilyLedger[] | undefined | null
   name: string
   accountUrl?: string | null
+  /** The unread notifications (D-1135); none hides the badge, as does 0. */
+  unread?: number | null
+  /** Whether family budgets are on; the badge exists only then (D-1140). */
+  familyOn?: boolean
 }) {
   const { pathname, search } = useLocation()
   const [open, setOpen] = useState(false)
@@ -39,6 +44,7 @@ export default function Header({ families, name, accountUrl }: {
         <Link className="wordmark" to="/">Finance Tracker</Link>
         <div className="header-end">
           {!inside && <Link className="button primary" to="/entries/new">New entry</Link>}
+          {familyOn && <UnreadBadge count={unread} />}
           {/* Under 40rem a person icon stands for the name, which the panel's first line gives (D-464). */}
           <Disclosure open={open} onToggle={toggle} onClose={close} className="user-menu" end
             title={name} name={name} label={<><PersonIcon /><span className="user-name">{name}</span><ChevronIcon /></>}>

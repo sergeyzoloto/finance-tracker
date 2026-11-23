@@ -3,6 +3,30 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-2 part 2 step 3: the notification badge and list
+
+Committed on `main` in the commit `feat: the notification badge and list (HIST-2 part 2, step 3)`, on top of `37b5322` (`feat: the Activity page (HIST-2 part 2, step 2)`), not pushed; the hash is the one in `git log` for that subject.
+
+**Changes**
+- `frontend/src/notifications.ts`: the request paths, the destination of each kind (a membership kind to the members tab, a family change or import to the family journal) and the badge text ("99+" over 99, the accessible name).
+- `frontend/src/unread.tsx`: `useUnreadCount` (fetched when the signed-in shell mounts and when the pathname changes, and after a mark; no timer, focus or visibility trigger), the `UnreadBadge` and a refresh context (D-1134).
+- `frontend/src/Notifications.tsx`: the list at `/notifications`, with the API's text as sent, the time, unread rows marked "Unread", 50 per page with "Newer" and "Older" and the page in the URL, "Mark all as read", and opening a row marks it first and then goes to its ledger's journal or members tab; a failed mark keeps the rows and offers "Try again" (D-1136 to D-1138).
+- `frontend/src/App.tsx`: the `/notifications` route, registered only with the family switch on (D-1140).
+- `frontend/src/Header.tsx` and `frontend/src/index.css`: the badge next to the user's menu, rendered only with the family switch on, with theme tokens only (D-1135, D-1140).
+- New unit tests: `frontend/src/notifications.test.ts` and `frontend/src/Notifications.test.tsx`.
+- Not done: "Accept" (HIST-3); the user menu has no Notifications entry.
+
+**Verified**
+- `npx vitest run` in `frontend/`: exit 0; Test Files 66 passed (66); Tests 873 passed (873).
+- `npx tsc -b` and `npm run build` in `frontend/`: exit 0 each.
+- `npm run test:guards` in `e2e/`: exit 0; tests 39, pass 39, fail 0.
+- `scripts/check-forbidden-names.sh`: exit 0, no hit.
+
+**Open**
+- The developer's choices (a failed count hides the badge; "Try again" re-runs the same mark, including its navigation) are listed in its report.
+- The "no timer" test was not run against a deliberately added poll, so its power to fail is argued, not shown.
+- Browser layout at 375, 1024 and 1280 px is not checked (jsdom tests only).
+
 ## 2026-11-23 · HIST-2 part 2 step 2: the Activity page
 
 Committed on `main` in the commit `feat: the Activity page (HIST-2 part 2, step 2)`, on top of `25639a3` (`feat: the History panel on records (HIST-2 part 2, step 1)`), not pushed; the hash is the one in `git log` for that subject.

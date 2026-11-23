@@ -17,6 +17,8 @@ import NewFamily from './NewFamily'
 import { rememberPage } from './pageState'
 import Rates from './Rates'
 import Settings from './Settings'
+import Notifications from './Notifications'
+import { RefreshUnread, useUnreadCount } from './unread'
 import { ZoneHint } from './TimeZone'
 
 /**
@@ -39,6 +41,7 @@ function Shell() {
   // The family budget (D-25) exists on these screens only while the backend has it switched on: no switcher, no
   // family routes, and no request for family budgets otherwise.
   const familyOn = familyLedgersOn(me)
+  const unread = useUnreadCount(familyOn)
   const families = useApi<FamilyLedger[]>(familyOn ? '/family-ledgers' : null)
   // The switcher's list right after joining or leaving, before it has loaded again: no placeholder for a budget just
   // joined, and none left behind for one just left (F6b).
@@ -55,7 +58,9 @@ function Shell() {
   }, [update, reload])
   return (
     <>
-      <Header families={familyOn ? families.data : null} name={me.name ?? me.email ?? ''} accountUrl={me.accountUrl} />
+      <Header families={familyOn ? families.data : null} name={me.name ?? me.email ?? ''} accountUrl={me.accountUrl}
+        unread={unread.count} familyOn={familyOn} />
+      <RefreshUnread.Provider value={unread.refresh}>
       <main>
         <ZoneHint />
         {/* A page that can't read its answer shows an error with a reload link, and the header stays (F8c). */}
@@ -69,6 +74,7 @@ function Shell() {
           <Route path="/categories" element={<Categories />} />
           <Route path="/rates" element={<Rates />} />
           <Route path="/activity" element={<Activity />} />
+          {familyOn && <Route path="/notifications" element={<Notifications />} />}
           <Route path="/import" element={<Moved to="/settings/import" />} />
           <Route path="/export" element={<Moved to="/settings/export" />} />
           <Route path="/settings/*" element={
@@ -82,6 +88,7 @@ function Shell() {
         </Routes>
         </Safe>
       </main>
+      </RefreshUnread.Provider>
       <footer className="app-footer">
         <a href={PRIVACY_URL}>Privacy policy</a> · <a href={SOURCE_URL}>Source code</a> · <a href={AUTHOR_URL}>Sergey Zolotko</a>
       </footer>

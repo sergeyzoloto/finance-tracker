@@ -3,6 +3,26 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-24 · CI fix: the shared test database's connection limit raised to 300 (D-1182)
+
+Commit: see the git log for this entry's subject.
+
+**Changes**
+- `backend/src/test/java/com/example/financetracker/IntegrationTest.java`: the shared `postgres:17-alpine` test container starts with `max_connections=300` (`withCommand("postgres", "-c", "fsync=off", "-c", "max_connections=300")`, keeping the `fsync=off` that Testcontainers' default command has), in place of the default 100 (D-1182, manager). Test-only: no production code, no migration, no test removed or skipped.
+- Why: each cached Spring test context keeps its own Hikari pool of idle connections (about ten each), and the suite loads 16 contexts in one run. Measured locally on seed 195 before the change: peak 86 connections on the test server (sampled from `pg_stat_activity` every 3 seconds). CI's run of 14e6f3e failed with `FATAL: sorry, too many clients already` at seed 195.
+
+**Verified**
+- Seed 195 did not reproduce the CI failure: two local runs of `./mvnw -B verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=195` before the change, both `Tests run: 848, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`. The second one's sampled peak was 86 connections. The cause is therefore inferred from the measurement, not from a reproduced failure.
+- After the change, `cd backend && ./mvnw -B verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=195`: exit 0, `Tests run: 848, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- After the change, `cd backend && ./mvnw -B verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=196`: exit 0, `Tests run: 848, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- After the change, `cd backend && ./mvnw test` (default order): exit 0, `Tests run: 848, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- No `too many clients` line in any of the three logs.
+- `scripts/check-forbidden-names.sh`: exit 0, `check-forbidden-names: no hit (tree).`
+- `e2e:local` not run: no application code changed.
+
+**Open**
+- The CI failure itself was not reproduced locally, so the 300 limit is a headroom fix on a measured peak of 86, not a confirmed cure of the CI run. The next CI run with a new seed is the real check.
+
 ## 2026-11-24 · HIST-3 part 4: the deploy side of family acceptance, dark, and the D-1173 dry-run fix (D-1173 to D-1174, D-1175 onward)
 
 Commit: see the git log for this entry's subject.

@@ -57,7 +57,10 @@ public abstract class IntegrationTest {
     protected static final FakeKeycloak KEYCLOAK = FakeKeycloak.start();
 
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine")
+            // Every cached Spring context keeps its own Hikari pool of idle connections (about ten each); 100, the
+            // default, is not enough for the suite in every class order (CI, seed 195: "too many clients already").
+            .withCommand("postgres", "-c", "fsync=off", "-c", "max_connections=300");
 
     static {
         // The JVM runs in Pacific/Kiritimati from its start (pom.xml, user.timezone), far from UTC, so a date shifted by

@@ -15,6 +15,7 @@ import java.util.TreeSet;
 import com.example.financetracker.ledger.ConflictException;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.EntryKind;
+import com.example.financetracker.ledger.family.FamilyAcceptanceSwitch;
 import com.example.financetracker.ledger.family.posting.CrossLedgerWriter.Link;
 import com.example.financetracker.ledger.family.posting.CrossLedgerWriter.MemberLedger;
 import com.example.financetracker.ledger.family.posting.PostedEntry.Line;
@@ -129,10 +130,20 @@ public class FamilyPostingService {
 
     private final JdbcClient jdbc;
     private final CrossLedgerWriter writer;
+    private final FamilyAcceptanceSwitch acceptance;
 
-    FamilyPostingService(JdbcClient jdbc, CrossLedgerWriter writer) {
+    FamilyPostingService(JdbcClient jdbc, CrossLedgerWriter writer, FamilyAcceptanceSwitch acceptance) {
         this.jdbc = jdbc;
         this.writer = writer;
+        this.acceptance = acceptance;
+    }
+
+    /**
+     * Whom a change set by the member the scope stands for posts to (HIST-3, D-1161): with acceptance on, that member
+     * alone, the others' books waiting for their acceptance; with it off (null), every member it concerns.
+     */
+    private Long only(LedgerScope family) {
+        return acceptance.enabled() ? family.memberId() : null;
     }
 
     /**
@@ -145,8 +156,19 @@ public class FamilyPostingService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void post(LedgerScope family, long recordId, Payment payment) {
-        postRecord(family, recordId, payment);
-        openings(family);
+        Long only = only(family);
+        postRecord(family, recordId, payment, only);
+        openings(family, only);
+        if (only != null) {
+            // The actor, caught up (the author rule), has accepted the revision their change set took (D-1161).
+            jdbc.sql("""
+                    UPDATE ledger_member m SET accepted_revision = r.last_revision
+                    FROM family_record r
+                    WHERE m.id = :memberId AND m.ledger_id = :familyId AND r.id = :recordId
+                      AND r.ledger_id = :familyId AND m.accepted_revision < r.last_revision""")
+                    .param("memberId", only).param("familyId", family.ledgerId()).param("recordId", recordId)
+                    .update();
+        }
     }
 
     /**
@@ -184,9 +206,11 @@ public class FamilyPostingService {
                   AND detached_at IS NULL""")
                 .param("familyId", family.ledgerId()).param("memberId", memberId)
                 .query(Long.class).list());
+        // With acceptance on, the others' books stay as they accepted them (D-1161).
+        Long only = only(family);
         records.forEach(record -> postRecord(family, record.id(),
-                record.pays() && !attached.contains(record.id()) ? new Later(null) : new Unchanged()));
-        openings(family);
+                record.pays() && !attached.contains(record.id()) ? new Later(null) : new Unchanged(), only));
+        openings(family, only);
     }
 
     /**
@@ -202,7 +226,8 @@ public class FamilyPostingService {
         return writer.detach(family, memberId);
     }
 
-    private void postRecord(LedgerScope family, long recordId, Payment payment) {
+    /** @param only the one member it posts to (acceptance on), or null for every member it concerns */
+    private void postRecord(LedgerScope family, long recordId, Payment payment, Long only) {
         // The record's amount in its own currency (D-45), and its paying side (D-87).
         record Record(String type, LocalDate date, boolean deleted, long payerId, Long payeeId, long authorId,
                 Long categoryId, BigDecimal amount, String currency, BigDecimal originalAmount,
@@ -231,6 +256,9 @@ public class FamilyPostingService {
                 WHERE ledger_id = :familyId AND status = 'ACTIVE' AND user_sub IS NOT NULL AND join_date <= :date""")
                 .param("familyId", family.ledgerId()).param("date", record.date())
                 .query(Long.class).list());
+        if (only != null) {
+            posted.retainAll(Set.of(only));
+        }
         Map<Long, BigDecimal> shares = new LinkedHashMap<>();
         jdbc.sql("SELECT member_id, amount FROM family_share WHERE record_id = :recordId AND ledger_id = :familyId "
                 + "ORDER BY member_id")
@@ -270,6 +298,9 @@ public class FamilyPostingService {
 
         for (var entry : existing.entrySet()) {
             Link link = entry.getValue();
+            if (only != null && link.memberId() != only) {
+                continue;
+            }
             PostedEntry want = wanted.remove(entry.getKey());
             if (!link.systemOwned() && link.memberId() != family.memberId()
                     && (want == null || !writer.holds(family, link, want))) {
@@ -282,7 +313,11 @@ public class FamilyPostingService {
             }
         }
         wanted.values().forEach(entry -> writer.write(family, entry));
-        writer.stampPosted(family, recordId);
+        if (only == null) {
+            writer.stampPosted(family, recordId);
+        } else {
+            writer.stampPosted(family, recordId, only);
+        }
     }
 
     /**
@@ -297,7 +332,7 @@ public class FamilyPostingService {
      * different one is replaced and one no longer wanted goes, so a change of a record before a member's join date
      * reaches it (D-10, D-31).
      */
-    private void openings(LedgerScope family) {
+    private void openings(LedgerScope family, Long only) {
         record Joined(long memberId, LocalDate joinDate, boolean returned) {
         }
         List<Joined> joined = jdbc.sql("""
@@ -313,6 +348,9 @@ public class FamilyPostingService {
                 .query((row, n) -> new Joined(row.getLong("id"), row.getObject("join_date", LocalDate.class),
                         row.getBoolean("returned")))
                 .list();
+        if (only != null) {
+            joined = joined.stream().filter(member -> member.memberId() == only).toList();
+        }
         if (joined.isEmpty()) {
             return;
         }

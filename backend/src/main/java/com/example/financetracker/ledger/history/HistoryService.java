@@ -11,6 +11,7 @@ import java.util.Set;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.annotation.PreDestroy;
+import com.example.financetracker.ledger.family.FamilyAcceptanceSwitch;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.jdbc.JdbcConnectionDetails;
@@ -49,10 +50,13 @@ public class HistoryService {
      */
     private final HikariDataSource committedReads;
     private final RecordContents committedContents;
+    private final FamilyAcceptanceSwitch acceptance;
 
     HistoryService(JdbcClient jdbc, RecordContents contents, JdbcConnectionDetails connection,
-            ObjectProvider<ActorSource> actors, @Value("${spring.datasource.hikari.schema:app}") String schema) {
+            ObjectProvider<ActorSource> actors, @Value("${spring.datasource.hikari.schema:app}") String schema,
+            FamilyAcceptanceSwitch acceptance) {
         this.jdbc = jdbc;
+        this.acceptance = acceptance;
         this.contents = contents;
         this.actors = actors;
         HikariConfig config = new HikariConfig();
@@ -80,6 +84,8 @@ public class HistoryService {
         final Map<Long, Long> revisions = new HashMap<>();
         final Set<String> versioned = new HashSet<>();
         final Map<Long, Optional<Long>> members = new HashMap<>();
+        /** The ledgers whose revision a label-only write took, with acceptance on, until a record changes in it. */
+        final Set<Long> labelOnly = new HashSet<>();
     }
 
     private record Latest(int seq, byte[] hash, String op) {
@@ -205,7 +211,7 @@ public class HistoryService {
         if (sameAsLatest && !drifted) {
             return;
         }
-        long revision = revision(state, ledgerId);
+        long revision = revision(state, ledgerId, type);
         if (drifted) {
             // The latest version isn't what the database held: nothing wrote a version for the difference (the image
             // before HIST-1, D-1040, or a row that wasn't a record until now, such as a debt account when its member
@@ -263,9 +269,12 @@ public class HistoryService {
         return revision == null ? java.util.OptionalLong.empty() : java.util.OptionalLong.of(revision);
     }
 
-    private long revision(State state, long ledgerId) {
+    private long revision(State state, long ledgerId, RecordType type) {
+        if (acceptance.enabled()) {
+            return acceptingRevision(state, ledgerId, type);
+        }
         // With the revision, every ACTIVE member with an account of a family ledger has accepted it (HIST-3, D-1157):
-        // with acceptance off, each change set is posted to everybody at once. Written, never read yet.
+        // with acceptance off, each change set is posted to everybody at once.
         return state.revisions.computeIfAbsent(ledgerId, l -> jdbc.sql("""
                 WITH taken AS (UPDATE ledger SET revision = revision + 1 WHERE id = :id RETURNING id, type, revision),
                 accepted AS (UPDATE ledger_member m SET accepted_revision = t.revision FROM taken t
@@ -273,6 +282,38 @@ public class HistoryService {
                                AND m.user_sub IS NOT NULL)
                 SELECT revision FROM taken""")
                 .param("id", l).query(Long.class).single());
+    }
+
+    /**
+     * The revision with acceptance on (HIST-3, D-1159): a change set of records (the type that takes it, or any later
+     * write of the transaction, is a family record) is accepted by nobody here, its actor by the posting
+     * (D-1161); one that changes no record, such as a family category's rename, is accepted by the members who had
+     * accepted everything before it, and the lagging ones keep their counter.
+     */
+    private long acceptingRevision(State state, long ledgerId, RecordType type) {
+        boolean record = type == RecordType.FAMILY_RECORD;
+        Long taken = state.revisions.get(ledgerId);
+        if (taken == null) {
+            taken = jdbc.sql("""
+                    WITH taken AS (UPDATE ledger SET revision = revision + 1 WHERE id = :id RETURNING id, type, revision),
+                    accepted AS (UPDATE ledger_member m SET accepted_revision = t.revision FROM taken t
+                                 WHERE NOT :record AND t.type = 'SHARED' AND m.ledger_id = t.id
+                                   AND m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
+                                   AND m.accepted_revision = t.revision - 1)
+                    SELECT revision FROM taken""")
+                    .param("id", ledgerId).param("record", record).query(Long.class).single();
+            state.revisions.put(ledgerId, taken);
+            if (!record) {
+                state.labelOnly.add(ledgerId);
+            }
+        } else if (record && state.labelOnly.remove(ledgerId)) {
+            // A record changes after all: who the label-only start moved to it goes back (only they can be at it).
+            jdbc.sql("""
+                    UPDATE ledger_member SET accepted_revision = :revision - 1
+                    WHERE ledger_id = :id AND accepted_revision = :revision""")
+                    .param("id", ledgerId).param("revision", taken).update();
+        }
+        return taken;
     }
 
     private Long member(State state, long ledgerId) {

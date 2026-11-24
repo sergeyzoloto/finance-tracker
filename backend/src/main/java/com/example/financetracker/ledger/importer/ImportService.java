@@ -50,6 +50,7 @@ import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.ImportedCommand;
 import com.example.financetracker.ledger.domain.InvalidEntryException;
 import com.example.financetracker.ledger.domain.PostingLine;
+import com.example.financetracker.ledger.family.FamilyAcceptance;
 import com.example.financetracker.ledger.family.FamilyImportSync;
 import com.example.financetracker.ledger.family.FamilyLedgerService;
 import com.example.financetracker.ledger.family.FamilyMemberView;
@@ -137,6 +138,7 @@ public class ImportService {
     private final FamilyLedgerService familyLedgers;
     private final FamilyRecordService records;
     private final FamilyImportSync familySync;
+    private final FamilyAcceptance acceptance;
     private final ExportService exports;
     private final JdbcClient jdbc;
     private final ObjectMapper json;
@@ -147,9 +149,11 @@ public class ImportService {
     ImportService(AccountRepository accounts, LedgerCategoryRepository categories,
             CounterpartyRepository counterparties, ImportBatchRepository batches, EntryService entries,
             ReportService reports, LedgerAccess access, FamilySwitch familySwitch, FamilyLedgerService familyLedgers,
-            FamilyRecordService records, FamilyImportSync familySync, ExportService exports, JdbcClient jdbc,
-            ObjectMapper json, PlatformTransactionManager transactionManager, Notifications notifications) {
+            FamilyRecordService records, FamilyImportSync familySync, FamilyAcceptance acceptance,
+            ExportService exports, JdbcClient jdbc, ObjectMapper json, PlatformTransactionManager transactionManager,
+            Notifications notifications) {
         this.notifications = notifications;
+        this.acceptance = acceptance;
         this.accounts = accounts;
         this.categories = categories;
         this.counterparties = counterparties;
@@ -417,6 +421,10 @@ public class ImportService {
                 read("partner's transactions", partnerRows);
             }
             family = family();
+            if (commit && family != null) {
+                // D-1164: a lagging actor's commit gets the author rule's 409 before any row is written.
+                acceptance.requireCaughtUpLocked(family.scope());
+            }
             if (family != null && family.mode() == Mode.OWNER && partnerRows == null) {
                 errors.add(new Problem(null, null, "with a family budget, the partner's family rows are needed too: "
                         + "choose his transactions file"));

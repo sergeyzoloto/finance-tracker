@@ -11,6 +11,7 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import com.example.financetracker.ledger.ConflictException;
+import com.example.financetracker.ledger.family.PendingChangesException;
 import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.RuleViolationException;
 import com.example.financetracker.ledger.domain.EntryKind;
@@ -109,6 +110,10 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         if (e.code() != null) {
             // Additive (F6a): a conflict the client tells apart, such as the last owner leaving.
             problem.setProperty("code", e.code());
+        }
+        if (e instanceof PendingChangesException pending) {
+            // Additive (HIST-3): how many records wait for the member's acceptance.
+            problem.setProperty("pendingChanges", pending.pending());
         }
         return problem;
     }

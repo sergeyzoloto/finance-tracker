@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 
@@ -103,7 +104,7 @@ public final class FamilyInvariants {
                 ORDER BY 1""").param("family", family).query(String.class).list();
         for (String currency : currencies) {
             for (LocalDate day : days) {
-                today.put(currency, checkOn(jdbc, family, currency, day));
+                today.put(currency, checkOn(jdbc, family, currency, day, Set.of()));
             }
         }
         assertThat(jdbc.sql("""
@@ -179,7 +180,65 @@ public final class FamilyInvariants {
                 .isEmpty();
     }
 
-    private static Map<Long, BigDecimal> checkOn(JdbcClient jdbc, long family, String currency, LocalDate day) {
+    /**
+     * The acceptance counters with acceptance on (HIST-3, D-1159, D-1161): every ACTIVE member with an account has a
+     * counter at most the ledger's head, no other member has one; no attached link is posted beyond its record's last
+     * revision; and nothing a member has accepted is pending for them: each attached link of a record whose last
+     * revision the member has accepted is posted at it.
+     */
+    public static void checkAcceptingCounters(JdbcClient jdbc, long family) {
+        assertThat(jdbc.sql("""
+                SELECT m.id FROM ledger_member m JOIN ledger l ON l.id = m.ledger_id
+                WHERE m.ledger_id = ? AND CASE WHEN m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
+                                               THEN m.accepted_revision IS NULL OR m.accepted_revision > l.revision
+                                               ELSE m.accepted_revision IS NOT NULL END""")
+                .param(family).query(Long.class).list()).as("members whose accepted revision is missing or ahead")
+                .isEmpty();
+        assertThat(jdbc.sql("""
+                SELECT l.id FROM family_entry_link l JOIN family_record r ON r.id = l.record_id
+                WHERE l.family_ledger_id = ? AND l.detached_at IS NULL AND l.posted_revision > r.last_revision""")
+                .param(family).query(Long.class).list()).as("links posted beyond their record's last revision")
+                .isEmpty();
+        assertThat(jdbc.sql("""
+                SELECT l.id FROM family_entry_link l
+                JOIN family_record r ON r.id = l.record_id
+                JOIN ledger_member m ON m.id = l.member_id
+                WHERE l.family_ledger_id = ? AND l.detached_at IS NULL AND m.accepted_revision >= r.last_revision
+                  AND l.posted_revision <> r.last_revision""")
+                .param(family).query(Long.class).list()).as("links of accepted records not posted at their revision")
+                .isEmpty();
+    }
+
+    /**
+     * With acceptance on (HIST-3): the counters ({@link #checkAcceptingCounters}), and the debt accounts of the members
+     * who have no pending record, whose books hold every change; a member with a pending record waits for their acceptance.
+     */
+    public static void checkAccepting(JdbcClient jdbc, long family) {
+        checkAcceptingCounters(jdbc, family);
+        Set<Long> lagging = Set.copyOf(jdbc.sql("""
+                SELECT DISTINCT m.id FROM ledger_member m JOIN family_record r ON r.ledger_id = m.ledger_id
+                WHERE m.ledger_id = ? AND m.accepted_revision IS NOT NULL
+                  AND (r.last_revision > m.accepted_revision
+                       OR EXISTS (SELECT FROM family_entry_link l
+                                  WHERE l.record_id = r.id AND l.member_id = m.id AND l.detached_at IS NULL
+                                    AND l.posted_revision < r.last_revision))""")
+                .param(family).query(Long.class).list());
+        List<LocalDate> days = new ArrayList<>(jdbc.sql("""
+                SELECT DISTINCT record_date FROM family_record WHERE ledger_id = ? ORDER BY record_date""")
+                .param(family).query(LocalDate.class).list());
+        days.add(LocalDate.of(9999, 12, 31));
+        for (String currency : jdbc.sql("""
+                SELECT currency FROM family_record WHERE ledger_id = :family
+                UNION SELECT base_currency FROM ledger WHERE id = :family""").param("family", family)
+                .query(String.class).list()) {
+            for (LocalDate day : days) {
+                checkOn(jdbc, family, currency, day, lagging);
+            }
+        }
+    }
+
+    private static Map<Long, BigDecimal> checkOn(JdbcClient jdbc, long family, String currency, LocalDate day,
+            Set<Long> lagging) {
         record Member(long id, String sub, String status, LocalDate joinDate, BigDecimal balance) {
         }
         List<Member> members = jdbc.sql(BALANCES).param("family", family).param("currency", currency)
@@ -193,7 +252,8 @@ public final class FamilyInvariants {
         Map<Long, BigDecimal> balances = new LinkedHashMap<>();
         for (Member member : members) {
             balances.put(member.id(), member.balance());
-            if (member.sub() == null || !member.status().equals("ACTIVE") || day.isBefore(member.joinDate())) {
+            if (member.sub() == null || !member.status().equals("ACTIVE") || day.isBefore(member.joinDate())
+                    || lagging.contains(member.id())) {
                 continue;
             }
             BigDecimal debt = jdbc.sql("""

@@ -127,10 +127,13 @@ public class FamilyRecordService {
     private final HistoryService history;
     private final RecordHistory recordHistory;
     private final Notifications notifications;
+    private final FamilyAcceptance acceptance;
 
     FamilyRecordService(JdbcClient jdbc, FamilyPostingService posting, ObjectMapper json, FamilyTotals totals,
-            HistoryService history, RecordHistory recordHistory, Notifications notifications) {
+            HistoryService history, RecordHistory recordHistory, Notifications notifications,
+            FamilyAcceptance acceptance) {
         this.notifications = notifications;
+        this.acceptance = acceptance;
         this.history = history;
         this.recordHistory = recordHistory;
         this.jdbc = jdbc;
@@ -168,6 +171,7 @@ public class FamilyRecordService {
     private long createRecord(LedgerScope family, LedgerScope personal, NewFamilyRecord request) {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
+        acceptance.requireCaughtUp(family);
         String type = request.type();
         requireStarted(ledger, request.date(), type);
         // The record's own currency, the main currency unless chosen (D-45): its amount and its shares are in it.
@@ -300,6 +304,7 @@ public class FamilyRecordService {
             FamilyRecordChanges changes) {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
+        acceptance.requireCaughtUp(family);
         RecordRow record = lockRecord(family, recordId, expectedVersion);
         if (record.type().equals(SETTLEMENT)) {
             return updateSettlement(family, personal, ledger, record, changes);
@@ -475,6 +480,7 @@ public class FamilyRecordService {
     @Transactional
     public void delete(LedgerScope family, long recordId, Integer expectedVersion) {
         lockLedger(family);
+        acceptance.requireCaughtUp(family);
         RecordRow record = lockRecord(family, recordId, expectedVersion);
         Map<Long, Member> members = members(family);
         Member payer = members.get(record.payerId());
@@ -757,6 +763,7 @@ public class FamilyRecordService {
     private long settleRecord(LedgerScope family, LedgerScope personal, NewSettlement request) {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
+        acceptance.requireCaughtUp(family);
         requireStarted(ledger, request.date(), SETTLEMENT);
         // In one currency, the main currency unless chosen, whose balances it settles (D-46).
         String currency = request.currency() == null ? ledger.baseCurrency() : request.currency();

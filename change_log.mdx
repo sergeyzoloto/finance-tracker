@@ -3,9 +3,34 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
-## 2026-11-23 · HIST-3 part 1: revision counters and the acceptance switch, dark (D-1154 to D-1158)
+## 2026-11-23 · HIST-3 part 2: deferred family posting and the author rule, behind the acceptance switch (D-1159 to D-1165)
 
 Not committed yet.
+
+**Changes**
+- With `app.family.acceptance.enabled` on, a family record change set (create, edit, delete, settle) posts only into the actor's books, and only when the actor is caught up: `family_record.last_revision` = R, the actor's `posted_revision` = R and the actor's `accepted_revision` = R. Other members are not touched; their records are pending by the counters (D-1161).
+- Author rule: a member with pending records who creates, edits, deletes or settles a record gets 409 `FAMILY_PENDING_CHANGES` with `pendingChanges` and the message "Accept the n pending change(s) first" (D-1162). The count is `FamilyAcceptance.pendingRecords` (one statement, the D-1159 condition, detached links ignored, a member without a counter has none). The check runs under the ledger's row lock before any write and before a revision is taken.
+- Revisions (`HistoryService`): a record write advances nobody; a label-only revision (a category change) advances only members whose `accepted_revision` is the previous head (D-1159). With the switch off the SQL is the one before.
+- An Excel import commit by a lagging uploader is refused with the same 409 before any row or category is written; a dry run is unchanged (D-1164). This is the one change to the importer, made against the spec's "do not touch" because D-1164 requires the 409.
+- `AcceptanceCounters` reconciles the counters from `record_version`, the links and the head (D-1160). It refuses while the switch is on and when a member has a record pending by the stored counters (D-1165). It takes the family ledgers' row locks in id order.
+- `FamilyInvariants.checkAccepting` checks the counters and the debt accounts of members with no pending record.
+
+**Verified**
+- `cd backend && ./mvnw test` (the CLAUDE.md command): exit 0, `[INFO] Tests run: 827, Failures: 0, Errors: 0, Skipped: 0`, `[INFO] BUILD SUCCESS`.
+- Strict review: round 1 REJECTED (the import 409, the OR form of D-1159, the invariant's lagging set, the test's accept-all check), all four fixed; round 2 APPROVED, with three nits, one of which (the import's lock with the switch off) was fixed as well.
+- `cd e2e && npm run e2e:local` against `./dev.sh`, local only, after `docker restart finance-tracker-backend-1` (the local invite limit, D-29): exit 0, `2 passed (6.3s)`, `6 skipped`, `42 passed (12.0m)`, `Result: PASSED`. Two earlier runs failed the `pages` check with `502 for GET /api/me` (the api had not started yet after `./dev.sh`) and, in one, the invite limit's 429 (D-29); neither is a failure of this change, and the passing run is the one reported.
+- `cd e2e && npm run test:guards` (run alone, after the passing `e2e:local`): exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- The e2e suite was not run against production (`e2e:prod`), by instruction.
+
+**Open**
+- DECISION for the owner: a family category rename takes a ledger revision and moves the acceptance comparison (`FAMILY_CATEGORY`, part 1's open item). Part 2 follows D-1159 for it, so a lagging member keeps their counter. The owner still needs to confirm whether D-1014 should say category changes are revisions.
+- Accept itself (D-1026 catch-up), the 409's "Accept" offer (D-1027), the importer's own refusal wording and the integrity report are parts 3 and 4.
+- Before acceptance is switched on: the reconcile (D-1160) must run after a rollback to the V20 image; the deploy script's step is part 4.
+- The switch is still off; nothing in this change is deployed.
+
+## 2026-11-23 · HIST-3 part 1: revision counters and the acceptance switch, dark (D-1154 to D-1158)
+
+Committed on `main` in the commit `feat(history): revision counters and the acceptance switch, dark (HIST-3 part 1)` (`c99e972`), not pushed.
 
 **Changes**
 - Migration `backend/src/main/resources/db/migration/V21__family_acceptance_counters.sql` (additive): `ledger_member.accepted_revision` (BIGINT NULL), `family_record.last_revision` and `family_entry_link.posted_revision` (BIGINT NOT NULL DEFAULT 0), with a backfill so that nothing is pending after it (D-1155, D-1157).

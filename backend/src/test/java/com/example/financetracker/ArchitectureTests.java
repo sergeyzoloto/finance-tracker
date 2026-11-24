@@ -87,6 +87,9 @@ class ArchitectureTests {
                 "a person's notifications over all their ACTIVE family memberships, by the sub: the unread count, the "
                         + "list and the marks; and the writers, called by the family services with their scope's "
                         + "ledger id");
+        PERSON_LEVEL.put(com.example.financetracker.ledger.history.AcceptanceCounters.class,
+                "the reconcile of the acceptance counters runs over every family ledger, for the operator, never for "
+                        + "a request");
         PERSON_LEVEL.put(HistoryJobs.class,
                 "the baseline and the purge of old sign-in events run over every ledger, on a schedule, never for a "
                         + "request");

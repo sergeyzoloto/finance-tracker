@@ -440,6 +440,21 @@ class CrossLedgerWriter {
                 .update());
     }
 
+    /**
+     * As {@link #stampPosted(LedgerScope, long)}, for the member's links only: with acceptance on, a change set posts
+     * to its actor alone (HIST-3, D-1161), and the others' links keep the revision they were posted at.
+     */
+    void stampPosted(LedgerScope family, long recordId, long memberId) {
+        asWriter(family, null, () -> jdbc.sql("""
+                UPDATE family_entry_link l SET posted_revision = r.last_revision
+                FROM family_record r
+                WHERE l.family_ledger_id = :familyId AND l.record_id = :recordId AND l.member_id = :memberId
+                  AND l.detached_at IS NULL
+                  AND r.id = l.record_id AND r.ledger_id = :familyId AND l.posted_revision <> r.last_revision""")
+                .param("familyId", family.ledgerId()).param("recordId", recordId).param("memberId", memberId)
+                .update());
+    }
+
     /** Deletes the link and its entry, with the entry's postings. */
     void delete(LedgerScope family, Link link) {
         requireOwnIfTheirs(family, link);

@@ -401,6 +401,7 @@ and ADR 0003's D-10 says each member's debt account equals their family balance,
 - `ledger.revision` numbers the family ledger's change sets (section 5.4). Only changes of **records** are
   revisions: create, edit, delete, settle, import, restore. Membership changes, the split rule, member names and
   category renames are not (D-1014): they change no member's postings, or only labels.
+  Label-only changes (a family category rename, and the other changes of D-1014 that change no record) take a ledger revision and make nothing pending: a member's accepted revision advances over them only when he was caught up (D-1159).
 - `ledger_member.accepted_revision` per member with an account: the last revision whose effects his books show.
   Set to the head at join, claim and return; null for LEFT and FORMER and for members without an account.
 - Pending(m) = the change sets with revision > `accepted_revision(m)`.
@@ -410,6 +411,14 @@ and ADR 0003's D-10 says each member's debt account equals their family balance,
   live record every record changed since `accepted_revision(m)`, for m only (the existing `postRecord` already
   keys its work by member; it gets a member filter), re-run his `openings`, and set `accepted_revision` to the head.
   Because every re-post reads the live record, no "family state as of revision R" is ever needed.
+  **As built (HIST-3 part 3, D-1168, D-1167):** `POST /api/family-ledgers/{ledgerId}/accept` locks the family ledger row
+  FOR NO KEY UPDATE first, then, for the caller only (an ACTIVE member with an account; others are refused as the
+  family endpoints refuse them): re-posts each record pending for him (D-1159; created, edited, settled, or deleted by
+  removing his posting as a normal delete does), re-runs his openings, sets `posted_revision` on his links to their
+  record's `last_revision`, then sets `accepted_revision` to the ledger's current revision. It takes no ledger revision
+  and writes no record version of the family ledger. Idempotent: a caught-up member gets 200 with 0. In the same
+  transaction his unread `FAMILY_CHANGES`, `FAMILY_IMPORTED` and `FAMILY_RESTORED` notifications up to that revision are
+  marked read. With the switch off the endpoint answers 404.
 - Two additive integers make pending visible without joining versions: `family_record.last_revision` (the
   revision of its latest change) and `family_entry_link.posted_revision` (the revision an entry was posted
   from). A record is pending for m when `last_revision > posted_revision` of m's link, or when m has no link and
@@ -791,3 +800,13 @@ Not done in part 2: the payees' History action (D-1124: no screen lists payees a
 - D-1163 (manager, HIST-3 part 2) a deleted family record is recognised by its soft delete (deleted_at set, V7) and its last_revision, which the delete moves like any change; no new table. Other members' links to it are pending by D-1159 until they accept (part 3).
 - D-1164 (manager, HIST-3 part 2) an Excel import commit by a lagging actor goes through the same posting path and gets the same 409 (`FAMILY_PENDING_CHANGES`); the importer's own refusal text is part 3 and is not written here.
 - D-1165 (manager, HIST-3 part 2) the reconcile of D-1160 (`AcceptanceCounters`) refuses on the counters as stored, before it recomputes them: a member with a record whose last_revision is above their accepted_revision, or an attached link posted below its record's last_revision. The recomputed counters would refuse the rollback case itself (the V20 image writes no counter, so links look stale), and the stored check still refuses real lag from a switch-on period. The importer's commit (D-1164) takes the author rule's check under the ledger lock at its start, before any row or category is written, so a lagging uploader gets 409 FAMILY_PENDING_CHANGES.
+
+### 14.z HIST-3 part 3 (D-1166 to D-1172)
+
+- D-1166 (PM, HIST-3 part 3) HIST-3 deploys dark: the existing e2e specs 03, 04, 05, 07 and 09 stay on switch OFF and unchanged; adapting them is the later "turn acceptance on in production" step, not part of HIST-3. Part 4 adds one new local spec and the deploy script's switch.
+- D-1167 (PM proposal, HIST-3 part 3) a successful accept marks the accepting member's unread FAMILY_CHANGES, FAMILY_IMPORTED and FAMILY_RESTORED notifications of that ledger with to_revision at most the head he accepted as read. Nothing else about notifications changes.
+- D-1168 (manager, HIST-3 part 3) the Accept action (POST /api/family-ledgers/{ledgerId}/accept): one transaction, the family ledger's row lock first; for the calling ACTIVE member with an account only; re-posts into his books only every record with a pending change (D-1159), created, edited, deleted (soft: his posting is removed as a normal delete does) or settled; re-runs his openings; sets posted_revision on his links and then accepted_revision to the ledger's current revision. It takes no ledger revision. Idempotent: a caught-up member gets 200 with 0. Returns the number of records accepted. With the switch off the endpoint answers 404 as an unknown path does.
+- D-1169 (manager, HIST-3 part 3) the pending marks on the family records list and detail: pendingForMe is computed by one batched statement per page, over the page's record ids and the caller's member row; with the switch off it is false and no statement runs.
+- D-1170 (manager, HIST-3 part 3) the pending summary (GET /api/family-ledgers/{ledgerId}/pending) answers the count and the ids of the caller's pending records; with the switch off it answers 404 as an unknown path does.
+- D-1171 (manager, HIST-3 part 3) the integrity report with the switch on: a member with pending records shows pendingChanges with its count and his debt-versus-family-balance comparison is skipped; a caught-up member is compared as before. With the switch off the output is byte-for-byte as now.
+- D-1172 (manager, HIST-3 part 3) the importer's dry run by a lagging uploader lists the pending changes as a named note, which does not fail the run: "N family changes are waiting for you; accept them before committing". The commit refusal of D-1164 is unchanged.

@@ -47,6 +47,8 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  * @param lockedBy for a settlement, the other side, who has put their part on an account of theirs, so that its date
  *        and amount don't change and it isn't deleted until they move it back to "Specify later" (D-28, additive);
  *        only in the answers of who would otherwise change it, and left out for everyone else and every other record
+ * @param pendingForMe whether the record has a change the member who reads has not accepted yet (HIST-3, additive);
+ *        always false while family acceptance is off
  */
 public record FamilyRecordView(long id, String type, LocalDate date, CategoryRef category, BigDecimal amount,
         String currency, String comment, MemberRef payer, String splitMethod, List<ShareView> shares,
@@ -55,7 +57,7 @@ public record FamilyRecordView(long id, String type, LocalDate date, CategoryRef
         @JsonInclude(Include.NON_NULL) YourPayment yourPayment, @JsonInclude(Include.NON_NULL) MemberRef payee,
         @JsonInclude(Include.NON_NULL) MemberRef lockedBy, boolean refund,
         @JsonInclude(Include.NON_NULL) MemberRef importedBy, @JsonInclude(Include.NON_NULL) Instant importedAt,
-        @JsonInclude(Include.NON_NULL) String paymentPayee) {
+        @JsonInclude(Include.NON_NULL) String paymentPayee, boolean pendingForMe) {
 
     /**
      * The payer's own view of their payment (D-16): their payment entry in their personal ledger, and the account they

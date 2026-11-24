@@ -18,13 +18,16 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
  *        ledger, as are the three fields after it
  * @param debtBalance the displayed balance of the member's debt account for the family budget, in {@code currency}
  * @param familyBalance the member's balance in the family budget, in {@code currency}
+ * @param pendingChanges with family acceptance on, for a member with changes of the family budget they have not
+ *        accepted yet: how many records have them; their debt account is not compared until they accept. Left out
+ *        otherwise (HIST-3, additive)
  */
 public record IntegrityViolation(@JsonInclude(Include.NON_NULL) String currency, BigDecimal postingSum, BigDecimal balanceSheetGap,
         @JsonInclude(Include.NON_NULL) Long familyLedgerId, @JsonInclude(Include.NON_NULL) String familyLedgerName,
         @JsonInclude(Include.NON_NULL) BigDecimal debtBalance,
         @JsonInclude(Include.NON_NULL) BigDecimal familyBalance,
         @JsonInclude(Include.NON_NULL) String historyRecordType, @JsonInclude(Include.NON_NULL) Long historyRecordId,
-        @JsonInclude(Include.NON_NULL) String historyProblem) {
+        @JsonInclude(Include.NON_NULL) String historyProblem, @JsonInclude(Include.NON_NULL) Integer pendingChanges) {
 
     public IntegrityViolation {
         postingSum = Money.normalize(postingSum);
@@ -35,19 +38,25 @@ public record IntegrityViolation(@JsonInclude(Include.NON_NULL) String currency,
 
     /** A currency in which the ledger doesn't add up. */
     public IntegrityViolation(String currency, BigDecimal postingSum, BigDecimal balanceSheetGap) {
-        this(currency, postingSum, balanceSheetGap, null, null, null, null, null, null, null);
+        this(currency, postingSum, balanceSheetGap, null, null, null, null, null, null, null, null);
     }
 
     /** A family difference (D-10) of one currency. */
     public IntegrityViolation(String currency, BigDecimal postingSum, BigDecimal balanceSheetGap, Long familyLedgerId,
             String familyLedgerName, BigDecimal debtBalance, BigDecimal familyBalance) {
         this(currency, postingSum, balanceSheetGap, familyLedgerId, familyLedgerName, debtBalance, familyBalance, null,
-                null, null);
+                null, null, null);
     }
 
     /** A record whose history doesn't match it (HIST-1, ADR 0006); asked for with {@code history=true}. */
     public static IntegrityViolation history(String recordType, long recordId, String problem) {
         return new IntegrityViolation(null, BigDecimal.ZERO, BigDecimal.ZERO, null, null, null, null, recordType,
-                recordId, problem);
+                recordId, problem, null);
+    }
+
+    /** A family membership whose changes wait for the member's acceptance (HIST-3), not compared meanwhile. */
+    public static IntegrityViolation pending(long familyLedgerId, String familyLedgerName, int pendingChanges) {
+        return new IntegrityViolation(null, BigDecimal.ZERO, BigDecimal.ZERO, familyLedgerId, familyLedgerName, null,
+                null, null, null, null, pendingChanges);
     }
 }

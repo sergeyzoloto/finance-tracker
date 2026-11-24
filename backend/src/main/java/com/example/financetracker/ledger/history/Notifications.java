@@ -5,6 +5,7 @@ import java.sql.Types;
 import java.util.List;
 
 import com.example.financetracker.ledger.NotFoundException;
+import com.example.financetracker.ledger.access.LedgerScope;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -118,6 +119,19 @@ public class Notifications {
         if (familyOn) {
             insert(ledgerId, kind, actor, author, null);
         }
+    }
+
+    /**
+     * After the member the scope stands for accepted up to {@code head} (D-1167): their unread notifications of the
+     * ledger's changes, imports and restores up to it are read. Their others stay as they are.
+     */
+    public void accepted(LedgerScope family, long head) {
+        jdbc.sql("""
+                UPDATE notification SET read_at = now()
+                WHERE recipient_member_id = :memberId AND ledger_id = :ledgerId AND read_at IS NULL
+                  AND kind IN ('FAMILY_CHANGES', 'FAMILY_IMPORTED', 'FAMILY_RESTORED') AND to_revision <= :head""")
+                .param("memberId", family.memberId()).param("ledgerId", family.ledgerId()).param("head", head)
+                .update();
     }
 
     private void insert(long ledgerId, Kind kind, long actor, long author, Long revision) {

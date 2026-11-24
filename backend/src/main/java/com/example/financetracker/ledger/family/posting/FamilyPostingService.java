@@ -172,6 +172,20 @@ public class FamilyPostingService {
     }
 
     /**
+     * The member's accept (HIST-3, D-1168): the records pending for the member the scope stands for posted again into
+     * their books alone, as their change sets would have posted them, and their opening balance again (D-18). The
+     * caller holds the family ledger's row lock.
+     *
+     * @param recordIds the records pending for them, by id
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void accept(LedgerScope family, List<Long> recordIds) {
+        long memberId = family.memberId();
+        recordIds.forEach(recordId -> postRecord(family, recordId, new Unchanged(), memberId));
+        openings(family, memberId);
+    }
+
+    /**
      * Posts the family ledger to the member the scope stands for, who has just joined (F5; D-18, ADR 0003 topic E):
      * their debt account; every record dated on or after their join date in which they have a share, or which they paid,
      * received or settled while they had no account, their side of it on their "Payments without a specified account"

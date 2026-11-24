@@ -3,9 +3,36 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-23 · HIST-3 part 3: family acceptance, the Accept action and the pending summary behind the switch (D-1166 to D-1172)
+
+Commit: see the git log for this entry's subject.
+
+**Changes**
+- `POST /api/family-ledgers/{ledgerId}/accept` (`FamilyAcceptanceController`, D-1168): locks the family ledger first, then re-posts into the caller's books only the records pending for him (D-1159): created, edited, settled, or deleted by removing his posting as a normal delete does; re-runs his openings; sets his links' `posted_revision` and then his `accepted_revision` to the ledger's revision. It takes no ledger revision. Idempotent (a caught-up member gets 200 with 0). Returns `accepted` and `revision`.
+- The accept marks the caller's unread `FAMILY_CHANGES`, `FAMILY_IMPORTED` and `FAMILY_RESTORED` notifications of that ledger, up to the accepted revision, as read (D-1167).
+- `GET /api/family-ledgers/{ledgerId}/pending` answers `count` and `recordIds` of the caller's pending records (D-1170). The family records list and detail carry `pendingForMe`, from one batched statement per page (D-1169).
+- The integrity report, with the switch on, gives a member with pending records a `pendingChanges` row and skips that member's debt-versus-balance comparison (D-1171). With the switch off the output is unchanged.
+- An Excel dry run by a lagging uploader lists "N family changes are waiting for you; accept them before committing" as a warning (D-1172). The commit refusal of part 2 (D-1164) is unchanged.
+- Tests: `FamilyAcceptApiTests`, `FamilyAcceptanceOffApiTests`, `AcceptImportApiTests`, and the three `Family*RandomAcceptingTests`, which rerun the random family classes with the switch on and every member accepting before the invariants (`AcceptingMode`). The random classes take a protected `invariants` hook; its default is the old call.
+
+**Verified**
+- `cd backend && ./mvnw test` (the CLAUDE.md command): exit 0, `[INFO] Tests run: 845, Failures: 0, Errors: 0, Skipped: 0`, `[INFO] BUILD SUCCESS`. Run again after the review's no-op assertion and its unused variable were removed from `FamilyAcceptApiTests`: exit 0, `Tests run: 845, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`.
+- `cd e2e && npm run e2e:local` against `./dev.sh`, after `docker restart finance-tracker-backend-1`: exit 0, `2 passed (6.4s)`, `6 skipped`, `42 passed (12.1m)`, `Result: PASSED`. The family specs run with the switch off, unchanged.
+- `cd e2e && npm run test:guards` (run alone, after the passing `e2e:local`): exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- `scripts/check-forbidden-names.sh` (working tree): exit 0, `no hit (tree)`.
+- Strict review of the full diff: REJECTED for the missing change log entry (now written) and for the dry-run question below; the no-op assertion was removed. The rest of the findings were checked and accepted. The two edits since the review (the test, this entry) were not re-reviewed.
+- The performance of the family page's new batched statement was not measured on a restored dump; it was reasoned from its primary-key lookups and the EXISTS by record.
+- The e2e suite was not run against production (`e2e:prod`), by instruction.
+
+**Open**
+- DECISION for the owner: a lagging uploader's dry run still lists each family row as a row error ("Accept the 1 pending change first", the part 2 author rule), next to the new warning. The run stays `DRY_RUN` and writes nothing. D-1172 reads as a non-failing note; the owner should confirm whether the per-row errors stay or go.
+- The random second mode runs with the switch on and all members accepting, not with the switch off.
+- Part 4: the family tab's pending marks and the 409's "Accept" offer (D-1027), the deploy script's switch, the one new local spec (D-1166), and the reconcile step before switching on.
+- Nothing is deployed; the switch is off in production.
+
 ## 2026-11-23 · HIST-3 part 2: deferred family posting and the author rule, behind the acceptance switch (D-1159 to D-1165)
 
-Not committed yet.
+Committed on `main` in the commit `feat(history): deferred family posting and the author rule behind the acceptance switch (HIST-3 part 2)` (`5eab7d9`), not pushed.
 
 **Changes**
 - With `app.family.acceptance.enabled` on, a family record change set (create, edit, delete, settle) posts only into the actor's books, and only when the actor is caught up: `family_record.last_revision` = R, the actor's `posted_revision` = R and the actor's `accepted_revision` = R. Other members are not touched; their records are pending by the counters (D-1161).

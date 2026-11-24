@@ -101,7 +101,7 @@ class FamilyClaimRandomTests extends LedgerApiTest {
                     ? settle(actor, uri, self.get(actor), pick(List.of(kid, gran)), cash.get(actor))
                     : record(actor, uri, payer, self.get(actor), cash.get(actor), category);
             records.add(body(answer, HttpStatus.CREATED).get("id").asLong());
-            FamilyInvariants.check(jdbc, family);
+            invariants(family);
         }
 
         long seat = random.nextBoolean() ? kid : gran;
@@ -252,7 +252,7 @@ class FamilyClaimRandomTests extends LedgerApiTest {
     }
 
     private void check(long family, String... users) throws IOException {
-        FamilyInvariants.check(jdbc, family);
+        invariants(family);
         for (String user : users) {
             assertThat(ok(get(user, "/api/reports/integrity"))).as("integrity of %s", user).isEmpty();
         }
@@ -260,5 +260,13 @@ class FamilyClaimRandomTests extends LedgerApiTest {
 
     private <T> T pick(List<T> values) {
         return values.get(random.nextInt(values.size()));
+    }
+
+    /**
+     * The family ledger's invariants after a step ({@link FamilyInvariants#check}); the accepting mode (HIST-3) has
+     * every member accept first.
+     */
+    protected Map<Long, BigDecimal> invariants(long family) throws IOException {
+        return FamilyInvariants.check(jdbc, family);
     }
 }

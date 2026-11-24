@@ -155,7 +155,7 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
             assertThat(status).as("operation %d (%s): %s", i, what, Answers.rawText(answer))
                     .isIn(200, 201, 204, 409, 422);
             done.merge(status >= 400 ? "refused" : what, 1, Integer::sum);
-            FamilyInvariants.check(jdbc, family);
+            invariants(family);
             checkHistory(family);
             for (String user : users) {
                 checkPersonalHistory(user);
@@ -289,5 +289,13 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
 
     private <T> T pick(List<T> values) {
         return values.get(random.nextInt(values.size()));
+    }
+
+    /**
+     * The family ledger's invariants after a step ({@link FamilyInvariants#check}); the accepting mode (HIST-3) has
+     * every member accept first.
+     */
+    protected Map<Long, BigDecimal> invariants(long family) throws IOException {
+        return FamilyInvariants.check(jdbc, family);
     }
 }

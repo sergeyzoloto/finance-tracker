@@ -28,6 +28,7 @@ import com.example.financetracker.ledger.SettingsService;
 import com.example.financetracker.ledger.UserSettings;
 import com.example.financetracker.ledger.UserSettingsRepository;
 import com.example.financetracker.ledger.access.LedgerAccess;
+import com.example.financetracker.ledger.family.FamilyAcceptance;
 import com.example.financetracker.ledger.history.HistoryIntegrity;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.access.LedgerType;
@@ -73,11 +74,13 @@ public class ReportService {
     private final LedgerAccess access;
     private final FamilyRecordService records;
     private final FamilySwitch familySwitch;
+    private final FamilyAcceptance acceptance;
 
     ReportService(JdbcClient jdbc, AccountRepository accounts, UserSettingsRepository settings,
             SettingsService settingsService, RateService rates, LedgerAccess access, FamilyRecordService records,
-            FamilySwitch familySwitch, HistoryIntegrity history) {
+            FamilySwitch familySwitch, HistoryIntegrity history, FamilyAcceptance acceptance) {
         this.history = history;
+        this.acceptance = acceptance;
         this.jdbc = jdbc;
         this.accounts = accounts;
         this.settings = settings;
@@ -685,7 +688,13 @@ public class ReportService {
                 .list());
         if (ledger.type() == LedgerType.PERSONAL) {
             for (LedgerScope family : access.families(ledger.userId())) {
-                violations.addAll(familyDifferences(ledger, family));
+                // With acceptance on, a member's books wait for their acceptance: their pending changes instead.
+                int pending = acceptance.pendingForMe(family).size();
+                if (pending > 0) {
+                    violations.add(IntegrityViolation.pending(family.ledgerId(), familyName(family), pending));
+                } else {
+                    violations.addAll(familyDifferences(ledger, family));
+                }
             }
         }
         return violations;
@@ -741,14 +750,18 @@ public class ReportService {
             BigDecimal debt = debts.getOrDefault(currency, BigDecimal.ZERO);
             if (debt.compareTo(familyBalance) != 0) {
                 if (name == null) {
-                    name = jdbc.sql("SELECT name FROM ledger WHERE id = :familyId")
-                            .param("familyId", family.ledgerId()).query(String.class).single();
+                    name = familyName(family);
                 }
                 differences.add(new IntegrityViolation(currency, BigDecimal.ZERO, BigDecimal.ZERO, family.ledgerId(),
                         name, debt, familyBalance));
             }
         }
         return differences;
+    }
+
+    private String familyName(LedgerScope family) {
+        return jdbc.sql("SELECT name FROM ledger WHERE id = :familyId")
+                .param("familyId", family.ledgerId()).query(String.class).single();
     }
 
     /** The currencies of the amounts, and the one they are converted to. */

@@ -2059,6 +2059,8 @@ public class FamilyRecordService {
         // The settlements locked by their other side (D-28), for who would otherwise change them.
         Map<Long, Long> placed = placedSides(family, rows.stream()
                 .filter(row -> row.type().equals(SETTLEMENT) && maySettle(family, row)).map(RecordRow::id).toList());
+        // The records with a change the caller has not accepted (HIST-3): one statement for the page, none while off.
+        Set<Long> pending = acceptance.pendingAmong(family, rows.stream().map(RecordRow::id).toList());
         List<Long> joinOrder = new ArrayList<>(members.keySet());
         return rows.stream().map(row -> {
             // In the record's own currency (D-45).
@@ -2088,7 +2090,8 @@ public class FamilyRecordService {
                             payment.accountName(), payment.later(), inMinorUnits(payment.amount(), payment.currency()),
                             payment.currency(), payment.counterpartyId(), payment.payeeId()),
                     ref(members, row.payeeId()), lockedBy == null ? null : ref(members, lockedBy), row.refund(),
-                    ref(members, row.importedById()), row.importedAt(), payees.get(row.id()));
+                    ref(members, row.importedById()), row.importedAt(), payees.get(row.id()),
+                    pending.contains(row.id()));
         }).toList();
     }
 

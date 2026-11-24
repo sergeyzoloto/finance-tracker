@@ -192,7 +192,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                         // The lock (D-28): its date and amount wait for the other side.
                         assertThat(answer).hasStatus(HttpStatus.CONFLICT);
                         done.merge("locked", 1, Integer::sum);
-                        FamilyInvariants.check(jdbc, family);
+                        invariants(family);
                         continue;
                     }
                     changed = ok(answer);
@@ -268,7 +268,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
                 live.remove(record.id());
                 done.merge("delete", 1, Integer::sum);
             }
-            FamilyInvariants.check(jdbc, family);
+            invariants(family);
             // HIST-1: every record's latest version is the record, and the history says what the ledger held (the
             // oracle: a copy every tenth operation, compared at the end with the versions at its revision).
             checkHistory(family);
@@ -296,7 +296,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         assertThat(live.values()).filteredOn(record -> record.type().equals("INCOME")).isNotEmpty();
         assertThat(settlements).hasSize(20);
         assertThat(settlements.values()).extracting(Settlement::currency).contains("EUR", "USD");
-        Map<Long, BigDecimal> balances = FamilyInvariants.check(jdbc, family);
+        Map<Long, BigDecimal> balances = invariants(family);
         JsonNode answered = ok(get(bob, uri + "/balances")).get("byCurrency").get(0).get("members");
         for (JsonNode member : answered) {
             assertThat(new BigDecimal(member.get("balance").asText())).as(member.get("displayName").asText())
@@ -393,5 +393,13 @@ class FamilyRecordRandomTests extends LedgerApiTest {
 
     private <T> T pick(List<T> values) {
         return values.get(random.nextInt(values.size()));
+    }
+
+    /**
+     * The family ledger's invariants after a step ({@link FamilyInvariants#check}); the accepting mode (HIST-3) has
+     * every member accept first.
+     */
+    protected Map<Long, BigDecimal> invariants(long family) throws IOException {
+        return FamilyInvariants.check(jdbc, family);
     }
 }

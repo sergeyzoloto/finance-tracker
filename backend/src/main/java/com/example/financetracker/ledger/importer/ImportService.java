@@ -425,6 +425,14 @@ public class ImportService {
                 // D-1164: a lagging actor's commit gets the author rule's 409 before any row is written.
                 acceptance.requireCaughtUpLocked(family.scope());
             }
+            if (!commit && family != null) {
+                // A lagging uploader's dry run says what their commit would wait for; it doesn't fail the run.
+                int pending = acceptance.pendingForMe(family.scope()).size();
+                if (pending > 0) {
+                    warnings.add(new Problem(null, null, ("%d family changes are waiting for you; accept them before "
+                            + "committing").formatted(pending)));
+                }
+            }
             if (family != null && family.mode() == Mode.OWNER && partnerRows == null) {
                 errors.add(new Problem(null, null, "with a family budget, the partner's family rows are needed too: "
                         + "choose his transactions file"));

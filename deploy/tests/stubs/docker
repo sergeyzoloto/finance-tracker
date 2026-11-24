@@ -94,6 +94,10 @@ inspect() {
       head -n 1 "$f"
       if [ "$(wc -l <"$f")" -gt 1 ]; then sed -i 1d "$f"; fi
       ;;
+    *.Config.Env*FAMILY_ACCEPTANCE_ENABLED*)
+      # HIST-3: that one variable, or nothing.
+      grep '^FAMILY_ACCEPTANCE_ENABLED=' "$S/containers/$name/env" || true
+      ;;
     *.Config.Env*FAMILY_LEDGERS_ENABLED*)
       # What the real template prints: that one variable, or nothing.
       grep '^FAMILY_LEDGERS_ENABLED=' "$S/containers/$name/env" || true
@@ -137,6 +141,11 @@ psql_call() {
         fi
         ;;
       *"'flyway latest '"*) f=$(next_fixture stage) ;;
+      # HIST-3: deploy/checks/acceptance.sql, its one line (fixtures/acceptance; fixtures/acceptance-fails: an error).
+      *"'acceptance members='"*)
+        f=$(next_fixture acceptance)
+        [ ! -f "$S/fixtures/acceptance-fails" ] || { echo 'ERROR:  permission denied for table ledger_member' >&2; exit 1; }
+        ;;
       *) echo "docker stub: unknown SQL file" >&2; exit 99 ;;
     esac
   else
@@ -162,7 +171,8 @@ up() {
   # fixtures/up-fails: compose fails before it touches a container (OPS-2, defect 1's interrupted switch).
   [ ! -f "$S/fixtures/up-fails" ] || { echo "up failed (stub)" >&2; exit 1; }
   # Services named on the command line (api, web); both when none are, as every real call here names at least one.
-  local svc name id line want_switch cur_switch d25 services=() image_changed env_changed
+  local svc name id line want_switch cur_switch d25 services=() image_changed env_changed want_accept cur_accept accept
+  local accept_logged
   for svc in "$@"; do
     case $svc in
       -*) ;;
@@ -183,6 +193,7 @@ up() {
   fi
   # What ./.env (deploy/app/.env, the real compose project's) says now: compose always runs from there (common.sh).
   want_switch=$(grep '^FAMILY_LEDGERS_ENABLED=' ./.env 2>/dev/null || true)
+  want_accept=$(grep '^FAMILY_ACCEPTANCE_ENABLED=' ./.env 2>/dev/null || true)
   for svc in "${services[@]}"; do
     name=finance-tracker-$svc
     id=$(cat "$S/images/$name/latest")
@@ -193,6 +204,8 @@ up() {
     if [ "$svc" = api ]; then
       cur_switch=$(grep '^FAMILY_LEDGERS_ENABLED=' "$S/containers/$name/env" 2>/dev/null || true)
       [ "$want_switch" = "$cur_switch" ] || env_changed=1
+      cur_accept=$(grep '^FAMILY_ACCEPTANCE_ENABLED=' "$S/containers/$name/env" 2>/dev/null || true)
+      [ "$want_accept" = "$cur_accept" ] || env_changed=1
     fi
     [ "$image_changed" = 1 ] || [ "$env_changed" = 1 ] || continue   # Compose leaves an unchanged container running
     echo "$id" >"$S/containers/$name/image"
@@ -205,19 +218,30 @@ up() {
       # .env, as the real api would log on the new value. A plain deploy (the image changed) below keeps using the
       # fixture's start-log and env exactly as the case set them, D-25 line included: a case may set them to anything,
       # consistent or not with FAMILY_LEDGERS_ENABLED, to test the api's own line against what's expected.
-      grep -v '^FAMILY_LEDGERS_ENABLED=' "$S/containers/$name/env" >"$S/containers/$name/env.new" || true
+      grep -Ev '^FAMILY_(LEDGERS|ACCEPTANCE)_ENABLED=' "$S/containers/$name/env" >"$S/containers/$name/env.new" || true
       [ -z "$want_switch" ] || printf '%s\n' "$want_switch" >>"$S/containers/$name/env.new"
+      [ -z "$want_accept" ] || printf '%s\n' "$want_accept" >>"$S/containers/$name/env.new"
       mv "$S/containers/$name/env.new" "$S/containers/$name/env"
       case ${want_switch#FAMILY_LEDGERS_ENABLED=} in
         true | on | yes | 1) d25='Family ledgers (D-25): on' ;;
         *) d25='Family ledgers (D-25): off; the family endpoints answer 404' ;;
       esac
+      # HIST-3: FamilyAcceptanceSwitch's line from .env as well (fixtures/accept-line, if present, replaces it, to test
+      # a line that doesn't match).
+      case ${want_accept#FAMILY_ACCEPTANCE_ENABLED=} in
+        true | on | yes | 1) accept='Family acceptance: on' ;;
+        *) accept='Family acceptance: off' ;;
+      esac
+      [ ! -f "$S/fixtures/accept-line" ] || accept=$(cat "$S/fixtures/accept-line")
+      accept_logged=0
       while IFS= read -r line; do
         case $line in
           *'Family ledgers (D-25):'*) line=$d25 ;;
+          *'Family acceptance:'*) line=$accept accept_logged=1 ;;
         esac
         printf '%s %s\n' "$(now)" "$line" >>"$S/log-api"
       done <"$S/fixtures/start-log"
+      [ "$accept_logged" = 1 ] || printf '%s %s\n' "$(now)" "$accept" >>"$S/log-api"
     else
       while IFS= read -r line; do printf '%s %s\n' "$(now)" "$line" >>"$S/log-api"; done <"$S/fixtures/start-log"
     fi

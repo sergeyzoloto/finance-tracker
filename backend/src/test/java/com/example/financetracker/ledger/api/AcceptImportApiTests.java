@@ -49,9 +49,11 @@ class AcceptImportApiTests extends MemberImportApiTest {
         List<String> warnings = new ArrayList<>();
         dry.get("warnings").forEach(warning -> warnings.add(warning.get("message").asText()));
         assertThat(warnings).contains("1 family changes are waiting for you; accept them before committing");
-        // Each family row of the dry run meets the author rule of part 2 as a row error, as before this note.
+        // D-1173: the family rows the author rule would refuse are no row errors; they are counted as not checked.
         dry.get("errors").forEach(error -> assertThat(error.get("message").asText())
-                .isEqualTo("the family budget refuses it: Accept the 1 pending change first"));
+                .doesNotContain("pending change"));
+        // D-1180: the fixture's 16 family rows, each row of a grouped settlement included.
+        assertThat(dry.get("totals").get("notCheckedUntilAccepted").asInt()).isEqualTo(16);
 
         ok(post(owner, "/api/family-ledgers/" + family + "/accept", "{}"));
         ownersFirstImport();

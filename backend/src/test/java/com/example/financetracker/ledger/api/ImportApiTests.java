@@ -98,7 +98,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(report.get("errors")).isEmpty();
         assertThat(report.get("totals")).isEqualTo(Answers.json("""
                 {"created": %d, "updated": 0, "unchanged": 0, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 3,
-                 "notImported": 1}""".formatted(CREATED)));
+                 "notImported": 1, "notCheckedUntilAccepted": 0}""".formatted(CREATED)));
         // D-233, D-232: no opening balances and no lumps.
         assertThat(count(report, "OWNER_PERSONAL", "OPENING_BALANCE")).isEqualTo("none");
         assertThat(count(report, "OWNER_FAMILY", "EXPENSE")).isEqualTo("c3 u0 n0 x0 e0 s0 i0");
@@ -215,7 +215,7 @@ class ImportApiTests extends LedgerApiTest {
         assertThat(again.get("outcome").asText()).isEqualTo("COMMITTED");
         assertThat(again.get("totals")).isEqualTo(Answers.json("""
                 {"created": 0, "updated": 0, "unchanged": %d, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 3,
-                 "notImported": 1}""".formatted(CREATED)));
+                 "notImported": 1, "notCheckedUntilAccepted": 0}""".formatted(CREATED)));
         assertThat(again.get("reconciliation").get("passed").asBoolean()).isTrue();
         assertThat(externalRefs()).hasSize(21);
     }
@@ -268,7 +268,7 @@ class ImportApiTests extends LedgerApiTest {
         JsonNode again = runUpTo(bytes("transactions.csv"), "2024-01-31");
         assertThat(again.get("totals")).isEqualTo(Answers.json("""
                 {"created": 0, "updated": 0, "unchanged": %d, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 2,
-                 "notImported": 0}""".formatted(createdInJanuary)));
+                 "notImported": 0, "notCheckedUntilAccepted": 0}""".formatted(createdInJanuary)));
 
         // A later date adds exactly the rows up to it.
         JsonNode february = runUpTo(bytes("transactions.csv"), "2024-02-29");
@@ -299,7 +299,7 @@ class ImportApiTests extends LedgerApiTest {
         JsonNode earlier = runUpTo(withoutRows(bytes("transactions.csv"), Set.of("25")), "2024-01-31");
         assertThat(earlier.get("totals")).isEqualTo(Answers.json("""
                 {"created": 0, "updated": 0, "unchanged": %d, "missing": 0, "conflicts": 0, "failed": 0, "skipped": 2,
-                 "notImported": 0}""".formatted(createdInJanuary)));
+                 "notImported": 0, "notCheckedUntilAccepted": 0}""".formatted(createdInJanuary)));
         assertThat(externalRefs()).hasSize(21);
         assertThat(entryOf("xls:25")).isNotNull();
         // Without the date, the file without its last row ends on 2024-02-05, before row 25's date: not missing either

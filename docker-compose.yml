@@ -31,6 +31,9 @@ services:
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}
       # The family budget's feature switch (D-25): on for local runs; off by default, and on in production since 2026-10-03 (`deploy.sh switch on`, deploy/app/.env).
       FAMILY_LEDGERS_ENABLED: "true"
+      # Family acceptance (HIST-3, D-1166): off by default for local runs, as in production; a local run may set the
+      # variable to true in the shell or .env.
+      FAMILY_ACCEPTANCE_ENABLED: "${FAMILY_ACCEPTANCE_ENABLED:-false}"
       # No downloads from the Bank of Russia in local runs (FX-1): RUB after 2022-03-01 has no shared rate here.
       CBR_RATES_ENABLED: "false"
       # Where the browser reaches this stack, for the links the api hands out (invites); production's is the default.

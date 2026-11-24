@@ -187,8 +187,12 @@ public record ImportReport(String userId, boolean commit, Outcome outcome, List<
             int failed, int skipped, int notImported) {
     }
 
+    /**
+     * @param notCheckedUntilAccepted D-1173: the family rows a lagging uploader's dry run didn't check, because the
+     *        author rule refuses their writes until the uploader accepts the pending family changes; never row errors
+     */
     public record Totals(int created, int updated, int unchanged, int missing, int conflicts, int failed, int skipped,
-            int notImported) {
+            int notImported, int notCheckedUntilAccepted) {
     }
 
     /** A row by its source and Excel ID, and why it is listed. */

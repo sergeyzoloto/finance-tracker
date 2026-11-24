@@ -3,6 +3,45 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-24 · HIST-3 part 4: the deploy side of family acceptance, dark, and the D-1173 dry-run fix (D-1173 to D-1174, D-1175 onward)
+
+Commit: see the git log for this entry's subject.
+
+**Changes**
+- The importer's dry run by a lagging uploader lists one named note, "N family changes are waiting for you; accept them before committing", and no per-row errors for family rows caused by the author rule (D-1173). Those rows are counted as `totals.notCheckedUntilAccepted`, in the stored run summary and in the Markdown report as "N family rows not checked until you accept". The run stays `DRY_RUN` and writes nothing; the commit refusal (409, `FAMILY_PENDING_CHANGES`, D-1164) is unchanged.
+- `FAMILY_ACCEPTANCE_ENABLED` reaches the api in `docker-compose.yml` and `deploy/app/docker-compose.yml`, default `false`, read from `.env` the way `FAMILY_LEDGERS_ENABLED` is (D-1174). `FAMILY_LEDGERS_ENABLED` unchanged. `deploy/app/.env.example` documents the variable.
+- `deploy/deploy.sh acceptance on|off` (D-1175, D-1177, D-1179): changes only the `FAMILY_ACCEPTANCE_ENABLED` line in `.env` (one copy kept first), restarts api alone, confirmed at the terminal, refused unless HEAD is the last good deploy and healthy with no unfinished run. `on` also needs the family switch on and the pre-check `deploy/checks/acceptance.sql` (no `.expected`; prints `acceptance members=<m> links=<l> pending=<p>`) at zero. `off` is refused while anything is pending, and when the count cannot be read. It prints the way back and never switches back by itself. The api's `Family acceptance: on|off` line (already logged by `FamilyAcceptanceSwitch`) is checked after the restart.
+- `verify` and `finish` print one information line about acceptance (D-1178); neither's verdict or family numbers gate changes.
+- The reconcile is `deploy/manual/reconcile-acceptance.sql` (D-1176): the V21 backfill, idempotent, with a read-only before-and-after count and a stop while anything is pending. The runbook's guard refuses while `FAMILY_ACCEPTANCE_ENABLED` is not `false` or absent, after a fresh backup; a run.sh case checks the runbook block equals the file.
+- Stage checks `deploy/checks/HIST-3.sql` and `HIST-3.expected`: HIST-2's lines that still hold, Flyway 21, V21's three columns, the trigger by name, and four invariants that print zero violations. No backslash. `numbers.sql` unchanged (V21 adds no table).
+- Runbook section "Family acceptance (HIST-3)" (D-1174 note: the acceptance UI is part 5). "Deployed revisions" not changed.
+- Guards and deploy tests cover the new command, the compose variable and the stage files (D-1180 and the `run.sh`/`mutate.sh` cases).
+- Detached links: the stage check, the pre-check and the reconcile's before/after counts count only attached links (D-1181); the reconcile's update stays V21's. A new test, `FamilyCountersApiTests.aDetachedLinkIsNotCountedByTheStageCheck`.
+- The importer's dry run tests assert the exact not-checked count (16) and the exact warnings; `writeOwnSide` returns a tri-state (WRITTEN, FAILED, NOT_CHECKED) in place of the before/after comparison.
+- Decisions recorded in `requirements.md` and ADR 0006 (sections 7 and 13 as built, and 14.w): D-1173, D-1174 (PM) and D-1175 to D-1181 (manager).
+
+**Verified**
+- `cd backend && ./mvnw -B clean test` (the clean build, because of the stale-classes issue of `ArchitectureTests` in CLAUDE.md): exit 0, `Tests run: 848, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`. The first round's run without `clean` had one `ArchitectureTests` failure on stale classes; the lead's run without `clean` did not reproduce it.
+- `deploy/tests/run.sh`: exit 0, `165 passed, 0 failed, of 165 cases` (run twice, the second time after the last runbook edit).
+- `deploy/tests/mutate.sh`: exit 0, `Every mutation was caught.` (147 caught).
+- ShellCheck `koalaman/shellcheck:v0.11.0 -x` with CI's file list: exit 0, no findings.
+- `cd e2e && npm run e2e:local`, after `./dev.sh` (rebuilt for the final code) and `docker restart finance-tracker-backend-1` (the api answered 401 on `/api/me` before the run): exit 0, `2 passed (6.3s)`, `6 skipped`, `42 passed (12.1m)`, `Result: PASSED`. No e2e spec was added (the UI is part 5).
+- `cd e2e && npm run test:guards`, alone after the `e2e:local` run: exit 0, `# tests 39`, `# pass 39`, `# fail 0`, `# skipped 0`.
+- `scripts/check-forbidden-names.sh`: exit 0, `check-forbidden-names: no hit (tree).`
+- `deploy/checks/HIST-3.sql` against the local `finance` database (read-only transaction): exit 0, output identical to `HIST-3.expected`. `deploy/checks/acceptance.sql`: `acceptance members=0 links=0 pending=0`. The local database has no family links, so the detached-link filter is not exercised there.
+- The reconcile file on a throwaway Postgres migrated to V21 (developer): the first run changed the counters, the second changed nothing, a pending record stopped it with nothing written. The throwaway database was removed.
+- Strict review round 1: REJECTED (detached links; the change log draft). Round 2 (this part and the parts 2–3 diff, including the late `FamilyAcceptApiTests` edit): APPROVED, no blockers. The reviewer's nits were applied, except the two below.
+- No command was run on a server; `deploy/deploy.sh` was not run against production.
+
+**Open**
+- Review nits not applied: the reconcile's self-join (`deploy/manual/reconcile-acceptance.sql`) is redundant but mirrors `AcceptanceCounters`; the `grep -vF` in the `acceptance` diff guard (`deploy/deploy.sh`) matches any position of the key, not only the line start, which is harmless for the current keys.
+- Pre-existing, from part 3: `FamilyAcceptApiTests.waitForLockWaiters` counts lock waiters across the shared test database and busy-spins.
+- The acceptance UI is part 5 (D-1174); HIST-3 deploys dark without it.
+- Nothing is deployed; the acceptance switch is off in production.
+- `HIST-3.sql` invariant (c) (members at their ledger's revision) holds only while acceptance is off, so `verify HIST-3` will report it once acceptance is turned on later.
+- The reconcile was tested on empty and hand-seeded data, not on the owner's data.
+- The size is about 1,345 insertions (about 290 of them copied from HIST-2's check), above the 1,200 guide and under the 1,500 stop line.
+
 ## 2026-11-23 · HIST-3 part 3: family acceptance, the Accept action and the pending summary behind the switch (D-1166 to D-1172)
 
 Commit: see the git log for this entry's subject.

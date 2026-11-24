@@ -62,6 +62,7 @@ import com.example.financetracker.ledger.family.ImportSync;
 import com.example.financetracker.ledger.family.MemberStatus;
 import com.example.financetracker.ledger.family.NewFamilyRecord;
 import com.example.financetracker.ledger.family.NewSettlement;
+import com.example.financetracker.ledger.family.PendingChangesException;
 import com.example.financetracker.ledger.family.RecordSplit;
 import com.example.financetracker.ledger.importer.Chart.AccountRef;
 import com.example.financetracker.ledger.importer.Chart.CategoryRef;
@@ -329,6 +330,11 @@ public class ImportService {
     private record EffectLine(String code, String currency, LocalDate date, BigDecimal shown) {
     }
 
+    /** How writing the owner's own side of a record went (D-337, D-1173). */
+    private enum SideWrite {
+        WRITTEN, FAILED, NOT_CHECKED
+    }
+
     /** A record of a member's family rows, as the import reads it. */
     private record MemberRecord(long id, String currency, long payerId, int version, BigDecimal share) {
     }
@@ -380,6 +386,8 @@ public class ImportService {
         private FamilyContext family;
         private long batchId;
         private int writes;
+        /** D-1173: the family rows a lagging uploader's dry run didn't check, since the author rule refused them. */
+        private int notCheckedUntilAccepted;
         /** OWNER_PERSONAL, or MEMBER_PERSONAL in a member's own import. */
         private Source personalSource = Source.OWNER_PERSONAL;
         private final MemberTally memberTally = new MemberTally();
@@ -1297,8 +1305,13 @@ public class ImportService {
                         conflicts.add(new RowRef(item.source().name(), item.excelId(), SIDE_CONFLICT));
                         return;
                     }
-                    if (side == SideState.WRITE && !writeOwnSide(file, row, item, own, known.recordId(), rowSideHash)) {
+                    SideWrite sideWrite = side == SideState.WRITE
+                            ? writeOwnSide(file, row, item, own, known.recordId(), rowSideHash) : SideWrite.WRITTEN;
+                    if (sideWrite == SideWrite.FAILED) {
                         tally.failed++;
+                        return;
+                    }
+                    if (sideWrite == SideWrite.NOT_CHECKED) {
                         return;
                     }
                     if (outcome == ImportSync.Outcome.RESTAMP) {
@@ -1377,6 +1390,9 @@ public class ImportService {
                 errors.add(new Problem(file, row, item.excelId(), reasons));
                 return;
             } catch (RuntimeException e) {
+                if (notChecked(e, 1)) {
+                    return;
+                }
                 tally.failed++;
                 errors.add(new Problem(file, row, item.excelId(), "the family budget refuses it: " + message(e)));
                 return;
@@ -1450,8 +1466,12 @@ public class ImportService {
             }
         }
 
-        /** His row's side written over his side as the import left it (D-337), without a new version (D-111). */
-        private boolean writeOwnSide(String file, Integer row, FamilyItem item, OwnSide own, long recordId,
+        /**
+         * His row's side written over his side as the import left it (D-337), without a new version (D-111).
+         *
+         * @return WRITTEN, FAILED with a row error, or NOT_CHECKED when the author rule refused it in a dry run (D-1173)
+         */
+        private SideWrite writeOwnSide(String file, Integer row, FamilyItem item, OwnSide own, long recordId,
                 String rowSideHash) {
             Map<String, Long> created = new HashMap<>();
             try {
@@ -1475,15 +1495,18 @@ public class ImportService {
                 String reasons = e.details().isEmpty() ? String.join("; ", e.violations())
                         : e.details().stream().map(v -> v.code() + ": " + v.message()).collect(Collectors.joining("; "));
                 errors.add(new Problem(file, row, item.excelId(), "your side: " + reasons));
-                return false;
+                return SideWrite.FAILED;
             } catch (RuntimeException e) {
+                if (notChecked(e, 1)) {
+                    return SideWrite.NOT_CHECKED;
+                }
                 errors.add(new Problem(file, row, item.excelId(), "your side can't go on the family record: "
                         + message(e)));
-                return false;
+                return SideWrite.FAILED;
             }
             counterpartyIds.putAll(created);
             counterpartiesCreated += created.size();
-            return true;
+            return SideWrite.WRITTEN;
         }
 
         /** The row a side stands for, {@code xls:<ID>} as a member's (D-181); a conversion's legs share their row's. */
@@ -1855,6 +1878,9 @@ public class ImportService {
                 errors.add(new Problem(file, number, excelId, reasons));
                 return;
             } catch (RuntimeException e) {
+                if (notChecked(e, 1)) {
+                    return;
+                }
                 tally.failed++;
                 errors.add(new Problem(file, number, excelId, "the family budget refuses it: " + message(e)));
                 return;
@@ -1934,6 +1960,9 @@ public class ImportService {
                 errors.add(new Problem(file, number, excelId, "your payment side: " + reasons));
                 return;
             } catch (RuntimeException e) {
+                if (notChecked(e, 1)) {
+                    return;
+                }
                 tally.failed++;
                 errors.add(new Problem(file, number, excelId, "your payment side can't go on the family record: "
                         + message(e)));
@@ -2136,6 +2165,9 @@ public class ImportService {
                         "your side of the settlement: " + reasons)));
                 return;
             } catch (RuntimeException e) {
+                if (notChecked(e, rows.size())) {
+                    return;
+                }
                 tally.failed += rows.size();
                 rows.forEach(row -> errors.add(new Problem(file, row.row().row(), id(row.row().id()),
                         "your side can't go on the settlement: " + message(e))));
@@ -2226,6 +2258,9 @@ public class ImportService {
                 errors.add(new Problem(file, row.row(), excelId, "your side of the settlement: " + reasons));
                 return;
             } catch (RuntimeException e) {
+                if (notChecked(e, 1)) {
+                    return;
+                }
                 tally.failed++;
                 errors.add(new Problem(file, row.row(), excelId, "your side can't go on the settlement: " + message(e)));
                 return;
@@ -2421,7 +2456,23 @@ public class ImportService {
                 skip += t.skipped;
                 notImported += t.notImported;
             }
-            return new Totals(created, updated, unchanged, missing.size(), conflicted, failed, skip, notImported);
+            return new Totals(created, updated, unchanged, missing.size(), conflicted, failed, skip, notImported,
+                    notCheckedUntilAccepted);
+        }
+
+        /**
+         * D-1173: in a dry run, the author rule's refusal of a family write (a lagging uploader, acceptance on) is no row
+         * error: the rows are counted as not checked until they accept, next to the run's one warning. A commit never
+         * gets here with pending changes, since it is refused before any row (D-1164).
+         *
+         * @return whether the refusal was the author rule's in a dry run, and the rows were counted
+         */
+        private boolean notChecked(RuntimeException e, int rows) {
+            if (commit || !(e instanceof PendingChangesException)) {
+                return false;
+            }
+            notCheckedUntilAccepted += rows;
+            return true;
         }
 
         private Json summary(ImportReport report) {

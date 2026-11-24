@@ -42,7 +42,7 @@ make_template() {
     cd "$t/work" || exit 1
     mkdir -p deploy/checks deploy/app deploy/pg-backup backend/src/main/resources/db/migration
     cp "$SCRIPTS/deploy.sh" "$SCRIPTS/rollback.sh" "$SCRIPTS/common.sh" deploy/
-    cp "$ROOT/deploy/checks/numbers.sql" "$ROOT/deploy/checks/OPS-1.sql" "$ROOT/deploy/checks/OPS-1.expected" "$ROOT/deploy/checks/db-image-indexes.sql" deploy/checks/
+    cp "$ROOT/deploy/checks/numbers.sql" "$ROOT/deploy/checks/acceptance.sql" "$ROOT/deploy/checks/OPS-1.sql" "$ROOT/deploy/checks/OPS-1.expected" "$ROOT/deploy/checks/db-image-indexes.sql" deploy/checks/
     cp "$ROOT/deploy/app/docker-compose.yml" "$ROOT/deploy/app/postgres-init.sh" deploy/app/
     cp "$ROOT/deploy/finance.caddy" deploy/
     cp "$ROOT/deploy/pg-backup/finance.conf" deploy/pg-backup/
@@ -174,6 +174,7 @@ EOF
   numbers 0 >"$s/fixtures/numbers"
   cp "$HERE/fixtures/check-runs-success.json" "$s/fixtures/ci"
   echo "$ROLE_OK" >"$s/fixtures/role"
+  echo "acceptance members=0 links=0 pending=0" >"$s/fixtures/acceptance"
 
   for name in docker systemctl pg-restore-test curl install; do ln -s "$HERE/stubs/$name" "$C/bin/$name"; done
 
@@ -295,7 +296,7 @@ run_rollback() { run_script ./deploy/rollback.sh "$@"; }
 # as a block pasted while the script runs. After the last answer, the terminal closes at the next question.
 type_at_terminal() { if [ $# -gt 0 ]; then printf '%s\n' "$@" >"$C/typed"; else : >"$C/typed"; fi; }
 paste_ahead() { if [ $# -gt 0 ]; then printf '%s\n' "$@" >"$C/pasted"; else : >"$C/pasted"; fi; }
-questions() { grep -oE 'Type (the first 7|yes or no|ADOPT|ROLLBACK|SWITCH)' "$C/out" 2>/dev/null | wc -l; }
+questions() { grep -oE 'Type (the first 7|yes or no|ADOPT|ROLLBACK|SWITCH|ACCEPTANCE)' "$C/out" 2>/dev/null | wc -l; }
 wait_for_question() {
   local i
   for ((i = 0; i < 600; i++)); do
@@ -1162,6 +1163,211 @@ case_switch_failure_prints_the_way_back() {
   check "never switches back on its own" out_has "Never switch back on its own"
   check "api restarted exactly once, not reverted" [ "$(count_calls '^docker compose up -d --no-deps api$')" -eq 1 ]
   check "status failed" status_is failed
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# acceptance (HIST-3 part 4, D-1175 to D-1179)
+
+# acceptance_ready: switch_ready, then the family switch on, as production has it; the calls and records reset.
+acceptance_ready() {
+  switch_ready
+  type_at_terminal "SWITCH ON"
+  run_deploy switch on
+  [ "$RC" -eq 0 ] || { echo "    setup: switch on failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  sleep 1
+  cp "$C/server/deploy/app/.env" "$C/env.orig"
+  : >"$STUB_STATE/calls"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+}
+
+# acceptance_turned_on: acceptance on, with the pre-check at 0; then the calls and records reset again.
+acceptance_turned_on() {
+  sleep 1
+  fixture acceptance "acceptance members=0 links=0 pending=0"
+  type_at_terminal "ACCEPTANCE ON"
+  run_deploy acceptance on
+  [ "$RC" -eq 0 ] || { echo "    setup: acceptance on failed"; cat "$C/out"; FAILS=$((FAILS + 1)); }
+  sleep 1
+  cp "$C/server/deploy/app/.env" "$C/env.orig"
+  : >"$STUB_STATE/calls"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  cp "$C/state/history" "$C/history.orig"
+}
+
+# acceptance_refused WHY: refused before its question, with .env, api and the records untouched.
+acceptance_refused() {
+  check "exit code not 0" rc_not
+  check "says REFUSED" out_has "REFUSED at"
+  check "names why: $1" out_has "$1"
+  check "says nothing changed" out_has "Nothing changed: .env untouched, api not restarted."
+  check ".env unchanged" same_file "$C/server/deploy/app/.env" "$C/env.orig"
+  check "no backup copy" calls_lack '^install '
+  check "no restart" calls_lack '^docker compose up'
+  check "last-good unchanged" same_file "$C/state/last-good" "$C/last-good.orig"
+  check "history unchanged" same_file "$C/state/history" "$C/history.orig"
+  check "status refused" status_is refused
+}
+
+case_acceptance_on_and_off() {
+  acceptance_ready
+  type_at_terminal "ACCEPTANCE ON"
+  run_deploy acceptance on
+  check "on: exit code 0" rc_is 0
+  check "the pre-check read as finance_checks" calls_have 'psql .* -U finance_checks .*-f -$'
+  check "the pre-check's numbers shown" out_has "Members not at their ledger's revision: 0; attached links not posted at their record's last revision: 0; pending records: 0"
+  check "current shown, absent" out_has "Current: FAMILY_ACCEPTANCE_ENABLED is absent, so off"
+  check "names the change in the confirmation" out_has "This changes FAMILY_ACCEPTANCE_ENABLED in $C/server/deploy/app/.env from absent, so off to FAMILY_ACCEPTANCE_ENABLED=true, and restarts api alone."
+  check ".env now true" file_has "$C/server/deploy/app/.env" "FAMILY_ACCEPTANCE_ENABLED=true"
+  check "only that line added" bash -c \
+    "diff <(grep -v '^FAMILY_ACCEPTANCE_ENABLED=' '$C/env.orig') <(grep -v '^FAMILY_ACCEPTANCE_ENABLED=' '$C/server/deploy/app/.env')"
+  check "the switch's line untouched" file_has "$C/server/deploy/app/.env" "FAMILY_LEDGERS_ENABLED=true"
+  check "a backup copy, mode 600" calls_have '^install -m 600 .*/deploy/app/\.env .*/deploy/app/\.env\.[0-9]{8}T[0-9]{6}Z$'
+  check "api alone restarted, once" [ "$(count_calls '^docker compose up -d --no-deps api$')" -eq 1 ]
+  check "the acceptance line logged on" out_has '"Family acceptance: on" at'
+  check "checked against what was written" out_has "As production now sets it (FAMILY_ACCEPTANCE_ENABLED=true, so on)"
+  check "prints the way back" out_has "deploy/deploy.sh acceptance off"
+  check "no Deployed revisions row asked for" out_lacks "Deployed revisions"
+  check "history: acceptance-on E" file_has "$C/state/history" " acceptance-on $SHA_E "
+  check "status acceptance-on" status_is acceptance-on
+  check "summary names the change" file_has "$(latest_run)/summary.txt" "FAMILY_ACCEPTANCE_ENABLED: absent -> FAMILY_ACCEPTANCE_ENABLED=true"
+  check "the secret is in no output" bash -c "! grep -qF -- '$SECRET' '$C/all-out'"
+
+  run_deploy verify OPS-1
+  check "verify shows the state" out_has 'Family acceptance: FAMILY_ACCEPTANCE_ENABLED is FAMILY_ACCEPTANCE_ENABLED=true, so on in .env; the api: "Family acceptance: on" at'
+
+  : >"$STUB_STATE/calls"
+  sleep 1
+  type_at_terminal "ACCEPTANCE OFF"
+  run_deploy acceptance off
+  check "off: exit code 0" rc_is 0
+  check ".env now false" file_has "$C/server/deploy/app/.env" "FAMILY_ACCEPTANCE_ENABLED=false"
+  check "the acceptance line logged off" out_has '"Family acceptance: off" at'
+  check "off: the way back is on" out_has "deploy/deploy.sh acceptance on"
+  check "status acceptance-off" status_is acceptance-off
+
+  sleep 1
+  run_deploy acceptance off
+  check "already off: refused" out_has "family acceptance is already off: nothing to change"
+  check "no second restart" [ "$(count_calls '^docker compose up')" -eq 1 ]
+
+  # A completed acceptance change is no unfinished work: the switch still works.
+  sleep 1
+  type_at_terminal "SWITCH OFF"
+  run_deploy switch off
+  check "switch off after it" rc_is 0
+}
+
+case_acceptance_wrong_confirmation() {
+  acceptance_ready
+  type_at_terminal "ACCEPTANCE OF"
+  run_deploy acceptance on
+  acceptance_refused "not confirmed"
+  check "reached the question" out_has "Type ACCEPTANCE ON"
+}
+
+case_acceptance_on_refuses_with_the_switch_off() {
+  switch_ready
+  cp "$C/server/deploy/app/.env" "$C/env.orig"
+  run_deploy acceptance on
+  acceptance_refused "the family switch is off: family acceptance is turned on only with family budgets on"
+  check "never asked" out_lacks "Type ACCEPTANCE"
+}
+
+case_acceptance_on_refuses_counters_behind() {
+  acceptance_ready
+  fixture acceptance "acceptance members=1 links=2 pending=0"
+  run_deploy acceptance on
+  acceptance_refused "the counters aren't at their heads (1 members, 2 links): run the reconcile first"
+}
+
+case_acceptance_refuses_pending() {
+  acceptance_ready
+  fixture acceptance "acceptance members=0 links=0 pending=3"
+  run_deploy acceptance on
+  acceptance_refused "3 pending record changes: the members accept them first"
+  acceptance_turned_on
+  fixture acceptance "acceptance members=0 links=0 pending=3"
+  run_deploy acceptance off
+  acceptance_refused "3 pending record changes: the members accept them first"
+  check "off says accept first" out_has "accept first"
+}
+
+case_acceptance_off_refuses_unreadable_pending() {
+  acceptance_ready
+  acceptance_turned_on
+  : >"$STUB_STATE/fixtures/acceptance-fails"
+  run_deploy acceptance off
+  acceptance_refused "the pending changes can't be read"
+  rm -f "$STUB_STATE/fixtures/acceptance-fails"
+  fixture acceptance "something else"
+  sleep 1
+  run_deploy acceptance off
+  acceptance_refused "printed something else than its one line: the pending changes can't be read"
+  fixture role missing
+  sleep 1
+  run_deploy acceptance off
+  acceptance_refused "the pending changes can't be read without it"
+}
+
+case_acceptance_on_refuses_not_the_last_good_deploy() {
+  acceptance_ready
+  # The running images stay the recorded ones: only the commit differs.
+  sed -i "s/^commit=.*/commit=$SHA_D/" "$C/state/last-good"
+  cp "$C/state/last-good" "$C/last-good.orig"
+  run_deploy acceptance on
+  acceptance_refused "is not the last good deploy"
+  check "refused at 1.4, before the question" out_has 'REFUSED at "1.4 Preflight: the clone, the last good deploy, no unfinished run"'
+  check "never asked" out_lacks "Type ACCEPTANCE"
+}
+
+case_acceptance_failure_prints_the_way_back() {
+  acceptance_ready
+  fixture accept-line "Family acceptance: off"
+  type_at_terminal "ACCEPTANCE ON"
+  run_deploy acceptance on
+  check "exit code not 0" rc_not
+  check "FAILED at the line" out_has 'FAILED at "3.4 The acceptance line"'
+  check "the line isn't the expected" out_has "the acceptance line isn't \"Family acceptance: on\""
+  check "names the way back" out_has "deploy/deploy.sh acceptance off"
+  check "never on its own" out_has "Never switch back on its own"
+  check "restarted once, not reverted" [ "$(count_calls '^docker compose up -d --no-deps api$')" -eq 1 ]
+  check "status failed" status_is failed
+  check ".env was changed" file_has "$C/server/deploy/app/.env" "FAMILY_ACCEPTANCE_ENABLED=true"
+}
+
+# The runbook's reconcile block (deploy/RUNBOOK.md, "Family acceptance (HIST-3)") is deploy/manual/reconcile-acceptance.sql
+# byte for byte, so that the file a test ran is the text the operator pastes.
+case_manual_reconcile_matches_the_runbook() {
+  local block
+  block=$(awk '/docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U finance -d finance <<.SQL.$/ { on = 1; next } on && /^SQL$/ { exit } on { print }' "$ROOT/deploy/RUNBOOK.md")
+  check "the runbook has the block" [ -n "$block" ]
+  check "the block is the file" diff <(printf '%s\n' "$block") "$ROOT/deploy/manual/reconcile-acceptance.sql"
+}
+
+# HIST-3 part 4: the check files the scripts may run hold no backslash (deploy/common.sh, check_sql_file), each stage's
+# .sql has its .expected (numbers.sql, acceptance.sql and the two read by hand have none), and the acceptance variable
+# reaches the api in both compose files, off by default.
+case_check_files_and_compose() {
+  local f name
+  for f in "$ROOT"/deploy/checks/*.sql; do
+    name=$(basename "$f" .sql)
+    check "$name.sql has no backslash" bash -c "! grep -qF -- '\\' '$f'"
+    case $name in
+      numbers | acceptance | D184 | db-image-indexes) ;;
+      *) check "$name.sql has its .expected" [ -s "$ROOT/deploy/checks/$name.expected" ] ;;
+    esac
+  done
+  check "HIST-3.expected: Flyway at V21" file_has "$ROOT/deploy/checks/HIST-3.expected" "flyway latest 21 "
+  check "HIST-3.expected keeps HIST-2's lines" bash -c \
+    "diff <(tail -n +2 '$ROOT/deploy/checks/HIST-2.expected') <(sed -n '2,$(wc -l <"$ROOT/deploy/checks/HIST-2.expected")p' '$ROOT/deploy/checks/HIST-3.expected')"
+  # shellcheck disable=SC2016  # the compose files' own text, not expanded here
+  check "production compose: off by default" file_has "$ROOT/deploy/app/docker-compose.yml" \
+    '      FAMILY_ACCEPTANCE_ENABLED: ${FAMILY_ACCEPTANCE_ENABLED:-false}'
+  # shellcheck disable=SC2016  # the compose files' own text, not expanded here
+  check "local compose: off by default" file_has "$ROOT/docker-compose.yml" \
+    '      FAMILY_ACCEPTANCE_ENABLED: "${FAMILY_ACCEPTANCE_ENABLED:-false}"'
+  check ".env.example: commented out" file_has "$ROOT/deploy/app/.env.example" '#FAMILY_ACCEPTANCE_ENABLED=true'
 }
 
 # F6c's second run named HEAD in its confirmation while an older revision, the last good deploy after a rollback and a
@@ -3749,6 +3955,9 @@ CASES=(
   refuse_role_missing refuse_role_superuser refuse_role_may_write
   adopt_after_a_harmless_stop adopt_nothing_to_adopt
   switch_on_and_off switch_wrong_confirmation switch_secret_never_printed switch_failure_prints_the_way_back
+  acceptance_on_and_off acceptance_wrong_confirmation acceptance_on_refuses_with_the_switch_off
+  acceptance_on_refuses_counters_behind acceptance_refuses_pending acceptance_off_refuses_unreadable_pending
+  acceptance_on_refuses_not_the_last_good_deploy acceptance_failure_prints_the_way_back manual_reconcile_matches_the_runbook check_files_and_compose
   run_names_the_running_revision
   finish_on_an_ops1_run
   rollback_refusals rollback_wrong_confirmation rollback_rolls_back rollback_below_v7 rollback_below_v11 rollback_below_v13 rollback_below_v14

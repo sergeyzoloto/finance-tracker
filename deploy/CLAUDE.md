@@ -12,7 +12,7 @@ The deploy rules and the checklist template load by themselves from `.claude/rul
 
 ## The scripts
 
-`deploy/deploy.sh`: `run <commit> <stage>`, `finish`, `verify <stage>`, `adopt`, `switch on|off` (the only way to change `FAMILY_LEDGERS_ENABLED` in production), `prune-cache`, `db-image <commit>`. `deploy/rollback.sh <commit>` goes one step back. They never roll back by themselves and print the rollback command after a failure past the merge.
+`deploy/deploy.sh`: `run <commit> <stage>`, `finish`, `verify <stage>`, `adopt`, `switch on|off` (the only way to change `FAMILY_LEDGERS_ENABLED` in production), `acceptance on|off` (the only way to change `FAMILY_ACCEPTANCE_ENABLED`, HIST-3), `prune-cache`, `db-image <commit>`. `deploy/rollback.sh <commit>` goes one step back. They never roll back by themselves and print the rollback command after a failure past the merge.
 
 - Both source `deploy/common.sh`, are functions only with `main "$@"; exit $?` last (the merge replaces them while they run), and keep state in `/var/lib/finance-deploy` (data, parsed and never sourced). `DEPLOY_*` variables exist for tests only.
 - They run SQL only as the read-only role `finance_checks` and from committed check files.

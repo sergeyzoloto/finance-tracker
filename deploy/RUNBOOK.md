@@ -15809,6 +15809,156 @@ whose `finish` shows the policy, with the browser checks passed. Extended after 
 decided by the PM): they aren't switched on while any page of the list fails, which `switch on`'s preflight enforces;
 `switch off` never refuses because of a page.
 
+## Family acceptance (HIST-3)
+
+HIST-3 (ADR 0006, sections 7 and 13; D-1154 to D-1181) deploys **dark**: production's `.env` has no
+`FAMILY_ACCEPTANCE_ENABLED` line (or has it `false`), and the api logs `Family acceptance: off` at each start. Either
+way the app keeps the counters (`ledger_member.accepted_revision`, `family_record.last_revision`,
+`family_entry_link.posted_revision`, V21): with acceptance off, a family change posts at once, as before, and every
+member's counter moves with the ledger's revision. With acceptance on, a family change posts to a member's own ledger
+only once that member accepts it, and a member with pending changes can't change a family record or commit a family
+import until they accept (409 `FAMILY_PENDING_CHANGES`). The acceptance screens come in HIST-3 part 5 (D-1174): until
+then a member accepts only through the API (`POST /api/family-ledgers/<id>/accept`), so acceptance stays off.
+
+**The command.** `deploy/deploy.sh acceptance on|off` is the only way to change the line, modelled on
+[`switch`](#switch-the-family-budget-on-or-off): the lock, a terminal, the read-only role, health, HEAD the last good
+deploy with no unfinished run, then the current `.env` line and the api's, a typed `ACCEPTANCE ON` or
+`ACCEPTANCE OFF`, a copy of `.env` (mode 600), that one line changed or added, `api` alone restarted, its health, the
+api's `Family acceptance: on|off` line checked against the new value, the images before and after, a line
+`acceptance-on` or `acceptance-off` in `history`, a summary, and the way back printed. It never switches back by
+itself; a failure after the change prints `deploy/deploy.sh acceptance off`.
+
+- **The pre-check** (step 1.6), `deploy/checks/acceptance.sql` as `finance_checks`, prints one line,
+  `acceptance members=<m> links=<l> pending=<p>`: the ACTIVE members with an account not at their ledger's revision,
+  the attached links (`detached_at` null) not posted at their record's last revision, and the records pending for someone. `acceptance on` goes on
+  only with all three 0 and with the family switch on (in `.env` and in the running api); with `m` or `l` above 0 it
+  says to run the reconcile below. `acceptance off` goes on only with `p` 0: otherwise it prints the count and says
+  "accept first" (each member accepts through the API above until part 5), and it refuses too when the count can't be
+  read (D-1177). Where `switch off` only warns (health, HEAD, images, unfinished run), `acceptance off` warns the same
+  way (D-1175).
+- `verify` and `finish` print one more line, for information only: `Family acceptance: …` with the `.env` line and
+  the api's logged line (D-1178).
+
+```bash
+# On the server: only on the "turn on" stage's checklist, after its deploy has finished; never mid-deploy
+cd /opt/finance-tracker && deploy/deploy.sh acceptance on
+```
+
+```bash
+# On the server: the way back
+cd /opt/finance-tracker && deploy/deploy.sh acceptance off
+```
+
+**The reconcile** (D-1160, D-1165, D-1176). An image older than V21 takes revisions without moving the counters, so
+after a rollback to such an image (and the deploy forward again) the members' counters are behind and the pre-check
+refuses `acceptance on`. The reconcile is V21's backfill again (`deploy/manual/reconcile-acceptance.sql`, the same
+statements as `ledger.history.AcceptanceCounters`): it prints the counters that differ, takes every family ledger's row
+lock, **refuses while anything is pending by the counters as stored** (it would mark it accepted without posting it),
+recomputes, and prints the same counts after (`records 0 links 0 members 0`). It is rerunnable: a second run changes
+nothing. Run it only with acceptance **off**: the SQL can't read `.env`, so the block's first lines are the guard,
+which stops when `.env` is missing or unreadable and unless `FAMILY_ACCEPTANCE_ENABLED` in it is absent or `false`. Before the block, run `deploy/deploy.sh verify <stage>` and read its `Family acceptance:` line: both the `.env` line and the api's logged line must say off. Then a fresh backup, then the SQL as the
+app's login, the way [Delete a user](#delete-a-user) runs its SQL. When: after a rollback to an image older than V21,
+once the newer image runs again, and before `acceptance on`. `deploy/tests/run.sh`
+(`manual_reconcile_matches_the_runbook`) checks that the block below is the file byte for byte.
+
+```bash
+# On the server: only after a rollback to an image older than V21, before acceptance on; never as a test
+cd /opt/finance-tracker && {
+if [ ! -r deploy/app/.env ]; then
+  echo "STOP: deploy/app/.env is missing or unreadable"
+elif grep -q '^FAMILY_ACCEPTANCE_ENABLED=' deploy/app/.env && ! grep -qx 'FAMILY_ACCEPTANCE_ENABLED=false' deploy/app/.env; then
+  echo "STOP: FAMILY_ACCEPTANCE_ENABLED in .env is not false: run deploy/deploy.sh acceptance off first"
+else
+  systemctl start pg-backup@finance.service && cd deploy/app && docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U finance -d finance <<'SQL'
+-- The reconcile of the family acceptance counters (HIST-3, ADR 0006 section 13, D-1160, D-1165, D-1176): V21's
+-- backfill again, as ledger.history.AcceptanceCounters does it, for after an image older than V21 ran (a rollback) and
+-- took revisions without keeping the counters, and before "deploy/deploy.sh acceptance on". Run by hand only through
+-- deploy/RUNBOOK.md, "Family acceptance (HIST-3)", whose block holds this text and whose guard step stops first unless
+-- FAMILY_ACCEPTANCE_ENABLED in .env is absent or false: this file can't read .env. As the app's login (finance), the
+-- way "Delete a user" runs its SQL. deploy/tests/run.sh (manual_reconcile_matches_the_runbook) checks that the
+-- runbook's block is this file byte for byte.
+--
+-- D-1181: the counts before and after are of attached links only (detached_at IS NULL), the only links the app stamps;
+-- the UPDATE of the links is V21's own, over every link, detached ones included, as V21 and AcceptanceCounters do: it
+-- sets a detached link's posted_revision to its record's last_revision, which nothing reads.
+--
+-- Rerunnable: a second run changes nothing (after: 0 0 0). It refuses, changing nothing, while a member has a pending
+-- record by the counters as they are, which a reconcile would mark accepted without posting it.
+\set ON_ERROR_STOP on
+\echo 'Before: records, attached links and members whose counter differs from the backfill'
+SELECT 'records ' || (SELECT count(*) FROM app.family_record r
+                      WHERE r.last_revision <> coalesce((SELECT max(v.revision) FROM app.record_version v
+                                                         WHERE v.ledger_id = r.ledger_id AND v.record_id = r.id
+                                                           AND v.record_type = 'FAMILY_RECORD' AND v.revision > 0), 0))
+       || ' links ' || (SELECT count(*) FROM app.family_entry_link l
+                        JOIN app.family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
+                        WHERE l.detached_at IS NULL AND l.posted_revision <> r.last_revision)
+       || ' members ' || (SELECT count(*) FROM app.ledger_member m JOIN app.ledger g ON g.id = m.ledger_id
+                          WHERE m.ledger_type = 'SHARED' AND m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
+                            AND m.accepted_revision IS DISTINCT FROM g.revision);
+BEGIN;
+SELECT 'family ledgers locked ' || count(*)
+FROM (SELECT id FROM app.ledger WHERE type = 'SHARED' ORDER BY id FOR NO KEY UPDATE) AS locked;
+DO $$
+DECLARE
+    pending bigint;
+BEGIN
+    SELECT count(*) INTO pending FROM app.family_record r
+    JOIN app.ledger_member m ON m.ledger_id = r.ledger_id AND m.ledger_type = 'SHARED' AND m.status = 'ACTIVE'
+                            AND m.user_sub IS NOT NULL
+    WHERE r.last_revision > m.accepted_revision
+       OR EXISTS (SELECT FROM app.family_entry_link l
+                  WHERE l.record_id = r.id AND l.family_ledger_id = r.ledger_id AND l.member_id = m.id
+                    AND l.detached_at IS NULL AND l.posted_revision < r.last_revision);
+    IF pending > 0 THEN
+        RAISE EXCEPTION 'STOP: % pending record changes: the members accept them first; nothing changed', pending;
+    END IF;
+END
+$$;
+UPDATE app.family_record r SET last_revision = coalesce(v.revision, 0)
+FROM app.family_record x
+LEFT JOIN (SELECT ledger_id, record_id, max(revision) AS revision FROM app.record_version
+           WHERE record_type = 'FAMILY_RECORD' AND revision > 0 GROUP BY ledger_id, record_id) v
+    ON v.ledger_id = x.ledger_id AND v.record_id = x.id
+WHERE x.id = r.id AND r.last_revision <> coalesce(v.revision, 0);
+SELECT 'writer ' || set_config('app.writer', 'family-posting', true);
+UPDATE app.family_entry_link l SET posted_revision = r.last_revision
+FROM app.family_record r
+WHERE r.id = l.record_id AND r.ledger_id = l.family_ledger_id AND l.posted_revision <> r.last_revision;
+SELECT 'writer ' || set_config('app.writer', '', true);
+UPDATE app.ledger_member m SET accepted_revision = l.revision
+FROM app.ledger l
+WHERE l.id = m.ledger_id AND m.ledger_type = 'SHARED' AND m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
+  AND m.accepted_revision IS DISTINCT FROM l.revision;
+COMMIT;
+\echo 'After (0 0 0 expected): the same counts'
+SELECT 'records ' || (SELECT count(*) FROM app.family_record r
+                      WHERE r.last_revision <> coalesce((SELECT max(v.revision) FROM app.record_version v
+                                                         WHERE v.ledger_id = r.ledger_id AND v.record_id = r.id
+                                                           AND v.record_type = 'FAMILY_RECORD' AND v.revision > 0), 0))
+       || ' links ' || (SELECT count(*) FROM app.family_entry_link l
+                        JOIN app.family_record r ON r.id = l.record_id AND r.ledger_id = l.family_ledger_id
+                        WHERE l.detached_at IS NULL AND l.posted_revision <> r.last_revision)
+       || ' members ' || (SELECT count(*) FROM app.ledger_member m JOIN app.ledger g ON g.id = m.ledger_id
+                          WHERE m.ledger_type = 'SHARED' AND m.status = 'ACTIVE' AND m.user_sub IS NOT NULL
+                            AND m.accepted_revision IS DISTINCT FROM g.revision);
+SQL
+fi
+}
+```
+
+A `STOP: … pending record changes` from it changed nothing: the members accept first, then run it again.
+
+**Rollback.** `deploy/rollback.sh` to an image older than V21 needs no step of its own: V21 is additive and the older
+image ignores the counters (it writes none). Turn acceptance off before such a rollback, and run the reconcile above
+before turning it on again.
+
+**Don't:**
+
+- use a test account in production during a deploy window (its changes move the counters and the numbers);
+- run `acceptance on` before the "turn on" stage, which adapts the end-to-end specs 03, 04, 05, 07 and 09 and adds the
+  acceptance screens (D-1166, D-1174); this batch deploys nothing that turns it on.
+
 ## Roll back with rollback.sh
 
 > **Only for a deploy that failed its checks**, in a block of its own, never in one with a deploy. After a deploy that

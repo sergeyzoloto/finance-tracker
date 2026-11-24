@@ -18,6 +18,10 @@
 #                                           with no unfinished run (F7). Never run against a stage whose stop you
 #                                           haven't resolved; on a failure after the change, it prints the way back
 #                                           and never switches back by itself.
+#   deploy/deploy.sh acceptance on|off       changes FAMILY_ACCEPTANCE_ENABLED (HIST-3) in .env and restarts api alone,
+#                                           as switch does; reads deploy/checks/acceptance.sql as finance_checks first:
+#                                           "on" needs the family switch on, every counter at its head and nothing
+#                                           pending; "off" refuses while anything is pending, or that can't be read.
 #   deploy/deploy.sh prune-cache            the build cache's bound by hand (OPS-5, D-940): what `run` does after its
 #                                           pages, as its own command, since a run executes the script the clone had
 #                                           before its merge; build cache only, never an image, container, volume or network
@@ -60,6 +64,7 @@ usage: deploy/deploy.sh run <commit> <stage>
        deploy/deploy.sh verify <stage>
        deploy/deploy.sh adopt
        deploy/deploy.sh switch on|off
+       deploy/deploy.sh acceptance on|off
        deploy/deploy.sh prune-cache
        deploy/deploy.sh db-image <commit>
 <commit> is origin/main's commit, 7 to 40 hex characters; <stage> names deploy/checks/<stage>.sql and .expected.
@@ -1294,6 +1299,7 @@ cmd_finish() {
     problems+=("the family numbers")
   fi
   say "Family numbers: $family"
+  acceptance_state "$(api_log_since_start || true)"
   [ "$browser" = yes ] || problems+=("the browser checks")
   [ "$smoke" = yes ] || problems+=("the smoke test")
 
@@ -1453,6 +1459,7 @@ cmd_verify() {
     say "PROBLEM: $seen, but production sets $SWITCH_HOW"
     issues=$((issues + 1))
   fi
+  acceptance_state "$api_log"
 
   heading "The stage's checks ($stage)"
   if [ -n "$problem" ]; then
@@ -1548,7 +1555,7 @@ cmd_adopt() {
   # F6c: the newest line decides. A finish-failed HEAD may be adopted, with a good, adopted or baseline one there is
   # nothing to adopt, as long as last-good names it with the running images.
   case $status in
-    good | adopted | baseline | switch-on | switch-off)
+    good | adopted | baseline | switch-on | switch-off | acceptance-on | acceptance-off)
       if [ "$LG_COMMIT" = "$head" ] && [ "$LG_API" = "$api" ] && [ "$LG_WEB" = "$web" ]; then
         fail "nothing to adopt: HEAD ${head:0:7} with the running images is the last good deploy already ($status)"
       fi
@@ -1881,6 +1888,274 @@ cmd_switch() {
   stop_log
 }
 
+# ---------------------------------------------------------------------------------------------------------------------
+# acceptance (HIST-3 part 4, ADR 0006 section 7)
+
+ACCEPT_VAR=FAMILY_ACCEPTANCE_ENABLED
+ACCEPT_PATTERN='Family acceptance: (on|off)'
+ACCEPT_CHECK=deploy/checks/acceptance.sql
+
+# accept_line_of FILE: FAMILY_ACCEPTANCE_ENABLED's current line in FILE, or nothing; never the rest of the file.
+accept_line_of() { grep "^$ACCEPT_VAR=" "$1" 2>/dev/null || true; }
+
+# accept_shown LINE: LINE (or "absent"), and "so on" or "so off", read as Spring reads a boolean.
+accept_shown() {
+  local value=${1#"$ACCEPT_VAR"=}
+  [ -n "$1" ] || { printf 'absent, so off'; return; }
+  case ${value,,} in
+    true | on | yes | 1) printf '%s, so on' "$1" ;;
+    *) printf '%s, so off' "$1" ;;
+  esac
+}
+
+# acceptance_expected: the line FamilyAcceptanceSwitch must log, from FAMILY_ACCEPTANCE_ENABLED as the api's container
+# has it, into ACCEPT_HOW and ACCEPT_LINE. Reads that one variable of the container and nothing else of its environment.
+acceptance_expected() {
+  local line value
+  line=$(docker inspect -f '{{range .Config.Env}}{{if eq (index (split . "=") 0) "FAMILY_ACCEPTANCE_ENABLED"}}{{.}}{{end}}{{end}}' finance-tracker-api)
+  value=${line#FAMILY_ACCEPTANCE_ENABLED=}
+  case ${value,,} in
+    '') ACCEPT_HOW="FAMILY_ACCEPTANCE_ENABLED absent, so off" ;;
+    true | on | yes | 1) ACCEPT_HOW="FAMILY_ACCEPTANCE_ENABLED=$value, so on" ;;
+    false | off | no | 0) ACCEPT_HOW="FAMILY_ACCEPTANCE_ENABLED=$value, so off" ;;
+    *) fail "FAMILY_ACCEPTANCE_ENABLED is \"$value\", which the api reads as neither on nor off" ;;
+  esac
+  ACCEPT_LINE="Family acceptance: ${ACCEPT_HOW##* }"
+}
+
+# acceptance_state LOG: one line for verify and finish, information only (D-1178): the .env line and what the api
+# logged since its start.
+acceptance_state() {
+  local seen
+  seen=$(log_line "$1" "$ACCEPT_PATTERN")
+  say "Family acceptance: $ACCEPT_VAR is $(accept_shown "$(accept_line_of "$APP_DIR/.env")") in .env; the api: ${seen:-no acceptance line in its log since its start} (information)"
+}
+
+# shellcheck disable=SC2329  # the EXIT trap
+on_exit_acceptance() {
+  local rc=$?
+  trap - EXIT
+  if [ "$PHASE" = preflight ]; then
+    say ""
+    say "REFUSED at \"$STEP\": ${REASON:-an unexpected error, exit code $rc}"
+    say "Nothing changed: .env untouched, api not restarted."
+    [ -n "$RUN_DIR" ] && set_status refused
+  elif [ "$PHASE" != complete ]; then
+    say ""
+    say "FAILED at \"$STEP\": ${REASON:-an unexpected error, exit code $rc}"
+    say "$ACCEPT_VAR in .env was already changed to $NEW_LINE before this failed. Look at it by hand, then, on the"
+    say "server, alone in its block, $([ "$OTHER" = on ] && echo 'run it again' || echo 'turn it back off'):"
+    say "  cd $REPO_DIR && deploy/deploy.sh acceptance off"
+    say "Never switch back on its own: it does not do that for you."
+    set_status failed
+  fi
+  [ "$rc" -ne 0 ] || [ "$PHASE" = complete ] || rc=1
+  stop_log
+  exit "$rc"
+}
+
+# cmd_acceptance on|off: changes FAMILY_ACCEPTANCE_ENABLED in .env and restarts api alone (HIST-3, D-1175 to D-1179),
+# modelled on cmd_switch. Both directions need the read-only role, since both read deploy/checks/acceptance.sql: "on"
+# only with every counter at its head and nothing pending, and with the family switch on; "off" only with nothing
+# pending, and refuses when that can't be read (D-1177). Otherwise "off" warns and goes on where "switch off" does.
+cmd_acceptance() {
+  local direction=$1 want old_line env_file backup_file head api_now web_now latest status api_log rc images_ok
+  local api_before web_before api_content_before web_content_before images_line why problem out m l p seen shown
+  case $direction in
+    on) want=true OTHER=off ;;
+    off) want=false OTHER=on ;;
+    *) usage ;;
+  esac
+  NEW_LINE="$ACCEPT_VAR=$want"
+  PHASE=preflight
+  trap on_exit_acceptance EXIT
+  take_lock exclusive
+  cd "$REPO_DIR" || fail "no clone in $REPO_DIR"
+  head=$(git rev-parse HEAD)
+  latest=$(latest_unrefused_run)
+  start_log "acceptance-$direction"
+  print_settings
+
+  heading "1.1 Preflight: the tools and the terminal"
+  check_tools git docker flock install diff
+  exec {TTY_FD}<"$TTY" || fail "can't read $TTY: run this in a terminal on the server"
+
+  heading "1.2 Preflight: the role"
+  problem=$(role_problem)
+  if [ -n "$problem" ]; then
+    role_command
+    fail "$problem: the pending changes can't be read without it"
+  fi
+  say "The checks run as $CHECKS_ROLE: $ROLE_OK"
+
+  heading "1.3 Preflight: health"
+  if ! wait_healthy; then
+    [ "$direction" = off ] || fail "api and web not both healthy"
+    say "WARNING: api and web not both healthy; turning acceptance off goes on all the same"
+  fi
+
+  heading "1.4 Preflight: the clone, the last good deploy, no unfinished run"
+  [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "the clone has changes to tracked files (git status)"
+  running_images || fail "no container finance-tracker-api or finance-tracker-web: the stack isn't up"
+  api_before=$RUN_API web_before=$RUN_WEB api_content_before=$RUN_API_CONTENT web_content_before=$RUN_WEB_CONTENT
+  say "$STORE_LINE"
+  say "Before: $(identity api "$api_before" "$api_content_before"); $(identity web "$web_before" "$web_content_before")"
+  if ! read_last_good; then
+    [ "$direction" = off ] || fail "no record of a last good deploy: deploy at least once first (deploy/deploy.sh run)"
+    say "WARNING: no record of a last good deploy; turning acceptance off goes on all the same"
+  elif [ "$LG_COMMIT" != "$head" ]; then
+    [ "$direction" = off ] \
+      || fail "HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}): deploy it and finish, or roll back to it, first"
+    say "WARNING: HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}); turning acceptance off goes on all the same"
+  fi
+  images_ok=yes
+  rc=0
+  compare_identity api "$LG_API" "$LG_API_CONTENT" "$api_before" "$api_content_before" || rc=$?
+  [ "$rc" -eq 0 ] || images_ok=no
+  rc=0
+  compare_identity web "$LG_WEB" "$LG_WEB_CONTENT" "$web_before" "$web_content_before" || rc=$?
+  [ "$rc" -eq 0 ] || images_ok=no
+  if [ "$images_ok" = no ]; then
+    [ "$direction" = off ] \
+      || fail "the running images are not the last good deploy's content, or their content is unknown: deploy, or roll back, first"
+    say "WARNING: the running images are not the last good deploy's content, or it is unknown; turning acceptance off goes on all the same"
+  fi
+  if [ -z "$latest" ]; then
+    why="no run recorded in $STATE_DIR/runs: deploy with deploy/deploy.sh run, then deploy/deploy.sh finish, first"
+    status=none
+  else
+    why=$(unfinished_work "$latest")
+    status=$(cat "$latest/status" 2>/dev/null || echo 'without a status')
+    say "The latest run that isn't refused: ${latest##*/}, $status"
+  fi
+  if [ -n "$why" ]; then
+    [ "$direction" = off ] || fail "${why}"
+    say "WARNING: $why; turning acceptance off goes on all the same"
+  fi
+  say "HEAD: $(git log -1 --format='%h %s' HEAD), the last good deploy ${LG_COMMIT:0:7} ($status)"
+
+  heading "1.5 Preflight: the family switch and the current acceptance"
+  env_file=$APP_DIR/.env
+  [ -f "$env_file" ] || fail "$env_file is missing (the runbook's step 5)"
+  say "The family switch: $SWITCH_VAR is $(switch_shown "$(switch_line_of "$env_file")") in .env"
+  switch_expected
+  say "The running api: $SWITCH_HOW"
+  if [ "$direction" = on ]; then
+    case "$(switch_shown "$(switch_line_of "$env_file")") $SWITCH_HOW" in
+      *"so on "*"so on") ;;
+      *) fail "the family switch is off: family acceptance is turned on only with family budgets on (deploy/deploy.sh switch on first)" ;;
+    esac
+  fi
+  old_line=$(accept_line_of "$env_file")
+  say "Current: $ACCEPT_VAR is $(accept_shown "$old_line")"
+  acceptance_expected
+  say "The running api: $ACCEPT_HOW"
+  shown=$(accept_shown "$old_line")
+  if [ "${shown##* }" = "$direction" ]; then
+    [ "${ACCEPT_HOW##* }" != "$direction" ] || fail "family acceptance is already $direction: nothing to change"
+    say ".env already says $(accept_shown "$old_line"), but the api runs with $ACCEPT_HOW: this restarts it"
+  fi
+  say "Will become: $NEW_LINE"
+
+  heading "1.6 Preflight: the pending changes ($ACCEPT_CHECK)"
+  git show "HEAD:$ACCEPT_CHECK" >"$RUN_DIR/acceptance.sql" 2>/dev/null || fail "HEAD has no $ACCEPT_CHECK"
+  out=$(sql_file "$RUN_DIR/acceptance.sql" 2>"$RUN_DIR/acceptance-error.txt") \
+    || fail "$ACCEPT_CHECK failed as $CHECKS_ROLE ($(one_line "$(tail -n 3 "$RUN_DIR/acceptance-error.txt")")): the pending changes can't be read"
+  [[ $out =~ ^acceptance\ members=([0-9]+)\ links=([0-9]+)\ pending=([0-9]+)$ ]] \
+    || fail "$ACCEPT_CHECK printed something else than its one line: the pending changes can't be read"
+  m=${BASH_REMATCH[1]} l=${BASH_REMATCH[2]} p=${BASH_REMATCH[3]}
+  say "Members not at their ledger's revision: $m; attached links not posted at their record's last revision: $l; pending records: $p"
+  [ "$p" -eq 0 ] \
+    || fail "$p pending record changes: the members accept them first, with the app's Accept action (POST /api/family-ledgers/<id>/accept); accept first"
+  if [ "$direction" = on ] && { [ "$m" -ne 0 ] || [ "$l" -ne 0 ]; }; then
+    fail "the counters aren't at their heads ($m members, $l links): run the reconcile first (deploy/RUNBOOK.md, \"Family acceptance (HIST-3)\")"
+  fi
+
+  heading "2. Confirmation"
+  say "This changes $ACCEPT_VAR in $env_file from $(accept_shown "$old_line") to $NEW_LINE, and restarts api alone."
+  say "Family changes will $([ "$direction" = on ] && echo 'wait for each member to accept them' || echo 'post at once, as before')."
+  ask "Type ACCEPTANCE ${direction^^} to go on; anything else stops here with nothing changed: "
+  [ "$ANSWER" = "ACCEPTANCE ${direction^^}" ] || fail "not confirmed"
+
+  PHASE=changing
+  set_status changing
+
+  heading "3.1 Change .env"
+  backup_file="$env_file.$(date -u +%Y%m%dT%H%M%SZ)"
+  install -m 600 "$env_file" "$backup_file"
+  say "Copied $env_file, before the acceptance change, to $backup_file (mode 600)"
+  awk -v key="$ACCEPT_VAR" -v val="$want" '
+    BEGIN { seen = 0 }
+    $0 ~ "^" key "=" { print key "=" val; seen = 1; next }
+    { print }
+    END { if (!seen) print key "=" val }
+  ' "$env_file" >"$env_file.tmp"
+  chmod 600 "$env_file.tmp"
+  if ! diff -q <(grep -vF "$ACCEPT_VAR=" "$env_file") <(grep -vF "$ACCEPT_VAR=" "$env_file.tmp") >/dev/null; then
+    rm -f "$env_file.tmp"
+    fail "something besides $ACCEPT_VAR would change in .env; refusing, to protect its secrets"
+  fi
+  mv -f "$env_file.tmp" "$env_file"
+  say "Changed, limited to that line:"
+  say "  - ${old_line:-($ACCEPT_VAR absent)}"
+  say "  + $NEW_LINE"
+
+  heading "3.2 Restart api"
+  (cd "$APP_DIR" && docker compose up -d --no-deps api)
+
+  heading "3.3 Health"
+  wait_healthy || fail "api and web not both healthy after $HEALTH_TRIES checks"
+
+  heading "3.4 The acceptance line"
+  acceptance_expected
+  say "Expected: \"$ACCEPT_LINE\" ($ACCEPT_HOW)"
+  [ "$ACCEPT_HOW" = "$NEW_LINE, so $direction" ] \
+    || fail "the api's container reads acceptance as $ACCEPT_HOW, not $NEW_LINE: docker compose didn't pick it up"
+  api_log=$(api_log_since_start)
+  seen=$(log_line "$api_log" "$ACCEPT_PATTERN")
+  [ -n "$seen" ] || fail "the api's log since its start has no acceptance line"
+  say "Logged: $seen"
+  case $seen in
+    "\"$ACCEPT_LINE\" at "*) say "As production now sets it ($ACCEPT_HOW)" ;;
+    *) fail "the acceptance line isn't \"$ACCEPT_LINE\" ($ACCEPT_HOW)" ;;
+  esac
+
+  heading "3.5 The images before and after"
+  running_images || fail "a container is gone after the restart"
+  api_now=$RUN_API web_now=$RUN_WEB
+  images_line=$(image_change api "$api_before" "$api_content_before" "$api_now" "$RUN_API_CONTENT")
+  images_line="$images_line; $(image_change web "$web_before" "$web_content_before" "$web_now" "$RUN_WEB_CONTENT")"
+  say "Images: $images_line"
+  case $images_line in
+    *CHANGED* | *unknown*)
+      [ "$direction" = off ] \
+        || fail "the restart started other content, or content that can't be read, than ran before: $images_line"
+      say "WARNING: other content, or content that can't be read, than ran before; turned off all the same"
+      ;;
+  esac
+  if [ "$images_ok" = yes ] && { [ "$api_now" != "$LG_API" ] || [ "$web_now" != "$LG_WEB" ]; }; then
+    write_last_good "$LG_COMMIT" "$api_now" "$web_now" "$RUN_API_CONTENT" "$RUN_WEB_CONTENT" "${LG_SOURCE:-deploy}" "${LG_FINISH}"
+    say "last-good now names the running images, the same content under new IDs: api $api_now, web $web_now"
+    images_line="$images_line (last-good updated to the new IDs)"
+  fi
+  add_history "acceptance-$direction" "$head" "$api_now" "$web_now"
+  {
+    say "Acceptance $direction on $(date -u +%F) at $(now): $(git log -1 --format='%h (%s)' "$head")"
+    say "$ACCEPT_VAR: ${old_line:-absent} -> $NEW_LINE"
+    say "Images: $images_line"
+    say "Acceptance line: $seen, as production now sets it ($ACCEPT_HOW)"
+    say "Pre-check: members $m, links $l, pending $p"
+  } | tr '|' '/' >"$RUN_DIR/summary.txt"
+  set_status "acceptance-$direction"
+  PHASE=complete
+  heading "4. Summary"
+  cat "$RUN_DIR/summary.txt"
+  say ""
+  say "The way back, on the server, alone in its block (it never switches back by itself):"
+  say "  cd $REPO_DIR && deploy/deploy.sh acceptance $OTHER"
+  stop_log
+}
+
 main() {
   set -euo pipefail
   shopt -s inherit_errexit
@@ -1896,6 +2171,7 @@ main() {
     prune-cache) [ $# -eq 1 ] || usage; cmd_prune_cache ;;
     db-image) [ $# -eq 2 ] || usage; cmd_db_image "$2" ;;
     switch) [ $# -eq 2 ] || usage; cmd_switch "$2" ;;
+    acceptance) [ $# -eq 2 ] || usage; cmd_acceptance "$2" ;;
     *) usage ;;
   esac
 }

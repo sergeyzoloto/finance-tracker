@@ -478,6 +478,14 @@ that needs "state of the family ledger as of revision R" (per-change accept, the
 link facts) costs about half again as much and is deferred unless Sergey needs it. The whole feature sits behind
 its own switch (`app.family.acceptance.enabled`, off by default, D-1023), so HIST-3 can be deployed dark. Here, "posted" means "checked as matching": a link whose posted_revision equals its record's last_revision needs no rewrite.
 
+**As built (HIST-3 part 4).** The switch reaches production through `deploy/deploy.sh acceptance on|off`, modelled on
+`switch`: it changes only the `FAMILY_ACCEPTANCE_ENABLED` line of `.env`, restarts the api alone and checks its
+`Family acceptance: on|off` line. Its pre-check, `deploy/checks/acceptance.sql` read as `finance_checks`, lets `on` go
+on only with the family switch on, every member's counter at its ledger's head, every link at its record's last
+revision and nothing pending; `off` refuses while anything is pending, or when that can't be read (D-1175, D-1177,
+D-1179). A lagging uploader's dry run reports the family rows it couldn't check as a count, not as row errors
+(D-1173, D-1180). The acceptance screens are part 5 (D-1174); production stays off.
+
 ## 8. Erasure and privacy (D-1018, D-1019, D-1025)
 
 - **Delete all my data (D-996, D-20):** in the same transaction as today, delete the personal ledger's versions,
@@ -741,6 +749,13 @@ Acceptance criteria of part 1:
   a non-member gets the answer of a missing family budget (404);
 - (e) rollback to the previous image still works: the old table is still written.
 
+**As built for HIST-3 (part 4).** The reconcile of D-1160 for the operator is `deploy/manual/reconcile-acceptance.sql`,
+V21's backfill as a rerunnable transaction with counts before and after, which refuses while anything is pending by
+the stored counters (D-1165); the runbook's "Family acceptance (HIST-3)" holds it, byte for byte, after a guard that
+stops unless acceptance is off in `.env`, to run after a rollback to an image older than V21 and before
+`acceptance on` (D-1176). The stage check `deploy/checks/HIST-3.sql` and `.expected` keeps HIST-2's lines and adds
+V21's columns, its trigger and four invariants of the counters with acceptance off (D-1179).
+
 ## 14. HIST-2 part 2 (frontend and deploy)
 
 Status: as built (HIST-2 part 2, step 4). Part 2 is the frontend of HIST-2 over part 1's API (section 13); it changes no backend. Decisions D-1118 to D-1145 are listed below, after "As built".
@@ -810,3 +825,15 @@ Not done in part 2: the payees' History action (D-1124: no screen lists payees a
 - D-1170 (manager, HIST-3 part 3) the pending summary (GET /api/family-ledgers/{ledgerId}/pending) answers the count and the ids of the caller's pending records; with the switch off it answers 404 as an unknown path does.
 - D-1171 (manager, HIST-3 part 3) the integrity report with the switch on: a member with pending records shows pendingChanges with its count and his debt-versus-family-balance comparison is skipped; a caught-up member is compared as before. With the switch off the output is byte-for-byte as now.
 - D-1172 (manager, HIST-3 part 3) the importer's dry run by a lagging uploader lists the pending changes as a named note, which does not fail the run: "N family changes are waiting for you; accept them before committing". The commit refusal of D-1164 is unchanged.
+
+### 14.w HIST-3 part 4 (D-1173 to D-1180)
+
+- D-1173 (PM, HIST-3 part 4) the lagging uploader's dry run lists ONE named non-failing note ("N family changes are waiting for you; accept them before committing", D-1172) and NO per-row errors for family rows caused by the author rule. The family rows that would have been checked are reported in the run's summary as a count, worded "not checked until you accept". The run stays DRY_RUN and writes nothing. The commit refusal (409, FAMILY_PENDING_CHANGES, D-1164) is unchanged.
+- D-1174 (PM, HIST-3 part 4) the acceptance UI is part 5, not part 4. HIST-3 deploys dark without it.
+- D-1175 (manager, HIST-3 part 4) `deploy/deploy.sh acceptance on|off` copies `switch`'s preflight: `on` refuses on health, a HEAD that isn't the last good deploy, images that aren't its content and unfinished work; `off` prints each of them as a WARNING and goes on, as `switch off` does. Unlike `switch off` (D-50), both directions need the read-only role, since both read the pending count. It reads neither the pages nor the numbers: the restart changes no data and no page.
+- D-1176 (manager, HIST-3 part 4) the reconcile is the manual SQL file `deploy/manual/reconcile-acceptance.sql` (V21's backfill as `AcceptanceCounters` reruns it, with counts before and after, refusing while anything is pending by the stored counters). The operator never runs the file: the runbook's block ("Family acceptance (HIST-3)") holds its text in a heredoc after a guard that stops unless `FAMILY_ACCEPTANCE_ENABLED` in `.env` is absent or `false`, and a fresh backup, run as the app's login `finance` like "Delete a user". `deploy/tests/run.sh` checks that the block is the file byte for byte; the file was tried on a throwaway database migrated by Flyway to V21.
+- D-1177 (manager, HIST-3 part 4) `acceptance off` refuses while any record is pending ("accept first", with the count) and also when the count can't be read (no role, the check failing, or an unexpected line).
+- D-1178 (manager, HIST-3 part 4) `verify` and `finish` print one line about family acceptance (the `.env` line and the api's logged line), for information only: never a problem, never a stop, so their verdicts don't change.
+- D-1179 (manager, HIST-3 part 4) the pre-check is `deploy/checks/acceptance.sql`, a check file without an `.expected` (like `numbers.sql`): one line `acceptance members=<m> links=<l> pending=<p>` that `deploy.sh` parses; `on` needs all three 0 and the family switch on in `.env` and in the running api. `numbers.sql` gets no key (V21 adds no table). The stage check `HIST-3.sql` is HIST-2's lines with the Flyway line at V21, then V21's columns, its trigger by name and four invariants of the counters that hold with acceptance off.
+- D-1180 (manager, HIST-3 part 4) D-1173's count is `totals.notCheckedUntilAccepted` of the import report (also in the stored run summary, and one line of the Markdown report when above 0); it counts each family row whose write the author rule refused in a dry run, including a payment side and each row of a grouped settlement.
+- D-1181 (manager, HIST-3 part 4) detached family links (a member who left, `detached_at` set) are never stamped again (`CrossLedgerWriter` stamps attached links only), so the pre-check `deploy/checks/acceptance.sql`, the invariant of `HIST-3.sql` and the reconcile's counts before and after count attached links only (`detached_at IS NULL`). The reconcile's UPDATE of the links stays V21's (and `AcceptanceCounters`'): over every link, detached ones included, setting each to its record's `last_revision`; nothing reads a detached link's counter, and a record the leaver is in is frozen, so it doesn't move afterwards. `FamilyCountersApiTests.aDetachedLinkIsNotCountedByTheStageCheck` runs HIST-3's query after a leave and the remaining member's change sets.

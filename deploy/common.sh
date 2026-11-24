@@ -613,11 +613,15 @@ unfinished_work() {
   local name=${1##*/} status
   status=$(cat "$1/status" 2>/dev/null || echo 'without a status')
   case $status in
-    finished | rolled-back | adopted | switch-on | switch-off) return 0 ;;
+    finished | rolled-back | adopted | switch-on | switch-off | acceptance-on | acceptance-off) return 0 ;;
   esac
   case $name in
     *-switch-on | *-switch-off)
       printf 'the switch %s changed .env or restarted api and did not complete (%s): run deploy/deploy.sh switch off' \
+        "$name" "$status"
+      ;;
+    *-acceptance-on | *-acceptance-off)
+      printf 'the acceptance change %s changed .env or restarted api and did not complete (%s): run deploy/deploy.sh acceptance off' \
         "$name" "$status"
       ;;
     *-rollback-*)
@@ -654,7 +658,7 @@ clean_finish() {
     *) [ "$LG_SOURCE" = adopt ] || return 1 ;;
   esac
   case $(commit_status "$1") in
-    good | adopted | switch-on | switch-off) return 0 ;;
+    good | adopted | switch-on | switch-off | acceptance-on | acceptance-off) return 0 ;;
   esac
   return 1
 }

@@ -85,6 +85,37 @@ class FamilyCountersApiTests extends FamilyApiTest {
         assertThat(accepted(dad)).isEqualTo(revision());
     }
 
+    /**
+     * D-1181: a member's links are detached when he leaves and never stamped again (CrossLedgerWriter stamps attached
+     * links only), so the stage check HIST-3.sql and the pre-check of deploy.sh acceptance count attached links only.
+     * A record the leaver is in is frozen (no member can edit it), so the remaining members' next change sets are on
+     * other records; the stage check's query, as HIST-3.sql has it, still answers 0 with his detached links present.
+     */
+    @Test
+    void aDetachedLinkIsNotCountedByTheStageCheck() throws IOException {
+        long record = created(post(alice, uri + "/records", expense("2026-09-10", groceries, "30.00", mum, LATER)))
+                .get("id").asLong();
+        assertThat(delete(bob, uri + "/members/me")).hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(jdbc.sql("SELECT count(*) FROM family_entry_link WHERE record_id = ? AND detached_at IS NOT NULL")
+                .param(record).query(Long.class).single()).isPositive();
+        long recordAt = lastRevision(record);
+
+        // The remaining member's change sets: a new record and an edit of it.
+        long other = created(post(alice, uri + "/records", expense("2026-09-11", groceries, "9.00", mum, LATER, """
+                {"method": "ONE_MEMBER", "memberId": %d}""".formatted(mum)))).get("id").asLong();
+        ok(patch(alice, uri + "/records/" + other + "?version=0", """
+                {"amount": "12.00"}"""));
+        assertThat(revision()).isGreaterThan(recordAt);
+        // The last statement of deploy/checks/HIST-3.sql, narrowed to this family budget (the database is shared).
+        assertThat(jdbc.sql("""
+                SELECT 'attached family links not posted at their record''s last revision ' || count(*)
+                FROM app.family_entry_link k
+                JOIN app.family_record r ON r.id = k.record_id AND r.ledger_id = k.family_ledger_id
+                WHERE k.detached_at IS NULL AND k.posted_revision <> r.last_revision AND r.ledger_id = ?""")
+                .param(family).query(String.class).single())
+                .isEqualTo("attached family links not posted at their record's last revision 0");
+    }
+
     @Test
     void membershipTakesNoRevisionAndSetsTheMembersOwnCounter() throws IOException {
         created(post(alice, uri + "/records", expense("2026-09-10", groceries, "30.00", kid, "")));

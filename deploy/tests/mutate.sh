@@ -116,8 +116,8 @@ mutation_in common.sh "skip a finish-failed commit as the rollback target" \
 
 # F6c: adopt refusing a finish-failed HEAD.
 mutation "let adopt refuse a finish-failed HEAD" \
-  '    good | adopted | baseline | switch-on | switch-off)' \
-  '    good | adopted | baseline | switch-on | switch-off | finish-failed)' \
+  '    good | adopted | baseline | switch-on | switch-off | acceptance-on | acceptance-off)' \
+  '    good | adopted | baseline | switch-on | switch-off | acceptance-on | acceptance-off | finish-failed)' \
   newest_line_decides_status f6c_scripts_on_production_state
 
 # F6c: the two hints.
@@ -263,8 +263,8 @@ mutation "let switch off refuse for unfinished work" \
 
 # OPS-2, defect 1: an interrupted switch taken as done.
 mutation_in common.sh "take an interrupted switch as done" \
-  '    finished | rolled-back | adopted | switch-on | switch-off) return 0 ;;' \
-  '    finished | rolled-back | adopted | switch-on | switch-off | failed) return 0 ;;' \
+  '    finished | rolled-back | adopted | switch-on | switch-off | acceptance-on | acceptance-off) return 0 ;;' \
+  '    finished | rolled-back | adopted | switch-on | switch-off | acceptance-on | acceptance-off | failed) return 0 ;;' \
   switch_interrupted_after_the_change
 
 # OPS-2, defect 1: "nothing to switch" by .env alone, though the api still runs with the other value.
@@ -666,6 +666,48 @@ mutation "the SELECT version() reader drops its end of version" \
   "  local re='^PostgreSQL ([0-9]+)\\.([0-9]+)( |\$)'" \
   "  local re='^PostgreSQL ([0-9]+)\\.([0-9]+)'" \
   db_image_reads_the_real_server_version_line
+
+# --- HIST-3 part 4: acceptance on|off (D-1175 to D-1179)
+mutation "let acceptance's confirmation accept anything" \
+  '[ "$ANSWER" = "ACCEPTANCE ${direction^^}" ] || fail "not confirmed"' ': accepts "$ANSWER"' \
+  acceptance_wrong_confirmation
+mutation "acceptance on without the family switch" \
+  '      *) fail "the family switch is off: family acceptance is turned on only with family budgets on (deploy/deploy.sh switch on first)" ;;' \
+  '      *) : ;;' \
+  acceptance_on_refuses_with_the_switch_off
+mutation "acceptance on with counters behind" \
+  '  if [ "$direction" = on ] && { [ "$m" -ne 0 ] || [ "$l" -ne 0 ]; }; then' '  if false; then' \
+  acceptance_on_refuses_counters_behind
+mutation "acceptance goes on while records are pending" \
+  '  [ "$p" -eq 0 ]' '  true' \
+  acceptance_refuses_pending
+mutation "acceptance off goes on when the pending count can't be read" \
+  '  [[ $out =~ ^acceptance\ members=([0-9]+)\ links=([0-9]+)\ pending=([0-9]+)$ ]]' \
+  '  [[ $out =~ ^acceptance\ members=([0-9]+)\ links=([0-9]+)\ pending=([0-9]+)$ ]] || out="acceptance members=0 links=0 pending=0"; [[ $out =~ ^acceptance\ members=([0-9]+)\ links=([0-9]+)\ pending=([0-9]+)$ ]]' \
+  acceptance_off_refuses_unreadable_pending
+mutation "acceptance off without the role" \
+  '    fail "$problem: the pending changes can'"'"'t be read without it"' '    :' \
+  acceptance_off_refuses_unreadable_pending
+mutation "acceptance on from another revision than the last good deploy" \
+  '      || fail "HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}): deploy it and finish, or roll back to it, first"
+    say "WARNING: HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}); turning acceptance off goes on all the same"' \
+  '      || true
+    say "WARNING: HEAD ${head:0:7} is not the last good deploy (${LG_COMMIT:0:7}); turning acceptance off goes on all the same"' \
+  acceptance_on_refuses_not_the_last_good_deploy
+mutation "acceptance doesn't check the api's line" \
+  '    *) fail "the acceptance line isn'"'"'t \"$ACCEPT_LINE\" ($ACCEPT_HOW)" ;;' '    *) : ;;' \
+  acceptance_failure_prints_the_way_back
+mutation "acceptance rewrites another line of .env" \
+  '  awk -v key="$ACCEPT_VAR" -v val="$want" '"'"'
+    BEGIN { seen = 0 }
+    $0 ~ "^" key "=" { print key "=" val; seen = 1; next }' \
+  '  awk -v key="$ACCEPT_VAR" -v val="$want" '"'"'
+    BEGIN { seen = 0 }
+    NR == 1 { print key "=" val; seen = 1; next }' \
+  acceptance_on_and_off
+mutation "acceptance doesn't print the way back" \
+  '  say "  cd $REPO_DIR && deploy/deploy.sh acceptance $OTHER"' '  :' \
+  acceptance_on_and_off
 
 echo
 if [ "$survived" -eq 0 ]; then

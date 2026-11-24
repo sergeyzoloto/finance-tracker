@@ -68,6 +68,9 @@ services:
       # The family switch (D-25): absent from .env, as today, means off. deploy/deploy.sh switch on|off (F7) is the
       # only way to change the line in .env; never edit it by hand.
       FAMILY_LEDGERS_ENABLED: ${FAMILY_LEDGERS_ENABLED:-false}
+      # Family acceptance (HIST-3): absent from .env means off. deploy/deploy.sh acceptance on|off is the only way to
+      # change the line in .env; never edit it by hand.
+      FAMILY_ACCEPTANCE_ENABLED: ${FAMILY_ACCEPTANCE_ENABLED:-false}
     networks:
       # default: the database, and the way out to Keycloak and the ECB. edge: Caddy.
       - default

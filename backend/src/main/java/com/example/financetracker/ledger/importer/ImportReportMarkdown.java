@@ -73,6 +73,10 @@ public final class ImportReportMarkdown {
                 List.of("Skipped", String.valueOf(totals.skipped())),
                 List.of("Row errors", String.valueOf(report.errors().size())),
                 List.of("Warnings", String.valueOf(report.warnings().size()))));
+        if (totals.notCheckedUntilAccepted() > 0) {
+            // D-1173: a lagging uploader's dry run.
+            md.append("\n%d family rows not checked until you accept\n".formatted(totals.notCheckedUntilAccepted()));
+        }
 
         md.append("\n### By source and kind\n\n");
         List<List<String>> counts = new ArrayList<>();

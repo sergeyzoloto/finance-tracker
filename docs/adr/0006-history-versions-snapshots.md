@@ -391,6 +391,21 @@ he is caught up. Members see "X restored 'Before the October import': 143 record
 Until they accept, their books stay as they were. Because there is no decline, the restore reaches everyone
 eventually; that is the cost of D-992 and D-993 together, and D-1030 accepts it.
 
+### 6.7 HIST-4 part 1 as built (D-1193 to D-1201)
+
+Migration V22 adds the `snapshot` table (ledger_id with ON DELETE CASCADE, revision, name, kind without a CHECK,
+created_by, created_at) and an index on (ledger_id, created_at DESC, id). Its trigger is the V19 guard
+(`history_immutable()`): UPDATE is refused, DELETE only under `app.writer = 'delete-all'` or a ledger's deletion, and
+it is not gated by `app.history` (the previous image never writes the table, so rollback is unaffected; D-1040).
+Create (`POST /api/snapshots`) and list/get (`GET`) are personal only; the state of a ledger at a revision
+(`LedgerState`) is read-only, in one transaction, and uses `DISTINCT ON` over the (ledger_id, revision) index: 18 ms
+for 20,000 versions on a test database (EXPLAIN with no sequential scan). Erasure: "Delete all my data" deletes the
+user's snapshots, and deleting the personal ledger takes them by the cascade. The activity event SNAPSHOT_CREATED has
+no ledger id (as manual rates do), so the Activity page shows it while the family switch is off, and the delete-all
+path removes it by actor. Drift is not repaired by the snapshot code: `HistoryJobs` (the baseline job, at start) and
+the lazy rule in `HistoryService.write` write the missing BASELINE and RECONCILE versions; until one of them runs, a
+create is refused with `HISTORY_INCONSISTENT`.
+
 ## 7. Family acceptance (D-992)
 
 ### 7.1 What has to change
@@ -565,13 +580,20 @@ carries a rollback drill. A later stage whose rollback cannot work this way says
 | **HIST-1: versions and the log** (invisible, D-1037) | `record_version`, `activity_event`, `ledger.revision`; a history module with canonical content and hashing; every personal write path (entries, accounts, categories, counterparties, demo, provisioning, merge, detach) writes versions; family records write versions beside `family_record_change` (dual write); the backstop trigger; the integrity check; the baseline job; sign-in, sign-out, expiry events; erasure paths (delete-all, `release_family_memberships`, `delete_family_ledger`, runbook SQL); the privacy policy section | V19 (tables, revision column, guards, erasure functions; the backstop only for version-aware connections, D-1040) | **medium-high**: touches every write path; mitigated by the backstop, random tests and the PERF-1 timing check | about 2,000 lines with tests | **nothing**, apart from the policy text (D-1037); history views come with HIST-2 |
 | **HIST-2: history views and notifications** | family journal reads from versions (diff of two versions), `family_record_change` frozen; history views for entries, accounts, categories, payees; `notification` table, the header badge and list, informational `FAMILY_CHANGES` | V20 (`notification`, journal freeze) | low-medium | about 1,200 lines | a History view per record; a badge and a list of "X changed n records" (no effect on books yet) |
 | **HIST-3: family acceptance** (dark behind its switch) | revisions on records, `accepted_revision`, `last_revision`, `posted_revision`, deferred posting, accept action, the author rule, pending marks, integrity and tests adapted, the importer's rule, deploy script's switch | V21 | **high**: changes ADR 0003 D-7 and D-10; every family test and e2e spec | 2,500 to 4,000 lines | with the switch on: family changes by others wait until "Accept"; pending marks; the Accept button |
-| **HIST-3b** (optional) | accepted facts on `family_entry_link`, personal reads switch to them | V22 | medium (planner-sensitive statements) | about 600 lines | exact numbers on Entries while changes are pending |
-| **HIST-4: personal snapshots and restore** | snapshots (manual, before import, before restore), preview, restore of a snapshot and of one version, archived status, undo | V23 (`snapshot`, `restore_run`, `restore_item`) | medium: restore invariants; mitigated by the all-or-nothing preview and the oracle test | about 1,800 lines | "Snapshots" in Settings; "Restore this version" in history; an import page's undo |
+| **HIST-3b** (optional) | accepted facts on `family_entry_link`, personal reads switch to them | the next free number, if ever built (D-1194) | medium (planner-sensitive statements) | about 600 lines | exact numbers on Entries while changes are pending |
+| **HIST-4: personal snapshots and restore** | snapshots (manual, before import, before restore), preview, restore of a snapshot and of one version, archived status, undo | V22 (`snapshot`, part 1) and V23 (`restore_run`, `restore_item`, part 2) (D-1194) | medium: restore invariants; mitigated by the all-or-nothing preview and the oracle test | about 1,800 lines | "Snapshots" in Settings; "Restore this version" in history; an import page's undo |
 | **HIST-5: family snapshots and restore** | the same for family budgets, owners only, as a change set that others accept | none or small | medium-high (meets HIST-3) | about 800 lines | family snapshots, restore preview by author, notifications |
 
 Amended 2026-11-22 (HIST-2 charter, D-1075): HIST-2's V20 holds only the `notification` table and the replaced
 erasure functions; `family_record_change` is not frozen in HIST-2 (HIST-1's dual write stays, so that rollback to
 the previous image keeps working) and is frozen and dropped in a later migration. See section 13.
+
+Amended 2026-11-25 (HIST-4 part 1, D-1194 to D-1201): HIST-4 part 1 is V22 (the `snapshot` table, personal ledgers
+only, backend only) and part 2 is V23 (restore tables); HIST-3b, if ever built, takes the next free number. A
+snapshot takes the ledger's row with `FOR SHARE`, reads the revision after the lock, checks the counts of live records
+against the state at that revision, and checks the cap of 1,000 per ledger before its insert, all in one transaction.
+The cap is a safety limit, not an invariant: two snapshots made at once can both read 999 and both be inserted
+(D-1197); that race is accepted.
 
 ## 10. Decisions of HIST-0 (D-998 onwards)
 

@@ -74,7 +74,8 @@ public class UserDataService {
         // In the order of the foreign keys: the settings name an account, entries name counterparties and import
         // batches, postings (deleted with their entries) name accounts, categories and counterparties.
         deleted += jdbc.sql("DELETE FROM user_settings WHERE user_id = :userId").param("userId", userId).update();
-        for (String table : new String[] {"journal_entry", "import_batch", "account", "category", "counterparty"}) {
+        // The ledger's snapshots (HIST-4) are immutable but for this writer; the ledger's deletion would cascade too.
+        for (String table : new String[] {"snapshot", "journal_entry", "import_batch", "account", "category", "counterparty"}) {
             deleted += jdbc.sql("DELETE FROM " + table + " WHERE ledger_id IN (" + PERSONAL_LEDGER + ")")
                     .param("userId", userId).update();
         }

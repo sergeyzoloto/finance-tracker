@@ -62,8 +62,15 @@ export const subjectName = (row: ActivityRow) => row.subject?.name ?? FORMER_MEM
 /** The name of who acted: the API's, "Someone" when it sends none. */
 export const actorName = (row: ActivityRow) => row.actor?.name ?? SOMEONE
 
+/** A snapshot of the ledger, by the name the API sent; without one, the plain sentence. */
+function snapshotSentence(details: unknown): string {
+  const name = typeof details === 'object' && details !== null ? (details as { name?: unknown }).name : undefined
+  return typeof name === 'string' && name !== '' ? `You created a snapshot “${name}”` : 'You created a snapshot'
+}
+
 /** The sentence of a row; a kind it doesn't know is "Other activity", never the kind's name. */
 export function sentence(row: ActivityRow): string {
+  if (row.kind === 'SNAPSHOT_CREATED') return snapshotSentence(row.details)
   const own = OWN[row.kind]
   if (own !== undefined) return own
   const family = FAMILY[row.kind]

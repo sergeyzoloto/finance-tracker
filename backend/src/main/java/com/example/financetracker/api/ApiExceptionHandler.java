@@ -147,7 +147,12 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     ProblemDetail illegalArgument(IllegalArgumentException e) {
-        return problem(HttpStatus.BAD_REQUEST, "Invalid request", e.getMessage() + ".");
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "Invalid request", e.getMessage() + ".");
+        if (e instanceof com.example.financetracker.ledger.InvalidRequestException coded) {
+            // Additive (HIST-4): a refusal the client tells apart, such as a snapshot's name.
+            problem.setProperty("code", coded.code());
+        }
+        return problem;
     }
 
     @ExceptionHandler(Exception.class)

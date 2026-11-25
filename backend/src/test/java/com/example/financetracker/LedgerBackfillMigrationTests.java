@@ -408,9 +408,15 @@ class LedgerBackfillMigrationTests {
 
             // V21 (HIST-3 part 1, D-1155) is additive: three counters, no row added or removed.
             Map<String, Long> rowsBeforeV21 = rows();
-            MigrateResult v21 = flyway(null).migrate();
+            MigrateResult v21 = flyway("21").migrate();
             assertThat(v21.success).isTrue();
             assertThat(v21.targetSchemaVersion).isEqualTo("21");
+            assertThat(rows()).isEqualTo(rowsBeforeV21);
+
+            // V22 (HIST-4 part 1, D-1194) is additive: the snapshot table, no row added or removed.
+            MigrateResult v22 = flyway(null).migrate();
+            assertThat(v22.success).isTrue();
+            assertThat(v22.targetSchemaVersion).isEqualTo("22");
             assertThat(rows()).isEqualTo(rowsBeforeV21);
         } finally {
             db.close();

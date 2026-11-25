@@ -16518,6 +16518,8 @@ by V5's trigger, but only for a sub that has that row.
 
 Since V19 (HIST-1, D-1052) the same statements also remove the history: `release_family_memberships` deletes the user's activity events and erases their comments from the versions of the family records, a family ledger that goes takes its versions with it (`delete_family_ledger`), and deleting the personal ledger deletes its versions by the cascade; the guard of V19 lets these deletes through because the first statement sets `app.writer` to `delete-all`. Nothing else is needed in this section.
 
+Since V22 (HIST-4 part 1) the personal ledger's snapshots (`app.snapshot`) go the same way: deleting the personal ledger deletes them by the cascade (`ON DELETE CASCADE`), which their guard allows like the versions'. No statement is added to this section.
+
 Last, the Keycloak user. With `automation-cli`, in the shell of the first block:
 
 ```bash

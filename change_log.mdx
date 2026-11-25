@@ -3,6 +3,41 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-25 · HIST-4 part 1: personal snapshots: the snapshot table, creating and listing, the state at a revision (D-1193 to D-1202)
+
+Commit: see the git log for this entry's subject.
+
+**Changes**
+- Migration `V22__snapshots.sql` (additive): table `snapshot` (id, `ledger_id` with ON DELETE CASCADE, `revision` BIGINT with a check of at least 0, `name` VARCHAR(80), `kind` VARCHAR(16) with no CHECK, `created_by` (null for SYSTEM), `created_at` TIMESTAMPTZ), index on (`ledger_id`, `created_at` DESC, `id`), and the V19 immutability guard (UPDATE refused, DELETE only under `app.writer` = `delete-all` or a ledger's deletion). The guard is not gated by `app.history` (deviation from the spec, D-1040 reasoning: the previous image never writes the table).
+- Backend, new: `ledger/history/SnapshotService.java` (create in one transaction: `FOR SHARE` on the ledger row, revision read after the lock, consistency check, cap of 1,000, insert, one `SNAPSHOT_CREATED` activity event, no revision bump, no record version), `ledger/history/LedgerState.java` (read-only state of a ledger at a revision, one transaction, `DISTINCT ON` over the (`ledger_id`, `revision`) index, DELETE and ARCHIVE dropped), `ledger/api/SnapshotController.java` (`POST /api/snapshots`, `GET /api/snapshots` paged, default 50, maximum 200, `GET /api/snapshots/{id}` with per-type counts; family snapshot routes answer 409 `FAMILY_SNAPSHOTS_UNSUPPORTED` for members), `ledger/InvalidRequestException.java` (a 400 carrying a stable code).
+- Backend, changed: `api/ApiExceptionHandler.java` (the code of an `InvalidRequestException`), `ledger/UserDataService.java` (delete-all removes the user's snapshots and their activity events).
+- Frontend, changed: `activity.ts` (plain English text for `SNAPSHOT_CREATED`) and `activity.test.ts` (its case).
+- Deploy: `deploy/checks/numbers.sql` (new read-only key `snapshots`, effective from the deploy that ships V22); `deploy/RUNBOOK.md` "Delete a user" (one sentence: the personal ledger's deletion takes its snapshots by the cascade).
+- Decision D-1202 (PM): `snapshot.kind` has no CHECK constraint, as `activity_event.kind` (D-1101), so later kinds need no migration. The values the application accepts are MANUAL, BEFORE_IMPORT and BEFORE_RESTORE; only MANUAL is written in this part (D-1200).
+- Docs: ADR 0006 section 6.7 (as built), section 9 (HIST-3b takes the next free number; HIST-4 is V22 for part 1 and V23 for part 2) and its amendment paragraph (the D-1197 race); `docs/family-budget/requirements.md` D-1193 to D-1195 (PM), D-1196 to D-1201 (manager).
+- Tests, new: `SnapshotV22MigrationTests.java`, `ledger/api/SnapshotApiTests.java` (name rules, default name, cap 409, consistency 409 by an unversioned insert, family refusal, 404 for unknown and foreign, the concurrency case, activity event, no revision bump), `ledger/api/SnapshotStateRandomTests.java` (random writes including deletes and re-creations, compared with an oracle copy at several revisions; 20,000-version plan and timing; cleanup in `finally`).
+- Tests, changed without weakening: `ApiTests.java` (three paths in the OpenAPI map and the no-login list), `LedgerBackfillMigrationTests.java` (V21 pin, V22 step adds no row), `LedgerSchemaTests.java` (`snapshot` in the table list), `ledger/api/DataIsolationApiTests.java` (`bobSeesNoSnapshotOfAlices`).
+
+**Verified**
+- `cd backend && ./mvnw -B clean test`: exit 0, `Tests run: 859, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- `cd backend && ./mvnw -B verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=301`: exit 0, `Tests run: 859, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- `cd backend && ./mvnw -B verify -Dsurefire.runOrder=random -Dsurefire.runOrder.random.seed=302`: exit 0, `Tests run: 859, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- `cd frontend && npm test`: exit 0, `Test Files  69 passed (69)`, `Tests  914 passed (914)`.
+- `cd frontend && npm run build`: exit 0, built.
+- `scripts/check-forbidden-names.sh` (working tree): exit 0, `check-forbidden-names: no hit (tree).`
+- `cd e2e && npm run e2e:local` (after `./dev.sh` and `docker restart finance-tracker-backend-1`): exit 0, `42 passed`, `8 skipped`, `Result: PASSED`, password search over the artifacts 0 hits.
+- `cd e2e && npm run test:guards` (alone, after e2e:local): exit 0, `# tests 39`, `# pass 39`, `# fail 0`.
+- Plan of the state query on 20,000 versions: `Bitmap Index Scan` on `record_version_revision_idx`, no sequential scan; 18 ms through `LedgerState` (test database, EXPLAIN ANALYZE shows 68 ms).
+- Strict review: APPROVED, no blockers; five notes, four fixed (the 20,000-version test uses the engine's query and cleans up in `finally`; the concurrency test renamed to what it proves; a comment on the family list paging; the runbook sentence was not added, because the personal delete removes the ledger row and the cascade takes the snapshots, `UserDataService.java:93`).
+
+**Open**
+- The oracle test (`SnapshotStateRandomTests`) does not cover ledger deletes of accounts or categories as hard deletes: rule 12 archives them, and the test uses archive as its delete for accounts, categories and payees.
+- Not deployed: nothing here runs until after the December import; the deploy step adds `snapshots` to `numbers.sql` only from the deploy that ships V22.
+- Create runs in READ COMMITTED on purpose (a REPEATABLE READ lock wait would read a stale snapshot); the reasoning is in the service's comment.
+- Drift (live records without versions) is not repaired here: the baseline job and the lazy rule in `HistoryService.write` repair it; until then create answers 409 `HISTORY_INCONSISTENT`.
+- Rollback to the V21 image: its delete-all removes the ledger row, so the cascade removes the snapshots too.
+- Pending the owner's review: the decisions D-1196 to D-1201 are manager's choices (ADR 0006 section 6.7, requirements.md).
+
 ## 2026-11-25 · HIST-3 part 5: the family acceptance UI, dark (D-1184 to D-1192)
 
 Commit: see the git log for this entry's subject.

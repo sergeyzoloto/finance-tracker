@@ -34,6 +34,8 @@ FROM (VALUES
     ('history_pending', (SELECT count(*) FROM app.history_pending)),
     -- HIST-2 (V20): the notifications.
     ('notifications', (SELECT count(*) FROM app.notification)),
+    -- HIST-4 part 1 (V22): the snapshots.
+    ('snapshots', (SELECT count(*) FROM app.snapshot)),
     -- As F6a's checklist counted it: personal rows without a PERSONAL membership of their user in their ledger, and
     -- categories without a user (family categories) outside every SHARED ledger.
     ('outside_their_ledger',

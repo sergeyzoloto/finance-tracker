@@ -37,6 +37,12 @@ describe('the Activity request and sentences', () => {
     expect(sentence(row('MANUAL_RATE_REMOVED'))).toBe('You removed a manual exchange rate')
   })
 
+  it('says a snapshot with its name, and plainly without one', () => {
+    expect(sentence(row('SNAPSHOT_CREATED', { details: { snapshotId: 3, name: 'Before the move', revision: 9, kind: 'MANUAL' } })))
+      .toBe('You created a snapshot “Before the move”')
+    expect(sentence(row('SNAPSHOT_CREATED'))).toBe('You created a snapshot')
+  })
+
   it('says each family kind with the names the API sent', () => {
     expect(sentence(family('MEMBER_JOINED', 'Ben', 'Ben'))).toBe('Ben joined the family budget')
     expect(sentence(family('SEAT_CLAIMED', 'Ben', 'Ben'))).toBe('Ben took their place in the family budget')

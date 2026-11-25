@@ -221,6 +221,22 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .doesNotContainAnyElementsOf(hers);
     }
 
+    /** HIST-4 part 1: Alice's snapshots answer Bob 404 and aren't in his list; her family budget's answer him 404. */
+    @Test
+    void bobSeesNoSnapshotOfAlices() throws IOException {
+        long hers = body(post(alice, "/api/snapshots", "{}"), HttpStatus.CREATED).get("id").asLong();
+        assertThat(bobsRequest(HttpMethod.GET, "/api/snapshots/" + hers, null)).hasStatus(HttpStatus.NOT_FOUND);
+        long his = body(bobsRequest(HttpMethod.POST, "/api/snapshots", "{}"), HttpStatus.CREATED).get("id").asLong();
+        assertThat(bobReads("/api/snapshots").findValues("id").stream().map(JsonNode::asLong).toList())
+                .containsExactly(his);
+        long family = newFamily(alice, """
+                {"name": "Snapshots", "baseCurrency": "EUR", "displayName": "Alice"}""").get("id").asLong();
+        assertThat(bobsRequest(HttpMethod.GET, "/api/family-ledgers/" + family + "/snapshots", null))
+                .hasStatus(HttpStatus.NOT_FOUND);
+        assertThat(bobsRequest(HttpMethod.POST, "/api/family-ledgers/" + family + "/snapshots", null))
+                .hasStatus(HttpStatus.NOT_FOUND);
+    }
+
     /** D-239: Bob's export (D4a) is his own rows, the same before and after Alice writes hers, and none of hers. */
     @Test
     void bobsExportIsHisOwnLedgerOnly() throws IOException {

@@ -486,6 +486,30 @@ revision and nothing pending; `off` refuses while anything is pending, or when t
 D-1179). A lagging uploader's dry run reports the family rows it couldn't check as a count, not as row errors
 (D-1173, D-1180). The acceptance screens are part 5 (D-1174); production stays off.
 
+### 7.5 The interface as built (HIST-3 part 5, D-1184 to D-1192)
+
+Behind the acceptance switch, with nothing changed while it is off. The UI learns that acceptance is on by asking a
+budget's pending summary: an answer means on, a 404 (an unknown path) means off, and the answer is kept for the
+session, so with acceptance off nothing is asked again and nothing is drawn (D-1185, D-1186).
+
+- **Banner.** Above every page of a family budget, "3 changes by others are waiting for you" with "Accept", only above 0.
+  The count is asked when a page of the budget opens, on each move between its pages and after an Accept, never by a
+  timer (D-1120, D-1187). After the banner's Accept the banner goes, the activity and an open record load again and a
+  line says how many changes were accepted.
+- **Mark.** A record with `pendingForMe` carries "Waiting for you" in the list and on its page, titled with what it
+  means: it shows the latest version and the member's own books follow once he accepts. Balances, reports and the personal
+  pages are not changed (7.2, D-1029, D-1188).
+- **A refused write** (409, `FAMILY_PENDING_CHANGES`, with `pendingChanges`) shows the server's message and, in the same
+  box, "Accept 3 changes" (D-1027). One click accepts and says how many; the form keeps what was typed, nothing is
+  retried, and the user presses the same button again (D-1184). It covers the new expense, income and settlement, a record
+  page's edit and delete, the payer's own payment entry, the personal editor's family expense and the import's commit
+  (D-1189).
+- **Notifications.** Rows of the kinds FAMILY_CHANGES, FAMILY_IMPORTED and FAMILY_RESTORED get "Accept" while the member
+  has pending changes in that budget; afterwards the list reloads, the header badge asks again and the rows the accept
+  covered show as read (D-1167, D-1190).
+- **Import.** The dry run's named note is shown above its totals, with "N family rows not checked until you accept"
+  when above 0; a commit refused for pending changes follows the refused write above (D-1172, D-1173, D-1191).
+
 ## 8. Erasure and privacy (D-1018, D-1019, D-1025)
 
 - **Delete all my data (D-996, D-20):** in the same transaction as today, delete the personal ledger's versions,

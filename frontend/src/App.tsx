@@ -17,6 +17,7 @@ import NewFamily from './NewFamily'
 import { rememberPage } from './pageState'
 import Rates from './Rates'
 import Settings from './Settings'
+import { KnownLedgers } from './Acceptance'
 import Notifications from './Notifications'
 import { RefreshUnread, useUnreadCount } from './unread'
 import { ZoneHint } from './TimeZone'
@@ -61,6 +62,7 @@ function Shell() {
       <Header families={familyOn ? families.data : null} name={me.name ?? me.email ?? ''} accountUrl={me.accountUrl}
         unread={unread.count} familyOn={familyOn} />
       <RefreshUnread.Provider value={unread.refresh}>
+      <KnownLedgers.Provider value={familyOn ? families.data : undefined}>
       <main>
         <ZoneHint />
         {/* A page that can't read its answer shows an error with a reload link, and the header stays (F8c). */}
@@ -88,6 +90,7 @@ function Shell() {
         </Routes>
         </Safe>
       </main>
+      </KnownLedgers.Provider>
       </RefreshUnread.Provider>
       <footer className="app-footer">
         <a href={PRIVACY_URL}>Privacy policy</a> · <a href={SOURCE_URL}>Source code</a> · <a href={AUTHOR_URL}>Sergey Zolotko</a>

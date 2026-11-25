@@ -3,6 +3,33 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-25 · HIST-3 part 5: the family acceptance UI, dark (D-1184 to D-1192)
+
+Commit: see the git log for this entry's subject.
+
+**Changes**
+- Frontend, new: `frontend/src/acceptance.ts` (the session's detection of acceptance from GET `/api/family-ledgers/{ledgerId}/pending`, the Accept call, the texts) and `frontend/src/Acceptance.tsx` (the family banner, the "Waiting for you" mark, the refusal offer for 409 `FAMILY_PENDING_CHANGES`), with `Acceptance.test.tsx` (13 tests).
+- Frontend, changed: `api.ts` (`ApiError.pendingChanges`, `FamilyRecord.pendingForMe`, `totals.notCheckedUntilAccepted`), `App.tsx`, `Family.tsx`, `FamilyExpenses.tsx`, `FamilyExpenseForm.tsx`, `FamilySettlement.tsx`, `PaymentEntry.tsx`, `EntryForms.tsx`, `expenseForm.ts`, `Import.tsx` (the dry run's named note and the "not checked until you accept" count), `Notifications.tsx` and `notifications.ts` (Accept on the three family kinds while pending), `index.css`. With acceptance off nothing new is drawn and the pending endpoint is asked at most once per session.
+- E2E: `e2e/specs/18-acceptance.spec.ts` (two accounts, local only; skips in production and when acceptance is off); `e2e/fixtures.ts` (`Watch` lets a 404 of GET `/api/family-ledgers/{id}/pending` pass, so family specs on acceptance off are not failed by the one detection request); `e2e/README.md` (how to run with acceptance on).
+- Docs: ADR 0006 section 7.5 (the UI as built); `requirements.md` D-1184 and D-1185 (PM), D-1186 to D-1192 (manager), D-1120 amended; `docs/claude/frontend-map.md` (one bullet).
+- No backend, `deploy/`, `dev.sh` or compose change: the `FAMILY_ACCEPTANCE_ENABLED` pass-through already exists (part 4).
+
+**Verified**
+- `cd frontend && npm test`: exit 0, `Test Files  69 passed (69)`, `Tests  913 passed (913)`.
+- `cd frontend && npm run build`: exit 0, `built in 343ms` (chunk-size warning only).
+- `cd e2e && npm run test:guards` (run alone, after the e2e runs): exit 0, `# tests 39`, `# pass 39`, `# fail 0`.
+- `scripts/check-forbidden-names.sh`: exit 0, `check-forbidden-names: no hit (tree).`
+- `cd e2e && npm run e2e:local` with acceptance off (`dev.sh` without the variable; the api logs `Family acceptance: off`): exit 0, `Result: PASSED`, 42 passed, 8 skipped (the apex specs in both projects, and spec 18 in both, which skip with acceptance off), password search 0 hits. Run after a backend restart: the local invite limit (D-29) had been used up by earlier runs in the hour, and a run in that state failed on 429 in the family specs.
+- Acceptance on (`FAMILY_ACCEPTANCE_ENABLED=true ./dev.sh`; the api logs `Family acceptance: on`): `18-acceptance.spec.ts` passed (✓, 11.8 s) in a Playwright run of specs 18 and 16 together, which exited 1 because of spec 16 below. Run with Playwright's `local-specs` project directly, since the runner cannot run one spec; the cleanup project then deleted both accounts' data.
+- Acceptance on, `16-history-notifications.spec.ts` alone: failed at its line 53 (B's dashboard headline "Net worth"; B's own books show "Your ledger is empty" until B accepts A's expense, as ADR 0006 7.2 says). Its notifications steps before that line passed. The same spec alone with acceptance off: passed (13.1 s). Spec 16 is not adapted (D-1166).
+
+**Open**
+- With acceptance on, spec 16 fails at line 53 as above; it stays on acceptance off (D-1166). A full `e2e:local` with acceptance on is not a usable check: the specs 03, 04, 05, 07 and 09 are written for off.
+- The `Import.tsx` note is found by matching the server's English sentence; a reworded server message would hide the note without a test catching it.
+- The `fixtures.ts` exemption lets a 404 of GET `.../pending` pass in every run, so with acceptance on a real 404 of that path passes silently too.
+- The runner (`scripts/local.ts`) cannot run a single spec; the acceptance-on check used Playwright directly with the runner's environment.
+- Not deployed (D-1174, D-1183); the dark deploy waits until after the December import.
+
 ## 2026-11-24 · CI fix: the shared test database's connection limit raised to 300 (D-1182)
 
 Commit: see the git log for this entry's subject.

@@ -34,6 +34,7 @@ web.
 | entries | A | UX-11 (D-522, D-524, D-527): on the demo, Entries' Period list is "All time", the dashboard's own list in its order and "Custom"; for the previous month, an account, a category and a text, the summary row equals what the visible rows give (the count and the first and last date, the distinct payees, categories and accounts with those without, per currency In, Out, Net and Transfers from the Amount cells); on Categories a category renamed through its pencil, archived and restored through its boxes, each by its accessible name, and with `E2E_FAMILY=on` a family category's link opening its budget's categories; since UX-12 also a payee filter by name in capitals (D-548), and each category's name centred on its buttons on both category pages (D-552) |
 | accounts | A | UX-11 (D-525, D-526): on the demo, the three types' columns at the same left edges and widths at 1280 and 800 px, without and with a comparison; "Balances on" a day of last month, then "Compare" (the month before by default): every figure against `/api/reports/balances?asOf=` for its day, Change and % by D-526, the URL and a reload keeping both days; at 375 px no sideways scroll, and since UX-12 each account's and total's figures in two columns under its name (D-552) |
 | account | A | UX-15 (D-619, D-634): the user menu holds Settings, Account and Log out; Account links to `/api/me`'s `accountUrl` in the same tab and opens Keycloak's account console (its heading, the theme on `<html>`, the masthead's "Finance Tracker"), whose "Back to Finance Tracker" returns to `/` |
+| acceptance | A, B, local only with `FAMILY_ACCEPTANCE_ENABLED=true` | HIST-3 part 5 (D-1027, D-1184, D-1185): A creates "Acceptance check", invites B, who joins; the spec detects acceptance as the app does (a budget's `/pending` answers 200) and deletes what it made and skips on 404, and it is skipped in production (D-1149); A adds an expense; B's Overview says "1 change by others is waiting for you" with Accept, B's Activity marks the record "Waiting for you" with a title, B's notifications list the change with an Accept button, and B's books hold no entry of A's record; B adds an expense and is refused (409, the author rule) with the server's message and "Accept 1 change"; one click says "Accepted 1 change. Nothing was saved yet. Press the same button again.", the banner goes, the form keeps its amount, comment and category, and B's books now hold A's record; B presses the same button again and the expense is saved; A, now behind, is refused the same way, accepts and saves nothing, and A's books hold B's record; B leaves, then A, which deletes the budget; Delete all my data for both |
 | apex | none | WEB-1 (D-980 to D-982), production only and skipped unless `E2E_APEX_LIVE=1` (set once the DNS of finance-nl.com and www is live): the apex's landing page with its sign-in links at the app's host, its privacy link and the author's link on the apex, and no `/api` request; a browser with the `ft_session` cookie sent on to the app; `/entries?page=2`, `/api/me`, `/oauth2/authorization/keycloak` and `/logout` answered 308 to the same address at app.finance-nl.com, and www's 308 to the apex. No account is used |
 
 Every spec starts and ends with "Delete all my data" for each account it uses (but the export page's in production,
@@ -117,6 +118,15 @@ npx playwright install chromium   # the browser of the pinned Playwright, into ~
 cd ~/dev/finance-tracker && ./dev.sh   # wait until http://localhost:5173 answers
 cd e2e && nvm use && npm run e2e:local
 ```
+
+Family acceptance (HIST-3) is off in the dev stack unless it is started with it: `FAMILY_ACCEPTANCE_ENABLED=true ./dev.sh`
+recreates the api container with `docker-compose.yml`'s `FAMILY_ACCEPTANCE_ENABLED` on (the shell's value, or `.env`'s);
+`./dev.sh` again, without it, puts it back off. Only `18-acceptance.spec.ts` needs it on: it skips itself while a
+budget's pending summary answers 404, and in production. The other specs (03, 04, 05, 07, 09 and the rest) are written
+for acceptance off and are not adapted for it (D-1166), so `npm run e2e:local` with acceptance on is for that one
+spec's result alone: read the other specs' failures there as the expected effect of the author rule. With acceptance
+off the app asks a budget's pending summary once per session, and the 404 it gets is not a failure: `Watch` lets that
+one answer pass.
 
 `E2E_FAMILY` defaults to `on`, as the dev stack has it. The run deletes all data of `testuser` and `testuser2` in the
 local database. Its artifacts (a trace and a screenshot of a failure, and the screenshots the specs take) are in

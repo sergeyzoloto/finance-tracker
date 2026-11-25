@@ -270,6 +270,11 @@ export interface FamilyRecord {
    * and for the other members while the payer shows their payees in this budget; missing otherwise.
    */
   paymentPayee?: string
+  /**
+   * With family acceptance on (HIST-3): the record has a change the reader hasn't accepted yet. False, or missing, with
+   * acceptance off.
+   */
+  pendingForMe?: boolean
 }
 /** The payer's own view of their payment: their payment entry, and the account, or "Specify later" with none. */
 export interface YourPayment {
@@ -773,6 +778,8 @@ export interface ImportReport {
   totals: {
     created: number; updated: number; unchanged: number; missing: number; conflicts: number; failed: number
     skipped: number; notImported: number
+    /** HIST-3: the family rows a dry run didn't check until the uploader accepts; missing from an older server. */
+    notCheckedUntilAccepted?: number
   }
   missing: ImportRowRef[]
   conflicts: ImportRowRef[]
@@ -863,15 +870,18 @@ export class ApiError extends Error {
   readonly violationDetails: ViolationDetail[]
   /** 409 that the screens tell apart (F6a): `LAST_OWNER`. */
   readonly code: string | undefined
+  /** 409 `FAMILY_PENDING_CHANGES` (HIST-3): how many records wait for the member's acceptance. */
+  readonly pendingChanges: number | undefined
 
   constructor(message: string, status: number, errors: InvalidField[] = [], violations: string[] = [],
-    violationDetails: ViolationDetail[] = [], code?: string) {
+    violationDetails: ViolationDetail[] = [], code?: string, pendingChanges?: number) {
     super(message)
     this.status = status
     this.errors = errors
     this.violations = violations
     this.violationDetails = violationDetails
     this.code = code
+    this.pendingChanges = pendingChanges
   }
 }
 
@@ -897,7 +907,7 @@ export async function api<T = void>(path: string, method = 'GET', body?: unknown
     const problem = await response.json().catch(() => null)
     throw new ApiError(problem?.detail ?? problem?.title ?? `${response.status} ${response.statusText}`,
       response.status, problem?.errors ?? [], problem?.violations ?? [], problem?.violationDetails ?? [],
-      problem?.code ?? undefined)
+      problem?.code ?? undefined, typeof problem?.pendingChanges === 'number' ? problem.pendingChanges : undefined)
   }
   return (response.status === 204 ? undefined : await response.json()) as T
 }

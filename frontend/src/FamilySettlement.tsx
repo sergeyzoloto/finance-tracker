@@ -1,3 +1,4 @@
+import { FamilyPendingOffer } from './Acceptance'
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { api, formatDate, useApi, type Account, type FamilyRecord } from './api'
@@ -196,6 +197,7 @@ export default function NewSettlement({ family }: { family: FamilyData }) {
           <Link className="button" to={`${family.page}/balances`}>Cancel</Link>
         </div>
         <Errors messages={[...problems.other, ...problems.split, accounts.error]} />
+        <FamilyPendingOffer failure={save.failure} />
       </form>
     </section>
   )

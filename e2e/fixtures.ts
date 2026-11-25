@@ -56,6 +56,9 @@ export class Watch {
     if (url.origin !== this.target.app || response.status() < 400) return
     const method = response.request().method()
     const path = url.pathname + url.search
+    // The app finds out whether family acceptance is on by asking a budget's pending summary: 404, an unknown path,
+    // means off (HIST-3 part 5). That answer is the feature's detection, never a problem.
+    if (method === 'GET' && response.status() === 404 && /^\/api\/family-ledgers\/\d+\/pending$/.test(path)) return
     const expected = this.expected.find((e) => e.method === method && e.status === response.status() && e.path.test(path))
     if (expected) expected.seen += 1
     else this.problems.push(`${response.status()} for ${method} ${path}`)

@@ -1,3 +1,4 @@
+import { FamilyPendingOffer } from './Acceptance'
 import { useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, formatDate, useApi, type Account, type Category, type Counterparty, type FamilyRecord } from './api'
@@ -228,6 +229,7 @@ export default function NewRecord({ family, type = 'EXPENSE' }: { family: Family
           <Link className="button" to={`${family.page}/expenses`}>Cancel</Link>
         </div>
         <Errors messages={[...problems.other, accounts.error]} />
+        <FamilyPendingOffer failure={save.failure} />
       </form>
     </section>
   )

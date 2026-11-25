@@ -22,6 +22,8 @@ import { useFamilyApi, useFamilyMutation, type FamilyData } from './familyData'
 import { isRecordPage } from './guards'
 import { JournalList } from './FamilyJournal'
 import HistoryPanel from './HistoryPanel'
+import { FamilyPendingOffer, PendingMark, useReloadOnAccept } from './Acceptance'
+import { PENDING_MARK_NOTE } from './acceptance'
 import { useMe } from './me'
 import { LATER, sideLabel } from './FamilySettlement'
 import { SplitEditor } from './FamilySplit'
@@ -55,6 +57,7 @@ export function RecordTable({ records, family }: { records: FamilyRecord[]; fami
                 <Link to={to} onClick={(e) => e.stopPropagation()}>{recordTitle(r)}</Link>
                 {r.type === 'INCOME' && <span className="badge">Income</span>}
                 {r.frozen && <span className="badge" title="A member it involves has left; nobody can change it">Frozen</span>}
+                {r.pendingForMe === true && <PendingMark />}
                 <div className="small muted">
                   {recordWho(r, me)}
                   {/* UX-9: the payer's payee, for them and while they show it to the others. */}
@@ -91,6 +94,7 @@ export function FamilyRecords({ family }: { family: FamilyData }) {
   const [params, setParams] = useSearchParams()
   const page = Math.max(0, Number(params.get('page') ?? 0) || 0)
   const records = useFamilyApi<FamilyRecordPage>(family, `${family.path}/records?page=${page}&size=${PAGE_SIZE}`, isRecordPage)
+  useReloadOnAccept(records.reload)
   const data = records.data
   const setPage = (p: number) => setParams(p === 0 ? {} : { page: String(p) })
   return (
@@ -134,6 +138,7 @@ export function RecordDetail({ family }: { family: FamilyData }) {
   const valid = /^[1-9]\d{0,17}$/.test(recordId)
   const record = useFamilyApi<FamilyRecord>(family, valid ? `${family.path}/records/${recordId}` : null)
   const journal = useApi<FamilyJournalPage>(valid ? `${family.path}/journal?recordId=${recordId}&size=200` : null)
+  useReloadOnAccept(record.reload)
   const [saved, setSaved] = useState(false)
   const [history, setHistory] = useState(false)
   // The record's history is a family request: none, and no action, while the family budget is switched off.
@@ -211,12 +216,14 @@ export function RecordDetail({ family }: { family: FamilyData }) {
         {r.type === 'INCOME' && <span className="badge">Income</span>}
         {r.refund && <span className="badge">Refund</span>}
         {r.frozen && <span className="badge">Frozen</span>}
+        {r.pendingForMe === true && <PendingMark />}
         {historyOn && <button type="button" onClick={() => setHistory(true)}>History</button>}
       </div>
       {historyOn && history && (
         <HistoryPanel kind="FAMILY_RECORD" id={r.id} subject={`${named}, ${formatDate(r.date)}`}
           onClose={() => setHistory(false)} />
       )}
+      {r.pendingForMe === true && <p className="notice" role="note">{PENDING_MARK_NOTE}</p>}
       {r.frozen && (
         <p className="notice">A member this {noun} involves has left the family budget or deleted their data, so nobody can change it.</p>
       )}
@@ -310,6 +317,7 @@ export function RecordDetail({ family }: { family: FamilyData }) {
       )}
       {saved && <p className="success" role="status">Saved.</p>}
       <Errors messages={problems.other} />
+      <FamilyPendingOffer failure={failure} />
       {r.canDelete && (
         <div className="actions">
           <button type="button" className="danger" disabled={change.pending || removal.pending} onClick={remove}>

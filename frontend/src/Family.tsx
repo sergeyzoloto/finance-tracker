@@ -4,6 +4,7 @@ import {
   api, fieldMessages, formatDate, sentence, useApi, type FamilyBalances as Balances, type FamilyLedger, type FamilyMember,
   type FamilyRecordPage,
 } from './api'
+import { AcceptanceScope, useReloadOnAccept } from './Acceptance'
 import { Errors, Field, Loading, Safe } from './components'
 import { ROLE_LABELS } from './family'
 import FamilyBalances, { YourBalance } from './FamilyBalances'
@@ -61,7 +62,7 @@ export default function Family({ onChanged, onLeft }: { onChanged: () => void; o
     },
   }
   return (
-    <>
+    <AcceptanceScope family={family}>
       <div className="page-title">
         <h2>{family.ledger.name}</h2>
         <span className="muted">Family budget · {family.ledger.baseCurrency} · {ROLE_LABELS[family.ledger.role]}</span>
@@ -103,7 +104,7 @@ export default function Family({ onChanged, onLeft }: { onChanged: () => void; o
         <Route path="*" element={<Navigate to={family.page} replace />} />
       </Routes>
       </Safe>
-    </>
+    </AcceptanceScope>
   )
 }
 
@@ -124,6 +125,7 @@ function Overview({ family }: { family: FamilyData }) {
   const active = members.filter((m) => m.status === 'ACTIVE')
   const balances = useFamilyApi<Balances>(family, `${family.path}/balances`, isBalances)
   const records = useFamilyApi<FamilyRecordPage>(family, `${family.path}/records?size=5`, isRecordPage)
+  useReloadOnAccept(records.reload)
   return (
     <section>
       <div className="settlement">

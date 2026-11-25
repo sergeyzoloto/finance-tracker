@@ -792,3 +792,10 @@ td.actions .icon-button + .icon-button { margin-left: 6px; }
 .notification-item .unread-label { color: var(--accent); font-weight: 700; font-size: 0.8rem; margin-right: 0.5rem; }
 .notification-item:disabled { cursor: progress; }
 @media (max-width: 40rem) { .notification-item { flex-direction: column; } }
+
+/* Family acceptance (HIST-3 part 5): the banner, the mark and the notification's Accept button. */
+.pending-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin: 0.75rem 0; }
+.badge.pending-mark { border-color: var(--stale); color: var(--stale); }
+.notification-list li.with-accept { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; }
+.notification-list li.with-accept .notification-item { flex: 1 1 0; min-width: 0; width: auto; }
+.notification-accept { flex: none; }

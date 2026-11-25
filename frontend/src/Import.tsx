@@ -4,6 +4,8 @@ import {
   api, formatDate, useApi, useMutation, type FamilyLedger, type FamilyMember, type ImportMemberSummary, type ImportMessageCount,
   type ImportReconciliation, type ImportReport, type ImportRowRef, type ImportSync,
 } from './api'
+import { PendingOffer } from './Acceptance'
+import { acceptLedger, isPendingRefusal } from './acceptance'
 import { Errors } from './components'
 import DateInput from './DateInput'
 import {
@@ -61,7 +63,7 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
   // D-221, D-257: the file's rows as the import counts them (every line with a value, less the header), its highest
   // ID and its last row date.
   const [facts, setFacts] = useState<FileFacts>()
-  const { run, error, pending } = useMutation()
+  const { run, error, failure, pending } = useMutation()
   const members = useApi<FamilyMember[]>(choice.ledgerId ? `/family-ledgers/${choice.ledgerId}/members` : null)
   const ledger = families?.find((f) => String(f.id) === choice.ledgerId)
   const role = importRole(ledger, members.data)
@@ -268,7 +270,9 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
           )}
         </div>
       </form>
-      <Errors messages={[error, filterError]} />
+      {/* A commit refused because family changes wait gets its Accept button, and the form stays as it is (HIST-3). */}
+      <Errors messages={[isPendingRefusal(failure) ? undefined : error, filterError]} />
+      {choice.ledgerId !== '' && <PendingOffer failure={failure} accept={() => acceptLedger(choice.ledgerId)} />}
       {report && <Report report={report} />}
     </>
   )
@@ -277,6 +281,8 @@ export default function Import({ families }: { families?: FamilyLedger[] }) {
 function Report({ report }: { report: ImportReport }) {
   const t = report.totals
   const refs = report.referenceData
+  // The named note of a lagging uploader's dry run, which doesn't fail it (HIST-3).
+  const waiting = report.warnings?.find((w) => /family changes? (is|are) waiting for you/.test(w.message))
   return (
     <section className="report">
       <h4 data-testid="report-kind" className={report.outcome === 'COMMITTED' ? 'success' : ''}>
@@ -308,6 +314,12 @@ function Report({ report }: { report: ImportReport }) {
         </p>
       )}
 
+      {report.outcome === 'DRY_RUN' && waiting && <p className="notice" role="note">{waiting.message}</p>}
+      {(t.notCheckedUntilAccepted ?? 0) > 0 && (
+        <p className="notice" data-testid="not-checked">
+          {t.notCheckedUntilAccepted} family {t.notCheckedUntilAccepted === 1 ? 'row' : 'rows'} not checked until you accept
+        </p>
+      )}
       <table className="import-totals">
         <tbody>
           <tr><td>Created</td><td className="amount">{t.created}</td></tr>

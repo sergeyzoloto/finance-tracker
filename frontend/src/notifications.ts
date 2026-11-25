@@ -46,3 +46,7 @@ export function countOf(answer: unknown): number | null {
   const count = (answer as { count?: unknown } | null)?.count
   return typeof count === 'number' && Number.isInteger(count) && count >= 0 ? count : null
 }
+
+/** The kinds about changes to the family budget's records, which the member accepts (HIST-3). */
+const ACCEPT_KINDS = new Set(['FAMILY_CHANGES', 'FAMILY_IMPORTED', 'FAMILY_RESTORED'])
+export const isAcceptKind = (kind: string) => ACCEPT_KINDS.has(kind)

@@ -1,3 +1,5 @@
+import { PendingOffer } from './Acceptance'
+import { acceptLedger, isPendingRefusal } from './acceptance'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { api, ApiError, formatDate, useApi, type Category, type FamilyLedger, type FamilyMember, type FamilyRecord } from './api'
 import { AccountSelect, CategorySelect, CounterpartyInput, CurrencyInput, Errors, Field } from './components'
@@ -82,6 +84,8 @@ function useFamilyExpense(form: EntryForm, families?: FamilyLedger[]): FamilyExp
 export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, notice, families, onSaveFamily, familyBudgets = false, similar = false }: Props) {
   const [form, setForm] = useState(initial)
   const [errors, setErrors] = useState<FieldErrors>({})
+  // A new family record the server refused because changes wait for the user to accept (HIST-3).
+  const [refused, setRefused] = useState<{ failure: Error; ledgerId: number }>()
   const [busy, setBusy] = useState(false)
   /** The line under the tabs after "Save and add another" or a copy (D-461, D-462). */
   const [status, setStatus] = useState<string>()
@@ -137,6 +141,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
       }
     }
     setErrors(problems)
+    setRefused(undefined)
     if (Object.keys(problems).length > 0) return
     setBusy(true)
     const failed = isFamilyRecord(form) && family?.preview
@@ -196,6 +201,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
         accountById(ledger, Number(form.accountId))?.defaultCurrency ?? null), andNew, form.payee.trim())
       return undefined
     } catch (e) {
+      if (isPendingRefusal(e instanceof Error ? e : undefined)) setRefused({ failure: e as Error, ledgerId: chosen.id })
       return familyServerErrors(e, preview, chosen.memberId)
     }
   }
@@ -234,6 +240,7 @@ export function EntryFormView({ ledger, initial, onSave, onDelete, onCancel, not
         </p>
       )}
       <Errors messages={errors['']} />
+      {refused && <PendingOffer failure={refused.failure} accept={() => acceptLedger(refused.ledgerId)} />}
       {status && <p className="success" role="status">{status}</p>}
       <div className="fields">
         <Field label="Date" errors={errors.date}>

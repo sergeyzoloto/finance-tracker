@@ -1,3 +1,5 @@
+import { PendingOffer } from './Acceptance'
+import { acceptLedger, isPendingRefusal } from './acceptance'
 import { useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { api, ApiError, formatDate, sentence, useApi, type Counterparty, type Entry, type FamilyRecord } from './api'
@@ -33,6 +35,8 @@ type Problems = Record<'date' | 'amount' | 'payment' | 'memo' | 'accountAmount' 
 export function paymentProblems(failure: Error | undefined, noun = 'expense'): Problems {
   const problems: Problems = { date: [], amount: [], payment: [], memo: [], accountAmount: [], counterparty: [], other: [] }
   if (!failure) return problems
+  // The refusal while changes wait gets its message and Accept button from PendingOffer (HIST-3).
+  if (isPendingRefusal(failure)) return problems
   if (!(failure instanceof ApiError) || failure.status === 409) {
     problems.other.push(sentence(failure.message))
     return problems
@@ -256,6 +260,7 @@ export default function PaymentEntry({ entry, ledger, onSaved, onDeleted, payees
           )}
         </div>
         <Errors messages={problems.other} />
+        <PendingOffer failure={failure} accept={() => acceptLedger(family.ledgerId)} />
         <div className="actions">
           <button type="submit" className="primary" disabled={!ready}>Save</button>
           {mayDelete && <button type="button" className="danger" disabled={busy} onClick={remove}>Delete</button>}

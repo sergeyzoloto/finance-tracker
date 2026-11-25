@@ -1,4 +1,5 @@
 import { ApiError, type Account, type FamilyLedger, type FamilyMember, type FamilyRecord, type RecordSplit } from './api'
+import { PENDING_CODE } from './acceptance'
 import { basisPointsToPercent, equalShares, percentToBasisPoints, WHOLE } from './basisPoints'
 import { fromMinor, parseMinor, toMinor } from './minorUnits'
 import { equalSplit, oneMemberSplit, percentSplit, type SplitShare } from './shareSplit'
@@ -291,6 +292,8 @@ export function expenseProblems(failure: Error | undefined, splitMemberIds: numb
     problems.other.push(failure.message)
     return problems
   }
+  // The refusal while changes wait is shown with its Accept button by the page, not as a field's error (HIST-3).
+  if (failure.status === 409 && failure.code === PENDING_CODE) return problems
   if (failure.status === 409) {
     problems[conflict].push(sentence(failure.message))
     return problems

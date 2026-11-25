@@ -1595,6 +1595,8 @@ Added in OPS-3 (2026-10-26; decided by the PM, as OPS-3's task states them)
 - D-1180 (manager, HIST-3 part 4) D-1173's count is `totals.notCheckedUntilAccepted` of the import report (also in the stored run summary, and one line of the Markdown report when above 0); it counts each family row whose write the author rule refused in a dry run, including a payment side and each row of a grouped settlement.
 - D-1181 (manager, HIST-3 part 4) detached family links (a member who left, `detached_at` set) are never stamped again (`CrossLedgerWriter` stamps attached links only), so the pre-check `deploy/checks/acceptance.sql`, the invariant of `HIST-3.sql` and the reconcile's counts before and after count attached links only (`detached_at IS NULL`). The reconcile's UPDATE of the links stays V21's (and `AcceptanceCounters`'): over every link, detached ones included, setting each to its record's `last_revision`; nothing reads a detached link's counter, and a record the leaver is in is frozen, so it doesn't move afterwards. `FamilyCountersApiTests.aDetachedLinkIsNotCountedByTheStageCheck` runs HIST-3's query after a leave and the remaining member's change sets.
 
+- D-1183 (PM, HIST-3 deploy) the HIST-3 dark deploy needed no manual browser checks: the end-to-end suite on production (`e2e:prod`, 2026-11-25) replaced them, as the deploy checklist's step 4 says. Recorded in the "Deployed revisions" row of b66115f in `deploy/RUNBOOK.md`, by the first commit of HIST-3 part 5 (`docs(runbook): record the HIST-3 deploy of b66115f`).
+
 ## Planned stages
 - F1: analysis and ADR 0003 (done).
 - F2a: migration V5, stronger isolation tests, these documents; deployed on its own.

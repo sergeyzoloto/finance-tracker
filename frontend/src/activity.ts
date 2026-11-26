@@ -68,9 +68,21 @@ function snapshotSentence(details: unknown): string {
   return typeof name === 'string' && name !== '' ? `You created a snapshot “${name}”` : 'You created a snapshot'
 }
 
+/** A restore: the snapshot's name and the records it wrote (restored, returned, deleted and archived; kept ones aren't). */
+function restoreSentence(details: unknown): string {
+  const d = typeof details === 'object' && details !== null ? (details as { name?: unknown; counts?: unknown }) : {}
+  const counts = typeof d.counts === 'object' && d.counts !== null ? (d.counts as Record<string, unknown>) : {}
+  const n = ['RESTORED', 'RETURNED', 'DELETED', 'ARCHIVED']
+    .map((k) => counts[k])
+    .reduce<number>((sum, v) => sum + (typeof v === 'number' ? v : 0), 0)
+  const what = typeof d.name === 'string' && d.name !== '' ? `“${d.name}”` : 'a snapshot'
+  return `Restored ${what}: ${n} ${n === 1 ? 'record' : 'records'} changed`
+}
+
 /** The sentence of a row; a kind it doesn't know is "Other activity", never the kind's name. */
 export function sentence(row: ActivityRow): string {
   if (row.kind === 'SNAPSHOT_CREATED') return snapshotSentence(row.details)
+  if (row.kind === 'RESTORE') return restoreSentence(row.details)
   const own = OWN[row.kind]
   if (own !== undefined) return own
   const family = FAMILY[row.kind]

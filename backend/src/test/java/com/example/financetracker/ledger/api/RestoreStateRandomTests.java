@@ -27,7 +27,8 @@ import org.springframework.http.HttpStatus;
  * The restore plan of a snapshot against the state at its revision (HIST-4 part 2a, D-1220, D-1221): random writes
  * through the API, snapshots kept at several points, and for each snapshot the plan's live state after the restore
  * equals {@link LedgerState#at} at that revision, for every record, except the KEPT records (rule 12). The plan has no
- * blocker in these ledgers: every restore of them is valid.
+ * blocker in these ledgers: every restore of them is valid. Then (HIST-4 part 2b) each snapshot is restored in turn,
+ * and the live state equals the state at its revision, the KEPT records aside, which stay as they were before.
  */
 @Tag("random")
 class RestoreStateRandomTests extends LedgerApiTest {
@@ -135,5 +136,39 @@ class RestoreStateRandomTests extends LedgerApiTest {
                 }
             }
         }
+
+        // Each restore applied in turn: the live state is the state at N, KEPT records as before the restore.
+        for (long snapshot : snapshots) {
+            JsonNode preview = ok(post(user, "/api/snapshots/" + snapshot + "/restore-preview", "{}"));
+            long revision = preview.get("targetRevision").asLong();
+            Map<RecordType, Set<Long>> kept = planner.ofSnapshot(scope, snapshot).kept();
+            Map<RecordType, Map<Long, String>> before = live(scope.ledgerId());
+            ok(post(user, "/api/snapshots/" + snapshot + "/restore", "{\"atRevision\": "
+                    + preview.get("atRevision").asLong() + "}"));
+            Map<RecordType, Map<Long, String>> after = live(scope.ledgerId());
+            Map<RecordType, Map<Long, String>> at = state.at(scope, revision);
+            for (RecordType type : TYPES) {
+                Set<Long> ids = new TreeSet<>(at.get(type).keySet());
+                ids.addAll(after.get(type).keySet());
+                for (long id : ids) {
+                    String expected = kept.get(type).contains(id) ? before.get(type).get(id)
+                            : at.get(type).containsKey(id) ? Canonical.canonicalize(at.get(type).get(id)) : null;
+                    assertThat(after.get(type).get(id)).as("seed %d, restore of snapshot %d (revision %d), %s %d", seed,
+                            snapshot, revision, type, id).isEqualTo(expected);
+                }
+            }
+            assertThat(ok(get(user, "/api/reports/integrity"))).as("seed %d, snapshot %d", seed, snapshot).isEmpty();
+            checkHistory(scope.ledgerId());
+        }
+    }
+
+    private Map<RecordType, Map<Long, String>> live(long ledger) {
+        Map<RecordType, Map<Long, String>> rows = new java.util.EnumMap<>(RecordType.class);
+        for (RecordType type : TYPES) {
+            Map<Long, String> byId = new java.util.TreeMap<>();
+            recordContents.loadAll(type, ledger).forEach((id, c) -> byId.put(id, Canonical.text(c)));
+            rows.put(type, byId);
+        }
+        return rows;
     }
 }

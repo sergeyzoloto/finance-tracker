@@ -228,22 +228,72 @@ public class HistoryService {
 
     private Latest insert(long ledgerId, RecordType type, long id, int seq, long revision, String op,
             Map<String, Object> content, Cause cause, State state) {
+        insertRow(ledgerId, type, id, seq, revision, op, content, cause, null, state);
+        return new Latest(seq, Canonical.hash(content), op);
+    }
+
+    /** Inserts a version; returns its id. */
+    private long insertRow(long ledgerId, RecordType type, long id, int seq, long revision, String op,
+            Map<String, Object> content, Cause cause, Long restoredFrom, State state) {
         String text = Canonical.text(content);
         byte[] hash = Canonical.sha256(text);
         Long member = member(state, ledgerId);
-        jdbc.sql("""
+        return jdbc.sql("""
                 INSERT INTO record_version (ledger_id, record_type, record_id, seq, revision, op, content, content_hash,
-                    content_ver, actor_kind, actor_member, cause, cause_batch)
+                    content_ver, actor_kind, actor_member, cause, cause_batch, restored_from)
                 VALUES (:ledgerId, :type, :id, :seq, :revision, :op, CAST(:content AS jsonb), :hash, :ver, :kind,
-                    :member, :cause, :batch)""")
+                    :member, :cause, :batch, :restoredFrom) RETURNING id""")
                 .param("ledgerId", ledgerId).param("type", type.name()).param("id", id).param("seq", seq)
                 .param("revision", revision).param("op", op).param("content", text).param("hash", hash)
                 .param("ver", CONTENT_VERSION).param("kind", cause.actorKind(member != null))
                 .param("member", cause == Cause.BASELINE || cause == Cause.RECONCILE ? null : member)
                 .param("cause", cause.name())
                 .param("batch", cause == Cause.IMPORT ? HistoryContext.batchId() : null)
-                .update();
-        return new Latest(seq, hash, op);
+                .param("restoredFrom", restoredFrom)
+                .query(Long.class).single();
+    }
+
+    /** What a restore wrote for one record: the version it replaced (null if none) and the one it wrote. */
+    public record RestoreWrite(Long replacedVersionId, long versionId, int seq) {
+    }
+
+    /**
+     * Takes the ledger's revision for this transaction now (once; later versions share it), for a change set that must
+     * have one even if it writes no version (HIST-4 part 2b, D-1228).
+     */
+    public long takeRevision(long ledgerId) {
+        return revision(state(), ledgerId, RecordType.ENTRY);
+    }
+
+    /**
+     * A restore's version of one record (HIST-4 part 2b, ADR 0006, 6.3): op RESTORE (with {@code restoredFrom}), DELETE
+     * or ARCHIVE, cause RESTORE, always written. A record whose committed state drifted from its latest version gets its
+     * BASELINE or RECONCILE first, as {@link #changed} does.
+     */
+    public RestoreWrite restored(long ledgerId, RecordType type, long id, String op, Map<String, Object> content,
+            Long restoredFrom) {
+        State state = state();
+        String key = type + ":" + id;
+        long revision = revision(state, ledgerId, type);
+        Object[] latest = jdbc.sql("""
+                SELECT id, seq, content_hash FROM record_version
+                WHERE ledger_id = :ledgerId AND record_type = :type AND record_id = :id
+                ORDER BY seq DESC LIMIT 1""")
+                .param("ledgerId", ledgerId).param("type", type.name()).param("id", id)
+                .query((row, n) -> new Object[] {row.getLong("id"), row.getInt("seq"), row.getBytes("content_hash")})
+                .optional().orElse(null);
+        Long replaced = latest == null ? null : (Long) latest[0];
+        int seq = latest == null ? 1 : (int) latest[1] + 1;
+        Optional<Map<String, Object>> before = state.versioned.contains(key) ? Optional.empty()
+                : committed(type, ledgerId, id);
+        if (before.isPresent() && (latest == null || !Arrays.equals((byte[]) latest[2], Canonical.hash(before.get())))) {
+            replaced = insertRow(ledgerId, type, id, seq, revision - 1, "BASELINE", before.get(),
+                    latest == null ? Cause.BASELINE : Cause.RECONCILE, null, state);
+            seq++;
+        }
+        long written = insertRow(ledgerId, type, id, seq, revision, op, content, Cause.RESTORE, restoredFrom, state);
+        state.versioned.add(key);
+        return new RestoreWrite(replaced, written, seq);
     }
 
     private Latest latest(long ledgerId, RecordType type, long id) {

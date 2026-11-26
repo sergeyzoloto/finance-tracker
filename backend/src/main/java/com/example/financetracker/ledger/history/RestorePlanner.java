@@ -61,6 +61,7 @@ public class RestorePlanner {
     public static final String REFERENCE_MISSING = "REFERENCE_MISSING";
     public static final String KEY_COLLISION = "KEY_COLLISION";
     public static final String DERIVED_RECORD = "DERIVED_RECORD";
+    public static final String FAMILY_GUARDED = "FAMILY_GUARDED";
 
     private static final LedgerValidator VALIDATOR = new LedgerValidator();
     private static final TypeReference<LinkedHashMap<String, Object>> MAP = new TypeReference<>() { };
@@ -84,7 +85,14 @@ public class RestorePlanner {
      * text, and the KEPT records (whose live state stays and differs from the state at N, by design).
      */
     public record Plan(Preview preview, Map<RecordType, Map<Long, String>> afterState,
-            Map<RecordType, Set<Long>> kept) {
+            Map<RecordType, Set<Long>> kept, Map<RecordType, Map<Long, Change>> changes) {
+    }
+
+    /**
+     * One record's outcome, for the restore that applies the plan (HIST-4 part 2b): the target version's id and content
+     * (null when the target removes the record or the record has no version at or before N).
+     */
+    public record Change(Outcome outcome, Long targetVersionId, Map<String, Object> content) {
     }
 
     private record Key(RecordType type, long id) implements Comparable<Key> {
@@ -96,7 +104,7 @@ public class RestorePlanner {
     }
 
     /** A version: its operation, its content (null for a removal) and the stored hash of its canonical content. */
-    private record Target(String op, Map<String, Object> content, byte[] hash) {
+    private record Target(String op, Map<String, Object> content, byte[] hash, Long id) {
     }
 
     private final JdbcClient jdbc;
@@ -138,15 +146,15 @@ public class RestorePlanner {
                     + "from here", "RECORD_TYPE_UNSUPPORTED");
         }
         var row = jdbc.sql("""
-                SELECT revision, op, content::text AS content, content_hash FROM record_version
+                SELECT id, revision, op, content::text AS content, content_hash FROM record_version
                 WHERE ledger_id = :l AND record_type = :t AND record_id = :id AND seq = :seq""")
                 .param("l", scope.ledgerId()).param("t", type.name()).param("id", recordId).param("seq", seq)
                 .query((r, n) -> new Object[] {r.getLong("revision"), r.getString("op"), r.getString("content"),
-                        r.getBytes("content_hash")})
+                        r.getBytes("content_hash"), r.getLong("id")})
                 .optional().orElseThrow(() -> new NotFoundException("Version " + seq + " of " + type + " " + recordId
                         + " not found"));
         long revision = (long) row[0];
-        Target target = target((String) row[1], (String) row[2], (byte[]) row[3]);
+        Target target = target((String) row[1], (String) row[2], (byte[]) row[3], (Long) row[4]);
         Map<Key, Target> targets = new TreeMap<>();
         targets.put(new Key(type, recordId), target);
         return compute(scope, "VERSION", revision, targets, true);
@@ -157,8 +165,8 @@ public class RestorePlanner {
         return "DELETE".equals(op) || "ARCHIVE".equals(op);
     }
 
-    private Target target(String op, String content, byte[] hash) {
-        return new Target(op, removal(op) ? null : read(content), hash);
+    private Target target(String op, String content, byte[] hash, Long id) {
+        return new Target(op, removal(op) ? null : read(content), hash, id);
     }
 
     private static Map<String, Object> read(String json) {
@@ -299,6 +307,21 @@ public class RestorePlanner {
             }
         }
 
+        // An entry a family budget posted (a live system-owned link) changes only through its family record
+        // (journal_entry_family_guard): a restore that would update or remove it is refused, never a failed write.
+        List<Long> touched = outcomes.entrySet().stream().filter(c -> c.getKey().type() == RecordType.ENTRY
+                && (c.getValue() == Outcome.RESTORED || c.getValue() == Outcome.DELETED
+                        || c.getValue() == Outcome.ARCHIVED)).map(c -> c.getKey().id()).toList();
+        if (!touched.isEmpty()) {
+            jdbc.sql("""
+                    SELECT DISTINCT l.entry_id FROM family_entry_link l JOIN journal_entry e ON e.id = l.entry_id
+                    WHERE e.ledger_id = :l AND l.system_owned AND l.detached_at IS NULL AND l.entry_id IN (:ids)
+                    ORDER BY l.entry_id""")
+                    .param("l", ledger).param("ids", touched).query(Long.class).list()
+                    .forEach(id -> blockers.add(new Blocker(RecordType.ENTRY.name(), id, FAMILY_GUARDED, "entry " + id
+                            + " was posted from a family budget and changes only through its family record")));
+        }
+
         // Unique keys (D-1225): two rows of the state after the plan with one key are refused, whatever the order.
         Map<String, List<Key>> byKey = new TreeMap<>();
         after.get(RecordType.ACCOUNT).forEach((id, c) -> byKey.computeIfAbsent("account code "
@@ -331,8 +354,15 @@ public class RestorePlanner {
             }
         }
 
+        Map<RecordType, Map<Long, Change>> changes = new EnumMap<>(RecordType.class);
+        LedgerState.PERSONAL.forEach(t -> changes.put(t, new TreeMap<>()));
+        outcomes.forEach((key, outcome) -> {
+            Target version = targets.get(key);
+            changes.get(key.type()).put(key.id(), new Change(outcome, version == null ? null : version.id(),
+                    version == null ? null : version.content()));
+        });
         return new Plan(preview(kind, atRevision, target, outcomes, referenceCounts, blockers), toCanonical(after),
-                kept(outcomes));
+                kept(outcomes), changes);
     }
 
     private static Blocker reference(Key entry, RecordType type, long id) {
@@ -508,14 +538,14 @@ public class RestorePlanner {
         long ledger = scope.ledgerId();
         Map<Key, Target> latest = new HashMap<>();
         jdbc.sql("""
-                SELECT DISTINCT ON (record_type, record_id) record_type, record_id, op, content::text AS content,
+                SELECT DISTINCT ON (record_type, record_id) id, record_type, record_id, op, content::text AS content,
                        content_hash
                 FROM record_version
                 WHERE ledger_id = :l AND revision <= :n AND record_type IN (:types)
                 ORDER BY record_type, record_id, revision DESC, seq DESC""")
                 .param("l", ledger).param("n", revision).param("types", names())
                 .query((r, n) -> latest.put(new Key(RecordType.valueOf(r.getString("record_type")), r.getLong("record_id")),
-                        target(r.getString("op"), r.getString("content"), r.getBytes("content_hash"))))
+                        target(r.getString("op"), r.getString("content"), r.getBytes("content_hash"), r.getLong("id"))))
                 .list();
         return latest;
     }

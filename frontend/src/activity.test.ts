@@ -43,6 +43,14 @@ describe('the Activity request and sentences', () => {
     expect(sentence(row('SNAPSHOT_CREATED'))).toBe('You created a snapshot')
   })
 
+  it('says a restore with the snapshot’s name and the records it changed, kept ones not counted', () => {
+    const counts = { RESTORED: 2, RETURNED: 1, DELETED: 1, ARCHIVED: 3, UNCHANGED: 5, KEPT: 4 }
+    expect(sentence(row('RESTORE', { details: { snapshotId: 3, beforeSnapshotId: 4, runId: 1, name: 'Before the move', counts } })))
+      .toBe('Restored “Before the move”: 7 records changed')
+    expect(sentence(row('RESTORE', { details: { counts: { RESTORED: 1 } } }))).toBe('Restored a snapshot: 1 record changed')
+    expect(sentence(row('RESTORE'))).toBe('Restored a snapshot: 0 records changed')
+  })
+
   it('says each family kind with the names the API sent', () => {
     expect(sentence(family('MEMBER_JOINED', 'Ben', 'Ben'))).toBe('Ben joined the family budget')
     expect(sentence(family('SEAT_CLAIMED', 'Ben', 'Ben'))).toBe('Ben took their place in the family budget')

@@ -96,6 +96,9 @@ public class EntryService {
     /** @throws InvalidEntryException naming every problem with the entry */
     @Transactional
     public EntryView create(LedgerScope ledger, EntryCommand command) {
+        // The ledger's row first, as every writer takes it (HIST-4 part 2b): before the validation's FOR SHARE locks
+        // of accounts, categories and counterparties and before any entry row, so no deadlock with a restore.
+        history.takeRevision(ledger.ledgerId());
         EntryDraft draft = validDraft(ledger, command);
         return EntryView.of(entries.save(JournalEntry.create(ledger, draft, null, null, WallClock.now())));
     }
@@ -111,6 +114,7 @@ public class EntryService {
     @Transactional
     public EntryView createImported(LedgerScope ledger, EntryCommand command, long importBatchId,
             String externalRef) {
+        history.takeRevision(ledger.ledgerId());
         EntryDraft draft = validDraft(ledger, command);
         return EntryView.of(entries.save(JournalEntry.create(ledger, draft, importBatchId, externalRef,
                 WallClock.now())));
@@ -136,6 +140,7 @@ public class EntryService {
         if (history.unchanged(ledger.ledgerId(), RecordType.ENTRY, entryId, contentOf(replaced))) {
             return EntryView.of(entry);
         }
+        history.takeRevision(ledger.ledgerId());
         try {
             return EntryView.of(entries.save(replaced));
         } catch (OptimisticLockingFailureException e) {
@@ -167,6 +172,7 @@ public class EntryService {
         }
         requireOwn(ledger, entry);
         requireVersion(entry, expectedVersion);
+        history.takeRevision(ledger.ledgerId());
         try {
             Map<String, Object> last = history.capture(RecordType.ENTRY, ledger.ledgerId(), entryId).orElse(null);
             entries.delete(entry);

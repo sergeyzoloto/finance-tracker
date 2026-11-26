@@ -150,7 +150,10 @@ public class HistoryJobs {
         return jdbc.sql(sql).param("l", ledger).query(Long.class).list();
     }
 
-    /** Records with versions whose live row is gone and whose latest version isn't a DELETE. */
+    /**
+     * Records with versions whose live row is gone and whose latest version isn't a removal: a DELETE, or the ARCHIVE
+     * a restore writes for a record created after its snapshot (HIST-4 part 2b).
+     */
     List<Long> goneIds(RecordType type, long ledger) {
         List<Long> ids = new ArrayList<>();
         jdbc.sql("""
@@ -159,7 +162,7 @@ public class HistoryJobs {
                   AND v.seq = (SELECT max(seq) FROM record_version w
                                WHERE w.ledger_id = v.ledger_id AND w.record_type = v.record_type
                                  AND w.record_id = v.record_id)
-                  AND v.op <> 'DELETE'""")
+                  AND v.op NOT IN ('DELETE', 'ARCHIVE')""")
                 .param("l", ledger).param("t", type.name())
                 .query(Long.class).list()
                 .stream().filter(id -> contents.load(type, ledger, id).isEmpty()).forEach(ids::add);

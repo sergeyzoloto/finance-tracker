@@ -134,3 +134,26 @@ async function badgeCount(page: Page): Promise<number> {
   const name = await badge(page).getAttribute('aria-label', { timeout: 500 }).catch(() => null)
   return Number(/^(\d+) /.exec(name ?? '')?.[1] ?? 0)
 }
+
+// HIST-4 part 2b: a snapshot restored through the API (no screen has a restore yet) shows on A's Activity page as
+// "Restored “name”: n records changed".
+test('a restore on the Activity page', async ({ as }) => {
+  const a = await as('A')
+  await deleteAllMyData(a)
+  await a.page.goto('/activity')
+  await expect(a.page.getByRole('heading', { level: 2, name: 'Activity' })).toBeVisible()
+  const status = await a.page.evaluate(async () => {
+    const xsrf = decodeURIComponent(document.cookie.split('; ').find((c) => c.startsWith('XSRF-TOKEN='))?.split('=')[1] ?? '')
+    const send = (path: string, body: unknown) => fetch(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': xsrf }, body: JSON.stringify(body),
+    })
+    const snapshot = await (await send('/api/snapshots', { name: 'E2E restore' })).json()
+    await send('/api/accounts', { code: 'E2E_RESTORE', name: 'Made after the snapshot', type: 'ASSET', defaultCurrency: 'EUR' })
+    const preview = await (await send(`/api/snapshots/${snapshot.id}/restore-preview`, {})).json()
+    return (await send(`/api/snapshots/${snapshot.id}/restore`, { atRevision: preview.atRevision })).status
+  })
+  expect(status, 'the restore is applied').toBe(200)
+  await a.page.reload()
+  await expect(a.page.locator('li.activity-row').filter({ hasText: 'Restored “E2E restore”: ' }).first()).toBeVisible()
+  await deleteAllMyData(a)
+})

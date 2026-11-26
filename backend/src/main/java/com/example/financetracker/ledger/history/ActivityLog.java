@@ -74,11 +74,18 @@ public class ActivityLog {
     /** In the caller's transaction. {@code details} (old and new values, a reason) holds no email and no name. */
     public void log(String actorSub, Long ledgerId, String kind, String subjectType, Long subjectId,
             Map<String, Object> details) {
+        log(actorSub, ledgerId, kind, subjectType, subjectId, null, details);
+    }
+
+    /** As {@link #log(String, Long, String, String, Long, Map)}, with the revision the event's change set took. */
+    public void log(String actorSub, Long ledgerId, String kind, String subjectType, Long subjectId, Long revision,
+            Map<String, Object> details) {
         jdbc.sql("""
-                INSERT INTO activity_event (actor_sub, ledger_id, kind, subject_type, subject_id, details)
-                VALUES (:sub, :ledgerId, :kind, :subjectType, :subjectId, CAST(:details AS jsonb))""")
+                INSERT INTO activity_event (actor_sub, ledger_id, kind, subject_type, subject_id, revision, details)
+                VALUES (:sub, :ledgerId, :kind, :subjectType, :subjectId, :revision, CAST(:details AS jsonb))""")
                 .param("sub", actorSub).param("ledgerId", ledgerId).param("kind", kind)
-                .param("subjectType", subjectType).param("subjectId", subjectId).param("details", text(details))
+                .param("subjectType", subjectType).param("subjectId", subjectId).param("revision", revision)
+                .param("details", text(details))
                 .update();
     }
 

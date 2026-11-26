@@ -30,6 +30,7 @@ public class SnapshotService {
     public static final int CAP = 1000;
     public static final int NAME_MAX = 80;
     public static final String KIND_MANUAL = "MANUAL";
+    public static final String KIND_BEFORE_RESTORE = "BEFORE_RESTORE";
     public static final String CREATED = "SNAPSHOT_CREATED";
 
     public static final String NAME_INVALID = "SNAPSHOT_NAME_INVALID";
@@ -101,6 +102,28 @@ public class SnapshotService {
         // About the person's own ledger, as a manual rate is: no ledger id, so the Activity page shows it always.
         activity.log(scope.userId(), null, CREATED, "SNAPSHOT", id, details);
         return find(scope, id, counts);
+    }
+
+    /**
+     * The BEFORE_RESTORE snapshot of a restore (HIST-4 part 2b, D-1010, D-1229) at {@code revision}, in the restore's
+     * transaction, which already holds the ledger's row FOR UPDATE and checked the cap and the history (no FOR SHARE
+     * here). Writes one SNAPSHOT_CREATED event, as {@link #create} does. Returns its id.
+     */
+    long createBeforeRestore(LedgerScope scope, String restoredName, long revision) {
+        String full = "Before restoring '" + restoredName + "'";
+        String name = full.length() > NAME_MAX ? full.substring(0, NAME_MAX) : full;
+        long id = jdbc.sql("""
+                INSERT INTO snapshot (ledger_id, revision, name, kind, created_by)
+                VALUES (:l, :revision, :name, :kind, :member) RETURNING id""")
+                .param("l", scope.ledgerId()).param("revision", revision).param("name", name)
+                .param("kind", KIND_BEFORE_RESTORE).param("member", scope.memberId()).query(Long.class).single();
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("snapshotId", id);
+        details.put("name", name);
+        details.put("revision", revision);
+        details.put("kind", KIND_BEFORE_RESTORE);
+        activity.log(scope.userId(), null, CREATED, "SNAPSHOT", id, details);
+        return id;
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)

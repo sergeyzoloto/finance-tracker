@@ -406,6 +406,55 @@ path removes it by actor. Drift is not repaired by the snapshot code: `HistoryJo
 the lazy rule in `HistoryService.write` write the missing BASELINE and RECONCILE versions; until one of them runs, a
 create is refused with `HISTORY_INCONSISTENT`.
 
+### 6.8 HIST-4 part 2b as built (D-1226 to D-1232)
+
+`POST /api/snapshots/{id}/restore` with `{"atRevision": n}` applies the plan of `RestorePlanner` all or nothing
+(`ledger.history.RestoreService`). Personal ledgers only; the family route answers 409 `FAMILY_SNAPSHOTS_UNSUPPORTED`,
+another user's snapshot 404. One READ COMMITTED transaction:
+
+1. the ledger's row `FOR UPDATE` (the lock every record writer's revision takes; readers are not blocked);
+2. `ledger.revision != atRevision`: 409 `RESTORE_STALE`, nothing written (D-1222);
+3. the plan again, inside the lock; blockers (also `FAMILY_GUARDED`: an entry a live system-owned family link names,
+   which `journal_entry_family_guard` would refuse to change or remove): 422 with `violations`, `blockers`, `restorable: false` and `counts`;
+4. the BEFORE_RESTORE snapshot at the current revision (no FOR SHARE, one `SNAPSHOT_CREATED` event; D-1010, D-1229);
+5. revision R, once (D-1228: also when the plan writes no record);
+6. the writes: entries ARCHIVED (under `app.writer = 'restore-archive'`, so no `imported_entry_deleted` row, D-1038,
+   D-1224) and DELETED (V14's trigger as for the app's delete); the restored entries' postings, payee and external ref
+   are cleared; removed counterparties, categories and accounts are deleted (the planner removes only what no posting
+   uses; one a posting uses is KEPT, rule 12); the restored reference records' keys are freed with a temporary
+   `~restore~<id>` and then set; RESTORED and RETURNED reference records; RESTORED (UPDATE, version + 1) and RETURNED
+   (INSERT with the same id) entries, postings in line order; a RETURNED entry's `imported_entry_deleted` row goes;
+7. the versions through `HistoryService.restored`: op RESTORE with `restored_from`, DELETE, or ARCHIVE holding the last
+   live content, cause RESTORE, revision R, the member as actor; a drifted record gets its BASELINE or RECONCILE first;
+8. the sync stamps (D-1219, D-1231, D-1233): a RESTORED entry with an import hash gets `import_version = version`; a
+   RETURNED one with an external ref also gets `import_hash` = the SHA-256 hex of "restored";
+9. `restore_run`, one `restore_item` per written record, one `RESTORE` event (revision R, details `snapshotId`, `name`,
+   `beforeSnapshotId`, `runId`, `counts`); the answer `{runId, revision, beforeSnapshotId, counts}` (D-1227).
+
+Any failure after step 3 rolls the whole transaction back. Derived FAMILY_* entries, debt accounts and
+UNSPECIFIED_PAYMENTS are no outcomes of the plan and are never written (D-1031). An ARCHIVE version of a row that is
+gone counts as a removal for the integrity check and the baseline job, as a DELETE does. The Activity page reads
+"Restored “name”: n records changed" (D-1230).
+
+Decisions:
+
+- D-1226 (manager) a test seam: `RestoreService.stepHook` is called after each row write with a step name such as
+  `entry:<id>`; the default does nothing, tests set it and reset it after each test.
+- D-1227 (manager) the answer and the errors as listed above, in the existing problem envelope.
+- D-1228 (manager) a restore always runs in full, even when the plan changes no record.
+- D-1229 (manager) the BEFORE_RESTORE snapshot is named `Before restoring '<name>'`, cut to 80 characters; its creator
+  is the member.
+- D-1230 (manager) "n records changed" counts RESTORED + RETURNED + DELETED + ARCHIVED; KEPT is not written.
+- D-1231 (manager) the sync stamp is written after the writes, in the same transaction, with no version of its own.
+  It is the entry's own `version` column, read after all the writes, which the importer compares with
+  `import_version`.
+- D-1232 (manager) no new migration.
+- D-1233 (manager; confirmed by the PM, following D-1219, including the marker for a RESTORED entry that has a ref and no hash) D-1219's marker is `import_hash` = the SHA-256 hex of the ASCII string "restored"
+  (`RestoreService.RESTORED_IMPORT_HASH`): 64 hex digits, so V14's CHECK holds, and no file row's hash matches it.
+
+Every entry writer (`EntryService` create, update, delete) takes the ledger's row (its revision) before it writes or
+locks an entry row, as the restore does, so a save during a restore waits at its start and cannot deadlock with it.
+
 ## 7. Family acceptance (D-992)
 
 ### 7.1 What has to change

@@ -3,6 +3,7 @@ package com.example.financetracker.ledger.api;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.family.FamilySwitch;
+import com.example.financetracker.ledger.history.RestorePlanner;
 import com.example.financetracker.ledger.history.SnapshotService;
 import com.example.financetracker.ledger.history.SnapshotService.SnapshotPage;
 import com.example.financetracker.ledger.history.SnapshotService.SnapshotView;
@@ -37,8 +38,11 @@ class SnapshotController {
     private final SnapshotService snapshots;
     private final LedgerAccess access;
     private final FamilySwitch family;
+    private final RestorePlanner restores;
 
-    SnapshotController(SnapshotService snapshots, LedgerAccess access, FamilySwitch family) {
+    SnapshotController(SnapshotService snapshots, LedgerAccess access, FamilySwitch family,
+            RestorePlanner restores) {
+        this.restores = restores;
         this.snapshots = snapshots;
         this.access = access;
         this.family = family;
@@ -74,6 +78,19 @@ class SnapshotController {
     SnapshotPage listFamily(CurrentUser user, HttpServletRequest request, @PathVariable long ledgerId)
             throws NoResourceFoundException {
         return snapshots.list(familyScope(user, request, ledgerId), 0, 50);
+    }
+
+    /** The read-only plan of restoring this snapshot (HIST-4 part 2a): nothing is written, blockers say what would stop it. */
+    @PostMapping("/snapshots/{id}/restore-preview")
+    RestorePlanner.Preview restorePreview(LedgerScope personal, @PathVariable long id) {
+        return restores.ofSnapshot(personal, id).preview();
+    }
+
+    /** A family budget's snapshot: refused for its members (409 with a code), unknown for anyone else. */
+    @PostMapping("/family-ledgers/{ledgerId}/snapshots/{id}/restore-preview")
+    RestorePlanner.Preview familyRestorePreview(CurrentUser user, HttpServletRequest request,
+            @PathVariable long ledgerId, @PathVariable long id) throws NoResourceFoundException {
+        return restores.ofSnapshot(familyScope(user, request, ledgerId), id).preview();
     }
 
     private LedgerScope familyScope(CurrentUser user, HttpServletRequest request, long ledgerId)

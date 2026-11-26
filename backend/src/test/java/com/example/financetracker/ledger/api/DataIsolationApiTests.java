@@ -235,6 +235,15 @@ class DataIsolationApiTests extends LedgerApiTest {
                 .hasStatus(HttpStatus.NOT_FOUND);
         assertThat(bobsRequest(HttpMethod.POST, "/api/family-ledgers/" + family + "/snapshots", null))
                 .hasStatus(HttpStatus.NOT_FOUND);
+        // HIST-4 part 2a: the restore previews of her snapshot, of her entry's version and of her family budget's
+        // snapshot answer Bob 404.
+        assertThat(bobsRequest(HttpMethod.POST, "/api/snapshots/" + hers + "/restore-preview", "{}"))
+                .hasStatus(HttpStatus.NOT_FOUND);
+        long entry = newExpense(alice, "2026-09-10", "5.00", null, "hers").get("id").asLong();
+        assertThat(bobsRequest(HttpMethod.POST, "/api/history/ENTRY/" + entry + "/versions/1/restore-preview", "{}"))
+                .hasStatus(HttpStatus.NOT_FOUND);
+        assertThat(bobsRequest(HttpMethod.POST, "/api/family-ledgers/" + family + "/snapshots/" + hers
+                + "/restore-preview", "{}")).hasStatus(HttpStatus.NOT_FOUND);
     }
 
     /** D-239: Bob's export (D4a) is his own rows, the same before and after Alice writes hers, and none of hers. */

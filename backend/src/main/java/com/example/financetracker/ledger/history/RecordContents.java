@@ -108,6 +108,91 @@ public class RecordContents {
         };
     }
 
+    /**
+     * Every live record of a personal type in the ledger, as {@link #load} would read each one (the same rows, the same
+     * shapes), in a fixed number of statements: for the restore plan, which must not query per record (HIST-4 part 2a).
+     * Derived rows are no records (HistoryJobs.liveIds).
+     */
+    public Map<Long, Map<String, Object>> loadAll(RecordType type, long ledgerId) {
+        Map<Long, Map<String, Object>> all = new LinkedHashMap<>();
+        switch (type) {
+            case ENTRY -> loadAllEntries(ledgerId, all);
+            case ACCOUNT -> jdbc.sql("""
+                    SELECT id, code, name, type, default_currency, requires_counterparty, is_system,
+                           archived_at IS NOT NULL AS archived
+                    FROM account WHERE ledger_id = :ledgerId AND family_ledger_id IS NULL
+                      AND code <> 'UNSPECIFIED_PAYMENTS' ORDER BY id""")
+                    .param("ledgerId", ledgerId)
+                    .query((row, n) -> all.put(row.getLong("id"), accountContent(row))).list();
+            case CATEGORY -> jdbc.sql("""
+                    SELECT id, code, name, type, archived_at IS NOT NULL AS archived
+                    FROM category WHERE ledger_id = :ledgerId AND user_id IS NOT NULL ORDER BY id""")
+                    .param("ledgerId", ledgerId)
+                    .query((row, n) -> all.put(row.getLong("id"), categoryContent(row))).list();
+            case COUNTERPARTY -> jdbc.sql("""
+                    SELECT id, name, kind, archived_at IS NOT NULL AS archived
+                    FROM counterparty WHERE ledger_id = :ledgerId ORDER BY id""")
+                    .param("ledgerId", ledgerId)
+                    .query((row, n) -> all.put(row.getLong("id"), counterpartyContent(row))).list();
+            default -> throw new IllegalArgumentException("Not a personal record type: " + type);
+        }
+        return all;
+    }
+
+    private void loadAllEntries(long ledgerId, Map<Long, Map<String, Object>> all) {
+        Map<Long, List<Line>> lines = new java.util.HashMap<>();
+        jdbc.sql("""
+                SELECT p.entry_id, p.account_id, p.currency, p.amount, p.category_id, p.counterparty_id
+                FROM posting p JOIN journal_entry e ON e.id = p.entry_id
+                WHERE e.ledger_id = :ledgerId AND e.kind NOT LIKE 'FAMILY\\_%'
+                ORDER BY p.entry_id, p.line_no""")
+                .param("ledgerId", ledgerId)
+                .query((row, n) -> lines.computeIfAbsent(row.getLong("entry_id"), k -> new ArrayList<>()).add(
+                        new Line(row.getLong("account_id"), row.getString("currency"),
+                                row.getBigDecimal("amount"), row.getObject("category_id", Long.class),
+                                row.getObject("counterparty_id", Long.class))))
+                .list();
+        jdbc.sql("""
+                SELECT id, entry_date, kind, payee_id, memo, external_ref FROM journal_entry
+                WHERE ledger_id = :ledgerId AND kind NOT LIKE 'FAMILY\\_%' ORDER BY id""")
+                .param("ledgerId", ledgerId)
+                .query((row, n) -> all.put(row.getLong("id"), entry(
+                        row.getObject("entry_date", LocalDate.class), row.getString("kind"),
+                        row.getObject("payee_id", Long.class), row.getString("memo"), row.getString("external_ref"),
+                        lines.getOrDefault(row.getLong("id"), List.of()))))
+                .list();
+    }
+
+    /** An account row's content, as {@link #load} builds it. */
+    static Map<String, Object> accountContent(java.sql.ResultSet row) throws java.sql.SQLException {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("code", row.getString("code"));
+        m.put("name", row.getString("name"));
+        m.put("type", row.getString("type"));
+        m.put("defaultCurrency", row.getString("default_currency"));
+        m.put("requiresCounterparty", row.getBoolean("requires_counterparty"));
+        m.put("system", row.getBoolean("is_system"));
+        m.put("archived", row.getBoolean("archived"));
+        return m;
+    }
+
+    static Map<String, Object> categoryContent(java.sql.ResultSet row) throws java.sql.SQLException {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("code", row.getString("code"));
+        m.put("name", row.getString("name"));
+        m.put("type", row.getString("type"));
+        m.put("archived", row.getBoolean("archived"));
+        return m;
+    }
+
+    static Map<String, Object> counterpartyContent(java.sql.ResultSet row) throws java.sql.SQLException {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", row.getString("name"));
+        m.put("kind", row.getString("kind"));
+        m.put("archived", row.getBoolean("archived"));
+        return m;
+    }
+
     private Optional<Map<String, Object>> loadEntry(long ledgerId, long id) {
         Optional<Object[]> head = jdbc.sql("""
                 SELECT entry_date, kind, payee_id, memo, external_ref FROM journal_entry

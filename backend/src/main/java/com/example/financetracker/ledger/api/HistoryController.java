@@ -3,6 +3,8 @@ package com.example.financetracker.ledger.api;
 import java.util.List;
 import java.util.Optional;
 
+import com.example.financetracker.ledger.ConflictException;
+import com.example.financetracker.ledger.InvalidRequestException;
 import com.example.financetracker.ledger.NotFoundException;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
@@ -11,12 +13,15 @@ import com.example.financetracker.ledger.family.FamilySwitch;
 import com.example.financetracker.ledger.history.RecordHistory;
 import com.example.financetracker.ledger.history.RecordHistory.HistoryPage;
 import com.example.financetracker.ledger.history.RecordType;
+import com.example.financetracker.ledger.history.RestorePlanner;
+import com.example.financetracker.ledger.history.SnapshotService;
 import com.example.financetracker.security.CurrentUser;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,8 +42,11 @@ class HistoryController {
     private final FamilyRecordService records;
     private final LedgerAccess access;
     private final FamilySwitch family;
+    private final RestorePlanner restores;
 
-    HistoryController(RecordHistory history, FamilyRecordService records, LedgerAccess access, FamilySwitch family) {
+    HistoryController(RecordHistory history, FamilyRecordService records, LedgerAccess access, FamilySwitch family,
+            RestorePlanner restores) {
+        this.restores = restores;
         this.history = history;
         this.records = records;
         this.access = access;
@@ -68,5 +76,22 @@ class HistoryController {
             }
         }
         throw new NotFoundException("Family record " + recordId + " not found");
+    }
+
+    /**
+     * The read-only plan of restoring one record to its version {@code seq} (HIST-4 part 2a): nothing is written. A
+     * family record's versions have no restore yet (409); an unknown record type is refused (400).
+     */
+    @PostMapping("/api/history/{recordType}/{recordId}/versions/{seq}/restore-preview")
+    RestorePlanner.Preview restorePreview(LedgerScope personal, @PathVariable String recordType,
+            @PathVariable long recordId, @PathVariable int seq) {
+        Optional<RecordType> type = PERSONAL.stream().filter(t -> t.name().equals(recordType)).findFirst();
+        if (type.isPresent()) {
+            return restores.ofVersion(personal, type.get(), recordId, seq).preview();
+        }
+        if (recordType.startsWith("FAMILY_")) {
+            throw new ConflictException("A family budget has no restores yet", SnapshotService.FAMILY_UNSUPPORTED);
+        }
+        throw new InvalidRequestException("Unknown record type " + recordType, "RECORD_TYPE_UNKNOWN");
     }
 }

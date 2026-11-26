@@ -3,6 +3,46 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-26 · HIST-4 part 2a: restore_run, restore_item and the restore preview (D-1210 to D-1218)
+
+Not committed yet.
+
+**Changes**
+- Migration `V23__restore_runs.sql` (additive): `restore_run` (kind SNAPSHOT or VERSION with no CHECK, snapshot, target revision, change-set revision, before-snapshot, actor, counts JSONB; guarded by `history_immutable()`) and `restore_item` (run, record type and id, outcome, replaced and written version ids; primary key on run, type and id; no foreign key to `record_version`). `restore_item` has its own guard, `restore_item_immutable()`, because `history_immutable()` reads `OLD.ledger_id`, which items don't have: an item goes only with its run or under `delete-all`. `journal_entry_remember_deleted_import()` is replaced with the same signature and also returns early for the writer `restore-archive` (D-1224); every other writer and the previous image behave as before.
+- Erasure: `UserDataService.deleteAll` deletes `restore_run` before `snapshot` and the ledger's tables; the ledger's deletion takes both by the cascade.
+- `ledger/history/RestorePlanner` (read-only, one REPEATABLE READ transaction): `ofSnapshot` (target = the snapshot's revision) and `ofVersion` (one record, target = that version). Live state is read with `RecordContents.loadAll` (set-based, a fixed number of statements); targets with `LedgerState`'s latest-at-N rule; equality by the stored content hash. Outcomes RESTORED, RETURNED, DELETED, ARCHIVED, UNCHANGED and KEPT (rule 12, D-1221): a removed account, category or counterparty that a posting after the plan still uses (personal entries and derived `FAMILY_*` entries) stays live unchanged, with its reference count.
+- Blockers (whole plan refused, never a 500): `INVALID_TARGET` (the restored entry fails `LedgerValidator`, called as the save does), `REFERENCE_MISSING` (a restored entry uses a missing row; for a single-record restore an archived one too, D-1223), `KEY_COLLISION` (two rows of the state after the plan share an account code, category code, counterparty name or external ref; D-1225), `DERIVED_RECORD`, `HISTORY_INCONSISTENT` (the part 1 counts check) and `SNAPSHOT_LIMIT_REACHED` (the BEFORE_RESTORE snapshot would be refused, D-1222). Blockers without a record have a null record type and id.
+- Endpoints: `POST /api/snapshots/{id}/restore-preview`, `POST /api/history/{recordType}/{recordId}/versions/{seq}/restore-preview`, and `POST /api/family-ledgers/{ledgerId}/snapshots/{id}/restore-preview` (409 `FAMILY_SNAPSHOTS_UNSUPPORTED`, as part 1). The answer is `kind`, `atRevision`, `targetRevision`, `restorable`, full `counts` per outcome, at most 200 `items` per outcome (with `referenceCount` for KEPT), and `blockers`. A blocked plan answers 200 with `restorable` false. 404 for another user's or a missing snapshot or version; 400 for an unknown record type; 409 for a family record type.
+- Tests: `RestorePreviewApiTests` (15: each outcome, KEPT through a derived family entry and through a seeded removal version, each blocker, the 404, 400 and 409 answers, a preview that writes nothing, erasure of restore runs, and the 3,000-entry preview); `RestoreStateRandomTests` (`@Tag("random")`: at several snapshots the plan's live state equals `LedgerState.at(N)` for every record except KEPT, and no blockers); `RestoreV23MigrationTests` (V23 on V22: immutability, erasure, cascade, and the `restore-archive` tombstone skip against the other writers).
+
+**Verified**
+- `./mvnw -B -Dtest=RestorePreviewApiTests test`: exit 0, `Tests run: 15, Failures: 0, Errors: 0, Skipped: 0`, 87.5 s.
+- `./mvnw -B -Dtest=RestoreStateRandomTests test`: exit 0, `Tests run: 1, Failures: 0, Errors: 0, Skipped: 0`, 13.0 s.
+- `./mvnw -B -Dtest=RestoreV23MigrationTests test`: exit 0, `Tests run: 1, Failures: 0, Errors: 0, Skipped: 0`, 4.5 s.
+- Preview time, 3,000 entries (created through the API, 1,000 of them changed after the snapshot, so 1,000 RESTORED): 150 ms in one run, 148 to 174 ms across the runs; the test asserts under 2,000 ms.
+- `./mvnw -B -q -DskipTests test-compile`: exit 0.
+- Renumbering (D-1204 to D-1209 of this part become D-1220 to D-1225, as they collided with TEST-1 and CI-1): `grep -n "D-120[4-9]"` over the code, the migration and the test files prints nothing; the only hits left in `change_log.mdx` are in the TEST-1b and CI-1 entries.
+- `./mvnw -B test -Dtest=RestoreV23MigrationTests -Dsurefire.failIfNoSpecifiedTests=false`: exit 0, `Tests run: 1, Failures: 0, Errors: 0, Skipped: 0`. It now also checks a ledger with a snapshot and a run naming it: a plain `DELETE FROM ledger` with no writer set leaves no rows in `snapshot`, `restore_run` or `restore_item`.
+- Quick tier, `cd backend && ./mvnw -B clean test -Dtests.random.scale=0.1`: exit 0, `Tests run: 876, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`, 268 s.
+- Full backend suite (`cd backend && ./mvnw -B test`), second run after the fixes below: exit 0, `Tests run: 876, Failures: 0, Errors: 0, Skipped: 0`. The first run had five failures (`LedgerBackfillMigrationTests`, `LedgerSchemaTests` passed, `DataIsolationApiTests`, `ApiTests`, `ArchitectureTests`, `TestHygieneTests`); each is fixed (below) and the nine affected classes were rerun and passed before the full rerun.
+- `cd e2e && npm run e2e:local` (with `./dev.sh` running): exit 0, `42 passed`, `8 skipped` as Playwright reports them (the acceptance specs skip themselves with acceptance off, as the README describes), 12.1 min.
+- `cd e2e && npm run test:guards` run alone after `e2e:local`: exit 0, `tests 39, pass 39, fail 0`.
+- `scripts/check-forbidden-names.sh`: exit 0 on the working tree and exit 0 with `--log 7f08342..HEAD`.
+
+**Fixes made after the first suite run**
+- `V23` changes the latest migration, so `LedgerBackfillMigrationTests` now stops at V22 for its V22 step and checks V23 as an additive step too; `LedgerSchemaTests` lists `restore_run` and `restore_item`.
+- `ArchitectureTests`: the planner's three helpers that run SQL take a `LedgerScope` (`changedSince`, `latestAt`, `derivedRefs`).
+- `TestHygieneTests`: the restore tests check the blockers' parsed messages and reasons, not `JsonNode.toString()`.
+- `ApiTests` (the OpenAPI list and the endpoint requests) and `DataIsolationApiTests` (Bob gets 404 on each of the three preview routes) cover the new endpoints.
+
+**Open**
+- No frontend change, so no e2e spec was added for this part; the API is covered by the backend tests above. The e2e run confirms the existing flows still pass.
+- Part 2b (the commit) is not built: nothing here writes a version, a snapshot or a restore run, and the preview returns `atRevision` for 2b to check.
+- The preview's 3,000 entries were created through the API, not by an Excel import, so the timing is for the plan alone, not an import commit.
+- KEPT for a category used by a family-posted entry does not arise in practice: family categories live in the family ledger, not the personal one, so only the account case is tested through a family record. A personal category is KEPT only through a removal version (tested with a seeded version).
+- Decisions taken here, for the manager to confirm: D-1210 a preview answers 200 with `restorable` false when blocked (not 409 or 422); D-1211 blocker records with no record (`HISTORY_INCONSISTENT`, `SNAPSHOT_LIMIT_REACHED`) carry a null record type and id; D-1212 `restore_item` has its own immutability function keyed on the run, not `history_immutable()`; D-1213 `restore_run.snapshot_id` and `before_snapshot_id` reference `snapshot` with no cascade, and `deleteAll` deletes runs first; D-1214 the single-record restore's blocker for an archived reference applies only to that case, as D-1223 asks, and not to a full snapshot restore, where an archived reference is valid as the validator allows; D-1215 a restored entry's references are checked with `LedgerValidator` only when no reference is missing, so a missing row gives its own blocker and not a second validator message; D-1216 a version's `RECORD_TYPE_UNSUPPORTED` 400 for a non-personal type on the preview; D-1217 a family record type is answered 409 `FAMILY_SNAPSHOTS_UNSUPPORTED` on the version route; D-1218 the restore's external family categories are read from the user's ACTIVE family ledgers, as an entry save reads them.
+- D-1219 (owner's decision, recorded in docs/family-budget/requirements.md) is not implemented here: the restore commit of part 2b writes import_version and import_hash 'restored' on a restored imported entry.
+
 ## 2026-11-26 · CI-1: the deploy-script mutations run only when a deploy script changed (D-1207)
 
 Not committed yet.

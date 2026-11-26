@@ -136,13 +136,38 @@ jobs:
           deploy/tests/run.sh deploy/tests/mutate.sh deploy/tests/stubs/*
           .github/scripts/check-web-image.sh .github/scripts/tests/check-web-image-test.sh .github/scripts/tests/stubs/*
           .github/scripts/monitor.sh .github/scripts/tests/monitor-test.sh
+          .github/scripts/mutations-needed.sh .github/scripts/tests/mutations-needed-test.sh
 
       # Against stubs of docker, systemctl, pg-restore-test, curl and install, in a temp folder: no container, no network.
       - name: Tests
         run: deploy/tests/run.sh
 
+      # The helper that decides whether the mutations run (D-1207), tested against a temp git repository: no network.
+      - name: Mutations-needed tests
+        run: .github/scripts/tests/mutations-needed-test.sh
+
+      # D-1207: the mutations run only when a deploy script or its tests changed in the pushed range; the decision is
+      # logged, and the step summary says when it is skipped. Only the helper's exit 1 skips; any other non-zero status
+      # (a crash, a missing file) fails the step.
       - name: Mutations
-        run: deploy/tests/mutate.sh
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          status=0
+          decision=$(.github/scripts/mutations-needed.sh "$BEFORE" "$AFTER") || status=$?
+          echo "$decision"
+          if [ "$status" -eq 0 ]; then
+            deploy/tests/mutate.sh
+          elif [ "$status" -eq 1 ]; then
+            short=${BEFORE:0:7}
+            message="Mutations skipped: no deploy-script change since $short"
+            echo "$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::mutations-needed.sh failed with status $status" >&2
+            exit "$status"
+          fi
 
       # The monitor (.github/workflows/monitor.yml, D-276) against HTTPS servers on loopback ports: each way it fails.
       # A step here, so that each push keeps its 5 check runs (D-95).

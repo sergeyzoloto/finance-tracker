@@ -3,6 +3,32 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-26 · CI-1: the deploy-script mutations run only when a deploy script changed (D-1207)
+
+Not committed yet.
+
+**Changes**
+- `.github/workflows/ci.yml`, job "Deploy scripts": the Mutations step (`deploy/tests/mutate.sh`, about 12 minutes of the job) runs only when the pushed range changes `deploy/deploy.sh`, `deploy/rollback.sh`, `deploy/common.sh`, anything under `deploy/tests/`, `ci.yml`, or the helper and its test. Otherwise the step logs `Mutations skipped: no deploy-script change since <short BEFORE>` and writes the same line to the run's step summary, and it passes. The job, its five check runs, ShellCheck, Tests and Monitor's tests keep running on every push: there is no job-level `if:` and no `paths:` filter (D-95). The step fails on any helper status other than 0 and 1, so a crash never skips silently. When the step runs, its behaviour is as before.
+- `.github/scripts/mutations-needed.sh BEFORE AFTER`: exit 0 means run, 1 means skip, and it prints one line saying why. It compares the net difference of the pushed range (`git diff --name-only`) over the watched paths. It answers "run" for an empty BEFORE (a non-push event), an all-zeros BEFORE (a new branch), a BEFORE or AFTER not in the history (a force push), and any git error.
+- `.github/scripts/tests/mutations-needed-test.sh`: 18 cases in a temporary git repository, with no network: each watched path changes (including a deleted one) and runs; a backend-only change, a README-only change and a deploy-script change that a later commit reverts skip or run as the net difference decides; the zero, unknown and empty BEFORE, an unknown AFTER, a range with a deploy-script change in its second commit, and no arguments all run. The step "Mutations-needed tests" runs it in the Deploy scripts job, and both new scripts are in the ShellCheck list.
+- `ci-ubuntu-26.yml` (manual only, `workflow_dispatch`) is unchanged: its Mutations step still runs always.
+- `docs/claude/test-catalog.md` (the CI bullet) and `docs/family-budget/requirements.md` (D-1207).
+- Not changed: `deploy/deploy.sh`, `deploy/rollback.sh`, `deploy/common.sh`, `src/main`, and anything under `deploy/tests/`.
+
+**Verified**
+- `.github/scripts/tests/mutations-needed-test.sh`: exit 0, `18 cases, 0 failed`.
+- ShellCheck `koalaman/shellcheck:v0.11.0` over the ci.yml list (with the two new scripts): exit 0, no output.
+- `deploy/tests/run.sh` (unchanged): exit 0, `165 passed, 0 failed, of 165 cases`, 497 s.
+- The workflow parses (PyYAML); no `if:` on the job or any of its steps.
+- The Mutations step's run block, extracted and run under `bash -e` in a scratch repository: a README-only range printed the skip line and wrote the summary (exit 0); a BEFORE outside the history ran the mutate call (replaced by an echo in the scratch copy); a helper that exits 2 failed the step with status 2 and printed no skip line.
+- No backend or frontend test was run: this change touches neither (D-1206).
+
+**Open**
+- `actionlint` was not run: it is not installed here, and no image is present.
+- `mutate.sh` was not run here; its run path is unchanged, and CI 60cbba1 ran it in 12 min 46 s for the whole job.
+- The step's real behaviour on a GitHub runner is not verified here: the real `github.event.before` on a push, and `$GITHUB_STEP_SUMMARY`.
+- The skip path is unverified for exit statuses 126 and 127; only 2 was simulated (the `else` branch covers every status other than 0 and 1).
+
 ## 2026-11-26 · TEST-1b: local test cycle: random-test volume, forked runs, tiers, test policy (D-1204 to D-1206)
 
 Not committed yet.

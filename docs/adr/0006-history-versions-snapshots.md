@@ -654,6 +654,11 @@ against the state at that revision, and checks the cap of 1,000 per ledger befor
 The cap is a safety limit, not an invariant: two snapshots made at once can both read 999 and both be inserted
 (D-1197); that race is accepted.
 
+Amended 2026-11-26 (D-1296, section 15): a snapshot is a book snapshot, covering the personal ledger and the member's
+part of each family budget he is ACTIVE in; `FAMILY_SNAPSHOTS_UNSUPPORTED` is retired for it. The HIST-5 row above now
+means a snapshot of a whole family budget (all members' records), by consent; its owners-only rule (D-1015, D-1030)
+applies to HIST-5 only.
+
 ## 10. Decisions of HIST-0 (D-998 onwards)
 
 D-998 a record is the user-visible unit (section 2.1); derived family rows are not records.
@@ -942,3 +947,368 @@ Not done in part 2: the payees' History action (D-1124: no screen lists payees a
 - D-1179 (manager, HIST-3 part 4) the pre-check is `deploy/checks/acceptance.sql`, a check file without an `.expected` (like `numbers.sql`): one line `acceptance members=<m> links=<l> pending=<p>` that `deploy.sh` parses; `on` needs all three 0 and the family switch on in `.env` and in the running api. `numbers.sql` gets no key (V21 adds no table). The stage check `HIST-3.sql` is HIST-2's lines with the Flyway line at V21, then V21's columns, its trigger by name and four invariants of the counters that hold with acceptance off.
 - D-1180 (manager, HIST-3 part 4) D-1173's count is `totals.notCheckedUntilAccepted` of the import report (also in the stored run summary, and one line of the Markdown report when above 0); it counts each family row whose write the author rule refused in a dry run, including a payment side and each row of a grouped settlement.
 - D-1181 (manager, HIST-3 part 4) detached family links (a member who left, `detached_at` set) are never stamped again (`CrossLedgerWriter` stamps attached links only), so the pre-check `deploy/checks/acceptance.sql`, the invariant of `HIST-3.sql` and the reconcile's counts before and after count attached links only (`detached_at IS NULL`). The reconcile's UPDATE of the links stays V21's (and `AcceptanceCounters`'): over every link, detached ones included, setting each to its record's `last_revision`; nothing reads a detached link's counter, and a record the leaver is in is frozen, so it doesn't move afterwards. `FamilyCountersApiTests.aDetachedLinkIsNotCountedByTheStageCheck` runs HIST-3's query after a leave and the remaining member's change sets.
+
+## 15. Book snapshots (HIST-4 family part)
+
+Status: design (2026-11-26), not built. Section 10 holds the decisions of HIST-0, so this part is section 15. The PM's
+decisions D-1290 to D-1296 are taken as given; D-1300 to D-1334 are the manager's and settle what the PM left open.
+The owner can overrule any "(manager)" decision. Line numbers refer to HEAD `398779c`.
+
+### 15.0 The PM's decisions (given)
+
+- D-1290 (PM) A snapshot covers the member's whole book: the personal ledger and his part of every family budget where
+  he is an ACTIVE member; it stores the revision of each of these ledgers.
+- D-1291 (PM) A restore returns only the family records whose every change after the snapshot was made by the restoring
+  member (versions after the family ledger's snapshot revision with actor = him, imports by him included). A record
+  anyone else changed after the snapshot stays as it is and is listed in the preview (KEPT_OTHER_MEMBER).
+- D-1292 (PM) A restored family record is re-posted under the budget's current membership and split rules, exactly as an
+  edit of the record made now would be. A record that cannot be posted under the current rules is a blocker naming it.
+- D-1293 (PM) D-1219 extends to family records imported from the restoring member's own Excel.
+- D-1294 (PM) "Restore this version" works for a family record too, under D-1291 to D-1293.
+- D-1295 (PM) For other members a restore is the restoring member's change of those records: acceptance off, posted at
+  once with the usual notification; acceptance on, a change set they accept.
+- D-1296 (PM) FAMILY_SNAPSHOTS_UNSUPPORTED (D-1193) is retired for book snapshots; HIST-5 becomes "snapshot of a whole
+  family budget (all members' records), by consent".
+- D-1236, D-1237 and D-1238 (restoreArchived marks, the version-restore answer, `GET /api/history/archived`) stay and
+  extend to FAMILY_RECORD. They are not yet committed in this repository; the first code part that implements them records them.
+
+### 15.1 What the code does today (the base this builds on)
+
+- A snapshot is one row of one ledger (V22: `snapshot.ledger_id`, `revision`), created only for a personal ledger
+  (`SnapshotService.java:73`, `:174-178`), under `SELECT revision FROM ledger … FOR SHARE` (`:77`), with the live-count
+  check (`:79-85`) and the cap of 1,000 (`:87-91`).
+- The restore locks the personal ledger `FOR UPDATE` and marks it locked (`RestoreService.java:102-105`), checks one
+  revision (`:109-111`), plans again (`:112`), writes the BEFORE_RESTORE snapshot (`:116`), takes one revision (`:120`),
+  writes, stamps the sync columns (`:221-227`), then one `restore_run` with `before_snapshot_id NOT NULL` (V23 line 17)
+  and its items (`:123-138`).
+- The planner is set-based over one ledger and the four personal types (`RestorePlanner.java:129-137`, `:183-200`,
+  `:528-531`, `:541-546`; `LedgerState.java:22-30`). It refuses entries a family budget posted (`FAMILY_GUARDED`,
+  `RestorePlanner.java:313-323`) and never touches derived rows.
+- `lockLedger` takes `FOR NO KEY UPDATE` once per transaction (`HistoryService.java:101-112`); the revision fails a
+  ledger not locked first when the test guard is on (`:350-353`). Family writers lock the family ledger
+  (`FamilyRecordService.java:1970-1978`), the record (`:1981-1992`), then every member's personal ledger by ascending
+  id (`CrossLedgerWriter.java:80-92`, called at `FamilyRecordService.java:311`, `:488`, `:771`).
+- A family record's content holds `deleted` and `externalRef` and the shares (`RecordContents.java:218-255`); a soft
+  delete writes op DELETE with the content kept (`HistoryService.java:229`, `:250`), and the row stays
+  (`HistoryJobs.java:148`). Versions carry `actor_member` (the family `ledger_member` id) and cause IMPORT for imports
+  (`HistoryService.java:271-279`).
+- Posting a record re-reads the live record and members and rewrites every link (`FamilyPostingService.java:267-366`);
+  with acceptance on only the actor is posted and his `accepted_revision` moves (`:177-192`). A link that is not
+  system-owned and belongs to another member makes the posting throw (`:341-345`, `:637-641`).
+- The import recognises a family row by `external_ref` and compares `content_hash` and `imported_version`
+  (`ImportSync.java:80-97`); a record deleted in the app stays deleted (`:84-86`); the stamp is
+  `FamilyImportSync.java:73-80`; V13 pairs the five import columns (V13 lines 191-209).
+- `notification` already accepts the kind `FAMILY_RESTORED` (`Notifications.java:132`); nothing writes it yet.
+- No code writes a `BEFORE_IMPORT` snapshot yet (D-1200).
+
+### 15.2 Data model (point 1)
+
+- **D-1300 (manager) A child table, not a JSON column and not one snapshot row per ledger.** V24 adds
+  `snapshot_ledger (snapshot_id BIGINT NOT NULL REFERENCES snapshot (id) ON DELETE CASCADE, ledger_id BIGINT NOT NULL
+  REFERENCES ledger (id) ON DELETE CASCADE, revision BIGINT NOT NULL CHECK (revision >= 0), member_id BIGINT NOT NULL,
+  PRIMARY KEY (snapshot_id, ledger_id))`, an index on `(ledger_id)`, and V19's `history_immutable()` as its guard (it
+  reads `OLD.ledger_id`, so a delete passes under `delete-all` or when the ledger is gone, V19 lines 61-77). `member_id`
+  is the snapshot maker's `ledger_member` id in that budget (no foreign key, as `restore_item`'s versions). Options
+  considered: a JSONB map on `snapshot` (no foreign key, so a deleted budget would leave a stale id, and an UPDATE would
+  be needed, which the guard refuses); one `snapshot` row per ledger grouped by a book id (every list, count and cap
+  query of `SnapshotService` would change, and a family ledger would "own" rows of one person's book). The child table
+  is additive and leaves every existing statement as it is.
+- **D-1301 (manager) The personal part stays on the `snapshot` row; old rows are not rewritten.** `snapshot.ledger_id`
+  and `revision` remain the personal ledger's. `snapshot_ledger` holds only family ledgers. A snapshot with no
+  `snapshot_ledger` row (every existing MANUAL and BEFORE_RESTORE row, and any snapshot taken with the family switch off
+  or by a member of no budget) is a personal-only book; no backfill, no migration of old rows. A BEFORE_RESTORE
+  snapshot of a book restore gets the same family rows as a book snapshot taken at that instant.
+- **D-1302 (manager; confirmed by the PM) Cap: 20 family ledgers per snapshot; above it the snapshot is refused** with 409
+  `SNAPSHOT_TOO_MANY_BUDGETS` ("You are in more than 20 family budgets, so a snapshot can't cover them all"), never
+  truncated: a snapshot that silently left a budget out would restore a book that isn't whole. The 1,000 snapshots per
+  personal ledger (D-1195) stays and also counts BEFORE_RESTORE rows, as today (`RestorePlanner.java:195-200`).
+- **D-1303 (manager; confirmed by the PM) Erasure and departures.**
+  - "Delete all my data": the personal ledger's snapshots go as today; their `snapshot_ledger` rows go by the
+    `snapshot_id` cascade under `app.writer = 'delete-all'`. The family `restore_run` rows of the member stay with the
+    budget, like the versions they wrote (section 8), and read "Former member".
+  - Leaving a budget: the rows stay. A restore of that snapshot skips the budget (no blocker), and the preview lists it
+    under `skippedBudgets` with reason `NOT_A_MEMBER` ("You are no longer a member of this family budget; its records
+    are left as they are"). If he has returned and is ACTIVE again, the budget is included.
+  - A budget deleted: its `snapshot_ledger` rows and its `restore_run` rows go by the `ledger_id` cascades (V23 line 9,
+    V24); the snapshot stays as a smaller book, and the preview lists nothing for it.
+- **D-1304 (manager) One `restore_run` per ledger, linked to the personal run.** V24 adds `restore_run.parent_run_id
+  BIGINT` (no foreign key: the personal run goes with the user's erasure while the family runs stay), drops NOT NULL from
+  `before_snapshot_id`, and adds `CHECK (before_snapshot_id IS NOT NULL OR parent_run_id IS NOT NULL)`. The personal run
+  is written as in 2b (kind SNAPSHOT or VERSION). A family run has `kind` BOOK (or VERSION), `snapshot_id` and
+  `before_snapshot_id` NULL (both point at personal-ledger rows that the user's erasure deletes, so a foreign key there
+  would block delete-all), `parent_run_id` = the personal run, `actor_member` = his family member id. Rollback: the image
+  before V24 always sets `before_snapshot_id`, never reads `snapshot_ledger` or `parent_run_id`, and treats every
+  snapshot as personal (D-1031 holds for it), so it runs unchanged on V24 (D-1040).
+
+### 15.3 Taking a book snapshot consistently (point 2)
+
+- **D-1305 (manager) Lock order and strength.** In one READ COMMITTED transaction: (1) read the list of family ledgers
+  where he is ACTIVE with his account, without a lock; (2) `SELECT revision FROM ledger WHERE id = :f FOR SHARE` for
+  each, by ascending id, reading each revision after its own lock; (3) the personal ledger `FOR SHARE` as today
+  (`SnapshotService.java:77`), its revision after the lock; (4) read the list again, and if it differs (he joined, left
+  or was removed meanwhile) answer 409 `SNAPSHOT_RETRY` ("Your family budgets changed while the snapshot was taken; try
+  again"); (5) the consistency check per ledger (D-1307), the caps, the inserts, one SNAPSHOT_CREATED event with
+  `ledgers` in its details.
+- **Why it is consistent.** Every writer that changes a member's personal ledger because of a family budget holds that
+  budget's row `FOR NO KEY UPDATE` from its start to its commit (`FamilyRecordService.java:308-311`,
+  `FamilyAcceptance.java:63`, `ImportService.java:437-446`, `CrossLedgerWriter.java:80-92`). `FOR SHARE` conflicts with
+  `FOR NO KEY UPDATE` and not with itself. Once the snapshot holds every one of his budgets' rows, no family change can
+  reach his personal ledger before the snapshot commits; a personal-only save that commits between steps 2 and 3 is
+  seen by step 3's read. So the revisions stored are a cut no change set crosses.
+- **Why no deadlock (D-1234).** The snapshot takes family rows by ascending id, then the personal row, and nothing else
+  with a lock: exactly the D-1234 order with no record row. A family writer of budget F holds F, maybe the record, then
+  personal rows ascending; it never waits for a family row the snapshot holds while holding a personal row the snapshot
+  wants, because it takes its family row first and only one. Acceptance takes F, then personal rows
+  (`FamilyPostingService.java:202-206`). A concurrent book restore by the other member takes family rows ascending,
+  then records, then personal rows (D-1316): both sides go up the same order. The one writer outside the order is
+  `UserDataService.deleteAll` (personal row before the family rows, the open follow-up of 2c-1): a snapshot by the same
+  user at the same instant as his own delete-all can end in 40P01 for one of them, which is retried by nobody and
+  answers 500. Accepted until that follow-up is fixed; part 15.10/a fixes it first (D-1334).
+- **D-1306 (manager) FOR SHARE is enough (D-1196 kept).** The snapshot writes no row of the ledgers it locks, takes no
+  revision and must not block other snapshots or readers; `FOR SHARE` waits for every change set in progress and keeps
+  new ones out until it commits, which is all the cut needs. `FOR NO KEY UPDATE` would serialize snapshots of two
+  members of one budget for no gain.
+- **D-1307 (manager) The consistency check per family ledger** compares the number of `family_record` rows (deleted ones
+  too, since a soft delete keeps the row, `HistoryJobs.java:148`) with the number of records that have a version at or
+  before the revision, and the live family categories with the state's FAMILY_CATEGORY count. A mismatch refuses with
+  `HISTORY_INCONSISTENT` as for the personal part (`SnapshotService.java:80-85`).
+
+### 15.4 The plan (point 3)
+
+Per family ledger F in the snapshot (ACTIVE now), with M = the snapshot's revision of F, H = F's head and me = his
+member id in F:
+
+- **D-1308 (manager; confirmed by the PM) Who changed a record.** One statement per F: `SELECT record_type, record_id, bool_and(actor_member
+  = :me) AS mine FROM record_version WHERE ledger_id = :f AND revision > :m AND record_type IN ('FAMILY_RECORD',
+  'FAMILY_CATEGORY') GROUP BY 1, 2`. A record is his when every such version has `actor_member = me`, whatever the
+  cause (EDIT, IMPORT, RESTORE). A version with `actor_member` NULL (a BASELINE or RECONCILE, SYSTEM) counts as someone
+  else's: nobody can tell whose change it was. A record not his is KEPT_OTHER_MEMBER and is not written.
+- **D-1309 (manager) Outcomes of a family record** (live = the row with `deleted_at IS NULL`; target = its latest version
+  at or before M):
+  - RESTORED: target is a live version, the record is live now, the hashes differ;
+  - RETURNED: target is a live version, the record is soft-deleted now (undeleted, `deleted_at` cleared);
+  - DELETED: target is a DELETE (it was deleted at M), the record is live now (soft-deleted again);
+  - ARCHIVED: no target (created after M, by him, an import of his included) or the target is an ARCHIVE: soft-deleted,
+    and its import keys freed (D-1324);
+  - UNCHANGED: as now, or deleted both then and now;
+  - KEPT_OTHER_MEMBER: anyone else changed it after M (D-1291);
+  - each item of RESTORED and RETURNED carries `recalculated: true` when the shares under today's rules differ from the
+    target's shares (D-1292), so the preview can say "shares recalculated for today's members".
+- **D-1310 (manager) Family categories follow the same rule.** A FAMILY_CATEGORY changed after M only by him is
+  RESTORED, RETURNED or removed (ARCHIVED/DELETED) as personal reference records are; a removal is KEPT when a family
+  record after the plan (KEPT_OTHER_MEMBER ones included) or any member's posting uses it (rule 12; one statement over
+  `posting.category_id` and `family_record.category_id`). A category anyone else touched is KEPT_OTHER_MEMBER. Reason:
+  a restored record may need its category back, and treating categories differently from records would make "every
+  change after the snapshot was mine" mean two things.
+- **D-1311 (manager) Settlements** are records like the others under D-1308 and D-1309. A settlement whose other side
+  has been put on an account of the other member's (a link that is not system-owned) is a blocker when the plan would
+  change or remove it: the posting would throw (`FamilyPostingService.java:341-345`) and `requireNotPlaced` refuses it
+  today (`FamilyRecordService.java:1029-1040`).
+- **D-1312 (manager; confirmed by the PM) The payer's own side is not history.** The payment account, note and payee of the payer (D-16) are
+  in his derived payment entry, not in the version, so no version records a later move of them and D-1291 does not see
+  it. RESTORED keeps the payment as it is now (`Unchanged`); RETURNED and a payer whose link is gone post the payment
+  as "paid later" (`Later`, the UNSPECIFIED_PAYMENTS account, as `join` does at `FamilyPostingService.java:247-248`), and
+  the preview counts them in `paymentLater` with the text "the payment goes to 'paid later'; choose the account again".
+  The payment account is not added to family record versions (D-16, rule 11). A link of another member that is not system-owned is the blocker of D-1311.
+- **D-1313 (manager) The stale check covers every ledger.** The preview answers `atRevisions` (ledger id to revision,
+  the personal one included); the restore request sends it back (`{"atRevisions": {...}}`; a personal-only snapshot may
+  still send `atRevision`). After the locks, any ledger whose revision differs gives 409 `RESTORE_STALE` with the same
+  text as D-1227; a ledger present in one and not the other (joined, left) is stale too.
+- **D-1314 (manager) Blockers** (422, nothing written, the 2b envelope; record type and id set where one is named):
+
+  | code | when | message |
+  |---|---|---|
+  | `FAMILY_PENDING_CHANGES` | acceptance on and he has pending changes in F (`FamilyAcceptance.java:137-145`) | "Accept the n pending changes in '<budget>' first" |
+  | `FAMILY_JOINED_AFTER` | a restored record dated before a member's join date gives that member a share or a side | "family record N is dated before <member> joined, so it can't be restored as it was" |
+  | `FAMILY_MEMBER_NOT_ACTIVE` | the payer, the payee or a member with a share in the target is no longer ACTIVE (left, removed, FORMER) | "family record N names <member>, who is no longer in the family budget" |
+  | `FAMILY_RECORD_FROZEN` | the record is frozen now (`FamilyRecordService.java:1922-1934`) and the plan changes it | "family record N is frozen: a member it involves has left the family budget" |
+  | `FAMILY_CATEGORY_MISSING` | the target's category is deleted or archived after the plan | "family record N uses category C, which is missing or archived; restore that category first" |
+  | `FAMILY_SIDE_PLACED` | D-1311, or another member's side of an expense on his own account | "<member> has put their side of family record N on an account of theirs; only they can change it" |
+  | `FAMILY_INVALID_TARGET` | any other refusal of the record's validators (split, amounts, currency), with the validator's own text | the validator's message, prefixed "family record N: " |
+  | `KEY_COLLISION` | a RESTORED or RETURNED record's `external_ref` is held by another record now (an import created it again) | as 2b's text, "family record N has the same unique key as family record K" |
+  | `HISTORY_INCONSISTENT` | D-1307 fails for F | "The history of '<budget>' doesn't match it yet; try again later" |
+  | `SNAPSHOT_LIMIT_REACHED`, `REFERENCE_MISSING`, `INVALID_TARGET`, `DERIVED_RECORD`, `FAMILY_GUARDED` | as today, personal part | unchanged |
+
+  No start-date blocker: a budget's start date never changes (V7's `ledger_fill_start_date`, V7 lines 19-37), so a
+  target dated on or after it then still is.
+  A personal entry that uses a family category is checked against the family part's state after the plan, so a family
+  category the plan removes is a `REFERENCE_MISSING` there.
+- **D-1315 (manager; confirmed by the PM) Who may restore.** Any ACTIVE member with an account restores his own book; no owner rule, because
+  D-1291 already limits the restore to his own changes. D-1015/D-1030 (owners only) stay for HIST-5's whole-budget
+  restore.
+
+### 15.5 The write (point 4)
+
+- **D-1316 (manager) One transaction, one order.** READ COMMITTED: (1) `lockLedger` of every family ledger in the plan,
+  ascending; (2) for each F, the candidate records `FOR UPDATE` by ascending id (one statement per F); (3) the personal
+  ledgers of all members of those budgets by ascending id (`CrossLedgerWriter.lockLedgers`, which also covers his own);
+  (4) the stale check (D-1313); (5) the plan again under the locks; blockers give 422; (6) the BEFORE_RESTORE book
+  snapshot at the current revisions (D-1318); (7) the family writes per F, then the personal writes as 2b; (8) stamps,
+  runs, items, events, notifications. The personal ledger's row is taken with `lockLedger` (`FOR NO KEY UPDATE`), not
+  the 2b `FOR UPDATE`: every writer takes `FOR NO KEY UPDATE` first and it conflicts with itself and with `FOR SHARE`, so
+  it excludes as much; `markLocked` is then no longer needed by the restore (kept for any other caller).
+- **D-1317 (manager) Records go through the family record code.** New package-private methods of
+  `FamilyRecordService`: `restoreRecord(family, recordId, target)` and `removeForRestore(family, recordId, archive)`.
+  `restoreRecord` runs the checks of `updateRecord` (date, category, payer, payee, amounts, currency, split,
+  JOINED_AFTER, frozen) on the target's family fields, computes the shares from the target's split method
+  and basis with the current members (`ShareSplit`, as an edit), writes the row and shares, writes the version through
+  `HistoryService.restored` (op RESTORE, `restored_from` = target version, cause RESTORE), stamps `last_revision`
+  (`FamilyRecordService.java:2132-2139`), writes the import columns as D-1323 says (the five together, never some of
+  them: V13 lines 203-204) and calls `FamilyPostingService.post(family, recordId, payment)` with D-1312's
+  payment. The permission checks of `updateRecord` (author, payer, owner) are replaced by D-1308. The planner calls the
+  same check code (no write) so that preview and apply refuse the same records; a refusal at apply that the plan missed
+  rolls everything back (500 is a bug, the tests assert none).
+  `removeForRestore` sets `deleted_at` as `delete` does (`:506-512`) and posts with `Unchanged`, so every member's
+  derived entries go; with `archive` it also clears the five import columns (D-1324) and writes op ARCHIVE whose content
+  is the live record after the write (deleted, no ref), so the integrity check, the baseline job and the lazy drift rule
+  need no family exception (`HistoryJobs.java:157-170`, `HistoryService.java:224-241`). A DELETED one writes op DELETE.
+  Family categories are written as personal reference records in 2b (`RestoreService.java:186-203`), against `category`
+  rows with `user_id IS NULL`.
+- **D-1318 (manager) BEFORE_RESTORE covers the whole book.** `SnapshotService.createBeforeRestore` gets the map of
+  revisions and writes the `snapshot` row and one `snapshot_ledger` row per family ledger of the restore (the ledgers he
+  is ACTIVE in now; none for a budget he left), at the revisions read under
+  the locks, before any revision is taken. No `FOR SHARE`: the restore holds stronger locks.
+- **D-1319 (manager; confirmed by the PM) Revisions.** One revision per ledger written, taken once per transaction (`HistoryService.revision`
+  remembers it per ledger, `:361-367`); a family ledger in the plan with nothing to write takes none (unlike D-1228 for
+  the personal ledger): such a budget gets no revision and nothing becomes pending for its other members. The personal ledger always takes
+  its revision (D-1228 kept).
+- **D-1320 (manager) Runs, events and notifications.** The personal `restore_run` as 2b, its `counts` holding the
+  personal outcomes and a `family` map per ledger; one family `restore_run` per F written (D-1304) with its
+  `restore_item` rows (FAMILY_RECORD and FAMILY_CATEGORY, written outcomes only; KEPT_OTHER_MEMBER is counted in
+  `counts`, not itemised, as KEPT in 2b). One `RESTORE` activity event without ledger id (2b) plus one per F with
+  `ledger_id` = F (so the budget's Activity shows "X restored their records: n records changed"). One FAMILY_RESTORED
+  notification per other ACTIVE member with an account of F, range R..R, `changes_count` = the written records,
+  never to the restorer (D-1108); text "{name} restored their records in the family budget" (one row of
+  `NotificationText`).
+- **D-1321 (manager) Acceptance (D-1295).** Off: `post` posts to every member at once (`only` null). On: the restorer must
+  be caught up (blocker D-1314); `post` posts only to him and moves his `accepted_revision`
+  (`FamilyPostingService.java:177-192`); the others' records are pending by `last_revision` (D-1159) and their Accept
+  re-posts them from the live record, so nothing new is needed on their side. FAMILY_RESTORED is marked read by their
+  Accept (D-1167, `Notifications.java:128-133`).
+
+### 15.6 Undo (point 5)
+
+- **D-1322 (manager) Undo is a restore of the BEFORE_RESTORE book snapshot, under the same rules.** The restore's own
+  versions carry `actor_member` = the restorer, so a record nobody else touched since comes back to its state before the
+  restore. A record another member changed between the restore and the undo is KEPT_OTHER_MEMBER: it keeps the other
+  member's state, which was made on top of the restored one, and the undo preview lists it with that member's name and
+  the text "changed by <member> after your restore; left as it is". Nothing forces the undo to be complete: "nothing is
+  lost" still holds (all versions stay, D-993), and the restorer can restore that record's earlier version himself if
+  D-1291 allows it at that time.
+
+### 15.7 Import sync for family records (point 6)
+
+- **D-1323 (manager) The marker is the 2b marker, in `family_record.content_hash`.** After the writes of F, in the same
+  transaction and with no version (D-1231's rule), for every RESTORED or RETURNED record. V13's CHECK
+  (V13 lines 203-204) wants `external_ref`, `content_hash`, `imported_version`, `imported_by_member_id` and
+  `imported_at` all NULL or all set, so `restoreRecord` always writes the five together:
+  - the target has no `external_ref`: all five NULL;
+  - the target has an `external_ref` and the live row holds its import columns (a RESTORED or RETURNED record that was
+    never archived): `imported_version = version` (read after all the writes), the other four kept, so its stored
+    hash stays the one of the last import;
+  - the target has an `external_ref` and the live row's import columns are NULL (the record was ARCHIVED, D-1324, and
+    is now RETURNED, restored after a `KEY_COLLISION` was cleared, or brought back by an undo, D-1322): all five set,
+    `external_ref` = the target's, `content_hash = RESTORED_IMPORT_HASH`, `imported_version = version`,
+    `imported_by_member_id` = the restorer's member id in F, `imported_at = now()`.
+  The importer then sees the record as untouched since its import (`version = imported_version`): a differing file
+  row whose hash is the stored one is REPLANNED (`ImportSync.java:91-92`), a differing plan with another hash is EDITED (`ImportSync.java:94`),
+  and both are written over it; with an equal plan it is UNCHANGED for the stored hash or RESTAMP for another (`:89`).
+- **D-1324 (manager) An ARCHIVED family record frees its import keys.** A family record is soft-deleted, and a deleted
+  one stays deleted for every import (`ImportSync.java:84-86`), so a plain soft delete would make "undo an import, fix the
+  file, import again" fail. `removeForRestore(…, archive = true)` therefore sets `external_ref`, `content_hash`,
+  `imported_version`, `imported_by_member_id` and `imported_at` to NULL in the same UPDATE as `deleted_at`. The next
+  import finds no record with the ref and creates a new one (NEW), as D-1038 does for a personal entry; the earlier
+  versions keep the ref, so restoring the archived record later meets `KEY_COLLISION` if the import made it again.
+  A DELETED outcome (deleted at M) keeps its keys: it was a deletion in the app then, and stays one.
+- **Round trip.** import (creates r, his IMPORT version) → book snapshot S → import of an edited file (EDITED, his IMPORT
+  version) → restore S (r is his only: RESTORED; it keeps the edited file's hash, `imported_version = version`) →
+  re-import of the same edited file: REPLANNED (`ImportSync.java:91-92`), the file's version is written; re-import of
+  the first file: RESTAMP (`:88-89`). An import of a row created after S: ARCHIVED by
+  the restore, NEW at the re-import. If the other member edited r between S and the restore: KEPT_OTHER_MEMBER, and the
+  re-import's result is as without the restore. The same holds for a partner's place whose rows he imports (his
+  actor, D-1308).
+
+### 15.8 Performance (point 7)
+
+- **D-1325 (manager) The planner's statements are a fixed number per ledger, never per record.** Personal part: 2b's
+  fixed set (about 15). Per family ledger, about 10: the head; the D-1307 counts (two); D-1308's grouping; the targets
+  (`DISTINCT ON` at or before M over the candidates, one statement); the live records with shares (two, set-based, as
+  `RecordContents.loadAll` does for entries); members; categories and their uses (two); links not system-owned of the
+  candidates (one); pending (one, when acceptance is on). Total about 15 + 10L for L budgets. The rule checks of D-1317
+  run in memory over what was loaded.
+- **The write** is per record, because posting is: for a budget with m members with an account, each written record
+  costs about 8 statements (row, shares, version reads and insert, last_revision) plus about 4 + 3m for `post` (record,
+  members, shares, links, then per member a compare and at most a replace), and each F about 3 + 3·m·c for `openings`
+  (c currencies) plus run, items (one multi-row insert), event and notification. With w_F written records:
+  about 15 + 10L + Σ_F (10 + 3·m_F·c_F + w_F·(12 + 3·m_F)) statements, plus 2b's personal part. A month of the rehearsal
+  book (about 190 family records, m = 2) is about 3,500 statements.
+- **Locks held.** The family rows are held for the whole restore, so the other member's family saves wait for it; that
+  is the time to measure.
+- **What to time in the rehearsal** (on the restored production dump, median of 3, as D-1041): the book snapshot's
+  duration; the preview of a book snapshot one month back and twelve months back (statement count and wall time, with
+  the plans of the new statements, no sequential scan on `record_version`); the restore of the one-month snapshot (wall
+  time, statement count, time the family ledger row was held); its undo; the import round trip of 15.7 with the
+  December file; the Entries timings of PERF-1 after the restore (unchanged plans); the integrity report after each step.
+
+### 15.9 The test oracle (point 8)
+
+- **D-1326 (manager) After a book restore of snapshot S:**
+  1. the personal ledger equals `LedgerState.at(personal, N)` for every record except KEPT (2b's oracle,
+     `RestoreStateRandomTests`);
+  2. for each family ledger F: every record not KEPT_OTHER_MEMBER equals its state at M in its family fields (type,
+     date, category, payer, payee, amount, currency, split method and basis, comment, deleted, external ref), with the
+     shares recomputed for today's members; a record created after M by him is soft-deleted with no import keys; every
+     KEPT_OTHER_MEMBER record is byte for byte as before the restore;
+  3. every member's derived entries (FAMILY_* entries, links, openings) equal what posting every live record of F now
+     gives: the test re-posts F into a fresh copy and compares, or, equivalently, the existing `FamilyInvariants` and
+     D-10 checks pass for every member who is caught up (acceptance on: after each one's Accept);
+  4. `/api/reports/integrity` passes for the personal ledger and every F;
+  5. undo (D-1322) with no change in between gives back the state before the restore in every ledger (records and
+     derived entries), except that the versions and runs of both restores remain.
+  `LedgerState` gets a family variant (`at(ledgerId, revision, types)` with FAMILY_RECORD and FAMILY_CATEGORY, keeping
+  the soft-deleted records with their `deleted` flag) for 2.
+
+### 15.10 Implementation parts (point 9)
+
+Each part is one /team task. Tiers as README "Backend tests": targeted runs by the developer; the manager runs quick,
+and full where the part adds a migration or new random code (D-1204, D-1206).
+
+- **D-1327 (manager) a. Migration and the book snapshot.** V24 (D-1300, D-1304); `SnapshotService.create` takes the
+  book (D-1305 to D-1307), `get` answers the counts per ledger; `createBeforeRestore` takes the map (D-1318);
+  `LedgerState` family variant; `UserDataService.deleteAll` lock order fixed (D-1334). The family route of
+  `SnapshotController` stays 409 (D-1296 is for book snapshots, which are taken on the personal route). Tests: extend
+  `SnapshotApiTests`; new `BookSnapshotApiTests` (rows written, cap, retry on a membership change, a snapshot held at its
+  locks while a family record is saved, accepted and restored by the other member, each with no 40P01, as
+  `RestoreApplyApiTests` does for 2c-1); `SnapshotStateRandomTests` extended with a family member; deploy check
+  `HIST-4.sql` for V24. Tier: targeted, then full (migration). Reuses `SnapshotService`, `lockLedger`; `markLocked`
+  unchanged.
+- **D-1328 (manager) b. The planner.** `RestorePlanner.ofSnapshot` reads `snapshot_ledger` and calls a new
+  `FamilyRestorePlanner` per F (D-1308 to D-1314, D-1325); the check code shared with `FamilyRecordService`
+  (D-1317, a package-level validator moved out of it, no behaviour change). Tests: extend `RestorePreviewApiTests`; new
+  `FamilyRestorePreviewApiTests` (each outcome, each blocker code and text, statement count independent of record count
+  by a statement-counting datasource). Tier: targeted, then quick.
+- **D-1329 (manager) c. The write.** `RestoreService` book path (D-1316 to D-1321): `lockLedger` replaces its `FOR
+  UPDATE`; `FamilyRecordService.restoreRecord` and `removeForRestore`; `FamilyPostingService.post` reused unchanged;
+  `Notifications.familyRestored`; `NotificationText` row. Tests: new `FamilyRestoreApplyApiTests` with acceptance off and
+  on (`AcceptingMode`), every member's books, notifications and runs; extend `RestoreApplyApiTests` (concurrency with the
+  other member's save, accept and restore; step hook in the family writes); `FamilyAcceptApiTests` (accepting a
+  restore). Tier: targeted, then quick.
+- **D-1330 (manager; confirmed by the PM) d. Version restore and archived marks for FAMILY_RECORD (D-1294, D-1236 to D-1238).**
+  `RestorePlanner.ofVersion` accepts FAMILY_RECORD: D-1291 applies to the versions after the chosen one; a record
+  someone else changed is refused with `FAMILY_CHANGED_BY_OTHER` ("family record N was changed by <member> after this
+  version; it can't be restored") rather than a plan with nothing to do; `GET /api/history/archived` lists ARCHIVED
+  family records of the budgets he is ACTIVE in. Tests: new `FamilyVersionRestoreApiTests`; extend `HistoryReadApiTests`.
+  Tier: targeted, then quick.
+- **D-1331 (manager) e. Import round trip.** D-1323, D-1324 and 15.7's sequence. Tests: new `FamilyRestoreImportApiTests`
+  (the round trip with his file, expecting REPLANNED on the re-import of the edited file and RESTAMP on the first
+  file; with a partner's place; with the other member's edit in between; an archived imported record that a restore
+  brings back and its undo, both checking the five import columns set or NULL together, no 23514); extend
+  `FamilyImportSyncApiTests` and `AcceptImportApiTests`. Tier: targeted, then quick.
+- **D-1332 (manager) f. Random tests.** New `BookRestoreStateRandomTests` (two members, random personal and family
+  changes by both, imports, snapshots, restores and undos, the oracle of D-1326 after each, acceptance off and on), and a
+  restore step added to `FamilyRecordRandomTests`' operation mix. Tier: targeted at `-Dtests.random.scale=0.1`, then
+  full (new random code).
+- **D-1333 (manager) Frontend and e2e are a separate part** after a to f (the preview's KEPT_OTHER_MEMBER list,
+  skipped budgets, "paid later" count; FAMILY_RESTORED rows; one e2e spec for two accounts under `E2E_FAMILY=on`).
+- **D-1334 (manager) `UserDataService.deleteAll` takes the family rows by ascending id before the personal row**, the
+  2c-1 follow-up, in part a, because book snapshots make the reverse order meet more often.

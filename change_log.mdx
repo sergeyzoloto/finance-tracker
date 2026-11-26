@@ -3,6 +3,22 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-26 · HIST-4 book snapshots: design (ADR 0006 section 15)
+
+Committed as `docs(history): book snapshots across personal and family ledgers, design (HIST-4)`, the commit that adds this entry.
+
+**Changes**
+- `docs/adr/0006-history-versions-snapshots.md`: new section 15 "Book snapshots (HIST-4 family part)" (section 10 is HIST-0's decisions, so the new part is 15). It records the PM's D-1290 to D-1296 and settles the open points as D-1300 to D-1334 (manager): the `snapshot_ledger` table and `restore_run.parent_run_id` in V24, with no rewrite of old rows; the snapshot's lock order (family ledger rows `FOR SHARE` ascending, then the personal row); the plan's outcomes with KEPT_OTHER_MEMBER and its blocker codes; the write through `FamilyRecordService` and `FamilyPostingService`; undo; the import marker in `family_record.content_hash` and the freed import keys of an archived record; statement counts; the test oracle; parts a to f with their tests and tiers. One amendment paragraph after section 9's 2026-11-25 note says what HIST-5 now means.
+- `docs/family-budget/requirements.md`: D-1290 to D-1296 (PM) and D-1300 to D-1334 (manager), as a block at the end of the file.
+
+**Verified**
+- Docs only; no tests run. `scripts/check-forbidden-names.sh` exit 0 on the tree; `scripts/check-forbidden-names.sh --log 398779c..HEAD` exit 0.
+
+**Open**
+- D-1302, D-1303, D-1308, D-1312, D-1315, D-1319 and D-1330 were confirmed by the PM on 2026-11-26 and are marked so in section 15 and `requirements.md`.
+- D-1236 to D-1238 are not yet written in the repository; section 15 assumes the PM's 2c-2 text.
+- `BEFORE_IMPORT` snapshots are still not written by any code (D-1200); when they are, they are book snapshots.
+
 ## 2026-11-26 · HIST-4 part 2c-1: one lock order for every personal-ledger writer
 
 Not committed yet.

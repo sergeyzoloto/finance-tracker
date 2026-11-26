@@ -1,5 +1,7 @@
 package com.example.financetracker.ledger;
 
+import java.util.List;
+
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -74,6 +76,23 @@ public class UserDataService {
         // In the order of the foreign keys: the settings name an account, entries name counterparties and import
         // batches, postings (deleted with their entries) name accounts, categories and counterparties.
         deleted += jdbc.sql("DELETE FROM user_settings WHERE user_id = :userId").param("userId", userId).update();
+        // D-1334: his family budgets' rows by ascending id before the personal row, as every family writer and a book
+        // snapshot take them (D-1234, D-1305); FOR UPDATE, the lock release_family_memberships takes on each later.
+        // A budget he joined after the read commits its membership before this transaction sees it: read again after the
+        // locks and lock what is new, until nothing is (D-1346), still before the personal row.
+        java.util.Set<Long> locked = new java.util.HashSet<>();
+        while (true) {
+            List<Long> found = jdbc.sql("""
+                    SELECT id FROM ledger WHERE id IN (SELECT ledger_id FROM ledger_member
+                                                       WHERE user_sub = :userId AND ledger_type = 'SHARED')
+                      AND NOT (id = ANY (CAST(:locked AS bigint[])))
+                    ORDER BY id FOR UPDATE""")
+                    .param("userId", userId).param("locked", locked.toArray(Long[]::new)).query(Long.class).list();
+            if (found.isEmpty()) {
+                break;
+            }
+            locked.addAll(found);
+        }
         // D-1234: the personal ledger's row before any of its rows, as every writer of the ledger takes it (a restore
         // holds it while it writes the ledger's rows).
         jdbc.sql("SELECT id FROM ledger WHERE id IN (" + PERSONAL_LEDGER + ") FOR NO KEY UPDATE")

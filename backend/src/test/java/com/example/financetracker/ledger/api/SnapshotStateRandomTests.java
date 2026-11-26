@@ -148,6 +148,95 @@ class SnapshotStateRandomTests extends LedgerApiTest {
         return new Kept(revision, records);
     }
 
+    /**
+     * HIST-4 book snapshots (D-1326 item 2): the family variant of the state against copies of the live family records
+     * and categories, with two members writing at random (records created, commented, deleted; categories created and
+     * renamed). A deleted record stays in the state with its deleted flag.
+     */
+    @Test
+    void theFamilyStateAtEachKeptRevisionIsTheCopyTakenThen() {
+        long seed = RandomVolume.seedOr(System.nanoTime());
+        RandomVolume.run(getClass(), seed, () -> theFamilyStateAtEachKeptRevision(seed));
+    }
+
+    private void theFamilyStateAtEachKeptRevision(long seed) throws IOException {
+        Random random = new Random(seed);
+        String mum = newUser();
+        String dad = newUser();
+        ok(get(dad, "/api/accounts"));
+        JsonNode created = newFamily(mum, """
+                {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-09-01",
+                 "categoryIds": [%d]}""".formatted(categoryId(mum, "GROCERIES")));
+        long family = created.get("id").asLong();
+        String uri = "/api/family-ledgers/" + family;
+        join(family, dad, "Dad", "MEMBER", java.time.LocalDate.of(2026, 9, 1));
+        long kidId = body(post(mum, uri + "/members", """
+                {"displayName": "Kid"}"""), HttpStatus.CREATED).get("id").asLong();
+        List<Long> categories = new ArrayList<>(ok(get(mum, uri + "/categories")).findValues("id").stream()
+                .map(JsonNode::asLong).toList());
+        List<long[]> records = new ArrayList<>();
+        List<Kept> kept = new ArrayList<>();
+        LedgerScope scope = access.member(mum, family);
+        for (int step = 0; step < 5 + RandomVolume.count(35); step++) {
+            int op = step < 5 ? step : random.nextInt(5);
+            String who = random.nextBoolean() ? mum : dad;
+            if (op == 0 || (op <= 2 && records.isEmpty())) {
+                // Paid by Kid, who has no account: no payment account to name.
+                long payer = kidId;
+                JsonNode record = body(post(who, uri + "/records", """
+                        {"date": "2026-09-1%d", "categoryId": %d, "amount": "%d.00", "payerMemberId": %d}"""
+                        .formatted(random.nextInt(10), categories.get(random.nextInt(categories.size())),
+                                random.nextInt(1, 99), payer)), HttpStatus.CREATED);
+                records.add(new long[] {record.get("id").asLong(), record.get("version").asLong()});
+            } else if (op == 1) {
+                long[] record = records.get(random.nextInt(records.size()));
+                // The author or an owner (Mum) may change the comment.
+                JsonNode changed = ok(patch(mum, uri + "/records/" + record[0] + "?version=" + record[1], """
+                        {"comment": "step %d"}""".formatted(step)));
+                record[1] = changed.get("version").asLong();
+            } else if (op == 2) {
+                long[] record = records.remove(random.nextInt(records.size()));
+                assertThat(delete(mum, uri + "/records/" + record[0] + "?version=" + record[1]))
+                        .hasStatus(HttpStatus.NO_CONTENT);
+            } else if (op == 3) {
+                categories.add(body(post(mum, uri + "/categories", """
+                        {"code": "FAM_%d", "name": "Family %d", "type": "EXPENSE"}""".formatted(step, step)),
+                        HttpStatus.CREATED).get("id").asLong());
+            } else {
+                ok(patch(mum, uri + "/categories/" + categories.get(random.nextInt(categories.size())), """
+                        {"name": "Renamed %d"}""".formatted(step)));
+            }
+            if (step % 4 == 3) {
+                kept.add(familyCopy(family));
+            }
+        }
+        assertThat(kept).isNotEmpty();
+        for (Kept copy : kept) {
+            Map<RecordType, Map<Long, String>> read = new EnumMap<>(RecordType.class);
+            state.at(scope, copy.revision(), LedgerState.FAMILY).forEach((type, contents) -> {
+                Map<Long, String> canonical = new TreeMap<>();
+                contents.forEach((id, content) -> canonical.put(id, Canonical.canonicalize(content)));
+                read.put(type, canonical);
+            });
+            assertThat(read).as("seed %d, family revision %d", seed, copy.revision()).isEqualTo(copy.records());
+        }
+    }
+
+    private Kept familyCopy(long family) {
+        long revision = jdbc.sql("SELECT revision FROM ledger WHERE id = ?").param(family).query(Long.class).single();
+        Map<RecordType, Map<Long, String>> records = new EnumMap<>(RecordType.class);
+        for (RecordType type : LedgerState.FAMILY) {
+            Map<Long, String> live = new TreeMap<>();
+            String sql = type == RecordType.FAMILY_RECORD ? "SELECT id FROM family_record WHERE ledger_id = ?"
+                    : "SELECT id FROM category WHERE ledger_id = ? AND user_id IS NULL";
+            for (long id : jdbc.sql(sql).param(family).query(Long.class).list()) {
+                recordContents.load(type, family, id).ifPresent(c -> live.put(id, Canonical.text(c)));
+            }
+            records.put(type, live);
+        }
+        return new Kept(revision, records);
+    }
+
     /** 2,000 records with 10 versions each; prints the plan and the time of the state at the middle revision. */
     @Test
     void theStateOfTwentyThousandVersions() throws IOException {

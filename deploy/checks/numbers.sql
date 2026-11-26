@@ -36,6 +36,11 @@ FROM (VALUES
     ('notifications', (SELECT count(*) FROM app.notification)),
     -- HIST-4 part 1 (V22): the snapshots.
     ('snapshots', (SELECT count(*) FROM app.snapshot)),
+    -- HIST-4 part a (V24): the family budgets of book snapshots.
+    ('snapshot_ledgers', (SELECT count(*) FROM app.snapshot_ledger)),
+    -- HIST-4 part 2a (V23): the restore runs and their items.
+    ('restore_runs', (SELECT count(*) FROM app.restore_run)),
+    ('restore_items', (SELECT count(*) FROM app.restore_item)),
     -- As F6a's checklist counted it: personal rows without a PERSONAL membership of their user in their ledger, and
     -- categories without a user (family categories) outside every SHARED ledger.
     ('outside_their_ledger',

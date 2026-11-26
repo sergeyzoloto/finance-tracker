@@ -249,6 +249,27 @@ class FamilySwitchOffApiTests extends LedgerApiTest {
     }
 
     /**
+     * HIST-4 book snapshots (D-1327): with the switch off a snapshot is as before, personal only, for a member of a
+     * family budget too: no {@code ledgers} field in its answers, no snapshot_ledger row, none in its event.
+     */
+    @Test
+    void aSnapshotIsPersonalOnlyAndHasNoLedgersField() throws IOException {
+        long family = jdbc.sql("""
+                INSERT INTO ledger (type, name, base_currency, split_rule, start_date)
+                VALUES ('SHARED', 'Home', 'EUR', 'EQUAL', DATE '2024-01-01') RETURNING id""").query(Long.class).single();
+        join(family, user, "Owner", "OWNER", java.time.LocalDate.of(2024, 1, 1));
+        JsonNode snapshot = body(post(user, "/api/snapshots", "{}"), HttpStatus.CREATED);
+        long id = snapshot.get("id").asLong();
+        assertThat(snapshot.has("ledgers")).isFalse();
+        assertThat(ok(get(user, "/api/snapshots/" + id)).has("ledgers")).isFalse();
+        assertThat(ok(get(user, "/api/snapshots")).get("content").get(0).has("ledgers")).isFalse();
+        assertThat(jdbc.sql("SELECT count(*) FROM snapshot_ledger WHERE snapshot_id = ? OR ledger_id = ?")
+                .params(id, family).query(Long.class).single()).isZero();
+        assertThat(jdbc.sql("SELECT details -> 'ledgers' IS NOT NULL FROM activity_event WHERE actor_sub = ? "
+                + "AND kind = 'SNAPSHOT_CREATED'").param(user).query(Boolean.class).single()).isFalse();
+    }
+
+    /**
      * The demo with the switch off is exactly as before F6c (H1): no family budget, no new field in its answer, the
      * same entries and balances as {@code DemoDataApiTests} counted before the demo family, and the categories that the
      * demo family would bring stay personal.

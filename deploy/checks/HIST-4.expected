@@ -1,0 +1,134 @@
+flyway latest 24 book snapshots true
+exchange_rate_source_check names CBR,ECB,MANUAL
+exchange_rate_key unique on base_currency,quote_currency,rate_date,source,user_id nulls not distinct true
+exchange_rate_owner_check names source and user_id true
+CBR rates with a user, another currency, a non-positive rate or before 2022-03-02 0
+shared rates of another source 0
+manual rates without a user 0
+unbalanced entries 0
+unique index on family_entry_link(entry_id) 1
+entries with more than one family link 0
+family links of an unknown type 0
+entries without a posting 0
+index family_entry_link_entry_id_key
+index family_entry_link_key
+index journal_entry_ledger_id_entry_date_idx
+index posting_category_id_idx
+index posting_counterparty_id_idx
+index posting_entry_id_line_no_key
+table activity_event p id,actor_sub,ledger_id,at,kind,subject_type,subject_id,revision,details
+table history_pending u tx_id,ledger_id,record_type,record_id
+table record_version p id,ledger_id,record_type,record_id,seq,revision,op,content,content_hash,content_ver,actor_kind,actor_member,at,cause,cause_batch,restored_from,tx_id
+ledger.revision bigint NO 0
+trigger account account_history
+trigger activity_event activity_event_immutable
+trigger category category_history
+trigger counterparty counterparty_history
+trigger family_record family_record_history
+trigger history_pending history_pending_check
+trigger journal_entry journal_entry_history
+trigger record_version record_version_immutable
+deferred history_pending_check true true
+function delete_family_ledger(family bigint) returns void
+function history_check() returns trigger
+function history_immutable() returns trigger
+function history_mark() returns trigger
+function release_family_memberships(sub text) returns integer
+versions after their ledger's revision 0
+records whose versions have a gap in seq 0
+versions of an unknown type or op 0
+versions that name an email-like or address-like key 0
+activity events older than 14 months 0
+activity events with an email or an address in their details 0
+pending marks left 0
+table notification p id,ledger_id,recipient_member_id,kind,author_member_id,from_revision,to_revision,changes_count,created_at,read_at
+notification columns of a text, json or binary type besides kind 0
+index notification_author_idx
+index notification_ledger_idx
+index notification_recipient_idx
+index notification_unread_idx
+notification_unread_idx is partial true
+notifications of a kind other than the five 0
+notifications whose range ends before it starts 0
+notifications whose recipient belongs to another ledger 0
+notifications to their own author 0
+notifications of a ledger that is not a family one 0
+unversioned accounts 0
+unversioned categories 0
+unversioned counterparties 0
+unversioned entries 0
+unversioned family records 0
+column family_entry_link.posted_revision bigint NO 0
+column family_record.last_revision bigint NO 0
+column ledger_member.accepted_revision bigint YES no default
+trigger ledger_member ledger_member_accepted_revision
+family members with an account and no accepted revision 0
+rows that are no active family member with an account but have an accepted revision 0
+family members behind their ledger's revision with acceptance off 0
+attached family links not posted at their record's last revision 0
+table restore_item p run_id,record_type,record_id,outcome,replaced_version_id,written_version_id
+table restore_run p id,ledger_id,kind,snapshot_id,target_revision,revision,before_snapshot_id,actor_member,at,counts,parent_run_id
+table snapshot p id,ledger_id,revision,name,kind,created_by,created_at
+column restore_item.run_id bigint NO
+column restore_item.record_type character varying NO
+column restore_item.record_id bigint NO
+column restore_item.outcome character varying NO
+column restore_item.replaced_version_id bigint YES
+column restore_item.written_version_id bigint YES
+column restore_run.id bigint NO
+column restore_run.ledger_id bigint NO
+column restore_run.kind character varying NO
+column restore_run.snapshot_id bigint YES
+column restore_run.target_revision bigint NO
+column restore_run.revision bigint NO
+column restore_run.before_snapshot_id bigint YES
+column restore_run.actor_member bigint YES
+column restore_run.at timestamp with time zone NO
+column restore_run.counts jsonb NO
+column restore_run.parent_run_id bigint YES
+column snapshot.id bigint NO
+column snapshot.ledger_id bigint NO
+column snapshot.revision bigint NO
+column snapshot.name character varying NO
+column snapshot.kind character varying NO
+column snapshot.created_by bigint YES
+column snapshot.created_at timestamp with time zone NO
+key app.restore_item f run_id to app.restore_run on delete c
+key app.restore_item p run_id,record_type,record_id
+key app.restore_run f before_snapshot_id to app.snapshot on delete a
+key app.restore_run f ledger_id to app.ledger on delete c
+key app.restore_run f snapshot_id to app.snapshot on delete a
+key app.restore_run p id
+key app.snapshot f ledger_id to app.ledger on delete c
+key app.snapshot p id
+check on app.restore_run naming before_snapshot_id,parent_run_id
+check on app.restore_run naming counts
+check on app.restore_run naming revision
+check on app.restore_run naming target_revision
+check on app.snapshot naming revision
+index app.restore_run_ledger_idx on app.restore_run ledger_id,at,id
+index app.snapshot_ledger_idx on app.snapshot ledger_id,created_at,id
+trigger restore_item restore_item_immutable runs restore_item_immutable
+trigger restore_run restore_run_immutable runs history_immutable
+trigger snapshot snapshot_immutable runs history_immutable
+journal_entry_remember_deleted_import skips restore-archive true
+snapshots of a ledger that is not a personal one 0
+restore runs whose snapshot belongs to another ledger 0
+restore items without their run 0
+table snapshot_ledger p snapshot_id,ledger_id,revision,member_id
+column snapshot_ledger.snapshot_id bigint NO
+column snapshot_ledger.ledger_id bigint NO
+column snapshot_ledger.revision bigint NO
+column snapshot_ledger.member_id bigint NO
+snapshot_ledger primary key snapshot_id,ledger_id
+snapshot_ledger foreign key ledger_id to app.ledger on delete c
+snapshot_ledger foreign key snapshot_id to app.snapshot on delete c
+snapshot_ledger checks naming revision 1
+index app.snapshot_ledger_ledger_idx on ledger_id
+trigger snapshot_ledger snapshot_ledger_immutable runs history_immutable
+column restore_run.before_snapshot_id bigint YES
+column restore_run.parent_run_id bigint YES
+restore_run_before_or_parent names before_snapshot_id and parent_run_id true
+snapshot_ledger rows of a ledger that is not a family one 0
+snapshot_ledger rows whose member belongs to another ledger 0
+restore runs without a before snapshot and a parent 0

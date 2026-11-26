@@ -20,7 +20,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * HIST-4 part 1 (ADR 0006, D-1008, D-1193 to D-1201) through the API: a snapshot of the personal ledger names its
  * revision, takes none and writes no version but one activity event; its name's rules, the cap, the consistency
  * refusal, the family budget's refusal, 404 for an unknown or another user's snapshot, the wait for an open change set,
- * two snapshots at once that both succeed, and the erasure with the user's data.
+ * two snapshots at once that both succeed, and the erasure with the user's data. The book's family part (HIST-4 section
+ * 15) is in {@link BookSnapshotApiTests}; here only its additive {@code ledgers} field.
  */
 class SnapshotApiTests extends FamilyApiTest {
 
@@ -75,6 +76,10 @@ class SnapshotApiTests extends FamilyApiTest {
         assertThat(snapshot.get("revision").asLong()).isEqualTo(before);
         assertThat(snapshot.get("createdBy").get("kind").asText()).isEqualTo("USER");
         assertThat(snapshot.get("counts").get("ENTRY").asLong()).isEqualTo(1);
+        // HIST-4 book snapshots (D-1290): Alice's family budget is in it, as an additive field.
+        assertThat(snapshot.get("ledgers")).hasSize(1);
+        assertThat(snapshot.get("ledgers").get(0).get("ledgerId").asLong()).isEqualTo(family);
+        assertThat(snapshot.get("ledgers").get(0).get("revision").asLong()).isEqualTo(revision(family));
         assertThat(revision(ledger)).isEqualTo(before);
         assertThat(count("SELECT count(*) FROM record_version WHERE ledger_id = ?", ledger)).isEqualTo(versions);
         // No live row changed: per table, the same count and the same hash of every row (with its version column).
@@ -95,6 +100,8 @@ class SnapshotApiTests extends FamilyApiTest {
         assertThat(list.get("total").asLong()).isEqualTo(1);
         assertThat(list.get("content").get(0).get("id").asLong()).isEqualTo(id);
         assertThat(list.get("content").get(0).get("counts").isNull()).isTrue();
+        assertThat(list.get("content").get(0).get("ledgers").get(0).get("ledgerId").asLong()).isEqualTo(family);
+        assertThat(one.get("ledgers").get(0).get("counts").get("FAMILY_CATEGORY").asLong()).isPositive();
     }
 
     @Test

@@ -420,9 +420,16 @@ class LedgerBackfillMigrationTests {
             assertThat(rows()).isEqualTo(rowsBeforeV21);
 
             // V23 (HIST-4 part 2a, D-22) is additive too: the restore tables, no row added or removed.
-            MigrateResult v23 = flyway(null).migrate();
+            MigrateResult v23 = flyway("23").migrate();
             assertThat(v23.success).isTrue();
             assertThat(v23.targetSchemaVersion).isEqualTo("23");
+            assertThat(rows()).isEqualTo(rowsBeforeV21);
+
+            // V24 (HIST-4 book snapshots part a, D-1300, D-1304) is additive too: snapshot_ledger and a restore_run
+            // column, no row added or removed.
+            MigrateResult v24 = flyway(null).migrate();
+            assertThat(v24.success).isTrue();
+            assertThat(v24.targetSchemaVersion).isEqualTo("24");
             assertThat(rows()).isEqualTo(rowsBeforeV21);
         } finally {
             db.close();

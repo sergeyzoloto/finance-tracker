@@ -3,6 +3,32 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-26 · HIST-4 book part a: V24 and taking a book snapshot
+
+Committed as `feat(history): book snapshots, V24 and taking the snapshot across family ledgers (HIST-4 book part a)`, the commit that adds this entry.
+
+**Changes**
+- `V24__book_snapshots.sql`: table `snapshot_ledger` (D-1300: cascades, revision CHECK, index on `ledger_id`, guard trigger `history_immutable`); `restore_run.parent_run_id`, `before_snapshot_id` nullable, CHECK `restore_run_before_or_parent` (D-1304). Additive; nothing differs from ADR 15.2.
+- `SnapshotService.create` takes the book: cap of 20 budgets (409 `SNAPSHOT_TOO_MANY_BUDGETS`), family rows `FOR SHARE` ascending then the personal row, membership re-read (409 `SNAPSHOT_RETRY`), consistency check per ledger (`HISTORY_INCONSISTENT`), `snapshot_ledger` rows and one `SNAPSHOT_CREATED` event with `ledgers`. Snapshot, get and list gain the additive field `ledgers`; switch off or no budget: unchanged. Test hook `stepHook` (D-1340).
+- `createBeforeRestore` takes the family revisions (D-1318); `RestoreService` passes `Map.of()`; planner and restore ignore `snapshot_ledger` until parts b and c (ADR 15.11).
+- `LedgerState`: family `at` and `counts` for FAMILY_RECORD and FAMILY_CATEGORY, soft-deleted records kept with their flag.
+- `UserDataService.deleteAll`: family ledger rows `FOR UPDATE` ascending before the personal row, repeated until no new budget appears (D-1334, D-1345, D-1346).
+- Tests: new `BookSnapshotApiTests`, `BookSnapshotAcceptingApiTests`, `BookSnapshotV24MigrationTests`; extended `SnapshotApiTests`, `SnapshotStateRandomTests` (family member), `FamilySwitchOffApiTests`, `LedgerBackfillMigrationTests` (V24 step), `LedgerSchemaTests`.
+- `deploy/checks/HIST-4.sql` and `HIST-4.expected` verify V22 to V24 for the one-deploy batch from V21 (PM): `snapshot`, `restore_run`, `restore_item`, `snapshot_ledger` columns, keys, CHECKs incl. `restore_run_before_or_parent`, indexes, guard triggers, and the `restore-archive` skip in `journal_entry_remember_deleted_import`; read-only. `deploy/checks/numbers.sql` keys `snapshot_ledgers`, `restore_runs`, `restore_items`.
+- ADR 0006 section 15.11 "Part a as built" with D-1340 to D-1346 (manager), the rollback note and the interim behaviour; `docs/family-budget/requirements.md`.
+
+**Verified**
+- Full tier `cd backend && ./mvnw -B clean verify`: exit 0, 524 s, `Tests run: 918, Failures: 0, Errors: 0, Skipped: 0` (a first run failed 2 tests pinning version 23, fixed). Random classes all 0 failures: FamilyLifecycleRandomAcceptingTests 1, FamilyClaimRandomAcceptingTests 1, FamilyClaimRandomTests 1, FamilyLifecycleRandomTests 1, FamilyRecordRandomAcceptingTests 1, SnapshotStateRandomTests 3, FamilyRecordRandomTests 1, RestoreStateRandomTests 1.
+- After the review fixes, quick tier `./mvnw -B clean test -Dtests.random.scale=0.1`: exit 0, 327 s, `Tests run: 918, Failures: 0, Errors: 0, Skipped: 0`.
+- Strict review (opus): APPROVED; its minor points fixed. `scripts/check-forbidden-names.sh` on the tree: exit 0.
+- `HIST-4.expected` (134 lines) produced by running `HIST-4.sql` and `numbers.sql` with psql against a freshly migrated Testcontainers database (both exit 0). `bash deploy/tests/run.sh check_files_and_compose`: exit 0, 1 passed, 0 failed; `bash deploy/tests/run.sh` with the five `numbers.sql` cases: exit 0, 5 passed, 0 failed. No UI change, no e2e run.
+
+**Open**
+- D-1346: a budget joined during delete-all with a lower id than one already locked can still deadlock against his own snapshot started at that instant; accepted by the PM on 2026-11-26 (rare; one transaction rolls back); not tested.
+- `deploy/tests/run.sh` pins lines of `HIST-3.expected` but none of `HIST-4.expected`.
+- The guard trigger would refuse `snapshot_ledger` deletes if a personal ledger were deleted without the delete-all writer setting; no code path does so (ADR 15.11).
+- Parts b to f of section 15.
+
 ## 2026-11-26 · HIST-4 book snapshots: design (ADR 0006 section 15)
 
 Committed as `docs(history): book snapshots across personal and family ledgers, design (HIST-4)`, the commit that adds this entry.

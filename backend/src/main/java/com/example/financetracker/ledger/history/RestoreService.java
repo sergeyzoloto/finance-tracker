@@ -113,7 +113,8 @@ public class RestoreService {
         if (!plan.preview().restorable()) {
             throw new BlockedException(plan.preview());
         }
-        long before = snapshots.createBeforeRestore(scope, name, revision);
+        // Until HIST-4 part c the restore is personal only: no family budget in its BEFORE_RESTORE snapshot.
+        long before = snapshots.createBeforeRestore(scope, name, revision, Map.of());
         List<Item> items = new ArrayList<>();
         long taken;
         try (HistoryContext.Frame frame = HistoryContext.open(Cause.RESTORE, scope.userId())) {

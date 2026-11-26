@@ -950,9 +950,10 @@ Not done in part 2: the payees' History action (D-1124: no screen lists payees a
 
 ## 15. Book snapshots (HIST-4 family part)
 
-Status: design (2026-11-26), not built. Section 10 holds the decisions of HIST-0, so this part is section 15. The PM's
-decisions D-1290 to D-1296 are taken as given; D-1300 to D-1334 are the manager's and settle what the PM left open.
-The owner can overrule any "(manager)" decision. Line numbers refer to HEAD `398779c`.
+Status: design (2026-11-26); part a built (2026-11-26, section 15.11), parts b to f not built. Section 10 holds the
+decisions of HIST-0, so this part is section 15. The PM's decisions D-1290 to D-1296 are taken as given; D-1300 to
+D-1334 are the manager's and settle what the PM left open. The owner can overrule any "(manager)" decision. Line
+numbers refer to HEAD `398779c`.
 
 ### 15.0 The PM's decisions (given)
 
@@ -1312,3 +1313,44 @@ and full where the part adds a migration or new random code (D-1204, D-1206).
   skipped budgets, "paid later" count; FAMILY_RESTORED rows; one e2e spec for two accounts under `E2E_FAMILY=on`).
 - **D-1334 (manager) `UserDataService.deleteAll` takes the family rows by ascending id before the personal row**, the
   2c-1 follow-up, in part a, because book snapshots make the reverse order meet more often.
+
+### 15.11 Part a as built (2026-11-26)
+
+Built as D-1327 says, with these choices of the manager and these interim facts:
+
+- **V24** (`V24__book_snapshots.sql`) is exactly D-1300 and D-1304: `snapshot_ledger` with the two cascades, the
+  revision CHECK, the index `snapshot_ledger_ledger_idx` on `(ledger_id)` and the trigger `snapshot_ledger_immutable`
+  running V19's `history_immutable()`; `restore_run.parent_run_id`, `before_snapshot_id` nullable, and the CHECK
+  `restore_run_before_or_parent`. **Rollback (D-1040):** the image before V24 never reads `snapshot_ledger` or
+  `parent_run_id`, always writes `before_snapshot_id` and treats every snapshot as personal, so it runs unchanged on
+  V24; no refusal is added to `deploy/rollback.sh`. One limit of the guard as specified: a personal ledger deleted
+  without `app.writer = 'delete-all'` (no code path or runbook block does that; "Delete a user" sets the writer) would
+  have its snapshots' `snapshot_ledger` rows refused, since their family ledger still exists. Stage checks:
+  `deploy/checks/HIST-4.sql` (V22, V23 and V24, as the batch takes production from V21 to V24 in one deploy);
+  `numbers.sql` gets `snapshot_ledgers`, `restore_runs` and `restore_items`.
+- **Interim behaviour until parts b and c:** the planner and the restore ignore `snapshot_ledger`: a book snapshot
+  restores and previews as a personal snapshot, exactly as 2b; the personal restore passes no budget to
+  `createBeforeRestore`, so its BEFORE_RESTORE snapshot has no `snapshot_ledger` row. No family `restore_run` is
+  written yet.
+- **D-1340 (manager)** the test seam `SnapshotService.stepHook` (steps `families-locked`, `locked`), as D-1226.
+- **D-1341 (manager)** the additive field `ledgers` in the snapshot's answers (id, name, revision; counts in the single
+  read only, and only for budgets he is still ACTIVE in); present with the switch on, absent with it off; the event's
+  `ledgers` only when the snapshot covers a budget.
+- **D-1342 (manager)** `createBeforeRestore(scope, name, revision, Map<LedgerScope, Long>)` and
+  `LedgerState.at(LedgerScope family, revision, types)` take the budget's scope, not a raw id (the architecture rule;
+  the scope carries the member id).
+- **D-1343 (manager)** the cap is checked on the first, unlocked read; `SNAPSHOT_RETRY` compares budget and membership
+  ids, not roles.
+- **D-1344 (manager)** the family state keeps a record whose latest version is a removal when its content says
+  `deleted`; D-1307 compares all `family_record` rows with that count.
+- **D-1345 (manager)** `deleteAll` takes the family rows `FOR UPDATE` (the strength `release_family_memberships` takes
+  later), ascending, before the personal row (D-1334); 15.3's remark on 40P01 with delete-all no longer holds.
+- **D-1346 (manager)** `deleteAll` reads his budgets again after taking their locks and locks any new one, until none
+  is new, still before the personal row: a budget joined after the first read is otherwise locked by
+  `release_family_memberships` after the personal row (the old order). A budget found on a later read may have a
+  lower id than one already held; that one step out of ascending order can meet only a book snapshot of his own
+  started in the same instant as his join, which then fails with 40P01 rather than delete-all deadlocking with a
+  family writer. Locks can't be released inside the transaction, so a strict order isn't possible there.
+  Accepted by the PM on 2026-11-26: the case is rare and safe, since one of the two transactions rolls back and
+  nothing is half written.
+- The error texts end with a full stop, as `ApiExceptionHandler` writes every `detail`.

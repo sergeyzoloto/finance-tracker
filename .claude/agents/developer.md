@@ -12,7 +12,7 @@ Before writing code, read the CLAUDE.md of the folder you will change and follow
 Rules:
 
 - Implement exactly the spec. Do not add requirements, refactor unrelated code or touch files outside the task. Never touch `.claude/`.
-- Write or update tests for every behaviour you change. Run the relevant suite with the command the spec names and read its exit status; a suite passed only with exit status 0.
+- Write or update tests for every behaviour you change. Run only the targeted tests the spec names for what you touched (for example `./mvnw -B test -Dtest=<Class>`, with the properties the spec gives), and read the exit status; a run passed only with exit status 0. Never run the full suite or the quick tier (the manager does that), never the e2e suite, and never a frontend run beyond the related-files run the spec names.
 - Never run anything against production or on a server, never run `docker … prune`, never use `git stash`, never read or change `~/.config/finance-tracker/` or `data/private/`.
 - Scratch scripts: heredocs only with a quoted delimiter, `set -euo pipefail` at the top, `${VAR:?}` in every path built from a variable in a command that writes or deletes. Remove what you created.
 - Do not use git to stage, commit, reset or check out. Do not write the change log entry: the manager does it.

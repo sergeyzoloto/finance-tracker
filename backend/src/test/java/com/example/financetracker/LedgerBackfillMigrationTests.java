@@ -51,7 +51,7 @@ class LedgerBackfillMigrationTests {
     void everySubGetsOnePersonalLedgerAndEveryRowItsUsersLedger() throws SQLException {
         try (Connection admin = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                 POSTGRES.getPassword())) {
-            admin.createStatement().execute("CREATE DATABASE ledger_backfill_tests");
+            IntegrationTest.recreateDatabase(admin, "ledger_backfill_tests");
         }
         assertThat(flyway("4").migrate().targetSchemaVersion).isEqualTo("4");
         db = DriverManager.getConnection(URL + "?currentSchema=app", POSTGRES.getUsername(), POSTGRES.getPassword());

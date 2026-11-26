@@ -10,12 +10,14 @@ import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
 
+import com.example.financetracker.RandomVolume;
 import com.example.financetracker.ledger.access.LedgerAccess;
 import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.history.Canonical;
 import com.example.financetracker.ledger.history.LedgerState;
 import com.example.financetracker.ledger.history.RecordType;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -25,6 +27,7 @@ import org.springframework.http.HttpStatus;
  * changed, deleted and made again; accounts, categories and payees created, renamed and archived), at least 6
  * copies of the live records kept at several revisions, and for each the state engine returns that copy, per type and id. Then the engine on 20,000 versions.
  */
+@Tag("random")
 class SnapshotStateRandomTests extends LedgerApiTest {
 
     private static final List<RecordType> TYPES =
@@ -39,8 +42,13 @@ class SnapshotStateRandomTests extends LedgerApiTest {
     }
 
     @Test
-    void theStateAtEachKeptRevisionIsTheCopyTakenThen() throws IOException {
-        long seed = System.nanoTime();
+    void theStateAtEachKeptRevisionIsTheCopyTakenThen() {
+        // A fresh seed per run, or the one of tests.random.seed to replay a run (TEST-1b).
+        long seed = RandomVolume.seedOr(System.nanoTime());
+        RandomVolume.run(getClass(), seed, () -> theStateAtEachKeptRevision(seed));
+    }
+
+    private void theStateAtEachKeptRevision(long seed) throws IOException {
         Random random = new Random(seed);
         String user = newUser();
         ok(get(user, "/api/accounts"));
@@ -52,8 +60,9 @@ class SnapshotStateRandomTests extends LedgerApiTest {
         List<Long> categories = new ArrayList<>();
         // Entries are created, changed and deleted. Accounts, categories and payees are never deleted (rule 12): for
         // them the "delete" is an archive (and a later one may restore). The first 12 steps run each operation once,
-        // so every type is created, changed and archived or deleted in every run; the rest are random.
-        for (int step = 0; step < 60; step++) {
+        // so every type is created, changed and archived or deleted in every run (not volume); the random tail is 48
+        // steps at full volume, fewer at a lower scale.
+        for (int step = 0; step < 12 + RandomVolume.count(48); step++) {
             int op = step < 12 ? step : random.nextInt(12);
             if (op == 0 || (op <= 2 && entries.isEmpty())) {
                 JsonNode entry = newExpense(user, "2026-09-1" + random.nextInt(10), random.nextInt(1, 99) + ".00",
@@ -103,7 +112,9 @@ class SnapshotStateRandomTests extends LedgerApiTest {
                 kept.add(copy(scope));
             }
         }
-        assertThat(kept).hasSizeGreaterThanOrEqualTo(6);
+        // 12 copies at full volume (a copy every fifth step), at least 6; the same share of 6 at a lower scale.
+        assertThat(kept).hasSizeGreaterThanOrEqualTo(
+                RandomVolume.scale() == 1 ? 6 : Math.max(1, (int) Math.round(6 * RandomVolume.scale())));
         for (Kept copy : kept) {
             Map<RecordType, Map<Long, String>> at = state.at(scope, copy.revision());
             Map<RecordType, Map<Long, String>> read = new EnumMap<>(RecordType.class);

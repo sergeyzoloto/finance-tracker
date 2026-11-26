@@ -59,7 +59,7 @@ class LedgerSchemaTests {
     static void migrateEmptyDatabase() throws SQLException {
         try (Connection admin = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                 POSTGRES.getPassword())) {
-            admin.createStatement().execute("CREATE DATABASE ledger_schema_tests");
+            IntegrationTest.recreateDatabase(admin, "ledger_schema_tests");
         }
         // As the application configures it (spring.flyway.schemas).
         migration = Flyway.configure().dataSource(URL, POSTGRES.getUsername(), POSTGRES.getPassword())

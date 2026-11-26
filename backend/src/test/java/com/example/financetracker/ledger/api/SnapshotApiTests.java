@@ -1,9 +1,11 @@
 package com.example.financetracker.ledger.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import java.io.IOException;
 import java.sql.Connection;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -153,12 +155,10 @@ class SnapshotApiTests extends FamilyApiTest {
             changeSet.setAutoCommit(false);
             changeSet.createStatement().execute("UPDATE ledger SET revision = revision + 1 WHERE id = " + ledger);
             waiting = CompletableFuture.supplyAsync(() -> post(alice, "/api/snapshots", "{}"));
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
-            while (count("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' "
-                    + "AND query LIKE '%FOR SHARE%'") == 0) {
-                assertThat(System.nanoTime()).as("the snapshot waits for the change set").isLessThan(deadline);
-                Thread.sleep(20);
-            }
+            await("the snapshot waits for the change set").atMost(20, TimeUnit.SECONDS)
+                    .pollInterval(Duration.ofMillis(20)).until(() -> count(
+                            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' "
+                                    + "AND query LIKE '%FOR SHARE%'") > 0);
             assertThat(waiting).isNotDone();
             changeSet.commit();
         }

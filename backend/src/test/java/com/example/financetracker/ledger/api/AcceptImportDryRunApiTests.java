@@ -12,7 +12,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -21,7 +20,6 @@ import org.springframework.test.context.TestPropertySource;
  * uploader's commit is still refused with 409 (D-1164).
  */
 @TestPropertySource(properties = FamilyAcceptanceSwitch.PROPERTY + "=true")
-@DirtiesContext
 class AcceptImportDryRunApiTests extends MemberImportApiTest {
 
     private final String carol = newUser();

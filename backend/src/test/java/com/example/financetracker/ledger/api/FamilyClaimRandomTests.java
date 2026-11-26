@@ -12,8 +12,10 @@ import java.util.Map;
 import java.util.Random;
 
 import com.example.financetracker.Answers;
+import com.example.financetracker.RandomVolume;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -34,6 +36,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * three date changes in four cross the join date, either way. Each moves the record's effect between the
  * claimer's opening balance and their entries; the counts show that every kind went through.
  */
+@Tag("random")
 class FamilyClaimRandomTests extends LedgerApiTest {
 
     private static final long SEED = 20_261_001L;
@@ -41,7 +44,9 @@ class FamilyClaimRandomTests extends LedgerApiTest {
     private static final int BEFORE = 20;
     private static final int AFTER = 35;
 
-    private final Random random = new Random(SEED);
+    /** The seed: the class's own, or {@code tests.random.seed} (TEST-1b). */
+    private final long seed = RandomVolume.seedOr(SEED);
+    private final Random random = new Random(seed);
 
     /** The round's claimed seat and its join date, once taken; null before. */
     private Long seat;
@@ -51,13 +56,18 @@ class FamilyClaimRandomTests extends LedgerApiTest {
     private boolean lastNamesSeat;
 
     @Test
-    void randomClaimsKeepTheInvariants() throws IOException {
-        Map<String, Integer> done = new LinkedHashMap<>();
-        for (int round = 0; round < ROUNDS; round++) {
-            round(done);
-        }
-        // What the seed made of it, so that a change of the mix shows here.
-        assertThat(done).containsExactlyInAnyOrderEntriesOf(EXPECTED_COUNTS);
+    void randomClaimsKeepTheInvariants() {
+        RandomVolume.run(getClass(), seed, () -> {
+            Map<String, Integer> done = new LinkedHashMap<>();
+            for (int round = 0; round < RandomVolume.rounds(ROUNDS); round++) {
+                round(done);
+            }
+            // What the seed made of it, so that a change of the mix shows here. A fixed mix cannot hold at another
+            // volume or seed, so it is checked only at full volume (TEST-1b, D-1204).
+            if (RandomVolume.fullVolume()) {
+                assertThat(done).containsExactlyInAnyOrderEntriesOf(EXPECTED_COUNTS);
+            }
+        });
     }
 
     /** What the seed makes of six rounds. */
@@ -94,7 +104,7 @@ class FamilyClaimRandomTests extends LedgerApiTest {
                 "CASH"), claimer, accountId(claimer, "CASH")));
         List<Long> records = new ArrayList<>();
 
-        for (int i = 0; i < BEFORE; i++) {
+        for (int i = 0; i < RandomVolume.count(BEFORE); i++) {
             String actor = random.nextBoolean() ? alice : bob;
             long payer = pick(List.of(self.get(actor), kid, gran));
             MvcTestResult answer = random.nextInt(4) == 0
@@ -120,7 +130,7 @@ class FamilyClaimRandomTests extends LedgerApiTest {
         done.merge("claims", 1, Integer::sum);
         check(family, alice, bob, claimer);
 
-        for (int i = 0; i < AFTER; i++) {
+        for (int i = 0; i < RandomVolume.count(AFTER); i++) {
             // The claimer half the time, mostly on records of the place they took.
             String actor = random.nextBoolean() ? claimer : random.nextBoolean() ? alice : bob;
             int choice = random.nextInt(100);

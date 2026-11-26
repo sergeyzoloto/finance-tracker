@@ -12,7 +12,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -20,8 +19,6 @@ import org.springframework.test.context.TestPropertySource;
  * without failing, and a caught-up uploader's family import is pending for the other members.
  */
 @TestPropertySource(properties = FamilyAcceptanceSwitch.PROPERTY + "=true")
-// A context of its own: closed after the class, so that its connection pools don't add to the cached contexts'.
-@DirtiesContext
 class AcceptImportApiTests extends MemberImportApiTest {
 
     private final String carol = newUser();

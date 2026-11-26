@@ -16,7 +16,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -28,8 +27,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * pending, and the integrity check waits for a lagging member.
  */
 @TestPropertySource(properties = FamilyAcceptanceSwitch.PROPERTY + "=true")
-// A context of its own: closed after the class, so that its connection pools don't add to the cached contexts'.
-@DirtiesContext
 class FamilyAcceptApiTests extends FamilyApiTest {
 
     private static final String LATER = "\"paymentLater\": true,";

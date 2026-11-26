@@ -33,7 +33,7 @@ class FamilyV13MigrationTests {
     void everyJournalRowGetsTheCurrencyItsAmountsWereIn() throws SQLException {
         try (Connection admin = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                 POSTGRES.getPassword())) {
-            admin.createStatement().execute("CREATE DATABASE " + DATABASE);
+            IntegrationTest.recreateDatabase(admin, DATABASE);
         }
         Flyway.configure().dataSource(URL, POSTGRES.getUsername(), POSTGRES.getPassword()).schemas("app")
                 .target("12").load().migrate();

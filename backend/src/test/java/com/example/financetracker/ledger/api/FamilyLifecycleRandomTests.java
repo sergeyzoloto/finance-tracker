@@ -13,8 +13,10 @@ import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.example.financetracker.Answers;
+import com.example.financetracker.RandomVolume;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -35,6 +37,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * same numbers on any day after September. Since UX-1 each ACTIVE member's cash flow scopes add up to the whole after
  * every operation (D-302, {@link #checkCashFlowScopes}).
  */
+@Tag("random")
 class FamilyLifecycleRandomTests extends LedgerApiTest {
 
     private static final long SEED = 20_261_002L;
@@ -44,18 +47,25 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
     /** The currencies of the records: the main one, and two others (D-45). */
     private static final List<String> CURRENCIES = List.of("EUR", "USD", "RUB");
 
-    private final Random random = new Random(SEED);
+    /** The seed: the class's own, or {@code tests.random.seed} (TEST-1b). */
+    private final long seed = RandomVolume.seedOr(SEED);
+    private final Random random = new Random(seed);
     /** Whether the last {@link #record} was a settlement. */
     private boolean settled;
 
     @Test
-    void randomLifecyclesKeepTheInvariants() throws IOException {
-        Map<String, Integer> done = new LinkedHashMap<>();
-        for (int round = 0; round < ROUNDS; round++) {
-            round(done);
-        }
-        // What the seed made of it, so that a change of the mix shows here.
-        assertThat(done).containsExactlyInAnyOrderEntriesOf(EXPECTED);
+    void randomLifecyclesKeepTheInvariants() {
+        RandomVolume.run(getClass(), seed, () -> {
+            Map<String, Integer> done = new LinkedHashMap<>();
+            for (int round = 0; round < RandomVolume.rounds(ROUNDS); round++) {
+                round(done);
+            }
+            // What the seed made of it, so that a change of the mix shows here. A fixed mix cannot hold at another
+            // volume or seed, so it is checked only at full volume (TEST-1b, D-1204).
+            if (RandomVolume.fullVolume()) {
+                assertThat(done).containsExactlyInAnyOrderEntriesOf(EXPECTED);
+            }
+        });
     }
 
     /**
@@ -89,7 +99,7 @@ class FamilyLifecycleRandomTests extends LedgerApiTest {
                 "INCOME", find(categories, "code", "SALARY").get("id").asLong());
         LocalDate today = utcToday();
 
-        for (int i = 0; i < OPERATIONS; i++) {
+        for (int i = 0; i < RandomVolume.count(OPERATIONS); i++) {
             List<Member> members = members(family);
             if (members.isEmpty()) {
                 done.merge("budgets gone", 1, Integer::sum);

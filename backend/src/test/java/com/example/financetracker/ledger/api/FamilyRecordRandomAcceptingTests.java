@@ -5,13 +5,12 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 import com.example.financetracker.ledger.family.FamilyAcceptanceSwitch;
-import org.springframework.test.annotation.DirtiesContext;
+import org.junit.jupiter.api.Tag;
 import org.springframework.test.context.TestPropertySource;
 
 /** {@link FamilyRecordRandomTests}'s steps again with family acceptance on, every member accepting after each ({@link AcceptingMode}). */
+@Tag("random")
 @TestPropertySource(properties = FamilyAcceptanceSwitch.PROPERTY + "=true")
-// A context of its own: closed after the class, so that its connection pools don't add to the cached contexts'.
-@DirtiesContext
 class FamilyRecordRandomAcceptingTests extends FamilyRecordRandomTests {
 
     @Override

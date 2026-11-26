@@ -242,9 +242,48 @@ discovery, signing keys and a token endpoint, and signs real RS256 tokens. The t
 
 ```bash
 cd backend
-./mvnw test                   # all tests; the wrapper fetches Maven itself
-./mvnw test -Dtest=ApiTests   # one class
-./mvnw -B clean verify        # what CI runs (CI also shuffles the classes' order)
+./mvnw -B clean test -Dtests.random.scale=0.1   # quick: all tests, random tests at a tenth of their volume
+./mvnw -B test -Dtest=ApiTests                  # targeted: one class (add -Dtests.random.scale=0.1 for a random one)
+./mvnw -B clean verify                          # full: what CI runs (CI also shuffles the classes' order)
+```
+
+The tests run in forks (`-Dtests.forks=<n>`, default 3, D-1205): each fork is its own JVM with its own PostgreSQL
+container, and the classes of a fork run one after another. Measured on a 12-core laptop with 15 GB (wall time, all
+859 tests passing each time):
+
+| Tier | Forks | Wall time |
+| --- | --- | --- |
+| quick (`-Dtests.random.scale=0.1`) | 1 | 11 min 46 s |
+| quick | 2 | 5 min 35 s |
+| quick | 3 | 4 min 5 s |
+| full (`clean verify`) | 1 | 23 min 37 s |
+| full | 2 | 10 min 23 s |
+| full | 3 | 6 min 49 s (repeats: 6 min 59 s, 6 min 49 s) |
+
+The quick and the forks-1 and forks-2 numbers come from runs before the log-capture fix of two test classes (no
+change to what they run); the forks-3 numbers are after it. The system used memory peaked at about 12.9 GB during the
+forks-3 runs. CI's runner has not been measured; it runs the default, and `-Dtests.forks=<n>` overrides it there.
+
+The random tests (`*RandomTests`, tagged `random`) take their volume from `-Dtests.random.scale` (default 1: full
+volume, today's numbers) and their seed from `-Dtests.random.seed`. A failure names its seed and the command that
+replays it; a run at a lower scale or with a seed skips the end-of-test fingerprint of the random mix, which holds for
+the full seed only (D-1204).
+
+Local reuse of the PostgreSQL container, so that a repeated local run starts faster, needs
+`TESTCONTAINERS_REUSE_ENABLE=true` (or `testcontainers.reuse.enable=true` in `~/.testcontainers.properties`). Only the
+first fork reuses its container; the others start their own, so the reused one is never shared between forks. One
+local test run at a time, because two runs on one reused container would clear each other's rows.
+
+Frontend (`frontend/`): the full run `npm test` (914 tests, 69 files, 28 s); the related files of a change, for
+example `npx vitest related src/accountCode.ts --run` (506 tests in 36 files, 19 s, because a shared utility pulls in
+many test files).
+
+For a single failing run, the output shows the seed; replay it with the command the failure message gives, which has
+this form:
+
+```bash
+cd backend
+./mvnw -B test -Dtest=<Class> -Dtests.random.seed=<seed> -Dtests.random.scale=<scale>
 ```
 
 Without a local JDK, run Maven in Docker (Linux):

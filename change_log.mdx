@@ -3,7 +3,66 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
-## 2026-11-25 · HIST-4 part 1: personal snapshots: the snapshot table, creating and listing, the state at a revision (D-1193 to D-1202)
+## 2026-11-26 · TEST-1b: local test cycle: random-test volume, forked runs, tiers, test policy (D-1204 to D-1206)
+
+Not committed yet.
+
+**Changes**
+- Random tests (`*Random*`, seven classes, tagged `random`): `RandomVolume` (a test helper) reads `tests.random.scale` (default 1, today's volume; 0.1 for the quick tier) and `tests.random.seed` (replay). A failure names its seed and the replay command. The end-of-test fingerprint of the random mix is checked only at full volume with no seed override; count thresholds scale with the volume. `SnapshotStateRandomTests` keeps its first 12 steps at every volume. No iteration check changed.
+- Forks: `backend/pom.xml` runs the tests in surefire forks, `tests.forks` default 3, `reuseForks` true; the argument line carries `tests.fork`. `IntegrationTest` reuses its container only in fork 1 (a reused container serves one fork).
+- Log capture: `LogCapture` (a logback list appender) replaces `OutputCaptureExtension` in `FamilySwitchTests` and `FamilyInviteApiTests`, which failed when run after a Spring test in the same JVM. `FamilyInviteApiTests.noLogLineHoldsAToken` uses one root-logger capture (every logger, throwable text included), so its negative check covers the console's full scope, and it gained a positive check that the capture is not empty, so the negative check cannot pass on an empty capture.
+- README, "Backend tests": the tiers, measured wall times, reuse rule, seed replay; the frontend commands.
+- `.claude/commands/team.md`, `.claude/agents/developer.md`, `.claude/agents/strict-reviewer.md`: manager runs the quick tier once per task, the full tier only for test infrastructure or random-test changes; developers run targeted tests only; the reviewer runs no tests; Playwright only for covered UI flows, never production.
+- Decisions D-1204 (volume), D-1205 (forks), D-1206 (test policy) in `docs/family-budget/requirements.md`.
+- No test deleted, disabled or weakened; the suite stays at 859 tests; nothing under `src/main` changed.
+
+**Verified**
+- Quick tier, final tree (`./mvnw -B clean test -Dtests.random.scale=0.1`, default forks 3): exit 0, `Tests run: 859, Failures: 0, Errors: 0, Skipped: 0`, 245 s.
+- Full tier, forks 3, after the `OutputCaptureExtension` replacement and before the review fix (`./mvnw -B clean verify`): exit 0 three times, 859 run, 0 failures, 0 errors, 0 skipped; 409 s, 419 s, 409 s; system used memory peaked near 12.9 GB on a 15 GB laptop.
+- After the strict review (the invite test's negative check had been narrowed; it now checks the root logger's lines, throwable text included, with the same three assertions; `RandomVolume.run` rethrows aborted assumptions and VM errors): quick tier exit 0, 859 run, 0 failures, 241 s; full tier, forks 3, exit 0, 859 run, 0 failures, 418 s.
+- Full tier before the fix: forks 1 exit 0, 1,417 s; forks 2 exit 0, 623 s; forks 3 exit 1 (`FamilySwitchTests`, the order-dependent log capture, 408 s), fixed above.
+- Quick tier before the fix: forks 1 exit 0, 706 s; forks 2 exit 0, 335 s; forks 3 exit 1 (the same test), 245 s; forks 3 after the fix exit 0, 244 s.
+- Targeted runs (developer): `LedgerAccessTests,FamilySwitchTests` in alphabetical order exit 0 (6 run); `LedgerAccessTests,FamilyInviteApiTests,FamilySwitchTests` exit 0 (16 run); `FamilySwitchTests,FamilyInviteApiTests` exit 0 (11 run); `ArchitectureTests,TestHygieneTests,ScreenTextTests,JvmDefaultsGuardTests` exit 0 (19 run).
+- Frontend: `npm test` exit 0, 914 tests in 69 files, 28 s; `npx vitest related src/accountCode.ts --run` exit 0, 506 tests in 36 files, 19 s.
+- Strict review and `scripts/check-forbidden-names.sh`: see the report.
+
+**Open**
+- Per-iteration profile (report only, not implemented): the three slowest random classes spend their time in the checks after each step (`FamilyInvariants`, `checkHistory`, `checkFamilyReport`) and in per-request work. `FamilyInvariants.checkByCurrency` runs one query per currency and per record date on every step; a set-based query would keep the same checks with far fewer round trips. Mostly the time is blocked on database round trips, not Java code.
+- The CI runner (4 vCPU, 16 GB) has not been measured. CI runs the default of 3 forks; `-Dtests.forks=<n>` overrides it in the workflow if the runner needs fewer.
+- Two local runs must not share a reused container at the same time.
+- `TESTCONTAINERS_REUSE_ENABLE=true` is the switch that works locally; the `-D` form does not.
+
+## 2026-11-26 · TEST-1a: backend tests: shared Spring contexts, one Postgres container per JVM, local reuse (D-1203)
+
+Not committed yet.
+
+**Changes**
+- `IntegrationTest.java` is the one shared base. Its three spies (`EntryService`, `FamilyPostingService`, `Notifications`) are a class-level `@MockitoSpyBean`, so classes that used to carry their own spies now share one context. `POSTGRES` has `.withReuse(true)`: reuse happens only locally with `TESTCONTAINERS_REUSE_ENABLE=true` or `testcontainers.reuse.enable=true`; CI is unchanged. The static block empties every `app` table except `flyway_schema_history`, once per JVM. The new helper `recreateDatabase` drops and creates a class's own database; its name is checked against `[a-z0-9_]+`.
+- The eight acceptance classes in `ledger/api/` lose `@DirtiesContext` (FamilyAcceptApiTests, FamilyAcceptanceApiTests, AcceptImportApiTests, AcceptanceImportApiTests, AcceptImportDryRunApiTests, FamilyClaimRandomAcceptingTests, FamilyRecordRandomAcceptingTests, FamilyLifecycleRandomAcceptingTests). They share one context, keyed by `FamilyAcceptanceSwitch=true`.
+- DemoDataApiTests, ClaimAtomicityApiTests and NotificationApiTests use the shared spies.
+- Seven migration and schema test classes (FamilyRecordsV11MigrationTests, FamilyV13MigrationTests, FamilyV21MigrationTests, SnapshotV22MigrationTests, LedgerBackfillMigrationTests, LedgerSchemaTests, RecordPayeesConstraintsTests) create their databases through `recreateDatabase`.
+- `backend/src/test/resources/application.properties`: `app.rates.ecb.enabled=false` and `app.rates.cbr.enabled=false` (moved from the `@DynamicPropertySource` blocks); `logging.level.root=WARN`, with Spring Boot, Flyway, Testcontainers and the tests' package kept at INFO so the context and container lines stay countable.
+- `SnapshotApiTests`: the wait for a database condition uses Awaitility (`atMost` 20 s, poll every 20 ms), with the same condition and message.
+- `docs/family-budget/requirements.md`: D-1203.
+- No test was deleted, disabled or weakened, and nothing under `src/main` changed.
+
+**Verified**
+- Baseline before any change, `./mvnw -B clean verify`: 23m27s, exit 0, 859 run, 0 failures, 0 errors, 0 skipped; 17 context starts; 1 Postgres container.
+- Run 1, final state: 23m23s, exit 0, 859 run, 0 failures, 0 errors, 0 skipped; 7 context starts; 1 container.
+- Run 2, random order with seed 7721: 25m33s, exit 0, 859 run, 0 failures, 0 errors, 0 skipped.
+- Run 3: exit 1, 4 errors. Cause: my name check `[a-z_]+` rejected the digits in the migration test database names. Fixed to `[a-z0-9_]+`.
+- Run 4, final text: 23m39s, exit 0, `Tests run: 859, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS; 7 context starts; 1 container.
+- Local reuse (developer's subset, 74 tests, with `TESTCONTAINERS_REUSE_ENABLE=true`): two runs, both exit 0; the second run reused the container.
+- Strict review: APPROVED, no blockers; its three minor points are in the code and in D-1203.
+- `scripts/check-forbidden-names.sh` on the working tree: exit 0.
+
+**Open**
+- No speedup. Wall time is unchanged at about 23 to 25 minutes. Context startup is about 20 s of 1,390 s of test-class time; the nine random-generator classes (`ledger/api/*Random*`) take about 740 s. The lever is parallel execution or the cost per test, neither done here.
+- `spring.main.lazy-initialization=true` was tried and reverted: it saved seconds and would have hidden startup faults in beans no test touches.
+- Two local test runs must not share a reused container at the same time.
+- A reused container from an older checkout can fail Flyway's checksum check; dropping the container fixes it.
+- Reuse is enabled by the environment variable or `~/.testcontainers.properties`; the `-D` form does nothing. `~/.testcontainers.properties` was not changed.
+- Nothing committed.
 
 Commit: see the git log for this entry's subject.
 

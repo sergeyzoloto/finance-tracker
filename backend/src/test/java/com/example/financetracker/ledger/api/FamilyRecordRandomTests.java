@@ -11,8 +11,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+import com.example.financetracker.RandomVolume;
 import com.example.financetracker.ledger.family.FamilyInvariants;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
@@ -32,14 +34,17 @@ import org.springframework.http.HttpStatus;
  * member's personal cash flow (E1, E3; {@link #checkFamilyReport}), and since UX-1 each member's cash flow scopes add up
  * to the whole (D-302, {@link #checkCashFlowScopes}).
  */
+@Tag("random")
 class FamilyRecordRandomTests extends LedgerApiTest {
 
     private static final long SEED = 20_260_930L;
     private static final int OPERATIONS = 240;
 
-    private final Random random = new Random(SEED);
+    /** The seed: the class's own, or {@code tests.random.seed} (TEST-1b). */
+    private final long seed = RandomVolume.seedOr(SEED);
+    private final Random random = new Random(seed);
     /** A sequence of its own for the refunds, so that adding them left the seed's other operations as they were. */
-    private final Random refunds = new Random(SEED + 1);
+    private final Random refunds = new Random(seed + 1);
     private final String alice = newUser();
     private final String bob = newUser();
 
@@ -61,7 +66,11 @@ class FamilyRecordRandomTests extends LedgerApiTest {
     private final Map<Long, String> accountCurrency = new LinkedHashMap<>();
 
     @Test
-    void randomRecordsKeepTheInvariants() throws IOException {
+    void randomRecordsKeepTheInvariants() {
+        RandomVolume.run(getClass(), seed, this::randomRecords);
+    }
+
+    private void randomRecords() throws IOException {
         ok(get(bob, "/api/accounts"));
         JsonNode created = newFamily(alice, """
                 {"name": "Home", "baseCurrency": "EUR", "displayName": "Mum", "startDate": "2026-09-01",
@@ -104,7 +113,7 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         Map<Long, String> users = Map.of(mum, alice, dad, bob);
         Map<String, Integer> done = new LinkedHashMap<>();
         List<HistoryOracle.Snapshot> snapshots = new java.util.ArrayList<>();
-        for (int i = 0; i < OPERATIONS; i++) {
+        for (int i = 0; i < RandomVolume.count(OPERATIONS); i++) {
             int choice = random.nextInt(100);
             String actor = random.nextBoolean() ? alice : bob;
             if (choice < 5) {
@@ -281,11 +290,29 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         }
 
         snapshots.forEach(snapshot -> HistoryOracle.verify(jdbc, snapshot));
-        assertThat(snapshots).hasSizeGreaterThan(10);
+        // A copy every tenth operation: more than 10 at full volume, the same share of it at a lower scale (TEST-1b).
+        assertThat(snapshots).hasSizeGreaterThan(RandomVolume.scale() == 1 ? 10
+                : Math.max(1, (int) Math.round(10 * RandomVolume.scale())));
         checkPersonalHistory(alice);
         checkPersonalHistory(bob);
 
-        // What the seed gives: every kind of operation, many times.
+        // What the seed gives: every kind of operation, many times. A fixed mix cannot hold at another volume or seed, so
+        // the fingerprint (the counts and what they leave live) is checked only at full volume (TEST-1b, D-1204).
+        if (RandomVolume.fullVolume()) {
+            assertFingerprint(done, live, settlements);
+        }
+        Map<Long, BigDecimal> balances = invariants(family);
+        JsonNode answered = ok(get(bob, uri + "/balances")).get("byCurrency").get(0).get("members");
+        for (JsonNode member : answered) {
+            assertThat(new BigDecimal(member.get("balance").asText())).as(member.get("displayName").asText())
+                    .isEqualByComparingTo(balances.get(member.get("memberId").asLong()));
+        }
+        assertThat(ok(get(alice, uri + "/records?size=200")).get("totalElements").asInt())
+                .isEqualTo(live.size() + settlements.size());
+    }
+
+    private static void assertFingerprint(Map<String, Integer> done, Map<Long, Live> live,
+            Map<Long, Settlement> settlements) {
         assertThat(done).containsExactlyInAnyOrderEntriesOf(Map.ofEntries(Map.entry("create", 70),
                 Map.entry("income", 28), Map.entry("change", 36), Map.entry("payment", 20), Map.entry("delete", 31),
                 Map.entry("split rule", 6), Map.entry("settle", 25), Map.entry("settlement change", 13),
@@ -296,14 +323,6 @@ class FamilyRecordRandomTests extends LedgerApiTest {
         assertThat(live.values()).filteredOn(record -> record.type().equals("INCOME")).isNotEmpty();
         assertThat(settlements).hasSize(20);
         assertThat(settlements.values()).extracting(Settlement::currency).contains("EUR", "USD");
-        Map<Long, BigDecimal> balances = invariants(family);
-        JsonNode answered = ok(get(bob, uri + "/balances")).get("byCurrency").get(0).get("members");
-        for (JsonNode member : answered) {
-            assertThat(new BigDecimal(member.get("balance").asText())).as(member.get("displayName").asText())
-                    .isEqualByComparingTo(balances.get(member.get("memberId").asLong()));
-        }
-        assertThat(ok(get(alice, uri + "/records?size=200")).get("totalElements").asInt())
-                .isEqualTo(live.size() + settlements.size());
     }
 
     /** A record's or a settlement's currency: euros mostly, a quarter dollars, an eighth roubles (D-45). */

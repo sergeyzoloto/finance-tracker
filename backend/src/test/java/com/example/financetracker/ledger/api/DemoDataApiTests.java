@@ -25,7 +25,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
  * POST /api/demo-data: the demo ledger for a new user, in one transaction, and only into an empty ledger. The entries
@@ -39,7 +38,7 @@ class DemoDataApiTests extends LedgerApiTest {
     /** The day the figures below are the demo's of: 2026-11-13 in UTC, the zone of a user who has set none. */
     static final Instant DAY = Instant.parse("2026-11-13T12:00:00Z");
 
-    @MockitoSpyBean
+    @Autowired // the spy of IntegrationTest (@MockitoSpyBean on the base class)
     private EntryService entries;
 
     @Autowired

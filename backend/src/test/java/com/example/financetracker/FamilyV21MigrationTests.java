@@ -33,7 +33,7 @@ class FamilyV21MigrationTests {
     void theBackfillLeavesNothingPending() throws SQLException {
         try (Connection admin = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                 POSTGRES.getPassword())) {
-            admin.createStatement().execute("CREATE DATABASE " + DATABASE);
+            IntegrationTest.recreateDatabase(admin, DATABASE);
         }
         migrate("20");
         try (Connection db = DriverManager.getConnection(URL + "?currentSchema=app", POSTGRES.getUsername(),

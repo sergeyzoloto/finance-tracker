@@ -12,7 +12,6 @@ import com.example.financetracker.ledger.family.posting.FamilyPostingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -22,7 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 class ClaimAtomicityApiTests extends MemberImportApiTest {
 
-    @MockitoSpyBean
+    @Autowired // the spy of IntegrationTest (@MockitoSpyBean on the base class)
     private FamilyPostingService posting;
 
     @Autowired

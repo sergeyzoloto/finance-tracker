@@ -22,6 +22,10 @@
              a time zone conversion shows up as an off-by-one. "./mvnw -Duser.timezone=Etc/GMT+12 test" runs the tests in
              another; no test may change it while they run (JvmDefaultsGuard). -->
         <user.timezone>Pacific/Kiritimati</user.timezone>
+        <!-- Surefire forks for the tests (D-1205): each fork is its own JVM with its own Postgres container. 3 was the
+             fastest stable value measured here (12 cores, 15 GB; 409 s against 1,417 s at 1 fork). Override with
+             -Dtests.forks=<n> (e.g. 1 for a targeted run, or on a runner with less memory). -->
+        <tests.forks>3</tests.forks>
     </properties>
 
     <dependencies>
@@ -111,7 +115,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Duser.timezone=${user.timezone}</argLine>
+                    <forkCount>${tests.forks}</forkCount>
+                    <reuseForks>true</reuseForks>
+                    <argLine>-Duser.timezone=${user.timezone} -Dtests.fork=${surefire.forkNumber}</argLine>
                 </configuration>
             </plugin>
         </plugins>

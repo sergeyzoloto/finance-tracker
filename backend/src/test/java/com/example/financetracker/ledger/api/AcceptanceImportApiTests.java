@@ -10,7 +10,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -18,8 +17,6 @@ import org.springframework.test.context.TestPropertySource;
  * pending changes is refused with 409 before anything is written.
  */
 @TestPropertySource(properties = FamilyAcceptanceSwitch.PROPERTY + "=true")
-// A context of its own: closed after the class, so that its connection pools don't add to the cached contexts'.
-@DirtiesContext
 class AcceptanceImportApiTests extends MemberImportApiTest {
 
     private final String carol = newUser();

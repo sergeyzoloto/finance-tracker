@@ -17,13 +17,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import com.example.financetracker.Answers;
+import com.example.financetracker.LogCapture;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.logging.LogLevel;
 import org.springframework.boot.logging.LoggingSystem;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -35,7 +33,6 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * for one seat, the rate limit, and the logs. What a claim posts is FamilyClaimApiTests'; the isolation of every
  * endpoint is DataIsolationApiTests'. The invariants hold after every test.
  */
-@ExtendWith(OutputCaptureExtension.class)
 class FamilyInviteApiTests extends FamilyApiTest {
 
     private static final String INVALID = "This invite is not valid. Ask for a new one.";
@@ -327,12 +324,14 @@ class FamilyInviteApiTests extends FamilyApiTest {
      * can't be read, a token that is too long and a rate-limited attempt.
      */
     @Test
-    void noLogLineHoldsAToken(CapturedOutput output) throws IOException {
+    void noLogLineHoldsAToken() throws IOException {
         LoggingSystem logging = LoggingSystem.get(getClass().getClassLoader());
         List<String> loggers = List.of("org.springframework.web", "org.springframework.jdbc",
                 "org.springframework.security", "com.example.financetracker");
         loggers.forEach(logger -> logging.setLogLevel(logger, LogLevel.DEBUG));
         List<String> tokens = new ArrayList<>();
+        LogCapture capture = LogCapture.ofRoot();
+        String log;
         try {
             String claim = kidsPlace("2026-09-10");
             String declined = newInvite(alice, """
@@ -364,11 +363,14 @@ class FamilyInviteApiTests extends FamilyApiTest {
                 inviteCall(erin, "lookup", token(another, null), "192.0.2.1");
             }
         } finally {
+            log = String.join("\n", capture.lines());
+            capture.close();
             loggers.forEach(logger -> logging.setLogLevel(logger, null));
         }
-        assertThat(output.getAll()).as("the log during the flow").contains("/api/invites/");
+        assertThat(log).as("the capture saw the lines it was meant to see").isNotEmpty();
+        assertThat(log).as("the log during the flow").contains("/api/invites/");
         for (String token : tokens) {
-            assertThat(output.getAll()).doesNotContain(token);
+            assertThat(log).doesNotContain(token);
         }
     }
 

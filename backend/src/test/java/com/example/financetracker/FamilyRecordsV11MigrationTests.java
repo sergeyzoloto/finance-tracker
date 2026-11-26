@@ -60,7 +60,7 @@ class FamilyRecordsV11MigrationTests {
         try {
             try (Connection admin = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                     POSTGRES.getPassword())) {
-                admin.createStatement().execute("CREATE DATABASE " + DATABASE);
+                IntegrationTest.recreateDatabase(admin, DATABASE);
             }
             Flyway.configure().dataSource(URL, POSTGRES.getUsername(), POSTGRES.getPassword()).schemas("app")
                     .target("10").load().migrate();
@@ -86,8 +86,6 @@ class FamilyRecordsV11MigrationTests {
         registry.add("app.keycloak.issuer-url", IntegrationTest.KEYCLOAK::issuer);
         registry.add("app.keycloak.client-id", () -> FakeKeycloak.CLIENT_ID);
         registry.add("app.keycloak.client-secret", () -> FakeKeycloak.CLIENT_SECRET);
-        registry.add("app.rates.ecb.enabled", () -> "false");
-        registry.add("app.rates.cbr.enabled", () -> "false");
     }
 
     @Autowired

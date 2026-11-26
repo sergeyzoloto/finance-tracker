@@ -46,8 +46,8 @@ class RecordPayeesConstraintsTests {
     static void migrate() throws SQLException {
         try (Connection admin = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                 POSTGRES.getPassword())) {
-            admin.createStatement().execute("CREATE DATABASE record_payees_constraints");
-            admin.createStatement().execute("CREATE DATABASE record_payees_constraints_broken");
+            IntegrationTest.recreateDatabase(admin, "record_payees_constraints");
+            IntegrationTest.recreateDatabase(admin, "record_payees_constraints_broken");
         }
         for (String database : List.of("record_payees_constraints", "record_payees_constraints_broken")) {
             Flyway.configure().dataSource(url(database), POSTGRES.getUsername(), POSTGRES.getPassword())

@@ -303,6 +303,9 @@ public class FamilyInviteService {
     public FamilyLedgerView accept(LedgerScope personal, String token, String displayName, List<Long> categoryIds) {
         requirePersonal(personal);
         Invite invite = invites.lock(token);
+        // D-1234, D-1240: after the family ledger's row (and the invite), the personal ledgers by ascending id, the
+        // joiner's among them, before the FOR SHARE of their categories and any write.
+        posting.lockLedgers(personal, invite.ledgerId());
         Long returning = requireAcceptable(personal, invite);
         if (invites.nameTaken(invite, displayName, returning)) {
             throw new ConflictException("The family budget has a member named %s already".formatted(displayName));

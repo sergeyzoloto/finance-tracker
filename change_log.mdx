@@ -3,6 +3,33 @@
 Newest first, one entry per completed task, each with the commit it landed in. The earlier
 multi-service version of the project (2024–2025) was removed in `011537c` ("from scratch").
 
+## 2026-11-26 · HIST-4 part 2c-1: one lock order for every personal-ledger writer
+
+Not committed yet.
+
+**Changes**
+- `HistoryService.lockLedger(long ledgerId)` (D-1234): `SELECT id FROM ledger WHERE id = :id FOR NO KEY UPDATE`, once per transaction (remembered in the transaction state), no revision, so a save that changes nothing still takes none (D-995). `takeRevision` and the revision are unchanged.
+- Test-only guard (D-1235, D-1242): with `history.lock-order-check=true`, set in `backend/src/test/resources/application.properties` (default false), the revision throws `IllegalStateException` "ledger ID written before its row was locked" when the transaction did not lock that ledger first. `RestoreService.restore` marks its ledger locked after its own `FOR UPDATE` (package-private `HistoryService.markLocked`).
+- `lockLedger` at the start of: `EntryService` `create`, `createImported`, `update` (before `validDraft`'s `FOR SHARE`), `delete` (after the family-payment branch, which locks the family ledger first); `AccountService` `create`, `update` (before `refuseWhileItHoldsMoney`'s `FOR UPDATE`); `CategoryService` `create`, `update`, `delete`; `CounterpartyService` `create`, `update`; `StarterLedger` seed and restore; `DemoLedgerService` load (after the `user_settings` lock); `ImportService` run (dry runs too); `FamilyLedgerService` `create` and `importCategory`. `UserDataService.deleteAll` locks the personal ledger row by SQL after deleting the settings row, before any ledger row.
+- Family paths (D-1240): `FamilyRecordService` create, update, delete and settle lock the family ledger through `lockLedger`, then the record, then (new) every member's personal ledger by ascending id through `FamilyPostingService.lockLedgers`, before `paidWith`'s `FOR SHARE` of a personal account. `FamilyPostingService` `post`, `accept`, `join`, `detach` and `rejoin` call it too (each ledger once per transaction). `FamilyInviteService.accept` locks the personal ledgers, the joiner's among them, right after the invite's family ledger and invite locks. The import locks the family ledger and its members' personal ledgers before its own.
+- Tests: `RestoreApplyApiTests` (+9): the restore held by its step hook after writing an account, a category, a counterparty or an entry while another request updates an entry that posts to the account, renames it, archives it at zero, archives the category (a personal category has no delete), renames the counterparty, commits an import that renames the account, records a family expense paid from the account, and saves the entry the restore wrote (409). Each checks the writer waits on the ledger row's `FOR NO KEY UPDATE` lock that the restore holds (`pg_stat_activity` with `wait_event_type` Lock, `pg_blocking_pids`, and the blocked query naming the ledger row), that the restore commits, that the answer is below 500 (a 40P01 answers 500) and that the log has no 40P01 or "deadlock detected". One test shows the guard firing with its exact message. Test fixtures that save through repositories now lock the ledger first (`IntegrationTest.lockedWrite`; `EntryServiceTests`, `LedgerRepositoryTests`, `ReportServiceTests`, `BaseCurrencyReportTests`, `CrossLedgerWriterTests`).
+- With the guard on, `HistoryService.lockLedger` outside a transaction throws (fail fast); with it off it runs as before.
+- Docs: ADR 0006 6.8 heading to D-1233, step 8 as the code writes the stamps, the closing paragraph replaced by the D-1234 rule; `docs/family-budget/requirements.md` D-1234, D-1235, D-1240 to D-1242.
+
+**Verified**
+- Quick tier: `cd backend && ./mvnw -B clean test -Dtests.random.scale=0.1`, exit 0, Tests run: 901, Failures: 0, Errors: 0, Skipped: 0, BUILD SUCCESS, wall 5m22s.
+- Full tier: `cd backend && ./mvnw -B clean verify`, exit 0, Tests run: 901, Failures: 0, Errors: 0, Skipped: 0, BUILD SUCCESS, wall 8m24s. Family random tests at full volume (no scale flag): FamilyLifecycleRandomAcceptingTests 67.76 s, FamilyClaimRandomAcceptingTests 90.52 s, FamilyClaimRandomTests 59.79 s, FamilyRecordRandomAcceptingTests 180.2 s, FamilyLifecycleRandomTests 68.17 s, FamilyRecordRandomTests 192.4 s, SnapshotStateRandomTests 2 tests, RestoreStateRandomTests 1 test, all with 0 failures.
+- Targeted: `RestoreApplyApiTests` 25 tests, 0 failures; `EntryServiceTests`, `ArchitectureTests`, `TestHygieneTests`, `CrossLedgerWriterTests` 24 tests, 0 failures.
+- Teeth check: with `lockLedger` moved below `validDraft` (`EntryService.update`) and below `refuseWhileItHoldsMoney` (`AccountService.update`), the two concurrency tests failed (exit 1, Failures: 2); the files were restored and compared identical.
+- Forbidden names: `scripts/check-forbidden-names.sh` on the tree, exit 0.
+- Review: strict review, round 2, APPROVED.
+
+**Open**
+- `SnapshotService.create` keeps its `FOR SHARE` of the ledger row (D-1196: snapshots do not block each other); it takes the ledger row first, so it keeps the order without `lockLedger`.
+- `AcceptanceCounters` and `release_family_memberships` (in `deleteAll`) keep their own order; neither takes a revision.
+- A family import holds every member's personal ledger row for its whole run, dry runs included (a consequence of D-1240).
+- Follow-up, not fixed here: `UserDataService.deleteAll` locks the personal ledger row before the family ledgers (the reverse of the family order); this predates the change. Fix: lock the family ledgers by ascending id, then the personal one, at the start of `deleteAll`.
+
 ## 2026-11-26 · HIST-4 part 2b: restore a personal snapshot, all or nothing, with its BEFORE_RESTORE snapshot (D-1226 to D-1233)
 
 **Changes**

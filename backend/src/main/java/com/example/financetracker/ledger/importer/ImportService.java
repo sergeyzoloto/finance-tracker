@@ -36,6 +36,7 @@ import com.example.financetracker.ledger.ImportBatch;
 import com.example.financetracker.ledger.ImportBatchRepository;
 import com.example.financetracker.ledger.history.Cause;
 import com.example.financetracker.ledger.history.HistoryContext;
+import com.example.financetracker.ledger.history.HistoryService;
 import com.example.financetracker.ledger.history.Notifications;
 import com.example.financetracker.ledger.Json;
 import com.example.financetracker.ledger.LedgerCategory;
@@ -51,6 +52,7 @@ import com.example.financetracker.ledger.domain.ImportedCommand;
 import com.example.financetracker.ledger.domain.InvalidEntryException;
 import com.example.financetracker.ledger.domain.PostingLine;
 import com.example.financetracker.ledger.family.FamilyAcceptance;
+import com.example.financetracker.ledger.family.posting.FamilyPostingService;
 import com.example.financetracker.ledger.family.FamilyImportSync;
 import com.example.financetracker.ledger.family.FamilyLedgerService;
 import com.example.financetracker.ledger.family.FamilyMemberView;
@@ -146,14 +148,18 @@ public class ImportService {
     private final TransactionTemplate transaction;
     private final TransactionTemplate savepoint;
     private final Notifications notifications;
+    private final HistoryService history;
+    private final FamilyPostingService familyPosting;
 
     ImportService(AccountRepository accounts, LedgerCategoryRepository categories,
             CounterpartyRepository counterparties, ImportBatchRepository batches, EntryService entries,
             ReportService reports, LedgerAccess access, FamilySwitch familySwitch, FamilyLedgerService familyLedgers,
             FamilyRecordService records, FamilyImportSync familySync, FamilyAcceptance acceptance,
             ExportService exports, JdbcClient jdbc, ObjectMapper json, PlatformTransactionManager transactionManager,
-            Notifications notifications) {
+            Notifications notifications, HistoryService history, FamilyPostingService familyPosting) {
         this.notifications = notifications;
+        this.history = history;
+        this.familyPosting = familyPosting;
         this.acceptance = acceptance;
         this.accounts = accounts;
         this.categories = categories;
@@ -429,6 +435,12 @@ public class ImportService {
                 read("partner's transactions", partnerRows);
             }
             family = family();
+            // D-1234, D-1240: the family ledger's row and its members' personal ones by ascending id, then the
+            // importer's own, before any row is read with a lock or written (a dry run writes too, and rolls back).
+            if (family != null) {
+                familyPosting.lockLedgers(family.scope());
+            }
+            history.lockLedger(personal.ledgerId());
             if (commit && family != null) {
                 // D-1164: a lagging actor's commit gets the author rule's 409 before any row is written.
                 acceptance.requireCaughtUpLocked(family.scope());

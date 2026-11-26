@@ -73,8 +73,8 @@ class LedgerRepositoryTests extends IntegrationTest {
     @Test
     void accountRoundTripsAndIsScopedByLedger() {
         Instant archivedAt = WallClock.now().truncatedTo(ChronoUnit.MICROS);
-        Account saved = accounts.save(new Account(null, user, ledger, "FX_EXCHANGE", "Exchange", AccountType.EQUITY,
-                "EUR", false, true, archivedAt, null));
+        Account saved = lockedWrite(ledger, () -> accounts.save(new Account(null, user, ledger, "FX_EXCHANGE",
+                "Exchange", AccountType.EQUITY, "EUR", false, true, archivedAt, null)));
 
         Account read = accounts.find(scope, saved.id()).orElseThrow();
 
@@ -86,9 +86,10 @@ class LedgerRepositoryTests extends IntegrationTest {
 
     @Test
     void categoryAndCounterpartyRoundTripAndAreScopedByLedger() {
-        LedgerCategory category = categories.save(
-                new LedgerCategory(null, user, ledger, "REST", "Rest", CategoryType.EXPENSE, null));
-        Counterparty unclassified = counterparties.save(new Counterparty(null, user, ledger, "Friend A", null, null));
+        LedgerCategory category = lockedWrite(ledger, () -> categories.save(
+                new LedgerCategory(null, user, ledger, "REST", "Rest", CategoryType.EXPENSE, null)));
+        Counterparty unclassified = lockedWrite(ledger, () -> counterparties.save(new Counterparty(null, user, ledger,
+                "Friend A", null, null)));
 
         assertThat(categories.find(scope, category.id())).contains(category);
         assertThat(counterparties.find(scope, unclassified.id())).contains(unclassified);
@@ -114,8 +115,8 @@ class LedgerRepositoryTests extends IntegrationTest {
 
     @Test
     void userSettingsAreInsertedThenReplaced() {
-        long shared = accounts.save(new Account(null, user, ledger, "PARTNER_DEBT", "Partner", AccountType.LIABILITY,
-                null, false, false, null, null)).id();
+        long shared = lockedWrite(ledger, () -> accounts.save(new Account(null, user, ledger, "PARTNER_DEBT", "Partner",
+                AccountType.LIABILITY, null, false, false, null, null))).id();
 
         settings.save(new UserSettings(user, "EUR", null, new BigDecimal("0.5000")));
         settings.save(new UserSettings(user, "RUB", shared, new BigDecimal("0.4000")));

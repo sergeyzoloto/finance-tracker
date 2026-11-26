@@ -51,11 +51,14 @@ public class HistoryService {
     private final HikariDataSource committedReads;
     private final RecordContents committedContents;
     private final FamilyAcceptanceSwitch acceptance;
+    /** The test-only guard (D-1235): a revision of a ledger whose row this transaction hasn't locked first throws. */
+    private final boolean lockOrderCheck;
 
     HistoryService(JdbcClient jdbc, RecordContents contents, JdbcConnectionDetails connection,
             ObjectProvider<ActorSource> actors, @Value("${spring.datasource.hikari.schema:app}") String schema,
-            FamilyAcceptanceSwitch acceptance) {
+            FamilyAcceptanceSwitch acceptance, @Value("${history.lock-order-check:false}") boolean lockOrderCheck) {
         this.jdbc = jdbc;
+        this.lockOrderCheck = lockOrderCheck;
         this.acceptance = acceptance;
         this.contents = contents;
         this.actors = actors;
@@ -86,6 +89,31 @@ public class HistoryService {
         final Map<Long, Optional<Long>> members = new HashMap<>();
         /** The ledgers whose revision a label-only write took, with acceptance on, until a record changes in it. */
         final Set<Long> labelOnly = new HashSet<>();
+        /** The ledgers whose row this transaction has locked ({@link #lockLedger}, D-1234). */
+        final Set<Long> locked = new HashSet<>();
+    }
+
+    /**
+     * Locks the ledger's row FOR NO KEY UPDATE until the transaction ends, once per transaction, without taking a
+     * revision (D-1234, D-995). Every writer of a ledger's rows calls it before it reads a row of that ledger with a
+     * lock or writes one, so that all of them, and the restore, take the ledger's row first.
+     */
+    public void lockLedger(long ledgerId) {
+        if (lockOrderCheck && !TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("ledger " + ledgerId + " locked outside a transaction");
+        }
+        State state = state();
+        // The lock is remembered before the SELECT runs. A ledger first locked inside a savepoint that is rolled back
+        // would lose its row lock while this state still says locked: lock ledgers before any savepoint is opened.
+        if (state.locked.add(ledgerId)) {
+            jdbc.sql("SELECT id FROM ledger WHERE id = :id FOR NO KEY UPDATE").param("id", ledgerId)
+                    .query(Long.class).optional();
+        }
+    }
+
+    /** For a caller that has locked the ledger's row itself at least as strongly (the restore's FOR UPDATE, D-1235). */
+    void markLocked(long ledgerId) {
+        state().locked.add(ledgerId);
     }
 
     private record Latest(int seq, byte[] hash, String op) {
@@ -320,6 +348,9 @@ public class HistoryService {
     }
 
     private long revision(State state, long ledgerId, RecordType type) {
+        if (lockOrderCheck && !state.revisions.containsKey(ledgerId) && !state.locked.contains(ledgerId)) {
+            throw new IllegalStateException("ledger " + ledgerId + " written before its row was locked");
+        }
         if (acceptance.enabled()) {
             return acceptingRevision(state, ledgerId, type);
         }

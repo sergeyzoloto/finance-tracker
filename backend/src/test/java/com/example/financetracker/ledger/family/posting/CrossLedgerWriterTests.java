@@ -144,6 +144,7 @@ class CrossLedgerWriterTests extends IntegrationTest {
         assertThat(alicesRows()).isEqualTo(alicesRows);
         // What D-8 allows goes through: a share on UNALLOCATED with the family's category and her debt account.
         transaction.executeWithoutResult(status -> {
+            writer.lockLedgers(bobInHome);
             writer.write(bobInHome, new PostedEntry(alicesMembership, bobsOwn, LinkType.SHARE,
                     EntryKind.FAMILY_SHARE, true, LocalDate.of(2026, 9, 11), List.of(
                     line(alicesUnallocated, "1.00", familyCategory), line(alicesDebt, "-1.00", null)), null));
@@ -184,9 +185,15 @@ class CrossLedgerWriterTests extends IntegrationTest {
         PostedEntry back = new PostedEntry(alicesMembership, settlement, LinkType.SETTLEMENT,
                 EntryKind.FAMILY_SETTLEMENT, true, LocalDate.of(2026, 9, 12), List.of(
                 line(alicesPlaceholder, "10.00", null), line(alicesDebt, "-10.00", null)), null);
-        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> writer.replace(bobInHome, hers, back)))
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+            writer.lockLedgers(bobInHome);
+            writer.replace(bobInHome, hers, back);
+        }))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining(own);
-        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> writer.delete(bobInHome, hers)))
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+            writer.lockLedgers(bobInHome);
+            writer.delete(bobInHome, hers);
+        }))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining(own);
 
         // The posting service: a new amount, a new date or a deletion that got past the lock would move her side.
@@ -212,7 +219,10 @@ class CrossLedgerWriterTests extends IntegrationTest {
     }
 
     private void refused(LedgerScope scope, PostedEntry entry, String why) {
-        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> writer.write(scope, entry)))
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+            writer.lockLedgers(scope);
+            writer.write(scope, entry);
+        }))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("The family posting refuses an entry for member %d: %s"
                         .formatted(entry.memberId(), why));

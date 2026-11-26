@@ -1,6 +1,7 @@
 package com.example.financetracker.ledger.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.time.LocalDate;
@@ -13,6 +14,8 @@ import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import com.example.financetracker.ledger.family.ImportSync;
 import com.example.financetracker.ledger.history.Canonical;
@@ -22,7 +25,10 @@ import com.example.financetracker.ledger.history.RestoreService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -273,6 +279,7 @@ class RestoreApplyApiTests extends FamilyApiTest {
         ok(patch(user, "/api/counterparties/" + alpha, "{\"name\": \"Beta\"}"));
         // No endpoint changes a category's code; a writer that versions its change swaps them.
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            history.lockLedger(ledger);
             jdbc.sql("UPDATE category SET code = 'SWAP_TMP' WHERE id = ?").param(first).update();
             jdbc.sql("UPDATE category SET code = 'FIRST' WHERE id = ?").param(second).update();
             jdbc.sql("UPDATE category SET code = 'SECOND' WHERE id = ?").param(first).update();
@@ -380,6 +387,7 @@ class RestoreApplyApiTests extends FamilyApiTest {
         long id = anImportedEntry(ledger);
         long snapshot = snapshot(user, "After the import");
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            history.lockLedger(ledger);
             jdbc.sql("UPDATE journal_entry SET memo = 'edited in the app', version = version + 1 WHERE id = ?")
                     .param(id).update();
             history.changed(ledger, RecordType.ENTRY, id);
@@ -409,6 +417,7 @@ class RestoreApplyApiTests extends FamilyApiTest {
         // After the snapshot the entry loses its ref (and stamps) in a versioned write, and the import remembers the
         // ref as deleted.
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            history.lockLedger(ledger);
             jdbc.sql("UPDATE journal_entry SET external_ref = NULL, import_hash = NULL, import_version = NULL, "
                     + "version = version + 1 WHERE id = ?").param(id).update();
             jdbc.sql("INSERT INTO imported_entry_deleted (ledger_id, external_ref) VALUES (?, ?)").param(ledger)
@@ -495,6 +504,250 @@ class RestoreApplyApiTests extends FamilyApiTest {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    // --- One lock order for every writer (HIST-4 part 2c-1, D-1234, D-1235) ------------------------------------
+
+    /**
+     * Holds the restore right after it wrote {@code step}, runs {@code write} meanwhile from another thread, and checks
+     * that the write waits for a lock the restore holds; then lets the restore go. The restore commits, and neither
+     * answer nor the log has a deadlock (40P01). Returns the write's answer.
+     */
+    private MvcTestResult whileTheRestoreHolds(String user, long snapshot, String step, Supplier<MvcTestResult> write,
+            CapturedOutput output) throws Exception {
+        long at = ok(post(user, "/api/snapshots/" + snapshot + "/restore-preview", "{}")).get("atRevision").asLong();
+        CountDownLatch reached = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger restorePid = new AtomicInteger();
+        restoring.stepHook(written -> {
+            if (written.equals(step) && reached.getCount() > 0) {
+                // The restore's own connection: the hook runs in its transaction.
+                restorePid.set(jdbc.sql("SELECT pg_backend_pid()").query(Integer.class).single());
+                reached.countDown();
+                try {
+                    release.await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        CompletableFuture<MvcTestResult> restore = CompletableFuture.supplyAsync(() -> restoreAt(user, snapshot, at));
+        CompletableFuture<MvcTestResult> writing = null;
+        try {
+            assertThat(reached.await(30, TimeUnit.SECONDS)).as("the restore reaches " + step).isTrue();
+            writing = CompletableFuture.supplyAsync(write);
+            assertThat(waitsOn(restorePid.get())).as("the writer waits on the ledger's row, which the restore holds")
+                    .isTrue();
+            assertThat(writing).isNotDone();
+        } finally {
+            release.countDown();
+        }
+        MvcTestResult restored = restore.get(60, TimeUnit.SECONDS);
+        assertThat(restored).hasStatus(HttpStatus.OK);
+        MvcTestResult answer = writing.get(60, TimeUnit.SECONDS);
+        // A deadlock (40P01) answers 500 without details (ApiExceptionHandler), and is logged.
+        assertThat(answer.getResponse().getStatus()).isLessThan(500);
+        assertThat(output.getAll()).doesNotContain("40P01").doesNotContain("deadlock detected");
+        return answer;
+    }
+
+    /**
+     * Whether, within 20 seconds, a backend waits on the ledger's row lock (D-1234: its first statement,
+     * {@code HistoryService.lockLedger}) that the given backend holds. A writer that locked a record row first would
+     * wait on that record's row instead, and fail this.
+     */
+    private boolean waitsOn(int pid) throws InterruptedException {
+        for (int i = 0; i < 200; i++) {
+            if (count("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' "
+                    + "AND ? = ANY(pg_blocking_pids(pid)) "
+                    + "AND query LIKE 'SELECT id FROM ledger WHERE id = % FOR NO KEY UPDATE'", pid) > 0) {
+                return true;
+            }
+            Thread.sleep(100);
+        }
+        return false;
+    }
+
+    private long newAccount(String user, String code) throws IOException {
+        return body(post(user, "/api/accounts", """
+                {"code": "%s", "name": "%s", "type": "ASSET", "defaultCurrency": "EUR"}""".formatted(code, code)),
+                HttpStatus.CREATED).get("id").asLong();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void anEntryUpdateThatPostsToAnAccountTheRestoreWroteWaits(CapturedOutput output) throws Exception {
+        String user = fresh();
+        long account = newAccount(user, "SAVINGS");
+        long groceries = categoryId(user, "GROCERIES");
+        String command = """
+                {"kind": "EXPENSE", "entryDate": "2026-09-10", "memo": "%s", "accountId": %d, "currency": "EUR",
+                 "amount": "5.00", "categoryId": %d}""";
+        long entry = newEntry(user, command.formatted("from savings", account, groceries)).get("id").asLong();
+        long snapshot = snapshot(user, "S");
+        ok(patch(user, "/api/accounts/" + account, "{\"name\": \"Savings renamed\"}"));
+
+        MvcTestResult saved = whileTheRestoreHolds(user, snapshot, "account:" + account,
+                () -> put(user, "/api/entries/" + entry + "?version=0",
+                        command.formatted("changed", account, groceries)),
+                output);
+
+        assertThat(saved).hasStatus(HttpStatus.OK);
+        checkHistory(ledgerOf(user));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void renamingAnAccountTheRestoreWroteWaits(CapturedOutput output) throws Exception {
+        String user = fresh();
+        long account = newAccount(user, "SAVINGS");
+        long snapshot = snapshot(user, "S");
+        ok(patch(user, "/api/accounts/" + account, "{\"name\": \"First rename\"}"));
+
+        MvcTestResult renamed = whileTheRestoreHolds(user, snapshot, "account:" + account,
+                () -> patch(user, "/api/accounts/" + account, "{\"name\": \"Second rename\"}"), output);
+
+        assertThat(renamed).hasStatus(HttpStatus.OK);
+        assertThat(jdbc.sql("SELECT name FROM account WHERE id = ?").param(account).query(String.class).single())
+                .isEqualTo("Second rename");
+        checkHistory(ledgerOf(user));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void archivingAnAccountAtZeroThatTheRestoreWroteWaits(CapturedOutput output) throws Exception {
+        String user = fresh();
+        long account = newAccount(user, "SAVINGS");
+        long snapshot = snapshot(user, "S");
+        ok(patch(user, "/api/accounts/" + account, "{\"name\": \"Renamed\"}"));
+
+        MvcTestResult archived = whileTheRestoreHolds(user, snapshot, "account:" + account,
+                () -> patch(user, "/api/accounts/" + account, "{\"archived\": true}"), output);
+
+        assertThat(archived).hasStatus(HttpStatus.OK);
+        checkHistory(ledgerOf(user));
+    }
+
+    /** A personal category has no delete (rule 12): its archive is the category write a member makes. */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void archivingACategoryTheRestoreWroteWaits(CapturedOutput output) throws Exception {
+        String user = fresh();
+        long category = body(post(user, "/api/categories", """
+                {"code": "BOOKS", "name": "Books", "type": "EXPENSE"}"""), HttpStatus.CREATED).get("id").asLong();
+        long snapshot = snapshot(user, "S");
+        ok(patch(user, "/api/categories/" + category, "{\"name\": \"Novels\"}"));
+
+        MvcTestResult archived = whileTheRestoreHolds(user, snapshot, "category:" + category,
+                () -> patch(user, "/api/categories/" + category, "{\"archived\": true}"), output);
+
+        assertThat(archived).hasStatus(HttpStatus.OK);
+        checkHistory(ledgerOf(user));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void renamingACounterpartyTheRestoreWroteWaits(CapturedOutput output) throws Exception {
+        String user = fresh();
+        long payee = newCounterparty(user, "Shop");
+        long snapshot = snapshot(user, "S");
+        ok(patch(user, "/api/counterparties/" + payee, "{\"name\": \"Shop renamed\"}"));
+
+        MvcTestResult renamed = whileTheRestoreHolds(user, snapshot, "counterparty:" + payee,
+                () -> patch(user, "/api/counterparties/" + payee, "{\"name\": \"Market\"}"), output);
+
+        assertThat(renamed).hasStatus(HttpStatus.OK);
+        checkHistory(ledgerOf(user));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void anImportThatRenamesAnAccountTheRestoreWroteWaits(CapturedOutput output) throws Exception {
+        String user = fresh();
+        assertThat(importWorkbook(user, personalRows(), "false")).hasStatus(HttpStatus.OK);
+        long account = accountId(user, "EURO_ACCOUNT");
+        String fileName = jdbc.sql("SELECT name FROM account WHERE id = ?").param(account).query(String.class).single();
+        // At the snapshot the account has a name of the app's, which the import writes over (D-254).
+        ok(patch(user, "/api/accounts/" + account, "{\"name\": \"Mine\"}"));
+        long snapshot = snapshot(user, "S");
+        ok(patch(user, "/api/accounts/" + account, "{\"name\": \"Other\"}"));
+
+        MvcTestResult imported = whileTheRestoreHolds(user, snapshot, "account:" + account, () -> {
+            try {
+                return importWorkbook(user, personalRows(), "false");
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        }, output);
+
+        assertThat(imported).hasStatus(HttpStatus.OK);
+        assertThat(jdbc.sql("SELECT name FROM account WHERE id = ?").param(account).query(String.class).single())
+                .isEqualTo(fileName);
+        checkHistory(ledgerOf(user));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void aFamilyRecordPaidFromAnAccountTheRestoreWroteWaits(CapturedOutput output) throws Exception {
+        long cash = accountId(alice, "CASH");
+        long snapshot = snapshot(alice, "S");
+        ok(patch(alice, "/api/accounts/" + cash, "{\"name\": \"Cash renamed\"}"));
+
+        MvcTestResult recorded = whileTheRestoreHolds(alice, snapshot, "account:" + cash,
+                () -> post(alice, uri + "/records", expense("2026-09-12", groceries, "20.00", mum,
+                        "\"paymentAccountId\": " + cash + ",")), output);
+
+        assertThat(recorded).hasStatus(HttpStatus.CREATED);
+        checkHistory(ledgerOf(alice));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void savingTheEntryTheRestoreWroteWaitsAndFindsItChanged(CapturedOutput output) throws Exception {
+        String user = fresh();
+        JsonNode entry = newExpense(user, "2026-09-10", "5.00", null, "one");
+        long snapshot = snapshot(user, "S");
+        JsonNode edited = editEntry(user, entry, "two");
+        long id = entry.get("id").asLong();
+
+        MvcTestResult saved = whileTheRestoreHolds(user, snapshot, "entry:" + id,
+                () -> put(user, "/api/entries/" + id + "?version=" + edited.get("version").asLong(), """
+                        {"kind": "EXPENSE", "entryDate": "2026-09-21", "memo": "three", "accountId": %d,
+                         "currency": "EUR", "amount": "9.00", "categoryId": %d}""".formatted(
+                        accountIdQuiet(user, "CASH"), categoryIdQuiet(user, "GROCERIES"))), output);
+
+        // The restore moved the entry's version on: the save is stale.
+        assertThat(saved).hasStatus(HttpStatus.CONFLICT);
+        checkHistory(ledgerOf(user));
+    }
+
+    /** A writer that versions a change without locking the ledger's row first, which the application never does. */
+    private static final class UnlockedWriter {
+        private final HistoryService history;
+
+        UnlockedWriter(HistoryService history) {
+            this.history = history;
+        }
+
+        void changed(long ledger, long counterparty) {
+            history.changed(ledger, RecordType.COUNTERPARTY, counterparty);
+        }
+    }
+
+    @Test
+    void aWriteBeforeTheLedgersLockIsRefusedInTheTests() throws IOException {
+        String user = fresh();
+        long ledger = ledgerOf(user);
+        long payee = newCounterparty(user, "Shop");
+        UnlockedWriter writer = new UnlockedWriter(history);
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            jdbc.sql("UPDATE counterparty SET name = 'Unlocked' WHERE id = ?").param(payee).update();
+            writer.changed(ledger, payee);
+        })).isInstanceOf(IllegalStateException.class)
+                .hasMessage("ledger " + ledger + " written before its row was locked");
+        assertThat(jdbc.sql("SELECT name FROM counterparty WHERE id = ?").param(payee).query(String.class).single())
+                .isEqualTo("Shop");
     }
 
     @Test

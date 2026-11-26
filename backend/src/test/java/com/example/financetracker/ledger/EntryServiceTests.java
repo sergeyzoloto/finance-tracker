@@ -66,10 +66,10 @@ class EntryServiceTests extends IntegrationTest {
         familyDebt = account(ledger, "FAMILY_DEBT", AccountType.LIABILITY, false);
         loans = account(ledger, "LOANS_ASSET", AccountType.ASSET, true);
         fxExchange = account(ledger, "FX_EXCHANGE", AccountType.EQUITY, false);
-        rest = categories.save(new LedgerCategory(null, user, ledger.ledgerId(), "REST", "Rest", CategoryType.EXPENSE,
-                null)).id();
-        friendA = counterparties.save(new Counterparty(null, user, ledger.ledgerId(), "Friend A",
-                Counterparty.Kind.PERSON, null)).id();
+        rest = lockedWrite(ledger.ledgerId(), () -> categories.save(new LedgerCategory(null, user, ledger.ledgerId(),
+                "REST", "Rest", CategoryType.EXPENSE, null))).id();
+        friendA = lockedWrite(ledger.ledgerId(), () -> counterparties.save(new Counterparty(null, user,
+                ledger.ledgerId(), "Friend A", Counterparty.Kind.PERSON, null))).id();
     }
 
     @Test
@@ -131,7 +131,8 @@ class EntryServiceTests extends IntegrationTest {
                 .hasMessage("Journal entry %d has changed since version 0. Reload it and try again."
                         .formatted(created.id()));
         // The UPDATE itself checks the version too, so a change between the service's check and its save loses.
-        assertThatThrownBy(() -> entries.save(readBeforeUpdate)).isInstanceOf(OptimisticLockingFailureException.class);
+        assertThatThrownBy(() -> lockedWrite(ledger.ledgerId(), () -> entries.save(readBeforeUpdate)))
+                .isInstanceOf(OptimisticLockingFailureException.class);
 
         assertThat(service.get(ledger, created.id())).isEqualTo(updated);
     }
@@ -201,8 +202,8 @@ class EntryServiceTests extends IntegrationTest {
     }
 
     private long account(LedgerScope owner, String code, AccountType type, boolean requiresCounterparty) {
-        return accounts.save(new Account(null, owner.userId(), owner.ledgerId(), code, code, type, null,
-                requiresCounterparty, false, null, null)).id();
+        return lockedWrite(owner.ledgerId(), () -> accounts.save(new Account(null, owner.userId(), owner.ledgerId(),
+                code, code, type, null, requiresCounterparty, false, null, null))).id();
     }
 
     private long postingCount(long entryId) {

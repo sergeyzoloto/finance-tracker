@@ -147,6 +147,25 @@ public class FamilyPostingService {
     }
 
     /**
+     * Locks the family ledger's row and then its members' personal ledger rows, by ascending id (D-1234, D-1240): a
+     * family writer calls it after the family ledger's and the record's locks and before it reads any personal row with
+     * a lock or writes one. Each ledger is locked once per transaction.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockLedgers(LedgerScope family) {
+        writer.lockLedgers(family);
+    }
+
+    /**
+     * As {@link #lockLedgers(LedgerScope)}, for someone about to join the family ledger {@code familyLedgerId}: their
+     * personal ledger is locked in its place among the members' (D-1234).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockLedgers(LedgerScope personal, long familyLedgerId) {
+        writer.lockLedgers(personal, familyLedgerId, personal.ledgerId());
+    }
+
+    /**
      * Brings the record's posted entries in line with the record: its shares, its payment, or none of either once it
      * is deleted.
      *
@@ -156,6 +175,7 @@ public class FamilyPostingService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void post(LedgerScope family, long recordId, Payment payment) {
+        writer.lockLedgers(family);
         Long only = only(family);
         postRecord(family, recordId, payment, only);
         openings(family, only);
@@ -180,6 +200,7 @@ public class FamilyPostingService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void accept(LedgerScope family, List<Long> recordIds) {
+        writer.lockLedgers(family);
         long memberId = family.memberId();
         recordIds.forEach(recordId -> postRecord(family, recordId, new Unchanged(), memberId));
         openings(family, memberId);
@@ -196,6 +217,7 @@ public class FamilyPostingService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void join(LedgerScope family) {
+        writer.lockLedgers(family);
         long memberId = family.memberId();
         writer.debtAccount(family, memberId);
         record Involved(long id, boolean pays) {
@@ -237,6 +259,7 @@ public class FamilyPostingService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public Map<Long, Long> detach(LedgerScope family, long memberId) {
+        writer.lockLedgers(family);
         return writer.detach(family, memberId);
     }
 
@@ -457,6 +480,7 @@ public class FamilyPostingService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void rejoin(LedgerScope family) {
+        writer.lockLedgers(family);
         writer.relinkDebt(family, family.memberId());
         writer.reattach(family, family.memberId());
         join(family);

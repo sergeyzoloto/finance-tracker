@@ -92,6 +92,7 @@ public class CategoryService {
      */
     @Transactional
     public CategoryView create(LedgerScope ledger, String code, String name, CategoryType type) {
+        history.lockLedger(ledger.ledgerId()); // D-1234: the ledger's row before any of its rows
         Optional<CategoryView> family = familyCategory(ledger, null, code);
         if (family.isPresent()) {
             throw new ConflictException(("The family budget \"%s\" has a category with the code %s; use it, or choose "
@@ -119,6 +120,7 @@ public class CategoryService {
      */
     @Transactional
     public void delete(LedgerScope ledger, long categoryId) {
+        history.lockLedger(ledger.ledgerId()); // D-1234: the ledger's row before any of its rows
         LedgerCategory category = categories.find(ledger, categoryId)
                 .orElseThrow(() -> new NotFoundException("Category " + categoryId + " not found"));
         if (jdbc.sql("""
@@ -154,6 +156,7 @@ public class CategoryService {
      */
     @Transactional
     public CategoryView update(LedgerScope ledger, long categoryId, String name, Boolean archived, CategoryType type) {
+        history.lockLedger(ledger.ledgerId()); // D-1234: the ledger's row before any of its rows
         Optional<LedgerCategory> found = categories.find(ledger, categoryId);
         if (found.isEmpty()) {
             familyCategory(ledger, categoryId, null).ifPresent(family -> {

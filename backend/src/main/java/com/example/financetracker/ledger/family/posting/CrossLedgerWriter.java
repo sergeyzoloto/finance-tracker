@@ -64,6 +64,33 @@ class CrossLedgerWriter {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Locks the family ledger's row, then the personal ledger row of every member with an account, by ascending ledger
+     * id, each once per transaction (D-1234, D-1240): the order every family writer takes them in, before it locks or
+     * writes any row of those personal ledgers.
+     */
+    void lockLedgers(LedgerScope family) {
+        lockLedgers(family, family.ledgerId(), null);
+    }
+
+    /**
+     * As {@link #lockLedgers(LedgerScope)} for the family ledger {@code familyId}, with the personal ledger of someone
+     * who joins it in this transaction among the members' ({@code scope} is theirs, or the family's).
+     */
+    void lockLedgers(LedgerScope scope, long familyId, Long joining) {
+        history.lockLedger(familyId);
+        jdbc.sql("""
+                SELECT p.ledger_id
+                FROM ledger_member m
+                JOIN ledger_member p ON p.user_sub = m.user_sub AND p.ledger_type = 'PERSONAL'
+                WHERE m.ledger_id = :familyId AND m.user_sub IS NOT NULL
+                UNION SELECT id FROM ledger WHERE id = :joining
+                ORDER BY 1""")
+                .param("familyId", familyId).param("joining", joining == null ? -1L : joining)
+                .query(Long.class).list()
+                .forEach(history::lockLedger);
+    }
+
     /** The personal ledger of an ACTIVE member with an account, and the accounts D-8 lets the writer post to there. */
     record MemberLedger(long ledgerId, String sub, Long debt, Long placeholder, Long unallocated, Long openingBalance,
             Long fxExchange) {

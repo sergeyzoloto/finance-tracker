@@ -313,10 +313,10 @@ class ReportServiceTests extends IntegrationTest {
      */
     @Test
     void reportsNeverShowAnotherUsersCategoryOrCounterpartyEvenPastTheTriggers() {
-        long othersCategory = categories.save(new LedgerCategory(null, other, othersLedger.ledgerId(), "SECRET",
-                "Other's secret", EXPENSE, null)).id();
-        long othersCounterparty = counterparties.save(new Counterparty(null, other, othersLedger.ledgerId(),
-                "Other's friend", null, null)).id();
+        long othersCategory = lockedWrite(othersLedger.ledgerId(), () -> categories.save(new LedgerCategory(null, other,
+                othersLedger.ledgerId(), "SECRET", "Other's secret", EXPENSE, null))).id();
+        long othersCounterparty = lockedWrite(othersLedger.ledgerId(), () -> counterparties.save(new Counterparty(null,
+                other, othersLedger.ledgerId(), "Other's friend", null, null))).id();
         pastTheTriggers("UPDATE posting SET category_id = ? WHERE category_id = ?", othersCategory, restaurants);
         pastTheTriggers("UPDATE posting SET counterparty_id = ? WHERE counterparty_id = ?", othersCounterparty,
                 friendB);
@@ -362,23 +362,25 @@ class ReportServiceTests extends IntegrationTest {
 
     private long account(LedgerScope owner, String code, String name, AccountType type, String defaultCurrency,
             boolean requiresCounterparty) {
-        return accounts.save(new Account(null, owner.userId(), owner.ledgerId(), code, name, type, defaultCurrency,
-                requiresCounterparty, false, null, null)).id();
+        return lockedWrite(owner.ledgerId(), () -> accounts.save(new Account(null, owner.userId(), owner.ledgerId(),
+                code, name, type, defaultCurrency, requiresCounterparty, false, null, null))).id();
     }
 
     private void archive(long accountId) {
         Account account = accounts.find(ledger, accountId).orElseThrow();
-        accounts.save(new Account(account.id(), account.userId(), account.ledgerId(), account.code(), account.name(),
-                account.type(), account.defaultCurrency(), account.requiresCounterparty(), account.isSystem(),
-                WallClock.now(), account.createdAt()));
+        lockedWrite(account.ledgerId(), () -> accounts.save(new Account(account.id(), account.userId(),
+                account.ledgerId(), account.code(), account.name(), account.type(), account.defaultCurrency(),
+                account.requiresCounterparty(), account.isSystem(), WallClock.now(), account.createdAt())));
     }
 
     private long category(String code, String name, CategoryType type) {
-        return categories.save(new LedgerCategory(null, user, ledger.ledgerId(), code, name, type, null)).id();
+        return lockedWrite(ledger.ledgerId(), () -> categories.save(new LedgerCategory(null, user, ledger.ledgerId(),
+                code, name, type, null))).id();
     }
 
     private long counterparty(String name) {
-        return counterparties.save(new Counterparty(null, user, ledger.ledgerId(), name, null, null)).id();
+        return lockedWrite(ledger.ledgerId(), () -> counterparties.save(new Counterparty(null, user, ledger.ledgerId(),
+                name, null, null))).id();
     }
 
     private static CashFlowRow cashFlow(int year, int month, String code, String name, CategoryType type,

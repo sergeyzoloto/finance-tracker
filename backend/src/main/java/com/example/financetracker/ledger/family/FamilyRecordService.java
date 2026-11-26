@@ -172,6 +172,8 @@ public class FamilyRecordService {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
         acceptance.requireCaughtUp(family);
+        // D-1234: the members' personal ledgers before paidWith's FOR SHARE of a personal account.
+        posting.lockLedgers(family);
         String type = request.type();
         requireStarted(ledger, request.date(), type);
         // The record's own currency, the main currency unless chosen (D-45): its amount and its shares are in it.
@@ -306,6 +308,7 @@ public class FamilyRecordService {
         Ledger ledger = lockLedger(family);
         acceptance.requireCaughtUp(family);
         RecordRow record = lockRecord(family, recordId, expectedVersion);
+        posting.lockLedgers(family); // D-1234: after the record, before any personal row
         if (record.type().equals(SETTLEMENT)) {
             return updateSettlement(family, personal, ledger, record, changes);
         }
@@ -482,6 +485,7 @@ public class FamilyRecordService {
         lockLedger(family);
         acceptance.requireCaughtUp(family);
         RecordRow record = lockRecord(family, recordId, expectedVersion);
+        posting.lockLedgers(family); // D-1234: after the record, before any personal row
         Map<Long, Member> members = members(family);
         Member payer = members.get(record.payerId());
         if (record.type().equals(SETTLEMENT)) {
@@ -764,6 +768,7 @@ public class FamilyRecordService {
         requireOwnPersonal(family, personal);
         Ledger ledger = lockLedger(family);
         acceptance.requireCaughtUp(family);
+        posting.lockLedgers(family); // D-1234: before paidWith's FOR SHARE of a personal account
         requireStarted(ledger, request.date(), SETTLEMENT);
         // In one currency, the main currency unless chosen, whose balances it settles (D-46).
         String currency = request.currency() == null ? ledger.baseCurrency() : request.currency();
@@ -1963,7 +1968,9 @@ public class FamilyRecordService {
      * don't change meanwhile: those changes lock it FOR UPDATE (FamilyLedgerService).
      */
     private Ledger lockLedger(LedgerScope family) {
-        return jdbc.sql("SELECT start_date, base_currency, split_rule FROM ledger WHERE id = :ledgerId FOR NO KEY UPDATE")
+        // D-1234, D-1240: the row's FOR NO KEY UPDATE, once per transaction; the read below runs under it.
+        history.lockLedger(family.ledgerId());
+        return jdbc.sql("SELECT start_date, base_currency, split_rule FROM ledger WHERE id = :ledgerId")
                 .param("ledgerId", family.ledgerId())
                 .query((row, n) -> new Ledger(row.getObject("start_date", LocalDate.class),
                         row.getString("base_currency"), SplitRule.valueOf(row.getString("split_rule"))))

@@ -101,6 +101,8 @@ public class RestoreService {
         long ledger = scope.ledgerId();
         long revision = jdbc.sql("SELECT revision FROM ledger WHERE id = :l FOR UPDATE").param("l", ledger)
                 .query(Long.class).single();
+        // The FOR UPDATE above is this transaction's ledger lock (D-1234, D-1235).
+        history.markLocked(ledger);
         String name = jdbc.sql("SELECT name FROM snapshot WHERE id = :id AND ledger_id = :l")
                 .param("id", snapshotId).param("l", ledger).query(String.class).optional()
                 .orElseThrow(() -> new NotFoundException("Snapshot " + snapshotId + " not found"));

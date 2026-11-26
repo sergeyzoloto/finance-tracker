@@ -5,6 +5,7 @@ import java.sql.SQLException;
 import java.util.List;
 
 import com.example.financetracker.ledger.access.LedgerScope;
+import com.example.financetracker.ledger.history.HistoryService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.relational.core.conversion.DbActionExecutionException;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -21,10 +22,12 @@ public class CounterpartyService {
 
     private final CounterpartyRepository counterparties;
     private final JdbcClient jdbc;
+    private final HistoryService history;
 
-    CounterpartyService(CounterpartyRepository counterparties, JdbcClient jdbc) {
+    CounterpartyService(CounterpartyRepository counterparties, JdbcClient jdbc, HistoryService history) {
         this.counterparties = counterparties;
         this.jdbc = jdbc;
+        this.history = history;
     }
 
     /** All the ledger's counterparties, archived ones included, by name regardless of case. */
@@ -39,6 +42,7 @@ public class CounterpartyService {
      */
     @Transactional
     public CounterpartyView create(LedgerScope ledger, String name, Counterparty.Kind kind) {
+        history.lockLedger(ledger.ledgerId()); // D-1234: the ledger's row before any of its rows
         Counterparty counterparty = save(new Counterparty(null, ledger.userId(), ledger.ledgerId(), name, kind, null));
         return new CounterpartyView(counterparty.id(), counterparty.name(), counterparty.kind(), false, null);
     }
@@ -49,6 +53,7 @@ public class CounterpartyService {
      */
     @Transactional
     public CounterpartyView update(LedgerScope ledger, long counterpartyId, CounterpartyChanges changes) {
+        history.lockLedger(ledger.ledgerId()); // D-1234: the ledger's row before any of its rows
         Counterparty counterparty = counterparties.find(ledger, counterpartyId)
                 .orElseThrow(() -> new NotFoundException("Counterparty " + counterpartyId + " not found"));
         save(new Counterparty(counterparty.id(), counterparty.userId(), counterparty.ledgerId(),

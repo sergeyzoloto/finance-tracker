@@ -96,8 +96,9 @@ public class EntryService {
     /** @throws InvalidEntryException naming every problem with the entry */
     @Transactional
     public EntryView create(LedgerScope ledger, EntryCommand command) {
-        // The ledger's row first, as every writer takes it (HIST-4 part 2b): before the validation's FOR SHARE locks
-        // of accounts, categories and counterparties and before any entry row, so no deadlock with a restore.
+        // The ledger's row first, as every writer takes it (HIST-4 part 2b, D-1234): before the validation's FOR SHARE
+        // locks of accounts, categories and counterparties and before any entry row, so no deadlock with a restore.
+        history.lockLedger(ledger.ledgerId());
         history.takeRevision(ledger.ledgerId());
         EntryDraft draft = validDraft(ledger, command);
         return EntryView.of(entries.save(JournalEntry.create(ledger, draft, null, null, WallClock.now())));
@@ -114,6 +115,7 @@ public class EntryService {
     @Transactional
     public EntryView createImported(LedgerScope ledger, EntryCommand command, long importBatchId,
             String externalRef) {
+        history.lockLedger(ledger.ledgerId());
         history.takeRevision(ledger.ledgerId());
         EntryDraft draft = validDraft(ledger, command);
         return EntryView.of(entries.save(JournalEntry.create(ledger, draft, importBatchId, externalRef,
@@ -131,6 +133,8 @@ public class EntryService {
      */
     @Transactional
     public EntryView update(LedgerScope ledger, long entryId, int expectedVersion, EntryCommand command) {
+        // D-1234: the ledger's row before validDraft's FOR SHARE locks, without a revision (a no-op save takes none).
+        history.lockLedger(ledger.ledgerId());
         JournalEntry entry = find(ledger, entryId);
         requireOwn(ledger, entry);
         requireVersion(entry, expectedVersion);
@@ -172,6 +176,8 @@ public class EntryService {
         }
         requireOwn(ledger, entry);
         requireVersion(entry, expectedVersion);
+        // D-1234: after the family branch, which locks the family ledger's row before this one.
+        history.lockLedger(ledger.ledgerId());
         history.takeRevision(ledger.ledgerId());
         try {
             Map<String, Object> last = history.capture(RecordType.ENTRY, ledger.ledgerId(), entryId).orElse(null);

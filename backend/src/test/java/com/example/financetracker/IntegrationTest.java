@@ -13,6 +13,7 @@ import java.sql.SQLException;
 import com.example.financetracker.ledger.EntryService;
 import com.example.financetracker.ledger.family.FamilySwitch;
 import com.example.financetracker.ledger.family.posting.FamilyPostingService;
+import com.example.financetracker.ledger.history.HistoryService;
 import com.example.financetracker.ledger.history.Notifications;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.JWTClaimsSet;
@@ -35,6 +36,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
@@ -161,6 +164,23 @@ public abstract class IntegrationTest {
 
     @Autowired
     protected ObjectMapper json;
+
+    @Autowired
+    private HistoryService lockingHistory;
+
+    @Autowired
+    private PlatformTransactionManager lockingTransactions;
+
+    /**
+     * A test's own write of a ledger's rows through a repository, in a transaction that locks the ledger's row first,
+     * as every writer of the application does (D-1234; the guard of D-1235 is on in the tests).
+     */
+    protected <T> T lockedWrite(long ledgerId, java.util.function.Supplier<T> write) {
+        return new TransactionTemplate(lockingTransactions).execute(status -> {
+            lockingHistory.lockLedger(ledgerId);
+            return write.get();
+        });
+    }
 
     /** A member's access token. */
     protected static String token(String subject) {

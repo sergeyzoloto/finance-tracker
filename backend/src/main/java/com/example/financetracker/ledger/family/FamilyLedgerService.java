@@ -108,6 +108,9 @@ public class FamilyLedgerService {
             throw RuleViolationException.of(List.of(new Violation(START_DATE, null,
                     "the start date %s is in the future; a family budget starts today or earlier".formatted(starts))));
         }
+        // D-1234: the personal ledger's row before its categories' FOR SHARE locks; the new family ledger's row is new
+        // to this transaction, so nobody else can wait for it.
+        history.lockLedger(personal.ledgerId());
         Set<Long> wanted = new LinkedHashSet<>(categoryIds);
         List<LedgerCategory> seed = wanted.isEmpty() ? List.of() : categories.lockAll(personal, wanted);
         if (seed.size() < wanted.size()) {
@@ -122,6 +125,7 @@ public class FamilyLedgerService {
                 .param("name", name).param("currency", baseCurrency).param("rule", rule.name())
                 .param("starts", starts)
                 .query(Long.class).single();
+        history.lockLedger(ledgerId);
         jdbc.sql("""
                 INSERT INTO ledger_member (ledger_id, ledger_type, user_sub, display_name, role, status, join_date,
                                            share_bp)
@@ -188,6 +192,9 @@ public class FamilyLedgerService {
     public ImportedCategory importCategory(LedgerScope family, LedgerScope personal, String code, String name,
             CategoryType type) {
         requireOwnPersonal(family, personal);
+        // D-1234, D-1240: the family ledger's row, then the member's personal one, before any row of either.
+        history.lockLedger(family.ledgerId());
+        history.lockLedger(personal.ledgerId());
         LedgerCategory existing = categories.findAll(family).stream().filter(c -> c.code().equals(code)).findFirst()
                 .orElse(null);
         if (existing != null && existing.type() != type) {

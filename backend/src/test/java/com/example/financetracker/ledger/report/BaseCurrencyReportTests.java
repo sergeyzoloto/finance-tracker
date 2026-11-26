@@ -303,12 +303,13 @@ class BaseCurrencyReportTests extends IntegrationTest {
     }
 
     private long account(String code, String name, AccountType type, String defaultCurrency) {
-        return accounts.save(new Account(null, user, ledger.ledgerId(), code, name, type, defaultCurrency, false, false,
-                null, null)).id();
+        return lockedWrite(ledger.ledgerId(), () -> accounts.save(new Account(null, user, ledger.ledgerId(), code, name,
+                type, defaultCurrency, false, false, null, null))).id();
     }
 
     private long category(String code, String name, CategoryType type) {
-        return categories.save(new LedgerCategory(null, user, ledger.ledgerId(), code, name, type, null)).id();
+        return lockedWrite(ledger.ledgerId(), () -> categories.save(new LedgerCategory(null, user, ledger.ledgerId(),
+                code, name, type, null))).id();
     }
 
     private static BigDecimal money(String amount) {

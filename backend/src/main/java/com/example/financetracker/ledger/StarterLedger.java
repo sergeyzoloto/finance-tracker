@@ -94,6 +94,7 @@ public class StarterLedger {
 
     /** @param reset whether a row whose code the ledger has already is set back to the seed's values */
     private void insertSeed(LedgerScope ledger, boolean reset) {
+        history.lockLedger(ledger.ledgerId()); // D-1234: the ledger's row before any of its rows
         String onAccountConflict = reset ? """
                 DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, default_currency = EXCLUDED.default_currency,
                     requires_counterparty = EXCLUDED.requires_counterparty, is_system = EXCLUDED.is_system,

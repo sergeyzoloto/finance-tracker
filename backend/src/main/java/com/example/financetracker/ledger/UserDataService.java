@@ -74,6 +74,10 @@ public class UserDataService {
         // In the order of the foreign keys: the settings name an account, entries name counterparties and import
         // batches, postings (deleted with their entries) name accounts, categories and counterparties.
         deleted += jdbc.sql("DELETE FROM user_settings WHERE user_id = :userId").param("userId", userId).update();
+        // D-1234: the personal ledger's row before any of its rows, as every writer of the ledger takes it (a restore
+        // holds it while it writes the ledger's rows).
+        jdbc.sql("SELECT id FROM ledger WHERE id IN (" + PERSONAL_LEDGER + ") FOR NO KEY UPDATE")
+                .param("userId", userId).query(Long.class).list();
         // The ledger's restore runs (HIST-4 part 2a) name its snapshots, so they go first; the snapshots (HIST-4) are
         // immutable but for this writer; the ledger's deletion would cascade too.
         for (String table : new String[] {"restore_run", "snapshot", "journal_entry", "import_batch", "account", "category",

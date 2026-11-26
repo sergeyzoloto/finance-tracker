@@ -109,6 +109,8 @@ public class DemoLedgerService {
         // the user's data, which deletes that row first. After such a deletion the ledger is gone.
         jdbc.sql("SELECT user_id FROM user_settings WHERE user_id = :userId FOR UPDATE")
                 .param("userId", personalLedger.userId()).query(String.class).optional();
+        // D-1234: then the ledger's row, before any of its rows (the family budget below is new to this transaction).
+        history.lockLedger(personalLedger.ledgerId());
         if (!jdbc.sql("SELECT EXISTS (SELECT FROM ledger WHERE id = :ledgerId)")
                 .param("ledgerId", personalLedger.ledgerId()).query(Boolean.class).single()) {
             throw new NotFoundException("Ledger " + personalLedger.ledgerId() + " not found");

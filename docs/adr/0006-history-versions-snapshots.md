@@ -406,7 +406,7 @@ path removes it by actor. Drift is not repaired by the snapshot code: `HistoryJo
 the lazy rule in `HistoryService.write` write the missing BASELINE and RECONCILE versions; until one of them runs, a
 create is refused with `HISTORY_INCONSISTENT`.
 
-### 6.8 HIST-4 part 2b as built (D-1226 to D-1232)
+### 6.8 HIST-4 part 2b as built (D-1226 to D-1233)
 
 `POST /api/snapshots/{id}/restore` with `{"atRevision": n}` applies the plan of `RestorePlanner` all or nothing
 (`ledger.history.RestoreService`). Personal ledgers only; the family route answers 409 `FAMILY_SNAPSHOTS_UNSUPPORTED`,
@@ -426,8 +426,9 @@ another user's snapshot 404. One READ COMMITTED transaction:
    (INSERT with the same id) entries, postings in line order; a RETURNED entry's `imported_entry_deleted` row goes;
 7. the versions through `HistoryService.restored`: op RESTORE with `restored_from`, DELETE, or ARCHIVE holding the last
    live content, cause RESTORE, revision R, the member as actor; a drifted record gets its BASELINE or RECONCILE first;
-8. the sync stamps (D-1219, D-1231, D-1233): a RESTORED entry with an import hash gets `import_version = version`; a
-   RETURNED one with an external ref also gets `import_hash` = the SHA-256 hex of "restored";
+8. the sync stamps (D-1219, D-1231, D-1233), on every RESTORED and RETURNED entry whose `external_ref IS NOT NULL`:
+   `import_version = version`; `import_hash` = `RESTORED_IMPORT_HASH` (the SHA-256 hex of "restored") for a RETURNED
+   entry, and `coalesce(import_hash, RESTORED_IMPORT_HASH)` for a RESTORED one;
 9. `restore_run`, one `restore_item` per written record, one `RESTORE` event (revision R, details `snapshotId`, `name`,
    `beforeSnapshotId`, `runId`, `counts`); the answer `{runId, revision, beforeSnapshotId, counts}` (D-1227).
 
@@ -452,8 +453,17 @@ Decisions:
 - D-1233 (manager; confirmed by the PM, following D-1219, including the marker for a RESTORED entry that has a ref and no hash) D-1219's marker is `import_hash` = the SHA-256 hex of the ASCII string "restored"
   (`RestoreService.RESTORED_IMPORT_HASH`): 64 hex digits, so V14's CHECK holds, and no file row's hash matches it.
 
-Every entry writer (`EntryService` create, update, delete) takes the ledger's row (its revision) before it writes or
-locks an entry row, as the restore does, so a save during a restore waits at its start and cannot deadlock with it.
+Every transaction that writes rows of a personal ledger (`journal_entry`, `posting`, `account`, `ledger_category`,
+`counterparty`, `imported_entry_deleted`, snapshot and restore tables) first locks that ledger's row with
+`HistoryService.lockLedger` (`SELECT id FROM ledger WHERE id = :id FOR NO KEY UPDATE`), once per transaction and
+without taking a revision, so a save that changes nothing still takes none (D-995). It does so before any read that
+locks a row of that ledger, such as the entry validation's FOR SHARE or the archive's FOR UPDATE of an account. A family
+writer locks the family ledger's row, then the family record's, then the personal ledgers' rows by ascending id, and only
+then any personal row. A save during a restore therefore waits at its start and cannot deadlock with it (D-1234). In
+the tests, `history.lock-order-check=true` makes a revision of a ledger whose row the transaction has not locked first
+fail with "ledger <id> written before its row was locked"; the restore's own FOR UPDATE counts as that lock (D-1235).
+The guard covers only writes that take a revision; writes with no version (an `imported_entry_deleted` row alone,
+`UserDataService`'s raw SQL, `release_family_memberships`) are outside D-1235.
 
 ## 7. Family acceptance (D-992)
 

@@ -12,6 +12,7 @@ import com.example.financetracker.ledger.access.LedgerScope;
 import com.example.financetracker.ledger.domain.AccountRole;
 import com.example.financetracker.ledger.domain.AccountType;
 import com.example.financetracker.ledger.domain.Money;
+import com.example.financetracker.ledger.history.HistoryService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.relational.core.conversion.DbActionExecutionException;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -28,10 +29,12 @@ public class AccountService {
 
     private final AccountRepository accounts;
     private final JdbcClient jdbc;
+    private final HistoryService history;
 
-    AccountService(AccountRepository accounts, JdbcClient jdbc) {
+    AccountService(AccountRepository accounts, JdbcClient jdbc, HistoryService history) {
         this.accounts = accounts;
         this.jdbc = jdbc;
+        this.history = history;
     }
 
     /** All the ledger's accounts, archived ones included, by code. */
@@ -47,6 +50,7 @@ public class AccountService {
     @Transactional
     public AccountView create(LedgerScope ledger, String code, String name, AccountType type, String defaultCurrency,
             boolean requiresCounterparty) {
+        history.lockLedger(ledger.ledgerId()); // D-1234: the ledger's row before the account's
         try {
             return AccountView.of(accounts.save(new Account(null, ledger.userId(), ledger.ledgerId(), code, name, type,
                     defaultCurrency, requiresCounterparty, false, null, null)));
@@ -66,6 +70,8 @@ public class AccountService {
      */
     @Transactional
     public AccountView update(LedgerScope ledger, long accountId, AccountChanges changes) {
+        // D-1234: the ledger's row before refuseWhileItHoldsMoney's FOR UPDATE of the account and before its save.
+        history.lockLedger(ledger.ledgerId());
         Account account = accounts.find(ledger, accountId)
                 .orElseThrow(() -> new AccountNotFoundException(accountId));
         if (account.isSystem()) {
